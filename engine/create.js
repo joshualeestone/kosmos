@@ -187,7 +187,12 @@ const REFUSE_NAME = 'that is not a name we can act on';
 const REFUSE_PROVIDER = 'pick a provider from the list';
 const REFUSE_ANTIGRAVITY_WIN32 = 'Kosmos cannot start an Antigravity agent on Windows yet'; // #3568
 /* #5977 review 3: the Windows codex launch (win32codexsup) has no endpoint arguments, so a Qwen agent there would start
-   codex against OpenAI. Refused until it reads qwenaccounts.launchArgs. */
+   codex against OpenAI. Refused until it reads qwenaccounts.launchArgs.
+   #7445 round 1: lifting this ALSO needs a private Codex home on Windows. switchLosesConversation (and its page twin,
+   web/index.html switchCrossesFamily) says OpenAI <-> Qwen keeps the conversation because a Mac agent runs in one
+   private Codex home whatever its account (codexruntime.forSession, #4592). On Windows win32launch.childEnv sets
+   CODEX_HOME to the ACCOUNT folder and win32codexsup keeps the thread id in memory only, so there that rule would be
+   wrong: give Windows the private home first, or make the rule lose the conversation on Windows. */
 const REFUSE_QWEN_WIN32 = 'Kosmos cannot start a Qwen agent on Windows yet';
 const REFUSE_ACCOUNT = 'we do not know that account on this computer';
 
@@ -2254,7 +2259,14 @@ function setProvider(name, provider, opts) {
   const runner = providerRunner(provider);
   /* #5977: compared by PROVIDER, read from the job (jobProvider), not by runner: OpenAI and Qwen share codex, so a
      runner comparison would refuse every switch between them. For every other provider the two are the same test. */
-  if (jobProvider(job) === provider) {
+  /* #7445 round 4: the provider it is leaving, read ONCE, here, before anything is written, and held. Every later
+     question in this switch (the vendor and Qwen record below, the notes carry, its fallback) uses this one value: a
+     second read after the switch is recorded could disagree, or throw, and the result would then say everything stays.
+     `job` is non-null here (the no-job refusal is above). jobProvider can throw (it reads the account folder:
+     qwenaccounts.isQwenHome, anthropiccompat.vendorOfName); a throw HERE refuses the switch before anything is
+     written, so there is never a switch whose provider it left is unknown. */
+  const leaving = jobProvider(job);
+  if (leaving === provider) {
     /* The vendor word a person reads, from the shared providerLabel map. */
     const already = providerLabel(provider);
     return {
@@ -2617,8 +2629,8 @@ function setProvider(name, provider, opts) {
      provider, which a failed write leaves pointing at the old runner, the #1159 behaviour.) */
   /* #7206: a vendor agent the same: Repair rebuilds a lost job from the profile, so its account is recorded before the job
      moves (vendorAccount), or a lost job would come back as a plain Claude agent on the default account. */
-  const fromVendor = !!require('./anthropiccompat').vendorOf(jobProvider(job));
-  const qwenSide = provider === 'alibaba' || jobProvider(job) === 'alibaba' || !!compatVendor || fromVendor;
+  const fromVendor = !!require('./anthropiccompat').vendorOf(leaving);   // #7445 round 4: the one read
+  const qwenSide = provider === 'alibaba' || leaving === 'alibaba' || !!compatVendor || fromVendor;
   let qwenBefore = null;
   if (qwenSide && !DRY_RUN) {
     try { const p0 = store.readProfile(clean) || {}; qwenBefore = { provider: p0.provider || null, qwenAccount: p0.qwenAccount || null, vendorAccount: p0.vendorAccount || null }; } catch { qwenBefore = null; }
@@ -2718,7 +2730,24 @@ function setProvider(name, provider, opts) {
      (carryClaudeNotes). After the profile write, so the instructions writer resolves the new runner's file. Best-effort
      like the rename: the job is already written, and a copy that fails only means fewer notes, which the result says. */
   let carried = null;
-  try { carried = carryClaudeNotes(clean, job, runner, newBrief, jobProvider(job), provider); } catch { carried = null; }
+  /* #7445 rounds 3-4: the provider it is leaving is `leaving`, read once before anything was written. Not read again
+     here: a second read could throw (and the fallback below would say everything stays), and a floor to the runner's
+     provider is wrong for a DeepSeek agent (its runner is Claude Code, so DeepSeek -> Claude would read as no change). */
+  const from = leaving;
+  try { carried = carryClaudeNotes(clean, job, runner, newBrief, from, provider); }
+  catch {
+    /* #7445 round 1: a carry that threw still lost the conversation, so the result must not say everything stays: it
+       says the conversation does not come across, with nothing copied and nothing pointed. */
+    carried = null;
+    try {
+      if (switchLosesConversation(job && job.runner, runner, from, provider)) {
+        carried = lostConversationCarried(job && job.runner, runner, from);
+        /* Round 2: off Claude the carry is what looks at its notes, so a throw means nobody looked: never "it had no
+           saved notes" (review 3's rule). Back to Claude, a root change and between keep their own true sentences. */
+        if (!carried.toClaude && !carried.rootChange && !carried.between) carried.notes = 'unchecked-error';
+      }
+    } catch { carried = null; }
+  }
   /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
      a refusal here is PARTIAL, said as such: it runs on Claude, on the main account, not the one picked. */
   if (claudePick && !claudePick.isDefault) {
@@ -2746,22 +2775,33 @@ function setProvider(name, provider, opts) {
       model: job.model || null,
       account: Boolean(job.configDir),
     },
-    /* #7410: null for a same-family switch; else what happened to its notes (carryClaudeNotes), which the route says. */
+    /* #7410: null for a switch that keeps its conversation (#7445: only OpenAI <-> Qwen, one Codex home); else what
+       happened to its notes (carryClaudeNotes), which the route says. */
     carried,
   };
 }
 
 /* #7410: whether a switch crosses the Claude line: Claude Code on one side, any other runner on the other. A Claude
-   account move, Codex <-> Qwen (one runner) and Codex <-> Gemini are not, by the card's definition. */
+   account move, Codex <-> Qwen (one runner) and Codex <-> Gemini are not, by the card's definition (but see
+   switchLosesConversation, #7445: Codex <-> Gemini does lose the conversation). */
 const claudeRunner = (r) => !r || r === 'claude';
 function crossesFamily(fromRunner, toRunner) { return claudeRunner(fromRunner) !== claudeRunner(toRunner); }
 /* #7410 review 1: and a switch that stays on Claude Code but changes its Claude config folder loses the same things.
    A vendor (DeepSeek) agent keeps its sessions under its own account folder, so Claude <-> DeepSeek (or one vendor to
    another) starts a new conversation with none of the old notes. A Claude account move is not this: it is refused unless
    the account shares the agents' history (#5091). */
+/* #7445: and a switch between two runners that are not Claude Code (Codex, Gemini, Grok, Antigravity, Muse) loses it
+   too: each runner keeps its own history, and none reads another's. One runner under two providers (Codex for OpenAI
+   and for Qwen) keeps it: the agent's Codex home is its own private one (codexruntime.forSession, #4592), the same
+   folder whichever account it is on, so the switch only changes the sign-in carried into it. The page's twin is
+   web/index.html switchCrossesFamily: change the two together.
+   ⚠️ Round 1: the OpenAI <-> Qwen half is true on a Mac only. On Windows the Codex home is the account folder
+   (win32launch.childEnv), so the day REFUSE_QWEN_WIN32 is lifted this rule is wrong there unless Windows gets a
+   private Codex home first (see REFUSE_QWEN_WIN32). */
 function switchLosesConversation(fromRunner, toRunner, fromProvider, toProvider) {
   if (crossesFamily(fromRunner, toRunner)) return true;
-  if (!claudeRunner(fromRunner) || fromProvider === toProvider) return false;
+  if (!claudeRunner(fromRunner)) return fromRunner !== toRunner;   // #7445: neither is Claude Code
+  if (fromProvider === toProvider) return false;
   const compat = require('./anthropiccompat');
   return !!compat.vendorOf(fromProvider) || !!compat.vendorOf(toProvider);
 }
@@ -2827,6 +2867,10 @@ const CARRIED_NOTE_MAX_BYTES = 1024 * 1024;   // review 1: a note over 1 MB is n
  *   { from, toClaude, rootChange, notes, copied, kept, skipped, pointed }
  *   notes   'copied'  its own notes are in memory/claude-notes/ now (copied > 0, or all were there already: kept)
  *           'none'    nothing to carry (no Claude memory for it; or a switch TO Claude, where nothing is copied)
+ *           'none-kept-by-runner' #7445: neither side is Claude Code (Codex to Gemini, say), so there are no Claude
+ *                     notes and nothing is copied; `between: true` is set only then
+ *           'unchecked-error' #7445 round 2: never returned here; setProvider's fallback when this function threw on a
+ *                     switch off Claude, so its notes were never looked at
  *           'stayed'  rootChange: Claude <-> a vendor on Claude Code; the notes stay with the old config folder
  *           'shared' | 'unattributed' | 'collides' | 'newer'  backupsessions.ownedClaudeMemory refused: not copied
  *           'unchecked' the folders Kosmos knows could not be read, so a shared Claude name could not be ruled out
@@ -2845,18 +2889,38 @@ const CARRIED_NOTE_MAX_BYTES = 1024 * 1024;   // review 1: a note over 1 MB is n
  * while it was on another runner. Switching back to Claude copies nothing (Claude's memory was never moved); the block
  * rides the brief's rename, and spliceBlock replaces an existing block, so it is never there twice.
  */
+/* #7445: what a switch that loses its conversation carries before anything is copied: nothing copied, nothing pointed.
+   carryClaudeNotes starts from it, and setProvider falls back to it when carryClaudeNotes throws (round 1), so a
+   switch that loses its conversation is never said as one where everything stays. One shape, built in one place.
+   Neither side Claude Code (Codex to Gemini, say): there are no Claude notes to carry, so nothing is copied;
+   carryClaudeNotes's pointer step still runs, so notes an earlier switch put in its folder stay pointed at (they are
+   its files and come along). `between` is set only then, so the Claude cases keep their exact shape.
+   Round 4: that is NOT "no runner keeps notes of its own". Gemini CLI's save_memory writes into its Gemini home, which
+   is the ACCOUNT's (GEMINI_CLI_HOME, accountenv.js:18-25; geminiStorageHome), and Codex has a memories feature that
+   would write into its CODEX_HOME (orgchartcodex.js switches it off for its own reads only). Kosmos copies none of
+   them, and for Grok, Antigravity and Muse the code here does not say. So switchCarryWords (and the dialog's twin,
+   switchFamilyNote) say, on every switch leaving a runner that is not Claude Code, that any notes that runner saved
+   for it stay behind there: "any", because whether it saved any is not known here. */
+function lostConversationCarried(fromRunner, toRunner, from) {
+  const toClaude = claudeRunner(toRunner);
+  const between = !claudeRunner(fromRunner) && !toClaude;
+  const rootChange = !between && !crossesFamily(fromRunner, toRunner);
+  const out = { from: from || null, toClaude, rootChange, notes: rootChange ? 'stayed' : between ? 'none-kept-by-runner' : 'none', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false };
+  if (between) out.between = true;
+  return out;
+}
+
 function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
   if (!switchLosesConversation(job && job.runner, runner, from, to)) return null;
-  const rootChange = !crossesFamily(job && job.runner, runner);
-  const toClaude = claudeRunner(runner);
+  const out = lostConversationCarried(job && job.runner, runner, from);
+  const { toClaude, between } = out;
   const dir = workerDir(clean);
   const memDir = path.join(dir, 'memory');
   const destDir = path.join(dir, CARRIED_NOTES_REL);
   // Review 4: a real folder, not a link or junction (lstat answers isSymbolicLink for a Windows junction too).
   // Review 6: lifted here, so the pointer step asks the disk too, whatever the copy's outcome was.
   const realDir = (p) => { try { const s = fs.lstatSync(p); return s.isDirectory() && !s.isSymbolicLink(); } catch { return false; } };
-  const out = { from: from || null, toClaude, rootChange, notes: rootChange ? 'stayed' : 'none', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false };
-  if (!toClaude) {
+  if (!toClaude && !between) {
     const root = agentClaudeRoot(job);
     const others = knownFolders();
     const mem = others === null ? { state: 'unchecked' }
@@ -2871,6 +2935,7 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
            already in its place) or failed (gone meanwhile, or the copy itself failed: EACCES, ENOSPC, a folder that
            could not be made: every note then counts as failed). Nothing landed while notes existed is 'failed', so the
            person is never told it had none. */
+        const files = mem.files || [];   // round 4: an owned answer with no list is no notes, never a throw
         let mkErr = null;
         try { fs.mkdirSync(destDir, { recursive: true }); } catch (e) { mkErr = e; }
         const there = (p) => { try { fs.lstatSync(p); return true; } catch { return false; } };
@@ -2883,12 +2948,12 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
         // even though claude-notes/ could not be made under it.
         if (there(memDir) && !realDir(memDir)) out.notes = 'blocked';
         else if (!there(destDir)) {
-          out.failed += mem.files.length;
+          out.failed += files.length;
           out.notes = 'failed';
           try { console.warn(`create: the switch could not make ${CARRIED_NOTES_REL} for ${spokenName(clean)} (${(mkErr && mkErr.code) || 'it is not there'}), so no notes were copied`); } catch { /* never mask */ }
         } else if (!realDir(memDir) || !realDir(destDir)) out.notes = 'blocked';
         else {
-        for (const f of mem.files) {
+        for (const f of files) {
           const src = path.join(mem.dir, f);
           let st = null;
           try { st = fs.lstatSync(src); } catch { out.failed += 1; continue; }   // checked right before the copy: a link is never followed
@@ -2910,7 +2975,7 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
           }
         }
         if (out.copied || out.kept) out.notes = 'copied';
-        else if (mem.files.length) out.notes = 'failed';
+        else if (files.length) out.notes = 'failed';
         }
       }
     }
@@ -2973,6 +3038,8 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
  * #7410: the switch result's first sentences, said by the route (server.js POST /api/agent/<name>/provider).
  * A same-family switch keeps its conversation and memory, so it keeps the old sentence. A family change never says
  * everything it knows stays: it says the conversation does not come across, and what happened to its notes.
+ * #7445: nor does a switch between two runners that are not Claude Code (carried.between); only Codex for OpenAI <->
+ * Codex for Qwen (one private Codex home) still gets carried null and the old sentence.
  * `label` and `fromLabel` are the words the route uses for the providers ('Claude' for anthropic).
  */
 function switchCarryWords(label, carried, fromLabel) {
@@ -2994,8 +3061,14 @@ function switchCarryWords(label, carried, fromLabel) {
   if (carried.rootChange) {
     notes = `Its saved notes stay behind with ${from} and do not come across. `
       + (carried.pointed ? 'The notes in its folder stay there for it to read. ' : '') + lost;
-  } else if (carried.toClaude) {
-    notes = carried.pointed ? 'The notes in its folder stay there for it to read, and anything it only remembered from talking is lost. ' : lost;
+  } else if (carried.toClaude || carried.between) {
+    // #7445: between two runners that are not Claude Code, as on the way back to Claude: nothing is copied, and notes
+    // an earlier switch left in its folder stay there (said only when its instructions point at them).
+    notes = (carried.pointed ? 'The notes in its folder stay there for it to read, and anything it only remembered from talking is lost. ' : lost)
+      /* Round 4: it is leaving a runner that is not Claude Code, and that runner may have kept notes of its own (Gemini's
+         save_memory, Codex's memories: see lostConversationCarried). Kosmos copies none of them. "Any": whether it saved
+         any is not known here. The dialog's twin is web/index.html switchFamilyNote. */
+      + `Any notes ${from} saved for it stay behind there. `;   // round 5: the provider named once
   } else if (carried.notes === 'copied') {
     notes = 'Its saved notes are copied into its folder'
       + (carried.kept ? ` (${carried.kept === 1 ? 'one was' : `${carried.kept} were`} already there from an earlier switch and kept, not replaced)` : '')
@@ -3013,6 +3086,12 @@ function switchCarryWords(label, carried, fromLabel) {
     if (carried.occupied) parts.push(OCCUPIED(carried.occupied));   // review 4
     notes = `It had saved notes, but none were copied: ${parts.join(', and ') || 'they could not be copied into its folder'}. `
       + 'They are still where Claude keeps them. ' + lost;
+  } else if (carried.notes === 'unchecked-error') {
+    // #7445 round 2: the carry failed before it looked at its notes (setProvider's fallback), so say only what is true.
+    // Round 3: true only because every step from the copy on (the mkdir, each copy, the pointer write) catches its own
+    // errors in carryClaudeNotes, so a throw that escapes it comes before anything was copied. Add a copy step that can
+    // throw out of it and this sentence can be false (notes copied, then "we could not check" them).
+    notes = 'We could not check its saved notes; any it had are still where Claude keeps them, and anything it only remembered from talking is lost. ';
   } else if (notCopied[carried.notes]) {
     notes = `Its saved notes were not copied: ${notCopied[carried.notes]}. ${lost}`;
   } else {

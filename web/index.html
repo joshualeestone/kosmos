@@ -59826,21 +59826,33 @@ async function changeProviderNow(say, how) {
    comes here (it is Move, not a switch). */
 /* Review 1: and Claude <-> DeepSeek, which stays on Claude Code but keeps its sessions in the vendor account's own folder,
    so it loses the conversation and the notes the same way (create.js switchLosesConversation). */
+/* #7445: and a switch between two runners that are not Claude Code (OpenAI's Codex to Gemini, Gemini to Grok): each
+   keeps its own history and none reads another's. Qwen runs on Codex like OpenAI, in the agent's one private Codex home,
+   so OpenAI <-> Qwen keeps it (create.js switchLosesConversation, this function's twin: change the two together).
+   Round 1: that half is true on a Mac only. On Windows the Codex home is the account folder, so lifting create.js
+   REFUSE_QWEN_WIN32 needs a private Codex home on Windows first, or this rule is wrong there. */
 function switchCrossesFamily(fromProv, toProv) {
   const claudeSide = (p) => p === 'anthropic' || p === 'deepseek';
   if (!fromProv || !toProv || fromProv === toProv) return false;
-  return claudeSide(fromProv) !== claudeSide(toProv) || fromProv === 'deepseek' || toProv === 'deepseek';
+  if (claudeSide(fromProv) !== claudeSide(toProv) || fromProv === 'deepseek' || toProv === 'deepseek') return true;
+  const runnerOf = (p) => (p === 'alibaba' ? 'openai' : p);   // #7445: Qwen and OpenAI share Codex (create.js providerRunner)
+  return !claudeSide(fromProv) && runnerOf(fromProv) !== runnerOf(toProv);
 }
 /* #7410: what a switch across the Claude line does not carry, said before it happens; '' for any other switch. The
    engine copies its Claude notes into its folder on the way off Claude, and leaves the folder's notes for it on the
-   way back; the result sentence says if it could not copy them (another folder shares its Claude notes). */
+   way back; the result sentence says if it could not copy them (another folder shares its Claude notes). #7445: between
+   two runners that are not Claude Code it copies nothing and says what it says on the way back to Claude. */
 function switchFamilyNote(fromProv, toProv, shown, fromWord, toWord) {
   if (!switchCrossesFamily(fromProv, toProv)) return '';
   const claudeSide = (p) => p === 'anthropic' || p === 'deepseek';
   const notes = (claudeSide(fromProv) && claudeSide(toProv))
     ? 'Its saved notes stay behind with ' + fromWord + ' and do not come across; anything it only remembers from talking is lost.'
-    : claudeSide(toProv)
-    ? 'Notes in its folder stay there for it to read; anything it only remembers from talking is lost.'
+    : (claudeSide(toProv) || !claudeSide(fromProv))   // #7445: back to Claude, or between two that are not Claude Code
+    /* Round 1: it may have none; round 2: no promise it is pointed at them. Round 4: this arm is every switch LEAVING a
+       runner that is not Claude Code, and that runner may have kept notes of its own (Gemini's save_memory, Codex's
+       memories), which Kosmos does not copy: "any", since whether it saved any is not known. create.js
+       switchCarryWords is the twin: change the two together. */
+    ? 'Any notes in its folder stay there; anything it only remembers from talking is lost. Any notes ' + fromWord + ' saved for it stay behind there.'   // round 5: named once
     : 'Its saved notes are copied into its folder; anything it only remembers from talking is lost.';
   return shown + ' keeps its name, its face, its instructions and its files, and restarts. '
     + 'Its conversation does not come across: ' + toWord + ' cannot read ' + fromWord + '’s history. ' + notes + ' ';

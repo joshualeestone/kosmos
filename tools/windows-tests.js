@@ -62,6 +62,7 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   'projects.linuxopen-5881.test.js',   // #5881: its Linux arms and its Mac and Windows controls run there (the Windows one through a spy); the stand-in arm skips
   'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
   'create.switchmem-7410.test.js',   // #7410: a switch off Claude copies its notes; its runner stand-ins carry .cmd on Windows
+  'create.switchwords-7445.test.js',   // #7445: a switch between two non-Claude runners says the conversation does not come across; stand-ins carry .cmd
   'store.fsync-5434.test.js',   // #5434 slice 4: store.js's profile, settings and picture saves, on Windows too
   'orgkeypin-5686.test.js',   // #5686 b1-mac: the company-key pin is written and checked on Windows too (its 0600 check skips there)
   'manifest-verify.recovery-6609.test.js',   // #6609, #6692: the release key list record on Windows too (hard link, rename, folder fsync, and its access list in place of 0600/0700); its read-only arm skips there

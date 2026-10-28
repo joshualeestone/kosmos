@@ -20,7 +20,8 @@ test('#7410: the family rule: Claude (and DeepSeek, on Claude Code) on one side,
   for (const [from, to] of [['anthropic', 'openai'], ['openai', 'anthropic'], ['anthropic', 'google'], ['xai', 'anthropic'], ['deepseek', 'openai'], ['anthropic', 'antigravity'], ['anthropic', 'deepseek'], ['deepseek', 'anthropic']]) {
     assert.equal(fns.switchCrossesFamily(from, to), true, from + ' -> ' + to);
   }
-  for (const [from, to] of [['openai', 'google'], ['openai', 'alibaba'], ['anthropic', 'anthropic'], ['', 'openai']]) {
+  // #7445: OpenAI -> Gemini moved to the warned side (web.switchwords-7445.test.js); OpenAI <-> Qwen stays here.
+  for (const [from, to] of [['openai', 'alibaba'], ['anthropic', 'anthropic'], ['', 'openai']]) {
     assert.equal(fns.switchCrossesFamily(from, to), false, from + ' -> ' + to);
   }
 });
@@ -31,13 +32,13 @@ test('#7410: across the line the dialog says the conversation does not come acro
   assert.match(off, /Its saved notes are copied into its folder; anything it only remembers from talking is lost\./);
   assert.doesNotMatch(off, /everything it has done|past stays readable/);
   const back = fns.switchFamilyNote('openai', 'anthropic', 'Mara', 'OpenAI', 'Claude');
-  assert.match(back, /Claude cannot read OpenAI’s history\. Notes in its folder stay there for it to read/);
+  assert.match(back, /Claude cannot read OpenAI’s history\. Any notes in its folder stay there; anything it only remembers/);   // #7445 rounds 1-2
   assert.doesNotMatch(back, /are copied/, 'nothing is copied on the way back to Claude');
   for (const s of [off, back]) assert.doesNotMatch(s, /—/, 'an em dash');
 });
 
-test('#7410: within a family there is no new warning', () => {
-  assert.equal(fns.switchFamilyNote('openai', 'google', 'Mara', 'OpenAI', 'Gemini'), '');
+test('#7410: within a family there is no new warning (#7445: one runner, OpenAI <-> Qwen)', () => {
+  assert.equal(fns.switchFamilyNote('openai', 'alibaba', 'Mara', 'OpenAI', 'Qwen'), '');
 });
 
 test('#7410 review 1: Claude <-> DeepSeek warns too, and says the notes stay behind (nothing is copied there)', () => {
