@@ -198,8 +198,20 @@ final class BoardClient: ObservableObject {
     // The Mac the .unreachable phase is about, by address (review 1: the phase carries only a name, and two Macs can
     // share one, so the time is looked up by this, never by the shown Mac's name).
     private(set) var failingAddress: String?
-    // This app's last good list read of each Mac, by lowercased address, kept for the run.
-    private var heardFrom: [String: Date] = [:]
+    // This app's last good list read of each Mac, by lowercased address. Cleared with the account (forget, signed out).
+    private(set) var heardFrom: [String: Date] = [:]
+    private var lastSeenReadAt: Date?
+    // Review 2: the list's last_seen is as old as its last read (a launch, a switch, a second Try again), and the app
+    // reads a Mac itself only while its loop runs, so a not-answering screen asks Kosmos+ for the list again when it
+    // comes up (at most once a minute), and says the fresher time. The Mac's own standing report keeps last_seen
+    // current on Kosmos+.
+    func refreshLastSeen() {
+        guard let session = sessionStore.load() else { return }
+        if let at = lastSeenReadAt, env.now().timeIntervalSince(at) < 60 { return }
+        lastSeenReadAt = env.now()
+        let gen = generation
+        Task { await self.readMacs(session: session, gen) }
+    }
 
     private let coordinator: URL
     private let sessionStore: SessionStore
@@ -308,6 +320,9 @@ final class BoardClient: ObservableObject {
             shownMac = nil
             shownOwner = nil
             macs = []
+            heardFrom = [:]
+            failingAddress = nil
+            lastSeenReadAt = nil
             chosenMac = nil
             forgetYou()
             pictures = [:]
@@ -1234,6 +1249,9 @@ final class BoardClient: ObservableObject {
         admitted = nil
         shownMac = nil
         macs = []          // kosmos#7266: another account's computers are never offered
+        heardFrom = [:]    // kosmos#7416 review 2: nor its read times
+        failingAddress = nil
+        lastSeenReadAt = nil
         chosenMac = nil
         forgetYou()
         shownOwner = nil
@@ -1403,7 +1421,7 @@ final class BoardClient: ObservableObject {
                 // where ONE miss used to say it (Josh, 10-26 08:29, with that Mac answering minutes later).
                 misses += 1
                 if misses < 3 { await env.sleep(3); continue }
-                failingAddress = mac.address
+                if gen == generation { failingAddress = mac.address }
                 set(.unreachable(mac: mac.name), gen); return false
             }
             let answer = Board.classifySession(status: status, body: result?.0, waiting: waiting)
@@ -1585,7 +1603,7 @@ final class BoardClient: ObservableObject {
             if !listedThisRun { macStore.delete() }
             // Not answering, said once; the loop keeps reading, so the next good read clears it by itself (a Mac back
             // from sleep needs no Try again).
-            failingAddress = mac.address
+            if gen == generation { failingAddress = mac.address }
             set(.unreachable(mac: mac.name), gen)
         }
         return true

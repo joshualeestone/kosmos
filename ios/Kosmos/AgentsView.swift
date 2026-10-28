@@ -340,6 +340,7 @@ struct BoardStates<Empty: View>: View {
             // Today's navy page, as it is: no title over it, and Back opens Today, the board. kosmos#7197: naming the Mac.
             LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard, macName: mac,
                             lastSeen: client.lastHeard(address: client.failingAddress, name: mac))
+                .onAppear { client.refreshLastSeen() }   // kosmos#7416 review 2: the list's time, read afresh
                 .navigationBarHidden(true)
         case .kosmosPlusDown:
             LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
@@ -755,7 +756,7 @@ struct MacSwitcher: View {
     @ObservedObject var client: BoardClient
 
     var body: some View {
-        let rows = Board.switcherRows(client.macs, shown: client.switcherShown)
+        let rows = Board.switcherRows(client.macs, shown: client.switcherShown, heard: client.heardFrom)
         let name = rows.first(where: \.shown)?.name ?? client.shownMacName ?? client.phase.macName
         if let name {
             if rows.count > 1 {
