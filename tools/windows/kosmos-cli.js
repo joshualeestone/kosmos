@@ -115,7 +115,7 @@ const USAGE = {
     '      --done "<check>"                                         what finished means for it; up to 3, one --done each',
     '  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody',
     '      --part <part-number>                                     which part, when the task has several',
-    '  kosmos task close <project-id> <task-number>                  close one (number is from list)',
+    '  kosmos task close <project-id> <task-number> [...]          close one, or several at once (numbers are from list)',
     '      --replaced-by <task-number>                              a later task replaced it: closed, but not done',
     '  kosmos task reopen <project-id> <task-number> ["why"]        put a done one back; it keeps its number and history',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
@@ -1335,7 +1335,7 @@ async function taskAssign(ctx, args) {
   return 1;
 }
 
-const TASK_CLOSE_USAGE = 'Usage: kosmos task close <project-id> <task-number> [--replaced-by <task-number>]   (the number is shown by kosmos task list)';
+const TASK_CLOSE_USAGE = 'Usage: kosmos task close <project-id> <task-number> [<task-number> ...] [--replaced-by <task-number>]   (the numbers are shown by kosmos task list; --replaced-by takes one task)';
 async function taskClose(ctx, args) {
   const [project, num] = args;
   if (!project || !num) { ctx.err(TASK_CLOSE_USAGE); return 2; }
@@ -1343,7 +1343,29 @@ async function taskClose(ctx, args) {
   // #6923, as install/kosmos: --replaced-by <n> closes it as replaced by task n, rather than done.
   const by = args[2] === '--replaced-by' ? args[3] : null;
   if (args[2] === '--replaced-by' && !/^[0-9]+$/.test(by || '')) { ctx.err('--replaced-by needs the number of the task that replaced it, from: kosmos task list <project-id>.'); return 2; }
-  if (tooManyWords(ctx, 'task close', by ? 4 : 2, TASK_CLOSE_USAGE, args)) return 2;   // kosmos#4889 review 6
+  if (by) { if (tooManyWords(ctx, 'task close', 4, TASK_CLOSE_USAGE, args)) return 2; }   // kosmos#4889 review 6
+  else {
+    /* kosmos#7412, as install/kosmos: several numbers close several tasks, each as one close is. Every word after the first
+       number must be a number too, checked before anything closes. */
+    for (const w of args.slice(2)) {
+      if (w === '--replaced-by') { ctx.err('--replaced-by takes one task: close the others on their own.'); return 2; }
+      if (/^--/.test(w)) { if (tooManyWords(ctx, 'task close', 2, TASK_CLOSE_USAGE, args)) return 2; }
+      if (!/^[0-9]+$/.test(w)) { ctx.err('Every task number must be a number, from: kosmos task list <project-id>. Not: ' + w); return 2; }
+    }
+    if (args.length > 2) {
+      const ok = [];
+      const bad = [];
+      for (const n of args.slice(1)) {
+        const one = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + n + '/close');
+        if (!one.reached) bad.push(n + ' (Kosmos did not answer)');
+        else if (one.json && one.json.task) ok.push(n);
+        else bad.push(n + ' (' + (ctx.refusedBy(one) || 'an answer we could not read') + ')');
+      }
+      if (ok.length) ctx.out('Closed tasks ' + ok.join(', ') + ' on ' + project + '.');
+      if (bad.length) { ctx.err('Could not close: ' + bad.join('; ') + '.'); return 1; }
+      return 0;
+    }
+  }
   const r = by
     ? await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close', { replacedBy: Number(by) })
     : await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close');   // #4491 slice 5: with the agent's own token
