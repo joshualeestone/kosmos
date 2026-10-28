@@ -401,11 +401,20 @@ struct ContentView: View {
             // button) opens under Today, as an agent's chat does from Agents.
             ProjectsView(client: board, roomRequest: $roomRequest, openPage: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, create: { newProjectOpen = true })
+            }, create: {
+                // Review 2: the form posts to the computer this phone is connected to; before that computer has let the
+                // phone in there is none, so the board page (which waits for it) is used, as before.
+                if board.macURL != nil { newProjectOpen = true } else { openCreate(.project) }
+            })
+            #if DEBUG
+            // Design shots only: KOSMOS_SAMPLE_NEWPROJECT=1 opens the New project form, since a simulator run cannot tap +.
+            .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWPROJECT"] == "1" { newProjectOpen = true } }
+            #endif
             .sheet(isPresented: $newProjectOpen) {
                 NewProjectView(client: board) { id in
                     // The new project's room, on the computer the list shows.
-                    if let host = board.switcherURL?.host { roomRequest = PushBridge.RoomTarget(host: host, project: id) }
+                    // Review 2: the computer the request went to (macURL), not the switcher's, which can differ.
+                    if let host = board.macURL?.host { roomRequest = PushBridge.RoomTarget(host: host, project: id) }
                 }
             }
         } else if which == .tasks {
