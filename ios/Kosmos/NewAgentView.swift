@@ -8,6 +8,8 @@ import SwiftUI
 struct NewAgentView: View {
     @ObservedObject var client: BoardClient
     let opened: (_ session: String, _ shownAs: String) -> Void   // Say hello: the new agent's chat (a team's lead)
+    // The projects a new agent was put on, told by the app once the board sees it, so leaving this sheet early loses none.
+    let tell: (_ session: String, _ projects: [String]) -> Void
     @Environment(\.dismiss) private var dismiss
 
     enum Step: Hashable { case role, otherRoles, setup, made, team, teamMade }
@@ -21,7 +23,6 @@ struct NewAgentView: View {
     @State private var made: (session: String, shownAs: String)?
     @State private var seen = false
     @State private var timedOut = false          // 30 s and the board still cannot see it (the desktop's "has not come up")
-    @State private var pendingTells: [String: [String]] = [:]   // session: the projects to tell once the board sees it
     @State private var lastLabel = ""     // the role title the Role field was last filled with (still untouched if equal)
     // The Team path (NewTeam).
     @State private var teams: [NewTeam.Team]?
@@ -41,6 +42,7 @@ struct NewAgentView: View {
     @State private var maybeMade: [String: String] = [:]   // slot: the session a create with no answer may have made
     @State private var loadingTeams = false
     @State private var teamTask: Task<Void, Never>?   // the run, ended if the sheet goes (a tab change can take it)
+    @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -400,9 +402,13 @@ struct NewAgentView: View {
         // 3. The members, with the project, the lead first; the rest only once it is made.
         let read = await client.throughMac { NewTeam.specsRequest(mac: $0, key: d.key, names: typed, project: project, model: model, check: false) }
         guard epoch == client.chatEpoch else { return }
-        guard case .specs(let specs) = NewTeam.specsAnswer(status: read?.1.statusCode ?? 0, body: read?.0) else {
-            say(NewAgent.unsureWords); return
+        let specs: [NewTeam.Spec]
+        switch NewTeam.specsAnswer(status: read?.1.statusCode ?? 0, body: read?.0) {
+        case .specs(let list): specs = list
+        case .refused(let why): say(why); return   // this read makes nothing, so a refusal is only that
+        case .unknown: say(NewAgent.unsureWords); return
         }
+        teamProject = project
         for s in specs where states[s.slot].map({ if case .made = $0 { return false } else { return true } }) ?? true { states[s.slot] = .waiting }
         if path.last != .teamMade { path.append(.teamMade) }
         teamStarted = true
@@ -418,12 +424,14 @@ struct NewAgentView: View {
             if maybeMade[s.slot] == s.session, client.agents.contains(where: { $0.session == s.session }) {
                 states[s.slot] = .made(session: s.session, shownAs: s.name)
                 maybeMade[s.slot] = nil
+                tellLater(s.session, teamProject.map { [$0] } ?? [])
                 continue
             }
             states[s.slot] = .making
-            let got = await client.throughMac { NewTeam.memberRequest(mac: $0, spec: s) }
+            var built = false
+            let got = await client.throughMac { mac -> URLRequest? in built = true; return NewTeam.memberRequest(mac: mac, spec: s) }
             guard epoch == client.chatEpoch else { return }
-            switch NewAgent.result(sent: true, status: got?.1.statusCode ?? 0, body: got?.0) {
+            switch NewAgent.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
             case .made(let session, let shown):
                 states[s.slot] = .made(session: session, shownAs: shown)
                 maybeMade[s.slot] = nil
@@ -433,34 +441,29 @@ struct NewAgentView: View {
                 states[s.slot] = .failed(NewTeam.sentence(why))
                 announce(s.name + ": " + NewTeam.sentence(why))
             case .unknown:
-                maybeMade[s.slot] = s.session
+                maybeMade[s.slot] = s.session   // sent, and no answer: it may be on the board soon
                 states[s.slot] = .failed(NewAgent.unsureWords)
                 announce(s.name + ": " + NewAgent.unsureWords)
             }
         }
     }
 
-    // The board's list moved: tell the projects of the agents it now sees, take a lost create that turned up as made,
-    // and mark a single agent seen.
+    // The board's list moved: take a lost create that turned up as made, and mark a single agent seen.
     private func agentsChanged(_ rows: [Board.Agent]) {
         let on = Set(rows.map(\.session))
-        for (session, ids) in pendingTells where on.contains(session) {
-            pendingTells[session] = nil
-            for id in ids { Task { _ = await client.throughMac { NewAgent.tellRequest(mac: $0, project: id, session: session) } } }
-        }
         for (slot, session) in maybeMade where on.contains(session) {
-            if case .failed = states[slot] { states[slot] = .made(session: session, shownAs: NewProject.trimmed(names[slot] ?? session)) }
+            if case .failed = states[slot] {
+                states[slot] = .made(session: session, shownAs: NewProject.trimmed(names[slot] ?? session))
+                tellLater(session, teamProject.map { [$0] } ?? [])
+            }
             maybeMade[slot] = nil
         }
         if let made, !seen, on.contains(made.session) { seen = true }
         if !draft.reportsTo.isEmpty, !on.contains(draft.reportsTo) { draft.reportsTo = "" }   // a manager no longer listed
     }
 
-    // Fire-and-forget, as the desktop: a failed tell is recoverable from the project's own screen.
     private func tellLater(_ session: String, _ projects: [String]) {
-        guard !projects.isEmpty else { return }
-        pendingTells[session] = projects
-        agentsChanged(client.agents)
+        if !projects.isEmpty { tell(session, projects) }
     }
 
     private func announce(_ words: String) { UIAccessibility.post(notification: .announcement, argument: words) }
@@ -486,8 +489,7 @@ struct NewAgentView: View {
                 ForEach(members) { m in
                     HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
-                            // Not a row whose create may have landed: a new name would make a second agent for it.
-                            if case .failed = states[m.slot], !teamRunning, maybeMade[m.slot] == nil {
+                            if renamable(m) {
                                 nameField(m)   // the desktop lets a failed row be renamed before Try again
                             } else {
                                 Text(NewProject.trimmed(names[m.slot] ?? m.name)).foregroundColor(Palette.primary)
@@ -504,7 +506,8 @@ struct NewAgentView: View {
                         default: Text(NewTeam.Words.waiting).font(.footnote).foregroundColor(Palette.secondary)
                         }
                     }
-                    .accessibilityElement(children: .combine)
+                    // A row with a name field keeps it reachable: combined, VoiceOver could not edit it.
+                    .accessibilityElement(children: renamable(m) ? .contain : .combine)
                 }
             } header: { Text(detail.map { NewAgent.Words.makingNamed($0.label) } ?? NewAgent.Words.making) }
             if let teamMessage { Section { Text(teamMessage).foregroundColor(Palette.dangerWord) } }
@@ -516,9 +519,19 @@ struct NewAgentView: View {
             if allMade, let lead = members.first, case .made(let session, let shown) = states[lead.slot] {
                 pinned(NewTeam.Words.goTo(members.count), enabled: true) { dismiss(); opened(session, shown) }
             } else if !teamRunning {
-                pinned(NewTeam.Words.tryAgain, enabled: true) { runTeam() }
+                pinned(NewTeam.Words.tryAgain, enabled: members.allSatisfy { isMade($0.slot) || !NewProject.trimmed(names[$0.slot] ?? "").isEmpty }) { runTeam() }
             }
         }
+        .toolbar {
+            // A way out when the rest is not wanted: the members made stay made.
+            if !teamRunning && !allMade { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+        }
+    }
+
+    // Not a row whose create may have landed: a new name would make a second agent for it.
+    private func renamable(_ m: NewTeam.Member) -> Bool {
+        if case .failed = states[m.slot] { return !teamRunning && maybeMade[m.slot] == nil }
+        return false
     }
 
     // MARK: 3. Set up your agent
@@ -537,7 +550,7 @@ struct NewAgentView: View {
             Section {
                 Picker(NewAgent.Words.reportsTo, selection: $draft.reportsTo) {
                     Text(NewAgent.Words.you).tag("")
-                    ForEach(client.agents) { a in Text(a.name).tag(a.session) }
+                    ForEach(client.agents.filter { !$0.isGuide }) { a in Text(a.name).tag(a.session) }   // as the desktop's menu
                 }
             }
             if let models = catalogue?.models, !models.isEmpty {
@@ -665,7 +678,7 @@ struct NewAgentView: View {
             if loadFailed {
                 Text(NewAgent.Words.rolesUnread).foregroundColor(Palette.secondary)
                 Spacer()
-                Button("Try again") { Task { await loadCatalogue() } }.disabled(loading)
+                Button(NewTeam.Words.tryAgain) { Task { await loadCatalogue() } }.disabled(loading)
             } else {
                 ProgressView()
             }
