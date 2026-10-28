@@ -133,7 +133,10 @@ test('#7412: a number given twice is closed once and named once', async () => {
     const r = await run(['task', 'close', projectId, String(a), String(b), String(a)], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
     assert.match(r.text, new RegExp('^\\s*Closed tasks ' + a + ', ' + b + ' on ' + esc(projectId) + '\\.$', 'm'), label + ': ' + r.text);
-    assert.equal(taskchat.read(projectId, a).filter((x) => x.kind === 'closed').length, 1, label + ': closed twice');
+    const [c, d] = open('zero ' + label, 2);
+    const z = await run(['task', 'close', projectId, String(c), '0' + c, String(d)], token('mara'));
+    assert.equal(z.code, 0, label + ': ' + z.text);
+    assert.match(z.text, new RegExp('^\\s*Closed tasks ' + c + ', ' + d + ' on ' + esc(projectId) + '\\.$', 'm'), label + ': 0' + c + ' is task ' + c + ': ' + z.text);
   }
 });
 
@@ -141,7 +144,7 @@ test('#7412: a word that is not a number, an option, or --replaced-by with sever
   for (const [label, run] of BOTH) {
     for (const extra of [['shipped'], ['--note', 'x'], ['--replaced-by', '5'], ['']]) {
       const [a, b] = open('bad ' + label + ' ' + extra.join(' '), 2);
-      const argv = extra[0] === '--replaced-by' ? [String(a), String(b), ...extra] : [String(a), String(b), ...extra];
+      const argv = [String(a), String(b), ...extra];
       const r = await run(['task', 'close', projectId, ...argv], token('mara'));
       assert.equal(r.code, 2, label + ' ' + extra.join(' ') + ': ' + r.text);
       assert.equal(isDone(a), false, label + ' ' + extra.join(' ') + ': the first closed anyway');
@@ -166,4 +169,19 @@ test('#7412: both usages say close takes several numbers', async () => {
     assert.equal(r.code, 2, label);
     assert.match(r.text, /<task-number> \[<task-number> \.\.\.\]/, label + ': ' + r.text);
   }
+});
+
+test('#7412: both commands refuse an option-shaped word after the numbers with the same words', async () => {
+  const texts = {};
+  for (const [label, run] of BOTH) {
+    const [a, b] = open('same ' + label, 2);
+    for (const w of ['--foo', '--5', '--']) {
+      const r = await run(['task', 'close', projectId, String(a), String(b), w], token('mara'));
+      assert.equal(r.code, 2, label + ' ' + w + ': ' + r.text);
+      assert.doesNotMatch(r.text, /put -- before it/, label + ' ' + w + ': close takes no text: ' + r.text);
+      (texts[w] = texts[w] || {})[label] = r.text.split('\n').map((l) => l.trim()).filter(Boolean).join('\n');
+    }
+    assert.equal(isDone(a), false, label); assert.equal(isDone(b), false, label);
+  }
+  for (const w of Object.keys(texts)) assert.equal(texts[w].Mac, texts[w].Windows, w + ': the two commands disagree');
 });
