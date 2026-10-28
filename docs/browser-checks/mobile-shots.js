@@ -753,10 +753,13 @@ async function keepAwakeShot(page, on) {
   await page.$eval('[data-keep-awake]', (el) => el.closest('.setrow').scrollIntoView({ block: 'center' }));
 }
 
-/* kosmos#7411: the restart line in one of its shapes. 'five': five agents, one fix ("Ada, Kai and 3 more"), the list
-   opened with Show who when `open`. 'one': one agent, two fixes (its own Restart button, the fixes listed). */
+/* kosmos#7411: the restart line in one of its shapes, naming agents that are on the board behind it. 'four': the
+   board's four running agents, one fix ("Ada, Basil, Cleo and Dmitri..."; Esme is not running, and the board leaves
+   such agents out, which server.restartline-7411.test.js covers), the list opened with Show who when `open`.
+   'one': one agent, two fixes (its own Restart button, the fixes listed). */
 async function restartLineGo(page, shape, open) {
-  const agents = (shape === 'one' ? ['Ada'] : ['Ada', 'Kai', 'Lee', 'Mo', 'Ty']).map((l) => ({ name: l.toLowerCase(), label: l }));
+  const four = [['ada', 'Ada'], ['basil', 'Basil'], ['cleo', 'Cleo'], ['dmitri', 'Dmitri Alexandrovich-Longname']];
+  const agents = (shape === 'one' ? four.slice(0, 1) : four).map(([name, label]) => ({ name, label }));
   const notes = shape === 'one'
     ? [{ version: '0.7.73', title: 'Agents read what changed in an update' }, { version: '0.7.73', title: 'Hooks see a finished turn' }]
     : [{ version: '0.7.73', title: 'Agents read what changed in an update' }];
@@ -1090,8 +1093,8 @@ const SCREENS = [
   } },
   /* kosmos#7411 step 4 (Mona Lisa's design review): the line naming running agents that need a restart to get a fix.
      The board's answer is stood in on the way to the page; nothing is restarted and nothing is written to the board. */
-  { name: 'restart-line-7411', owner: 'Baron Draxum', noServiceWorker: true, go: (page) => restartLineGo(page, 'five', false) },
-  { name: 'restart-line-7411-who', owner: 'Baron Draxum', noServiceWorker: true, go: (page) => restartLineGo(page, 'five', true) },
+  { name: 'restart-line-7411', owner: 'Baron Draxum', noServiceWorker: true, go: (page) => restartLineGo(page, 'four', false) },
+  { name: 'restart-line-7411-who', owner: 'Baron Draxum', noServiceWorker: true, go: (page) => restartLineGo(page, 'four', true) },
   { name: 'restart-line-7411-one', owner: 'Baron Draxum', noServiceWorker: true, go: (page) => restartLineGo(page, 'one', false) },
   { name: 'agent-perm-card', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, null) },
   { name: 'agent-perm-card-allowed', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Allow') },
