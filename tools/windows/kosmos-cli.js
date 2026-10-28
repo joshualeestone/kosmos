@@ -115,7 +115,7 @@ const USAGE = {
     '      --done "<check>"                                         what finished means for it; up to 3, one --done each',
     '  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody',
     '      --part <part-number>                                     which part, when the task has several',
-    '  kosmos task close <project-id> <task-number> [...]          close one, or several at once (numbers are from list)',
+    '  kosmos task close <project-id> <task-number> [...]           close one, or several at once (numbers are from list)',
     '      --replaced-by <task-number>                              a later task replaced it: closed, but not done',
     '  kosmos task reopen <project-id> <task-number> ["why"]        put a done one back; it keeps its number and history',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
@@ -1349,13 +1349,12 @@ async function taskClose(ctx, args) {
        number must be a number too, checked before anything closes. */
     for (const w of args.slice(2)) {
       if (w === '--replaced-by') { ctx.err('--replaced-by takes one task: close the others on their own.'); return 2; }
-      if (/^--/.test(w)) { if (tooManyWords(ctx, 'task close', 2, TASK_CLOSE_USAGE, args)) return 2; }
       if (!/^[0-9]+$/.test(w) && tooManyWords(ctx, 'task close', 2, TASK_CLOSE_USAGE, args)) return 2;   // not a number: as #4889 review 6
     }
     if (args.length > 2) {
       const ok = [];
       const bad = [];
-      for (const n of [...new Set(args.slice(1))]) {   // a number given twice is closed once
+      for (const n of [...new Set(args.slice(1).map((x) => x.replace(/^0+(?=[0-9])/, '')))]) {   // a number given twice (013 is 13) is closed once
         const one = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + n + '/close');
         if (!one.reached) bad.push(n + ' (Kosmos did not answer)');
         else if (one.json && one.json.task) ok.push(n);
