@@ -29,7 +29,10 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
   - skips a record the person chose to leave running (leftRunningByChoice: the untied override's promise) and any name
     removal itself would refuse (unsafeToActOn: a path step, a leading dash, another Kosmos's separator);
   - review 7: bootout returns before the job has stopped (#4964 measured 4.5 s), so a job this run unloaded is waited
-    on (waitUnloaded, bounded by its 25 s wait and the shared burst allowance) before the one roster read. A session a
+    on (waitUnloaded) before the one roster read, for up to 25 s each but never past the shared burst allowance (30 s
+    of waiting in any 60 s, spent by restarts too): with the allowance spent it does not wait at all, and the retry is
+    then what catches a late session. Its answer (still held when the wait ran out) is not acted on: the job is
+    disabled and booted out either way, and a session it leaves is a recheck. A session a
     supervisor was starting can still land after the read; a job this run unloaded with no session on the roster is
     reported `recheck`, which makes the run not clean, so the 30 s retry looks again. On the retry the job is disabled
     and not loaded (bootout answers 3), so a session found then is ended and none is a recheck. That is how the
@@ -65,7 +68,15 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
   session ended. That finishes a half-done removal too (one whose bootout failed at the time), and switches off again an
   agent a person re-enabled by hand with launchctl: the board cannot tell that from a move, and the record says removed.
 - A launchd that does not answer at login can stall the board's thread on print-disabled (execFileSync, up to 20 s);
-  accepted for one call at start, with the 30 s retry behind it.
+  accepted for one call at start, with the 30 s retry behind it. Worst case on a slow launchd (review 8): that 20 s,
+  plus up to 30 s of unload waits (the burst allowance), plus a bootout's own timeout, one time per start (twice with
+  the retry). A launchctl that times out on a step ends the sweep.
+- Not tested (review 8): server.js's one call (reapplyAtBoardStart with enforcing taken from the live-execution gate,
+  after listen). Its logic is reapplyAtBoardStart's, which is tested; only the one line of wiring is not.
+- An untied session is named on the log on each run (so twice, 30 s apart, when the first run was not clean) and on
+  every start. Accepted: repeated, never silent.
+- Only bootout code 3 is read as "not loaded" (measured on macOS 27.0.1). If an older macOS answers another code for
+  a job that is not loaded, that agent is reported failed on every start and nothing else is harmed.
 - Review 7: a session the board ties to a removed agent is ended on EVERY start, including one a person started
   again by hand in tmux. The record says removed, and the board cannot tell that session from one a moved login
   started. An untied session is never ended, and is named on the log on every start.
@@ -91,3 +102,5 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
   - the roster read before the job steps: the review-7 order case goes red;
   - an untied session skipped silently when launchd already held the job off: the review-2 case goes red;
   - the open recheck named by the first run too: the review-7 board case goes red.
+- Round 8: no wait before the roster read (the waitUnloaded line deleted): the review-8 wait case goes red (before it,
+  all 20 cases passed with that line deleted, the reviewer's finding).

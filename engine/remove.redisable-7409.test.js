@@ -327,3 +327,38 @@ test('#7409 review 7: a recheck makes the board try once more, and only the last
   assert.equal(timers.length, 2, 'the retry scheduled a third');
   assert.match(said.join(''), /not looked at again for a running session: casey/, 'the last run did not name the open recheck: ' + said.join(''));
 });
+
+/* ── kosmos#7409 review 8 ─────────────────────────────────────────────────────── */
+
+test('#7409 review 8: a job this run unloaded is waited on until launchd says it is gone, before the roster read', () => {
+  removedList([removedRow('casey'), removedRow('dana')]);
+  roster([]);
+  const was = process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;
+  process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = '5000';   // the wait is off under an injected runner unless asked for
+  remove.resetUnloadWaitsForTests();
+  const calls = [];
+  let prints = 0;
+  remove.setRunner((file, args) => {
+    calls.push(args.join(' '));
+    if (args[0] === 'print-disabled') return { ok: true, stdout: 'disabled services = {\n}\n' };
+    if (args[0] === 'bootout' && args[1].endsWith('/' + labelOf('dana'))) return { ok: false, code: 3, stdout: '', stderr: '' };
+    if (args[0] === 'print') { prints += 1; return prints < 2 ? { ok: true, stdout: 'state = running' } : { ok: false, code: 113, stdout: '', stderr: 'Could not find service' }; }
+    return { ok: true, stdout: '' };
+  });
+  const status = require('./status');
+  const real = status.paneRoster;
+  status.paneRoster = (...a) => { calls.push('roster'); return real(...a); };
+  try {
+    remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
+  } finally {
+    status.paneRoster = real;
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS; else process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = was;
+    remove.resetUnloadWaitsForTests();
+  }
+  const boot = calls.indexOf('bootout gui/501/' + labelOf('casey'));
+  const lastPrint = calls.map((c, i) => (c.startsWith('print ') && c.endsWith('/' + labelOf('casey')) ? i : -1)).filter((i) => i >= 0);
+  const read = calls.indexOf('roster');
+  assert.equal(lastPrint.length, 2, 'it did not look again until launchd said the job was gone: ' + calls.join(' | '));
+  assert.ok(boot < lastPrint[0] && lastPrint[1] < read, 'the wait did not sit between the bootout and the roster read: ' + calls.join(' | '));
+  assert.ok(!calls.some((c) => c.startsWith('print ') && c.endsWith('/' + labelOf('dana'))), 'CONTROL: a job that was not loaded (3) is not waited on: ' + calls.join(' | '));
+});
