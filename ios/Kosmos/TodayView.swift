@@ -252,7 +252,7 @@ private struct NeedsYouCard: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var tone: Board.Tone { stale ? .quiet : Board.tone(agent) }
-    private var word: String { stale ? Board.statusWord(agent) : Board.pillWord(agent) }   // kosmos#7342: never a red Idle or Working
+    private var word: String { stale ? Board.statusWord(agent) : Board.toneWord(agent) }   // kosmos#7342: never a red Idle or Working (keyed on the tone it is drawn in)
     private var why: (sentence: String, action: Board.TodayAction) { Board.todayReason(agent) }
     private var meta: String? {
         let parts = [agent.stateProjectName, ago(agent.waitingSince)].compactMap { $0 }
