@@ -1368,6 +1368,7 @@ async function taskClose(ctx, args) {
       if (bad.length) ctx.err('Could not close: ' + bad.join('; ') + '.');
       if (lost >= 0) {
         const code = ctx.unreachable('close task ' + all[lost]);
+        ctx.err('Task ' + all[lost] + ' may have closed anyway: check kosmos task list ' + project + ' before closing it again.');
         if (lost + 1 < all.length) ctx.err('Not tried, so still open: ' + all.slice(lost + 1).join(', ') + '.');
         return code || 1;
       }

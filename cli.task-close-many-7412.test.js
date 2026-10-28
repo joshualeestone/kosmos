@@ -188,8 +188,10 @@ test('#7412: both commands refuse an option-shaped word after the numbers with t
 
 test('#7412: a close Kosmos does not answer stops the run: the ones before are said, the rest are not tried', async () => {
   const http = require('node:http');
-  for (const [label] of BOTH) {
-    const [a, b, c] = open('lost ' + label);
+  for (const [label] of BOTH) for (const firstLost of [false, true]) {
+    const [a0, b0, c] = open('lost ' + label + ' ' + firstLost);
+    // firstLost: the very first number is the one not answered (the Mac sends it on the single-close path).
+    const [a, b] = firstLost ? [null, a0] : [a0, b0];
     // A board that drops the connection on task b's close and passes everything else through to the real one.
     const proxy = http.createServer((req, res) => {
       if (req.method === 'POST' && new RegExp('/task/' + b + '/close$').test(req.url)) { req.socket.destroy(); return; }
@@ -201,7 +203,7 @@ test('#7412: a close Kosmos does not answer stops the run: the ones before are s
     const pbase = 'http://127.0.0.1:' + proxy.address().port;
     try {
       let r;
-      const argv = ['task', 'close', projectId, String(a), String(b), String(c)];
+      const argv = ['task', 'close', projectId, ...(a === null ? [] : [String(a)]), String(b), String(c)];
       if (label === 'Mac') r = await mac(argv, token('mara'), proxy.address().port);
       else {
         const out = []; const err = [];
@@ -209,11 +211,13 @@ test('#7412: a close Kosmos does not answer stops the run: the ones before are s
         r = { code, text: out.concat(err).join('\n') };
       }
       assert.notEqual(r.code, 0, label + ': ' + r.text);
-      assert.match(r.text, new RegExp('^\\s*Closed task ' + a + ' on ', 'm'), label + ': ' + r.text);
-      assert.match(r.text, new RegExp('close task ' + b), label + ': names the one it could not confirm: ' + r.text);
+      if (a !== null) assert.match(r.text, new RegExp('^\\s*Closed task ' + a + ' on ', 'm'), label + ': ' + r.text);
+      else assert.doesNotMatch(r.text, /Closed task/, label + ': ' + r.text);
+      assert.match(r.text, new RegExp('^\\s*Task ' + b + ' may have closed anyway: check kosmos task list ', 'm'), label + ': says it may have closed: ' + r.text);
       assert.match(r.text, new RegExp('^\\s*Not tried, so still open: ' + c + '\\.$', 'm'), label + ': ' + r.text);
       assert.doesNotMatch(r.text, /Could not close/, label + ': an unanswered close is not said as refused: ' + r.text);
-      assert.equal(isDone(a), true, label); assert.equal(isDone(c), false, label + ': sent after an unanswered close');
+      if (a !== null) assert.equal(isDone(a), true, label);
+      assert.equal(isDone(c), false, label + ': sent after an unanswered close');
     } finally {
       proxy.close();
     }
