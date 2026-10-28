@@ -342,16 +342,21 @@ function plusLive() {
    it is switched off here (plusLive). */
 const PHONE_NOTICES_ROUTE = '/v1/mac/phone-notices';
 let noticesReported = null;   // { mac, send } the coordinator last confirmed
+let noticesInFlight = null;   // review 1: one report at a time; a tick during one waits for nothing
 async function reportPhoneNotices() {
+  if (noticesInFlight) return null;
   try {
     if (!remote.enrolled() || !plusLive()) return null;
     const mac = remote.macIdHere();
     const send = !noPush();
     if (noticesReported && noticesReported.mac === mac && noticesReported.send === send) return null;
-    const r = await remote.macRequest('POST', PHONE_NOTICES_ROUTE, { send });
-    if (r && r.ok === true) { noticesReported = { mac, send }; return { ok: true, send }; }
+    noticesInFlight = remote.macRequest('POST', PHONE_NOTICES_ROUTE, { send });
+    const r = await noticesInFlight;
+    // Review 1: confirmed only by the coordinator's own echo (#7458 answers { ok, send }): an old coordinator or any
+    // answer without it is a failure to retry, never a confirmation.
+    if (r && r.ok === true && r.data && r.data.send === send) { noticesReported = { mac, send }; return { ok: true, send }; }
     return { ok: false };
-  } catch { return null; }
+  } catch { return null; } finally { noticesInFlight = null; }
 }
 
 let defaultBecause = null;   // #6488: why the default could not turn it on, last time (the person's sentence), or null
@@ -362,7 +367,9 @@ let defaultBecause = null;   // #6488: why the default could not turn it on, las
     one-at-a-time guard. Resolves to turnOn's answer, or null when it did nothing. Never throws. */
 async function ensureDefaultOn() {
   try {
-    await reportPhoneNotices();   // #7448: first, whatever the switch does; it never throws
+    // #7448: started first, whatever the switch does, and not awaited (review 1): a slow coordinator never holds up the
+    // default turn-on. It never throws.
+    reportPhoneNotices().catch(() => {});
     if (!available) return null;
     const choice = masterChoice();
     // An off that lives only in phone-notify.json (one from before #6488: a token or notifyId held with the switch
@@ -606,4 +613,4 @@ function happened(event) {
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { noPush, NO_PUSH_WHY, reportPhoneNotices, PHONE_NOTICES_ROUTE, resetNoticesReportedForTests: () => { noticesReported = null; }, setProjectLevel, PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
+module.exports = { noPush, NO_PUSH_WHY, reportPhoneNotices, PHONE_NOTICES_ROUTE, resetNoticesReportedForTests: () => { noticesReported = null; }, whenNoticesIdle: () => noticesInFlight || Promise.resolve(), setProjectLevel, PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };

@@ -30,6 +30,10 @@ const remote = require('./engine/remote');
 fs.mkdirSync(path.dirname(remote.FILE), { recursive: true });
 fs.writeFileSync(remote.FILE, JSON.stringify({ on: true }));   // Kosmos+ switched on here (#6488)
 const pn = require('./engine/phonenotify');
+// #7448: the default-on run now also starts a phone-notices report. No test here may reach a real coordinator, so the
+// signed call is a quick refusal unless a test puts its own in.
+const quickRefusal = async () => ({ ok: false, notSent: true, because: 'no coordinator in this test' });
+remote.macRequest = quickRefusal;
 pn.setAvailableForTests(true);
 const sent = [];
 pn.setSender((url, headers, body) => { sent.push(body); });
@@ -105,9 +109,10 @@ test('review 1: a mark that cannot be looked at counts as marked (never send)', 
 
 // #7448 with #7458 (Ice Cream Kitty's coordinator half): the board reports whether it sends, per computer id.
 test('the board reports send to the coordinator once per change and computer, retries a failure, and never reads a 404 as off', async () => {
+  await pn.whenNoticesIdle();
   const realReq = remote.macRequest, realId = remote.macIdHere;
   const calls = [];
-  let answer = { ok: true };
+  let answer = { ok: true, data: { ok: true, send: true } };
   let id = 'mac-one';
   remote.macRequest = async (method, route, body) => { calls.push({ method, route, body }); return answer; };
   remote.macIdHere = () => id;
@@ -122,17 +127,23 @@ test('the board reports send to the coordinator once per change and computer, re
     assert.equal(calls.length, 1);
 
     fs.writeFileSync(mark, '');
-    answer = { ok: false, status: 404, because: 'not found' };   // the coordinator before #7458 is deployed
-    assert.deepEqual(await pn.reportPhoneNotices(), { ok: false });
-    assert.deepEqual(calls.at(-1).body, { send: false });
-    assert.equal(pn.noPush(), true, 'a 404 is never read as "notices off" or on: the board\'s own gate decides');
-    answer = { ok: true };
+    // The shapes macRequest really returns: a tunnel without the route refuses it locally (Kitty m837), a coordinator
+    // without it refuses (the 404), an old catch-all answers without the echo, or echoes the wrong value. Each is a
+    // failure to retry on the schedule, never a confirmation.
+    for (const refused of [{ ok: false, notSent: true, because: 'the tunnel does not sign that route' }, { ok: false, because: '404 not found' },
+                           { ok: true, data: { error: 'not found' } }, { ok: true, data: { ok: true, send: true } }]) {
+      answer = refused;
+      assert.deepEqual(await pn.reportPhoneNotices(), { ok: false }, JSON.stringify(refused));
+      assert.deepEqual(calls.at(-1).body, { send: false });
+    }
+    answer = { ok: true, data: { ok: true, send: false } };
     assert.deepEqual(await pn.reportPhoneNotices(), { ok: true, send: false }, 'retried on the next tick');
-    assert.equal(calls.length, 3);
+    assert.equal(calls.length, 6, 'each refusal was tried once, then the confirmation');
 
     id = 'mac-two';   // Forget plus a new sign-in
+    answer = { ok: true, data: { ok: true, send: false } };
     assert.deepEqual(await pn.reportPhoneNotices(), { ok: true, send: false }, 'a new computer id is told again');
-    assert.equal(calls.length, 4);
+    assert.equal(calls.length, 7);
   } finally {
     fs.rmSync(mark, { force: true });
     remote.macRequest = realReq; remote.macIdHere = realId;
@@ -151,5 +162,27 @@ test('nothing is reported while Kosmos+ is switched off here', async () => {
   } finally {
     fs.writeFileSync(remote.FILE, JSON.stringify({ on: true }));
     remote.macRequest = realReq;
+  }
+});
+
+test('review 1: the default-on run starts the report and does not wait for it', async () => {
+  await pn.whenNoticesIdle();
+  const realReq = remote.macRequest;
+  let started = false, release;
+  remote.macRequest = (method, route, body) => {
+    if (route === pn.PHONE_NOTICES_ROUTE) { started = true; return new Promise((r) => { release = r; }); }
+    return quickRefusal(method, route, body);
+  };
+  pn.resetNoticesReportedForTests();
+  try {
+    const t0 = Date.now();
+    await pn.ensureDefaultOn();
+    assert.equal(started, true, 'the report was started by the default-on run');
+    assert.ok(Date.now() - t0 < 1000, 'the default-on run did not wait for a hung report');
+    assert.equal(await pn.reportPhoneNotices(), null, 'one report at a time');
+  } finally {
+    if (release) release({ ok: false });
+    remote.macRequest = realReq;
+    await new Promise((r) => setImmediate(r));
   }
 });
