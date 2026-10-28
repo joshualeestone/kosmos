@@ -53,9 +53,9 @@ test('#7406: wakeSpread counts each provider on its own, and a member whose prov
   // Unreadable: a throw or a null is its own provider and is typed at once, however many there are.
   const unread = messages.wakeSpread(names(FREE + 5), (n) => { if (n.endsWith('1')) throw new Error('x'); return null; });
   assert.ok([...unread.values()].every((ms) => ms === 0));
-  // Every gap stays inside the stated range.
-  const wide = messages.wakeSpread(names(FREE + 40), () => 'Claude');
-  const steps = names(FREE + 40).slice(FREE).map((n) => wide.get(n));
+  // Every gap stays inside the stated range (20 past FREE: inside WAKE_SPREAD_MAX_MS, so no gap is shrunk).
+  const wide = messages.wakeSpread(names(FREE + 20), () => 'Claude');
+  const steps = names(FREE + 20).slice(FREE).map((n) => wide.get(n));
   steps.forEach((ms, i) => {
     const gap = ms - (i ? steps[i - 1] : 0);
     assert.ok(gap >= messages.WAKE_GAP_MS[0] && gap <= messages.WAKE_GAP_MS[1], 'gap ' + gap + ' out of range');
@@ -126,4 +126,48 @@ test('#7406: control, a room of BIG_ROOM members sleeps for nobody and writes no
     assert.deepEqual(slept, []);
     assert.equal(lines.filter((l) => l.startsWith('room-wake: ')).length, 0);
   });
+});
+
+test('#7406 review 2: one provider\'s spread never passes WAKE_SPREAD_MAX_MS, however big the room', () => {
+  const room = names(FREE + 200);
+  const at = messages.wakeSpread(room, () => 'Claude', { random: () => 1 });
+  const latest = Math.max(...at.values());
+  assert.ok(latest <= messages.WAKE_SPREAD_MAX_MS + 200, 'spread ' + latest + ' ms');
+  assert.ok(latest >= messages.WAKE_SPREAD_MAX_MS * 0.9, 'the cap shrank the spread far below itself: ' + latest);
+  // Control: a room inside the cap keeps full gaps.
+  const mid = messages.wakeSpread(names(FREE + 4), () => 'Claude', { random: () => 1 });
+  assert.equal(Math.max(...mid.values()), 4 * messages.WAKE_GAP_MS[1]);
+});
+
+test('#7406 review 4: the delayed members are typed only once their wait ends, and the answer waits for them', async () => {
+  const members = names(FREE + 2);
+  await withRoom(members, async (roster) => {
+    const calls = arm();
+    const release = [];
+    messages.setWakeSpreadForTests({ sleep: (ms) => new Promise((r) => release.push(r)), random: () => 0 });
+    let answered = false;
+    const pending = post(roster, 'one line for the big room').then((d) => { answered = true; return d; });
+    // Let every undelayed member run to its Enter.
+    for (let i = 0; i < 50 && release.length < 2; i++) await new Promise((r) => setImmediate(r));
+    for (let i = 0; i < 50; i++) await new Promise((r) => setImmediate(r));
+    const enters = () => calls.filter((a) => a[0] === 'send-keys' && a[a.length - 1] === 'Enter').length;
+    assert.equal(release.length, 2, 'the two members past ' + FREE + ' did not wait');
+    assert.equal(enters(), FREE, 'a delayed member was typed before its wait ended');
+    assert.equal(answered, false, 'the answer came before the delayed members were typed');
+    release.forEach((r) => r());
+    const d = await pending;
+    assert.equal(enters(), members.length);
+    assert.ok(Object.values(d.outcomes).every((o) => o === chat.DELIVERY.PLACED));
+  });
+});
+
+test('#7406 review 1: a later post to a member never starts before its earlier, still-waiting one', () => {
+  // The ordering rule itself, measured on the helper the loop calls.
+  messages.setWakeSpreadForTests({ now: () => 5000 });
+  const order = messages._inOrderForTests;
+  assert.equal(order('x', 350), 350);        // first post: waits until 5350
+  assert.equal(order('x', 150), 351);        // second post: pushed past the first's start
+  assert.equal(order('x', 0), 352, 'an undelayed post still waits behind the delayed one');
+  assert.equal(order('y', 0), 0, 'CONTROL: a member with nothing waiting is not delayed');
+  messages.setWakeSpreadForTests();
 });

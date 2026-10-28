@@ -657,6 +657,7 @@ function resetForTests() {
   UNRECORDED_SENDS.clear();
   UNRECORDED_POSTS.length = 0;
   ID_HIGH = 0;               // #4888: a test that starts a new log starts its ids again
+  SPREAD_NOT_BEFORE.clear();   // kosmos#7406
 }
 
 function tmuxBin() {
@@ -2269,33 +2270,60 @@ function ambiguousNote(ambiguous, mentioned, shown) {
 /* kosmos#7406: one event woke ~35 agents at once and the burst of turns set off the provider's rate limits (about
    1,000 failed turns in a morning). Past the first roomhold.BIG_ROOM members of one provider, each further member's
    delivery starts a jittered WAKE_GAP_MS after the one before it, so a 35-member room of one provider spreads over
-   about 7 s rather than one second. Per provider: a limit is per provider account, so members of different
-   providers never wait on each other. The first BIG_ROOM are typed at once, so a small room is exactly as before.
-   ⚠️ The sender's answer still waits for every delivery (#4765: it is built from each member's outcome), so the
-   spread is bounded to keep that wait short; both numbers are one constant each. */
+   about 7 s rather than one second. Grouped by provider (not by account: two Claude accounts wait on each other,
+   which errs slow, never toward a burst); members of different providers never wait on each other. The first
+   BIG_ROOM are typed at once, so a small room is exactly as before.
+   ⚠️ The sender's answer still waits for every delivery (#4765: it is built from each member's outcome), so one
+   provider's spread is capped at WAKE_SPREAD_MAX_MS: past that the gaps shrink, so a 100-member room still answers
+   within about 10 s. Each number is one constant. */
 const WAKE_GAP_MS = [150, 350];
+const WAKE_SPREAD_MAX_MS = 10000;
 let spreadSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let spreadRandom = Math.random;
-function setWakeSpreadForTests({ sleep, random } = {}) {
+let spreadNow = Date.now;
+/* Review 1: when each member's last delayed delivery starts, so a later post to it never starts before an earlier one.
+   chat.deliverAsync keeps one pane's posts in order only by when it is called, and two posts' random delays differ. */
+const SPREAD_NOT_BEFORE = new Map();
+function setWakeSpreadForTests({ sleep, random, now } = {}) {
   spreadSleep = sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   spreadRandom = random || Math.random;
+  spreadNow = now || Date.now;
+  SPREAD_NOT_BEFORE.clear();
 }
 /** The delay, in ms from the fan-out's start, of each woken member's delivery (#7406). `providerOf(name)` names a
     member's provider; a member it cannot read counts as its own provider, so it is never delayed. */
-function wakeSpread(names, providerOf, { free = require('./roomhold').BIG_ROOM, gap = WAKE_GAP_MS, random = spreadRandom } = {}) {
-  const seen = new Map();
-  const at = new Map();
+function wakeSpread(names, providerOf, { free = require('./roomhold').BIG_ROOM, gap = WAKE_GAP_MS, max = WAKE_SPREAD_MAX_MS, random = spreadRandom } = {}) {
+  const providers = new Map();
   for (const name of names) {
     let provider;
     try { provider = providerOf(name); } catch { provider = null; }
+    providers.set(name, provider || null);
+  }
+  const counts = new Map();
+  for (const p of providers.values()) if (p) counts.set(p, (counts.get(p) || 0) + 1);
+  const seen = new Map();
+  const at = new Map();
+  for (const name of names) {
+    const provider = providers.get(name);
     if (!provider) { at.set(name, 0); continue; }
+    const tail = Math.max(0, counts.get(provider) - free);
+    const scale = tail > 0 ? Math.min(1, max / (tail * gap[1])) : 1;   // review 2: one provider's spread never passes max
     const s = seen.get(provider) || { count: 0, last: 0 };
     s.count += 1;
-    if (s.count > free) s.last += Math.round(gap[0] + random() * (gap[1] - gap[0]));
+    if (s.count > free) s.last += Math.round((gap[0] + random() * (gap[1] - gap[0])) * scale);
     seen.set(provider, s);
     at.set(name, s.count > free ? s.last : 0);
   }
   return at;
+}
+/** Review 1: a member's delay, pushed past its previous delayed delivery's start so its posts start in order. */
+function inOrder(name, wait) {
+  const now = spreadNow();
+  for (const [n, t] of SPREAD_NOT_BEFORE) if (t <= now) SPREAD_NOT_BEFORE.delete(n);
+  const before = SPREAD_NOT_BEFORE.get(name);
+  const ms = before === undefined ? wait : Math.max(wait, before - now + 1);
+  if (ms > 0) SPREAD_NOT_BEFORE.set(name, now + ms);
+  return ms;
 }
 
 function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken, project, projectName, text, operator, attachment, attachments, trailer, replyExpected, askWhichRoom, projectNameOf, membersOf, newPost, federated, replyTo }, roster, members, deliverToPane, asynchronousDelivery, deliverAutomaticToPane) {
@@ -3305,7 +3333,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        setImmediate between starts lets the board answer other requests between members, and the waits still
        overlap because each start is only one member's tmux calls after the last. The Enters are spread only as
        far as the starts were: waits that come due together still end in one turn (review 2 measured two or
-       three members' Enters per turn on 20 members), which is short of one block of all of them. A synchronous throw from
+       three members' Enters per turn on 20 members), which is short of one block of all of them. #7406: past
+       roomhold.BIG_ROOM members of one provider the rest start after a spread (wakeSpread above), so from there the
+       synchronous parts run in time order, not the members' order; everything they share is keyed by name or only
+       counted up. A board restart inside the spread (up to ~10 s now, ~1 s before) leaves typed members with no
+       record, so a retry is not folded and they get it twice; accepted, as before, for a shorter window. A synchronous throw from
        deliverOne is caught and becomes that member's outcome (#4926: unconfirmed once its typing path was entered,
        could_not before it), so it too waits for the others. */
     /* #7406: only the members this post wakes are spread: one switched off here, or left quiet by an agent's post
@@ -3325,9 +3357,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       for (let i = 0; i < recipients.length; i++) {
         if (i > 0) await new Promise((resolve) => setImmediate(resolve));
         const name = recipients[i];
-        const wait = spread.get(name) || 0;
+        const wait = inOrder(name, spread.get(name) || 0);
+        /* Review 3: a member switched off in this project while it waited is not typed, as one off at the start. */
         const run = wait > 0
-          ? spreadSleep(wait).then(() => deliverOne(name))
+          ? spreadSleep(wait).then(() => {
+            try { if (!namedHere.has(name) && projectsMod.swarmOffSet(projectId).has(String(name))) offHere.add(name); } catch { /* the start's reading stands */ }
+            return deliverOne(name);
+          })
           : new Promise((resolve) => resolve(deliverOne(name)));
         run.catch(() => {});   // handled at once, or node reports a rejection that allSettled below collects anyway
         runs.push(run);
@@ -4540,5 +4576,5 @@ module.exports = {
   resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, roomHeld, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests, mentionedMembers, addressedMembers, reachedCount, ambiguousNote,
-  wakeSpread, WAKE_GAP_MS, setWakeSpreadForTests,   // kosmos#7406
+  wakeSpread, WAKE_GAP_MS, WAKE_SPREAD_MAX_MS, setWakeSpreadForTests, _inOrderForTests: inOrder,   // kosmos#7406
 };
