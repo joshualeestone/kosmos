@@ -1357,7 +1357,7 @@ final class BoardClient: ObservableObject {
             // Stars are taken only with the re-sort they were read for, so Today never orders by stars the list is not.
             if sorting, let names { stars = (mac.address, names) }
             let known = stars?.mac == mac.address ? stars?.names : nil
-            agents = sorting ? Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known) : Board.keepingOrder(agents, with: rows, stars: known)
+            agents = sorting ? Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known) : Board.keepingOrder(agents, with: rows, stars: known, sort: agentSort, projects: sortProjects)
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
             tasksTab = AppTabs.tasksTab(fromStatus: data)   // kosmos#7032: Tasks earned, with no board page loaded
             projectsUnread = AppTabs.projectsUnread(fromStatus: data)     // kosmos#7032: the Projects tab's badge

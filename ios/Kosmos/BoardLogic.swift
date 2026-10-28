@@ -390,7 +390,8 @@ enum Board {
         let earlier = text("earlierModelName")
         guard ["codex", "gemini", "grok", "antigravity", "muse"].contains(runner ?? "") || text("modelName") != nil
                 || text("plannedModelName") != nil || earlier != nil else { return nil }
-        let notRunning = text("state") == "stopped"
+        // The desktop's cardStOf(a).pres off: stopped, or a restart that failed (needs_you with disruption.failed, review 2).
+        let notRunning = text("state") == "stopped" || (text("state") == "needs_you" && ((row["disruption"] as? [String: Any])?["failed"] as? Bool) == true)
         let name = (notRunning ? text("plannedModelName") : nil) ?? text("modelName") ?? text("plannedModelName")
         let line: String
         if runner == "codex" && provider == "alibaba" { line = name.map { has($0, "qwen") ? $0 : "Qwen " + $0 } ?? "Qwen" }
@@ -569,11 +570,15 @@ enum Board {
 
     // A live update changes rows in place and never moves them under the person's thumb: the shown order is kept,
     // a row that is gone is dropped, and a new agent joins at the end (new ones sorted among themselves).
-    static func keepingOrder(_ shown: [Agent], with fresh: [Agent], stars: Set<String>? = nil) -> [Agent] {
+    // kosmos#7421 review 2: the newcomers at the end are put in the chosen order among themselves (sort nil: the older
+    // status order, for callers that pick none).
+    static func keepingOrder(_ shown: [Agent], with fresh: [Agent], stars: Set<String>? = nil, sort: AgentSort? = nil,
+                             projects: [String: String] = [:]) -> [Agent] {
         let byKey = Dictionary(fresh.map { ($0.session, $0) }, uniquingKeysWith: { a, _ in a })
         let kept = shown.compactMap { byKey[$0.session] }
         let known = Set(shown.map(\.session))
-        return kept + sorted(fresh.filter { !known.contains($0.session) }, stars: stars)
+        let newcomers = fresh.filter { !known.contains($0.session) }
+        return kept + (sort.map { agentOrder(newcomers, sort: $0, projects: projects, stars: stars) } ?? sorted(newcomers, stars: stars))
     }
 
     // #7034 (#6719 on the phone): the person's starred agents, by session name, as the board keeps them

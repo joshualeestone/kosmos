@@ -81,7 +81,10 @@ struct AgentsView: View {
         // kosmos#7421: the chosen order goes to the list at once, and on each visit; By project first reads each agent's
         // projects (again after a computer or account change, whose names were the other one's).
         .task(id: SortRead(sort: sortChoice, epoch: client.chatEpoch)) {
+            let epoch = client.chatEpoch
             if sortChoice != .project { projectNames = [:] } else { await readProjectNames() }
+            // Review 2: a task replaced meanwhile (another order picked, another computer) hands nothing over.
+            guard !Task.isCancelled, epoch == client.chatEpoch else { return }
             client.setAgentSort(sortChoice, projects: projectNames)
         }
         .onAppear {
