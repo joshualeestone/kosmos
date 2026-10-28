@@ -58,7 +58,9 @@ function readNotes(appRoot) {
     if (!d || !Array.isArray(d.notes) || !parseVersion(d.version)) throw new Error(built + ' is not a release notes file');
     return d;
   }
-  const pool = JSON.parse(fs.readFileSync(path.join(appRoot, 'release', 'whats-new-pool.json'), 'utf8'));
+  const poolFile = path.join(appRoot, 'release', 'whats-new-pool.json');
+  if (!fs.existsSync(poolFile)) throw new Error('this install has no release notes file');
+  const pool = JSON.parse(fs.readFileSync(poolFile, 'utf8'));
   const version = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8')).version;
   const platform = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'windows' : 'linux';
   return { version, notes: notesFor(pool, version, platform) };
@@ -100,7 +102,11 @@ function render(appRoot, opts) {
   if (opts.since === null || opts.since === undefined) notes = latest(d.notes);
   else { try { notes = since(d.notes, opts.since); } catch (e) { return { code: 1, out: '', err: e.message }; } }
   if (opts.json) return { code: 0, out: JSON.stringify({ installed: d.version, since: opts.since == null ? null : opts.since, notes }, null, 2) + '\n', err: '' };
-  return { code: 0, out: format(notes, d.version), err: '' };
+  // The default view, when the installed version added no notes of its own: say so, so an older block is not read as
+  // this update's.
+  const older = (opts.since == null && notes.length && notes[0].version !== d.version)
+    ? 'Kosmos ' + d.version + ' added no notes of its own; the newest are from ' + notes[0].version + '.\n\n' : '';
+  return { code: 0, out: older + format(notes, d.version), err: '' };
 }
 
 module.exports = { notesFor, readNotes, latest, since, format, render, compareVersions, parseVersion, RESTART, BUILD_PLATFORMS };

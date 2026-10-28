@@ -3655,21 +3655,20 @@ cmd_whats_new() {
   local _since='' _have_since='' _json=''
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --since) [ "$#" -ge 2 ] && [ -n "$2" ] || { say "--since needs a version, like 0.7.60"; exit 1; }; _since="$2"; _have_since=1; shift 2 ;;
-      --since=*) _since="${1#--since=}"; [ -n "$_since" ] || { say "--since needs a version, like 0.7.60"; exit 1; }; _have_since=1; shift ;;
+      --since) [ "$#" -ge 2 ] && [ -n "$2" ] || die "--since needs a version, like 0.7.60"; _since="$2"; _have_since=1; shift 2 ;;
+      --since=*) _since="${1#--since=}"; [ -n "$_since" ] || die "--since needs a version, like 0.7.60"; _have_since=1; shift ;;
       --json) _json=1; shift ;;
-      -h|--help) printf 'Usage: kosmos whats-new [--since <version>] [--json]   (what changed in each version, and which fixes need your agents restarted)\n'; return 0 ;;
-      *) say "kosmos whats-new takes --since <version> and --json, not '$1'"; exit 1 ;;
+      *) die "kosmos whats-new takes --since <version> and --json, not '$1'" ;;
     esac
   done
-  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read its release notes."; exit 1; }
+  local _node; _node="$(kosmos_engine_node)" || die "Kosmos could not find its own runtime to read its release notes."
   local _mod; _mod="$(kosmos_engine_module releasenotes)"
-  [ -f "$_mod.js" ] || { say "Kosmos could not find its own release notes reader; this install looks incomplete."; exit 1; }
+  [ -f "$_mod.js" ] || die "Kosmos could not find its own release notes reader; this install looks incomplete."
   WN_MOD="$_mod" WN_ROOT="$(dirname "$(dirname "$_mod")")" WN_SINCE="$_since" WN_HAVE_SINCE="$_have_since" WN_JSON="$_json" "$_node" -e '
     const r = require(process.env.WN_MOD).render(process.env.WN_ROOT, { since: process.env.WN_HAVE_SINCE ? process.env.WN_SINCE : null, json: !!process.env.WN_JSON });
     if (r.out) process.stdout.write(r.out);
     if (r.err) process.stderr.write(r.err + "\n");
-    process.exit(r.code);
+    process.exitCode = r.code;   // not process.exit: a pipe gets the whole of a long answer first
   '
 }
 
@@ -5466,6 +5465,10 @@ if [ "$_kosmos_help" = 1 ]; then
       _hrc=0; ( "$SELF" "$1" ) || _hrc=$?
       [ "$_hrc" -eq 2 ] && exit 0
       exit "$_hrc" ;;
+    whats-new)
+      # kosmos#7411: run bare it prints the newest notes (a local read); --help says only what it does.
+      printf 'Usage: kosmos whats-new [--since <version>] [--json]   (what changed in each version, and which fixes need your agents restarted)\n'
+      exit 0 ;;
     accounts)
       # #5359: not with the read-only group below. Run bare it checks every account live, which --help must not do.
       printf 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)\n'
