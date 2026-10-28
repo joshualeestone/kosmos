@@ -215,6 +215,9 @@ struct AgentBubbleBackground: ViewModifier {
 // Buttons placed left to right, wrapping to the next line when a row is full (iOS 16's Layout).
 struct FlowLayout: Layout {
     var spacing: CGFloat
+    // kosmos#7420 review 1: each row flush right (the person's own reactions, under a right-hand bubble), as the one
+    // HStack row it replaces sat; false keeps the left-to-right rows the answer buttons use.
+    var trailing = false
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
@@ -226,7 +229,8 @@ struct FlowLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         for row in arrange(width: bounds.width, subviews: subviews) {
             for item in row.items {
-                subviews[item.index].place(at: CGPoint(x: bounds.minX + item.x, y: bounds.minY + row.y),
+                let shift = trailing ? max(0, bounds.width - row.width) : 0
+                subviews[item.index].place(at: CGPoint(x: bounds.minX + shift + item.x, y: bounds.minY + row.y),
                                            proposal: ProposedViewSize(width: item.width, height: nil))
             }
         }

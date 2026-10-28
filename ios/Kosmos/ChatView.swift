@@ -865,7 +865,7 @@ struct ChatView: View {
                                         react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
                                         reply: row.answerable(by: agent.session) ? { startReply(row) } : nil, text: Board.wordsShown(row.text, files: row.attachments))   // review 1: the words shown, none for files alone
                     if !row.reactions.isEmpty {
-                        ReactionPills(pills: row.reactions, toggle: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil)
+                        ReactionPills(pills: row.reactions, toggle: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil, trailing: mine)
                     }
                     if mine, let failed = failedLine(row) {
                         // kosmos#7136: the time as on any bubble, then the board's failed line under it.
@@ -1655,10 +1655,11 @@ struct ReplyHeadLine: View {
 struct ReactionPills: View {
     let pills: [Board.ChatReaction]
     let toggle: ((String) -> Void)?
+    var trailing = false   // review 1: under the person's own bubble, each wrapped line flush right
     var body: some View {
         // kosmos#7420: wrapped onto more lines, never one row: a row of many reactions wider than the screen made the whole
         // thread as wide (a lazy stack takes its widest row), which pushed every bubble off its margin.
-        FlowLayout(spacing: 6) {
+        FlowLayout(spacing: 6, trailing: trailing) {
             ForEach(pills, id: \.emoji) { p in
                 if toggle == nil {
                     // Not toggleable here (not this agent's own message): plain words, never a button that does nothing.
@@ -1730,7 +1731,7 @@ struct ChatBubble: View {
                 // One long-press per bubble, set here (on the shared bubble it would hide the pending one's Delete).
                 // kosmos#7419: the sheet (quick reactions, More, Reply, Copy text) in place of the menu.
                 .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text)
-            if !row.reactions.isEmpty { ReactionPills(pills: row.reactions, toggle: react) }
+            if !row.reactions.isEmpty { ReactionPills(pills: row.reactions, toggle: react, trailing: mine) }
             if let failed {
                 if lastOfRun, let at = row.at {
                     Text(at, style: .time).foregroundColor(Palette.tertiary).font(.caption2).padding(.horizontal, 4)
