@@ -861,13 +861,13 @@ struct NewAgentView: View {
     private func redrawMark() {
         let name = NewProject.trimmed(draft.name)
         guard name != markName, draft.photo == nil else { return }   // no mark drawn that a chosen photo hides
-        markName = name
         markTask?.cancel()
         markTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
             let image = await Task.detached(operation: { AgentPicture.mark(name) }).value
-            if !Task.isCancelled, markName == name { markImage = image }
+            // Recorded only once drawn, so a draw that never finished is drawn again on the next look.
+            if !Task.isCancelled, NewProject.trimmed(draft.name) == name { markImage = image; markName = name }
         }
     }
 
