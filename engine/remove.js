@@ -2259,6 +2259,9 @@ function restore(name, opts) {
   return markDryRun(restoreInner(name, opts && opts.platform));
 }
 
+/* #7470: the restart's own "nothing changed" sentence, one spelling, so a caller that saved something before
+   restarting (a provider or model switch) can leave it out: there, something WAS changed. */
+const RESTART_CHANGED_NOTHING = 'Nothing was changed.';
 /**
  * Start an agent's session over, so it reads its instructions again.
  *
@@ -2302,6 +2305,7 @@ function* restartSteps(name, cause, platform, startIfDead) {
       steps: [],
       because: `${shown} was not started by Kosmos, so we cannot start it again. `
         + 'Whatever launched it is what can restart it.',
+      cannotStart: true,   // #7470: a start or restart from its card cannot help (callers word their next step by it)
     };
   }
 
@@ -2341,6 +2345,7 @@ function* restartSteps(name, cause, platform, startIfDead) {
       steps: [],
       because: `something is running under ${shown}'s name and we cannot confirm it is this agent, `
         + 'so we have left it alone.',
+      cannotStart: true,   // #7470: the card's Start and Restart meet this same refusal
     };
   }
 
@@ -2415,7 +2420,7 @@ function* restartSteps(name, cause, platform, startIfDead) {
       outcome: OUTCOME.PARTIAL,
       steps,
       because: `we could not close ${shown}'s window, so it is still running the older instructions. `
-        + 'Nothing was changed.',
+        + RESTART_CHANGED_NOTHING,
     };
   }
 
@@ -2534,6 +2539,7 @@ function* restartSteps(name, cause, platform, startIfDead) {
     return {
       outcome: OUTCOME.PARTIAL,
       steps,
+      ...(gone ? { cannotStart: true } : {}),   // #7470: it has to be created again; a start cannot help
       because: gone
         ? (fromDead
             ? `${shown}'s launch file is gone, so we could not start it. It has to be created again.`
@@ -2777,6 +2783,7 @@ function forget(name) {
 module.exports = {
   reapplyRemovedDisables,
   reapplyAtBoardStart,
+  RESTART_CHANGED_NOTHING,   // #7470
   plan,
   restart,
   restartAsync,   // #6173: an account move's restarts, without blocking the board's thread

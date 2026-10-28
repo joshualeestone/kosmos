@@ -605,11 +605,11 @@ test('#7455: a switch that keeps its conversation keeps today\'s sentence (nothi
   assert.equal(create.switchLosesConversation('claude', 'codex', 'anthropic', 'openai'), true, 'CONTROL: across the Claude line it does not');
 });
 
-test('#7455: both not-restarted branches of the provider route say it, after "still running as before"', () => {
+test('#7455: both not-restarted branches of the provider route say it, after "Start or restart it from its card to put the switch into effect"', () => {
   const server = fs.readFileSync(nodePath.join(__dirname, '..', 'server.js'), 'utf8');
   assert.equal(server.split('create.switchLaterWords(wrote.losesConversation)').length - 1, 2, 'both branches (the engine partial and the restart that failed)');
-  assert.match(server, /It is still running as before until it restarts\.` \+ create\.switchLaterWords\(wrote\.losesConversation\)/);
-  assert.match(server, /\+ runsOn\('When it restarts it will run on'\)\n\s+\+ create\.switchLaterWords\(wrote\.losesConversation\)/);
+  assert.match(server, /switchNextStep\(back, 'Start or restart it from its card to put the switch into effect\.'\)\}` \+ \(switchCanStart\(back\) \? create\.switchLaterWords\(wrote\.losesConversation\)/);   // #7470
+  assert.match(server, /\+ \(switchCanStart\(back\) \? runsOn\('Then it will run on'\) : ''\)[^\n]*\n\s+\+ \(switchCanStart\(back\) \? create\.switchLaterWords\(wrote\.losesConversation\)/);
 });
 
 // #7467: switchCarryDetail is switchCarryWords without its "<label> it is." opening, and empty when nothing changes.

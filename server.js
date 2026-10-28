@@ -6619,6 +6619,22 @@ function unholdNext(projectId, t, rosterOf) {
     return '';
   }
 }
+/* #7470: a restart's reason, said after a switch that WAS saved. The restart's own "Nothing was changed." is true of
+   the restart and false of the switch, so it is left out here (removal.RESTART_CHANGED_NOTHING, one spelling). */
+function switchRestartWhy(back) {
+  const why = String((back && back.because) || '').trim();
+  const tail = removal.RESTART_CHANGED_NOTHING;
+  const kept = why.endsWith(tail) ? why.slice(0, -tail.length).trim() : why;
+  // Review 1: a reason with no full stop (a thrown error's message) still ends its sentence. Under dry-run the
+  // restart adds its own "(Nothing actually happened ...)" after the constant, which is left whole: true there.
+  return kept && !/[.!?]\)?$/.test(kept) ? kept + '.' : kept;   // review 3: "(code 5)" still gets its full stop
+}
+/* #7470 review 2/3: what follows a saved switch that did not restart (the next step, the account it will run on, what
+   it loses at the next start) is said only when a start or restart from its card could put it into effect. The
+   restart marks the cases it cannot (cannotStart: a launch file gone, a window it cannot tie to the agent, a job
+   Kosmos did not start), so nothing here reads the restart's words. */
+function switchCanStart(back) { return !(back && back.cannotStart === true); }
+function switchNextStep(back, step) { return switchCanStart(back) ? ' ' + step : ''; }
 const server = http.createServer(async (req, res) => {
   gateLog(req);
   const pathname = pathOf(req);
@@ -10657,7 +10673,7 @@ const server = http.createServer(async (req, res) => {
             because: wrote.because + (pickedModel && pickedModel.label ? ' It runs on ' + pickedModel.label + '.' : '') + modelMissWords + ' '
               /* #7467: when it did restart, the same conversation and notes sentences as the ordinary result (a Codex,
                  Gemini or Grok agent switched to Claude this way starts a new conversation); none when it keeps its own. */
-              + (ok ? create.switchCarryDetail(label, wrote.carried || null, carriedFrom(wrote.carried)) + 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.` + create.switchLaterWords(wrote.losesConversation)),   // #7455
+              + (ok ? create.switchCarryDetail(label, wrote.carried || null, carriedFrom(wrote.carried)) + 'It is starting again now.' : `It could not start again yet: ${switchRestartWhy(back)}${switchNextStep(back, 'Start or restart it from its card to put the switch into effect.')}` + (switchCanStart(back) ? create.switchLaterWords(wrote.losesConversation) : '')),   // #7455, #7470
             steps: back.steps || [],
           });
           return;
@@ -10681,17 +10697,23 @@ const server = http.createServer(async (req, res) => {
               + landedOn
               + signInNote
               + modelMissWords
-            : `We saved the switch to ${label}, but could not start it again: ${back.because} `
-              + 'It is still running as before until it restarts.'
+            /* #7470: the restart's own reason says whether it is still running (a window that would not close) or not
+               (a stopped agent, a launch that failed), so this sentence claims neither. Review 1/2: not "when it next
+               starts": a job that stays LOADED keeps its old arguments, so an agent that comes back on its own while
+               loaded (a crash, a job macOS would not stop) comes back on the OLD provider. So it says what puts the
+               switch into effect on every platform, a start or restart from its card, and claims nothing exclusive
+               (a login, or a Linux daemon-reload, can also load the new arguments). */
+            : `We saved the switch to ${label}, but could not start it again: ${switchRestartWhy(back)}`
+              + switchNextStep(back, 'Start or restart it from its card to put the switch into effect.')
               /* ⚠️ FUTURE TENSE HERE, NOT `landedOn`'S PRESENT. The plist already
                  carries the chosen home, so the account IS decided, but the agent has
-                 NOT moved to it yet: the sentence one line up says it is still running
-                 as before. Reusing "It runs on X" would contradict that in the same
+                 NOT moved to it yet: the sentence one line up says to start or restart it
+                 to put the switch into effect. Reusing "It runs on X" would contradict that in the same
                  paragraph, and this is the branch where something already went wrong,
                  which is where a confident-sounding sentence costs most. */
-              + runsOn('When it restarts it will run on')
-              + create.switchLaterWords(wrote.losesConversation)   // #7455: what it will lose when it does start
-              + signInNote,
+              + (switchCanStart(back) ? runsOn('Then it will run on') : '')   // review 3: not after "created again"
+              + (switchCanStart(back) ? create.switchLaterWords(wrote.losesConversation) : '')   // #7455, #7470 review 3: what it will lose when it does start
+              + (switchCanStart(back) ? signInNote : ''),   // #7470 review 4: not "switch it" of an agent that has to be created again
           steps: back.steps || [],
         });
       })
@@ -10762,8 +10784,8 @@ const server = http.createServer(async (req, res) => {
             ? `${wrote.model.label} it is. It is starting again now, and it will look idle until you say something to it.`
             /* ⚠️ The file is already written, so this says what is TRUE: the
                choice is saved and the agent has not picked it up yet. */
-            : `We saved ${wrote.model.label}, but could not start it again: ${back.because} `
-              + 'It is still running the old one until it restarts.',
+            : `We saved ${wrote.model.label}, but could not start it again: ${switchRestartWhy(back)}`
+              + switchNextStep(back, 'Start or restart it from its card to put the new model into effect.'),   // #7470: as the provider switch says it
           steps: back.steps || [],
         });
       })
@@ -28128,6 +28150,7 @@ if (require.main === module) {
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
 module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
+  switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
   _autobalanceSweepDepsForTest: autobalanceSweepDeps, // kosmos#7152 slice 3: the sweep's wiring, for its test
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
