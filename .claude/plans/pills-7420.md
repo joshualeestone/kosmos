@@ -17,3 +17,6 @@ the room. With #7419 offering 80 reactions, many on one message is plausible.
 
 ## Verify
 - iOS 16 typecheck; all nine LogicTests scripts (room: both reaction rows wrap, neither is one HStack).
+
+## Review
+- Round 1 (sonnet): no blocker; 1 warning fixed: once wrapped, the person's own reactions would start each line at the left under a right-hand bubble; FlowLayout gains trailing (each row flush right), passed as mine in the chat bubble, the files bubble and the room post. Nit accepted: the check is a source guard; on-device sight of a wrapped row is owed. CONVERGED pending round 2.
