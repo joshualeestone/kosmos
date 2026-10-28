@@ -36,6 +36,20 @@
   not Claude, as create-go.
 - The single and team screens share one choice on the phone (the desktop's team step copies the form's).
 
+## Review rounds (ledger)
+
+1. opus: 2 BLOCKER, 3 MAJOR, 6 MINOR, all in the view's state (the pure rules matched the desktop).
+   Fixed: the account is kept per provider and the OpenAI model per account, and an OpenAI model is sent only while
+   that account's own list offers it (BLOCKER: a pick for account A went with account B); a team's choice is fixed
+   from its first run and a late read changes nothing while the team is being made (BLOCKER, the desktop's
+   tcChoiceFixed / TC.model); Create waits for the account list, or 5 s (tcFillProviderNow); a later read or visit
+   keeps a pick still offered; a failed read keeps the last good answer; each read applies as it lands; the model
+   rows hide their label again (Mona Lisa's ruling on #7488); a swarm keeps the agent's pick for the way back; the
+   current provider is ticked in the menu; the footer shows both the undone pick's sentence and the row's note.
+   Decided, not fixed: Moonshot Kimi and Mistral ("coming soon") are not listed on the phone, which offers what can be
+   chosen; the Antigravity sign-in hint always shows (the desktop's FR_AGY_READY is set only by its first run); the
+   team's OpenAI models read has no 25 s bound of its own (the client's request timeout applies).
+
 ## Not verified
 
 - Not run on a device or against a real board; no screenshots yet (they wait for the 0.7.73 cut to free the machine).
