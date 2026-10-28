@@ -826,7 +826,14 @@ async function verbPost(ctx, args) {
     return 0;
   }
   if (d.state === 'unconfirmed') {
-    const code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
+    /* kosmos#7414 parity with install/kosmos: name who is not confirmed and who was not reached, and whether it needs anything. */
+    const outcomes = d.outcomes && typeof d.outcomes === 'object' ? d.outcomes : {};
+    const whose = (state) => Object.keys(outcomes).filter((n) => outcomes[n] === state).join(', ');
+    const code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '.');
+    if (whose('unconfirmed')) ctx.err('Typed into, not confirmed: ' + whose('unconfirmed') + '. It may well have arrived; Kosmos could not see it land.');
+    if (whose('could_not')) ctx.err('Not reached: ' + whose('could_not') + '. Kosmos could not type into their session.');
+    ctx.err(d.because ? 'Do not re-post; the room screen shows who got it.'
+      : 'Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post; the others would get it twice.');
     // #6925 parity with install/kosmos: an unconfirmed summary still used this member's one.
     if (d.closing === true) ctx.err('This went through as your one summary while the room is held; anything more is not posted until the hold lifts.');
     if (ambig) ctx.err(ambig);

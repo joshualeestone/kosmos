@@ -109,3 +109,18 @@ test('kosmos#7246 round 5: a post that woke no one says so, and a folded retry o
   const dupAll = await postAgainst({ state: 'placed', because: null, outcomes: { mara: 'placed' }, duplicate: true });
   assert.match(dupAll.stdout, /it was not posted twice/, 'CONTROL: a folded post that reached everyone keeps its sentence');
 });
+
+test('kosmos#7414: an unconfirmed post names who is not confirmed and who was not reached, and says nothing is lost', async () => {
+  const out = await postAgainst({ state: 'unconfirmed', because: null, id: 'm1', outcomes: { mara: 'placed', april: 'unconfirmed', leo: 'could_not', kit: 'unconfirmed' }, text: 'x' });
+  assert.equal(out.code, 3);
+  const lines = out.stdout.trim().split('\n').map((l) => l.trim());
+  assert.deepEqual(lines, [
+    'Posted, but not everyone is confirmed.',
+    'Typed into, not confirmed: april, kit. It may well have arrived; Kosmos could not see it land.',
+    'Not reached: leo. Kosmos could not type into their session.',
+    'Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post; the others would get it twice.',
+  ]);
+  // Control: with the board's own reason (a post it could not record), it is never said to be in the room.
+  const unrec = await postAgainst({ state: 'unconfirmed', because: 'it reached the room but could not be recorded', id: 'm1', outcomes: { mara: 'placed' }, text: 'x' });
+  assert.deepEqual(unrec.stdout.trim().split('\n').map((l) => l.trim()), ['Posted, but not everyone is confirmed: it reached the room but could not be recorded.', 'Do not re-post; the room screen shows who got it.']);
+});

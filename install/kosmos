@@ -3430,7 +3430,20 @@ cmd_post() {
       ;;
     '{"delivery":{"state":"unconfirmed"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
-      say "Posted, but not everyone is confirmed${because:+: $because}. Do not re-post; the room screen shows who got it."
+      # kosmos#7414: name who is not confirmed and who was not reached, and say whether that needs anything. The
+      # outcomes object alone is read (as the placed branch does), one "name":"state" pair per comma.
+      _outs=$(printf '%s' "$body" | sed -n 's/^{"delivery":{.*"outcomes":{\([^}]*\)}.*/\1/p') || true
+      _unsure=$(printf '%s' "$_outs" | tr ',' '\n' | sed -n 's/^"\([^"]*\)":"unconfirmed"$/\1/p' | paste -sd ',' - | sed 's/,/, /g') || true
+      _missed=$(printf '%s' "$_outs" | tr ',' '\n' | sed -n 's/^"\([^"]*\)":"could_not"$/\1/p' | paste -sd ',' - | sed 's/,/, /g') || true
+      say "Posted, but not everyone is confirmed${because:+: $because}."
+      if [ -n "$_unsure" ]; then say "Typed into, not confirmed: $_unsure. It may well have arrived; Kosmos could not see it land."; fi
+      if [ -n "$_missed" ]; then say "Not reached: $_missed. Kosmos could not type into their session."; fi
+      # A post the room could not record is not in the room, so only the board's own reason is said for it.
+      if [ -z "$because" ]; then
+        say "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post; the others would get it twice."
+      else
+        say "Do not re-post; the room screen shows who got it."
+      fi
       # #6925: an unconfirmed summary still used this member's one, so the agent is told here too.
       case "$body" in
         *'"closing":true'*|*'"closing": true'*)
