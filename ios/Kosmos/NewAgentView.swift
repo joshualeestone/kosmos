@@ -25,8 +25,10 @@ struct NewAgentView: View {
     @State private var timedOut = false          // 30 s and the board still cannot see it (the desktop's "has not come up")
     @State private var madeWarnings: [String] = []      // what the single agent did not get (NewAgent.madeWarnings)
     @State private var memberWarnings: [String: [String]] = [:]   // the same, per team member
-    @State private var helloTimer: Task<Void, Never>?
-    @State private var leadTimedOut = false             // the team's lead made, and 30 s on the board still cannot see it   // started by the create, not by the screen, so a redraw cannot restart it
+    @State private var helloTimer: Task<Void, Never>?   // started by the create, not by the screen, so a redraw cannot restart it
+    @State private var leadTimedOut = false             // the team's lead made, and 30 s on the board still cannot see it
+    @State private var leadTimer: Task<Void, Never>?
+    @State private var unsureName: String?              // a create with no answer under this name: not sent again as it is
     @State private var lastLabel = ""     // the role title the Role field was last filled with (still untouched if equal)
     // The Team path (NewTeam).
     @State private var teams: [NewTeam.Team]?
@@ -68,7 +70,9 @@ struct NewAgentView: View {
         }
         .interactiveDismissDisabled(sending || (made != nil && !seen && !timedOut) || teamRunning)
         .onChange(of: client.agents) { rows in agentsChanged(rows) }
-        .onDisappear { teamTask?.cancel(); helloTimer?.cancel() }
+        // A team run is not cancelled: the person asked for the whole team, so it finishes off screen (the lock closes
+        // this sheet), and its project tells go through the app. Only the timers stop.
+        .onDisappear { helloTimer?.cancel(); leadTimer?.cancel() }
         .task {
             #if DEBUG
             if showSample() { return }
@@ -473,7 +477,8 @@ struct NewAgentView: View {
             maybeMade[slot] = nil
         }
         if let made, !seen, on.contains(made.session) { seen = true; helloTimer?.cancel() }
-        if !draft.reportsTo.isEmpty, !rows.contains(where: { $0.session == draft.reportsTo }) { draft.reportsTo = "" }   // a manager no longer listed
+        // A manager no longer listed goes back to you; an empty list (a failed read, a change of account) changes nothing.
+        if !rows.isEmpty, !draft.reportsTo.isEmpty, !rows.contains(where: { $0.session == draft.reportsTo }) { draft.reportsTo = "" }
     }
 
     private func tellLater(_ session: String, _ projects: [String]) {
@@ -486,7 +491,7 @@ struct NewAgentView: View {
     private func runTeam() {
         guard !teamRunning else { return }
         teamRunning = true
-        teamTask = Task { await makeTeam() }
+        teamTask = Task { @MainActor in await makeTeam() }
     }
 
     private func isMade(_ slot: String) -> Bool { if case .made = states[slot] { return true }; return false }
@@ -559,7 +564,8 @@ struct NewAgentView: View {
         .onChange(of: allMade) { done in
             guard done else { return }
             leadTimedOut = false
-            Task {
+            leadTimer?.cancel()
+            leadTimer = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
                 if !Task.isCancelled, !leadSeen(members) { leadTimedOut = true; announce(NewAgent.Words.notUp(leadShown(members))) }
             }
@@ -620,7 +626,8 @@ struct NewAgentView: View {
         .navigationBarBackButtonHidden(sending)
         .onAppear { if draft.model.isEmpty { draft.model = catalogue?.defaultModel?.key ?? "" } }
         .safeAreaInset(edge: .bottom) {
-            pinned(NewAgent.Words.create, enabled: !sending && (catalogue.map { NewAgent.canCreate(draft, $0) } ?? false), busy: sending) {
+            pinned(NewAgent.Words.create, enabled: !sending && NewProject.trimmed(draft.name) != unsureName
+                   && (catalogue.map { NewAgent.canCreate(draft, $0) } ?? false), busy: sending) {
                 Task { await create() }
             }
         }
@@ -668,7 +675,7 @@ struct NewAgentView: View {
             seen = client.agents.contains { $0.session == session && $0.boardSeesIt }
             timedOut = false
             helloTimer?.cancel()
-            helloTimer = Task {
+            helloTimer = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
                 if !Task.isCancelled && !seen { timedOut = true }
             }
@@ -678,6 +685,8 @@ struct NewAgentView: View {
             message = NewTeam.sentence(why)
             UIAccessibility.post(notification: .announcement, argument: NewTeam.sentence(why))
         case .unknown:
+            // It may have been made: the same name is not sent again until it is changed (a second agent otherwise).
+            unsureName = NewProject.trimmed(sent.name)
             message = NewAgent.unsureWords
             UIAccessibility.post(notification: .announcement, argument: NewAgent.unsureWords)
         }
