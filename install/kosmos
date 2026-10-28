@@ -3448,16 +3448,16 @@ cmd_post() {
         say "Posted, but the room could not record it, so it is not in the room."
         if [ -n "$_notsure" ]; then
           say "Not surely reached: $_notsure. They may have no copy anywhere."
-          say "Do not re-post: it would not put it in the room, and after a short wait it would reach the members who have it a second time. Message them directly instead (it goes to each alone): kosmos msg ${_notsure%%,*} \"...\""
+          say "Re-posting now would not put it in the room (Kosmos folds a repeat for a few minutes); later it would, but every member who has it would get it twice. Message them directly instead (it goes to each alone): kosmos msg ${_notsure%%,*} \"...\""
           say "$_fail"
         else
-          say "Every member has it. Do not re-post: it would not put it in the room, and after a short wait it would reach them a second time."
+          say "Every member it was typed to has it. Re-posting now would not put it in the room (Kosmos folds a repeat for a few minutes); later it would, but they would get it twice."
         fi
       else
         say "Posted, but not everyone is confirmed${because:+: $because}."
         if [ -n "$_unsure" ]; then say "Kosmos may have typed it in, but could not confirm it, for: $_unsure. It may well have arrived."; fi
         if [ -n "$_missed" ]; then
-          say "Not reached: $_missed. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room $project)."
+          say "Not reached: $_missed. Kosmos could not deliver it to them, so they will see it only when they read the room (kosmos room $project)."
           say "To reach them sooner, message them directly (it goes to each alone): kosmos msg ${_missed%%,*} \"...\""
           say "$_fail"
         fi

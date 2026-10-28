@@ -838,14 +838,14 @@ async function verbPost(ctx, args) {
       code = maybe(ctx.err, 'Posted, but the room could not record it, so it is not in the room.');
       if (notSure.length) {
         ctx.err('Not surely reached: ' + notSure.join(', ') + '. They may have no copy anywhere.');
-        ctx.err('Do not re-post: it would not put it in the room, and after a short wait it would reach the members who have it a second time. Message them directly instead (it goes to each alone): kosmos msg ' + notSure[0] + ' "..."');
+        ctx.err('Re-posting now would not put it in the room (Kosmos folds a repeat for a few minutes); later it would, but every member who has it would get it twice. Message them directly instead (it goes to each alone): kosmos msg ' + notSure[0] + ' "..."');
         ctx.err(fail);
-      } else ctx.err('Every member has it. Do not re-post: it would not put it in the room, and after a short wait it would reach them a second time.');
+      } else ctx.err('Every member it was typed to has it. Re-posting now would not put it in the room (Kosmos folds a repeat for a few minutes); later it would, but they would get it twice.');
     } else {
       code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '.');
       if (whose('unconfirmed').length) ctx.err('Kosmos may have typed it in, but could not confirm it, for: ' + whose('unconfirmed').join(', ') + '. It may well have arrived.');
       if (whose('could_not').length) {
-        ctx.err('Not reached: ' + whose('could_not').join(', ') + '. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room ' + project + ').');
+        ctx.err('Not reached: ' + whose('could_not').join(', ') + '. Kosmos could not deliver it to them, so they will see it only when they read the room (kosmos room ' + project + ').');
         ctx.err('To reach them sooner, message them directly (it goes to each alone): kosmos msg ' + whose('could_not')[0] + ' "..."');
         ctx.err(fail);
       }
