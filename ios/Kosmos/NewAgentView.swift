@@ -23,6 +23,7 @@ struct NewAgentView: View {
     @State private var made: (session: String, shownAs: String)?
     @State private var seen = false
     @State private var timedOut = false          // 30 s and the board still cannot see it (the desktop's "has not come up")
+    @State private var helloTimer: Task<Void, Never>?   // started by the create, not by the screen, so a redraw cannot restart it
     @State private var lastLabel = ""     // the role title the Role field was last filled with (still untouched if equal)
     // The Team path (NewTeam).
     @State private var teams: [NewTeam.Team]?
@@ -64,7 +65,7 @@ struct NewAgentView: View {
         }
         .interactiveDismissDisabled(sending || (made != nil && !seen && !timedOut) || teamRunning)
         .onChange(of: client.agents) { rows in agentsChanged(rows) }
-        .onDisappear { teamTask?.cancel() }
+        .onDisappear { teamTask?.cancel(); helloTimer?.cancel() }
         .task {
             #if DEBUG
             if showSample() { return }
@@ -98,7 +99,7 @@ struct NewAgentView: View {
         case "notup": draft.name = "Ada"; made = ("ada", "Ada"); timedOut = true; path = [.role, .setup, .made]
         case "team", "teammade":
             teams = NewTeam.parseTeams(Data(#"{"teams":[{"key":"marketing","label":"Marketing","blurb":"Plans and runs your campaigns","count":3},{"key":"support","label":"Customer Support","blurb":"Answers your customers","count":3}]}"#.utf8))
-            detail = NewTeam.parseDetail(Data(#"{"team":{"key":"marketing","label":"Marketing","purpose":"A lead who plans the campaigns, and two who make them.","project":{"name":"Marketing"}},"members":[{"slot":"head","title":"Head of Marketing","name":"Maya","reportsTo":null},{"slot":"writer","title":"Copywriter","name":"Wes","reportsTo":"lead"},{"slot":"social","title":"Social Media Manager","name":"Sol","reportsTo":"lead"}]}"#.utf8))
+            detail = NewTeam.parseDetail(Data(#"{"team":{"key":"marketing","label":"Marketing","purpose":"A lead who plans the campaigns, and two who make them.","project":{"name":"Marketing"},"lead":"head"},"members":[{"slot":"head","title":"Head of Marketing","name":"Maya","reportsTo":null},{"slot":"writer","title":"Copywriter","name":"Wes","reportsTo":"lead"},{"slot":"social","title":"Social Media Manager","name":"Sol","reportsTo":"lead"}]}"#.utf8))
             teamKey = "marketing"
             names = ["head": "Maya", "writer": "Wes", "social": "Sol"]
             newProjectName = "Marketing"
@@ -460,7 +461,7 @@ struct NewAgentView: View {
             }
             maybeMade[slot] = nil
         }
-        if let made, !seen, on.contains(made.session) { seen = true }
+        if let made, !seen, on.contains(made.session) { seen = true; helloTimer?.cancel() }
         if !draft.reportsTo.isEmpty, !rows.contains(where: { $0.session == draft.reportsTo }) { draft.reportsTo = "" }   // a manager no longer listed
     }
 
@@ -618,6 +619,11 @@ struct NewAgentView: View {
             made = (session, shown)
             seen = client.agents.contains { $0.session == session && $0.boardSeesIt }
             timedOut = false
+            helloTimer?.cancel()
+            helloTimer = Task {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                if !Task.isCancelled && !seen { timedOut = true }
+            }
             path.append(.made)
             tellLater(session, NewAgent.addedProjects(got?.0))
         case .refused(let why):
@@ -656,11 +662,6 @@ struct NewAgentView: View {
         .navigationBarBackButtonHidden(true)
         .onChange(of: seen) { now in if now { announce(NewAgent.Words.running(shown)) } }
         .onChange(of: timedOut) { now in if now && !seen { announce(NewAgent.Words.notUp(shown)) } }
-        .task {
-            try? await Task.sleep(nanoseconds: 30_000_000_000)
-            guard !Task.isCancelled else { return }
-            timedOut = true
-        }
         .safeAreaInset(edge: .bottom) {
             if seen, let made {
                 pinned(NewAgent.Words.sayHello(made.shownAs), enabled: true) {
