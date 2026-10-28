@@ -64,3 +64,19 @@ nothing from it.
 - [NIT] failingAddress written by a stale run. FIXED: only when `gen == generation`.
 - [NIT] the switcher's time does not redraw on its own while the loop is stopped. Not changed: the menu is rebuilt
   when opened, and that is when it is read.
+
+### Round 3 (1 B, 1 C, 4 N), all applied
+- [BLOCKER] the web view's re-read ran on onAppear, but that screen stays up across Try again, a change of failure in
+  place and a return from the background, so the overnight case still said last night's time. FIXED:
+  `.task(id: failure)` and a re-read on `scenePhase == .active` while the failure is macUnreachable (ContentView).
+  View code: no LogicTest reaches it; the iOS build compiles it. The native screen was fine (start() tears it down).
+- [CONCERN] refreshLastSeen read with the stored session, not the one the client runs under. FIXED: `admitted?.session`
+  first, and no read when the shown owner differs. Not covered by a test (the fake world does not record which session
+  a list read carried); reasoned from run(), which reads with `held` the same way.
+- [NIT] the switch's own list read did not count for the throttle. FIXED: chooseMac and readMacs stamp
+  `lastSeenReadAt`. The test first stayed green under the mutant (Studio's earlier read was still under a minute
+  old); it now ages that read by 120 s, and the mutant is red.
+- [NIT] two list reads could land out of order. FIXED: `macsTicket`, only the last-started read is shown. No test (the
+  reviewer called it harmless today).
+- [NIT] the account-change test's `failingAddress == nil` half could not fail. Removed. [NIT] the signed-out test had no
+  control. Added (`readBefore`).
