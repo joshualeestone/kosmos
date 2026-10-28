@@ -322,6 +322,9 @@ check(sheetChat.components(separatedBy: ".messageActionsHost()").count - 1 == 1 
       "review 1: one sheet per chat and per room; More resizes through a chosen detent; Reply runs once the sheet has gone")
 check(sheetChat.contains(".accessibilityElement(children: .ignore)\n        // kosmos#7419 review 3") && sheetChat.contains(".messageActionsAccessibility("),
       "review 3: VoiceOver gets Message actions on the chat bubble's own element, after the one that drops its children's")
+let filesSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatFiles.swift"), encoding: .utf8)) ?? ""
+check(filesSrc.contains("if let sheet, let openSheet { Button(\"Message actions\") { openSheet(sheet) } }") && sheetChat.contains("sheet: MessageActionTarget("),
+      "review 4: on a message with files, VoiceOver offers Message actions on each card (the container's own is never offered)")
 check(firsts["a"] == "beta" && firsts["c"] == "beta" && firsts["z"] == nil, "an agent's first project is its project names A to Z, without case")
 
 section("an agent's notification opens its chat natively (kosmos#7418)")
