@@ -74,6 +74,12 @@
 6. sonnet: 0 BLOCKER/MAJOR, 2 MINOR. Fixed: a dir test with %, #, ? and a non-ASCII letter. Decided: the undone pick's
    sentence is cleared when the screen loads again after another screen (the pick itself was already put back; only
    an explanation the person saw goes).
+7. opus: 1 MAJOR, 1 MINOR. MAJOR fixed: the choice was fixed once the specs read answered, before any member existed, so
+   a lead refused for the choice (a signed-out account, a model no longer offered) left locked menus and a Try again
+   that repeated the refusal. Now, as the desktop's tcChoiceFixed and tcModel: the menus lock while a run is going or
+   once a member exists (made, or a create with no answer); the saved choice is reused only once a member exists.
+   MINOR decided: the single and team screens share one choice, so after a part-made team a change on Set up your agent
+   shows on the team step's locked menus while Try again sends the saved choice (the team's members are made on it).
 
 ## Not verified
 

@@ -332,7 +332,7 @@ struct NewAgentView: View {
                     .disabled(teamLocked || madeProject != nil)   // a made project is the team's; it is not left empty
                 }
                 // kosmos#7502: the same choice for the whole team (the desktop's tc-provider, tc-account, tc-model).
-                modelChoice(soft: NewTeam.Words.modelSoft, locked: teamLocked)
+                modelChoice(soft: NewTeam.Words.modelSoft, locked: teamChoiceFixed)
                     .id("teamModel")
                 if catalogue == nil { Section { loadingRow } }   // the models come with the roles: Try again is here too
             } else if teamKey != nil {
@@ -388,6 +388,12 @@ struct NewAgentView: View {
     // The desktop locks the team's choices from the click on (its review 27); a member that failed is renamed on the
     // Made screen instead.
     private var teamLocked: Bool { teamRunning || teamStarted }
+    // kosmos#7502 review 7: the provider, account and model are fixed only while a run is going or once a member exists
+    // (the desktop's tcChoiceFixed: busy, running, or tcMemberExists). A lead refused for the choice leaves it open, so
+    // the person can change it and try again; the names stay as teamLocked keeps them.
+    private var teamChoiceFixed: Bool { teamRunning || teamMemberExists }
+    // A member made, or one whose create got no answer and may have been (the desktop's tcMemberExists).
+    private var teamMemberExists: Bool { (detail?.members.contains { isMade($0.slot) } ?? false) || !maybeMade.isEmpty }
 
     // Mona Lisa (build 14): a name that can be changed looks it, with a pencil while it can.
     // The name field takes its own taps; the pencil, beside it, puts the cursor in the name too.
@@ -447,7 +453,8 @@ struct NewAgentView: View {
         // Review 1: fixed from the first run; Try again makes the rest on what the first members were made on.
         // Review 2: only once making has begun (teamStarted); a refused name check leaves the choice open, so the next
         // press takes what the screen shows.
-        let choice = (teamStarted ? teamChoice : nil) ?? (onProvider, NewAgentPicker.accounts(for: onProvider, pickAccounts).choices.contains { $0.value == account } ? account : "", chosenModel)
+        // Not teamChoiceFixed: runTeam sets teamRunning before this runs, and a run with no member yet reads the menus.
+        let choice = (teamMemberExists ? teamChoice : nil) ?? (onProvider, NewAgentPicker.accounts(for: onProvider, pickAccounts).choices.contains { $0.value == account } ? account : "", chosenModel)
         teamChoice = choice
         let model = choice.model
         let teamProvider = choice.provider
@@ -839,7 +846,7 @@ struct NewAgentView: View {
     // The menus follow what has answered: a pick no longer offered is put back and said; an untouched one follows the
     // default. Never while a team is being made: its choice is fixed (the desktop's tcChoiceFixed).
     private func settlePicker() {
-        guard !teamLocked else { return }
+        guard !teamChoiceFixed else { return }
         // Review 3: the agent's default settles on a swarm too (onProvider shows Claude there), so going back to Agent
         // opens on it, as the desktop's resetCreateProvider does from the list it holds. Only a touched pick's undoing
         // (and its sentence) waits for the agent's own screen.
