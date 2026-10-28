@@ -189,6 +189,12 @@ final class BoardClient: ObservableObject {
     // The Mac to name when the shown list or chat stops updating: the shown one first (the list and its chat are
     // its), the phase's only when no list was shown (Board.failingMacName).
     var failingMacName: String? { Board.failingMacName(shown: shownMacName, phase: phase.macName) }
+    // kosmos#7416 slice 2: when Kosmos+ last saw the computer named `name`, by the shown computer's address when that
+    // is the one named, else by name (Board.lastSeen).
+    func lastSeen(of name: String?) -> Double? {
+        let address = shownMac.flatMap { $0.name == name ? $0.address : nil }
+        return Board.lastSeen(macs, address: address, name: name)
+    }
 
     private let coordinator: URL
     private let sessionStore: SessionStore

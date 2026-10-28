@@ -173,15 +173,19 @@ enum Board {
         let address: String
         let online: Bool
         let shown: Bool
-        var status: String { online ? "Online" : "Offline" }
+        // kosmos#7416 slice 2: when an offline computer was last seen ("at 8:12 PM", Shell.heardWhen), else nil.
+        var seen: String? = nil
+        var status: String { online ? "Online" : seen.map { "Offline, last seen \($0)" } ?? "Offline" }
     }
 
     // The computers the switcher lists: the usable ones, by name (then address, so two of one name keep their order),
     // the shown one marked. A retired, held, refused or switched-off Mac is not listed: it cannot be opened.
-    static func switcherRows(_ macs: [Mac], shown: String?) -> [SwitcherRow] {
+    static func switcherRows(_ macs: [Mac], shown: String?, now: Date = Date(),
+                             calendar: Calendar = .current, locale: Locale = .current) -> [SwitcherRow] {
         macs.filter(\.usable)
             .sorted { ($0.name.lowercased(), $0.address) < ($1.name.lowercased(), $1.address) }
-            .map { SwitcherRow(name: $0.name, address: $0.address, online: $0.connected, shown: $0.address == shown) }
+            .map { SwitcherRow(name: $0.name, address: $0.address, online: $0.connected, shown: $0.address == shown,
+                               seen: $0.connected ? nil : Shell.heardWhen($0.lastSeen, now: now, calendar: calendar, locale: locale)) }
     }
 
     // kosmos#4903: Kosmos+ refused a fresh handoff because this session did not sign in recently enough.
@@ -2336,6 +2340,18 @@ extension Board {
     static func failingMacName(shown: String?, phase: String?) -> String? {
         if let s = shown, !s.isEmpty { return s }
         return phase
+    }
+
+    // kosmos#7416 slice 2: Kosmos+'s last_seen for the computer a "not answering" screen names, from the account's
+    // list. By address when the screen knows it (a failed page's host, the shown computer), else by name, and by name
+    // only when one listed computer has it: two of one name give no time rather than the other one's.
+    static func lastSeen(_ macs: [Mac], address: String?, name: String?) -> Double? {
+        if let a = address?.lowercased(), !a.isEmpty, let m = macs.first(where: { $0.address.lowercased() == a }) {
+            return m.lastSeen
+        }
+        guard let n = name, !n.isEmpty else { return nil }
+        let named = macs.filter { $0.name == n }
+        return named.count == 1 ? named[0].lastSeen : nil
     }
 }
 

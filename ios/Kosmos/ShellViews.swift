@@ -10,6 +10,8 @@ final class ShellState: ObservableObject {
     @Published var failureDetail: String = ""
     // kosmos#7197: the failing Mac's name, for a Mac that is not answering (nil otherwise).
     @Published var failureMac: String? = nil
+    // kosmos#7416 slice 2: that Mac's address (the failed page's host), to find when Kosmos+ last saw it.
+    @Published var failureAddress: String? = nil
     // Bumped to ask the WebView to reload; the WebView remembers the last value it acted on.
     @Published var retryCount = 0
     // True from Try again until the page loads or fails again, so the button answers.
@@ -85,6 +87,8 @@ struct LoadFailureView: View {
     var onOtherComputer: (() -> Void)? = nil
     // kosmos#7197: the Mac that is not answering, by name, when it is known.
     var macName: String? = nil
+    // kosmos#7416 slice 2: when Kosmos+ last saw it (last_seen, unix seconds), when known.
+    var lastSeen: Double? = nil
 
     private var title: String {
         switch failure {
@@ -107,7 +111,7 @@ struct LoadFailureView: View {
         switch failure {
         case .offline: return "Kosmos opens again as soon as your phone is back online."
         case .unreachable: return "Your phone is online, but Kosmos+ didn't reply. Try again in a moment."
-        case .macUnreachable: return Shell.macUnreachableMessage(macName)
+        case .macUnreachable: return Shell.macUnreachableMessage(macName, lastSeen: lastSeen)
         case .other: return detail.isEmpty ? "Something stopped the page from loading." : detail
         }
     }

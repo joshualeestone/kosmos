@@ -154,11 +154,47 @@ enum Shell {
         "Not updating. " + macUnreachableTitle(name) + "."
     }
 
-    static func macUnreachableMessage(_ name: String?) -> String {
-        guard let n = name?.trimmingCharacters(in: .whitespaces), !n.isEmpty else {
-            return "Your phone is online, but your Mac didn't reply. It may be asleep or turned off. Wake it, then try again."
+    // kosmos#7416 slice 2 (Mona Lisa's words, as the board says them): never a claim the Mac is asleep, since from the
+    // phone asleep, off and offline look the same, then when Kosmos+ last heard from it, when it has.
+    static func macUnreachableMessage(_ name: String?, lastSeen: Double? = nil, now: Date = Date(),
+                                      calendar: Calendar = .current, locale: Locale = .current) -> String {
+        let n = name?.trimmingCharacters(in: .whitespaces) ?? ""
+        let who = n.isEmpty ? "your Mac" : "the Mac called \(n)"
+        let heard = lastHeardSentence(lastSeen, now: now, calendar: calendar, locale: locale).map { " " + $0 } ?? ""
+        return "Your phone is online, but \(who) didn't reply. It may be asleep, off or offline.\(heard) Wake it, then try again."
+    }
+
+    // kosmos#7416 slice 2: "We last heard from it ..." in the person's own clock and words, the board's
+    // lastHeardSentence (web/index.html). nil when there is no time (see heardWhen).
+    static func lastHeardSentence(_ lastSeen: Double?, now: Date = Date(),
+                                  calendar: Calendar = .current, locale: Locale = .current) -> String? {
+        heardWhen(lastSeen, now: now, calendar: calendar, locale: locale).map { "We last heard from it \($0)." }
+    }
+
+    // When a computer was last heard from, as the end of a sentence (Mona Lisa's words): "at 8:12 PM" today,
+    // "yesterday at 8:12 PM", "on Tuesday at 8:12 PM" within the week, "on Oct 21" before that. `lastSeen` is
+    // Kosmos+'s last_seen, unix seconds. nil when there is none (0: never seen) and for a time more than a minute ahead
+    // of now (a wrong clock says nothing true). One function for the message and the switcher, so the two agree.
+    static func heardWhen(_ lastSeen: Double?, now: Date = Date(),
+                          calendar: Calendar = .current, locale: Locale = .current) -> String? {
+        guard let s = lastSeen, s.isFinite, s > 0 else { return nil }
+        let t = Date(timeIntervalSince1970: s)
+        guard t.timeIntervalSince(now) <= 60 else { return nil }
+        func words(_ template: String) -> String {
+            let f = DateFormatter()
+            f.locale = locale
+            f.calendar = calendar
+            f.timeZone = calendar.timeZone
+            f.setLocalizedDateFormatFromTemplate(template)
+            return f.string(from: t)
         }
-        return "Your phone is online, but the Mac called \(n) didn't reply. It may be asleep or turned off. Wake it, then try again."
+        let clock = words("jmm")
+        // Calendar days, so a clock change is not a day.
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: t), to: calendar.startOfDay(for: now)).day ?? 0
+        if days <= 0 { return "at \(clock)" }
+        if days == 1 { return "yesterday at \(clock)" }
+        if days < 7 { return "on \(words("EEEE")) at \(clock)" }
+        return "on \(words("MMMd"))"
     }
 
     // Where "Choose another computer" goes: the coordinator's /account page, which lists

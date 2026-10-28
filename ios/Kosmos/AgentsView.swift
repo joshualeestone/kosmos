@@ -338,7 +338,8 @@ struct BoardStates<Empty: View>: View {
             if client.updatedAt == nil || !client.fresh { reaching } else { empty() }
         case .unreachable(let mac):
             // Today's navy page, as it is: no title over it, and Back opens Today, the board. kosmos#7197: naming the Mac.
-            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard, macName: mac)
+            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard, macName: mac,
+                            lastSeen: client.lastSeen(of: mac))
                 .navigationBarHidden(true)
         case .kosmosPlusDown:
             LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)

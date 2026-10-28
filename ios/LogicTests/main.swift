@@ -259,8 +259,55 @@ check(Shell.macUnreachableTitle("10102026") == "10102026 isn't answering", "the 
 check(Shell.macUnreachableMessage("tmnt").contains("the Mac called tmnt didn't reply"), "the message names the Mac")
 check(Shell.macUnreachableTitle(nil) == "Your Mac isn't answering" && Shell.macUnreachableTitle("  ") == "Your Mac isn't answering",
       "CONTROL: no name keeps the old wording")
-check(Shell.macUnreachableMessage(nil) == "Your phone is online, but your Mac didn't reply. It may be asleep or turned off. Wake it, then try again.",
-      "CONTROL: the unnamed message is the old one, word for word")
+check(Shell.macUnreachableMessage(nil) == "Your phone is online, but your Mac didn't reply. It may be asleep, off or offline. Wake it, then try again.",
+      "kosmos#7416: the unnamed message with no time, word for word (Mona Lisa's first sentence)")
+// kosmos#7416 slice 2: when Kosmos+ last heard from the Mac, in the person's clock and Mona Lisa's words. A fixed
+// calendar, zone and locale, so the words do not depend on the Mac running the tests.
+do {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "America/Chicago")!
+    let en = Locale(identifier: "en_US")
+    func at(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int) -> Date {
+        cal.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi))!
+    }
+    // The clock's space before AM/PM is a narrow no-break space on newer systems; compare words, not that byte.
+    func heard(_ t: Date?, _ now: Date) -> String? {
+        Shell.lastHeardSentence(t?.timeIntervalSince1970, now: now, calendar: cal, locale: en)?
+            .replacingOccurrences(of: "\u{202F}", with: " ")
+    }
+    let now = at(2026, 10, 27, 22, 0)   // a Tuesday
+    check(heard(at(2026, 10, 27, 20, 12), now) == "We last heard from it at 8:12 PM.", "today: the time alone")
+    check(heard(at(2026, 10, 26, 20, 12), now) == "We last heard from it yesterday at 8:12 PM.", "yesterday: yesterday at the time")
+    check(heard(at(2026, 10, 22, 9, 5), now) == "We last heard from it on Thursday at 9:05 AM.", "within the week: the weekday spelled out, and the time")
+    check(heard(at(2026, 10, 21, 9, 5), now) == "We last heard from it on Wednesday at 9:05 AM.", "six days back is still within the week")
+    check(heard(at(2026, 10, 20, 9, 5), now) == "We last heard from it on Oct 20.", "a week or more: the date, and no time")
+    check(heard(at(2026, 10, 27, 23, 50), at(2026, 10, 28, 0, 10)) == "We last heard from it yesterday at 11:50 PM.", "twenty minutes over midnight is yesterday: calendar days, not hours")
+    check(heard(at(2026, 11, 1, 0, 30), at(2026, 11, 2, 10, 0)) == "We last heard from it yesterday at 12:30 AM.", "the day the clocks went back is one calendar day, not two")
+    check(heard(nil, now) == nil && Shell.lastHeardSentence(0, now: now, calendar: cal, locale: en) == nil, "no time (none, or 0: never seen): no sentence")
+    check(heard(now.addingTimeInterval(2 * 3600), now) == nil, "a time ahead of now says nothing")
+    check(heard(now.addingTimeInterval(30), now) == "We last heard from it at 10:00 PM.", "CONTROL: a clock a few seconds ahead is still now")
+    let seen = at(2026, 10, 27, 20, 12).timeIntervalSince1970
+    check(Shell.macUnreachableMessage("tmnt", lastSeen: seen, now: now, calendar: cal, locale: en).replacingOccurrences(of: "\u{202F}", with: " ")
+            == "Your phone is online, but the Mac called tmnt didn't reply. It may be asleep, off or offline. We last heard from it at 8:12 PM. Wake it, then try again.",
+          "the message: the Mac named, Mona's first sentence, then the time")
+    check(Shell.macUnreachableMessage("tmnt", lastSeen: 0, now: now) == "Your phone is online, but the Mac called tmnt didn't reply. It may be asleep, off or offline. Wake it, then try again.",
+          "CONTROL: no time leaves the sentence out, nothing else")
+    // Which computer's time: by address, else by a name only one computer has.
+    let listed = [Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true, lastSeen: 300),
+                  Board.Mac(name: "Mac", address: "a.kosmosplus.com", usable: true, lastSeen: 100),
+                  Board.Mac(name: "Mac", address: "b.kosmosplus.com", usable: true, lastSeen: 200)]
+    check(Board.lastSeen(listed, address: "B.KosmosPlus.com", name: "Mac") == 200, "by the failed page's address, in any case")
+    check(Board.lastSeen(listed, address: nil, name: "Studio") == 300, "by name when only one computer has it")
+    check(Board.lastSeen(listed, address: nil, name: "Mac") == nil, "two of one name: no time rather than the other one's")
+    check(Board.lastSeen(listed, address: "gone.kosmosplus.com", name: nil) == nil && Board.lastSeen(listed, address: nil, name: nil) == nil, "a computer not listed: no time")
+    // The switcher's Offline row says when it was last seen; an online one does not.
+    let sw = Board.switcherRows([Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true, connected: false, lastSeen: seen),
+                                 Board.Mac(name: "Mini", address: "mini.kosmosplus.com", usable: true, lastSeen: seen),
+                                 Board.Mac(name: "Old", address: "old.kosmosplus.com", usable: true, connected: false)],
+                                shown: nil, now: now, calendar: cal, locale: en)
+    check(sw.map { $0.status.replacingOccurrences(of: "\u{202F}", with: " ") } == ["Online", "Offline", "Offline, last seen at 8:12 PM"],
+          "the switcher: Offline with when it was last seen; Online alone; Offline alone when never seen")
+}
 check(Shell.notUpdatingLine("tmnt") == "Not updating. tmnt isn't answering." && Shell.notUpdatingLine(nil) == "Not updating. Your Mac isn't answering.",
       "the banner over a list names the Mac, and keeps the old words with no name")
 check(BoardClient.Phase.unreachable(mac: "10102026").macName == "10102026" && BoardClient.Phase.live(mac: Board.Mac(name: "tmnt", address: "tmnt.kosmosplus.com", usable: true)).macName == "tmnt"
@@ -710,7 +757,7 @@ do {
     let twins = [Board.Mac(name: "Mac", address: "b.kosmosplus.com", usable: true), Board.Mac(name: "Mac", address: "a.kosmosplus.com", usable: true)]
     check(Board.switcherRows(twins, shown: nil).map(\.address) == ["a.kosmosplus.com", "b.kosmosplus.com"], "two of one name keep the order of their addresses")
     check(rows.filter(\.shown).map(\.address) == ["mini.kosmosplus.com"], "only the shown Mac is checked")
-    check(rows.first(where: { $0.name == "Old laptop" })?.status == "Offline" && rows.first(where: { $0.name == "Mini" })?.status == "Online", "each row says online or offline from not_connected")
+    check(rows.first(where: { $0.name == "Old laptop" })?.status.hasPrefix("Offline") == true && rows.first(where: { $0.name == "Mini" })?.status == "Online", "each row says online or offline from not_connected")
     check(Board.switcherRows(heldRefused, shown: nil).isEmpty, "a held or refused Mac is not offered")
     // kosmos#7266 slice B: the person's name and picture.
     let mac0 = URL(string: "https://studio.kosmosplus.com/")!
