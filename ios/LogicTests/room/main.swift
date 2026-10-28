@@ -343,9 +343,28 @@ let chatSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmo
 // kosmos#7420 diagnostic (source checks): the record holds numbers and event names, never what was written. Every trace
 // line is checked for the fields that carry words (a message's text, a name, the draft).
 let traceLines = chatSource.components(separatedBy: "\n").filter { $0.contains("Self.trace(") }
-check(traceLines.count >= 10 && traceLines.allSatisfy { l in ![".text", "name", "draftText", "query", "shown."].contains { l.contains($0) } },
-      "kosmos#7420: the diagnostic's events carry no message text, names, draft or search words (\(traceLines.count) trace lines)")
-check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("guard onScreen.isEmpty, !endVisible, !topVisible, count > 0, thread != nil") && chatSource.contains("ShareLink(item: report"),
+// Review 1: an allow-list, not a ban-list. Every value a trace line puts in the record is one of these numbers, yes/no
+// flags or fixed words; anything new (an id, a session, a name) fails here until it is judged and added.
+let allowedInTrace: Set<String> = ["atBottom", "earlier.filling", "earlier.loading", "earlier.open", "earlier.rows.count", "endSeen",
+    "endVisible", "fresh.olderCount", "fresh.rows.count", "Int(diagKeyboard)", "Int(now.height)", "Int(now.width)", "mine",
+    "personScrolling", "phase == .active ? \"active\" : phase == .background ? \"background\" : \"inactive\"", "pinned", "settledAtEnd", "why"]
+var tracedValues: [String] = []
+for l in traceLines {
+    var rest = Substring(l)
+    while let open = rest.range(of: "\\(") {
+        var depth = 1, i = open.upperBound
+        while i < rest.endIndex, depth > 0 { if rest[i] == "(" { depth += 1 } else if rest[i] == ")" { depth -= 1 }; if depth > 0 { i = rest.index(after: i) } }
+        tracedValues.append(String(rest[open.upperBound..<min(i, rest.endIndex)]))
+        rest = i < rest.endIndex ? rest[rest.index(after: i)...] : ""
+    }
+}
+let strayValues = tracedValues.filter { !allowedInTrace.contains($0) }
+check(traceLines.count >= 10 && !tracedValues.isEmpty && strayValues.isEmpty,
+      "kosmos#7420: the diagnostic records only allowed numbers and flags (\(tracedValues.count) values; not allowed: \(strayValues))")
+check(!chatSource.contains("keepAnchor scrollTo \\(id)"), "review 1: no message id in the record")
+check(chatSource.contains("guard visible, scenePhase == .active, onScreen.isEmpty") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
+      && !chatSource.contains(".onChange(of: onScreen.isEmpty)"), "review 1: the check runs only for the chat on screen, and never makes the chat redraw per row")
+check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("onScreen.isEmpty, !endVisible, !topVisible, count > 0, thread != nil") && chatSource.contains("ShareLink(item: report"),
       "kosmos#7420: a bounded record, the blank check, and a share the person chooses (nothing sent by itself)")
 check(chatSource.contains("Button { infoOpen = true } label: { title"), "kosmos#7424: the DM header's name and status open the info page, as the (i) button does")
 let roomSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
