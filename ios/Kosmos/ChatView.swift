@@ -240,7 +240,7 @@ struct ChatView: View {
         }
         .onDisappear {
             visible = false
-            if PushNotificationManager.chatOnScreen?.session == agent.session { PushNotificationManager.chatOnScreen = nil }
+            if PushNotificationManager.chatOnScreen?.session == agent.session { PushNotificationManager.chatOnScreen = nil }   // review 3: by session on purpose: a computer switch while open must never leave a stale value hiding banners; the cost is an extra banner
             armed = nil
             // A reading posture, not the chat's state: coming back shows the whole conversation (the board clears its
             // search on opening another agent). What the search changed goes with it here, not in onChange(of: query),
