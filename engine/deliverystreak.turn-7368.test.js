@@ -356,3 +356,30 @@ test('#7368 seam: a refused tool call, as Claude Code 2.1.312 streams it, closes
   r.pub.event({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, is_error: true, content: 'Permission to use Bash with command echo hi has been denied.' }] } });
   assert.equal(r.last().queued, undefined, 'the refused result closes the call like any other');
 });
+
+test('#7368 seam: compaction mid-turn, as Claude Code 2.1.312 streams it, closes nothing and a message written in the gap waits for the next result', () => {
+  // Measured 10-27 (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=1, --replay-user-messages): compaction runs only between calls,
+  // after a tool's result and before the next model call: system status "compacting", status null, a compact_boundary,
+  // then a main-agent user event whose content is TEXT. A message written in that gap was not taken at the next model
+  // call; its replay came right after the next tool's result.
+  const r = recording();
+  r.pub.started(4242, 'sid-1');
+  r.pub.event(init);
+  r.pub.event(toolUse('Bash', { command: 'seq 1 300' }));
+  r.pub.event(toolResult());
+  r.pub.wrote();                                    // written while no call is open
+  assert.equal(r.last().queued, 1);
+  const before = r.last().stepSince;
+  r.clock.t += 6 * MIN;                             // a later clock bucket, so activity can show on disk
+  r.pub.event({ type: 'system', subtype: 'status', status: 'compacting' });
+  r.pub.event({ type: 'system', subtype: 'status', status: null });
+  r.pub.event({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto' } });
+  r.pub.event({ type: 'user', message: { content: [{ type: 'text', text: 'This session is being continued from a previous conversation.' }] } });
+  r.pub.wrote();
+  assert.equal(r.last().queued, 2, 'compaction and its summary closed nothing, so both messages still wait');
+  assert.notEqual(r.last().stepSince, before, 'compaction counted as activity');
+  r.pub.event(toolUse('Bash', { command: 'sleep 15; seq 301 600' }));
+  assert.equal(r.last().queued, 2, 'the next model call did not take them (measured)');
+  r.pub.event(toolResult());
+  assert.equal(r.last().queued, undefined, 'CONTROL: the next tool result takes them');
+});
