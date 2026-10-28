@@ -26496,7 +26496,11 @@ function start(port = PORT) {
   try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }
   /* kosmos#7411 step 4: the version this board runs and when it first started on it, so the restart line can name the
      agents started before an update. Best effort: a courtesy, never a reason not to start. */
-  try { require('./engine/restartline').atStart(version); } catch { /* best effort */ }
+  try {
+    let seenBefore = null;   // the version this computer ran before, as the What's New record knows it
+    try { seenBefore = JSON.parse(fs.readFileSync(path.join(store.ROOT, 'seen-version.json'), 'utf8')).version || null; } catch { seenBefore = null; }
+    require('./engine/restartline').atStart(version, Date.now(), seenBefore);
+  } catch { /* best effort */ }
   /* #5531: an enrolled work Kosmos asks its company on start and hourly (#6232) whether it is still the enrolled world, and
      stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
   try { require('./engine/orgenroll').onEnrollmentEnded(orgEnrollmentEnded); } catch { /* best effort */ }   // #6232 review 10

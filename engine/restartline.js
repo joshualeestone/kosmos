@@ -56,12 +56,15 @@ function write(rec) {
 /**
  * At board start: when `version` differs from the one recorded last, add it with `now` as its first start. A start on
  * the version already recorded changes nothing, so each entry keeps its version's FIRST start. Returns the record.
+ * `seenBefore` is the version the page last announced (seen-version.json), read by the caller. With no record yet it
+ * says this computer ran that version before, so the first update with this file is an update, not an install.
  */
-function atStart(version, now = Date.now()) {
+function atStart(version, now = Date.now(), seenBefore = null) {
   if (!VERSION.test(String(version || ''))) return null;
   const was = read();
   if (was && was.version === version) return was;
-  const history = (was ? was.history : []).concat([{ version, at: now }]).slice(-MAX_HISTORY);
+  const seeded = !was && VERSION.test(String(seenBefore || '')) && cmp(seenBefore, version) < 0 ? [{ version: seenBefore, at: 0 }] : [];
+  const history = (was ? was.history : seeded).concat([{ version, at: now }]).slice(-MAX_HISTORY);
   write({ history });
   return { version, history, notNow: false };
 }
