@@ -305,7 +305,13 @@ test('rounds 1-2 BUG: a board PROVABLY serving from the launcher (listening) get
     'the check mark is no longer derived from the budget and its floors');
   assert.doesNotMatch(SOURCE + handoffSource, /HandOffWorstCaseMs|HANDOFF_WORST_CASE_MS/, 'a constant still claims to be the hand-off\'s worst case, which round 2 measured it is not');
   assert.equal(sourceConstant('RunningHereMessage'),
-    "Kosmos couldn't move to the background, so it's running from here instead. Keep this box open while you use Kosmos. Click OK to stop Kosmos. To see why, run Kosmos.exe --console.");
+    "Kosmos couldn't move to the background, so it's running from here instead. Keep this box open while you use Kosmos. Click OK to close it and stop Kosmos here. If 'Start Kosmos when I sign in to Windows' is on in Settings, Kosmos then tries to start again in the background by itself within about a minute. To see why, run Kosmos.exe --console.");
+  /* #7492: the box names the Settings switch the board watchdog (#2988) obeys. One label, two copies
+     (the page's and this one), so a reworded switch must reword the box too. */
+  const label = fs.readFileSync(path.join(REPO, 'web', 'index.html'), 'utf8').match(/startAtSignInLabel: '([^']+)'/);
+  assert.ok(label, 'web/index.html no longer defines startAtSignInLabel');
+  assert.ok(sourceConstant('RunningHereMessage').includes("If '" + label[1] + "' is on in Settings"),
+    'the launcher box names a Settings switch the page does not show: ' + label[1]);
   const main = SOURCE.slice(SOURCE.indexOf('static int Main('), SOURCE.indexOf('static int Fail('));
   /* Round 2: time alone gave a healthy but slow hand-off a false box. The box is
      reached only through positive proof, and only in GUI mode. */
