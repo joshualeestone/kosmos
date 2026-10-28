@@ -128,3 +128,50 @@ test('a cap-held post is noted, and only while it is still held', () => {
   assert.deepEqual(roomhold.capProjects('cl-c'), [], 'a told post is still noted');
   roomhold.forget('cl-c');
 });
+
+test('review 1 (a blocker): a person\'s own message kept for a usage limit is typed with the cap off', () => {
+  const chat = require('./chat');
+  const limitqueue = require('./limitqueue');
+  const real = chat.deliverAutomaticAsync;
+  const seen = [];
+  chat.deliverAutomaticAsync = (...args) => { seen.push(args); return Promise.resolve({ state: 'placed' }); };
+  try {
+    const hooks = limitqueue.sweepHooks({ chat, messages: require('./messages') });
+    hooks.deliver('cl-a', 'env', [], { kind: 'dm', text: 'hi', envelope: '', trailer: '' });
+    hooks.deliver('cl-a', 'an agent line', [], { kind: 'msg' });
+  } finally { chat.deliverAutomaticAsync = real; }
+  assert.deepEqual(seen[0][5], { cap: false }, 'a person\'s kept DM can be held by the cap');
+  assert.equal(seen[1][5], undefined, 'CONTROL: an agent\'s kept line still goes through the cap');
+});
+
+test('review 1: an Enter for a line already in the box is not held by the per-account cap; a Gemini agent keeps its own rule', () => {
+  const chat = require('./chat');
+  const r = world(ALL_IDLE);
+  assert.deepEqual(chat.typedLineCap('cl-a', r), { cap: false });
+  assert.deepEqual(chat.typedLineCap('agy-f', r), {}, 'the Gemini cap\'s Enter rule changed');
+});
+
+test('review 1: with no limit set, the gate reads no launch job (the default costs no disk)', () => {
+  const r = world({ ...ALL_IDLE, 'cl-a': 'working', 'cl-b': 'working' });
+  let reads = 0;
+  create.readJob = () => { reads += 1; return null; };
+  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, NOCAP), null);
+  assert.equal(q.noteCapStart('cl-c', r, NOW, NOCAP, NOENV, NOCAP), null);
+  assert.equal(reads, 0, 'a launch job was read with the cap off');
+  q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(2));
+  assert.ok(reads > 0, 'CONTROL: with a limit the account is read');
+});
+
+test('review 1: a cap note is kept on disk, so a board restart does not lose it', () => {
+  roomhold.forget('cl-d');
+  assert.ok(roomhold.hold('cl-d', 'proj', roomhold.addressedId('m9')));
+  assert.equal(roomhold.noteCap('cl-d', 'proj', roomhold.addressedId('m9')), true);
+  // Nothing in memory carries it: a fresh read of the folder finds it.
+  const files = fs.readdirSync(roomhold.dir()).filter((f) => f.endsWith('.cap'));
+  assert.equal(files.length, 1, 'the cap note is not on disk');
+  assert.deepEqual(roomhold.capProjects('cl-d'), ['proj']);
+  roomhold.take('cl-d', 'proj');
+  assert.deepEqual(roomhold.capProjects('cl-d'), []);
+  assert.equal(fs.readdirSync(roomhold.dir()).filter((f) => f.endsWith('.cap')).length, 0, 'a told post\'s note stayed on disk');
+  roomhold.forget('cl-d');
+});

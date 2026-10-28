@@ -117,7 +117,8 @@ function heldForQuota(session, roster, now, memo = POOL_MEMO, env = process.env)
   return now < releaseAt ? releaseAt : null;
 }
 
-/* #4588 ask 3: the cap (Settings > Automation, engine/agycap-setting.js). While `max` of our antigravity agents are
+/* #4588 ask 3: the Gemini cap (Settings > Automation, engine/agycap-setting.js; kosmos#7406 adds a per-account cap for
+   every other runner, heldForWorkCap below). While `max` of our antigravity agents are
    working, an automatic line to ANOTHER one waits, so a team does not run more of them at once than the person chose.
    Returns when to look again (now + CAP_RECHECK_MS), or null. A line to an agent that is already working is not held:
    it is already counted (the line still reserves it, see noteCapStart). No limit (0, the default), the quota-hold brake, or a setting that cannot
@@ -165,11 +166,13 @@ function accountOf(c, now) {
 }
 const busyCard = (c, now) => Boolean(c && c.sessionName && (c.state === 'working' || startedRecently(String(c.sessionName), now)));
 function heldForWorkCap(card, roster, now, readWorkCap) {
-  const account = accountOf(card, now);
-  if (account === null || busyCard(card, now)) return null;
+  if (!card || card.isNamedOurs === false || busyCard(card, now)) return null;
+  // Review 1: the setting first, so with no limit (the default) no launch job is read.
   let max = 0;
   try { max = Number(readWorkCap().maxWorking) || 0; } catch { max = 0; }
   if (max <= 0) return null;
+  const account = accountOf(card, now);
+  if (account === null) return null;
   const self = String(card.sessionName);
   const busy = (Array.isArray(roster) ? roster : [])
     .filter((c) => c && String(c.sessionName) !== self && busyCard(c, now) && accountOf(c, now) === account).length;
@@ -187,7 +190,7 @@ function heldForCap(session, roster, now, readCap = () => require('./agycap-sett
   let card = null;
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
   if (card && !isOurAgy(card)) return heldForWorkCap(card, roster, now, readWorkCap);   // kosmos#7406
-  if (!isOurAgy(card) || busyAgy(card, now)) return null;   // review 13: before the setting is read, so other runners skip the disk
+  if (!isOurAgy(card) || busyAgy(card, now)) return null;   // review 13: before the Gemini setting is read
   let max = 0;
   try { max = Number(readCap().maxWorking) || 0; } catch { max = 0; }
   if (max <= 0) return null;
@@ -196,18 +199,20 @@ function heldForCap(session, roster, now, readCap = () => require('./agycap-sett
     .filter((c) => c && String(c.sessionName) !== self && busyAgy(c, now)).length;
   return busy >= max ? now + CAP_RECHECK_MS : null;
 }
-/* Reserve `session`'s slot for an automatic line about to be typed (only our antigravity agents). Returns a token for
+/* Reserve `session`'s slot for an automatic line about to be typed (our agents, under whichever cap applies to them, and
+   only while that cap is set). Returns a token for
    releaseCapStart, or null. */
 function noteCapStart(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env, readWorkCap = () => require('./workcap-setting').read()) {
   if (quotaHoldOff(env)) return null;   // the brake lifts the cap, so nothing is reserved under it either
   let card = null;
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
-  // kosmos#7406: one of our other agents is reserved under the per-account cap, read the same way.
+  // kosmos#7406: one of our other agents is reserved under the per-account cap, read the same way. The setting is read
+  // first (review 1), so with no limit no launch job is read.
   const agy = isOurAgy(card);
-  if (!agy && accountOf(card, now) === null) return null;
   let max = 0;
   try { max = Number((agy ? readCap : readWorkCap)().maxWorking) || 0; } catch { max = 0; }
   if (max <= 0) return null;
+  if (!agy && accountOf(card, now) === null) return null;
   const name = String(card.sessionName);
   /* Review 3: an active reservation is left alone. Refreshing it let an idle agent that keeps receiving lines hold the
      slot for good, and a later line's failure would release the first one, which did reach the agent. */

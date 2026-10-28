@@ -286,7 +286,9 @@ function retryRows(chat) {
 function sweepHooks({ chat, messages }) {
   retryRows(chat);
   return {
-    deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r)),
+    /* kosmos#7406: a person's own message is never held by a working-at-once cap (review 1, a blocker: since the cap
+       covers Claude agents, a kept DM would otherwise wait on it, and a day later be dropped). */
+    deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e), { cap: false }) : chat.deliverAutomaticAsync(n, env, r)),
     resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
     /* #6774: a queue holding a message kept for a stuck input box waits for the box to read empty as well (the #6256
        rule: an unreadable box keeps them waiting). */

@@ -1117,7 +1117,7 @@ async function pressRememberedNow(target, card) {
   if (!Array.isArray(roster) || !card || !card.sessionName) return 'gate';
   const name = card.sessionName;
   try {
-    if (menuHeldVerdict(name, roster) || accountHeldVerdict(name, roster) || quotaHeldVerdict(name, roster)) return 'gate';
+    if (menuHeldVerdict(name, roster) || accountHeldVerdict(name, roster) || quotaHeldVerdict(name, roster, typedLineCap(name, roster))) return 'gate';
   } catch { return 'gate'; }
   const gate = typingGate(name, kept.wire, roster, '', '', new Date().toISOString());
   if (!gate.ok) return 'gate';
@@ -1299,7 +1299,7 @@ async function recoverStuckInput(card, since) {
     if (!Array.isArray(roster)) return { outcome: 'waiting', because: 'gate' };
     const name = card.sessionName;
     try {
-      if (menuHeldVerdict(name, roster) || accountHeldVerdict(name, roster) || quotaHeldVerdict(name, roster)) return { outcome: 'waiting', because: 'gate' };
+      if (menuHeldVerdict(name, roster) || accountHeldVerdict(name, roster) || quotaHeldVerdict(name, roster, typedLineCap(name, roster))) return { outcome: 'waiting', because: 'gate' };
     } catch { return { outcome: 'waiting', because: 'gate' }; }
     const allowed = addressable(name, roster);
     if (!allowed.ok) return { outcome: 'waiting', because: 'gate' };
@@ -2828,6 +2828,14 @@ function deliver(sessionName, raw, roster, envelope, trailer, opts) {
  * COULD_NOT (nothing reached the pane) with `held: true` and `heldUntil` (ISO), so a sender that budgets its tries can
  * keep the try for after the reset. A person's own message goes through deliver() and is never held.
  */
+/* kosmos#7406 review 1: an Enter for a line already in an agent's box (a remembered unsent line, which may be the
+   person's own: nothing records whose) is not held by the per-account cap; the line was let through, and counted, when
+   it was typed. A Gemini (Antigravity) agent keeps its own cap's behaviour here, unchanged. */
+function typedLineCap(sessionName, roster) {
+  let card = null;
+  try { card = resolveCard(roster, sessionName); } catch { card = null; }
+  return card && card.runner === 'antigravity' ? {} : { cap: false };
+}
 function quotaHeldVerdict(sessionName, roster, opts = {}) {
   // Review round 6: only a pane we could type into is HELD. A stopped or untypeable member (no agent process, no
   // target, not ours) is refused by deliver/deliverAsync with its real reason, exactly as without the quota gate, so
@@ -5251,7 +5259,7 @@ module.exports = {
   composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS, stuckShrunk,   // kosmos#6717
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, typedLineCap, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,
