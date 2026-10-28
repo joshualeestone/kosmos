@@ -10518,7 +10518,10 @@ const server = http.createServer(async (req, res) => {
              the page uses it only when it matches a listed row. */
           accountDir: acct && typeof acct.dir === 'string' && acct.dir ? path.resolve(acct.dir) : null,
           because: ok
-            ? `${label} it is. Everything it knows and everything it has done stays. `
+            /* #7410: a switch across the Claude line does not keep its conversation or Claude's memory, so it never says
+               everything it knows stays; switchCarryWords says what came across. A same-family switch keeps the old words. */
+            ? create.switchCarryWords(label, wrote.carried || null,
+              wrote.carried && wrote.carried.from ? (wrote.carried.from === 'anthropic' ? 'Claude' : create.providerLabel(wrote.carried.from)) : null)
               + (droppedWords ? `${droppedWords.charAt(0).toUpperCase()}${droppedWords.slice(1)}. ` : '')
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn

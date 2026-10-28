@@ -14456,6 +14456,8 @@ window.kosmosMeasureScrollbarWidth();
     <p class="rm-small" id="chg-small"></p>
     <div class="rm-acts">
       <button class="btn" id="chg-keep" type="button">Keep it as it is</button>
+      <!-- #7410: a second way to go ahead, offered only when a caller gives one (the provider switch across the Claude line). -->
+      <button class="btn" id="chg-alt" type="button" hidden></button>
       <button class="btn uprime" id="chg-go" type="button"></button>
     </div>
     <div class="fmsg" id="chg-msg" role="alert" aria-live="assertive"></div>
@@ -58320,7 +58322,11 @@ async function moveAccountNow(say) {
    the check for the line that says it is done. Both are fixed app markup, never user input. */
 const WAKE_SPIN_HTML = '<span class="spin spin-sweep wake-spin" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 const WAKE_DONE_HTML = '<svg class="wake-done" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
-function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
+/* #7410: `alt` is an optional second way to go ahead, { label, before }: `before(setLine, stillOpen)` runs first (the
+   provider switch's "Write handoff, then switch" asks for the handoff and waits for it) and resolves { ok, line }. While
+   it runs nothing is decided, so "Keep it as it is" and Escape still close the dialog. ok runs `run(say, { viaAlt: true })`
+   exactly as the main button does; not ok shows `line` and offers both buttons again. */
+function changeDialog({ title, small, go, run, busyHtml, minBusyMs, alt }) {
   /* #4963: set once the run has said a restart is waking the agent. From then the switch no longer needs
      the person, so Escape may close the dialog: the wake goes on without it. */
   let wakingNow = false;
@@ -58343,6 +58349,8 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
   if (keep.classList) keep.classList.remove('uprime');
   keep.hidden = false; goBtn.hidden = false; goBtn.disabled = false;
   sm.hidden = false;   // reset: a prior interstitial (busyHtml) run may have hidden it
+  const altBtn = document.getElementById('chg-alt');   // #7410
+  if (altBtn) { altBtn.onclick = null; altBtn.hidden = !alt; altBtn.disabled = false; altBtn.textContent = alt ? alt.label : ''; }
   /* 🔑 ESCAPE GETS YOU OUT (#1316). This is the modal Josh sat in on #1313, and
      the fix there gave it a way out AFTER the operation ends. It still had no
      way out BEFORE: no Escape, and no backdrop click either, so the only exit
@@ -58359,6 +58367,7 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
      does not stack handlers. */
   const close = () => {
     back.hidden = true; keep.onclick = null; goBtn.onclick = null; back.onclick = null;
+    if (altBtn) altBtn.onclick = null;   // #7410
     /* #2692: DETACH the interstitial content on close, not just hide the modal. The restart
        interstitial mounts the branded K loader on a canvas whose rAF loop self-terminates on
        `!cv.isConnected` -- but `back.hidden = true` only display:none's the modal, leaving the
@@ -58380,8 +58389,9 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
   };
   document.addEventListener('keydown', onEsc);
   keep.onclick = close;
-  goBtn.onclick = async () => {
+  const proceed = async (viaAlt) => {
     goBtn.disabled = true; keep.hidden = true;
+    if (altBtn) { altBtn.disabled = true; altBtn.hidden = true; }   // #7410
     /* busyHtml is app-generated markup (#2692: the branded K-loader canvas markup +
        a caption that is either a fixed literal -- RESTART_BUSY_HTML for the model
        switch -- or an app-DERIVED provider label from chgBusyHtml, e.g. "Setting up
@@ -58465,7 +58475,7 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
       if (wait > 0) { setTimeout(render, wait); } else { render(); }
     };
     try {
-      await run(say);
+      await run(say, viaAlt ? { viaAlt: true } : undefined);
     } catch (err) {
       /* A `run` that throws past its own handler still owes the person a
          sentence rather than a frozen dialog. */
@@ -58477,6 +58487,21 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
       if (!spoke) say('That finished, but nothing came back to say how it went. Close this and check the agent.', false);
     }
   };
+  goBtn.onclick = () => proceed(false);
+  /* #7410: the second way to go ahead. Its `before` step decides nothing irreversible, so the person keeps the way out
+     (Keep, Escape) until it says go; a dialog closed or reopened meanwhile is never acted on. */
+  if (alt && altBtn) {
+    altBtn.onclick = async () => {
+      goBtn.hidden = true; altBtn.hidden = true;
+      const live = () => openGen === back.__openGen && !back.hidden;
+      let r;
+      try { r = await alt.before((line) => { if (live()) msg.textContent = line; }, live); }
+      catch (err) { r = { ok: false, line: String((err && err.message) || 'That did not work.') }; }
+      if (!live()) return;
+      if (!r || !r.ok) { msg.textContent = (r && r.line) || 'That did not work.'; goBtn.hidden = false; altBtn.hidden = false; return; }
+      proceed(true);
+    };
+  }
   back.hidden = false;
   try { goBtn.focus(); } catch { /* fine */ }
 }
@@ -59509,7 +59534,9 @@ function switchAcctPicked() {
   return !!sel.options[sel.selectedIndex];
 }
 
-async function changeProviderNow(say) {
+/* #7410: `how.viaAlt` is "Write handoff, then switch": the handoff is written, so after the restart the new session is
+   pointed at it (deliverPickup) instead of the plain wake hello. */
+async function changeProviderNow(say, how) {
   /* ⚠️ `say` IS THE MODAL'S ONLY EXIT (#1313). The four sibling actions all
      take it and this one did not, so the switch succeeded and the dialog sat on
      "Working…" with both buttons gone. It is optional here only because this
@@ -59657,7 +59684,8 @@ async function changeProviderNow(say) {
     // the hello does not land.
     const switchWaiting = 'Restarted on ' + provName + '. Waking them…';
     tell(restarted ? switchWaiting : (out.because || 'Switched.'), restarted, restarted);
-    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting, provName, 'Switched to ' + provName);
+    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting, provName, 'Switched to ' + provName,
+      (how && how.viaAlt) ? () => deliverPickup(forAgent) : undefined);   // #7410: the handoff it just wrote
     /* #4008 (round 3): Runs on names the provider it moved to now, in modelLine's own words for a runner
        with no transcript yet (the same line the next open would draw once the runner is recorded). */
     const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude', alibaba: 'Qwen', deepseek: 'DeepSeek' }[want];   // #5977, #7206
@@ -59792,6 +59820,59 @@ async function changeProviderNow(say) {
   }
 }
 
+/* #7410: whether a switch crosses the Claude line (Claude Code on one side, any other runner on the other), the page's
+   twin of create.js crossesFamily. DeepSeek runs on Claude Code, so it is on Claude's side. A Claude account move never
+   comes here (it is Move, not a switch). */
+function switchCrossesFamily(fromProv, toProv) {
+  const claudeSide = (p) => p === 'anthropic' || p === 'deepseek';
+  return !!fromProv && !!toProv && fromProv !== toProv && claudeSide(fromProv) !== claudeSide(toProv);
+}
+/* #7410: what a switch across the Claude line does not carry, said before it happens; '' for any other switch. The
+   engine copies its Claude notes into its folder on the way off Claude, and leaves the folder's notes for it on the
+   way back; the result sentence says if it could not copy them (another folder shares its Claude notes). */
+function switchFamilyNote(fromProv, toProv, shown, fromWord, toWord) {
+  if (!switchCrossesFamily(fromProv, toProv)) return '';
+  const notes = (toProv === 'anthropic' || toProv === 'deepseek')
+    ? 'Notes in its folder stay there for it to read; anything it only remembers from talking is lost.'
+    : 'Its saved notes are copied into its folder; anything it only remembers from talking is lost.';
+  return shown + ' keeps its name, its face, its instructions and its files, and restarts. '
+    + 'Its conversation does not come across: ' + toWord + ' cannot read ' + fromWord + '’s history. ' + notes + ' ';
+}
+/* #7410: "Write handoff, then switch": the restart flow's own primitives (handoff-restart ask, then status until the
+   handoff is confirmed written). Resolves { ok } only on a placed ask and a fresh handoff; anything else is a sentence
+   and no switch, the same never-on-a-maybe rule as "Write a handoff, then restart". */
+async function handoffBeforeSwitch(name, shown, setLine, stillOpen) {
+  setLine('Asking ' + shown + ' to write a handoff…');
+  let ask = null; let askStatus = 0;
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/ask', { method: 'POST' });
+    askStatus = res.status;
+    ask = await res.json().catch(() => null);
+  } catch {
+    return { ok: false, line: 'We could not reach Kosmos to ask ' + shown + ' for a handoff. Nothing was switched: you can Switch now without one, or keep it as it is.' };
+  }
+  if (!(ask && ask.delivery && ask.delivery.state === 'placed')) {
+    const because = ask && ask.delivery && ask.delivery.because ? ' (' + ask.delivery.because + ')' : '';
+    return { ok: false, line: (askStatus === 409 && ask && !ask.delivery)
+      ? shown + ' is not running, so there is no session to write a handoff. Nothing was switched: you can Switch now without one, or keep it as it is.'
+      : 'We could not ask ' + shown + ' to write a handoff' + because + '. Nothing was switched: you can Switch now without one, or keep it as it is.' };
+  }
+  setLine(shown + ' is writing its handoff…');
+  const baseline = (ask.baseline === undefined || ask.baseline === null) ? '' : String(ask.baseline);
+  const deadline = Date.now() + HANDOFF_WAIT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, HANDOFF_POLL_MS));
+    if (!stillOpen()) return { ok: false, line: '' };
+    try {
+      const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/handoff-restart/status?baseline=' + encodeURIComponent(baseline), { cache: 'no-store' });
+      const st = await res.json().catch(() => null);
+      // Re-asked after the await: the switch acts on the open agent, so it must still be this one.
+      if (st && st.fresh === true) return stillOpen() ? { ok: true } : { ok: false, line: '' };
+    } catch { /* the next poll can try again */ }
+  }
+  return { ok: false, line: shown + ' has not finished its handoff yet. Nothing was switched: Switch now (what it was doing may be lost), or keep it as it is.' };
+}
+
 document.getElementById('d-provider-go').addEventListener('click', () => {
   /* Round 7: refuse before the dialog, which would otherwise promise the main Claude account first. */
   { const p0 = document.getElementById('d-provider'); const m0 = document.getElementById('d-provider-msg');
@@ -59814,14 +59895,20 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
   const fromWord = fromProv === 'anthropic' ? 'Claude' : switchKeyedWord(fromProv);
   const toAgy = sel.value === 'antigravity';   // #3568: Gemini on a Google subscription, no Kosmos account
   const label = toOpenai ? 'OpenAI' : (toOther || toAgy) ? switchKeyedWord(sel.value) : 'Anthropic';
+  /* #7410: across the Claude line the conversation and Claude's memory do not come across, so the dialog says so and
+     offers a handoff first; any other switch reads as before. */
+  const toWord = sel.value === 'anthropic' ? 'Claude' : switchKeyedWord(sel.value);
+  const familyNote = switchFamilyNote(fromProv, sel.value, agentShown(), fromWord, toWord);
+  const forAgent = CURRENT.sessionName;
+  const shownNow = agentShown();
   changeDialog({
     title: 'Switch ' + agentShown() + ' to ' + label + '?',
     /* The memory sentence is the ruling, said before it happens: what she
        knows stays, her past stays readable, the conversation ends the way
        it does on any restart, and the provider-shaped choices do not
-       cross. */
-    small: agentShown() + ' keeps its name, its face, its instructions, its files, and everything it has done; its past stays readable. '
-      + 'It restarts, so this conversation ends, as it does on any restart. '
+       cross. #7410: true only within a family; across the Claude line familyNote says what does not come across. */
+    small: (familyNote || (agentShown() + ' keeps its name, its face, its instructions, its files, and everything it has done; its past stays readable. '
+      + 'It restarts, so this conversation ends, as it does on any restart. '))
       + (toOpenai
         /* 🛑 EACH ARM STATES WHAT IS ACTUALLY TRUE OF ITS OWN CASE. This is the LAST
            SCREEN BEFORE A RESTART, so a sentence that is merely nearly right is the
@@ -59947,7 +60034,13 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
           if (switchAcctSending()) return 'It runs on the Claude account shown above, ' + onModel;
           return pm ? 'It runs on your main Claude account, on ' + pm.label + '.' : 'It runs on your main Claude account and Claude’s default model until you change them.';
         })())),
-    go: 'Switch and restart',
+    go: familyNote ? 'Switch now' : 'Switch and restart',
+    /* #7410: across the Claude line, a handoff first, so the new provider starts from what it was doing. */
+    alt: familyNote ? {
+      label: 'Write handoff, then switch',
+      before: (setLine, stillOpen) => handoffBeforeSwitch(forAgent, shownNow, setLine,
+        () => stillOpen() && !!CURRENT && CURRENT.sessionName === forAgent),
+    } : undefined,
     /* #2463 follow-up (Mona): the provider switch shows the SAME interstitial as the model
        switch, worded for what it is doing -- "Setting up OpenAI" (which may install/authorise)
        or "Setting up Anthropic". Held on the same floor (RESTART_HOLD_MS) via the same
@@ -59956,7 +60049,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
        it. `label` is app-derived ('OpenAI'/'Anthropic'). */
     busyHtml: chgBusyHtml('Setting up ' + label),
     minBusyMs: (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS),
-    run: (say) => changeProviderNow(say),
+    run: (say, how) => changeProviderNow(say, how),
   });
 });
 /* #768-batch (Josh, 5.51.59): the restart interstitial. The branded K loader plays over
@@ -65858,7 +65951,9 @@ const SWITCH_HELLO_RETRY_MS = 100;
    the question ("Change X to Y?" becomes `doneTitle`, "Changed to Y"), Done turns gold and takes the focus,
    and the line is "Ready: X is on Y." behind a check. When the hello could not be placed the line says
    what to do, plainly, with no check (the restart worked; waking them is the one step left). */
-function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waitingLine, onWhat, doneTitle) {
+/* #7410: `deliver` (optional) replaces the wake hello, as autoHelloAfterRestart's own `deliver` does: the provider
+   switch's "Write handoff, then switch" passes deliverPickup. */
+function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waitingLine, onWhat, doneTitle, deliver) {
   const saidLine = 'Ready: ' + shown + ' is on ' + (onWhat || provName) + '.';
   const finish = (m, t) => {
     m.textContent = t;
@@ -65893,7 +65988,7 @@ function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine, waiting
       };
       apply();
     },
-    saidLine, manualLine);
+    saidLine, manualLine, deliver);
   // autoHelloAfterRestart bumps the token before its first await, so this reads its own.
   mine = RESTART_HELLO_SEQ[forAgent];
 }

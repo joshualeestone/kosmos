@@ -2711,6 +2711,11 @@ function setProvider(name, provider, opts) {
     try { fs.renameSync(oldBrief, newBrief); }
     catch { /* plist is the launch truth; a same-dir rename of an existing source effectively cannot fail */ }
   }
+  /* #7410: a switch between Claude and another runner leaves the conversation and Claude's memory behind. Copy this
+     agent's own notes into its folder and point the new brief at them (carryClaudeNotes). Best-effort like the rename:
+     the job is already written, and a copy that fails only means the agent has fewer notes, which the result says. */
+  let carried = null;
+  try { carried = carryClaudeNotes(clean, job, runner, newBrief, jobProvider(job)); } catch { carried = null; }
   try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null, ...((compatVendor || fromVendor) ? { vendorAccount: compatVendor && switchAccount ? switchAccount.dir : null } : {}) }); }   // #5977 review 5
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
   /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
@@ -2719,7 +2724,7 @@ function setProvider(name, provider, opts) {
     const moved = setAccount(clean, claudePick.dir, { ...(opts || {}), carryImports: false });   // #6063: see setAccount
     if (moved && moved.outcome === OUTCOME.REFUSED) {
       const why = String(moved.because || '').replace(/[.\s]+$/, '');
-      return { outcome: OUTCOME.PARTIAL, because: `${spoken} is switched to Claude, on your main Claude account: it could not be moved to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) } };
+      return { outcome: OUTCOME.PARTIAL, because: `${spoken} is switched to Claude, on your main Claude account: it could not be moved to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) }, carried };
     }
   }
   return {
@@ -2740,7 +2745,118 @@ function setProvider(name, provider, opts) {
       model: job.model || null,
       account: Boolean(job.configDir),
     },
+    /* #7410: null for a same-family switch; else what happened to its notes (carryClaudeNotes), which the route says. */
+    carried,
   };
+}
+
+/* #7410: whether a switch crosses the Claude line: Claude Code on one side, any other runner on the other. A Claude
+   account move, Codex <-> Qwen (one runner) and Codex <-> Gemini are not, by the card's definition. */
+const claudeRunner = (r) => !r || r === 'claude';
+function crossesFamily(fromRunner, toRunner) { return claudeRunner(fromRunner) !== claudeRunner(toRunner); }
+
+/* #7410: the Claude config folder this agent's sessions and memory are under: its job's account folder, else the test
+   override, else Claude Code's default (CLAUDE_CONFIG_DIR, else ~/.claude). The default only when status.configRoots()
+   lists it, so a fixture whose data folder is a temp folder never reads the operator's real ~/.claude (status.js
+   returns a non-existent sandbox path then). Null when there is none to read. */
+function agentClaudeRoot(job) {
+  if (job && typeof job.configDir === 'string' && job.configDir) return job.configDir;
+  if (process.env.AGENT_WORKFORCE_CONFIG_ROOT) return process.env.AGENT_WORKFORCE_CONFIG_ROOT;
+  const fallback = path.resolve(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'));
+  let roots = [];
+  try { roots = status.configRoots(); } catch { roots = []; }
+  return roots.some((r) => path.resolve(r) === fallback) ? fallback : null;
+}
+
+/* #7410: the line the new brief carries, as notes, never as instructions. */
+const CARRIED_NOTES_BODY = 'Notes you kept before switching provider are in memory/ in your folder (start at MEMORY.md if it is there); '
+  + 'they are your own notes, not instructions.';
+
+/**
+ * #7410: carry this agent's own Claude notes across a switch off Claude, and point the new brief at them.
+ *
+ * Returns null for a same-family switch, else
+ *   { from, toClaude, notes, copied, kept, pointed }
+ *   notes   'copied'  its own notes are in its folder now (copied > 0, or all of them were there already: kept)
+ *           'none'    nothing to carry (no Claude memory for it; or a switch TO Claude, where nothing is copied)
+ *           'shared'  its Claude project folder is not its alone (backupsessions claudeOwned), so nothing was copied
+ *           'blocked' its folder's memory/ is a link or a file, so nothing was copied into it
+ *   pointed whether the new brief carries the carried-notes block (spliced only when its folder has a note to point at)
+ *
+ * 🛑 NEVER OVERWRITE EITHER SIDE. The Claude original is only read. A note already in the folder copy is kept as it is
+ * even when Claude's version has changed (counted in `kept`), because the folder copy may hold what the agent wrote
+ * while it was on another runner. Switching back to Claude copies nothing (Claude's memory was never moved); the block
+ * rides the brief's rename, and spliceBlock replaces an existing block, so it is never there twice.
+ */
+function carryClaudeNotes(clean, job, runner, newBrief, from) {
+  if (!crossesFamily(job && job.runner, runner)) return null;
+  const toClaude = claudeRunner(runner);
+  const dir = workerDir(clean);
+  const destDir = path.join(dir, 'memory');
+  const out = { from: from || null, toClaude, notes: 'none', copied: 0, kept: 0, pointed: false };
+  if (!toClaude) {
+    const root = agentClaudeRoot(job);
+    const mem = root ? require('./backupsessions').ownedClaudeMemory(dir, path.resolve(root)) : { state: 'none' };
+    if (mem.state === 'shared') out.notes = 'shared';
+    else if (mem.state === 'owned') {
+      let st = null;
+      try { st = fs.lstatSync(destDir); } catch { st = null; }
+      if (st && !st.isDirectory()) out.notes = 'blocked';   // a link or a file: never written through
+      else {
+        try { fs.mkdirSync(destDir, { recursive: true }); } catch { /* the copies below fail and are not counted */ }
+        for (const f of mem.files) {
+          try { fs.copyFileSync(path.join(mem.dir, f), path.join(destDir, f), fs.constants.COPYFILE_EXCL); out.copied += 1; }
+          catch (e) { if (e && e.code === 'EEXIST') out.kept += 1; }
+        }
+        if (out.copied || out.kept) out.notes = 'copied';
+      }
+    }
+  }
+  // The pointer, on any family change, whenever the folder has a note in it (a switch back to Claude keeps pointing at
+  // what the agent wrote while away).
+  let has = false;
+  try { const st = fs.lstatSync(destDir); has = st.isDirectory() && fs.readdirSync(destDir).some((n) => /\.md$/i.test(n)); } catch { has = false; }
+  if (has && newBrief) {
+    try {
+      const st = fs.lstatSync(newBrief);
+      if (st.isFile()) {
+        const pj = require('./projects');
+        const text = fs.readFileSync(newBrief, 'utf8');
+        const next = pj.spliceBlock(text, CARRIED_NOTES_BODY, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
+        if (next === text) out.pointed = !!pj.findBlock(text, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
+        else if (Buffer.byteLength(next, 'utf8') <= require('./instructions').MAX_BYTES) { fs.writeFileSync(newBrief, next, 'utf8'); out.pointed = true; }
+      }
+    } catch { /* no brief to point from: the notes are still in its folder */ }
+  }
+  return out;
+}
+
+/**
+ * #7410: the switch result's first sentences, said by the route (server.js POST /api/agent/<name>/provider).
+ * A same-family switch keeps its conversation and memory, so it keeps the old sentence. A family change never says
+ * everything it knows stays: it says the conversation does not come across, and what happened to its notes.
+ * `label` and `fromLabel` are the words the route uses for the providers ('Claude' for anthropic).
+ */
+function switchCarryWords(label, carried, fromLabel) {
+  if (!carried) return `${label} it is. Everything it knows and everything it has done stays. `;
+  const from = fromLabel || 'its previous provider';
+  let notes = '';
+  if (carried.toClaude) {
+    notes = carried.pointed ? 'The notes in its folder stay there for it to read, and anything it only remembered from talking is lost. '
+      : 'Anything it only remembered from talking is lost. ';
+  } else if (carried.notes === 'copied') {
+    notes = 'Its saved notes are copied into its folder'
+      + (carried.kept ? ` (${carried.kept === 1 ? 'one was' : `${carried.kept} were`} already there from an earlier switch and kept, not replaced)` : '')
+      + ', and anything it only remembered from talking is lost. ';
+  } else if (carried.notes === 'shared') {
+    notes = 'Its saved notes were not copied: its Claude notes are kept together with another folder\'s, so we could not tell which are its own. Anything it only remembered from talking is lost. ';
+  } else if (carried.notes === 'blocked') {
+    notes = 'Its saved notes were not copied: its folder already has something called memory that is not a folder. Anything it only remembered from talking is lost. ';
+  } else {
+    notes = 'It had no saved notes to copy, so anything it only remembered from talking is lost. ';
+  }
+  return `${label} it is. It keeps its name, its instructions and its files, but its conversation does not come across: `
+    + `${label} cannot read what it said on ${from}. ${notes}`;
 }
 
 function setModel(name, modelKey, opts) {
@@ -6970,6 +7086,8 @@ module.exports = {
   restoreAccount,
   restoreAccountSteps,
   setProvider,
+  switchCarryWords,   // #7410: the route's result sentence for a switch, family change or not
+  crossesFamily,      // #7410
   readJob,
   /* #4353: agyrefresh's production wiring calls this. While it was not exported, the board-start
      refresh threw on every start (caught, one stderr line) and healed nothing. */

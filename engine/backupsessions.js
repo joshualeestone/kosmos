@@ -233,4 +233,40 @@ function sessionsFor(agentDir, opts) {
   return roots.some((r) => rootNameProblem(r.name)) ? [] : roots;
 }
 
-module.exports = { sessionsFor, flatten };
+/* kosmos#7410: this agent's own Claude memory notes, for a provider switch to copy into the agent's folder.
+   ownedClaudeMemory(agentDir, claudeRoot) -> { state, dir?, files? }
+     'owned'  dir is the real memory/ folder, files its top-level regular *.md names (Claude Code's memory is flat)
+     'shared' a memory/ folder exists but claudeOwned does not give it to this agent alone (or it is a link)
+     'none'   no project folder, or no memory/ in it, or nothing readable
+   The `projects` folder itself may be a link (a second account sharing the agents' history is one, and Claude Code
+   follows it); nothing below it may be. Ownership is claudeOwned's rule, the one the backups use. Never throws. */
+function ownedClaudeMemory(agentDir, claudeRoot) {
+  if (typeof agentDir !== 'string' || !path.isAbsolute(agentDir) || typeof claudeRoot !== 'string' || !path.isAbsolute(claudeRoot)) return { state: 'none' };
+  let projects;
+  try { projects = fs.realpathSync(path.join(claudeRoot, 'projects')); } catch { return { state: 'none' }; }
+  const canon = trust.canonicalOnDisk(agentDir);
+  const flats = [...new Set([flatten(canon), flatten(agentDir)])];
+  const belongs = belongsTo(agentDir);
+  let sawShared = false;
+  for (const flat of flats) {
+    const c = folderCheck(projects, flat);
+    if (c.link) { sawShared = true; continue; }
+    if (!c.real) continue;
+    let st;
+    try { st = fs.lstatSync(path.join(c.real, 'memory')); } catch { continue; }
+    if (!st.isDirectory()) { sawShared = true; continue; }   // a link (or a file) where memory/ should be: not taken
+    const only = claudeOwned(c.real, belongs);
+    if (!only.some((r) => r.startsWith('memory/'))) {
+      // claudeOwned lists memory/ only with at least one file in it; an empty memory/ is nothing to carry.
+      let any = false;
+      try { any = fs.readdirSync(path.join(c.real, 'memory')).length > 0; } catch { any = false; }
+      if (any) sawShared = true;
+      continue;
+    }
+    const files = only.filter((r) => /^memory\/[^/]+\.md$/i.test(r)).map((r) => r.slice('memory/'.length));
+    return files.length ? { state: 'owned', dir: path.join(c.real, 'memory'), files } : { state: 'none' };
+  }
+  return { state: sawShared ? 'shared' : 'none' };
+}
+
+module.exports = { sessionsFor, flatten, ownedClaudeMemory };
