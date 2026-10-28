@@ -1757,6 +1757,9 @@ final class FakeBoardWorld {
     var tasksAnswer: (Int, String)? = (200, #"{"tasks":[{"projectId":"p1","projectName":"Catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtBy":"dana"}]}"#)
     // #7034: the board's starred agents (GET /api/agent-stars); nil answers nothing, as before the route.
     var starsAnswer: (Int, String)? = nil
+    // kosmos#7034: the answer to a star pressed on the phone (PUT /api/agent-stars), and the last body it carried.
+    var starWriteAnswer: (Int, String)? = nil
+    var starWriteBodies: [String] = []
     // Each stars read waits the first count's yields before it answers; empty: none.
     var starsYields: [Int] = []
     // Each status read waits the first count's yields before it is sent; statusStarted counts the status reads begun.
@@ -1850,6 +1853,10 @@ final class FakeBoardWorld {
         case "/api/tasks":
             return tasksAnswer.map { answer($0.0, $0.1) }
         case "/api/agent-stars":
+            if r.httpMethod == "PUT" {
+                starWriteBodies.append(r.httpBody.map { String(decoding: $0, as: UTF8.self) } ?? "")
+                return starWriteAnswer.map { answer($0.0, $0.1) }
+            }
             return starsAnswer.map { answer($0.0, $0.1) }
         case "/api/you":
             return youAnswer.map { answer($0.0, $0.1) }
@@ -1981,6 +1988,42 @@ do {
     let pic = Board.parseAgents(Data(#"{"agents":[{"sessionName":"d","name":"D","state":"idle","hasAvatar":true,"avatarVer":3}]}"#.utf8))?.first
     check(pic?.hasAvatar == true && pic?.avatarVer == "3", "the picture flag and version are read from the snapshot")
 }
+
+section("starring from the phone (kosmos#7034)")
+    do {
+        let mac = URL(string: "https://studio.kosmosplus.com/")!
+        let put = Board.starWriteRequest(mac: mac, name: "wes", on: true)
+        let sent = put?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        check(put?.httpMethod == "PUT" && put?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent-stars" && sent?["name"] as? String == "wes" && sent?["on"] as? Bool == true,
+              "a star is the board's own write: PUT /api/agent-stars { name, on }")
+        check(Board.starFailure(on: true, status: 400, data: Data(#"{"error":"too many starred agents"}"#.utf8)).contains("500 agents are starred already")
+              && Board.starFailure(on: true, status: 400, data: Data(#"{"error":"x"}"#.utf8)) == "That agent cannot be starred."
+              && Board.starFailure(on: false, status: 500, data: Data(#"{"error":"we could not save that star"}"#.utf8)).hasPrefix("Stars cannot be changed right now")
+              && Board.starFailure(on: false, status: 502, data: nil) == "That star could not be removed. Try again in a moment.",
+              "a star that did not save says why in the board's words (STAR_MSG), retry only where a retry can help")
+        let (c, w, _, _) = make("kst1")
+        c.setAgentSort(.name, projects: [:])
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"},{"sessionName":"wes","name":"Wes","state":"working"}]}"#)
+        w.starsAnswer = (200, #"{"names":[],"ok":true}"#)
+        c.start()
+        let ok = await settle { isLive(c) }
+        check(ok && c.agents.map(\.session) == ["dana", "wes"] && !c.isStarred("wes"), "premise: nobody starred, Name A to Z")
+        w.starWriteAnswer = (200, #"{"names":["wes"],"ok":true}"#)
+        await c.toggleStar("wes")
+        check(c.isStarred("wes") && c.agents.map(\.session) == ["wes", "dana"] && c.starNote == nil, "a star pressed on the phone saves, and the agent moves to the top at once")
+        check(w.starWriteBodies.last?.contains("\"on\":true") == true && w.starWriteBodies.last?.contains("\"name\":\"wes\"") == true, "it sends the agent and on")
+        w.starWriteAnswer = (500, #"{"error":"we could not save that star"}"#)
+        await c.toggleStar("wes")
+        check(c.isStarred("wes") && c.agents.map(\.session) == ["wes", "dana"] && c.starNote?.hasPrefix("Stars cannot be changed right now") == true,
+              "an unstar that did not save goes back, with the board's words why")
+        w.starWriteAnswer = (200, #"{"names":[],"ok":true}"#)
+        await c.toggleStar("wes")
+        check(!c.isStarred("wes") && c.agents.map(\.session) == ["dana", "wes"] && c.starNote == nil, "an unstar that saves takes the agent back to its place, and the note goes")
+        w.starWriteAnswer = (200, #"{"names":["dana","wes"],"ok":true}"#)
+        await c.toggleStar("dana")
+        check(c.isStarred("wes") && c.isStarred("dana"), "the board's answer decides: a star set elsewhere meanwhile shows too")
+        c.stop()
+    }
 
 section("native board loop: connecting")
     do {

@@ -71,6 +71,37 @@ final class BoardClient: ObservableObject {
     private var stars: (mac: String, names: Set<String>)?
     // The stars of the Mac the shown list came from (Today orders its Needs you cards by them).
     var shownStars: Set<String>? { stars?.mac == shownMac?.address ? stars?.names : nil }
+    // kosmos#7034: starring from the phone. The star shows and the row moves at once, as on the board; the board's answer
+    // (the whole saved list) then decides, and a star that did not save goes back, with the board's own words why. One
+    // save at a time per agent: a second press while one is out waits for nothing and is ignored.
+    @Published private(set) var starNote: String?
+    @Published private(set) var starring: Set<String> = []
+    func isStarred(_ session: String) -> Bool { shownStars?.contains(session) == true }
+    func toggleStar(_ session: String) async {
+        guard let mac = shownMac, !starring.contains(session) else { return }
+        let before = shownStars ?? []
+        let on = !before.contains(session)
+        let epoch = chatEpoch
+        starring.insert(session)
+        defer { starring.remove(session) }
+        starNote = nil
+        showStars(on ? before.union([session]) : before.subtracting([session]), mac: mac.address)
+        let answer = await throughMac { Board.starWriteRequest(mac: $0, name: session, on: on) }
+        guard epoch == chatEpoch, shownMac?.address == mac.address else { return }   // another computer or account now
+        if let answer, answer.1.statusCode == 200, let names = Board.parseStars(answer.0) {
+            showStars(names, mac: mac.address)
+        } else {
+            // Back to what the board last said, never to a guess.
+            showStars(before, mac: mac.address)
+            starNote = Board.starFailure(on: on, status: answer?.1.statusCode ?? 0, data: answer?.0)
+        }
+    }
+    private func showStars(_ names: Set<String>, mac: String) {
+        stars = (mac, names)
+        agents = Board.agentOrder(agents, sort: agentSort, projects: sortProjects, stars: names)
+    }
+    func clearStarNote() { starNote = nil }
+
     // kosmos#7421: the Agents list's order, applied where the list is re-sorted (opening it, a pull), never on a live update,
     // so rows do not move under the person's thumb. `sortProjects` is By project's key (each agent's first project).
     private(set) var agentSort: Board.AgentSort = Board.agentSortDefault
@@ -871,6 +902,7 @@ final class BoardClient: ObservableObject {
 
     // Another Mac keeps chatsOwner (the account has not changed); forget() clears it.
     private func forgetChats() {
+        starNote = nil   // kosmos#7034: a star note was about the other computer's list
         pending = [:]
         sortProjects = [:]   // kosmos#7421: By project's names were the other computer's or account's
         pressing = []
