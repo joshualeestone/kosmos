@@ -199,10 +199,8 @@ enum NewAgent {
         }
         for p in (obj?["projects"] as? [[String: Any]]) ?? [] where p["added"] as? Bool == false {
             let why = NewProject.trimmed(p["because"] as? String ?? "")
-            let said = NewTeam.sentence(why)
-            // Lower-cased after the colon only when it reads as a word, so "GitHub is..." keeps its capital.
-            let lower = said.count > 1 && said.dropFirst().first!.isLowercase ? said.prefix(1).lowercased() + said.dropFirst() : said
-            out.append(why.isEmpty ? notAdded + "." : notAdded + ": " + lower)
+            // The desktop's words exactly: the reason as the board wrote it, ended with a full stop.
+            out.append(why.isEmpty ? notAdded + "." : notAdded + ": " + (".!?".contains(why.last!) ? why : why + "."))
         }
         return out
     }
