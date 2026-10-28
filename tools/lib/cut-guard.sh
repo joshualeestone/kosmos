@@ -627,7 +627,8 @@ kosmos_refuse_if_suite_live() {
 # KNOWN RESIDUAL: a suite started with the suite check off (KOSMOS_TESTS_IGNORE_SUITE=1, or inside a test) waits
 # without a marker, so it still reads as busy; its wait gives up at its own bound (KOSMOS_WAIT_MAX_S, 20 minutes).
 # 🔑 SAFE ONLY WHILE THE CALLER HOLDS THE MACHINE CLAIM AND RENEWS IT (review 3). Skipping a waiting suite is safe
-# because that suite's box check asks about the claim first, so it cannot leave its wait while the claim stands. A
+# because that suite's box check asks about the claim first, so it cannot leave its wait while the claim stands (review 4:
+# unless it runs with KOSMOS_IGNORE_MACHINE_CLAIM, which its marker records on line 7, and then it is still counted). A
 # caller that waits for quiet BEFORE claiming, or lets the claim lapse, could read a waiter as not running in the very
 # moment it unmarks and starts. The wrapper claims first and renews every poll.
 # Unlike kosmos_refuse_if_suite_live it keeps suites started inside a test (no _kosmos_drop_test_fixtures), as the
@@ -641,7 +642,7 @@ kosmos_cut_quiet_box_busy() {
   if [ -n "$probe" ]; then out="$("$probe" 2>/dev/null)"; rc=$?; else out="$(_kosmos_suite_candidates)"; rc=$?; fi
   if [ "$rc" -ge 2 ]; then echo "could not tell whether a test suite runs (rc $rc): treated as busy"; return 0; fi
   [ -n "$out" ] && out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
-  [ -n "$out" ] && out="$(printf '%s\n' "$out" | _kosmos_drop_suite_waiters || true)"
+  [ -n "$out" ] && out="$(printf '%s\n' "$out" | _kosmos_drop_claim_bound_suite_waiters || true)"
   if [ -n "$out" ]; then echo "suite ${out%% *}"; return 0; fi
   if _kosmos_shell_shards_live; then echo "shell shards running"; return 0; fi
   for sc in tools/test-install.sh tools/browser-checks.sh; do
@@ -762,6 +763,31 @@ _kosmos_pid_gone() {
   case "$err" in *[Nn]'o such process'*) return 0 ;; esac
   return 1
 }
+# #7512 review 4: the waiter a pid belongs to (itself or the nearest ancestor holding a verified waiting marker), or
+# nothing. The same bounded walk as _kosmos_descends_from_suite_waiter.
+_kosmos_suite_waiter_of() {
+  local pid="$1" hops=0
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
+    _kosmos_suite_waiter_live "$pid" && { printf '%s' "$pid"; return 0; }
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+    hops=$((hops + 1)); [ "$hops" -gt 64 ] && break
+  done
+  return 1
+}
+# Like _kosmos_drop_suite_waiters, but a waiter whose marker says it ignores the machine claim is KEPT: it is free to
+# start while a cut's claim stands, so a cut must still wait for it (kosmos_cut_quiet_box_busy).
+_kosmos_drop_claim_bound_suite_waiters() {
+  local line pid w
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pid="${line%% *}"
+    if w="$(_kosmos_suite_waiter_of "$pid")"; then
+      [ "$(sed -n '7p' "$(_kosmos_suite_waiter_file "$w")" 2>/dev/null)" = ignores-claim ] || continue
+    fi
+    _kosmos_pid_gone "$pid" && continue
+    printf '%s\n' "$line"
+  done
+}
 _kosmos_drop_suite_waiters() {
   local line pid
   while IFS= read -r line; do
@@ -789,7 +815,10 @@ kosmos_mark_suite_waiting() {
   # light waiter that never will (an older queued-heavy, KOSMOS_SIDE_LANE=0) does not hold the side lane for others.
   # "aware" when it is a queued-heavy.sh that knows about side turns (KOSMOS_SIDE_AWARE=1) but does not take them.
   local l6=""; if [ "${KOSMOS_SIDE_CAPABLE:-0}" = 1 ]; then l6=side; elif [ "${KOSMOS_SIDE_AWARE:-0}" = 1 ]; then l6=aware; fi
-  printf '%s %s\n%s\n%s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" "$(_kosmos_queue_class)" "$l6" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
+  # #7512 review 4: line 7 is "ignores-claim" when this run waits with KOSMOS_IGNORE_MACHINE_CLAIM set. Such a waiter can
+  # leave its wait while a cut's claim stands, so the cut's quiet-box wait (kosmos_cut_quiet_box_busy) still counts it.
+  local l7=""; [ -n "${KOSMOS_IGNORE_MACHINE_CLAIM:-}" ] && l7=ignores-claim
+  printf '%s %s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" "$(_kosmos_queue_class)" "$l6" "$l7" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
     && mv -f "$(_kosmos_suite_waiter_file "$$").tmp.$$" "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null
   return 0
 }

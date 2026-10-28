@@ -13,6 +13,9 @@ suite and the suite waited on the cut, for about 20 minutes, until someone stopp
   drops the caller's own subtree and any suite holding a verified waiting marker, or descended from one
   (`_kosmos_drop_suite_waiters`, the rule kosmos_refuse_if_suite_live already uses). Anything unreadable is busy.
   The shard check is `_kosmos_shell_shards_live`, so a test can stub it.
+- Review 4: a waiting suite with KOSMOS_IGNORE_MACHINE_CLAIM set can leave its wait while the cut's claim stands, so it
+  is NOT skipped: kosmos_mark_suite_waiting writes line 7 `ignores-claim` for such a run (older readers read lines 1
+  to 6 only), and the cut keeps any waiter whose marker says so (`_kosmos_drop_claim_bound_suite_waiters`).
 - The per-cut wrapper sources the Mortals main checkout's cut-guard.sh already (#5470's note). The next wrapper uses
   the FAIL-CLOSED shape in the function's comment (only 0 and 1 are answers; anything else, a missing function's 127
   included, is busy), never a bare `running() { kosmos_cut_quiet_box_busy; }`, which reads a checkout older than
@@ -35,10 +38,15 @@ suite and the suite waited on the cut, for about 20 minutes, until someone stopp
 - Review 3: each other check holds the cut alone (a pre-push build; shard workers, and a pgrep that fails; an install
   harness, and one that cannot be read); CONTROL: all quiet reads quiet, saying nothing.
 
+- Review 4: with NO probe (the wrapper's path, `_kosmos_suite_candidates` stubbed so another agent's suite cannot
+  change the answer) an unmarked suite holds the cut and a waiting one does not; a waiter whose marker says it ignores
+  the claim holds it; a real queued wait with KOSMOS_IGNORE_MACHINE_CLAIM set writes that line and holds the cut.
+
 Mutants: no waiter drop (3 red), every suite dropped (2 red), an unreadable read taken as quiet (1 red), the queue
 writing no marker (the chain arm red), the claim check moved out of the box check and the suite queue dropped (the
 wiring arms red); review 3's five: no pre-push, no shards, a shard error read as none, no install, cannot-tell read as
-quiet (each red on its own arm).
+quiet (each red on its own arm); review 4's three: the no-probe branch blind, the writer omitting line 7, line 7
+ignored (each red).
 
 ## Rejected / out of scope
 
@@ -54,3 +62,7 @@ quiet (each red on its own arm).
 - In the moment before a queued suite's first refused check, it has no marker yet and reads as busy; the next poll
   sees the marker.
 - Merged is not in effect until mortals:~/work/agent-workforce is pulled AND the next wrapper calls the function.
+- A waiter that ignores the machine claim but was started by an OLDER copy of the lib writes no line 7, so it is read as
+  claim-bound and skipped. It needs both the override and an old checkout during a cut; the override is an operator's
+  deliberate choice to run beside a release.
+- The skip is safe only while the caller holds and renews the machine claim (said in the function's comment).

@@ -743,6 +743,39 @@ done
 out="$(CUTONLY=none cutonly 2>&1)"; rc=$?
 { [ "$rc" -eq 1 ] && [ -z "$out" ]; } && pass "#7512 CONTROL: with every check quiet the box reads quiet (rc 1, nothing said)" \
   || fail "#7512 CONTROL: an all-quiet box did not read quiet (rc=$rc, $out)"
+# #7512 review 4: the path the real wrapper takes, with NO probe: the suite list comes from _kosmos_suite_candidates (its
+# real pgrep match is tested on its own above; here it is stubbed so another agent's live suite cannot change the answer).
+nprobe() (
+  kosmos_prepush_build_live() { return 1; }; _kosmos_shell_shards_live() { return 1; }; kosmos_running_lines() { return 1; }
+  _kosmos_suite_candidates() { printf '%s bash tools/run-tests.sh\n' "$wp"; }
+  unset KOSMOS_SUITE_PROBE
+  KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 kosmos_cut_quiet_box_busy
+)
+out="$(nprobe 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "suite $wp" ] && pass "#7512 with no probe (the wrapper's path) an unmarked suite holds the cut" \
+  || fail "#7512 with no probe an unmarked suite did not hold the cut (rc=$rc, $out)"
+mv "$W/held" "$W/markers/suitewait.$wp"
+out="$(nprobe 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [ -z "$out" ] && pass "#7512 with no probe a waiting suite does not hold the cut" \
+  || fail "#7512 with no probe a waiting suite held the cut (rc=$rc, $out)"
+# #7512 review 4: a waiter whose marker says it ignores the machine claim (line 7) can start while the cut's claim
+# stands, so it still holds the cut.
+printf 'heavy\n\nignores-claim\n' >> "$W/markers/suitewait.$wp"   # lines 5, 6 and 7 (the file ends in a newline)
+[ "$(sed -n '7p' "$W/markers/suitewait.$wp")" = ignores-claim ] || fail "#7512 the fixture's line 7 is not ignores-claim"
+out="$(cutbusy "$T/sprobe-waiter" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "suite $wp" ] && pass "#7512 a waiter that ignores the machine claim still holds the cut" \
+  || fail "#7512 a claim-ignoring waiter let the cut go (rc=$rc, $out)"
+mv "$W/markers/suitewait.$wp" "$W/held"
+# And the writer: a real queued wait with KOSMOS_IGNORE_MACHINE_CLAIM set writes line 7, and the cut counts it.
+rm -f "$W/chain"
+alwaysbusy() { echo "busy: a stand-in blocker"; return 1; }
+out="$(KOSMOS_IGNORE_MACHINE_CLAIM=1 KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_EVERY_S=30 KOSMOS_WAIT_QUEUE_CEIL_S=60 KOSMOS_WAIT_SLEEP=cutsleep \
+  kosmos_wait_until_clear "this test run" --suite-queue alwaysbusy 2>&1)"; rc=$?
+chain="$(tr '\n' ' ' < "$W/chain" 2>/dev/null)"
+{ [ "$rc" -eq 1 ] && has "$chain" "marked busy" && ! has "$chain" "quiet"; } \
+  && pass "#7512 a queued wait that ignores the machine claim is marked so, and holds the cut while it waits" \
+  || fail "#7512 a claim-ignoring queued wait read as not running (rc=$rc, chain: $chain)"
+rm -f "$W/chain"
 # And the wiring the chain leans on: run-tests.sh asks about the claim inside the box check, and waits for that check in
 # the suite queue (which is what writes the marker).
 _wired "$RT" '^_rt_box_clear() {' && grep -A1 '^_rt_box_clear() {' "$RT" | grep -q 'kosmos_refuse_if_machine_claimed "this test run" || return 1' \
