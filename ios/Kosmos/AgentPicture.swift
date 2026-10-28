@@ -81,8 +81,7 @@ enum AgentPicture {
         // Each size once (a small picture is tried at its own size only), never under the board's smallest side.
         var sides: [CGFloat] = []
         for s in [512.0, 384, 256, 192, 128].map({ max(CGFloat(minSide), min(CGFloat($0), square)) }) where !sides.contains(s) { sides.append(s) }
-        let alpha = ![.none, .noneSkipFirst, .noneSkipLast].contains(cg.alphaInfo)
-        if alpha {
+        if transparent(cut) {
             for side in sides {
                 let format = UIGraphicsImageRendererFormat()
                 format.scale = 1
@@ -111,6 +110,21 @@ enum AgentPicture {
             }
         }
         return nil
+    }
+
+    // Whether any pixel is see-through, as the desktop's fitPicture looks (a value under 255), not whether the format
+    // could carry it: an opaque screenshot saved with an alpha channel is a photo, and goes as a JPEG. Read at 64 px.
+    private static func transparent(_ image: CGImage) -> Bool {
+        if [.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo) { return false }
+        let n = 64
+        var px = [UInt8](repeating: 0, count: n * n)
+        let read: Bool = px.withUnsafeMutableBytes { buf in
+            guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n,
+                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return false }
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: n, height: n))
+            return true
+        }
+        return read && px.contains { $0 < 255 }
     }
 
     // A catalogue portrait: kept as it came when NewAgent.keepsPortrait says so (a still PNG; the catalogue serves WebP, so
