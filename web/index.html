@@ -25428,6 +25428,19 @@ function seenAtWords(atMs, nowMs) {
 function offlineRemoteView() {
   try { return !onWindows() && kplusRemote(); } catch { return false; }   // a document with no location is not remote
 }
+/* kosmos#7416: "We last heard from it ..." in the person's own clock and words (Mona Lisa): the time alone today,
+   "yesterday at", the weekday within the week, the date before that. Null for a time that is not a time. */
+function lastHeardSentence(ms, now) {
+  const t = new Date(ms), n = new Date(now);
+  if (!Number.isFinite(t.getTime()) || !Number.isFinite(n.getTime()) || ms > now + 60 * 1000) return '';
+  const clock = t.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const day = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((day(n) - day(t)) / (24 * 60 * 60 * 1000));   // calendar days, so a clock change is not a day
+  if (days <= 0) return 'We last heard from it at ' + clock + '.';
+  if (days === 1) return 'We last heard from it yesterday at ' + clock + '.';
+  if (days < 7) return 'We last heard from it on ' + t.toLocaleDateString(undefined, { weekday: 'long' }) + ' at ' + clock + '.';
+  return 'We last heard from it on ' + t.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + '.';
+}
 /**
  * The one thing worth saying when nothing is answering at all.
  *
@@ -25517,10 +25530,17 @@ function paintOfflineNote(down, deviceIsOffline) {
     /* kosmos#4903 seam H: a cloud machine cannot be turned on or reached by a terminal from a browser, and its address
        means nothing to the person, so the remedy is to wait or look from the sign-in page. */
     const cloud = (typeof onCloudMachine === 'function' && onCloudMachine());
+    /* kosmos#7416 (Mona Lisa's words): the computer by its own name when Kosmos+ has told the page (THIS_COMPUTER_NAME,
+       from Your computers), and when this page last heard from it, after the sentence's first clause. Never a claim it
+       is asleep: from here asleep, off and offline look the same. */
+    const named = (typeof THIS_COMPUTER_NAME === 'string' && THIS_COMPUTER_NAME.trim()) ? esc(THIS_COMPUTER_NAME.trim()) : hostMachineCap();
+    const said = cloud ? CLOUD_ASLEEP_SENTENCE : MAC_ASLEEP_SENTENCE + at;
+    const heard = typeof LAST_STATUS_OK_AT === 'number' ? lastHeardSentence(LAST_STATUS_OK_AT, Date.now()) : '';
+    const cut = said.indexOf('. ') + 1 || said.length;   // after the first sentence, or at the end if it is the only one
     slot.innerHTML = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>' + hostMachineCap() + ' is not answering</b>'
-      + '<small>' + (cloud ? CLOUD_ASLEEP_SENTENCE : MAC_ASLEEP_SENTENCE + at) + '</small>'
+      + '<div class="utxt"><b>' + named + ' isn\'t answering</b>'
+      + '<small>' + (heard ? said.slice(0, cut) + ' ' + heard + said.slice(cut) : said) + '</small>'
       + '</div></div>';
     return;
   }
@@ -40621,7 +40641,7 @@ const CLOUD_ASLEEP_SENTENCE = 'It may be restarting, and this page asks again by
   + 'device\'s own connection.';
 const MAC_ASLEEP_SENTENCE = onLinux()   // per platform since #5865, the name kept for its callers
   ? 'It may be turned off, or Kosmos may have stopped on it. Make sure it is on, then run kosmos restart in a terminal on it, and this page asks again by itself. If it is running, check this phone or computer\'s own connection.'
-  : 'It may be asleep or turned off. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If ' + hostMachine() + ' is on, check this phone or computer\'s own connection.';
+  : 'It may be asleep, off or offline. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If ' + hostMachine() + ' is on, check this phone or computer\'s own connection.';   // kosmos#7416: Mona Lisa's first sentence
 /* #6537: the top note (#uoffline-slot) already says "You are offline" and that this phone or computer is not connected,
    and it goes up with these. Both places that set BOARD_DEVICE_OFFLINE true paint it in the same failure branch: the
    status poll (tick's catch) and the projects poll (loadProjects' catch); every box that shows this sentence (the

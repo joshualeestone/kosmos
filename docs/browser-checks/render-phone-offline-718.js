@@ -20,8 +20,8 @@
  *   B. an online phone whose reads get no answer (aborted): that IS the Mac not answering, so the Mac copy stays.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-phone-offline-718.js
- * #718 state 2 rides CONTROL B: an online phone whose reads get no answer is told "Your Mac is
- * not answering" with "asleep or turned off", no Applications-folder remedy, and an agents card
+ * #718 state 2 rides CONTROL B: an online phone whose reads get no answer is told "Your Mac isn't
+ * answering" with "asleep, off or offline" (kosmos#7416), no Applications-folder remedy, and an agents card
  * that names your Mac with no Terminal hatch.
  */
 const fs = require('node:fs');
@@ -147,12 +147,13 @@ const TWO_POLLS_MS = 16000;
       await settle(page);
       await page.route('**/api/status', (r) => r.abort());
       await page.route('**/api/projects', (r) => r.abort());
-      const landed = await waitFor(page, () => /not answering/i.test((document.getElementById('uoffline-slot') || {}).textContent || ''), undefined, TWO_POLLS_MS);
+      const landed = await waitFor(page, () => /(not|n't) answering/i.test((document.getElementById('uoffline-slot') || {}).textContent || ''), undefined, TWO_POLLS_MS);
       const r = await read(page);
       chk(landed && r.online, 'CONTROL B: online, nothing answered, the note says the Mac is not answering', r.note.slice(0, 120));
       chk(!ANY_OFFLINE.test(r.note + r.grid + r.pj), 'CONTROL B: an online phone is not told it is offline', (r.note + ' | ' + r.grid).slice(0, 160));
       // #718 state 2: through Kosmos+ it is the person's Mac, asleep or off, and a phone cannot open an Applications folder.
-      chk(/Your Mac is not answering/.test(r.note) && /asleep or turned off/.test(r.note), 'S2: the note names the Mac and why', r.note.slice(0, 160));
+      // kosmos#7416 (Mona Lisa's words): "isn't answering", and "asleep, off or offline".
+      chk(/Your Mac isn't answering/.test(r.note) && /asleep, off or offline/.test(r.note), 'S2: the note names the Mac and why', r.note.slice(0, 160));
       chk(!/Applications folder/.test(r.note), 'S2: no desktop-only remedy on a phone', r.note.slice(0, 200));
       // The card paints on its own poll: wait for it before reading what it says.
       const carded = await waitFor(page, () => /We cannot read your agents/.test(((document.getElementById('grid') || {}).textContent || '') + ((document.getElementById('alist') || {}).textContent || '')));

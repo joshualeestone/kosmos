@@ -723,7 +723,7 @@ test('#4408: a refused restart promises no remedy it cannot keep, on any platfor
 const sentence = (platform, name) => runPage(platform, [], '(() => { ' + page.liftConst(SCRIPT, name) + ' return ' + name + '; })()');
 function remoteNote(platform, deviceIsOffline) {
   const slot = { dataset: {}, innerHTML: '' };
-  runPage(platform, ['bakedVersion', 'kplusRemote', 'offlineRemoteView', 'paintOfflineNote'],
+  runPage(platform, ['bakedVersion', 'kplusRemote', 'offlineRemoteView', 'lastHeardSentence', 'paintOfflineNote'],
     'paintOfflineNote(true, ' + (deviceIsOffline ? 'true' : 'false') + ')', {
       esc, location: { host: 'box.kosmosplus.com', hostname: 'box.kosmosplus.com' }, __byId: { 'uoffline-slot': slot },
       MAC_ASLEEP_SENTENCE: sentence(platform, 'MAC_ASLEEP_SENTENCE'),   // the page's constant, chosen for this platform
@@ -734,7 +734,7 @@ const SENTENCES = ['MAC_ASLEEP_SENTENCE', 'OFFLINE_SENTENCE', 'SIGNED_OUT_SENTEN
 
 test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos", never "your Mac"', () => {
   const asleep = remoteNote('linux', false);
-  assert.ok(asleep.includes('<b>The computer running Kosmos is not answering</b>'), asleep);
+  assert.ok(asleep.includes('<b>The computer running Kosmos isn\'t answering</b>'), asleep);
   assert.ok(asleep.includes('Make sure it is on, then run kosmos restart in a terminal on it'), asleep);
   assert.ok(asleep.includes('Nothing answered at box.kosmosplus.com.'), 'premise: this is the remote arm: ' + asleep);
   const offline = remoteNote('linux', true);
@@ -753,9 +753,9 @@ test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos",
   }
   assert.match(sentence('win32', 'SIGNED_OUT_SENTENCE'), /Your PC and your agents are fine\./);
   // CONTROL: the same source on a Mac says "your Mac", as before.
-  assert.ok(remoteNote('darwin', false).includes('<b>Your Mac is not answering</b>'));
+  assert.ok(remoteNote('darwin', false).includes('<b>Your Mac isn\'t answering</b>'));
   assert.ok(remoteNote('darwin', true).includes('so it cannot reach your Mac.</small>'));
-  assert.match(sentence('darwin', 'MAC_ASLEEP_SENTENCE'), /^It may be asleep or turned off\. Wake it/);
+  assert.match(sentence('darwin', 'MAC_ASLEEP_SENTENCE'), /^It may be asleep, off or offline\. Wake it/);   // kosmos#7416, Mona Lisa's words
   for (const name of ['SIGNED_OUT_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE']) {   // #6537: OFFLINE_SENTENCE names no machine
     assert.match(sentence('darwin', name), /your Mac|Your Mac/, name + ' lost the Mac words on a Mac');
   }

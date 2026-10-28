@@ -351,8 +351,8 @@ test('#718 state 1: a good status read clears the offline flag with the sign-in 
 
 test('#718 state 2: through Kosmos+, the note says it is the Mac, why, and what to do from a phone', () => {
   const slot = slotAfter([true], { host: 'leo.kosmosplus.com', hostname: 'leo.kosmosplus.com' });
-  assert.match(slot.innerHTML, /Your Mac is not answering/);
-  assert.match(slot.innerHTML, /asleep or turned off/);
+  assert.match(slot.innerHTML, /Your Mac isn't answering/);   // kosmos#7416, Mona Lisa's words
+  assert.match(slot.innerHTML, /asleep, off or offline/);
   assert.match(slot.innerHTML, /check this phone or computer.s own connection/, 'no word about the phone\'s own connection, which state 1 cannot see');
   assert.match(slot.innerHTML, /Nothing answered at leo\.kosmosplus\.com\./);
   assert.ok(!/on this computer/.test(slot.innerHTML), 'a phone was told its own computer is not answering');
@@ -367,9 +367,13 @@ test('#718 state 2: the Kosmos+ note hedges its one named cause and names no oth
   /* The loopback note names no cause at all; the remote one names the usual one a person far from
      the Mac can act on, only as "may be", and nothing the page cannot know. */
   const said = slotAfter([true], { host: 'leo.kosmosplus.com', hostname: 'leo.kosmosplus.com' }).innerHTML.toLowerCase();
-  assert.match(said, /may be asleep or turned off/, 'the cause is no longer hedged');
+  assert.match(said, /may be asleep, off or offline/, 'the cause is no longer hedged');
+  /* kosmos#7416: Mona Lisa's sentence names "offline" as one of the hedged causes ("It may be asleep, off or offline"),
+     so the word is allowed there and only there: anywhere else in the note it would be the phone's own "You are
+     offline", which this arm must not say (#718 state 1 is the device-offline arm). */
+  const outside = said.replace('may be asleep, off or offline', '');
   for (const word of ['server', 'crashed', 'stopped', 'offline', 'restart', 'down', 'firewall', 'quit', 'not running']) {
-    assert.ok(!said.includes(word), `the Kosmos+ note names a cause it cannot know: ${word}`);
+    assert.ok(!outside.includes(word), `the Kosmos+ note names a cause it cannot know: ${word}`);
   }
 });
 

@@ -159,7 +159,7 @@ test('#4903 seam H: the page\'s own "this computer" sentences on the agent, its 
     "' running on ' + " + T + " + '.'",
     "'It keeps trying each time your cloud machine starts. If it appears under Agents, you can remove it there.'",
     'where they live on <span data-cloud-copy="thisMachine">this computer</span>',
-    '(cloud ? CLOUD_ASLEEP_SENTENCE : MAC_ASLEEP_SENTENCE + at)',
+    'const said = cloud ? CLOUD_ASLEEP_SENTENCE : MAC_ASLEEP_SENTENCE + at;',
   ]) assert.ok(PAGE.includes(said), 'missing: ' + said);
   assert.match(SCRIPT, /const CLOUD_ASLEEP_SENTENCE = 'It may be restarting, and this page asks again by itself\./);
   // None of the swapped sentences is left in its old fixed form.
