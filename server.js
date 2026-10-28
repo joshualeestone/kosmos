@@ -26228,6 +26228,18 @@ function start(port = PORT) {
       } else {
         boardAuthState.token = null;
       }
+      /* kosmos#7409: a removed agent stays off after a machine move. launchd's disable does not travel with the plist,
+         so a real board (never a sandboxed fixture, which enforces no token) sets it again for every removed agent
+         launchd does not hold disabled, shortly after it starts. engine/remove.js reapplyRemovedDisables. */
+      if (boardAuthState.on) {
+        setTimeout(() => {
+          try {
+            const kept = removal.reapplyRemovedDisables();
+            if (kept.reapplied.length) process.stdout.write(`Kosmos: removed agents kept from starting again (launchd held no disable for them, as after a machine move): ${kept.reapplied.join(', ')}\n`);
+            if (!kept.ok) process.stderr.write(`Kosmos: could not keep every removed agent from starting again: ${kept.because || kept.failed.join(', ')}\n`);
+          } catch (err) { process.stderr.write(`Kosmos: could not check removed agents' startup jobs: ${String(err && err.message)}\n`); }
+        }, 2000).unref();
+      }
       // Keep a listener attached for the life of the process. Without one, an
       // error after a successful bind is uncaught and exits with a raw stack.
       server.on('error', (err) => {
