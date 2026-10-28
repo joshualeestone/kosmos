@@ -94,6 +94,7 @@ struct NewAgentView: View {
         // As the desktop's refillDetails: another role starts from the mark again, not a photo chosen for the last one.
         // Here, on the sheet, because the role is changed on a screen before Set up.
         .onChange(of: draft.roleKey) { _ in
+            photoLoad += 1; photoLoading = false   // a photo still being fitted was for the last role
             draft.photo = nil; photoImage = nil; photoMessage = nil; markName = ""; markImage = nil
             redrawMark()
         }
