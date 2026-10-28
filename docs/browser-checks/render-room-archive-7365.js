@@ -1,4 +1,4 @@
-// Browser-check-surface: pj-arch-head pj-arch-open pj-arch-back pj-arch-undo pj-arch-ask pjarch-modal pjarch-when pjarch-go msg-archived pj-room
+// Browser-check-surface: pj-arch-head pj-arch-open pj-arch-back pj-arch-undo pj-arch-ask pjarch-modal pjarch-when pjarch-go msg-archived pj-room pj-arch-top pj-arch-ask-top
 'use strict';
 /* kosmos#7365 slice 3b: the room archive, in the real page on a real (sandboxed) board.
  *
@@ -113,7 +113,8 @@ function findUnder(dir, name) {
     const archiveWith = async (choice, re) => {
       // A toast keeps its words after it hides, so the last one is cleared first: only this press's sentence can match (review 6).
       await p.evaluate(() => { const t = document.getElementById('msg-toast'); if (t) t.textContent = ''; });
-      await p.click('#pj-arch-ask');
+      // Whichever "Archive older messages" this width shows: the header's, or on a phone the thread's first row (Mona Lisa).
+      await p.locator('#pj-arch-ask:visible, #pj-room [data-arch-ask]:visible').first().click();
       await p.waitForSelector('#pjarch-modal:not([hidden])', { timeout: 5000 });
       await p.selectOption('#pjarch-when', choice);
       await p.click('#pjarch-go');
@@ -329,13 +330,26 @@ function findUnder(dir, name) {
     chk(/^Nothing in this room is older than .+; the messages you had archived are back in the room\.$/.test(backSaid), 'a cutoff earlier than every post says the archived messages are back and claims nothing is archived', backSaid);
     const sameSaid = await archiveWith('month', /^Nothing more in this room was old enough to archive/);
     chk(/^Nothing more in this room was old enough to archive \(before .+\)\.$/.test(sameSaid), 'the same cutoff again says nothing more was old enough, not a receipt', sameSaid);
-    // Phone width: the header holds read-aloud, the archive button and search; none of it may push the page sideways.
+    // Phone width (Mona Lisa, 04:0x): the header's archive link goes (it was a 44 px row that took the thread down to its
+    // floor) and the thread's first row carries it instead; nothing may push the page sideways.
     await p.setViewportSize({ width: 390, height: 844 });
     await p.waitForTimeout(400);
-    const narrow = await p.evaluate(() => { const b = document.getElementById('pj-arch-ask').getBoundingClientRect(); const h = document.getElementById('pj-arch-ask').closest('.pjmidhead').getBoundingClientRect(); return { sw: document.documentElement.scrollWidth, vw: innerWidth, left: Math.round(b.left), right: Math.round(b.right), w: Math.round(b.width), headRight: Math.round(h.right) }; });
+    await scrollToStart();
+    const narrow = await p.evaluate(() => {
+      const head = document.getElementById('pj-arch-ask');
+      const top = document.querySelector('#pj-room [data-arch-ask]');
+      const b = top ? top.getBoundingClientRect() : { left: 0, right: 0, width: 0, height: 0 };
+      const firstRow = document.getElementById('pj-room').firstElementChild;
+      return { sw: document.documentElement.scrollWidth, vw: innerWidth, headShown: head.getClientRects().length > 0,
+        left: Math.round(b.left), right: Math.round(b.right), w: Math.round(b.width), h: Math.round(b.height),
+        first: !!(top && firstRow && firstRow.contains(top)), edges: document.querySelectorAll('#pj-room > .pj-arch-edge').length };
+    });
     await p.screenshot({ path: path.join(OUT, 'phone-header.png') });
     chk(narrow.sw <= narrow.vw, 'at 390px the page does not scroll sideways', JSON.stringify(narrow));
-    chk(narrow.w > 0 && narrow.left >= 0 && narrow.right <= Math.min(narrow.vw, narrow.headRight), 'at 390px the archive button is shown, inside the window and inside its header', JSON.stringify(narrow));
+    chk(!narrow.headShown, 'at 390px the header has no archive link (it would cost the thread its height)', JSON.stringify(narrow));
+    chk(narrow.first && narrow.w > 0 && narrow.left >= 0 && narrow.right <= narrow.vw && narrow.h >= 44,
+      'at 390px the thread\'s first row carries Archive older messages, inside the window, a 44 px target', JSON.stringify(narrow));
+    chk(narrow.edges === 1, 'at 390px one line at the top of the thread, not a second line competing with it', JSON.stringify(narrow));
     // And the archive view at 390px: its header above the thread must not push the newest archived post under the composer.
     await archiveWith('day', /are archived/);   // the search was cleared before the resize, so nothing to fill here (review 4)
     await scrollToStart();
