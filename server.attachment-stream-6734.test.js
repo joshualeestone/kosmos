@@ -626,6 +626,7 @@ test('#6734: an upload whose part file cannot be written (a full disk) is refuse
         (req) => { req.on('error', () => {}); req.end(Buffer.alloc(64 * 1024, 3)); });
       if (failed > 0 || openErrors.length === opensBefore) break;
       await until(() => parts().length === 0);
+      await new Promise((r) => setTimeout(r, 100));   // review 1: a moment for descriptors to free
     }
   } finally { fs.createWriteStream = real; }
   assert.ok(failed > 0, 'the write was never attempted, so this tested nothing: ' + JSON.stringify({ got, openErrors }));
