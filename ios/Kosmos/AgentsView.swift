@@ -46,17 +46,13 @@ struct AgentsView: View {
             for e in (o.accessibilityElements ?? []) { if let n = e as? NSObject, let f = findElement(n, depth: depth + 1) { return f } }
             return nil
         }
-        // Run 2 pressed the first menu in the bar (the computer switcher): pick the one that offers the sort orders.
-        func offersSort(_ m: UIMenu) -> Bool {
-            m.children.contains { e in
-                if let sub = e as? UIMenu { return offersSort(sub) }
-                return e.title == Board.agentSortLabel(.talked)
-            }
+        // Run 2 pressed the first menu in the bar (the computer switcher, on the left); run 3 found no menu listing the
+        // orders (SwiftUI fills it only when it opens). The sort menu is the bar's rightmost menu, beside +.
+        func menuButtons(_ v: UIView) -> [UIButton] {
+            ((v as? UIButton).flatMap { $0.menu != nil ? [$0] : nil } ?? []) + v.subviews.flatMap(menuButtons)
         }
         func findMenuButton(_ v: UIView) -> UIButton? {
-            if let b = v as? UIButton, let m = b.menu, offersSort(m) { return b }
-            for sv in v.subviews { if let f = findMenuButton(sv) { return f } }
-            return nil
+            menuButtons(v).filter { $0.window != nil }.max { $0.convert($0.bounds, to: nil).midX < $1.convert($1.bounds, to: nil).midX }
         }
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
         if let found = windows.lazy.compactMap({ findElement($0, depth: 0) }).first {
