@@ -301,6 +301,7 @@ function* endSteps(name, opts, confirmAlive) {
      yielded sleep, answered by the driver. */
   if (confirmAlive === true && out.stillAlive === true) {
     yield { sleep: stillAliveSettleMs() };
+    // A pid reused by another process within the settle is negligible: Windows does not reuse a pid while a handle to it is open.
     if (pidSeen(found.pid) !== 'alive') { const { stillAlive, ...notSeen } = out; return notSeen; }
   }
   return out;

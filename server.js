@@ -10688,9 +10688,10 @@ const server = http.createServer(async (req, res) => {
                  paragraph, and this is the branch where something already went wrong,
                  which is where a confident-sounding sentence costs most. */
               + runsOn('When it restarts it will run on')
-              + signInNote
-              /* #7455: last, so the paragraph ends on what the next start will cost and what to do about it. */
-              + pending,
+              /* #7455: right after the restart sentences, so "At that restart" follows "until it restarts" / "When it
+                 restarts it will run on" and never an OpenAI sign-in note (round 5). '' when it keeps its conversation. */
+              + pending
+              + signInNote,
           steps: back.steps || [],
         });
       })
