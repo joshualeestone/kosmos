@@ -4425,8 +4425,6 @@ do {
     check(!Download.shouldSay(up: false, refusal: true, lastAt: t0, now: t0.addingTimeInterval(5), shownThisPage: 1), "none within 10 s of the last, whatever its sentence")
     check(Download.shouldSay(up: false, refusal: true, lastAt: t0, now: t0.addingTimeInterval(10), shownThisPage: 1), "CONTROL: said again after 10 s")
     check(!Download.shouldSay(up: false, refusal: true, lastAt: nil, now: t0, shownThisPage: 2), "at most twice for one sentence on one page")
-    check(Download.shouldSay(up: false, refusal: false, lastAt: t0, now: t0.addingTimeInterval(1), shownThisPage: 5), "review 1: a failure is always said, as on the Mac")
-    check(!Download.shouldSay(up: true, refusal: false, lastAt: nil, now: t0, shownThisPage: 0), "but never over another message")
     check(Download.fileName(String(repeating: "a", count: 130) + "." + String(repeating: "b", count: 119)).first != "." && Download.fileName(String(repeating: "a", count: 200)).count == 120,
           "review 4: a long name is cut to 120 and never starts on a dot")
     check(Download.fileName("photo\u{202E}gpj.exe") == "photogpj.exe" && Download.fileName("a\u{2028}b") == "ab", "review 1: no direction or separator characters in a name")

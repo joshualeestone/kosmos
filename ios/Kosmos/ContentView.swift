@@ -697,6 +697,8 @@ final class BoardWeb: ObservableObject {
         webView?.stopLoading()
         webView?.navigationDelegate = nil
         webView?.uiDelegate = nil
+        // kosmos#7389: nothing of a download outlives the lock: no file offered over the lock screen, no line left behind.
+        coordinator.tearDownDownloads()
         coordinator.web = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: PushNotificationManager.sessionHandlerName)
         webView?.removeFromSuperview()
@@ -963,6 +965,8 @@ struct WebView: UIViewRepresentable {
         private var lines: [ShellState.Downloading] = []
         // Weak, so an entry goes with its download and a later one at the same address can never inherit it.
         private let cancelledByPerson = NSHashTable<WKDownload>.weakObjects()
+        // The downloads on their way, so a lock can stop them (WebKit keeps a download only as long as someone holds it).
+        private var active: [ObjectIdentifier: WKDownload] = [:]
 
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
             pageURL = webView.url
@@ -998,10 +1002,29 @@ struct WebView: UIViewRepresentable {
 
         func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
             download.delegate = self
+            active[ObjectIdentifier(download)] = download
         }
 
         func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
             download.delegate = self
+            active[ObjectIdentifier(download)] = download
+        }
+
+        // On lock (BoardWeb.drop): every download stops, every line goes, what is on screen is dismissed and every file
+        // this kept is removed, so nothing of the board is offered over the lock or left in tmp.
+        func tearDownDownloads() {
+            for d in active.values { cancelledByPerson.add(d); d.cancel { _ in } }
+            for id in Array(active.keys) { cleanUp(id) }
+            active.removeAll()
+            lines.removeAll()
+            shell?.downloading = nil
+            for item in waiting { if case .sheet(_, let folder) = item { try? FileManager.default.removeItem(at: folder) } }
+            waiting.removeAll()
+            if let folder = currentFolder { try? FileManager.default.removeItem(at: folder) }
+            current?.dismiss(animated: false)
+            showing = false
+            current = nil
+            currentFolder = nil
         }
 
         // A download's redirect stays on the page's own origin; anywhere else is refused (iOS has no other check there).
@@ -1061,6 +1084,7 @@ struct WebView: UIViewRepresentable {
 
         func downloadDidFinish(_ download: WKDownload) {
             let id = ObjectIdentifier(download)
+            active.removeValue(forKey: id)
             endLine(id)
             cancelledByPerson.remove(download)
             guard let folder = downloadFolders.removeValue(forKey: id), let name = downloadNames.removeValue(forKey: id) else { return }
@@ -1101,6 +1125,7 @@ struct WebView: UIViewRepresentable {
         // A download that ended without a file: its line, its folder and its name go. Safe to run twice (Cancel runs it,
         // and so does the failure that may follow).
         private func cleanUp(_ id: ObjectIdentifier) {
+            active.removeValue(forKey: id)
             endLine(id)
             downloadNames.removeValue(forKey: id)
             if let folder = downloadFolders.removeValue(forKey: id) { try? FileManager.default.removeItem(at: folder) }
@@ -1121,6 +1146,8 @@ struct WebView: UIViewRepresentable {
         // What is on screen now, and its file's folder when it is a sheet: if it goes without reporting back (a scene torn
         // down, a dismiss from elsewhere), the queue notices and moves on, and the folder goes.
         private weak var current: UIViewController?
+        // Which presentation is current: a late report from one the queue already moved past changes nothing else.
+        private var currentToken: UUID?
         private var currentFolder: URL?
         private var retries = 0
 
@@ -1157,6 +1184,7 @@ struct WebView: UIViewRepresentable {
             waiting.removeFirst()
             showing = true
             retries = 0
+            let token = UUID()
             let shown: UIViewController
             switch next {
             case .message(let sentence, let refusal):
@@ -1164,15 +1192,14 @@ struct WebView: UIViewRepresentable {
                                               message: sentence, preferredStyle: .alert)
                 alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
                     if refusal { self?.refusalLastAt = Date() }
-                    self?.shownEnded()
+                    if self?.currentToken == token { self?.shownEnded() }
                 })
                 shown = alert
             case .sheet(let file, let folder):
                 let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
                 sheet.completionWithItemsHandler = { [weak self] _, _, _, _ in
-                    try? FileManager.default.removeItem(at: folder)
-                    self?.currentFolder = nil
-                    self?.shownEnded()
+                    try? FileManager.default.removeItem(at: folder)   // its own file, whichever is current now
+                    if self?.currentToken == token { self?.shownEnded() }
                 }
                 currentFolder = folder
                 // An iPad shows it as a popover, which needs somewhere to point.
@@ -1181,6 +1208,7 @@ struct WebView: UIViewRepresentable {
                 shown = sheet
             }
             current = shown
+            currentToken = token
             top.present(shown, animated: true)
             DispatchQueue.main.async { [weak self, weak shown] in
                 guard let self, shown?.presentingViewController == nil else { return }
@@ -1194,6 +1222,7 @@ struct WebView: UIViewRepresentable {
         private func shownEnded() {
             showing = false
             current = nil
+            currentToken = nil
             currentFolder = nil
             showNext()
         }

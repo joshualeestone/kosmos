@@ -178,7 +178,7 @@ struct DownloadLine: View {
         .padding(.horizontal, 16).padding(.vertical, 12)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .padding(.horizontal, 12).padding(.bottom, 12)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.updatesFrequently)
+        // Contain, not combine: Cancel stays a button VoiceOver can reach on its own.
+        .accessibilityElement(children: .contain)
     }
 }
