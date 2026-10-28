@@ -1353,6 +1353,13 @@ do {
     check(P.accounts(for: .openai, P.Accounts(rows: [], known: true)).choices == [P.AccountChoice(value: "", label: "The OpenAI sign-in on this computer")],
           "OpenAI with no account: the computer's own sign-in, nothing sent")
     check(P.accounts(for: .alibaba, acc).choices.map(\.label) == ["Qwen on this computer"], "Qwen named by where it runs")
+    func qwen(_ url: String) -> String {
+        P.primaryName(P.Account(dir: "/q", provider: .alibaba, rawProvider: "alibaba", email: nil, name: nil, keyTail: nil, label: nil,
+                                baseUrl: url, local: false, isDefault: false, memoryShared: false, badge: nil, state: nil,
+                                hasConnection: false, offerable: true))
+    }
+    check(qwen("http://box:80/v1") == "box" && qwen("https://box:443/v1") == "box" && qwen("http://box:8080/v1") == "box:8080"
+          && qwen("http://[::1]:11434/v1") == "[::1]:11434", "a Qwen endpoint named as JavaScript's URL host names it")
     check(P.accounts(for: .antigravity, acc) == ([], "", false), "Gemini by subscription: no account row, nothing sent")
     check(P.accounts(for: .google, acc).choices.map(\.value) == [""], "a signed-out Gemini key is not offered")
 

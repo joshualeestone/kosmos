@@ -80,6 +80,7 @@ struct NewAgentView: View {
     @State private var openaiModelsFor: [String: NewAgentPicker.OpenaiModels] = [:]   // by account dir, as read
     @State private var openaiModelFor: [String: String] = [:]                        // by account dir; "" is Let OpenAI choose
     @State private var openaiRead = 0                 // the newest models read: an older one landing late is dropped
+    @State private var openaiReading: String?         // review 3: the account whose list is being read now
     @State private var pickGoneWhy: String?           // a pick the menu no longer allows, put back and said
     @State private var accountsSettled = false        // review 1: /api/accounts answered or failed, or 5 s went by
     // Review 1: the team's choice as its first run made members on it (the desktop's TC.model); Try again uses it.
@@ -838,13 +839,16 @@ struct NewAgentView: View {
     // The menus follow what has answered: a pick no longer offered is put back and said; an untouched one follows the
     // default. Never while a team is being made: its choice is fixed (the desktop's tcChoiceFixed).
     private func settlePicker() {
-        guard !teamLocked, draft.kind != .swarm else { return }
+        guard !teamLocked else { return }
+        // Review 3: the agent's default settles on a swarm too (onProvider shows Claude there), so going back to Agent
+        // opens on it, as the desktop's resetCreateProvider does from the list it holds. Only a touched pick's undoing
+        // (and its sentence) waits for the agent's own screen.
         if !providerTouched {
             provider = NewAgentPicker.defaultProvider(pickAccounts, swarm: false)
-        } else if let gone = NewAgentPicker.pickGone(provider, pickAccounts, pickReady, swarm: false) {
+        } else if draft.kind != .swarm, let gone = NewAgentPicker.pickGone(provider, pickAccounts, pickReady, swarm: false) {
             provider = gone.back; pickGoneWhy = gone.why
         }
-        if provider == .openai && openaiModels == nil { Task { await readOpenaiModels() } }
+        if onProvider == .openai && openaiModels == nil { Task { await readOpenaiModels() } }
     }
     // Review 1: each read applies as it lands (the desktop's painters do), and a failed read keeps the last good answer:
     // never a confident "not here" from a read that did not answer (museCreateAsk, agyAsk).
@@ -885,6 +889,10 @@ struct NewAgentView: View {
     private func readOpenaiModels() async {
         let dir = account
         guard !dir.isEmpty, onProvider == .openai else { return }   // review 2: before the count, so it never stales a live read
+        // Review 3: one read per account at a time (every landing read settles the picker, and would start another).
+        guard openaiReading != dir else { return }
+        openaiReading = dir
+        defer { if openaiReading == dir { openaiReading = nil } }
         openaiRead += 1
         let read = openaiRead
         let before = openaiModelsFor[dir]

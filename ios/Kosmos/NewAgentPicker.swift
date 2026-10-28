@@ -141,7 +141,13 @@ enum NewAgentPicker {
     static func primaryName(_ a: Account) -> String {
         if let n = a.name { return n }
         if a.rawProvider == "alibaba" {
-            let host = a.baseUrl.flatMap { URL(string: $0) }.map { u in (u.host ?? "") + (u.port.map { ":\($0)" } ?? "") } ?? ""
+            // Review 3: as JavaScript's new URL().host: a scheme's default port left out, an IPv6 host in brackets.
+            let host = a.baseUrl.flatMap { URL(string: $0) }.map { u -> String in
+                let h = u.host ?? ""
+                let named = h.contains(":") ? "[" + h + "]" : h
+                let defaultPort = (u.scheme == "http" && u.port == 80) || (u.scheme == "https" && u.port == 443)
+                return h.isEmpty ? "" : named + (u.port.flatMap { defaultPort ? nil : ":\($0)" } ?? "")
+            } ?? ""
             return a.local ? "Qwen on this computer" : (!host.isEmpty ? host : (a.label ?? "Qwen endpoint"))
         }
         let keyed = ["openai", "google", "xai", "alibaba", "deepseek"].contains(a.rawProvider)

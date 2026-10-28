@@ -54,6 +54,11 @@
    read is neither a failure nor settled; the models read counter moves only past its guards; a models read with no
    answer keeps the list held before, else says it could not reach OpenAI; choosing the same account again reads
    nothing. Decided: while a team is locked a late account list can change the account shown, never the one sent.
+3. opus: 1 MAJOR, 2 MINOR, fixed. Traced a default-Claude single create and an OpenAI-only team to the request:
+   both match the desktop. MAJOR: the untouched default did not settle on a swarm, so Swarm then Agent could make a
+   Claude agent for an OpenAI-only person; it settles whatever the kind now (only a touched pick's undoing waits for
+   the agent's screen). MINORs: one OpenAI models read per account at a time; a Qwen endpoint is named as JavaScript's
+   URL host (default port dropped, IPv6 in brackets), tested.
 
 ## Not verified
 
