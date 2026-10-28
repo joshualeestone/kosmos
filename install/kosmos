@@ -3443,9 +3443,15 @@ cmd_post() {
       say "Posted, but not everyone is confirmed${because:+: $because}."
       if [ -n "$_unsure" ]; then say "Kosmos may have typed it in, but could not confirm it, for: $_unsure. It may well have arrived."; fi
       if [ -n "$_missed" ]; then
-        say "Not reached: $_missed. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room $project)."
         _first=${_missed%%,*}
-        say "To reach one of them now, message them directly (it goes to them alone): kosmos msg $_first \"...\""
+        if [ -n "$_unrec" ]; then
+          # Round 3: not typed AND not recorded, so they have no copy anywhere.
+          say "Not reached: $_missed. Kosmos could not type into their session and the room could not record it, so they do not have it."
+          say "Message them directly (it goes to them alone): kosmos msg $_first \"...\""
+        else
+          say "Not reached: $_missed. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room $project)."
+          say "To reach one of them sooner, message them directly (it goes to them alone): kosmos msg $_first \"...\""
+        fi
       fi
       if [ -n "$_unrec" ]; then
         say "The room could not record it, so it may not show there. Do not re-post: anyone it reached could get it twice."

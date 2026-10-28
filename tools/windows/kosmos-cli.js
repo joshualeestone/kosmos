@@ -833,8 +833,14 @@ async function verbPost(ctx, args) {
     const code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '.');
     if (whose('unconfirmed').length) ctx.err('Kosmos may have typed it in, but could not confirm it, for: ' + whose('unconfirmed').join(', ') + '. It may well have arrived.');
     if (whose('could_not').length) {
-      ctx.err('Not reached: ' + whose('could_not').join(', ') + '. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room ' + project + ').');
-      ctx.err('To reach one of them now, message them directly (it goes to them alone): kosmos msg ' + whose('could_not')[0] + ' "..."');
+      // Round 3: not typed AND not recorded, so they have no copy anywhere.
+      if (d.unrecorded === true) {
+        ctx.err('Not reached: ' + whose('could_not').join(', ') + '. Kosmos could not type into their session and the room could not record it, so they do not have it.');
+        ctx.err('Message them directly (it goes to them alone): kosmos msg ' + whose('could_not')[0] + ' "..."');
+      } else {
+        ctx.err('Not reached: ' + whose('could_not').join(', ') + '. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room ' + project + ').');
+        ctx.err('To reach one of them sooner, message them directly (it goes to them alone): kosmos msg ' + whose('could_not')[0] + ' "..."');
+      }
     }
     ctx.err(d.unrecorded === true ? 'The room could not record it, so it may not show there. Do not re-post: anyone it reached could get it twice.'
       : 'Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.');

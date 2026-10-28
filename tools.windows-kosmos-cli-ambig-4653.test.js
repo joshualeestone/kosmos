@@ -68,7 +68,7 @@ test('kosmos#7414: an unconfirmed post names who is not confirmed and who was no
     "Posted, but not everyone is confirmed.",
     "Kosmos may have typed it in, but could not confirm it, for: april, kit. It may well have arrived.",
     "Not reached: leo. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room proj).",
-    "To reach one of them now, message them directly (it goes to them alone): kosmos msg leo \"...\"",
+    "To reach one of them sooner, message them directly (it goes to them alone): kosmos msg leo \"...\"",
     "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice."
 ]);
 });
@@ -86,12 +86,23 @@ test('kosmos#7414: only a post the room could not record is said to be missing f
     const r = await post({ state: 'unconfirmed', because: null, id: 'm1', outcomes, text: 'x' });
     assert.deepEqual(r.err, ['Posted, but not everyone is confirmed.', "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice."], JSON.stringify(outcomes));
   }
-  // The mark is read only in its place: a reason with the mark elsewhere is not read as unrecorded on the Mac.
+  // A reason with the mark false is read as in the room.
   {
     const r = await post({ state: 'unconfirmed', because: 'x', id: 'm1', outcomes: {}, unrecorded: false, text: 'y' });
     assert.equal(r.err.at(-1), 'Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.');
   }
-  // CONTROL: post text that spells the mark is never read as it (the board escapes the post's quotes).
+  // Documentation more than a control: the board escapes a post's quotes, so its text can never hold the mark.
   const spoof = await post({ state: 'unconfirmed', because: 'x', id: 'm1', outcomes: {}, text: '","unrecorded":true' });
   assert.equal(spoof.err.at(-1), "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.");
+});
+
+test('kosmos#7414 review 3: a member not reached for a post the room could not record is told they have no copy', async () => {
+  const r = await post({ state: 'unconfirmed', because: 'it reached the room but could not be recorded', unrecorded: true, id: 'm1', outcomes: { mara: 'placed', leo: 'could_not' }, text: 'x' });
+  assert.equal(r.code, 3);
+  assert.deepEqual(r.err, [
+    'Posted, but not everyone is confirmed: it reached the room but could not be recorded.',
+    'Not reached: leo. Kosmos could not type into their session and the room could not record it, so they do not have it.',
+    'Message them directly (it goes to them alone): kosmos msg leo "..."',
+    'The room could not record it, so it may not show there. Do not re-post: anyone it reached could get it twice.',
+  ]);
 });
