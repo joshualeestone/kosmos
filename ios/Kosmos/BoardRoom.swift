@@ -585,6 +585,16 @@ extension Board {
         let agentsUnreadable: Bool
     }
 
+    // kosmos#7421: By project on the Agents list: each agent's first project name A to Z, by session, from this list's
+    // members (the desktop's agentFirstProject).
+    static func firstProjects(_ list: ProjectList?) -> [String: String] {
+        var names: [String: [String]] = [:]
+        for p in list?.projects ?? [] where !p.name.trimmingCharacters(in: .whitespaces).isEmpty {
+            for m in p.members { names[m.session, default: []].append(p.name.trimmingCharacters(in: .whitespaces)) }
+        }
+        return names.mapValues { $0.sorted { $0.compare($1, options: [.caseInsensitive, .diacriticInsensitive], locale: .current) == .orderedAscending }[0] }
+    }
+
 
     // kosmos#7106: the room's needs-you notice (the board's pjNeedsNotice, PJ_NEEDS_WHY): one row per member the route
     // counts here, with the board's reason and action words, and the key Dismiss sends.

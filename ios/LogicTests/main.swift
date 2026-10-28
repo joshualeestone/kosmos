@@ -3960,6 +3960,11 @@ do {
     let boardPage = (try? String(contentsOf: page, encoding: .utf8)) ?? ""
     check(boardPage.contains("const NEARLY_FULL = 80;") && boardPage.contains("const WARM = 60;"),
           "the board's bands are still 60 and 80 (read from web/index.html)")
+    // kosmos#7421: the eight orders are the desktop's own, keys and words in its order (read from web/index.html).
+    let deskKeys = boardPage.range(of: "const AGENT_SORTS = [").map { String(boardPage[$0.upperBound...].prefix(while: { $0 != "]" })) } ?? ""
+    check(deskKeys.replacingOccurrences(of: "'", with: "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } == Board.AgentSort.allCases.map(\.rawValue), "the phone's orders are the desktop's AGENT_SORTS, in its order")
+    check(Board.AgentSort.allCases.allSatisfy { boardPage.contains("['\($0.rawValue)', '\(Board.agentSortLabel($0))']") }, "each order's words are the desktop's menu words (agentSortControlHtml)")
+    check(boardPage.contains("const AGENT_SORT_DEFAULT = '\(Board.agentSortDefault.rawValue)';"), "the default order is the desktop's")
     // kosmos#7341: the avatar dot's presence table is the board's CARD_ST pres, state for state (read from web/index.html).
     do {
         var board: [String: Board.Presence] = [:]
@@ -4023,12 +4028,34 @@ do {
         check(Board.pill(q(a("rate_limited")) { $0.macTone = .needsYou }) == .held, "CONTROL: the Mac's needs-you tone leaves a held state amber")
         check(Board.pill(q(needing("needs_you")) { $0.reportedByAgent = true }) == .asks,
               "CONTROL: an agent's question stays blue though the board counts it as needing the person")
-        // kosmos#7343: the Agents list's order, its own or by name (ties keep the list's order).
-        let ord = [Board.Agent(session: "b", name: "bea", role: nil, state: "idle", task: nil, needsYou: false),
-                   Board.Agent(session: "a", name: "Al", role: nil, state: "idle", task: nil, needsYou: false),
-                   Board.Agent(session: "c", name: "al", role: nil, state: "idle", task: nil, needsYou: false)]
-        check(Board.agentOrder(ord, byName: false).map(\.session) == ["b", "a", "c"], "kosmos#7343: Needs you first keeps the computer's order")
-        check(Board.agentOrder(ord, byName: true).map(\.session) == ["a", "c", "b"], "Name sorts without case, ties in the computer's order")
+        // kosmos#7421: the desktop's eight orders (web/index.html sortAgents), each with a tie on name and on position.
+        func ag(_ s: String, _ n: String, state: String = "idle", needs: Bool = false, role: String? = nil, model: String? = nil,
+                talked: Double? = nil, active: Double? = nil, made: Double? = nil) -> Board.Agent {
+            var a = Board.Agent(session: s, name: n, role: role, state: state, task: nil, needsYou: needs)
+            a.model = model
+            a.lastTalkedAt = talked.map { Date(timeIntervalSince1970: $0) }
+            a.lastActiveAt = active.map { Date(timeIntervalSince1970: $0) }
+            a.createdAt = made.map { Date(timeIntervalSince1970: $0) }
+            return a
+        }
+        let crew = [ag("b", "bea", state: "working", role: "writer", model: "Claude Opus 5", talked: 100, active: 50, made: 1),
+                    ag("a", "Al", state: "blocked", role: nil, model: nil, talked: 300, active: nil, made: 3),
+                    ag("c", "al", needs: true, role: "Analyst", model: "codex", talked: nil, active: 90, made: 2),
+                    ag("d", "Dee", role: "writer", model: "Claude Opus 5", talked: 100, active: 50, made: nil)]
+        func order(_ s: Board.AgentSort, projects: [String: String] = [:], stars: Set<String>? = nil) -> [String] {
+            Board.agentOrder(crew, sort: s, projects: projects, stars: stars).map(\.session)
+        }
+        check(order(.name) == ["a", "c", "b", "d"], "Name A to Z: without case, a tie keeps the computer's order")
+        check(order(.talked) == ["a", "b", "d", "c"], "Last talked to: newest first, a tie by name, never talked to last")
+        check(order(.active) == ["c", "b", "d", "a"], "Recently active: newest first, unknown last")
+        check(order(.newest) == ["a", "c", "b", "d"], "Newest first: by when it was made, unknown last")
+        check(order(.needs) == ["c", "a", "b", "d"], "Needs you first: needs you, blocked, working, idle (the desktop's needsRank)")
+        check(order(.model) == ["b", "d", "c", "a"], "By model: A to Z, no model last")
+        check(order(.role) == ["c", "b", "d", "a"], "By role: A to Z by the role line, none last")
+        check(order(.project, projects: ["d": "Alpha", "a": "beta"]) == ["d", "a", "c", "b"], "By project: the first project A to Z, none last (by name)")
+        check(order(.name, stars: ["d"]) == ["d", "a", "c", "b"] && order(.talked, stars: ["d", "c"]) == ["d", "c", "a", "b"], "starred agents first in every order, the order applied within each group (#6719)")
+        check(Board.agentSort(saved: "board") == .needs && Board.agentSort(saved: "name") == .name && Board.agentSort(saved: "x") == .talked, "the phone's older saved choice still means Needs you first; anything unknown is the desktop's default")
+        check(Board.sortModel(["earlierModelName": "Opus 4.5"]) == "Claude Opus 4.5" && Board.sortModel(["modelName": "Claude Sonnet 5", "plannedModelName": "x"]) == "Claude Sonnet 5" && Board.sortModel(["runner": "claude"]) == nil && Board.sortModel(["runner": "codex"]) == "codex", "the model the order reads: live, then planned, then the earlier session's")
     }
 }
 
