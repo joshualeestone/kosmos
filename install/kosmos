@@ -6374,9 +6374,12 @@ cmd_task() {
         [ "$clear" = true ] && { say "--clear takes the mark off, so it takes no commit. Run it without --commit."; exit 2; }
         [ "$_bcommit" = 2 ] && [ -n "$cref" ] || { say "--commit needs the commit the fix landed as, for example --commit HEAD."; exit 2; }
         csha=$(git rev-parse --verify --quiet --end-of-options "$cref^{commit}" 2>/dev/null) || csha=""
+        case "$csha" in *[!0-9a-f]*) csha="" ;; esac   # hex only, as the Windows CLI checks
         case "$csha" in ????????????????????????????????????????|????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot find that commit here: $cref. Run this inside the repository the fix was committed in, and name the commit (for example --commit HEAD)."; exit 2 ;; esac
         crepo=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || crepo=""
         [ -n "$crepo" ] || { say "Kosmos cannot read which repository that commit is in."; exit 2; }
+        # The board refuses a path with control characters, and one would break this hand-built JSON: say so here.
+        case "$crepo" in *[[:cntrl:]]*) say "Kosmos cannot record a commit from a repository whose path has control characters in it."; exit 2 ;; esac
         [ -n "$(git branch -r --contains "$csha" 2>/dev/null | head -1)" ] && conremote=true
         commit_json=",\"commit\":{\"sha\":\"$csha\",\"repo\":\"$(printf '%s' "$crepo" | sed 's/\\/\\\\/g; s/"/\\"/g')\",\"onRemote\":$conremote}"
       fi

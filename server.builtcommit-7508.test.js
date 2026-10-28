@@ -259,3 +259,36 @@ test('slice 2 route: the Tasks view checks a closed task\'s commit now: kept whi
   landedcheck.resetForTests();
   assert.equal((await rowOf()).landedCheck, 'missing', 'a commit no branch has read as kept on a closed task');
 });
+
+test('review 1: the page is never sent the repository path; an open row says a remote has the commit once one does', async () => {
+  const landedcheck = require('./engine/landedcheck');
+  landedcheck.resetForTests();
+  const r = makeRepo('route-remote');
+  const n = newTask('Fix the sidebar');
+  assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', commit: { sha: r.sha, repo: r.repo, onRemote: false } }).ok, true);
+  const rowOf = async () => ((await (await fetch(base + '/api/tasks?view=tasks', { headers: { origin: base } })).json()).tasks || [])
+    .find((x) => x.projectId === projectId && x.number === n);
+  const before = await rowOf();
+  assert.equal(before.landedRepo, undefined, 'the page was sent a path on this computer');
+  assert.equal(before.landedOnRemote, false, 'CONTROL: a commit no remote has');
+  assert.equal(before.landedCheck, undefined, 'an open task carried a closed task\'s check');
+  const bare = path.join(SANDBOX, 'route-remote.git');
+  git(SANDBOX, 'init', '-q', '--bare', bare);
+  git(r.dir, 'remote', 'add', 'origin', bare);
+  git(r.dir, 'push', '-q', 'origin', 'main');
+  git(r.dir, 'fetch', '-q', 'origin');
+  landedcheck.resetForTests();
+  assert.equal((await rowOf()).landedOnRemote, true, 'a fix pushed after its mark still said it is only on this computer');
+});
+
+test('review 1: a task its parts closed, then reopened by a new part, drops the old commit', () => {
+  const n = newTask('Fix in two steps');
+  tasks.addPart(projectId, n, { sentence: 'step one', who: 'mona' });
+  assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', commit: { sha: SHA, repo: REPO, onRemote: true } }).ok, true);
+  for (const part of tasks.partsOf(stored(n))) tasks.setPartClosed(projectId, n, part.id, new Date().toISOString());
+  assert.equal(tasks.progressOf(stored(n)).closed, true, 'CONTROL: closing its one part closed the task');
+  assert.equal(stored(n).landedCommit, SHA, 'closing by parts dropped the commit');
+  tasks.addPart(projectId, n, { sentence: 'step two', who: 'mona' });
+  assert.equal(tasks.progressOf(stored(n)).closed, false, 'CONTROL: a new part reopened it');
+  assert.equal(stored(n).landedCommit, undefined, 'new work kept the old commit');
+});

@@ -483,8 +483,10 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     if ((forWork || closedNow) && t.builtAt) {
       changed = withoutBuilt(changed);
       droppedForWork = forWork && !closedNow;
-      if (droppedForWork) changed = withoutLanded(changed);   // #7508: new work, so the old commit goes
     }
+    /* #7508: new work, or a task its parts reopened, is not the fix the old commit landed, so the commit goes. Not tied
+       to the built mark: a task closed by its parts has already lost that mark (review 1). */
+    if (!closedNow && (forWork || progressOf(t).closed)) changed = withoutLanded(changed);
     /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
        with the control hidden while it was closed). */
     if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; heldDropped = true; }
