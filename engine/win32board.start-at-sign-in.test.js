@@ -132,7 +132,7 @@ const os = require('node:os');
 const ANCHOR_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-7498-'));
 test.after(() => { fs.rmSync(ANCHOR_DIR, { recursive: true, force: true }); board.setAnchorer(null); });
 const BUNDLE = {
-  platform: 'win32', root: 'C:\\Kosmos\\v1', exists: () => true, home: ANCHOR_DIR,
+  platform: 'win32', root: 'C:\\Kosmos\\v1', exists: () => true, home: ANCHOR_DIR, anchorDir: ANCHOR_DIR,
   env: { USERNAME: 'person', USERDOMAIN: 'PC', LOCALAPPDATA: ANCHOR_DIR },
 };
 function withWatchdogState(state, watchdog) {
@@ -143,7 +143,18 @@ function withWatchdogState(state, watchdog) {
       base.calls.push(args.join(' '));
       if (watchdog === 'present') return { ok: true, out: 'TaskName: \\Kosmos\\board-watchdog' };
       if (watchdog === 'unreadable') return { ok: false, out: 'ERROR: Access is denied.' };
+      if (watchdog === 'german') return { ok: false, out: 'FEHLER: Das System kann die angegebene Datei nicht finden.' };
       return NOT_FOUND;
+    }
+    // Review 1: the label-free task list; unreadable too when the watchdog's own query is.
+    if (args[0] === '/Query' && args.includes('/FO')) {
+      base.calls.push(args.join(' '));
+      return watchdog === 'unreadable' ? { ok: false, out: 'ERROR: Access is denied.' } : { ok: true, out: '"\\Kosmos\\board","N/A","Ready"\r\n' };
+    }
+    if (args[0] === '/Create' && args[3] === 'Kosmos\\board-watchdog') {
+      base.calls.push(args.join(' '));
+      fn.xml = fs.readFileSync(args[5]).toString('utf16le');
+      return { ok: true, out: 'SUCCESS' };
     }
     return base(args);
   };
@@ -162,6 +173,29 @@ test('#7498: switched on with no watchdog, the watchdog is registered, and the a
   assert.ok(createdWatchdog(s.calls), 'no watchdog /Create: ' + s.calls.join(' | '));
   assert.deepEqual(r.watchdog, { ok: true, action: 'registered', task: 'Kosmos\\board-watchdog' });
   assert.ok(fs.existsSync(path.join(ANCHOR_DIR, board.WATCH_NAME)), 'the watchdog shim was not written beside the board one');
+  // Review 1: the boot's spec, read from the definition registered: the anchor's interpreter, its shim, the bundle.
+  assert.ok(s.xml.includes(path.join(ANCHOR_DIR, 'node.exe')), 'not the anchored interpreter: ' + s.xml.slice(0, 400));
+  assert.ok(s.xml.includes(path.join(ANCHOR_DIR, board.WATCH_NAME)), 'not the anchored shim');
+  assert.ok(s.xml.includes('<WorkingDirectory>C:\\Kosmos\\v1</WorkingDirectory>'), 'not the bundle as working folder');
+  assert.ok(s.xml.includes('PC\\person'), 'not the signed-in user');
+});
+
+test('#7498 review 1: a German "not found" is still read as missing (the label-free task list), and it is registered', () => {
+  const s = withWatchdogState({ registered: true, enabled: false }, 'german');
+  const r = board.setStartAtSignIn(true, BUNDLE);
+  assert.deepEqual(r.watchdog, { ok: true, action: 'registered', task: 'Kosmos\\board-watchdog' }, JSON.stringify(r));
+  assert.ok(createdWatchdog(s.calls), s.calls.join(' | '));
+});
+
+test('#7498 review 1: an already-on switch still heals a missing watchdog; no anchoring, and a source checkout says nothing', () => {
+  const s = withWatchdogState({ registered: true, enabled: true }, 'missing');
+  board.setAnchorer(() => { throw new Error('a Settings switch must never anchor'); });
+  const r = board.setStartAtSignIn(true, BUNDLE);
+  assert.equal(r.watchdog && r.watchdog.action, 'registered', JSON.stringify(r));
+  assert.ok(!s.calls.some((c) => c.startsWith('/Change')), 'an on switch was changed');
+  withWatchdogState({ registered: true, enabled: false }, 'missing');
+  const src = board.setStartAtSignIn(true, { ...BUNDLE, root: undefined, exists: () => false });
+  assert.equal('watchdog' in src, false, 'a source checkout registers nothing: ' + JSON.stringify(src));
 });
 
 test('#7498 CONTROL: switched on with a watchdog already registered, it is left as it is', () => {

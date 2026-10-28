@@ -876,7 +876,11 @@ function setStartAtSignIn(on, opts) {
   if (!before.registered) {
     return { ok: false, because: 'there is no job on this computer that starts Kosmos when you sign in, so there is nothing to turn on or off' };
   }
-  if (before.enabled === on) return { ok: true, on };
+  if (before.enabled === on) {
+    /* #7498 review 1: an "on" that is already on still heals a missing watchdog (a boot that ran out of time). */
+    const watchdog = on ? ensureWatchdog(o) : null;
+    return watchdog ? { ok: true, on, watchdog } : { ok: true, on };
+  }
   const changed = on ? enable() : disable();
   if (!changed.ok) return { ok: false, because: changed.because };
   const after = status({ now: o.now });
@@ -907,17 +911,33 @@ function ensureWatchdog(opts) {
   try {
     const root = bundleRoot(o);
     if (!root) return null;
-    const q = run(['/Query', '/TN', WATCHDOG_TASK_NAME]);
+    const now = o.now || Date.now;
+    const started = now();
+    /* Review 1: one schtasks budget for the /Query and the /Create (a Settings request blocks the board's thread). */
+    const left = () => SCHTASKS_TIMEOUT_MS - (now() - started);
+    const q = run(['/Query', '/TN', WATCHDOG_TASK_NAME], SCHTASKS_TIMEOUT_MS);
     if (q.ok) return { ok: true, action: 'present', task: WATCHDOG_TASK_NAME };
-    if (!/cannot find|does not exist/i.test(q.out || '')) {
-      return { ok: false, because: 'we could not tell whether the job that restarts Kosmos if it stops is there (' + (q.out || 'no detail').trim().split('\n')[0] + '), so we left it as it is' };
+    /* Review 1: a missing task is known by English words OR, on any language, by the label-free task list (as
+       status() proves the board task absent, #2973). Neither: we cannot tell, so nothing is created blind. */
+    let absent = /cannot find|does not exist/i.test(q.out || '');
+    if (!absent) {
+      const all = win32job.machineTaskPaths(run);
+      absent = all.known && !all.paths.some((x) => x.toLowerCase() === WATCHDOG_TASK_NAME.toLowerCase());
     }
+    if (!absent) {
+      return { ok: false, because: 'we could not tell whether the job that restarts Kosmos if it stops is there, so we left it as it is' };
+    }
+    /* Review 1: the spec a boot gives the watchdog, WITHOUT anchoring: anchoring rewrites the fleet's pointer and boot
+       shim and is the boot's job alone. The watchdog needs only the anchor's folder and its interpreter, because its
+       shim reads the pointer each time it runs. */
     const env = machineEnv(o);
-    const anchor = anchorFor({ platform: o.platform, home: o.home, env, node: o.node, engineDir: o.engineDir });
-    if (!anchor.ok) return { ok: false, because: anchor.because };
-    /* #3016: an older copy than the one anchored registers nothing, as ensureInstalled. */
-    if (anchor.downgrade) return { ok: false, because: 'a newer copy of Kosmos is installed, so this older one did not register the job that restarts Kosmos if it stops' };
-    const w = installWatchdog({ node: anchor.node, dir: anchor.dir, workingDir: o.workingDir || root, env });
+    const dir = o.anchorDir || anchorDirFor(o);   // o.anchorDir: a caller's (or a test's) known anchor folder, as o.root
+    if (!dir) return { ok: false, because: 'we could not tell where Kosmos keeps its startup files' };
+    const node = path.join(dir, win32anchor.NODE_NAME);
+    const exists = o.exists || ((f) => fs.existsSync(f));
+    if (!exists(node)) return { ok: false, because: 'Kosmos has not set up its startup files on this computer yet, so the job that restarts it if it stops is registered the next time Kosmos starts' };
+    if (left() < MIN_SCHTASKS_QUERY_MS) return { ok: false, because: NO_TIME_LEFT + ', so the job that restarts Kosmos if it stops was not registered this time' };
+    const w = installWatchdog({ node, dir, workingDir: o.workingDir || root, env, timeoutMs: left() });
     return w.ok ? { ok: true, action: 'registered', task: w.task } : { ok: false, because: w.because };
   } catch (e) {
     return { ok: false, because: 'we could not register the job that restarts Kosmos if it stops (' + ((e && e.message) || 'no detail') + ')' };
