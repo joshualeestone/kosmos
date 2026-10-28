@@ -499,3 +499,18 @@ test('#7365 3b (phone): CSS hides the header link and shows the thread one only 
   assert.match(block, /\.pj-arch-top \{ display: flex; \}/);
   assert.match(block, /\.linkish\.pj-arch-ctl\.pj-arch-ask-top \{[^}]*min-height: 44px/, 'not a 44 px target');
 });
+
+test('#7365 3b (phone review): focus goes to the Archive older messages on screen, else the composer, never a hidden one', () => {
+  const ctx = vm.createContext({});
+  const el = (id, shown) => ({ id, getClientRects: () => (shown ? [1] : []) });
+  vm.runInContext(liftAll(SCRIPT, ['pjArchAskShown']) + '\nthis.f = pjArchAskShown;', ctx);
+  const run = (headShown, threadEl) => {
+    const head = el('pj-arch-ask', headShown), post = el('pj-post', true);
+    ctx.document = { getElementById: (id) => (id === 'pj-arch-ask' ? head : id === 'pj-post' ? post : null), querySelector: () => threadEl };
+    return ctx.f().id;
+  };
+  assert.equal(run(true, el('thread', false)), 'pj-arch-ask', 'desktop: the header link');
+  assert.equal(run(false, el('thread', true)), 'thread', 'phone: the thread\'s link');
+  assert.equal(run(false, null), 'pj-post', 'phone, no link shown (searching, empty room): the composer');
+  assert.equal(run(false, el('thread', false)), 'pj-post', 'never a link that is not shown');
+});

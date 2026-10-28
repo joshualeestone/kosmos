@@ -76306,6 +76306,12 @@ function pjArchAfter(before) {
   pjWinReset(PJ_CURRENT);
   if (box) box.__lastRoom = undefined;
   loadRoom();
+  // kosmos#7365 3b (phone review): the repaint replaced the thread's own Archive older messages, which had focus; focus
+  // then sits on the page. It goes back to the link on screen, else the composer, as Undo and Back do.
+  if (typeof document !== 'undefined' && typeof pjArchAskShown === 'function' && (!document.activeElement || document.activeElement === document.body)) {
+    const t = pjArchAskShown();
+    if (t && typeof t.focus === 'function') t.focus();
+  }
 }
 let PJ_ARCH_ASK_GEN = 0;   // one per opening of the confirm: a request from an earlier opening never acts on a later one
 function pjArchAsk() {
@@ -76399,7 +76405,10 @@ document.getElementById('pj-room').addEventListener('click', (e) => {
 function pjArchAskShown() {
   const head = document.getElementById('pj-arch-ask');
   if (head && head.getClientRects().length) return head;
-  return document.querySelector('#pj-room [data-arch-ask]') || head;
+  const inThread = document.querySelector('#pj-room [data-arch-ask]');
+  if (inThread && inThread.getClientRects().length) return inThread;
+  // Neither shown (a search, or an empty room, on a phone): the composer, never a hidden link focus would vanish into.
+  return document.getElementById('pj-post');
 }
 let PJ_POSTING = false;
 let PJ_REPLY_SENDING = null;   // #3745: { project, id } of the reply on its way, so x knows whether THIS reply already left
