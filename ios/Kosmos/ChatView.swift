@@ -1847,7 +1847,7 @@ struct BubbleTail: Shape {
     }
 }
 
-// "··· <name> is working": the dots pulse gently, and stay still with Reduce Motion on; VoiceOver hears the words only.
+// "<dots> <name> is working": the board's wave (WorkingDots, kosmos#7427); VoiceOver hears the words only.
 struct WorkingLine: View {
     let name: String
 
