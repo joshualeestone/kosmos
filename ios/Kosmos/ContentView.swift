@@ -432,7 +432,8 @@ struct ContentView: View {
                 .ignoresSafeArea(edges: .top)
                 .ignoresSafeArea(.keyboard)
             if let failure = shell.failure {
-                LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer, macName: shell.failureMac)
+                LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer, macName: shell.failureMac,
+                                lastSeen: Board.lastSeen(board.macs, address: shell.failureAddress, name: shell.failureMac))
             }
             // kosmos#7389 (Mona Lisa): a file that takes more than a second says so, with Cancel, so a big file never looks like
             // a tap that did nothing.
@@ -1288,6 +1289,7 @@ struct WebView: UIViewRepresentable {
             shell?.failureDetail = e.localizedDescription
             // kosmos#7197: name the Mac that did not answer (its address label).
             shell?.failureMac = failure == .macUnreachable ? Shell.macName(fromHost: failingURL?.host) : nil
+            shell?.failureAddress = failure == .macUnreachable ? failingURL?.host : nil
             shell?.show(failure)
         }
     }
