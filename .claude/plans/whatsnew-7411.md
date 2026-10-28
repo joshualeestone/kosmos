@@ -31,7 +31,7 @@ Weakest premise: that highlights are the right granularity; a restart-needing fi
 unsaid. Remedy if it matters: pool entries never shown in What's New but listed here.
 
 ## Tests
-engine/releasenotes.test.js (14): the filter (held and future excluded, with a control), since and its refusal, the
+engine/releasenotes.test.js (15): the filter (held and future excluded, with a control), since and its refusal, the
 format and its single restart line, the built file vs the source fallback, the pool's restart check and the `notes`
 command, the real pool ships no held item, all three builds call `notes` after their version and none copies the
 pool, the CLI end to end (text, --json, a bad --since), the platform filter, the newest-version
