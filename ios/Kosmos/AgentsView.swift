@@ -558,6 +558,8 @@ enum Palette {
     // kosmos#7034: the board's star (.astar.on): its deep gold in light (#9c741b, which holds 3:1 on the card where the
     // bright gold does not), its bright gold in dark (--gold-bright).
     static let starGold = pair(0x9c741b, 0xe3b341)
+    // kosmos#7419: a reaction already the person's, in the long-press sheet: a warm fill under the gold ring (Mona Lisa).
+    static let mineReaction = pair(0xfbf1d9, 0x3a2f12)
     static let askedWord = pair(0x7a5200, 0xffca55)
     static let dangerWord = pair(0xb3261e, 0xff6b5e)
     // kosmos#7030: the board's built colour (--pj-mention), the dot before a ready-to-check card's "Marked built" line.

@@ -404,3 +404,159 @@ private struct CursorField18: View {
             }
     }
 }
+
+// kosmos#7419 (Josh 10-27 20:24, Mona Lisa's design on the card): long-press a message, in a direct message or a project
+// room, for a bottom sheet as Discord has: a row of quick reactions and More (the board's whole list), then Reply and Copy
+// text. A light haptic on the press. The sheet is sized to its content and grows to full height for More. Shared by
+// ChatBubble, the files bubble and the room's post, through .messageActions.
+struct MessageActionsSheet: View {
+    let mine: Set<String>                 // the reactions already the person's (marked; a tap takes one off)
+    let react: ((String) -> Void)?        // nil where the message takes no reactions
+    let reply: (() -> Void)?              // nil where it takes no reply
+    let text: String                      // what Copy text puts on the clipboard
+    @Binding var more: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        if more { picker } else { actions }
+    }
+
+    private func pick(_ e: String) {
+        react?(e)
+        dismiss()
+    }
+
+    private func spoken(_ e: String) -> String { mine.contains(e) ? "Remove " + e : "React with " + e }
+
+    private func face(_ e: String, size: CGFloat) -> some View {
+        Button { pick(e) } label: {
+            Text(e).font(.system(size: size * 0.55))
+                .frame(width: size, height: size)
+                .background(Circle().fill(mine.contains(e) ? Palette.mineReaction : Palette.card))
+                .overlay(Circle().strokeBorder(Palette.starGold, lineWidth: mine.contains(e) ? 2 : 0))
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(spoken(e))
+    }
+
+    private var actions: some View {
+        VStack(spacing: 12) {
+            if react != nil {
+                HStack(spacing: 0) {
+                    ForEach(Board.quickReactions, id: \.self) { e in face(e, size: 40).frame(maxWidth: .infinity) }
+                    Button { more = true } label: {
+                        Image(systemName: "face.smiling").font(.system(size: 20)).foregroundColor(Palette.secondary)
+                            .overlay(Image(systemName: "plus").font(.system(size: 9, weight: .bold)).foregroundColor(Palette.secondary)
+                                .offset(x: 9, y: -9))
+                            .frame(width: 40, height: 40)
+                            .background(Circle().fill(Palette.card))
+                            .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel("More reactions")
+                }
+            }
+            if let reply {
+                row("Reply", "arrowshape.turn.up.left") {
+                    dismiss()
+                    // After the sheet has gone, so the box can take the keyboard.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { reply() }
+                }
+            }
+            row("Copy text", "doc.on.doc") {
+                UIPasteboard.general.string = text
+                dismiss()
+            }
+        }
+        .padding(.horizontal, 16).padding(.top, 20).padding(.bottom, 12)
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private func row(_ title: String, _ symbol: String, _ run: @escaping () -> Void) -> some View {
+        Button(action: run) {
+            HStack(spacing: 12) {
+                Image(systemName: symbol).font(.body).foregroundColor(Palette.primary).frame(width: 24)
+                Text(title).font(.body).foregroundColor(Palette.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16).frame(minHeight: 50)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.card))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // More: the board's 80 (ComposerExtras.emoji, PJ_EMOJI), eight to a row, in its order.
+    private var picker: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text("Reactions").font(.headline).foregroundColor(Palette.primary)
+                Spacer()
+                Button("Done") { more = false; dismiss() }.font(.body.weight(.semibold)).foregroundColor(Palette.starGold)
+            }
+            .padding(.horizontal, 16).padding(.top, 16)
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 8), spacing: 4) {
+                    ForEach(ComposerExtras.emoji, id: \.self) { e in face(e, size: 38) }
+                }
+                .padding(.horizontal, 8).padding(.bottom, 16)
+            }
+        }
+    }
+}
+
+// The long press and the sheet, on any message view. A simultaneous gesture, so taps on links and the scroll still work.
+struct MessageActions: ViewModifier {
+    #if DEBUG
+    static var sampleOpened = false
+    #endif
+    let enabled: Bool
+    let mine: Set<String>
+    let react: ((String) -> Void)?
+    let reply: (() -> Void)?
+    let text: String
+    @State private var open = false
+    @State private var more = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    // The sheet's height before More: the reaction row, Reply and Copy text, at the person's text size.
+    private var height: CGFloat {
+        let rowH: CGFloat = typeSize.isAccessibilitySize ? 76 : 50
+        return 32 + (react != nil ? 56 : 0) + (reply != nil ? rowH + 12 : 0) + rowH + 24
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .simultaneousGesture(LongPressGesture(minimumDuration: 0.35).onEnded { _ in
+                guard enabled else { return }
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                more = false
+                open = true
+            })
+            #if DEBUG
+            // Design shots only: KOSMOS_SAMPLE_SHEET=1 (or =more) opens the sheet on the first message that takes reactions.
+            .onAppear {
+                let want = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SHEET"]
+                if let want, react != nil, !MessageActions.sampleOpened {
+                    MessageActions.sampleOpened = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { more = want == "more"; open = true }
+                }
+            }
+            #endif
+            .sheet(isPresented: $open) {
+                MessageActionsSheet(mine: mine, react: react, reply: reply, text: text, more: $more)
+                    .presentationDetents(more ? [.large] : [.height(height)])
+                    .presentationDragIndicator(.visible)
+                    .background(Palette.ground.ignoresSafeArea())
+            }
+    }
+}
+
+extension View {
+    func messageActions(enabled: Bool = true, mine: Set<String>, react: ((String) -> Void)?, reply: (() -> Void)?, text: String) -> some View {
+        modifier(MessageActions(enabled: enabled, mine: mine, react: react, reply: reply, text: text))
+    }
+}

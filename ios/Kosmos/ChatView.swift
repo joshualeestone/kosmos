@@ -834,8 +834,11 @@ struct ChatView: View {
                                 faded: false,
                                 spoken: filesSpoken(row, head: head, mine: mine),
                                 actions: row.answerable(by: agent.session) ? replyActionList(row) : [])
-                        // kosmos#7083: Reply and the reactions on an agent's message with files too, from its bubble.
-                        .contextMenu { if row.answerable(by: agent.session) { replyMenu(row) } }
+                        // kosmos#7083: Reply and the reactions on an agent's message with files too, from its bubble; kosmos#7419:
+                        // through the long-press sheet, with Copy text for any message.
+                        .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)),
+                                        react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
+                                        reply: row.answerable(by: agent.session) ? { startReply(row) } : nil, text: row.text)
                     if !row.reactions.isEmpty {
                         ReactionPills(pills: row.reactions, toggle: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil)
                     }
@@ -1486,7 +1489,7 @@ struct ChatView: View {
         .overlay(Rectangle().fill(Palette.separator).frame(width: 2), alignment: .leading)
     }
 
-    // React and Reply for one of the agent's messages (the menu on a files bubble, and its VoiceOver actions).
+    // React and Reply for one of the agent's messages, as VoiceOver actions on a files bubble (the long press opens the sheet).
     // The same choices as a list, for VoiceOver actions on each file card.
     private func replyActionList(_ row: Board.ChatRow) -> [(name: String, run: () -> Void)] {
         var out: [(name: String, run: () -> Void)] = []
@@ -1494,14 +1497,6 @@ struct ChatView: View {
         for r in row.reactions where r.mine { out.append(("Remove your " + r.emoji, { reactTo(r.emoji, row) })) }
         out.append(("Reply", { startReply(row) }))
         return out
-    }
-
-    @ViewBuilder private func replyMenu(_ row: Board.ChatRow) -> some View {
-        ForEach(Board.quickReactions.filter { e in !row.reactions.contains { $0.emoji == e && $0.mine } }, id: \.self) { e in
-            Button("React with " + e) { reactTo(e, row) }
-        }
-        ForEach(row.reactions.filter(\.mine), id: \.emoji) { r in Button("Remove your " + r.emoji) { reactTo(r.emoji, row) } }
-        Button("Reply") { startReply(row) }
     }
 
     private func failedReason(_ p: Board.PendingSend) -> String? {
@@ -1705,18 +1700,9 @@ struct ChatBubble: View {
         VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
             if let head, !headHidden { ReplyHeadLine(head: head) }
             BubbleText(text: row.text, mine: mine, tail: lastOfRun, widthShare: widthShare)
-                // One long-press menu per bubble, set here (a menu on the shared bubble would hide the pending one's Delete).
-                .contextMenu {
-                    if let react {
-                        // As the files menu and the VoiceOver actions: a reaction already yours is offered as Remove.
-                        ForEach(Board.quickReactions.filter { e in !row.reactions.contains { $0.emoji == e && $0.mine } }, id: \.self) { e in
-                            Button { react(e) } label: { Text(e) }
-                        }
-                        ForEach(row.reactions.filter(\.mine), id: \.emoji) { r in Button("Remove your " + r.emoji) { react(r.emoji) } }
-                    }
-                    if let reply { Button(action: reply) { Label("Reply", systemImage: "arrowshape.turn.up.left") } }
-                    Button { UIPasteboard.general.string = row.text } label: { Label("Copy", systemImage: "doc.on.doc") }
-                }
+                // One long-press per bubble, set here (on the shared bubble it would hide the pending one's Delete).
+                // kosmos#7419: the sheet (quick reactions, More, Reply, Copy text) in place of the menu.
+                .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text)
             if !row.reactions.isEmpty { ReactionPills(pills: row.reactions, toggle: react) }
             if let failed {
                 if lastOfRun, let at = row.at {
