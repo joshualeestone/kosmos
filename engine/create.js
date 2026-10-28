@@ -2781,20 +2781,25 @@ function agentClaudeRoot(job) {
 }
 
 /* #7410 review 1: every folder Kosmos knows (agent folders, recorded agent folders, project folders), so a Claude project
-   name another of them also flattens to is refused. Null when the projects list cannot be read: then nothing is copied. */
+   name another of them also flattens to is refused. Null when any of them cannot be read: then nothing is copied.
+   Review 2: only a folder that is not there yet (ENOENT) counts as empty; any other listing error, or a profile that
+   cannot be read or parsed, is null, never a partial list (a partial list is how a same-name folder goes unseen). */
 function knownFolders() {
   const out = [];
   try {
     const root = workersDir();
     for (const e of fs.readdirSync(root, { withFileTypes: true })) if (e.isDirectory()) out.push(path.join(root, e.name));
-  } catch { /* no workers folder yet */ }
-  try {
-    const dir = path.dirname(store.profilePath('x'));
-    for (const f of fs.readdirSync(dir)) {
-      if (!f.endsWith('.json')) continue;
-      try { const p = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); if (p && typeof p.dir === 'string') out.push(p.dir); } catch { /* not a profile */ }
-    }
-  } catch { /* no profiles yet */ }
+  } catch (e) { if (!e || e.code !== 'ENOENT') return null; }
+  let dir;
+  try { dir = path.dirname(store.profilePath('x')); } catch { return null; }
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch (e) { if (!e || e.code !== 'ENOENT') return null; }
+  for (const f of names) {
+    if (!f.endsWith('.json')) continue;
+    let p;
+    try { p = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return null; }
+    if (p && typeof p.dir === 'string') out.push(p.dir);
+  }
   let projectsList;
   try { projectsList = require('./projects').readAll(); } catch { return null; }
   for (const p of projectsList || []) if (p && typeof p.folder === 'string') out.push(p.folder);
@@ -2900,7 +2905,7 @@ function switchCarryWords(label, carried, fromLabel) {
     shared: 'its Claude notes are kept together with another folder\'s, so we could not tell which are its own',
     unattributed: 'there is no conversation of its own beside them to show they are its own',
     collides: 'another folder Kosmos knows is filed under the same Claude notes name, so some may not be its own',
-    newer: 'some were changed after its own last conversation there, so another session may have written them',
+    newer: 'some were changed after its own last conversation there, so we could not be sure they are its own',
     unchecked: 'we could not read the other folders Kosmos knows, to rule out notes that are not its own',
     blocked: 'its folder already has something called memory (or memory/claude-notes) that is not a folder',
   };
@@ -2914,7 +2919,9 @@ function switchCarryWords(label, carried, fromLabel) {
     notes = 'Its saved notes are copied into its folder'
       + (carried.kept ? ` (${carried.kept === 1 ? 'one was' : `${carried.kept} were`} already there from an earlier switch and kept, not replaced)` : '')
       + (carried.skipped ? ` (${carried.skipped === 1 ? 'one was' : `${carried.skipped} were`} left out: not a plain file, or over 1 MB)` : '')
-      + ', and anything it only remembered from talking is lost. ';
+      + ', and anything it only remembered from talking is lost. '
+      // Review 2: copied but the brief could not be pointed at them (no brief we may write, or two pointer blocks).
+      + (carried.pointed ? '' : 'Its instructions do not mention them yet, so tell it they are in memory/claude-notes/ in its folder. ');
   } else if (notCopied[carried.notes]) {
     notes = `Its saved notes were not copied: ${notCopied[carried.notes]}. ${lost}`;
   } else {

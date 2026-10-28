@@ -154,6 +154,58 @@ test('#7410 review 1: a folder another known folder flattens to the same Claude 
   assert.equal(create.setProvider(ctl, 'openai', OPTS).carried.notes, 'copied', 'CONTROL: a unique slug is copied');
 });
 
+test('#7410 review 2: the same-name check folds case where the file system does (workers/x-y vs X.Y)', () => {
+  const name = born('sm7410-m-n');
+  fs.mkdirSync(nodePath.join(SANDBOX, 'workers', 'SM7410-M.N'), { recursive: true });
+  claudeProject(name, { 'MEMORY.md': 'maybe M.N\'s\n' });
+  const r = create.carryClaudeNotes(name, { runner: 'claude' }, 'codex', nodePath.join(create.workerDir(name), 'CLAUDE.md'), 'anthropic', 'openai');
+  const folds = process.platform === 'win32' || process.platform === 'darwin';
+  assert.equal(r.notes, folds ? 'collides' : 'copied',
+    folds ? 'a folder differing only in case shares the Claude project folder here, and its notes were copied'
+      : 'CONTROL: a case-sensitive file system keeps the two apart');
+});
+
+/* Review 2: anything Kosmos cannot read about the folders it knows means nothing is copied. */
+function carryOwned(name) {
+  claudeProject(name, { 'MEMORY.md': 'mine\n' });
+  return () => create.carryClaudeNotes(name, { runner: 'claude' }, 'codex', nodePath.join(create.workerDir(name), 'CLAUDE.md'), 'anthropic', 'openai');
+}
+
+test('#7410 review 2: a profile that cannot be parsed means unchecked, never a partial list; the control copies once it is gone', () => {
+  const name = born('sm7410-corrupt');
+  const carry = carryOwned(name);
+  const bad = nodePath.join(nodePath.dirname(store.profilePath('x')), 'zz-corrupt-7410.json');
+  fs.writeFileSync(bad, '{ not json', 'utf8');
+  try {
+    const r = carry();
+    assert.equal(r.notes, 'unchecked', 'a corrupt profile was skipped and the list treated as complete');
+    assert.equal(fs.existsSync(notesDir(name)), false);
+  } finally { fs.rmSync(bad, { force: true }); }
+  assert.equal(carry().notes, 'copied', 'CONTROL: with every profile readable the notes are copied');
+});
+
+test('#7410 review 2: an unreadable projects list means unchecked, and no claude-notes/ is made', () => {
+  const name = born('sm7410-noprojects');
+  const carry = carryOwned(name);
+  const pj = nodePath.join(store.ROOT, 'projects.json');
+  assert.equal(fs.existsSync(pj), false, 'CONTROL: the sandbox has no projects list of its own');
+  fs.mkdirSync(pj);   // a folder where the list should be: readable as nothing, so not "no projects"
+  try {
+    const r = carry();
+    assert.equal(r.notes, 'unchecked');
+    assert.equal(fs.existsSync(notesDir(name)), false);
+    assert.match(create.switchCarryWords('OpenAI', r, 'Claude'), /we could not read the other folders Kosmos knows/);
+  } finally { fs.rmSync(pj, { recursive: true, force: true }); }
+});
+
+test('#7410 review 2: copied but not pointed says its instructions do not mention them yet; pointed does not', () => {
+  const base = { from: 'anthropic', toClaude: false, rootChange: false, notes: 'copied', copied: 1, kept: 0, skipped: 0 };
+  assert.match(create.switchCarryWords('OpenAI', { ...base, pointed: false }, 'Claude'), /Its instructions do not mention them yet, so tell it they are in memory\/claude-notes\/ in its folder\./);
+  assert.doesNotMatch(create.switchCarryWords('OpenAI', { ...base, pointed: true }, 'Claude'), /do not mention them/);
+  assert.match(create.switchCarryWords('OpenAI', { ...base, notes: 'newer', copied: 0, pointed: false }, 'Claude'),
+    /some were changed after its own last conversation there, so we could not be sure they are its own\./);
+});
+
 test('#7410 review 1: a note changed after the agent\'s own newest transcript is refused', () => {
   const name = born('sm7410-newer');
   const src = claudeProject(name, { 'MEMORY.md': 'old\n' });

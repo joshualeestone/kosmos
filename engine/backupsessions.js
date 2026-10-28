@@ -246,6 +246,7 @@ function sessionsFor(agentDir, opts) {
    Review 1 (#7410) made this conservative on purpose: copying another agent's notes into this one is the failure that
    matters, and carrying nothing is said in the result. The `projects` folder itself may be a link (a second account
    sharing the agents' history is one, and Claude Code follows it); nothing below it may be. Never throws. */
+const fold = (s) => (process.platform === 'win32' || process.platform === 'darwin' ? String(s).toLowerCase() : String(s));
 function ownedClaudeMemory(agentDir, claudeRoot, opts) {
   if (typeof agentDir !== 'string' || !path.isAbsolute(agentDir) || typeof claudeRoot !== 'string' || !path.isAbsolute(claudeRoot)) return { state: 'none' };
   let projects;
@@ -271,7 +272,9 @@ function ownedClaudeMemory(agentDir, claudeRoot, opts) {
       if (typeof o !== 'string' || !path.isAbsolute(o)) continue;
       const oc = trust.canonicalOnDisk(o);
       if (oc === mine || path.resolve(o) === path.resolve(agentDir)) continue;
-      if (flatten(oc) === flat || flatten(o) === flat) return { state: 'collides' };
+      // Review 2: compared case-folded where the file system folds case (Windows, macOS): there workers\a-b and ...\A.B
+      // (and a drive letter in either case) name one Claude project folder.
+      if (fold(flatten(oc)) === fold(flat) || fold(flatten(o)) === fold(flat)) return { state: 'collides' };
     }
     const only = claudeOwned(c.real, belongs);
     if (!only.some((r) => r.startsWith('memory/'))) {

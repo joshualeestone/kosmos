@@ -136,3 +136,19 @@ linked note and two blocks.
 Not separately provable: the pre-copy `lstat` regular-file check (backupsessions' lister already drops links, so the
 linked-note test passes either way; it is defence in depth), and `pointed = !!at` (equivalent once the two-block guard
 is in front of it; the guard itself reds when removed). The page's regex-based wiring test is left as it is.
+
+## Review 2 (decided)
+Two warnings and three nits, all taken.
+1. **The same-name check was case-sensitive** while the projects folder is not on Windows and macOS. Flattened names
+   are compared lowercased there (a drive letter included); Linux keeps them apart, as its file system does. Test:
+   workers/sm7410-m-n beside SM7410-M.N is `collides` on win32/darwin and `copied` on Linux (red on a48283a6be).
+2. **knownFolders returned a partial list** on a listing error or a corrupt profile. Now only ENOENT counts as empty;
+   any other listing error, or a profile that cannot be read or parsed, is null, so `unchecked` and nothing copied.
+   Test: a corrupt profile gives `unchecked`, and copies once it is gone (red on a48283a6be). Not tested: a workers or
+   profiles folder that cannot be listed (making one unreadable is not portable here); same branch shape as the tested one.
+3. **`unchecked` test:** a folder where projects.json should be gives `unchecked` and no claude-notes/. It passes on
+   a48283a6be too, as it should: that path already returned null there; this nit was coverage.
+4. **"newer" wording** is now "some were changed after its own last conversation there, so we could not be sure they
+   are its own".
+5. **Copied but not pointed** now adds "Its instructions do not mention them yet, so tell it they are in
+   memory/claude-notes/ in its folder." Tests for 4 and 5 share one test, red on a48283a6be.
