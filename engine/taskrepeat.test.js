@@ -310,13 +310,16 @@ test('#7413 review 1: a daily rule with several times nudges with the same 30-mi
   // The nudge and the missed line agree on every run minute when the slots are two hours apart or more (uneven gaps of
   // 3, 9 and 12 hours). Closer slots keep the nudge's small share of the gap on purpose (review 3 of #4787: an hourly
   // late run must leave the next slot due), so there the two may differ, as on main.
-  const rule = { every: 'day', at: ['06:00', '09:00', '18:00'] };
+  // Review 2: the nudge is due for EXACTLY the slot after the one the run answers, never later (a window too wide would
+  // skip a slot the missed line still counts), and never that slot itself. Also the exact 2-hour pair, and weekly.
   const set = at(2026, 10, 1, 0, 30);
-  for (let run = at(2026, 10, 6, 0, 0); run < at(2026, 10, 7, 0, 0); run += 60000) {
-    const t = { repeat: rule, repeatSetAt: new Date(set).toISOString(), lastRunAt: new Date(run).toISOString() };
-    const ans = r.answeredSlot(rule, r.nextAfter(rule, set), run);
-    const due = r.dueSlot(t, run + 1);
-    assert.ok(due > ans, new Date(run).toString() + ': the slot this run answers (' + new Date(ans).toString() + ') is still due');
+  for (const rule of [{ every: 'day', at: ['06:00', '09:00', '18:00'] }, { every: 'day', at: ['00:00', '02:00'] }, { every: 'week', day: 2, at: '09:00' }]) {
+    for (let run = at(2026, 10, 6, 0, 0); run < at(2026, 10, 7, 0, 0); run += 60000) {
+      const t = { repeat: rule, repeatSetAt: new Date(set).toISOString(), lastRunAt: new Date(run).toISOString() };
+      const ans = r.answeredSlot(rule, r.nextAfter(rule, set), run);
+      if (ans === null) continue;
+      assert.equal(r.dueSlot(t, run + 1), r.nextAfter(rule, ans), JSON.stringify(rule.at) + ' ' + new Date(run).toString());
+    }
   }
   // CONTROL: hourly keeps its 2-minute nudge.
   const hourly = { repeat: { every: 'hour' }, repeatSetAt: new Date(at(2026, 10, 6, 8, 0)).toISOString(), lastRunAt: new Date(at(2026, 10, 6, 9, 55)).toISOString() };
