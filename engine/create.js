@@ -3042,9 +3042,13 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
  * Codex for Qwen (one private Codex home) still gets carried null and the old sentence.
  * `label` and `fromLabel` are the words the route uses for the providers ('Claude' for anthropic).
  */
+/* #7455: the word for the provider it left, shared by switchCarryWords and switchPendingWords so the two cannot name
+   it differently. */
+const switchFromWord = (fromLabel) => fromLabel || 'its previous provider';
+
 function switchCarryWords(label, carried, fromLabel) {
   if (!carried) return `${label} it is. Everything it knows and everything it has done stays. `;
-  const from = fromLabel || 'its previous provider';
+  const from = switchFromWord(fromLabel);
   const lost = 'Anything it only remembered from talking is lost. ';
   // Review 4: why a note is left out, and a note whose place in its folder holds something else, said apart.
   const SKIP_WHY = 'not a plain file, over 1 MB, or changed since its own last conversation';
@@ -3102,6 +3106,24 @@ function switchCarryWords(label, carried, fromLabel) {
     ? 'Its instructions may still mention notes in memory/claude-notes/ that are not there; we could not take that line out. ' : '';
   return `${label} it is. It keeps its name, its instructions and its files, but its conversation does not come across: `
     + `${label} cannot read what it said on ${from}. ${notes}${stale}`;
+}
+
+/**
+ * #7455: the switch is saved (its job already starts the new runner) but the agent could not be restarted, so it is
+ * still running as before. The route's restart-failed answer says that; this says what the next start will cost.
+ *
+ * Built from the same fact as switchCarryWords: `carried` null means the switch keeps its conversation (OpenAI <-> Qwen,
+ * one Codex home), so there is nothing to add and the route's sentence stays exactly as it was. Anything else means
+ * the next start begins a new conversation, said in the FUTURE tense (the agent has not moved yet: the route's own
+ * comment on `landedOn` versus its future-tense account sentence is the same rule). The notes carry already ran before
+ * the restart failed, so what it did is true now and is not repeated here; only the conversation loss is still to come.
+ * The advice is the one thing the person can still do: talk to it as it is, and ask for a handoff before it restarts.
+ */
+function switchPendingWords(label, carried, fromLabel) {
+  if (!carried) return '';
+  const from = switchFromWord(fromLabel);
+  return `When it next starts, its conversation will not come across: ${label} will not be able to read what it said on ${from}, `
+    + 'and anything it only remembered from talking will be lost. To keep what it is doing, ask it to write a handoff before then. ';
 }
 
 function setModel(name, modelKey, opts) {
@@ -7332,6 +7354,7 @@ module.exports = {
   restoreAccountSteps,
   setProvider,
   switchCarryWords,   // #7410: the route's result sentence for a switch, family change or not
+  switchPendingWords,   // #7455: the route's restart-failed answer, what the next start will cost
   crossesFamily,      // #7410
   switchLosesConversation,   // #7410 review 1
   carryClaudeNotes,   // #7410 review 1: exported for its own test (a blocked folder, a linked note)

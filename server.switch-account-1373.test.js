@@ -227,6 +227,32 @@ test('#1373 route: the PARTIAL branch names the account in the future tense', as
     'control: the partial branch no longer says what it used to, so the tense assertion above is not about the sentence it was written for: ' + r.body.because);
 });
 
+test('#7455 route: saved but not restarted, a switch that loses its conversation says the next start will not bring it across', async () => {
+  /* The not-restarted answer the same way the #1373 partial test above reaches it: a has-session answering ALIVE, so the
+     restart cannot prove the window closed. Claude -> OpenAI loses its conversation (#7410), so the answer must say,
+     in the future tense, that the next start will not bring it across; it used to say only "still running as before". */
+  const alive = () => ({ ok: true, stdout: '' });
+  const name = born('route-7455-saved');
+  create.setRunner(alive);
+  require('./engine/remove').setRunner(alive);
+  let r;
+  try {
+    r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
+  } finally {
+    create.setRunner(fakeRun);
+    require('./engine/remove').setRunner(fakeRun);
+  }
+  assert.equal(r.status, 200, 'the route errored instead of answering: ' + JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'partial',
+    'the fixture did not reach the not-restarted branch, so this test proves nothing about it: ' + JSON.stringify(r.body));
+  assert.match(r.body.because, /still running as before until it restarts/, 'control: the not-restarted sentence changed');
+  assert.match(r.body.because,
+    /When it next starts, its conversation will not come across: \S+ will not be able to read what it said on Claude, and anything it only remembered from talking will be lost\. To keep what it is doing, ask it to write a handoff before then\.$/,
+    'the not-restarted answer does not warn that the next start loses the conversation: ' + r.body.because);
+  // The future tense is the point: nothing here may read as though the conversation is already gone or kept.
+  assert.doesNotMatch(r.body.because, /Everything it knows|cannot read what it said/, r.body.because);
+});
+
 test('#1373 route: a PICKED account is named back, and the sentence says the person chose it', async () => {
   const name = born('route-1373-picked');
   const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });

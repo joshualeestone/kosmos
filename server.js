@@ -10635,6 +10635,15 @@ const server = http.createServer(async (req, res) => {
             + ' unverified; if it does not respond, switch it to an OpenAI API-key'
             + ' account, which Kosmos can verify.'
           : '';
+        /* #7455: the word for the provider it left, ONE derivation for the restarted answer (switchCarryWords) and the
+           restart-failed ones (switchPendingWords), so they cannot name it differently. */
+        const carriedFrom = wrote.carried && wrote.carried.from
+          ? (wrote.carried.from === 'anthropic' ? 'Claude' : create.providerLabel(wrote.carried.from)) : null;
+        /* #7455: saved but not restarted: it is still running as before, and what its NEXT start will cost is said here,
+           in the future tense, or the person keeps talking to it and loses all of it at the next restart unwarned. ''
+           for a switch that keeps its conversation (carried null), so that answer is exactly what it was. */
+        const pendingWords = create.switchPendingWords(label, wrote.carried || null, carriedFrom);
+        const pending = pendingWords ? ' ' + pendingWords.trimEnd() : '';
         /* #5091: the switch happened but the picked Claude account could not be applied. It is a PARTIAL, said first,
            so the page shows it as one (not "Ready"), whether or not the restart worked. */
         if (wrote.outcome === create.OUTCOME.PARTIAL) {
@@ -10643,7 +10652,7 @@ const server = http.createServer(async (req, res) => {
             provider: wrote.provider,
             restarted: ok,   // #5091: the page repaints Runs on from this, not from a sentence
             ...(pickedModel ? { model: pickedModel } : {}),   // #5429 review 2: the model was still written; say so
-            because: wrote.because + (pickedModel && pickedModel.label ? ' It runs on ' + pickedModel.label + '.' : '') + modelMissWords + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
+            because: wrote.because + (pickedModel && pickedModel.label ? ' It runs on ' + pickedModel.label + '.' : '') + modelMissWords + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.${pending}`),   // #7455
             steps: back.steps || [],
           });
           return;
@@ -10661,8 +10670,7 @@ const server = http.createServer(async (req, res) => {
           because: ok
             /* #7410: a switch across the Claude line does not keep its conversation or Claude's memory, so it never says
                everything it knows stays; switchCarryWords says what came across. A same-family switch keeps the old words. */
-            ? create.switchCarryWords(label, wrote.carried || null,
-              wrote.carried && wrote.carried.from ? (wrote.carried.from === 'anthropic' ? 'Claude' : create.providerLabel(wrote.carried.from)) : null)
+            ? create.switchCarryWords(label, wrote.carried || null, carriedFrom)
               + (droppedWords ? `${droppedWords.charAt(0).toUpperCase()}${droppedWords.slice(1)}. ` : '')
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn
@@ -10677,7 +10685,9 @@ const server = http.createServer(async (req, res) => {
                  paragraph, and this is the branch where something already went wrong,
                  which is where a confident-sounding sentence costs most. */
               + runsOn('When it restarts it will run on')
-              + signInNote,
+              + signInNote
+              /* #7455: last, so the paragraph ends on what the next start will cost and what to do about it. */
+              + pending,
           steps: back.steps || [],
         });
       })
