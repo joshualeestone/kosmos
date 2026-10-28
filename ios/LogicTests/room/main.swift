@@ -328,6 +328,9 @@ check(PushBridge.agentToOpen(fromNotification: unknownKind, coordinator: coordin
 check(content.contains("shownAddress: board.switcherShown ?? kept?.address"), "review 1: on a cold launch (nothing shown yet, or the Face ID lock up) the kept computer decides, so the tap still opens the chat")
 let chatSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
 check(chatSource.contains("Button { infoOpen = true } label: { title"), "kosmos#7424: the DM header's name and status open the info page, as the (i) button does")
+let roomSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
+check(roomSource.contains("let period = reduceMotion ? 1.6 : 1.1") && roomSource.contains("Double(i) * 0.16") && roomSource.contains(".offset(y: reduceMotion ? 0 : -4 * p)"), "kosmos#7427: the dots are the board's wave (1.1 s, 0.16 s apart, 4 pt rise; Reduce Motion 1.6 s, no rise)")
+check(chatSource.contains("WorkingDots()") && !chatSource.contains("repeatForever(autoreverses: true)) { bright = true }") && agentsSource.contains("WorkingDots(color: Palette.pillWord(pill))"), "kosmos#7427: the chat's working line and the Agents pill use the wave, not a pulse in unison")
 check(agentsSource.contains(".id(agent.session)"), "review 1: a notice for another agent while a chat is open starts that chat afresh, not the old one renamed")
 if let a = content.range(of: ".onChange(of: pushManager.accountChanges)"), let c = content.range(of: "agentRequest = nil; roomRequest = nil") {
     check(a.lowerBound < c.lowerBound && content.distance(from: a.lowerBound, to: c.lowerBound) < 400, "review 1: a sign-out drops a chat or room a notice asked for")

@@ -1850,22 +1850,15 @@ struct BubbleTail: Shape {
 // "··· <name> is working": the dots pulse gently, and stay still with Reduce Motion on; VoiceOver hears the words only.
 struct WorkingLine: View {
     let name: String
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var bright = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text("\u{00B7}\u{00B7}\u{00B7}")
-                .opacity(reduceMotion ? 1 : (bright ? 1 : 0.35))
-                .accessibilityHidden(true)
+        // kosmos#7427: the board's wave (WorkingDots), not three dots pulsing together.
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            WorkingDots()
             Text("\(name) is working")
         }
         .font(.footnote)
         .foregroundColor(Palette.secondary)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { bright = true }
-        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name) is working")
     }
