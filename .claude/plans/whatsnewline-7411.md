@@ -7,8 +7,10 @@ changed in the update?" has no way to know the command exists.
 
 ## Decision
 One short paragraph in the working-rules block (engine/defaults.js), at the end of "Kosmos itself is not yours to
-edit", right after the line on updating Kosmos: run `kosmos whats-new`; `--since <version>` for the notes since a
-version; it says where a fix needs a restart. DOCTRINE_VERSION 42, logged with its weakest premise; the fingerprint
+edit", right after the line on updating Kosmos: run `kosmos whats-new` for the newest version's notes, or
+`--since <the version you were on>` for every note after it; a note marked for it says the fix needs a restart, and an
+unmarked one says nothing either way (review: no note carries the restart mark yet, so absence must not read as "no
+restart needed"). DOCTRINE_VERSION 42, logged with its weakest premise; the fingerprint
 pinned in engine/defaults.test.js; engine/doctrine-past.js regenerated (tools/doctrine-past.js), so an agent holding
 an unedited copy of 41 is offered 42.
 
@@ -18,5 +20,5 @@ Rejected: a new section (the block is read whole by every agent; four lines besi
 is read in context).
 
 ## Tests
-The defaults and doctrine tests (602) pass; they red until the version, its log line, the fingerprint and the past
+The test files that name defaults or doctrine (20 files, 564 tests) pass; they red until the version, its log line, the fingerprint and the past
 table move together (measured: 3 red before the bump, 1 before the pin).
