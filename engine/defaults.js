@@ -510,6 +510,11 @@ const BLOCK = [
   'fingerprint` does not match it, check it as above. If you change the file, mark it',
   'again with `--file`: your own mark without it drops the fingerprint.',
   '',
+  'If the work is a code fix, commit it, then mark it built with `--commit HEAD` (or the',
+  'commit it landed as), run in the repository the fix is in. The task keeps that commit',
+  'after it closes, so a fix that was checked but never committed shows up. Push it too:',
+  'until a remote has it, the task says it is only on this computer.',
+  '',
   '**Work that comes back on a schedule is one task that repeats,** not a new task',
   'each time: a report every morning, a check every hour. Add it as above (or use',
   'the task you were given), with checks for what each run should find, then set',
@@ -1239,8 +1244,13 @@ function block() {
  *     agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent reads this section when the person asks what changed; the command's own
  *     --help says the same, and both CLIs carry it.
+ *  43. kosmos#7508 (feedback: a code-fix task was marked built and closed after honest checks while the fix sat
+ *     uncommitted). The tasks section asks for `--commit HEAD` on a code fix's built mark, after committing it, and
+ *     to push it. No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that agents read this when they mark a code fix built; `kosmos task built` --help
+ *     names --commit too, in both CLIs.
  */
-const DOCTRINE_VERSION = 42;
+const DOCTRINE_VERSION = 43;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

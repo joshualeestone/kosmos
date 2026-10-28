@@ -24721,7 +24721,9 @@ const server = http.createServer(async (req, res) => {
         ? tasks.clearBuilt(id, taskBuilt[2], as)
         : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '',
           // #6330 slice 2: an agent's mark may carry the deliverable's fingerprint; the screen sends none.
-          fingerprint: !viaScreen && body.fingerprint != null ? body.fingerprint : null });
+          fingerprint: !viaScreen && body.fingerprint != null ? body.fingerprint : null,
+          // #7508: an agent's mark may name the commit a code fix landed as (the CLI resolved it); the screen sends none.
+          commit: !viaScreen && body.commit != null ? body.commit : null });
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);

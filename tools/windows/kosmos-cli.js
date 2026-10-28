@@ -124,6 +124,7 @@ const USAGE = {
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
     '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
+    '      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
@@ -1616,22 +1617,25 @@ function taskHoldAs(want) {
    off with --clear. Presents the agent token, as message does, so the board names who marked it. */
 async function taskBuilt(ctx, args) {
   const [project, num] = args;
-  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; or --clear to take the mark off)'); return 2; }
+  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)'); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-  /* kosmos#4889, as install/kosmos: --clear and (#6330) --file <path> are built's options; any other --word is
-     refused, and past a bare -- everything is the note. */
+  /* kosmos#4889, as install/kosmos: --clear, (#6330) --file <path> and (#7508) --commit <ref> are built's options; any
+     other --word is refused, and past a bare -- everything is the note. */
   const rest = args.slice(2);
-  let clear = false, past = false, file = null, wantFile = false;
+  let clear = false, past = false, file = null, wantFile = false, cref = null, wantCommit = false;
   const words = [];
   for (const a of rest) {
     if (wantFile) { file = a; wantFile = false; continue; }
+    if (wantCommit) { cref = a; wantCommit = false; continue; }
     if (!past && a === '--') { past = true; continue; }
     if (!past && a === '--clear') { clear = true; continue; }
     if (!past && a === '--file') { wantFile = true; continue; }   // #6330 slice 2
-    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; or --clear to take the mark off)', a); return 2; }
+    if (!past && a === '--commit') { wantCommit = true; continue; }   // #7508
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)', a); return 2; }
     words.push(a);
   }
   if (wantFile) { ctx.err('--file needs the path of the delivered file.'); return 2; }
+  if (wantCommit || cref === '') { ctx.err('--commit needs the commit the fix landed as, for example --commit HEAD.'); return 2; }
   const note = words.join(' ');
   if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
   /* #6330 slice 2: the delivered file's fingerprint, worked out here; the board never reads the file. kosmos#6849: the one
@@ -1645,7 +1649,22 @@ async function taskBuilt(ctx, args) {
     if (!fileprint.isPrint(got)) { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
     fingerprint = got;
   }
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}) });
+  /* #7508, as install/kosmos: the commit a code fix landed as, resolved here in this checkout: its full sha, the
+     repository's shared git directory (it outlives a removed worktree) and whether a remote branch has it. */
+  let commit = null;
+  if (cref !== null) {
+    if (clear) { ctx.err('--clear takes the mark off, so it takes no commit. Run it without --commit.'); return 2; }
+    const git = (gargs) => { try { return String(ctx.git(gargs)).trim(); } catch { return ''; } };
+    const sha = git(['rev-parse', '--verify', '--quiet', '--end-of-options', cref + '^{commit}']);
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha)) {
+      ctx.err('Kosmos cannot find that commit here: ' + cref + '. Run this inside the repository the fix was committed in, and name the commit (for example --commit HEAD).');
+      return 2;
+    }
+    const repo = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    if (!repo) { ctx.err('Kosmos cannot read which repository that commit is in.'); return 2; }
+    commit = { sha, repo, onRemote: git(['branch', '-r', '--contains', sha]) !== '' };
+  }
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}), ...(commit ? { commit } : {}) });
   if (!r.reached) {
     return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
       : ctx.unreachable('mark that task');
@@ -1657,6 +1676,8 @@ async function taskBuilt(ctx, args) {
       : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.' + told);
     // #6761, as install/kosmos: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
     if (!clear && fingerprint) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
+    // #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
+    if (!clear && commit) ctx.out('Recorded commit ' + commit.sha.slice(0, 7) + '.' + (commit.onRemote ? '' : ' It is not pushed yet: push it so it is not only on this computer.'));
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that task: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -3237,6 +3258,8 @@ async function main(argv, io) {
       rl.question(question, (a) => { answered = true; rl.close(); resolve(a); });
     })),
     readFile: o.readFile || ((f) => textFileDecoded(fs.readFileSync(f))),   // #4474: agent create --from, by its BOM
+    /* #7508: git in this checkout (task built --commit). Its standard output, or a throw; a test seam. */
+    git: o.git || ((args) => require('node:child_process').execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000, windowsHide: true })),
     /* #5946: --body-file's bytes, or { overflow } past the cap without reading them. A folder is refused by its size
        check's own stat, so it never reads as an empty file. */
     readBodyFile: o.readBodyFile || ((f, max) => {

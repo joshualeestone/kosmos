@@ -5705,6 +5705,7 @@ cmd_task() {
       say "  kosmos task built <project-id> <task-number> [\"note\"]  mark it built; with checks, the note says how each went"
       say "      --clear                                                  take the built mark off"
       say "      --file <path>                                            send the delivered file's fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) with the mark; another agent's mark keeps it, your own mark without --file drops it"
+      say "      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes"
       say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it"
       say "      --clear                                                  take its checks off"
       say "  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)"
@@ -5854,15 +5855,17 @@ cmd_task() {
       # Review 1: `message p 3 --` leaves no words once the -- is dropped; that is the usage error, not an empty send.
       [ -n "${KOSMOS_TEXT_ARGS[*]+${KOSMOS_TEXT_ARGS[*]}}" ] || { say "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\""; exit 2; } ;;
     built)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file's fingerprint; or --clear to take the mark off)"; exit 2; }
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --file sends the delivered file's fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
-      local _c _cpast=0 _cfile=0   # kosmos#4889: --clear and (#6330) --file <path> are built's options; any other --word is refused
+      local _c _cpast=0 _cfile=0 _ccommit=0   # kosmos#4889: --clear, (#6330) --file <path> and (#7508) --commit <ref> are built's options; any other --word is refused
       for _c in "${@:3}"; do
         if [ "$_cpast" = 1 ]; then break; fi
         if [ "$_cfile" = 1 ]; then _cfile=2; continue; fi
-        case "$_c" in --) _cpast=1 ;; --clear) ;; --file) _cfile=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task built" "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file's fingerprint; or --clear to take the mark off)" "$_c" ;; esac
+        if [ "$_ccommit" = 1 ]; then _ccommit=2; continue; fi
+        case "$_c" in --) _cpast=1 ;; --clear) ;; --file) _cfile=1 ;; --commit) _ccommit=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task built" "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --file sends the delivered file's fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)" "$_c" ;; esac
       done
-      [ "$_cfile" != 1 ] || { say "--file needs the path of the delivered file."; exit 2; } ;;
+      [ "$_cfile" != 1 ] || { say "--file needs the path of the delivered file."; exit 2; }
+      [ "$_ccommit" != 1 ] || { say "--commit needs the commit the fix landed as, for example --commit HEAD."; exit 2; } ;;
     assign)
       # #4914: <project> <task-number> <agent|me|nobody> [--part <n>], checked before the board as --parent is.
       local _usage="Usage: kosmos task assign <project-id> <task-number> <agent|me|nobody> [--part <part-number>]"
@@ -6334,13 +6337,15 @@ cmd_task() {
       # #3951: mark a task built, waiting to be released or checked (the Tasks page's "Built but waiting"), or take
       # the mark off with --clear. Every arg after the number that is not --clear or --file <path> is the note, folded as message does.
       # The agent token names who marked it (the pane is the fallback, as for message).
-      local project num note="" clear=false _b file="" _bfile=0
+      local project num note="" clear=false _b file="" _bfile=0 cref="" _bcommit=0
       project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
       local _bpast=0
       for _b in "$@"; do
         if [ "$_bfile" = 1 ]; then file="$_b"; _bfile=2; continue; fi
+        if [ "$_bcommit" = 1 ]; then cref="$_b"; _bcommit=2; continue; fi
         if [ "$_bpast" = 0 ] && [ "$_b" = "--" ]; then _bpast=1; continue; fi   # kosmos#4889
         if [ "$_bpast" = 0 ] && [ "$_b" = "--file" ]; then _bfile=1; continue; fi   # #6330 slice 2
+        if [ "$_bpast" = 0 ] && [ "$_b" = "--commit" ]; then _bcommit=1; continue; fi   # #7508
         if [ "$_bpast" = 0 ] && [ "$_b" = "--clear" ]; then clear=true; else note="${note:+$note }$_b"; fi
       done
       if [ "$clear" = true ] && [ -n "$note" ]; then
@@ -6362,6 +6367,19 @@ cmd_task() {
         fingerprint=$("$_fnode" "$_fmod" "$file" 2>/dev/null) || fingerprint=""
         case "$fingerprint" in sha256:????????????????????????????????????????????????????????????????|pdf-normalized:????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2 ;; esac
       fi
+      # #7508: the commit a code fix landed as, resolved here in this checkout: its full sha, the repository's shared git
+      # directory (it outlives a removed worktree) and whether a remote branch has it. The board checks only the shape.
+      local commit_json="" csha="" crepo="" conremote=false
+      if [ "$_bcommit" -gt 0 ]; then
+        [ "$clear" = true ] && { say "--clear takes the mark off, so it takes no commit. Run it without --commit."; exit 2; }
+        [ "$_bcommit" = 2 ] && [ -n "$cref" ] || { say "--commit needs the commit the fix landed as, for example --commit HEAD."; exit 2; }
+        csha=$(git rev-parse --verify --quiet --end-of-options "$cref^{commit}" 2>/dev/null) || csha=""
+        case "$csha" in ????????????????????????????????????????|????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot find that commit here: $cref. Run this inside the repository the fix was committed in, and name the commit (for example --commit HEAD)."; exit 2 ;; esac
+        crepo=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || crepo=""
+        [ -n "$crepo" ] || { say "Kosmos cannot read which repository that commit is in."; exit 2; }
+        [ -n "$(git branch -r --contains "$csha" 2>/dev/null | head -1)" ] && conremote=true
+        commit_json=",\"commit\":{\"sha\":\"$csha\",\"repo\":\"$(printf '%s' "$crepo" | sed 's/\\/\\\\/g; s/"/\\"/g')\",\"onRemote\":$conremote}"
+      fi
       local esc_note esc_pane
       # Control bytes other than tab, CR and newline would make the JSON invalid (review round 1): dropped, as
       # cmd_post drops them; tab, CR and newline become spaces.
@@ -6372,7 +6390,7 @@ cmd_task() {
       local rc=0 body
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/built" \
         -H 'content-type: application/json' \
-        --data "{\"note\":\"$esc_note\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"${fingerprint:+,\"fingerprint\":\"$fingerprint\"}}" 2>/dev/null) || rc=$?
+        --data "{\"note\":\"$esc_note\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"${fingerprint:+,\"fingerprint\":\"$fingerprint\"}$commit_json}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "mark that task" "$rc" write; exit 1; }
       case "$body" in
         '{"task":'*)
@@ -6386,7 +6404,12 @@ cmd_task() {
             local told; told=$(printf '%s' "$body" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
             say "Marked task $num on ${project:-the project} built, waiting to be released or checked. Closing it clears the mark.${told:+ $told}"
             # #6761: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
-            [ -z "$fingerprint" ] || say "Fingerprint sent: $fingerprint for $file"; fi ;;
+            [ -z "$fingerprint" ] || say "Fingerprint sent: $fingerprint for $file"
+            # #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
+            if [ -n "$csha" ]; then
+              if [ "$conremote" = true ]; then say "Recorded commit ${csha:0:7}."
+              else say "Recorded commit ${csha:0:7}. It is not pushed yet: push it so it is not only on this computer."; fi
+            fi; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not mark that task: ${because:-it did not say why}."; exit 1 ;;
