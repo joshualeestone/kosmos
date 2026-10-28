@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: boardsup-2988
-diff_hash: 84486a6af9ac840dcfd2c3786b6be481151853d95636f2b695c78666ce4ad9dc
-validation: passed: win32boardwatch 95, win32board 49 (+7/7/5/2), win32uninstall 53 (+3/23/15), win32relocate 34, win32handoff 69 (+4), win32apply 114, win32update 133, win32supervisor 64, win32supervisorlog 7, win32orphan 8, tools.win-launcher-native 29, tools.win-installer-native 26, 0 fail; policy fixture-discipline 20, no-name-refs-3071 4, engine.reachable 8, windows-tests-1777 23, win32-separator-guard 4, windows-coupling-audit-1732 8, marker-registry 3; live box check: kill back in 55 s, switched off stays down 150 s, on again back in 58 s
+diff_hash: b955450514c61709f1f7e2c17e0406e9fcc3c1b017a20d4fd40bec01b84f5c22
+validation: passed: win32boardwatch 95 (+1 Mac-only #4495 guard, skipped on Windows), win32board 49 (+7/7/5/2), win32uninstall 53 (+3/23/15), win32relocate 34, win32handoff 69 (+4), win32apply 114, win32update 133, win32supervisor 64, win32supervisorlog 7, win32orphan 8, tools.win-launcher-native 29, tools.win-installer-native 26, 0 fail; policy fixture-discipline 20, no-name-refs-3071 4, engine.reachable 8, windows-tests-1777 23, win32-separator-guard 4, windows-coupling-audit-1732 8, marker-registry 3; live box check: kill back in 55 s, switched off stays down 150 s, on again back in 58 s; CI fix for Mac paths (test-only)
 subdir_audit: passed
-timestamp: 2026-10-28T15:22:00Z
+timestamp: 2026-10-28T15:52:08Z
 iterations: 6
 converged: true
 ---
@@ -73,6 +73,14 @@ converged: true
   ENOENT "a file was missing", ENOTDIR/EISDIR/EEXIST "something is in the way", ENOSPC "the disk is full"); (6) the
   round-5 read-count assertion replaced by a behaviour test (a hold that appears while the crash-loop guard runs
   still stops the /Run); (7) the agent named "board" sharing board.log's rotation recorded as a residual.
+- CI fix (PR #7495, Mac CI run 40715278893, two test-only failures, no product change): (1) the shim test compared
+  its anchor folder with a /var path while the shim saw /private/var (macOS's tmpdir is a link); the test sandbox is
+  now realpath'd. (2) the ensureInstalled arms register a Windows board, whose claim folder is a Windows path; off
+  Windows that is a relative backslash-named folder, and it was written into the directory the suite started from,
+  where win32board.test.js's #4495 guard found it. The file now runs from a temp cwd of its own, as
+  win32board.test.js does, and carries the same #4495 guard (skipped on Windows, where the folder is absolute).
+  The product's own writes were checked: holdBoard, boardLogNote, the move's and the hand-off's holds all resolve
+  their folders with the host's rules (process.platform), so none can write a backslash folder on a Mac or Linux.
 
 ### Final Ledger
 **Ledger for #2988 (boardsup-2988): blind review loop, rounds 1 to 6, converged at round 6.**
