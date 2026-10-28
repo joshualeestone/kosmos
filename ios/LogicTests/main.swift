@@ -2609,6 +2609,17 @@ section("native board loop: connecting")
         c.refreshLastSeen()
         let shown = await settle { w.macsAnswered == 6 && laptop() == 555 }
         check(shown, "CONTROL: the same slow read for the account still signed in is shown")
+        // Review 6: the other order: a switch's slow list read lands after a newer refresh read; the newer list stays,
+        // and the switch still opens the computer from its own answer.
+        w.clock += 61
+        w.macsQueue = [(3000, listed(666)), (0, listed(777))]
+        c.showMac(address: "laptop.kosmosplus.com")
+        _ = await settle { w.macsAnswered >= 6 && w.macsQueue.count == 1 }   // the switch's read has been sent
+        c.refreshLastSeen()
+        _ = await settle { w.macsAnswered == 8 }
+        let reverted = await settle { laptop() == 666 }
+        check(w.macsAnswered == 8 && !reverted && laptop() == 777 && c.switcherShown == "laptop.kosmosplus.com",
+              "a switch's older list never lands over a newer refresh, and the switch still opens its computer")
     }
 
     section("the person's name and picture (kosmos#7266 slice B)")

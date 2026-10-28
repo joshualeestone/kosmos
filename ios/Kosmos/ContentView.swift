@@ -435,7 +435,7 @@ struct ContentView: View {
                 .ignoresSafeArea(.keyboard)
             if let failure = shell.failure {
                 LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer, macName: shell.failureMac,
-                                lastSeen: board.lastHeard(address: shell.failureAddress, name: shell.failureMac))
+                                lastHeard: board.lastHeard(address: shell.failureAddress, name: shell.failureMac))
                     // kosmos#7416 review 3 and 4: keyed on the failure, the computer and each Try again, not on the view
                     // appearing: this screen stays up across all three (a failed Try again shows the same failure), so
                     // onAppear would miss them. The return to the app is below, in onChange(of: scenePhase).

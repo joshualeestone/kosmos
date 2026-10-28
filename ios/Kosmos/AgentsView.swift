@@ -339,7 +339,7 @@ struct BoardStates<Empty: View>: View {
         case .unreachable(let mac):
             // Today's navy page, as it is: no title over it, and Back opens Today, the board. kosmos#7197: naming the Mac.
             LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard, macName: mac,
-                            lastSeen: client.lastHeard(address: client.failingAddress, name: mac))
+                            lastHeard: client.lastHeard(address: client.failingAddress, name: mac))
                 .onAppear { client.refreshLastSeen() }   // kosmos#7416 review 2: the list's time, read afresh
                 .navigationBarHidden(true)
         case .kosmosPlusDown:
