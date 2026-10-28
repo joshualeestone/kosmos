@@ -694,7 +694,8 @@ struct NewAgentView: View {
                 Section { Text(message).foregroundColor(Palette.dangerWord) }
             }
         }
-        .onChange(of: photoPick) { item in if item != nil { Task { await loadPhoto(item) } } }
+        // Create is off from the moment of the pick, not from when the load starts.
+        .onChange(of: photoPick) { item in if item != nil { photoLoading = true; Task { await loadPhoto(item) } } }
         .onChange(of: draft.name) { _ in redrawMark() }
         .onAppear { redrawMark() }
         .navigationTitle(NewAgent.Words.setupTitle)
@@ -852,14 +853,16 @@ struct NewAgentView: View {
         }
     }
 
-    // The mark follows the name as it is typed, drawn once per change rather than on every redraw.
-    // Drawn off the main thread so typing never waits for it; a name changed meanwhile wins.
+    // The mark follows the name as it is typed: drawn off the main thread once typing pauses (a quarter second), so a
+    // name typed past is never drawn at all, and only the newest name's picture is shown.
     private func redrawMark() {
         let name = NewProject.trimmed(draft.name)
         guard name != markName, draft.photo == nil else { return }   // no mark drawn that a chosen photo hides
         markName = name
-        markTask?.cancel()   // a draw for a name already typed past is not finished
+        markTask?.cancel()
         markTask = Task {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
             let image = await Task.detached(operation: { AgentPicture.mark(name) }).value
             if !Task.isCancelled, markName == name { markImage = image }
         }
