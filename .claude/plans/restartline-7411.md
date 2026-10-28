@@ -29,6 +29,9 @@ session. Kosmos never restarts anyone by itself.
 - No line when tmux, the roster or the notes cannot be read. Rejected: guessing (it would name agents that are fine).
 - An agent whose session started in the same second as the board counts as after it (tmux is whole seconds).
 - Not now is recorded against the version on the board, so an old page cannot hide a newer update's line.
+- Only a move UP is an update. A rollback or a switch to an older build records no `previous`, so nothing is said.
+  Rejected: treating any version change as an update (it would name agents after a rollback for fixes they may have).
+- Kosmos versions are x.y.z only (releasenotes.js holds the same rule); anything else records nothing.
 
 ## Weakest premise
 

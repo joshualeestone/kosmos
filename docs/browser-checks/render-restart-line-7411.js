@@ -158,6 +158,11 @@ const text = (pg, sel) => pg.evaluate((s) => { const el = document.querySelector
     await pg.waitForTimeout(100);
     const busy = await pg.evaluate(() => { const b = document.querySelector('#rline-slot [data-rl-all]'); return { text: b && b.textContent, dis: b && b.getAttribute('aria-disabled'), list: !!document.querySelector('#rline-slot .rlrow') }; });
     say(/^Restarting \d of 5$/.test(busy.text || '') && busy.dis === 'true' && !busy.list, 'busy: Show who during Restart all does nothing; the button keeps its progress', JSON.stringify(busy));
+    // A wake result arrives (each wait is 600 ms here) while later restarts still run, and repaints the line: the running
+    // button must still say how far it has got.
+    await pg.waitForFunction(() => /to wake them/.test((document.querySelector('#rline-slot .rlwoke') || {}).textContent || ''), null, { timeout: 4000 }).catch(() => {});
+    const mid = await pg.evaluate(() => { const b = document.querySelector('#rline-slot [data-rl-all]'); return { woke: !!document.querySelector('#rline-slot .rlwoke'), text: b && b.textContent, dis: b && b.getAttribute('aria-disabled') }; });
+    say(mid.woke && /^Restarting [2-5] of 5$/.test(mid.text || '') && mid.dis === 'true', 'busy: a wake result repainting the line mid-way keeps the running button\'s progress', JSON.stringify(mid));
     await pg.waitForFunction(() => !document.querySelector('#rline-slot [data-rl-all][aria-disabled="true"]'), null, { timeout: 10000 }).catch(() => {});
     say(errs.length === 0, 'busy: no page errors', errs.join(' | '));
     await pg.close();

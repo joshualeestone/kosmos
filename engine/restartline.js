@@ -8,7 +8,7 @@
  * keeps the old behaviour (an instruction section, a hook, its launch command) until its session starts again.
  *
  * WHEN. The board records the version it runs and when it first started on it (version-start.json). When it starts on
- * a different version it keeps the one before as `previous`, so the notes that matter are the marked ones newer than
+ * a newer version it keeps the one before as `previous`, so the notes that matter are the marked ones newer than
  * `previous`, up to the version running now. The first version a computer is ever seen on has no `previous`: an
  * install is not an update, and nothing is said.
  *
@@ -62,7 +62,9 @@ function atStart(version, now = Date.now()) {
   if (!VERSION.test(String(version || ''))) return null;
   const was = read();
   if (was && was.version === version) return was;
-  const rec = { version, previous: was ? was.version : null, at: now };
+  // Only a move UP is an update. A rollback, or a switch to an older build, keeps no `previous`, so nothing is said:
+  // the agents running then may already have every fix the older version has.
+  const rec = { version, previous: was && cmp(version, was.version) > 0 ? was.version : null, at: now };
   write(rec);
   return { ...rec, notNow: false };
 }
