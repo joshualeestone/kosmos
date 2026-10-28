@@ -276,7 +276,7 @@ stage_app() {
   fi
   # kosmos#7411: the release notes this build ships, written as the release bundle writes them (the board deploy and
   # the bundle must stage the same app files, tools/test-board-deploy-manifest.sh). Outside a git tree a board has no
-  # pool to fall back on, so without this \`kosmos whats-new\` would find no notes.
+  # pool to fall back on, so without this kosmos whats-new would find no notes.
   _plat=linux; [ "$(uname -s)" = Darwin ] && _plat=mac
   _ver="$("$NODE" -e 'process.stdout.write(String(require(process.argv[1]).version))' "$REPO/package.json")" || return 1
   "$NODE" "$REPO/tools/whats-new-pool.js" notes "$_ver" --platform="$_plat" --out="$_d/release-notes.json" >/dev/null || return 1

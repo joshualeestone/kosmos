@@ -100,6 +100,16 @@ test('#7411 every build (Mac, Linux, Windows) writes app/release-notes.json with
   }
 });
 
+test('#7411 review: the board deploy (deploy/install-board.sh) writes the same notes into the board it stages', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'deploy', 'install-board.sh'), 'utf8');
+  const fn = src.slice(src.indexOf('stage_app() {'), src.indexOf('\n}\n', src.indexOf('stage_app() {')));
+  assert.ok(fn.length > 0, 'stage_app is in deploy/install-board.sh');
+  const ver = fn.indexOf('_ver="$("$NODE" -e');
+  const call = fn.indexOf('"$NODE" "$REPO/tools/whats-new-pool.js" notes "$_ver" --platform="$_plat" --out="$_d/release-notes.json"');
+  assert.ok(ver >= 0 && call > ver, 'stage_app writes the release notes into the staged board, after reading its version');
+  assert.ok(/_plat=linux; \[ "\$\(uname -s\)" = Darwin \] && _plat=mac/.test(fn), 'stage_app names its platform from uname');
+});
+
 test('#7411 `kosmos whats-new` prints the notes since a version, with the restart line, and --json for an agent', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-releasenotes-'));
   fs.mkdirSync(path.join(home, 'app', 'engine'), { recursive: true });

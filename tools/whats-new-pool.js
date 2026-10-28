@@ -9,11 +9,11 @@
  * status, restart? }. rank 1 is the most important. status is
  *   pending  not yet shown to prod users: eligible
  *   shown    shown by a release that reached prod (shownIn names it): never chosen again
- *   restart (optional, kosmos#7411): "agents" when a running agent keeps the old behaviour until it restarts
+ *   held     a feature that is held or dropped (conversation mode, Josh 10:49): never chosen, whatever its rank
+ * restart (optional, kosmos#7411) is "agents" when a running agent keeps the old behaviour until it restarts.
  * "prod" here is the Mac prod family (promote-channel.sh without --family win). Windows is promoted on its own and
  * shows whichever list is current when its build is made (its number goes in the built file's "also", by hand,
  * on the release branch, docs/windows RELEASING.md); the pool does not record Windows promotes.
- *   held     a feature that is held or dropped (conversation mode, Josh 10:49): never chosen, whatever its rank
  * A Windows-only highlight is never marked shown (the pool records Mac promotes only), so once Windows prod has shown
  * it, RETIRE IT BY HAND: set its status to shown, with shownIn the Windows version.
  * A highlight tagged for ONE platform still takes one of the 5 slots of the one file both platforms read (the engine
