@@ -35,6 +35,6 @@ route's own ask, and the browser check compares the page with the route, so a wo
   its control is the machine name with no identity. Red on main's server.js (measured); the other 13 pass.
 - mobile-shots.js: two screens, task-unholdnext-7430 and task-unholdkeep-7430.
 
-## Open for the design review (Mona Lisa)
-Whether to hide the standing "does not nudge anyone about a task on hold" hint while the task is not on hold; and
-Choose who as an inline link or a small button.
+## Design review (Mona Lisa, 01:12 CDT 10-28): approved with two changes, both applied
+The standing hold hint is reworded rather than hidden ("While a task is on hold, Kosmos does not nudge anyone about it
+or hand it out."), and Choose who is a bordered button on its own line, 44 px on a touch screen.

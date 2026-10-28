@@ -69734,7 +69734,7 @@ function paintTaskPage() {
   /* #4771: the hold control speaks its current state; a message from another task's hold does not follow it here. */
   { const hm = document.getElementById('tk-hold-msg');
     if (hm && hm.dataset.task !== p.id + '#' + t.number) { hm.textContent = ''; delete hm.dataset.nextSig; tkHoldChooseShow(false); }
-    // kosmos#7430: an unhold line is about who was on the task then; once that changes (Choose who, the Assigner) it goes.
+    // kosmos#7430: the unhold line goes when tkHoldNextSig no longer matches the one recorded with it.
     else if (hm && hm.dataset.nextSig && hm.dataset.nextSig !== tkHoldNextSig(t)) { hm.textContent = ''; delete hm.dataset.nextSig; tkHoldChooseShow(false); } }
   const hold = document.getElementById('tk-hold');
   if (hold) hold.textContent = t.onHold === true ? 'Take off hold' : 'Put on hold';
@@ -69807,7 +69807,7 @@ function paintTaskPage() {
       + '<div class="tkwho-b">'
       + (part.closedAt
         ? '<b>' + esc(shown || 'Nobody yet') + '</b>'
-        : '<button class="tkwho-pick" type="button" data-pick-part="' + esc(String(part.id)) + '"'
+        : '<button class="tkwho-pick" type="button" data-pick-part="' + esc(String(part.id)) + '"' + (part.who ? '' : ' data-pick-nobody="1"')
           + ' aria-label="Change who is on this part">' + esc(shown || 'Nobody yet') + '</button>')
       + (line ? '<small>' + esc(line) + '</small>' : '')
       + (part === sayPart ? sayHtml : '')
@@ -71008,8 +71008,8 @@ function tkHoldSay(key, words) {
 }
 /* kosmos#7430: the unhold route's `next` sentence (#7407), shown where the hold words appear. When it ends by asking a
    person to choose (TK_HOLD_ASSIGN, the route's own words), that ask becomes the Choose who row under it, which opens
-   the picker on the task's open part nobody is on. The line holds only while who is on the task stays as it was when
-   it was shown (tkHoldNextSig); the repaint takes it down once that changes. */
+   the picker on the task's open part nobody is on. The repaint takes the line down when tkHoldNextSig differs from the
+   one recorded when it was shown. */
 const TK_HOLD_ASSIGN = ' To choose who, assign it now.';
 function tkHoldNextSig(t) {
   const parts = Array.isArray(t.parts) && t.parts.length ? t.parts : [{ who: t.who || null, closedAt: t.closedAt || null }];
@@ -71028,8 +71028,12 @@ function tkHoldSayNext(key, next, t) {
   tkHoldChooseShow(ask);
 }
 document.getElementById('tk-hold-choose').addEventListener('click', () => {
-  const pick = [...document.querySelectorAll('#tk-who .tkpart:not(.done) [data-pick-part]')].find((x) => x.textContent === 'Nobody yet');
-  if (pick) pick.click();
+  const pick = document.querySelector('#tk-who .tkpart:not(.done) [data-pick-nobody]');
+  if (pick) { pick.click(); return; }
+  // Review 2: no open part is free any more, so the line is stale: take it down rather than leave a button that does nothing.
+  const msg = document.getElementById('tk-hold-msg');
+  if (msg) { msg.textContent = ''; delete msg.dataset.nextSig; }
+  tkHoldChooseShow(false);
 });
 function tkHoldStoredChoice(t) {
   const u = t && t.onHoldUntil;
