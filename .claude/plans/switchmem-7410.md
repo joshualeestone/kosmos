@@ -152,3 +152,18 @@ Two warnings and three nits, all taken.
    are its own".
 5. **Copied but not pointed** now adds "Its instructions do not mention them yet, so tell it they are in
    memory/claude-notes/ in its folder." Tests for 4 and 5 share one test, red on a48283a6be.
+
+## Review 3 (decided)
+One warning and two nits, all taken; every test below is red on 446b18da1b.
+1. **A failed copy was dropped silently.** Each note is now counted as copied, kept, skipped or `failed` (gone
+   meanwhile, EACCES, ENOSPC, a claude-notes/ folder that could not be made). Notes existed and none landed is
+   `notes: 'failed'`, said as "It had saved notes, but none were copied: ... They are still where Claude keeps them."
+   Some failed beside copied ones adds "(N could not be copied)". "It had no saved notes to copy" is said only when
+   there were no note files at all. Tests: copyFileSync stubbed to throw EACCES (all, and one of two), and all notes
+   over 1 MB.
+2. **A non-file in a note's place counted as kept; the pointer counted any `.md` name.** The destination is looked at
+   before the copy (and again on EEXIST): a plain file is kept, anything else skipped. Checked first because Windows
+   answers a copy onto a folder with EPERM, not EEXIST (measured here: the EEXIST-only version counted it failed). The
+   pointer now counts only plain `.md` files. Tests: a folder named MEMORY.md, and a folder named looks-like.md.
+3. **The unparseable profile is now named** in a console.warn ("the switch copied no notes because the profile <file>
+   could not be read"). The corrupt-profile test asserts it.

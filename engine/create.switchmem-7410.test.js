@@ -93,7 +93,7 @@ test('#7410: switching off Claude copies its own notes into memory/claude-notes/
 
   const sw = create.setProvider(name, 'openai', OPTS);
   assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
-  assert.deepEqual(sw.carried, { from: 'anthropic', toClaude: false, rootChange: false, notes: 'copied', copied: 2, kept: 0, skipped: 0, pointed: true });
+  assert.deepEqual(sw.carried, { from: 'anthropic', toClaude: false, rootChange: false, notes: 'copied', copied: 2, kept: 0, skipped: 0, failed: 0, pointed: true });
   assert.equal(read(nodePath.join(notesDir(name), 'MEMORY.md')), '- [Topic](topic.md)\n');
   assert.equal(read(nodePath.join(notesDir(name), 'topic.md')), 'a thing I learned\n');
   assert.equal(read(nodePath.join(src, 'MEMORY.md')), '- [Topic](topic.md)\n', 'the original was changed');
@@ -176,11 +176,16 @@ test('#7410 review 2: a profile that cannot be parsed means unchecked, never a p
   const carry = carryOwned(name);
   const bad = nodePath.join(nodePath.dirname(store.profilePath('x')), 'zz-corrupt-7410.json');
   fs.writeFileSync(bad, '{ not json', 'utf8');
+  const warned = [];
+  const warn = console.warn;
+  console.warn = (...a) => { warned.push(a.join(' ')); };
   try {
     const r = carry();
     assert.equal(r.notes, 'unchecked', 'a corrupt profile was skipped and the list treated as complete');
     assert.equal(fs.existsSync(notesDir(name)), false);
-  } finally { fs.rmSync(bad, { force: true }); }
+    // Review 3: the log names the file that stopped the copy.
+    assert.ok(warned.some((l) => l.includes('zz-corrupt-7410.json')), 'the unreadable profile is not named in the log: ' + JSON.stringify(warned));
+  } finally { console.warn = warn; fs.rmSync(bad, { force: true }); }
   assert.equal(carry().notes, 'copied', 'CONTROL: with every profile readable the notes are copied');
 });
 
@@ -204,6 +209,63 @@ test('#7410 review 2: copied but not pointed says its instructions do not mentio
   assert.doesNotMatch(create.switchCarryWords('OpenAI', { ...base, pointed: true }, 'Claude'), /do not mention them/);
   assert.match(create.switchCarryWords('OpenAI', { ...base, notes: 'newer', copied: 0, pointed: false }, 'Claude'),
     /some were changed after its own last conversation there, so we could not be sure they are its own\./);
+});
+
+/* Review 3: a copy that fails is counted and said, never read as "no notes". copyFileSync is stubbed on the one fs
+   module create.js uses (node's own, shared), so EACCES is reproducible on every platform. */
+function withCopyFailing(which, fn) {
+  const real = fs.copyFileSync;
+  fs.copyFileSync = (src, dest, mode) => {
+    if (which(nodePath.basename(src))) { const e = new Error('EACCES: permission denied'); e.code = 'EACCES'; throw e; }
+    return real(src, dest, mode);
+  };
+  try { return fn(); } finally { fs.copyFileSync = real; }
+}
+const carryOff = (name) => create.carryClaudeNotes(name, { runner: 'claude' }, 'codex', nodePath.join(create.workerDir(name), 'CLAUDE.md'), 'anthropic', 'openai');
+
+test('#7410 review 3: every copy failing is "failed", never "it had no saved notes"', () => {
+  const name = born('sm7410-eacces');
+  claudeProject(name, { 'MEMORY.md': 'a note\n' });
+  const r = withCopyFailing(() => true, () => carryOff(name));
+  assert.deepEqual([r.notes, r.copied, r.failed], ['failed', 0, 1]);
+  const w = create.switchCarryWords('OpenAI', r, 'Claude');
+  assert.doesNotMatch(w, /no saved notes/, 'a failed copy was told as having had no notes');
+  assert.match(w, /It had saved notes, but none were copied: one could not be copied into its folder\. They are still where Claude keeps them\./);
+});
+
+test('#7410 review 3: some copies failing are said beside the copied ones', () => {
+  const name = born('sm7410-partfail');
+  claudeProject(name, { 'MEMORY.md': 'lands\n', 'other.md': 'fails\n' });
+  const r = withCopyFailing((b) => b === 'other.md', () => carryOff(name));
+  assert.deepEqual([r.notes, r.copied, r.failed], ['copied', 1, 1]);
+  assert.match(create.switchCarryWords('OpenAI', r, 'Claude'), /Its saved notes are copied into its folder \(1 could not be copied\)/);
+});
+
+test('#7410 review 3: notes that are all over 1 MB are "failed", never "it had no saved notes"', () => {
+  const name = born('sm7410-allbig');
+  claudeProject(name, { 'huge.md': 'x'.repeat(1024 * 1024 + 1) });
+  const r = carryOff(name);
+  assert.deepEqual([r.notes, r.skipped], ['failed', 1]);
+  const w = create.switchCarryWords('OpenAI', r, 'Claude');
+  assert.doesNotMatch(w, /no saved notes/);
+  assert.match(w, /none were copied: one was left out \(not a plain file, or over 1 MB\)/);
+});
+
+test('#7410 review 3: something other than a plain file already in a note\'s place is skipped, not kept', () => {
+  const name = born('sm7410-destdir');
+  claudeProject(name, { 'MEMORY.md': 'a note\n' });
+  fs.mkdirSync(nodePath.join(notesDir(name), 'MEMORY.md'), { recursive: true });   // a folder where the note would go
+  const r = carryOff(name);
+  assert.deepEqual([r.kept, r.skipped], [0, 1], 'a folder in the note\'s place was counted as a kept note');
+});
+
+test('#7410 review 3: the pointer counts only plain .md files, not a folder named like one', () => {
+  const name = born('sm7410-hasdir');
+  fs.mkdirSync(nodePath.join(notesDir(name), 'looks-like.md'), { recursive: true });
+  const brief = nodePath.join(create.workerDir(name), 'CLAUDE.md');
+  const r = create.carryClaudeNotes(name, { runner: 'codex' }, 'claude', brief, 'openai', 'anthropic');
+  assert.equal(r.pointed, false, 'the brief was pointed at a folder that holds no note');
+  assert.equal(blocks(read(brief)), 0);
 });
 
 test('#7410 review 1: a note changed after the agent\'s own newest transcript is refused', () => {
@@ -247,7 +309,7 @@ test('#7410: no Claude notes at all: nothing copied, no pointer, and the sentenc
   const name = born('sm7410-none');
   const sw = create.setProvider(name, 'openai', OPTS);
   assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
-  assert.deepEqual(sw.carried, { from: 'anthropic', toClaude: false, rootChange: false, notes: 'none', copied: 0, kept: 0, skipped: 0, pointed: false });
+  assert.deepEqual(sw.carried, { from: 'anthropic', toClaude: false, rootChange: false, notes: 'none', copied: 0, kept: 0, skipped: 0, failed: 0, pointed: false });
   assert.match(create.switchCarryWords('OpenAI', sw.carried, 'Claude'), /had no saved notes to copy/);
 });
 
