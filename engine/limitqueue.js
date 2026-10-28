@@ -283,10 +283,17 @@ function retryRows(chat) {
    are typed through the automatic gate, each as its own route types it, once chat.limitQueueReleased; a typed or
    dropped message is recorded where its sender looks (the message log and its sender's pane, or the person's
    conversation row), and a task message's in its task's conversation (#5842). */
+/* kosmos#7406: whether this agent's kept queue holds a person's own message (a DM, or a task line they typed). */
+function personsIn(name) {
+  try { return list(name).some((x) => x && (x.kind === 'dm' || x.person === true)); } catch { return true; }   // unreadable: never hold a person's
+}
 function sweepHooks({ chat, messages }) {
   retryRows(chat);
   return {
-    deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r)),
+    /* kosmos#7406: an agent's kept lines ask for the per-account cap (a usage limit resets a whole account at once, the
+       burst the cap is for), except while the same agent's queue holds a person's message: the queue is in order and
+       one held entry stops it. A person's own entry never asks for it. */
+    deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r, undefined, undefined, (e && e.person === true) || personsIn(n) ? {} : { workCap: true })),
     resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
     /* #6774: a queue holding a message kept for a stuck input box waits for the box to read empty as well (the #6256
        rule: an unreadable box keeps them waiting). */

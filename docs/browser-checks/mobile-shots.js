@@ -1646,6 +1646,13 @@ const SCREENS = [
     await at(page, '?tab=settings');
     await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
   } },
+  /* kosmos#7406: Settings > Automation at its two working-at-once caps (the Gemini one and the per-account one below
+     it), scrolled so both controls and their hints are in view. */
+  { name: 'settings-automation-caps', owner: 'PigeonPete', go: async (page) => {
+    await at(page, '?tab=settings&sec=automation');
+    await page.waitForSelector('#workcap-row', { state: 'visible', timeout: 8000 });
+    await page.evaluate(() => { const el = document.getElementById('agycap-row'); if (el) el.closest('section').scrollIntoView({ block: 'start' }); });
+  } },
   /* #5206: Settings > Advanced, where every row is an on/off switch whose 44px target is a ::after past its 42x24
      box: the tap audit must count it as the finger reaches it. */
   { name: 'settings-advanced', owner: 'Mona Lisa', go: async (page) => {

@@ -368,7 +368,7 @@ async function sweepOnce(o) {
          would hold it (no try counted), so it would fill a slot every pass until the reset and starve later agents. */
       if (typeof o.quotaHeld === 'function') {
         let q = false; try { q = o.quotaHeld(session, o.roster) === true; } catch { q = false; }   // review 6: the pass's roster, no new snapshot
-        if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: 'its machine\'s shared Google quota is out, or its Gemini agents are at the limit set for working at once' }); continue; }
+        if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: (card.runner === 'antigravity' ? 'its machine\'s shared Google quota is out, or ' : '') + require('./agyquota').capWords(session, o.roster).replace('the limit you set', 'the limit set') }); continue; }
       }
       prune();   // review 8: the hour's log ages out during a long pass too
       // Review 1: the hour's cap met reads no further for the regular comments; #5623: a person's comment takes no slot, so
@@ -650,7 +650,7 @@ async function sweepOnce(o) {
         if (held || paneBusy) {
           rollBack();
           const act = held ? (heldBy === 'input' ? 'input-held' : heldBy === 'menu' ? 'menu-held' : heldBy === 'signin' ? 'signin-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held') : 'pane-busy';
-          results.push({ session, name: display, act, delivered: false, delivery: state, because: held ? p.because + (heldBy === 'input' ? '; held while its input box holds text not yet sent (#6249)' : heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'signin' ? '; held while it is signed out (#5948)' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota') : p.because });
+          results.push({ session, name: display, act, delivered: false, delivery: state, because: held ? p.because + (heldBy === 'input' ? '; held while its input box holds text not yet sent (#6249)' : heldBy === 'cap' ? '; held by a working-at-once limit you set' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'signin' ? '; held while it is signed out (#5948)' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota') : p.because });
           const m = book.get(session) || {};
           if (m.waitSaid !== act) { say({ name: display, session, act, delivered: false, delivery: state, because: p.because }); book.set(session, { ...m, waitSaid: act }); }
           continue;

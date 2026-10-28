@@ -154,13 +154,73 @@ function inputProjects(name) {
   return live;
 }
 function forgetInput(name) { inputHeld.delete(String(name)); }
+/* kosmos#7406: the posts the per-account cap held for a member of any runner but Antigravity (whose capped posts carry
+   their own mark and are retried with its quota, below). A capped post that ASKS the member is stored with the @ mark,
+   which other holds use too, so the cap's own posts are noted here and flushReleased retries exactly those once the cap
+   lets the member through. Kept beside the held file, as the usage-limit notes are (review 1): no wake comes for an
+   idle member, so a note lost to a board restart would leave its ask unsaid. */
+const CAP_RETRY_MS = 10 * 60 * 1000;
+const capTried = new Map();   // name -> when a cap retry last reached nothing (in memory: a restart tries at once)
+function capBackingOff(name, now) {
+  const at = capTried.get(String(name));
+  return at !== undefined && now - at >= 0 && now - at < CAP_RETRY_MS;
+}
+function capFileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '.cap'); }
+function readCaps(name) {
+  try {
+    const got = JSON.parse(fs.readFileSync(capFileFor(name), 'utf8'));
+    return got && typeof got === 'object' && !Array.isArray(got) ? got : {};
+  } catch { return {}; }
+}
+function writeCaps(name, all) {
+  const kept = Object.create(null);
+  for (const [p, ids] of Object.entries(all)) if (Array.isArray(ids) && ids.length) kept[p] = ids;
+  if (!Object.keys(kept).length) { try { fs.rmSync(capFileFor(name), { force: true }); } catch { /* nothing to remove */ } return true; }
+  fs.mkdirSync(dir(), { recursive: true });
+  require('./securewrite').writeSecret(capFileFor(name), JSON.stringify(kept), 0o600, { atomicOnly: true });
+  return true;
+}
+function noteCap(name, projectId, id) {
+  if (!name || !projectId || !id) return false;
+  try {
+    const all = readCaps(name);
+    const ids = new Set(Array.isArray(all[projectId]) ? all[projectId] : []);
+    ids.add(plainId(String(id)));
+    all[projectId] = [...ids];
+    return writeCaps(name, all);
+  } catch {
+    try { process.stdout.write('room-hold: ' + name + ' could not record a cap-held post in ' + projectId + '; it waits for the next wake\n'); } catch { /* never breaks a send */ }
+    return false;
+  }
+}
+/* The projects that still hold one of the member's cap-held posts; notes for posts gone since are dropped. */
+function capProjects(name) {
+  const all = readCaps(name);
+  const projects = Object.keys(all);
+  if (!projects.length) return [];
+  const live = [];
+  let changed = false;
+  for (const p of projects) {
+    const ids = new Set(Array.isArray(all[p]) ? all[p] : []);
+    const still = heldIn(String(name), p).map(plainId).filter((x) => ids.has(x));
+    if (still.length !== ids.size) changed = true;
+    if (still.length) { all[p] = [...new Set(still)]; live.push(p); } else delete all[p];
+  }
+  if (changed) { try { writeCaps(name, all); } catch { /* re-checked next minute */ } }
+  return live;
+}
+/* An Antigravity member's capped posts carry their own mark and are retried on its own path, so they are not noted. */
+function agyCard(name, roster) {
+  try { const c = require('./chat').resolveCard(roster, name); return Boolean(c && c.runner === 'antigravity'); } catch { return false; }
+}
+function forgetCap(name) { capTried.delete(String(name)); try { fs.rmSync(capFileFor(name), { force: true }); } catch { /* nothing to remove */ } }
 
 /* #4588 PR B: a post held because the member is an Antigravity agent paused on the shared Google quota may @-name
    the member (an agent's post is an automatic sender there, addressed or not). Its id is kept with this mark, so the
    line that later tells the member says which of the held posts ask for an answer. Board ids never start with it. */
 const ADDRESSED = '@';
 function addressedId(id) { return ADDRESSED + String(id); }
-/* #4588 ask 3 (review 13): a post the Gemini cap held, that asks nothing of the member, is kept with this mark instead.
+/* #4588 ask 3 (review 13): a post the Gemini cap held (kosmos#7406: or the per-account cap), that asks nothing of the member, is kept with this mark instead.
    The cap holds it while the member is idle, when no wake is coming, so flushReleased retries it; a post the ordinary
    #4624 idle hold kept is unmarked and waits for the member's next wake, cap or no cap. Board ids never start with it. */
 const CAPPED = '^';
@@ -328,6 +388,7 @@ function dropShown(name, projectId, shownIds) {
 /* The member was removed: nothing held for it is told to anyone who later takes its name. */
 function forget(name) {
   forgetInput(name);   // #6256 item 1
+  forgetCap(name);   // kosmos#7406
   try { fs.rmSync(limitFileFor(name), { force: true }); } catch { /* the held file is what matters */ }
   try { fs.rmSync(fileFor(name), { force: true }); return true; } catch { return false; }
 }
@@ -513,17 +574,20 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     let capped = false;
     let limitUntil = null;
     try {
-      const sent = await deliver(name, clauseFor(projectId, shown, ids, { digest: due }), roster);
+      // kosmos#7406: telling a member the posts kept for it is a burst source (a turn end, a digest, the retry): it asks
+      // for the per-account cap. These are other agents' posts; a person's post is never held, so never here.
+      const sent = await deliver(name, clauseFor(projectId, shown, ids, { digest: due }), roster, undefined, undefined, { workCap: true });
       state = sent && sent.state;
       capped = !!(sent && sent.held === true && sent.heldBy === 'cap');
       if (sent && sent.held === true && sent.heldBy === 'limit') limitUntil = sent.limitReset;
     } catch { state = DELIVERY.COULD_NOT; }
-    /* #4588 ask 3 (review 14): the Gemini cap held this turn-end line, so the member is idle with no wake coming; its
+    /* #4588 ask 3 (review 14): a working-at-once cap held this turn-end line, so the member is idle with no wake coming; its
        posts are put back with the cap's mark (an asked one keeps @), so flushReleased tells them once the cap frees. */
     // #5805: a usage limit held this flush: its ids keep their marks, and the reset is recorded for withoutStale.
     if (limitUntil) noteLimit(name, projectId, ids.filter(isAddressed), limitUntil);
     if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
     else if (due) noteDigest(name, projectId, now);   // #7246: a digest was typed (or held for typing): the next waits an hour
+    if (capped && !agyCard(name, roster)) for (const x of ids) noteCap(name, projectId, x);   // kosmos#7406: retried by flushReleased once the cap frees
     // A digest the gate refused is tried again in DIGEST_RETRY_MS, not at the next minute's sweep.
     if (due && (!state || state === DELIVERY.COULD_NOT)) noteDigest(name, projectId, now - DIGEST_MS + DIGEST_RETRY_MS);
     out.push({ projectId, n: ids.length, state, ...(due ? { digest: true } : {}), ...(after ? { after } : {}) });
@@ -583,6 +647,28 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
           inputProjects(inName);   // drop the notes for posts now told
           for (const d of done) out.push({ name: inName, why: 'input', ...d });
           continue;
+        }
+      }
+      /* kosmos#7406: the per-account cap held these while the member was idle, so no wake is coming for them. Told once
+         the member is not in a fresh working turn, can be typed into, no usage limit or sign-out holds it, and the cap
+         lets it through; until then they wait, untouched. Antigravity members are left to their own path below. */
+      const capIn = isAgy(card) ? [] : capProjects(inName);
+      if (capIn.length && !workingNow(readReport, inName, now, decayMs) && !capBackingOff(inName, now)) {
+        const chatMod = require('./chat');
+        /* Review 1: a menu up or text in the box would hold the line again, and the take, put-back and log line would
+           repeat every minute (#4797), so those wait too, as the input-box path above does. */
+        if (chatMod.addressable(inName, roster).ok === true && !chatMod.accountHeldVerdict(inName, roster) && !chatMod.menuHeld(inName, roster)
+          && (String(card.runner || 'claude') !== 'claude' || typeof boxEmpty !== 'function' || boxEmpty(card) === true)   // review 3: only a Claude box can be read; any other reads never-empty
+          && require('./agyquota').heldForCap(inName, roster, now, undefined, env || process.env, undefined, true) === null) {
+          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: capIn, modeOf, now });
+          capProjects(inName);   // drop the notes for posts now told
+          for (const d of done) out.push({ name: inName, why: 'cap', ...d });
+          // Review 5: a member that refused every line (a non-Claude pane on its own prompt reads none of the checks
+          // above) is not tried again for CAP_RETRY_MS, rather than every minute (#4797).
+          if (done.length && done.every((d) => !d.state || d.state === DELIVERY.COULD_NOT)) capTried.set(inName, now); else capTried.delete(inName);
+          // Review 4: only a minute that told something skips the rest; a note left for a digest room's quiet post must
+          // not keep this member from the usage-limit path below.
+          if (done.length) continue;
         }
       }
       const agy = isAgy(card);
@@ -683,4 +769,4 @@ function carriedLine(name, projectId, ids, after, state) {
     : `room-hold: ${name} could not yet be told of ${ids.length} held post(s) in ${projectId} on an arrival there (delivery=${state || 'none'})\n`;
 }
 
-module.exports = { QUIET, capKept, NOTICE_MODES, BIG_ROOM, DIGEST_MS, DIGEST_RETRY_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };
+module.exports = { QUIET, capKept, NOTICE_MODES, BIG_ROOM, DIGEST_MS, DIGEST_RETRY_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, noteCap, capProjects, forgetCap, agyCard, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };

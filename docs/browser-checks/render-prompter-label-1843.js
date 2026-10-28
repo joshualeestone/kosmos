@@ -92,6 +92,11 @@ function chk(ok, label, extra) {
         () => { const s = document.getElementById('agycap-max'); return s && s.options && s.options.length > 0; },
         null, { timeout: 8000 },
       ).catch(() => {});
+      // kosmos#7406: the per-account cap select too.
+      await page.waitForFunction(
+        () => { const s = document.getElementById('workcap-max'); return s && s.options && s.options.length > 0; },
+        null, { timeout: 8000 },
+      ).catch(() => {});
       const sec = await page.evaluate(() => {
         const el = document.getElementById('s-sec-automation');
         const vis = (n) => !!(n.offsetWidth || n.offsetHeight || n.getClientRects().length);
@@ -123,7 +128,12 @@ function chk(ok, label, extra) {
         const ivRowVisible = !!(ivRow && vis(ivRow));
         const cap = el.querySelector('#agycap-max');
         const capRow = el.querySelector('#agycap-row');
+        const wcap = el.querySelector('#workcap-max');
+        const wcapRow = el.querySelector('#workcap-row');
         return {
+          wcapOptionText: wcap ? [...wcap.options].map((o) => o.textContent.trim()) : [],
+          wcapValue: wcap ? wcap.value : null,
+          wcapRowVisible: !!(wcapRow && vis(wcapRow)),
           capOptionText: cap ? [...cap.options].map((o) => o.textContent.trim()) : [],
           capValue: cap ? cap.value : null,
           capRowVisible: !!(capRow && vis(capRow)),
@@ -161,11 +171,11 @@ function chk(ok, label, extra) {
       // this sibling was not, staling it and blocking the 0.6.91 cut (#3552).
       // #4288 added the "Community" box directly below Daily report (SEVEN headings); the PR's
       // browser-checks job caught this sibling after web.settings-nav had been updated alone.
-      // #4588 ask 3 added "Gemini subscription agents at once" directly below the Prompter.
+      // #4588 ask 3 added "Gemini subscription agents at once" directly below the Prompter; kosmos#7406 the per-account cap below it.
       // #5080 added "Language" directly below Community (the third time this sibling was missed: web.settings-nav.test.js
       // now asserts the two lists match).
-      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Gemini subscription agents at once', 'Agent Communication', 'Daily report', 'Community', 'Language', 'Recommender', 'Assigner']),
-        `[${theme}] the Automation headings read Auto-save, Prompter, Gemini subscription agents at once, Agent Communication, Daily report, Community, Language, Recommender, Assigner (#2619, #4288, #4588, #5080)`, JSON.stringify(sec.headings));
+      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Gemini subscription agents at once', 'Agents on one account at once', 'Agent Communication', 'Daily report', 'Community', 'Language', 'Recommender', 'Assigner']),
+        `[${theme}] the Automation headings read Auto-save, Prompter, Gemini subscription agents at once, Agents on one account at once, Agent Communication, Daily report, Community, Language, Recommender, Assigner (#2619, #4288, #4588, #5080, #7406)`, JSON.stringify(sec.headings));
       // #2054: the Prompter is a .toggle slider on screen with the visible-word aria.
       // #2632/#2771 (Josh 2026-09): the toggle copy was changed so it no longer promises
       // an undeliverable nudge -- both the visible <b> label and the slider's aria-label
@@ -211,6 +221,28 @@ function chk(ok, label, extra) {
         null, { timeout: 8000, polling: 200 },
       ).then(() => true).catch(() => false);
       chk(restored, `[${theme}] choosing No limit again saves it (the route reads 0 back)`, String(restored));
+      // kosmos#7406: the per-account cap, the same control: on screen, its own choices, No limit by default, and a save
+      // through its own route that leaves the Gemini cap alone.
+      chk(sec.wcapRowVisible === true, `[${theme}] the per-account cap row is on screen`, String(sec.wcapRowVisible));
+      chk(JSON.stringify(sec.wcapOptionText) === JSON.stringify(['No limit', '2 agents', '4 agents', '6 agents', '8 agents', '12 agents', '16 agents']),
+        `[${theme}] the per-account cap choices read No limit, 2 to 16 agents`, JSON.stringify(sec.wcapOptionText));
+      chk(sec.wcapValue === '0', `[${theme}] the per-account cap reads No limit by default`, String(sec.wcapValue));
+      await page.selectOption('#workcap-max', '8');
+      const wsaved = await page.waitForFunction(
+        async () => {
+          const w = await (await fetch('/api/workcap-setting', { cache: 'no-store' })).json();
+          const a = await (await fetch('/api/agycap-setting', { cache: 'no-store' })).json();
+          return w.maxWorking === 8 && a.maxWorking === 0;
+        },
+        null, { timeout: 8000, polling: 200 },
+      ).then(() => true).catch(() => false);
+      chk(wsaved, `[${theme}] choosing 8 agents saves the per-account cap (its route reads 8, the Gemini cap still 0)`, String(wsaved));
+      await page.selectOption('#workcap-max', '0');
+      const wrestored = await page.waitForFunction(
+        async () => { const r = await fetch('/api/workcap-setting', { cache: 'no-store' }); const j = await r.json(); return j.maxWorking === 0; },
+        null, { timeout: 8000, polling: 200 },
+      ).then(() => true).catch(() => false);
+      chk(wrestored, `[${theme}] choosing No limit again saves the per-account cap (the route reads 0 back)`, String(wrestored));
     }
   } finally {
     await browser.close();

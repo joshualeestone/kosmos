@@ -3082,7 +3082,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         /* #4926 review 1 (Opus): an answer to this member's OWN post (--in-reply-to, no @) asks for its attention too, so it
            is kept marked like an @: a stale-post drop at the flush never removes it (and its line says it is asked). */
         const asksIt = asksMember(name);
-        /* #4588 ask 3 (review 13): a post the Gemini cap held is marked too, so roomhold.flushReleased retries it once the
+        /* #4588 ask 3 (review 13): a post the Gemini cap (kosmos#7406: or the per-account cap) held is marked too, so roomhold.flushReleased retries it once the
            cap lets the member through (a cap hold has no wake coming); an unmarked one waits for the next wake. */
         if (roomhold.hold(name, projectId, asksIt ? roomhold.addressedId(id) : sent.heldBy === 'cap' ? roomhold.cappedId(id) : id)) {
           outcomes[name] = roomhold.HELD;
@@ -3090,6 +3090,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
           // #5805: for withoutStale's day rule, every ask this arrival put back, not only the new post.
           if (sent.heldBy === 'limit') roomhold.noteLimit(name, projectId, [...(asksIt ? [id] : []), ...heldIds.filter(roomhold.isAddressed)], sent.limitReset);
           if (sent.heldBy === 'input') roomhold.noteInput(name, projectId, id);   // #6256 item 1: told once its box reads empty
+          // kosmos#7406: told once the per-account cap frees. Review 4: the older held posts restored above are noted too, so
+          // a retry that read the file while they were taken out cannot have dropped their notes for good.
+          if (sent.heldBy === 'cap' && !roomhold.agyCard(name, roster)) for (const x of [id, ...heldIds]) roomhold.noteCap(name, projectId, x);
           reached += 1;
         } else outcomes[name] = chat.DELIVERY.COULD_NOT;
         logCarried('held');   // #4926 N7: put back, so not told
@@ -3121,7 +3124,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       ? deliverToPane : (deliverAutomaticToPane || deliverToPane);
     let sent;
     typingStarted.add(name);
-    try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
+    // kosmos#7406: an agent's room post asks for the per-account cap (a person's goes through deliverToPane, ungated).
+    try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined, typeInto === deliverToPane ? undefined : { workCap: true }); }
     catch (err) { putBack(err); }
     return sent && typeof sent.then === 'function' ? sent.then(finish, putBack) : finish(sent);
   };

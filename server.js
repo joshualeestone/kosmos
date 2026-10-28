@@ -680,10 +680,10 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     try { heldUntil = agyq.heldForQuota(who, r, now); } catch { heldUntil = null; }
     if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
     // #4588 ask 3: the person's cap on how many Gemini agents work at once.
-    try { heldUntil = agyq.heldForCap(who, r, now); } catch { heldUntil = null; }
-    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " waits: the Gemini subscription agents on this computer are at the limit set for working at once" };
+    try { heldUntil = agyq.heldForCap(who, r, now, undefined, undefined, undefined, true); } catch { heldUntil = null; }   // kosmos#7406: the Assigner asks for the per-account cap too
+    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + ' waits: ' + agyq.capWords(who, r).replace('the limit you set', 'the limit set') };   // kosmos#7406: either cap
     // Reserve now, before the part is assigned and told, so the next givePart in this same tick counts it.
-    try { capSlot = agyq.noteCapStart(who, r, now); } catch { capSlot = null; }
+    try { capSlot = agyq.noteCapStart(who, r, now, undefined, undefined, undefined, true); } catch { capSlot = null; }
   }
   /* #5382: a failover move (`from`: the rate-limited agent the Assigner takes the part from) is refused unless the part is
      still on that agent and still open, not held and not built, at the moment of the write (tasks.assignPart). */
@@ -1418,6 +1418,7 @@ function connlostHealEnabled() {
 }
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const agycapSetting = require('./engine/agycap-setting');   // #4588 ask 3
+const workcapSetting = require('./engine/workcap-setting');   // kosmos#7406
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
 const recommender = require('./engine/recommender'); // #3595: the Recommender's behaviour (pure step; the runner is below)
 const assignerSetting = require('./engine/assigner-setting'); // #2619
@@ -12688,6 +12689,31 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* kosmos#7406: how many of this computer's agents on ONE ACCOUNT may work at once before Kosmos's automatic messages
+     to the others on it wait (Settings > Automation), for every runner but Antigravity (its own cap, above). The same
+     STATUS control and the same advisory write rule as /api/agycap-setting. */
+  if (pathname === '/api/workcap-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = workcapSetting.read();
+      sendJson(res, 200, { maxWorking: r.maxWorking, choices: workcapSetting.CHOICES, ok: r.ok });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/workcap-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        const saved = workcapSetting.set(body);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = workcapSetting.read();
+        sendJson(res, 200, { maxWorking: r.maxWorking, choices: workcapSetting.CHOICES, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
   /* #2619: the Recommender automation setting (Settings > Automation). Read-only
      GET returns on + the three guards + their key order for the UI. Like
      /api/heartbeat-setting it is a STATUS control: a read error is a 500, never a
@@ -20078,7 +20104,7 @@ const server = http.createServer(async (req, res) => {
         if (automatic && delivery && delivery.held === true) {
           sendJson(res, 200, { delivery, recorded: false,
             recordedBecause: delivery.heldBy === 'cap'   // defensive: this route's automatic hello sends with { cap: false }
-              ? 'held: nothing was typed while the Gemini agents are at the limit set for working at once, so nothing was kept'
+              ? 'held: nothing was typed while the agents are at a working-at-once limit you set, so nothing was kept'
               : delivery.heldBy === 'menu'   // #5743
                 ? 'held: nothing was typed while it waits for an answer on its screen, so nothing was kept'
               : delivery.heldBy === 'input'   // #6249
@@ -26550,7 +26576,7 @@ function start(port = PORT) {
             modeOf: roomNoticeModeOf,   // #7246: a big room's unasked posts wait for its digest here too
             boxEmpty: chat.inputBoxEmpty,   // #6256 item 1: posts held by text in a Claude agent's box, once it empties
           }).then((done) => {
-            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, d.why === 'input' ? 'once its input box was empty' : 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3; #6256
+            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, d.why === 'input' ? 'once its input box was empty' : 'after the quota hold, a working-at-once limit or a usage limit'));   // #4797; #4588 ask 3; #6256
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
         /* #7246: a big room's hourly digest, for members not in a turn (engine/roomhold.js flushDigests). */
@@ -26955,7 +26981,7 @@ function start(port = PORT) {
             if (a.verdict === 'held') {
               const heldKey = a.session + ' ' + a.project;
               heldNow.add(heldKey);
-              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held (the shared Google quota, the Gemini limit, or a question on its screen), not convened yet\n`);
+              if (!recommenderHeldLogged.has(heldKey)) process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: held (the shared Google quota, a working-at-once limit, or a question on its screen), not convened yet\n`);
               continue;
             }
             process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: ${a.retry ? 'retry' : 'note ' + (a.noteLanded ? 'written' : 'NOT written') + ', asked [' + a.asked.join(', ') + ']'}, playbook ${a.verdict || 'threw'}\n`);
@@ -27381,7 +27407,7 @@ function start(port = PORT) {
          the daily maximum, gets one line asking it to post if it has something real (engine/communityturn.js holds the
          gates and is tested there). Same gates as the reply nudge above: live execution, the community switch, the
          Prompter's agent-nudge switch; operator brake AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Counted in the shared hour log
-         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause and by the Gemini cap). unref'd;
+         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause and by a working-at-once cap). unref'd;
          first run one interval after boot. */
       const COMMUNITY_TURN_BOOK = communityturn.readBook();   // review 6: kept on disk, so a restart cannot reset the gaps
       const COMMUNITY_TURN_IDLE_SEEN = new Set();   // review 4: idle at the previous pass too
