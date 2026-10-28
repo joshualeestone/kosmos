@@ -60,6 +60,26 @@ printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/codex-report-bri
 printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/gemini-report-bridge.js"
 printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/grok-report-bridge.js"
 printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/agy-report-bridge.js"
+# kosmos#7465: the hand list above went stale (#6587 added a sourced library, so stage_app aborted before the swap
+# and the guard-absent control below proved nothing). Every other input stage_app reads from $REPO is now DERIVED
+# from the copied script's own stage_app, so a new one is created here the day it is added: a file it SOURCES is the
+# real one (a stub would not define its functions), anything else a stub. The positive control further down
+# (a --refresh-only run into a real board install must succeed) turns this test red if that is still not enough.
+for rel in $(sed -n '/^stage_app() {/,/^}/p' "$FAKE_REPO/deploy/install-board.sh" \
+    | grep -oE '"\$REPO/[A-Za-z0-9._/-]+"' | sed 's/^"\$REPO\///; s/"$//' | sort -u); do
+  [ -e "$FAKE_REPO/$rel" ] && continue
+  mkdir -p "$(dirname "$FAKE_REPO/$rel")"
+  if sed -n '/^stage_app() {/,/^}/p' "$FAKE_REPO/deploy/install-board.sh" | grep -qF ". \"\$REPO/$rel\""; then
+    cp "$REPO/$rel" "$FAKE_REPO/$rel"
+  else
+    case "$rel" in
+      *.sh) printf '#!/bin/sh\n' ;;
+      *.js) printf '#!/usr/bin/env node\n' ;;
+      *.json) printf '{}\n' ;;
+      *) printf '\n' ;;
+    esac > "$FAKE_REPO/$rel"
+  fi
+done
 
 # A separate real git working tree, for the inside-a-git-tree case.
 GITTREE="$TMP/gittree"
@@ -185,6 +205,20 @@ accepts "an empty existing destination is accepted"      "$TMP/empty-dest"
 mkdir -p "$TMP/prior-board/engine"
 touch "$TMP/prior-board/server.js"
 accepts "an existing board install (server.js + engine/) is accepted" "$TMP/prior-board"
+
+# ---- kosmos#7465: the fixture really is stageable (the control the guard-absent case rests on) ----
+# A --refresh-only run into a real board install must stage, swap and finish. If stage_app gains an input the
+# fixture lacks, this goes red, instead of the guard-absent case below silently failing before the swap.
+mkdir -p "$TMP/refresh-ok/engine"
+printf 'old\n' > "$TMP/refresh-ok/server.js"
+OK_OUT="$(KOSMOS_BOARD_LIBEXEC="$TMP/refresh-ok" sh "$SCRIPT" --refresh-only 2>&1)"; OK_RC=$?
+if [ "$OK_RC" -eq 0 ] && printf '%s' "$OK_OUT" | grep -q "refresh complete" \
+   && grep -qx 'process.exit(0)' "$TMP/refresh-ok/server.js" \
+   && grep -q '0.0.0-test' "$TMP/refresh-ok/web/index.html"; then
+  ok "the fixture is fully stageable: a --refresh-only run into a board install swaps and finishes"
+else
+  bad "the fixture is NOT fully stageable, so the guard-absent case below proves nothing (rc=$OK_RC): $(printf '%s' "$OK_OUT" | tail -3 | tr '\n' ' ')"
+fi
 
 # ---- the refusal must hold on a REAL destructive path, not just the dry run ---
 # Every case above drives the dry run, which never reaches the swap. --refresh-only
