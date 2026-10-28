@@ -1354,15 +1354,24 @@ async function taskClose(ctx, args) {
     if (args.length > 2) {
       const ok = [];
       const bad = [];
-      for (const n of [...new Set(args.slice(1).map((x) => x.replace(/^0+(?=[0-9])/, '')))]) {   // a number given twice (013 is 13) is closed once
+      const all = [...new Set(args.slice(1).map((x) => x.replace(/^0+(?=[0-9])/, '')))];   // a number given twice (013 is 13) is closed once
+      let lost = -1;
+      for (let i = 0; i < all.length; i++) {
+        const n = all[i];
         const one = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + n + '/close');
-        if (!one.reached) bad.push(n + ' (Kosmos did not answer)');
-        else if (one.json && one.json.task) ok.push(n);
+        // Unanswered: it may have closed (a timeout), so say it as a single close does, and send no more.
+        if (!one.reached) { lost = i; break; }
+        if (one.json && one.json.task) ok.push(n);
         else bad.push(n + ' (' + (ctx.refusedBy(one) || 'an answer we could not read') + ')');
       }
       if (ok.length) ctx.out((ok.length > 1 ? 'Closed tasks ' : 'Closed task ') + ok.join(', ') + ' on ' + project + '.');
-      if (bad.length) { ctx.err('Could not close: ' + bad.join('; ') + '.'); return 1; }
-      return 0;
+      if (bad.length) ctx.err('Could not close: ' + bad.join('; ') + '.');
+      if (lost >= 0) {
+        const code = ctx.unreachable('close task ' + all[lost]);
+        if (lost + 1 < all.length) ctx.err('Not tried, so still open: ' + all.slice(lost + 1).join(', ') + '.');
+        return code || 1;
+      }
+      return bad.length ? 1 : 0;
     }
   }
   const r = by
