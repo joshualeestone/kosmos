@@ -850,7 +850,7 @@ struct NewAgentView: View {
             announce(NewAgent.Words.chosenPicture)
         } else {
             // Said for what will happen: an earlier chosen picture is still the one that goes.
-            let said = draft.photo == nil ? NewAgent.Words.pictureTooBig : NewAgent.Words.pictureKept
+            let said = draft.photo == nil ? NewAgent.Words.pictureUnusable : NewAgent.Words.pictureKept
             photoMessage = said
             announce(said)
         }

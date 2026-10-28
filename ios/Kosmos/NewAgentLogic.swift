@@ -60,7 +60,7 @@ enum NewAgent {
         static let chosenPicture = "Chosen picture"
         static let readingPicture = "Reading the picture"
         static let pictureKept = "That picture could not be used. The one you chose before is kept."
-        static let pictureTooBig = "That picture could not be used. Choose another."
+        static let pictureUnusable = "That picture could not be used. Choose another."
         static let labelMissing = "Say what this agent does. One or two words."
         static func running(_ shown: String) -> String { shown + " is running" }
         static func notUp(_ shown: String) -> String { shown + " has not come up" }
@@ -217,6 +217,10 @@ enum NewAgent {
     // kosmos#7488 build 14: the new agent's picture, PUT to the route the desktop's uploadPendingAvatar uses, once the
     // board can see the agent (it refuses a name it does not know). The type is the picture's: PNG or JPEG (anything else is redrawn first).
     static let pictureMaxBytes = 60000   // the board's and the desktop's PICTURE_MAX_BYTES
+    // A fitted picture's type, from its first bytes: PNG, else JPEG (the only two the phone makes).
+    static func pictureType(_ data: Data) -> String {
+        data.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png" : "image/jpeg"
+    }
 
     // Whether a catalogue portrait is sent as it came: a still PNG (one frame) with no eXIf chunk at all (the desktop
     // redraws a turned one; the phone redraws any, the safe side), within the byte limit and 16 to 2048 px a side.
