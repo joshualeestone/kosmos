@@ -97,6 +97,7 @@ test('#7407: a task taken off hold keeps whoever was on it, and both commands sa
     const r = await holdThenUnhold(run, n);
     assert.equal(r.code, 0, label + ': ' + r.text);
     assert.match(r.text, /^\s*It stays with otto\.$/m, label + ': ' + r.text);
+    assert.doesNotMatch(r.text, /kosmos task assign/, label + ': no assign command when someone has it');
     assert.deepEqual(tasks.whoOf(taskOf(n)), ['otto'], label + ': the owner changed');
     assert.equal(assigner.handOutable(taskOf(n)), false, label + ': the Assigner could hand it to someone else');
   }
@@ -177,7 +178,9 @@ test('#7407 review 1: no agent that takes work here, a paused project, or a pare
   const child = make('child');
   tasks.setParent(projectId, child, parent);
   const pn = await unholdNext(parent);
-  assert.match(pn, /^Nobody is on it, and no agent on the project can be given it now/, pn);
+  // Review 6: subtasks first resolves on its own, and is said so.
+  assert.match(pn, /^Nobody is on it\. Its open subtasks go first; once they are done, Kosmos can give it to a free agent here in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/, pn);
+  assert.equal(assigner.subtasksFirst(projectNow(), taskOf(parent)), true, 'CONTROL: the Assigner holds it back for its subtask');
   // Paused: said as paused, with what happens on resume.
   const paused = make('paused');
   projects.mutate(projectId, (p) => ({ ...p, paused: true }));
@@ -296,7 +299,7 @@ test('#7407 review 3: a subset, archived, a sole holder, and the nobody-can-take
       const n = make('none ' + label);
       const r = await holdThenUnhold(run, n);
       assert.equal(r.code, 0, label + ': ' + r.text);
-      assert.match(r.text, /Nobody is on it, and no agent on the project can be given it now \(its subtasks go first, it belongs to another builder's work, or no running agent here takes work\)\. To choose who, assign it now\./, label + ': ' + r.text);
+      assert.match(r.text, /Nobody is on it, and no agent on the project can be given it now \(no running agent here takes work\)\. To choose who, assign it now\./, label + ': ' + r.text);
       assert.match(r.text, /^\s*kosmos task assign /m, label);
     }
   } finally {
@@ -340,4 +343,25 @@ test('#7407 review 5: with failover on, two holders on one task get no caveat (a
   const sub = make('sub', 'mara');
   tasks.setParent(projectId, sub, root);
   assert.match(await unholdNext(root), /^Nobody is on it\. It is part of work mara is doing on its subtasks \(one builder per task tree\)/);
+});
+
+test('#7407 review 6: the unhold answer reads the roster (a snapshot of every pane) only where a sentence needs it', () => {
+  const { unholdNext } = require('./server');
+  let reads = 0;
+  const rosterOf = () => { reads += 1; return []; };
+  assignerSetting.setOn(false);
+  try {
+    const n = make('no roster');
+    assert.match(unholdNext(projectId, taskOf(n), rosterOf), /the Assigner is off/);
+    assert.equal(reads, 0, 'the Assigner is off: no roster read');
+  } finally {
+    assignerSetting.setOn(true);
+  }
+  const k = make('kept no roster', 'otto');
+  assert.equal(unholdNext(projectId, taskOf(k), rosterOf), 'It stays with otto.');
+  assert.equal(reads, 0, 'failover off: no roster read for a kept task');
+  // CONTROL: a task nobody is on asks who is running here, once.
+  const m = make('needs roster');
+  unholdNext(projectId, taskOf(m), rosterOf);
+  assert.equal(reads, 1, 'read once where needed');
 });

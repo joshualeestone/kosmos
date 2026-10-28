@@ -253,6 +253,12 @@ function candidateIn(p, tree, holdersOf, t, session, taken) {
 /* #7407 review 4: who holds `t`'s task tree busy now (pick's holdersOf at its root), and the root's number. Such a
    tree is one builder's: pick gives `t` only to that holder, who is busy by definition, and to anyone once they are
    done there, so the unhold answer says that rather than naming them. */
+/* #7407 review 6: does `t` wait on its own open subtasks (candidateIn's check: one that will move holds it back)? */
+function subtasksFirst(p, t) {
+  const tree = tasks.treeOf(p);
+  const above = upChain(tree, t);
+  return tree.under(t.number).some((c) => !tasks.progressOf(c).closed && !above.has(c.number) && willMove(p, c));
+}
 function treeHeldBy(p, t) {
   const tree = tasks.treeOf(p);
   const holdersOf = tasks.treeHolders(p, tree, (x, who) => busyHold(p, x, who));
@@ -757,4 +763,4 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
-  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, handOutable, whoMayGet, treeHeldBy, stallable, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };
+  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, handOutable, whoMayGet, treeHeldBy, subtasksFirst, stallable, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };
