@@ -312,12 +312,10 @@ enum NewAgentPicker {
     }
 
     static func openaiModelsRequest(mac: URL, dir: String) -> URLRequest? {
-        guard !dir.isEmpty else { return nil }
-        var c = URLComponents(); c.path = "/api/accounts/openai/models"; c.queryItems = [URLQueryItem(name: "dir", value: dir)]
-        // URLComponents leaves + and & alone in a query value: encode them as encodeURIComponent does.
-        c.percentEncodedQuery = c.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
-        guard let u = c.url(relativeTo: mac) else { return nil }
-        var r = URLRequest(url: u.absoluteURL)
+        // The dir encoded as the desktop's encodeURIComponent does. Review 5: the route is written whole on the request's
+        // own line, so server.ios-routes-6838.test.js can read it (a URLComponents build or a variable path it cannot).
+        guard !dir.isEmpty, let d = dir.addingPercentEncoding(withAllowedCharacters: uriComponent) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/accounts/openai/models?dir=\(d)", relativeTo: mac)!.absoluteURL)   // d is percent-encoded
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
@@ -388,16 +386,19 @@ enum NewAgentPicker {
     }
 
     // The reads the menus are drawn from (GETs, never cached: the desktop asks with cache: 'no-store').
-    private static func get(_ path: String, mac: URL) -> URLRequest {
-        var r = URLRequest(url: URL(string: path, relativeTo: mac)!.absoluteURL)
+    // encodeURIComponent's unreserved set.
+    private static let uriComponent = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()")
+    private static func asJSON(_ r: URLRequest) -> URLRequest {
+        var r = r
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
     }
-    static func accountsRequest(mac: URL) -> URLRequest { get("/api/accounts", mac: mac) }
-    static func agyRequest(mac: URL) -> URLRequest { get("/api/antigravity", mac: mac) }
-    static func museRequest(mac: URL) -> URLRequest { get("/api/muse", mac: mac) }
-    static func compatRequest(mac: URL) -> URLRequest { get("/api/accounts/compat", mac: mac) }
+    // Review 5: each route whole on its own request line, as server.ios-routes-6838.test.js reads them.
+    static func accountsRequest(mac: URL) -> URLRequest { asJSON(URLRequest(url: URL(string: "/api/accounts", relativeTo: mac)!.absoluteURL)) }
+    static func agyRequest(mac: URL) -> URLRequest { asJSON(URLRequest(url: URL(string: "/api/antigravity", relativeTo: mac)!.absoluteURL)) }
+    static func museRequest(mac: URL) -> URLRequest { asJSON(URLRequest(url: URL(string: "/api/muse", relativeTo: mac)!.absoluteURL)) }
+    static func compatRequest(mac: URL) -> URLRequest { asJSON(URLRequest(url: URL(string: "/api/accounts/compat", relativeTo: mac)!.absoluteURL)) }
 
     // The single agent's create, with the choice made here: NewAgent.body (the desktop's body for everything else), its
     // model replaced by the model row's (Claude's pick, an OpenAI account's, or none where the vendor picks), and the

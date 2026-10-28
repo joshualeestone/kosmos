@@ -62,6 +62,15 @@
 4. sonnet: 0 BLOCKER/MAJOR, 3 MINOR. Fixed: the in-flight flag clears only for its own read; a Qwen endpoint's host
    and scheme are lowercased, as JavaScript's URL does (tested). Decided: a base URL with no scheme names the endpoint
    by its label (a saved endpoint is a full URL).
+5. opus: 1 BLOCKER, 3 MINOR. BLOCKER (found by running server.ios-routes-6838.test.js's own parser as a probe): the
+   new GETs were built through a helper taking the route as a variable, and the models read through URLComponents, so
+   the route check could not read them and would red full validation. Every route is now written whole on its own
+   request line (the models read with its query, the dir encoded as encodeURIComponent); the probe reads all of them
+   and reports nothing. MINORs: provider labels are tied to their own value inside #create-provider; the phone's
+   sentences are pinned to the page (openaiNoModelsNote's branches, the gone sentences, the fallback accounts); an undone
+   pick's sentence is cleared when another screen loads; the ticked provider carries VoiceOver's selected trait.
+   Decided: the fallback "The OpenAI sign-in on this computer" says "this computer" where the desktop says "your cloud
+   machine" on a cloud computer (the phone does not know that yet). Slice 3c's branch was probed the same way: clean.
 
 ## Not verified
 

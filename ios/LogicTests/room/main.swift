@@ -1307,9 +1307,34 @@ check(boardPage.contains("<h3 class=\"sform-h\">" + NewAgent.Words.identity + "<
 do {
     typealias P = NewAgentPicker
     // Every provider's label is the desktop menu's own text, and the order is the desktop's PROVIDER_ORDER.
+    // Review 5: each label tied to its own value in the create form's own menu (the #create-provider select).
+    let createMenu: String = {
+        guard let r = boardPage.range(of: "<select id=\"create-provider\""), let e = boardPage.range(of: "</select>", range: r.upperBound..<boardPage.endIndex) else { return "" }
+        return String(boardPage[r.lowerBound..<e.upperBound])
+    }()
+    check(!createMenu.isEmpty, "the desktop's create provider menu is found")
     for p in P.Provider.allCases where ![.meta, .deepseek].contains(p) {
-        check(boardPage.contains("<option value=\"\(p.rawValue)\"") && boardPage.contains(">" + p.label + "</option>"), "provider label as the desktop: " + p.label)
+        let re = try! NSRegularExpression(pattern: "<option value=\"" + p.rawValue + "\"[^>]*>" + NSRegularExpression.escapedPattern(for: p.label) + "</option>")
+        check(re.firstMatch(in: createMenu, range: NSRange(createMenu.startIndex..., in: createMenu)) != nil, "provider label as the desktop's create menu: " + p.label)
     }
+    // Review 5: the phone's sentences, each as the desktop writes it in its JavaScript (an apostrophe escaped there).
+    func inPage(_ w: String) -> Bool { boardPage.contains(w) || boardPage.contains(w.replacingOccurrences(of: "'", with: "\\'")) }
+    for b in ["not an api key", "no chat models", "rejected by OpenAI (401)", "cannot list models, though the key itself works",
+              "not allowed to list models (403)", "usage or billing limit (429)", "rate-limiting this account", "having trouble right now", "could not reach"] {
+        check(inPage(P.openaiNote(b)), "the OpenAI note, as the desktop's openaiNoModelsNote: " + P.openaiNote(b).prefix(40))
+    }
+    // The desktop says "on " + thisMachine() ("this computer", or "your cloud machine" on a cloud computer).
+    check(boardPage.contains("'<option value=\"\">The OpenAI sign-in on ' + (typeof thisMachine === 'function' ? thisMachine() : 'this computer')")
+          && P.Words.openaiOwn == "The OpenAI sign-in on this computer", "the OpenAI fallback account, as the desktop's on a computer of its own")
+    for w in [P.Words.agySetUp, P.Words.museSetUp, P.Words.comingSoon, P.Words.claudeOwn,
+              "Gemini (Google subscription) is not set up on this computer, so this is back on ",
+              "Meta Muse is not available on this computer, so this is back on ",
+              "Muse Code is not on this computer, so this is back on ",
+              "Meta Muse is not signed in on this computer, so this is back on "] {
+        check(inPage(w), "the desktop's words: " + w)
+    }
+    check(boardPage.contains("\\'s own ' + esc(switchKeyedWord(want)) + ' key, if one is set up") && P.Words.keyedOwn(.xai) == "This computer's own Grok key, if one is set up",
+          "a keyed provider's fallback account, as the desktop's")
     check(boardPage.contains("const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'antigravity', 'xai', 'meta', 'alibaba', 'deepseek',"),
           "the desktop's provider order still starts as the phone's")
     for w in [P.Words.checking, P.Words.couldNotCheck, P.Words.connect, P.Words.agyChecking, P.Words.museSignIn, P.Words.loadingModels,
@@ -1410,7 +1435,7 @@ do {
           && P.openaiNote("key cannot list models, though the key itself works").contains("permissions reason")
           && P.openaiNote("could not reach OpenAI").hasPrefix("We could not reach OpenAI"), "openaiNoModelsNote's order")
     let mr = P.openaiModelsRequest(mac: npMac, dir: "/h/.codex a+b&c")
-    check(mr?.url?.absoluteString.hasSuffix("/api/accounts/openai/models?dir=/h/.codex%20a%2Bb%26c") == true, "the dir is encoded as encodeURIComponent would leave it readable: " + (mr?.url?.absoluteString ?? "nil"))
+    check(mr?.url?.absoluteString.hasSuffix("/api/accounts/openai/models?dir=%2Fh%2F.codex%20a%2Bb%26c") == true, "the dir is encoded as the desktop's encodeURIComponent: " + (mr?.url?.absoluteString ?? "nil"))
     check(P.openaiModelsRequest(mac: npMac, dir: "") == nil, "no account, no request")
 
     // The create body.

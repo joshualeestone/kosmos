@@ -784,7 +784,7 @@ struct NewAgentView: View {
                 ForEach(options) { o in
                     Button { pick(o.provider) } label: {
                         // Review 1: the current one ticked; one that cannot be chosen says why.
-                        if o.provider == p { Label(o.provider.label, systemImage: "checkmark") }
+                        if o.provider == p { Label(o.provider.label, systemImage: "checkmark").accessibilityAddTraits(.isSelected) }
                         else if let off = o.off { Text(o.provider.label + " \u{00b7} " + off) }
                         else { Text(o.provider.label) }
                     }
@@ -854,6 +854,7 @@ struct NewAgentView: View {
     // never a confident "not here" from a read that did not answer (museCreateAsk, agyAsk).
     private func loadPicker() async {
         let epoch = client.chatEpoch
+        pickGoneWhy = nil   // review 5: an undone pick is said on the screen it happened on, not carried to the next
         let ok = { (x: (Data, HTTPURLResponse)?) -> Data? in x.flatMap { (200...299).contains($0.1.statusCode) ? $0.0 : nil } }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 5_000_000_000)
