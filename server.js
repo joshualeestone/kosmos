@@ -6040,10 +6040,10 @@ function taskFinalWordHint(t, senderName, projectId, byKey) {
   return `If that is your final word on it, kosmos task built ${pid} ${t.number} 'what you decided' marks it done, so nothing waits on it.`;
 }
 
+const TASK_MESSAGE_TO_MAX = 10;   // #7408: how many agents one task message may name with --to
 /* #6359: `kind` 'built' is a built mark's answer (`kosmos task built`): a kept line there is the built notice, not a
    message the marker sent. The same mark again tells nobody, and a new note replaces the kept notice, so the marker is
    not told not to send it again. */
-const TASK_MESSAGE_TO_MAX = 10;   // #7408: how many agents one task message may name with --to
 function taskMessageSummary(delivered, assigned, kind) {
   const plain = (x) => String(x == null ? '' : x).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
   const list = Array.isArray(delivered) ? delivered : [];
@@ -24596,9 +24596,16 @@ const server = http.createServer(async (req, res) => {
         }
         /* #7408: `to` names agents to tell besides the assignees (a ruling on a task nobody holds reached nobody). Checked
            whole before anything is recorded: a list of 1 to 10 names, each an agent on this project (its reply into the
-           task would be refused otherwise). Matched exactly, as the route matches its sender. */
+           task would be refused otherwise). Matched exactly, else by store key when exactly one agent on it has that key
+           (an agent stored under its key, as `task assign` names one; review 2). A sender the board cannot name (no
+           token, no pane it knows) may not use it: that would widen an unnamed sender from the assignees to the whole
+           project (review 2). */
         let toNames = [];
         if (body.to !== undefined) {
+          if (!viaScreen && !senderCard) {
+            sendJson(res, 403, { error: 'Kosmos could not tell which agent is sending, so it cannot tell others for it; that message was not recorded. Send it from an agent with its own Kosmos token' });
+            return;
+          }
           const list = body.to;
           if (!Array.isArray(list) || list.length < 1 || list.length > TASK_MESSAGE_TO_MAX
             || list.some((n) => typeof n !== 'string' || !n.trim() || n.length > 64)) {
@@ -24609,7 +24616,8 @@ const server = http.createServer(async (req, res) => {
           const agentsOn = (memberRecord && Array.isArray(memberRecord.agents)) ? memberRecord.agents : [];
           const notOn = [];
           for (const n of list) {
-            const hit = agentsOn.find((a) => sameAgentName(a, n.trim(), false));
+            const keyed = agentsOn.filter((a) => sameAgentName(a, n.trim(), true));
+            const hit = agentsOn.find((a) => sameAgentName(a, n.trim(), false)) || (keyed.length === 1 ? keyed[0] : null);
             if (!hit) notOn.push(n.trim());
             else if (!toNames.includes(hit)) toNames.push(hit);
           }
