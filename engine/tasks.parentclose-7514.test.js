@@ -172,3 +172,15 @@ test('kosmos#7514: a subtask that cannot be closed stops the rest; the answer sa
   assert.deepEqual(t.closedWith, [a.number]);
   assert.deepEqual(t.builtLeft, [b.number], 'the subtask that could not be closed was not named left');
 });
+
+test('kosmos#7514: a subtask whose history line fails after its close is counted closed, not left', () => {
+  const { id, top, built } = round();
+  const real = taskchat.record;
+  taskchat.record = (pid, n, ev) => { if (n === built.number && ev && ev.kind === 'closed') throw new Error('history full'); return real(pid, n, ev); };
+  let t;
+  try { t = tasks.close(id, top.number, { withBuilt: true }); } finally { taskchat.record = real; }
+  assert.equal(rowOf(id, built.number).isClosed, true, 'premise: the write happened');
+  assert.deepEqual(t.closedWith, [built.number], 'a closed subtask was reported as still open');
+  assert.equal(t.builtLeft, undefined);
+  assert.equal(t.builtLeftWhy, 'history full', 'what went wrong was not said');
+});

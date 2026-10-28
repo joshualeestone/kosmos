@@ -1017,7 +1017,8 @@ function builtUnder(p, top) {
 /** Close: a record edit, never an act on an agent (see the header).
  * kosmos#7514: `withBuilt` (asked for, never assumed: built means waiting for a check, #3951) also closes the parent's
  * built subtasks, listed in `closedWith`. `wantLeft` asks, without closing them, which are still open (`builtLeft`), so a
- * caller can offer the choice. Neither is read unless asked, so every other close costs what it did. A close as replaced
+ * caller can offer the choice (the task close route asks it). Neither is read unless asked: the bulk route, the Assigner
+ * and every other caller cost what they did. A close as replaced
  * does neither: that round's work was superseded, not done. A subtask that cannot be closed stops the rest: the parent
  * is closed either way, and `closedWith` and `builtLeft` say how far it got. */
 function close(projectId, n, { replacedBy = null, withBuilt = false, wantLeft = false } = {}) {
@@ -1036,7 +1037,13 @@ function close(projectId, n, { replacedBy = null, withBuilt = false, wantLeft = 
       // Re-checked inside its own write: one that may no longer close with its parent is left as it is.
       if (setClosed(projectId, built[at], new Date().toISOString(), { via: 'parent', parent: closed.number }, { onlyIfBuilt: true })) closedWith.push(built[at]);
     }
-  } catch (err) { why = String((err && err.message) || err || 'it did not say why'); }
+  } catch (err) {
+    why = String((err && err.message) || err || 'it did not say why');
+    // A failure after the write (its history line, say) still closed it: count it as closed, not left.
+    const now = (projects.readAll() || []).find((x) => x && x.id === projectId);
+    const k = now ? byNumber(now, built[at]) : null;
+    if (k && progressOf(k).closed) { closedWith.push(built[at]); at += 1; }
+  }
   const left = built.slice(at);
   return { ...closed, ...(closedWith.length ? { closedWith } : {}), ...(left.length ? { builtLeft: left } : {}), ...(why ? { builtLeftWhy: why } : {}) };
 }

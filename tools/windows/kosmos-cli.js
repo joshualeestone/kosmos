@@ -1396,7 +1396,7 @@ async function taskClose(ctx, args) {
       if (!/^[0-9]+$/.test(w) && tooManyWords(ctx, 'task close', 2, TASK_CLOSE_USAGE, args)) return 2;   // not a number: as #4889 review 6
     }
     /* The board's own limit for closing several at once (server.js BULK_CLOSE_MAX), refused before anything is sent. */
-    if (args.length - 1 - (wb ? 1 : 0) > 200) { ctx.err('Close up to 200 tasks at a time: run it again with the rest.'); return 2; }
+    if (args.length - 1 - args.filter((x) => x === '--with-built').length > 200) { ctx.err('Close up to 200 tasks at a time: run it again with the rest.'); return 2; }
     const nums = args.slice(1).filter((x) => x !== '--with-built');
     if (nums.length > 1) {
       const ok = [];
@@ -1414,7 +1414,8 @@ async function taskClose(ctx, args) {
           ok.push(n);
           const w = closedWithOf(one.json.task);
           if (w) withs.push('Task ' + n + '\'s built subtasks closed with it: ' + w + '.');
-          const left = closedWithOf(one.json.task, 'builtLeft');
+          // kosmos#7514: a hint never names a subtask this same command closes (it is one of `all`).
+          const left = closedWithOf(one.json.task, 'builtLeft').split(', ').filter((x) => x && !all.includes(x)).join(', ');
           if (left) withs.push('Task ' + n + ' still has built subtasks open: ' + left + '. To close them: kosmos task close ' + projectSlug(project) + ' ' + left.split(', ').join(' '));
           if (typeof one.json.task.builtLeftWhy === 'string' && one.json.task.builtLeftWhy) withs.push('Kosmos stopped closing them: ' + one.json.task.builtLeftWhy.replace(/\.$/, '') + '.');
           continue;

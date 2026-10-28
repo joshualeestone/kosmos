@@ -21,7 +21,9 @@ must list each one.
   the closed subtasks' agents, each once, from one roster. The Tasks screen's bulk close is unchanged.
 - `install/kosmos` and `tools/windows/kosmos-cli.js`: `kosmos task close <project> <n> [...] --with-built`. They say
   "Its built subtasks closed with it: N, M." or, without the flag, "Its built subtasks are still open: N, M. To close
-  them with it: kosmos task close <project> <n> --with-built". The help line and usage name the flag.
+  them: kosmos task close <project> N M" (the subtasks themselves: re-closing the parent would move its finish time; a
+  hint never names a subtask the same command closes). An older board that refuses the flag is said as such. The help
+  line and usage name the flag.
 - The #3861 doctrine reads "nothing cascades unasked".
 
 ## Decided (reasoning on the card)

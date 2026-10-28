@@ -254,3 +254,13 @@ test('kosmos#7514: an agent on the parent and on a closed subtask is told once',
   try { await post(top.number, { withBuilt: true }); } finally { projects.syncAgent = real; }
   assert.equal(told.filter((x) => x === 'mara').length, 1, 'told ' + JSON.stringify(told));
 });
+
+for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) {
+  test(`kosmos#7514: the ${name} command does not hint at a subtask the same command closes`, async () => {
+    const r = round(name + 'Same');
+    const res = await run(['task', 'close', projectId, String(r.top), String(r.kid)]);
+    assert.equal(res.code, 0, res.text);
+    assert.doesNotMatch(res.text, /still has built subtasks open/, 'hinted at a subtask closed in the same command: ' + res.text);
+    assert.equal(isDone(r.kid), true);
+  });
+}

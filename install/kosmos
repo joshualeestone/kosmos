@@ -6244,6 +6244,9 @@ cmd_task() {
       # or which project) stops there, as does a close Kosmos did not answer: the rest are named as not tried.
       if [ -z "$_by" ] && [ "$_more" = 1 ]; then
         local _n _ok="" _bad="" _b _r _code _why _seen=" " _stop="" _stoprc=0 _left="" _wide=0 _l _redir="" _w="" _withs=""
+        # kosmos#7514: every number this command closes, so a hint never names a subtask the same command closes later.
+        local _alln=" " _an _x _w2
+        for _an in "$num" "${@:3}"; do case "$_an" in --with-built) ;; *) _alln="$_alln$(printf '%s' "$_an" | sed 's/^0*\([0-9]\)/\1/') " ;; esac; done
         for _n in "$num" "${@:3}"; do
           case "$_n" in --with-built) continue ;; esac
           _n=$(printf '%s' "$_n" | sed 's/^0*\([0-9]\)/\1/')   # the board reads 013 as 13: one task, named as 13
@@ -6270,6 +6273,7 @@ cmd_task() {
               _w=$(printf '%s' "$_b" | sed -n 's/.*"closedWith":\[\([0-9,]*\)\].*/\1/p' | sed 's/,/, /g')
               [ -z "$_w" ] || _withs="${_withs}Task $_n's built subtasks closed with it: $_w."$'\n'
               _w=$(printf '%s' "$_b" | sed -n 's/.*"builtLeft":\[\([0-9,]*\)\].*/\1/p' | sed 's/,/, /g')
+              _w2=""; for _x in ${_w//, / }; do case "$_alln" in *" $_x "*) ;; *) _w2="${_w2:+$_w2, }$_x" ;; esac; done; _w="$_w2"
               [ -z "$_w" ] || _withs="${_withs}Task $_n still has built subtasks open: $_w. To close them: kosmos task close $project ${_w//, / }"$'\n'
               _w=$(printf '%s' "$_b" | sed -n 's/.*"builtLeftWhy":"\([^"]*\)".*/\1/p')
               [ -z "$_w" ] || _withs="${_withs}Kosmos stopped closing them: ${_w%.}."$'\n'
