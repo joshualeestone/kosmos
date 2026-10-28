@@ -28,11 +28,18 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
     missed at login is otherwise never looked at again);
   - skips a record the person chose to leave running (leftRunningByChoice: the untied override's promise) and any name
     removal itself would refuse (unsafeToActOn: a path step, a leading dash, another Kosmos's separator);
-  - reports names: reapplied, failed (launchd or tmux refused a step), unsure (a session it could not tie to the
-    agent, or could not ask tmux about, left alone as removal leaves it).
+  - review 7: bootout returns before the job has stopped (#4964 measured 4.5 s), so a job this run unloaded is waited
+    on (waitUnloaded, bounded by its 25 s wait and the shared burst allowance) before the one roster read. A session a
+    supervisor was starting can still land after the read; a job this run unloaded with no session on the roster is
+    reported `recheck`, which makes the run not clean, so the 30 s retry looks again. On the retry the job is disabled
+    and not loaded (bootout answers 3), so a session found then is ended and none is a recheck. That is how the
+    bootout-to-roster race is handled: the wait narrows it, the retry closes it for a session up within 30 s;
+  - reports names: reapplied (a job step or a session ended changed something), failed (launchd or tmux refused a
+    step), unsure (a session it could not tie to the agent, or could not ask tmux about, left alone as removal leaves
+    it; reported on EVERY run, review 7, even one a removal already left), recheck (above).
 - `engine/remove.js` reapplyAtBoardStart: a real board (`enforcing`; a sandboxed fixture never is) runs it 2 s after
   start, and once more 30 s later only when the first run was not clean (a board up before the login session answers),
-  and writes what it did to the board's log (stdout, stderr). `server.js` onListening only calls it.
+  and writes what it did to the board's log (stdout, stderr). A recheck still open is named only by the last run. `server.js` onListening only calls it.
 - `engine/remove.redisable-7409.test.js`: through remove.setRunner (every launchctl and tmux call recorded), a sandboxed
   removed.json, and the board's roster from test-support/fleet.
 
@@ -59,6 +66,12 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
   agent a person re-enabled by hand with launchctl: the board cannot tell that from a move, and the record says removed.
 - A launchd that does not answer at login can stall the board's thread on print-disabled (execFileSync, up to 20 s);
   accepted for one call at start, with the 30 s retry behind it.
+- Review 7: a session the board ties to a removed agent is ended on EVERY start, including one a person started
+  again by hand in tmux. The record says removed, and the board cannot tell that session from one a moved login
+  started. An untied session is never ended, and is named on the log on every start.
+- A session that comes up more than ~30 s after the bootout (past the retry) is not caught until the next board
+  start. Accepted: the supervisor is unloaded, so nothing should start one after the bootout; the case is a session
+  already starting at the bootout.
 - What it does is said on the board's log only. Not done here: a notice on the board for a failed or unsure agent.
 
 ## Mutation checks (run by hand, code restored after each)
@@ -71,3 +84,10 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
 - No bootout for a job already held disabled (round 3's blocker): the retry case goes red.
 - No leftRunningByChoice skip, or no unsafeToActOn skip: the kept-or-unsafe case goes red.
 - A label launchd already holds disabled not skipped (first round): the already-disabled case goes red.
+- Round 7, run 2026-10-27 22:3x, each red, engine restored byte for byte after each (cmp):
+  - no recheck for a just-unloaded job with no session: four cases go red (not-running, review 4, both review-7 retry
+    cases);
+  - an ended session not counted as reapplied: five go red (the moved-agent case, review 2, review 3, ...);
+  - the roster read before the job steps: the review-7 order case goes red;
+  - an untied session skipped silently when launchd already held the job off: the review-2 case goes red;
+  - the open recheck named by the first run too: the review-7 board case goes red.

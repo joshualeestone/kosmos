@@ -471,11 +471,16 @@ function removedNamesIn(storeRoot) { return removedNamesFrom(path.join(storeRoot
    and then its tied session ended, so a half-done removal is finished.
    The board's roster is read once (review 2: once per agent blocked the board's thread at start). An agent launchd
    already holds disabled is still unloaded (bootout; review 3: a session ended while its job is loaded is started
-   again by KeepAlive), and only then its session ended when the board ties it to the agent (review 2).
-   Returns { ok, reapplied: [names], failed: [names], unsure: [names], because? }: failed is a step launchd or tmux
-   refused; unsure is a session the board could not tie to the agent, or could not ask about, left alone. */
+   again by KeepAlive), and only then its session ended when the board ties it to the agent (review 2). So a tied
+   session of a removed agent is ended on EVERY start, including one a person started again by hand (review 7).
+   Review 7: bootout returns before the job has stopped, so a job this run unloaded is waited on (waitUnloaded,
+   bounded) before the roster read, and one with no session on the roster yet is a recheck for the retry.
+   Returns { ok, reapplied: [names], failed: [names], unsure: [names], recheck: [names], because? }: failed is a step
+   launchd or tmux refused; unsure is a session the board could not tie to the agent, or could not ask about, left
+   alone (every run, never skipped); recheck is a job this run unloaded with no session on the roster yet (review 7: a
+   supervisor starting one can land after the read), which makes the run not clean so the retry looks again. */
 function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}) {
-  const none = { ok: true, reapplied: [], failed: [], unsure: [] };
+  const none = { ok: true, reapplied: [], failed: [], unsure: [], recheck: [] };
   if (platform !== 'darwin') return none;
   if (!commandsAreReal() || (DRY_RUN && !runner)) return none;   // as waitUnloaded: a live dry run reads nothing real
   const list = readRemovedForWrite();
@@ -539,16 +544,16 @@ function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}
     const found = tie(name);
     if (found.kind === FOUND.OURS) {
       if (!sessionOps('darwin').end(found.session)) { out.failed.push(name); continue; }
-    } else if (found.kind === FOUND.UNKNOWN || found.kind === FOUND.UNTIED) {
+      out.reapplied.push(name);   // a session ended is a change, whatever launchd already held
+      continue;
+    }
+    if (found.kind === FOUND.UNKNOWN || found.kind === FOUND.UNTIED) {
       out.unsure.push(name);   // left alone, as a removal leaves it, and said every time (review 7: never skipped silently)
       continue;
-    } else if (justUnloaded) {
-      out.recheck.push(name);   // a session a supervisor was starting may not be on the roster yet: the retry looks again
     }
-    if (!changed) {
-      continue;   // already disabled, not loaded and not running: nothing was changed, nothing to say
-    }
-    out.reapplied.push(name);
+    // No session on the roster.
+    if (justUnloaded) out.recheck.push(name);   // one a supervisor was starting may not be on it yet: the retry looks again
+    if (changed) out.reapplied.push(name);   // else already disabled, not loaded, not running: nothing to say
   }
   out.ok = !out.failed.length && !out.unsure.length && !out.recheck.length;
   return out;
@@ -563,11 +568,13 @@ function reapplyAtBoardStart({ enforcing, afterMs = 2000, retryMs = 30000, setTi
   const runOnce = (again) => {
     try {
       let kept;
-      try { kept = reapplyRemovedDisables(); } catch (e) { kept = { ok: false, reapplied: [], failed: [], unsure: [], because: String(e && e.message) }; }
+      try { kept = reapplyRemovedDisables(); } catch (e) { kept = { ok: false, reapplied: [], failed: [], unsure: [], recheck: [], because: String(e && e.message) }; }
       if (!kept.ok && again) { const t2 = setTimer(() => runOnce(false), retryMs); if (t2 && typeof t2.unref === 'function') t2.unref(); }
       if (kept.reapplied.length) out(`Kosmos: removed agents switched off again: ${kept.reapplied.join(', ')}\n`);
       if (kept.failed.length) err(`Kosmos: could not switch off every removed agent: ${kept.failed.join(', ')}\n`);
       if (kept.unsure.length) err(`Kosmos: removed agents whose running session could not be tied to them, left alone: ${kept.unsure.join(', ')}\n`);
+      // Only the last run says it: the first run's recheck is what the retry is for.
+      if (kept.recheck.length && !again) err(`Kosmos: removed agents just stopped, not looked at again for a running session: ${kept.recheck.join(', ')}\n`);
       if (kept.because) err(`Kosmos: could not check removed agents' startup jobs: ${kept.because}\n`);
     } catch (e) { err(`Kosmos: could not check removed agents' startup jobs: ${String(e && e.message)}\n`); }
   };

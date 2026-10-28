@@ -62,7 +62,7 @@ test('#7409: a removed agent launchd holds enabled (after a move) is disabled, b
   roster([fleet.agent('casey', { state: 'working' })]);
   const calls = machine([['com.apple.foo', 'disabled']]);
   const out = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
-  assert.deepEqual(out, { ok: true, reapplied: ['casey'], failed: [], unsure: [] });
+  assert.deepEqual(out, { ok: true, reapplied: ['casey'], failed: [], unsure: [], recheck: [] });
   assert.equal(calls[0], 'print-disabled gui/501');
   assert.ok(calls.includes('disable gui/501/' + labelOf('casey')) && calls.includes('bootout gui/501/' + labelOf('casey')), calls.join(' | '));
   assert.ok(calls.some((c) => /^kill-session -t =casey/.test(c)), 'the agent\'s own session was not ended (bootout alone leaves it running): ' + calls.join(' | '));
@@ -72,7 +72,8 @@ test('#7409: a removed agent that is not running is disabled and booted out, wit
   removedList([removedRow('casey')]);
   roster([]);
   const calls = machine([]);
-  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }).reapplied, ['casey']);
+  // Review 7: just unloaded with no session on the roster yet, so the run is not clean and the retry looks again.
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: ['casey'], failed: [], unsure: [], recheck: ['casey'] });
   assert.ok(!calls.some((c) => c.startsWith('kill-session')), calls.join(' | '));
 });
 
@@ -81,7 +82,7 @@ test('#7409: a session the board cannot tie to the agent is left alone and repor
   roster([fleet.agent('casey', { state: 'working', ours: false })]);
   const calls = machine([]);
   const out = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
-  assert.deepEqual(out, { ok: false, reapplied: [], failed: [], unsure: ['casey'] });
+  assert.deepEqual(out, { ok: false, reapplied: [], failed: [], unsure: ['casey'], recheck: [] });
   assert.ok(!calls.some((c) => c.startsWith('kill-session')), 'a session not tied to the agent was killed');
 });
 
@@ -97,7 +98,7 @@ test('#7409: a label that is not the one removal records for that name is never 
   removedList([{ name: 'casey', label: 'com.apple.Dock' }, { name: 'dana', label: labelOf('casey') }, { name: 'w', label: null }]);
   roster([]);
   const calls = machine([]);
-  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [] });
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [], recheck: [] });
   assert.deepEqual(calls, [], 'a foreign or mismatched label reached launchctl');
 });
 
@@ -105,7 +106,7 @@ test('#7409: a refused disable or bootout is a failure, and its session is not t
   removedList([removedRow('a'), removedRow('b')]);
   roster([fleet.agent('a', { state: 'working' })]);
   let calls = machine([], { refuse: { disable: 5 } });
-  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: ['a', 'b'], unsure: [] });
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: ['a', 'b'], unsure: [], recheck: [] });
   assert.ok(!calls.some((c) => c.startsWith('kill-session')));
   calls = machine([], { refuse: { bootout: 5 } });
   assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }).failed, ['a', 'b']);
@@ -121,7 +122,7 @@ test('#7409: nothing runs off a Mac, in a dry run, or with nothing removed', () 
   assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'win32', uid: 501 }).reapplied, []);
   assert.deepEqual(calls, []);
   remove.setRunner(null);   // no runner: a dry run, where nothing would really happen
-  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [] });
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [], recheck: [] });
   fs.rmSync(REMOVED, { force: true });
   calls = machine([]);
   assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }).reapplied, []);
@@ -155,7 +156,7 @@ test('#7409: a sandboxed board never schedules it; a real board does, logs the n
   assert.equal(timers.length, 0, 'a sandboxed fixture board scheduled it');
   removedList([removedRow('casey')]);
   roster([]);
-  machine([]);
+  machine([], { notLoaded: [labelOf('casey')] });   // already not loaded: nothing to look at again, a clean run
   assert.equal(remove.reapplyAtBoardStart({ enforcing: true, setTimer, ...sinks }), true);
   assert.equal(timers.length, 1, 'CONTROL: a real board did not schedule it');
   timers[0].fn();
@@ -170,12 +171,13 @@ test('#7409: a sandboxed board never schedules it; a real board does, logs the n
   assert.equal(timers.length, 3, 'the second try scheduled a third');
 });
 
-test('#7409 review 2: an agent launchd already holds disabled still has its own running session ended (an untied one left)', () => {
+test('#7409 review 2: an agent launchd already holds disabled still has its own running session ended (an untied one left, and said)', () => {
   removedList([removedRow('casey'), removedRow('dana')]);
   roster([fleet.agent('casey', { state: 'working' }), fleet.agent('dana', { state: 'working', ours: false })]);
   const calls = machine([[labelOf('casey'), 'disabled'], [labelOf('dana'), 'disabled']], { notLoaded: [labelOf('casey'), labelOf('dana')] });
   const out = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
-  assert.deepEqual(out, { ok: true, reapplied: ['casey'], failed: [], unsure: [] });
+  // Review 7: an untied session is reported on every run, even one a removal already left.
+  assert.deepEqual(out, { ok: false, reapplied: ['casey'], failed: [], unsure: ['dana'], recheck: [] });
   assert.ok(calls.some((c) => /^kill-session -t =casey/.test(c)), 'the session missed earlier was not ended: ' + calls.join(' | '));
   assert.ok(!calls.some((c) => /^kill-session -t =dana/.test(c)), 'an untied session was killed');
   assert.ok(!calls.some((c) => c.startsWith('disable')), 'a job launchd already held disabled was disabled again');
@@ -208,7 +210,7 @@ test('#7409 review 3: a bootout refused on the first run is tried again on the r
   assert.ok(boot >= 0 && kill > boot, 'the retry did not unload the job before ending the session: ' + calls.join(' | '));
   // A retry that still cannot unload it does not end the session and does not call it done.
   calls = machine([[labelOf('casey'), 'disabled']], { refuse: { bootout: 5 } });
-  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: ['casey'], unsure: [] });
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: ['casey'], unsure: [], recheck: [] });
   assert.ok(!calls.some((c) => c.startsWith('kill-session')));
 });
 
@@ -220,7 +222,7 @@ test('#7409 review 3: a record the person chose to leave running, or a name remo
   ]);
   roster([fleet.agent('kept', { state: 'working' })]);
   const calls = machine([]);
-  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [] });
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [], recheck: [] });
   assert.deepEqual(calls, [], 'a kept session or an unsafe name reached launchctl or tmux');
 });
 
@@ -235,7 +237,7 @@ test('#7409 review 4: a launchctl that does not answer stops the sweep, and ever
     return { ok: true, stdout: '' };
   });
   const out = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
-  assert.deepEqual(out, { ok: false, reapplied: ['a'], failed: ['b', 'c'], unsure: [] });
+  assert.deepEqual(out, { ok: false, reapplied: ['a'], failed: ['b', 'c'], unsure: [], recheck: ['a'] });
   assert.ok(!calls.some((c) => c.endsWith('/' + labelOf('c'))), 'it went on waiting on launchd after it stopped answering: ' + calls.join(' | '));
 });
 
@@ -248,7 +250,7 @@ test('#7409 review 5: a live board in dry-run mode reads nothing real and claims
   remove.setRunner(null);              // no runner: DRY_RUN is on
   liveExecution.allowLiveExecution();  // and live execution allowed, as on a real board started with the flag
   try {
-    assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [] });
+    assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [], recheck: [] });
   } finally { liveExecution.resetForTests(); }
 });
 
@@ -260,7 +262,7 @@ test('#7409 review 5: a roster tmux cannot give is unsure, not "nothing running"
   const real = status.paneRoster;
   status.paneRoster = () => { throw new Error('tmux did not answer'); };
   try {
-    assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: [], unsure: ['casey'] });
+    assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: [], unsure: ['casey'], recheck: [] });
   } finally { status.paneRoster = real; }
   assert.ok(calls.indexOf('bootout gui/501/' + labelOf('casey')) >= 0, 'the job was not stopped before the roster read');
 });
@@ -273,5 +275,55 @@ test('#7409 review 6: a session still there after kill-session is a failure, not
     if (args[0] === 'has-session') return { ok: true, stdout: '' };   // still alive after the kill
     return { ok: true, stdout: '' };
   });
-  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: ['casey'], unsure: [] });
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: ['casey'], unsure: [], recheck: [] });
+});
+
+/* ── kosmos#7409 review 7 ─────────────────────────────────────────────────────── */
+
+test('#7409 review 7: the roster is read after the bootout, never before (the order is pinned in one call list)', () => {
+  removedList([removedRow('casey')]);
+  roster([fleet.agent('casey', { state: 'working' })]);
+  const calls = machine([]);
+  const status = require('./status');
+  const real = status.paneRoster;
+  status.paneRoster = (...a) => { calls.push('roster'); return real(...a); };
+  try {
+    remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
+  } finally { status.paneRoster = real; }
+  const boot = calls.indexOf('bootout gui/501/' + labelOf('casey'));
+  const read = calls.indexOf('roster');
+  assert.ok(boot >= 0 && read >= 0, 'CONTROL: both the bootout and the roster read happened: ' + calls.join(' | '));
+  assert.ok(read > boot, 'the roster was read before the job was unloaded: ' + calls.join(' | '));
+});
+
+test('#7409 review 7: a session that appears only after the bootout is a recheck, and the retry ends it', () => {
+  removedList([removedRow('casey')]);
+  roster([]);   // the supervisor's session is not up yet when the roster is read
+  machine([]);
+  const first = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
+  assert.deepEqual(first, { ok: false, reapplied: ['casey'], failed: [], unsure: [], recheck: ['casey'] });
+  // The retry: launchd now holds it disabled and not loaded, and the session has come up.
+  roster([fleet.agent('casey', { state: 'working' })]);
+  const calls = machine([[labelOf('casey'), 'disabled']], { notLoaded: [labelOf('casey')] });
+  const again = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
+  assert.deepEqual(again, { ok: true, reapplied: ['casey'], failed: [], unsure: [], recheck: [] });
+  assert.ok(calls.some((c) => /^kill-session -t =casey/.test(c)), 'the retry did not end the late session: ' + calls.join(' | '));
+});
+
+test('#7409 review 7: a recheck makes the board try once more, and only the last run names one still open', () => {
+  const timers = [];
+  const setTimer = (fn, ms) => { timers.push({ fn, ms }); return { unref() {} }; };
+  const said = [];
+  const sinks = { out: (t) => said.push(t), err: (t) => said.push(t) };
+  removedList([removedRow('casey')]);
+  roster([]);
+  machine([]);   // just unloaded, no session yet: a recheck
+  remove.reapplyAtBoardStart({ enforcing: true, setTimer, ...sinks });
+  timers[0].fn();
+  assert.equal(timers.length, 2, 'a recheck did not schedule the retry');
+  assert.doesNotMatch(said.join(''), /not looked at again/, 'the first run named a recheck the retry is there for');
+  machine([]);   // the retry unloads it again (a contrived second load) and still sees no session
+  timers[1].fn();
+  assert.equal(timers.length, 2, 'the retry scheduled a third');
+  assert.match(said.join(''), /not looked at again for a running session: casey/, 'the last run did not name the open recheck: ' + said.join(''));
 });
