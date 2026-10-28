@@ -154,3 +154,26 @@ test('#7411 the Windows CLI answers whats-new the same way (render), from a chec
   const bad = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'windows', 'kosmos-cli.js'), 'whats-new', '--since='], { encoding: 'utf8' });
   assert.notEqual(bad.status, 0);
 });
+
+test('#7411 review 3: the Mac CLI --help prints the verb\'s usage, and its errors go to stderr (stdout stays clean)', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-releasenotes-'));
+  const run = (...args) => spawnSync('bash', [path.join(ROOT, 'install', 'kosmos'), 'whats-new', ...args], { encoding: 'utf8', env: { ...process.env, KOSMOS_HOME: home } });
+  const help = run('--help');
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /^Usage: kosmos whats-new \[--since <version>\] \[--json\]/);
+  assert.ok(!/Kosmos commands/.test(help.stdout), 'fell through to the general command list');
+  const bad = run('--bogus');
+  assert.notEqual(bad.status, 0);
+  assert.equal(bad.stdout, '', 'an argument error reached stdout');
+  assert.match(bad.stderr, /takes --since <version> and --json/);
+});
+
+test('#7411 review 3: no notes of its own is said, a missing notes file is a sentence, --platform only with notes', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-releasenotes-'));
+  assert.match(rn.render(d, { since: null, json: false }).err, /this install has no release notes file$/);
+  fs.writeFileSync(path.join(d, 'release-notes.json'), JSON.stringify({ version: '0.7.72', notes: [{ version: '0.7.70', title: 'a', line: '' }] }));
+  assert.match(rn.render(d, { since: null, json: false }).out, /^Kosmos 0\.7\.72 added no notes of its own; the newest are from 0\.7\.70\.\n\nKosmos 0\.7\.70\n/);
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'whats-new-pool.js'), 'build', '0.7.72', '--platform=mac', '--offline', '--out=' + path.join(d, 'x.json')], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /--platform does not go with build/);
+});

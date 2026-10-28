@@ -252,7 +252,8 @@ function main(argv) {
   const positional = argv.filter((a) => !a.startsWith('--'));
   // Review 3: each command's own flags only.
   const wrongFor = (cmd0) => (cmd0 === 'build' ? ['--promoted', '--from-history', '--none'] : cmd0 === 'shown' ? ['--offline'] : ['--promoted', '--from-history', '--none', '--offline']);
-  const misplaced = wrongFor(positional[0]).filter((f) => argv.includes(f));
+  const misplaced = wrongFor(positional[0]).filter((f) => argv.includes(f))
+    .concat(positional[0] !== 'notes' && argv.some((a) => a.startsWith('--platform=')) ? ['--platform'] : []);   // kosmos#7411
   if (misplaced.length) {
     process.stderr.write(misplaced.join(' ') + ' does not go with ' + (positional[0] || 'that') + '; nothing done\n');
     return 2;
