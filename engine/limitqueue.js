@@ -286,9 +286,11 @@ function retryRows(chat) {
 function sweepHooks({ chat, messages }) {
   retryRows(chat);
   return {
-    /* kosmos#7406: a person's own message is never held by a working-at-once cap (review 1, a blocker: since the cap
-       covers Claude agents, a kept DM would otherwise wait on it, and a day later be dropped). */
-    deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e), { cap: false }) : chat.deliverAutomaticAsync(n, env, r)),
+    /* kosmos#7406: nothing kept here waits on a working-at-once cap. Review 1 (a blocker): a person's kept DM would
+       otherwise wait on it and be dropped a day later. Review 2 (a blocker): so would a task message the person typed
+       on the screen (kind task, person: true), and one capped entry stops the flush, so everything behind it waits too.
+       This queue already waits for the usage limit to reset, which is the limit that kept them. */
+    deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e), { cap: false }) : chat.deliverAutomaticAsync(n, env, r, undefined, undefined, { cap: false })),
     resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
     /* #6774: a queue holding a message kept for a stuck input box waits for the box to read empty as well (the #6256
        rule: an unreadable box keeps them waiting). */

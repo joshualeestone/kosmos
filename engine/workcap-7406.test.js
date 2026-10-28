@@ -138,10 +138,13 @@ test('review 1 (a blocker): a person\'s own message kept for a usage limit is ty
   try {
     const hooks = limitqueue.sweepHooks({ chat, messages: require('./messages') });
     hooks.deliver('cl-a', 'env', [], { kind: 'dm', text: 'hi', envelope: '', trailer: '' });
+    hooks.deliver('cl-a', 'a task line', [], { kind: limitqueue.TASK_KIND, person: true });
     hooks.deliver('cl-a', 'an agent line', [], { kind: 'msg' });
   } finally { chat.deliverAutomaticAsync = real; }
   assert.deepEqual(seen[0][5], { cap: false }, 'a person\'s kept DM can be held by the cap');
-  assert.equal(seen[1][5], undefined, 'CONTROL: an agent\'s kept line still goes through the cap');
+  // Review 2: a person's task message too, and an agent's kept line, since one capped entry stops the flush for all.
+  assert.deepEqual(seen[1][5], { cap: false }, 'a person\'s kept task message can be held by the cap');
+  assert.deepEqual(seen[2][5], { cap: false }, 'a kept agent line can stop the queue behind it');
 });
 
 test('review 1: an Enter for a line already in the box is not held by the per-account cap; a Gemini agent keeps its own rule', () => {
