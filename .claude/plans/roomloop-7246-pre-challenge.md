@@ -10,20 +10,44 @@ iterations: 8
 converged: false (the round limit of 8 was reached; round 8 found no blocker, its two majors were fixed with tests and mutants red, and not put to a ninth round)
 ---
 
+
 ## [CHALLENGE-LOOP] Summary
-**Iterations:** 8 blind reviewers (opus, sonnet alternating; round 8 whole-branch with nothing settled).
-- Round 1 (opus): a person's post keeps its @-names alone (the header and @all are for agents' posts); @all does not
-  wake a swarm switched off in the project; rule B asks whether the answered post addressed THIS replier, so a
-  bystander's +1 wakes no one; quiet posts count as missed in the catch-up line and cost the valve nothing; the cap is
-  decided once per post so an @all never stops partway; the sending agent is told when the pause made its post quiet.
-- Round 2 (sonnet): the row keeps @-names in `mentioned` (the claim guard, owed answers and the #185 nudge read it) and
-  the wake set in `addressed`; both CLIs say when a post left members quiet and print the pause's `because`; @all
-  inside a code span, @all-hands and @everyone-else are not broadcasts.
-- Round 3 (opus): valve charge, header parsing, born wording, a person clears the pause.
-- Round 4 (sonnet): the cap counted before typing; CLI line for a paused post; "-> all:"; window tests.
-- Round 5 (opus): header names keep their member; pause note once an hour; kosmos room names who woke.
-- Round 6 (sonnet): an @all's answers do not each wake its author; catch-up for rule B; clear only when reached.
-- Round 7 (opus): BLOCKER, my round 5 @all hold dropped asks to hook-idle agents; reverted. Rule B's author gets a
-  message; header names count as asked for claims and the owner rule; Reopen clears; header from the first line.
-- Round 8 (sonnet): the pause latched for an hour (a slide held a loop at 40 an hour); sender-less arrow; separators.
-Every decision, rejection and the weakest premise: .claude/plans/roomloop-7246.md.
+**Iterations:** 8 blind reviewers (opus, sonnet alternating; round 8 whole-branch with nothing settled). Every decision,
+rejection and the weakest premise: .claude/plans/roomloop-7246.md.
+
+### Iteration 1 (opus)
+[WARNING] a person's post read the header and @all as asks: fixed, a person's post keeps its @-names alone.
+[WARNING] @all woke a swarm switched off in the project: fixed (namedHere, @all excluded).
+[WARNING] rule B woke the author for a bystander's +1: fixed, B asks whether the answered post addressed THIS replier.
+[NIT] quiet posts were not counted as missed and were charged to the valve: fixed (reachedCount).
+
+### Iteration 2 (sonnet)
+[WARNING] an @all in `mentioned` made every member owed an answer (the #185 nudge would wake them): fixed, `addressed` holds the wake set.
+[WARNING] the sending agent was never told its post left members quiet: fixed in both CLIs.
+[NIT] @all inside code, @all-hands, @everyone-else read as broadcasts: fixed.
+
+### Iteration 3 (opus)
+[WARNING] the valve charged a post for the whole room: fixed, charged only for who it wakes; 20 valve tests now say @all.
+[WARNING] the header missed the fleet's own shapes: fixed (postHeader by hand, "to"/"for", one word of a display name).
+[WARNING] agents were born told "post to everyone": fixed. [WARNING] a person's post did not clear the pause: fixed.
+
+### Iteration 4 (sonnet)
+[WARNING] async posts ran past the cap: fixed, counted once before typing. [WARNING] a paused post's CLI line contradicted itself: fixed.
+[NIT] "-> all:" addressed no one: fixed. [NIT] no window or pre-upgrade tests: added.
+
+### Iteration 5 (opus)
+[WARNING] header words after a name lost the name: fixed (longest leading run). [WARNING] the pause note re-posted per freed slot: fixed, once an hour.
+[NIT] kosmos room listed quiet members as recipients: fixed. [NIT] a test control could not fail: fixed.
+
+### Iteration 6 (sonnet)
+[NIT] an @all's answers each woke its author: fixed. [NIT] catch-up skipped a rule-B author: fixed. [NIT] a refused person's post cleared the pause: fixed.
+
+### Iteration 7 (opus)
+[BLOCKER] my iteration-5 hold of an @all for a busy member dropped asks to hook-idle agents after two hours: reverted, @all typed at once.
+[WARNING] rule B's author got "not addressed to you": fixed. [NIT] header names not asked for claims or the owner rule: fixed (namedIn).
+[NIT] Reopen and the other computer did not lift the pause; the header read past the first line: fixed.
+
+### Iteration 8 (sonnet, whole branch, nothing settled)
+[WARNING] a slide held a real loop at 40 wakes an hour: fixed, the pause latches for an hour. [WARNING] "-> all:" with no sender: fixed.
+[NIT] ";", "/" and "+" did not split names: fixed. Accepted: an answer to an @all does not wake its asker (round 6's call).
+Round 8's fixes have tests and mutants red and were not put to a ninth round (the limit is 8).
