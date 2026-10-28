@@ -669,7 +669,10 @@ async function attemptHandOff(o, deps) {
   const hold = deps.hold ? deps.hold('Kosmos is starting in a window because its background board did not answer') : null;
   board.end();
   await waitUntil(gone, Math.max(left(), MIN_PORT_RELEASE_WAIT_MS));
-  return { ...serveHere('the background board did not answer in time'), releaseHold: () => { if (hold) hold.release(); } };
+  const served = { ...serveHere('the background board did not answer in time'), releaseHold: () => { if (hold) hold.release(); } };
+  /* #2988 round 3: a hold that could not be written is said, not swallowed (server.js prints it). */
+  if (hold && !hold.held) served.holdProblem = hold.because || 'no detail';
+  return served;
 }
 
 /**
@@ -791,6 +794,7 @@ async function decideHandOff(o) {
         /* The environment before any world: the anchor the watchdog's shim lives in (win32board's machineEnv rule). */
         try { dir = require('./win32anchor').anchorDir(process.platform, require('node:os').homedir(), require('./worlds').preWorldEnv(process.env)); } catch { dir = null; }
       }
+      if (!dir && require('./live-execution').inTestProcess()) return null;   // no sandbox: no hold, and nothing to report
       return require('./win32boardwatch').holdBoard(dir, why, { ttlMs: HANDOFF_HOLD_MS });
     };
     const result = await runHandOff(o, { board, probe, sleep, now, hold })

@@ -47,15 +47,20 @@ https://github.com/joshualeestone/kosmos/issues/2988#issuecomment-6468326726
    The board task is the watchdog's only off switch: the task Description says so, and a person who switches the
    watchdog task itself off has it switched back on (`/Create /F`) the next time Kosmos starts.
 3. **The board hold** (round 2). Two deliberate stops end the task's board without switching its task off and without
-   the update journal or lock, so the watchdog's other gates cannot see them. Each writes
-   `<anchor>\board-hold.json` = `{ pid, at, until, why }` (atomic: temp file then rename) BEFORE its `/End`
-   (`win32boardwatch.holdBoard`). The watchdog (gate b, and again before `/Run`) and its shim (before it loads the
-   engine) honour it only while `until` has not passed, `until` is at most 5 minutes away (HOLD_MAX_MS; a hold
-   claiming more is ignored), and the owner pid is alive. Release removes the file only if it is still that hold.
+   the update journal or lock, so the watchdog's other gates cannot see them. Each writes its own file,
+   `<anchor>\board-hold.<pid>.json` = `{ pid, at, until, why }` (round 3: one per owner, so a second holder never
+   overwrites or cancels the first; atomic: temp file then rename) BEFORE its `/End` (`win32boardwatch.holdBoard`).
+   The watchdog (gate b, and again before `/Run`) and its shim (before it loads the engine) honour ANY live one: one
+   whose `until` has not passed, is at most 5 minutes away (HOLD_MAX_MS; a hold claiming more is ignored), and whose
+   owner pid is alive. Release removes only the caller's own file, and only if it is still the hold it last wrote.
+   Writing a hold removes other owners' dead or expired files. A hold that cannot be written is said: in the move's
+   result `notes` (the JSON the launcher's move prints) and in the hand-off's `holdProblem` (server.js prints it).
    Every caller that ends the board task, and the decision:
    - `win32relocate.relocate`, `endServingBoard` (the move from Downloads): **HOLD**, 5 minutes, taken just before the
-     `/End`, released in a `finally` when `relocate` returns, success or failure. By then the pointer names the folder
-     the board should start from (or, on failure, still the old one, which is right).
+     `/End`, refreshed before each top-level entry is copied and once more after the copy (round 3: a copy can outlast
+     one hold on a slow disk or under a scanner), released in a `finally` when `relocate` returns, success or failure.
+     After the copy and before anchoring, it looks at the port once more and ends a board that came up anyway (round 3).
+     By then the pointer names the folder the board should start from (or, on failure, still the old one).
    - `win32handoff.attemptHandOff`, the not-confirmed path that ends the task and serves in a window: **HOLD**,
      2 minutes, owner is the board itself; server.js releases it once that board is listening. A board that dies
      before it listens holds nothing (its pid is gone), and the hold expires anyway.
@@ -98,8 +103,10 @@ registered and on. Likewise, with the board task switched off the watchdog stays
 
 ## Exports (round 2)
 win32boardwatch exports only `recordBoardExits` (server.js), `watchdogMain` (the shim), `holdBoard` (relocate,
-hand-off), `boardHeld` and `watchdogRun` (the one test seam: watchdogMain with injectable deps, the shape of
-`win32board.restartHelperMain(argv, deps)`); the constants and helpers are tested through it. win32board exports
+hand-off) and `watchdogRun` (the one test seam: watchdogMain with injectable deps, the shape of
+`win32board.restartHelperMain(argv, deps)`); the constants and helpers, `boardHeld` included (round 3), are tested
+through it. Two tests are WIRING CHECKS, source matches on server.js rather than behaviour, and are named so: that
+server.js releases the hand-off's hold once listening, and that it prints `holdProblem`. win32board exports
 `WATCHDOG_TASK_NAME` and `removeWatchdog` (the uninstall's), and `WATCH_NAME`, `WATCH_JS`, `watchdogTaskXml`, which
 mirror the house's `BOOT_NAME`, `BOOT_JS`, `taskXml` (the definitions a suite runs and reads).
 
@@ -123,3 +130,8 @@ Running-with-no-board state is common (then an `/End` path with a long grace is 
   corrected (no boot removes the watchdog); (4) the in-window close brings the background board back, intended;
   (5) the task Description names the board task as the only off switch; (6) exports trimmed to production entries plus
   one test seam.
+- Round 3: fixed (1) a slow move outliving its hold: the move refreshes it before each top-level entry and after the
+  copy, and before anchoring looks once more and ends a board that came up during the copy; (2) one hold file per
+  owner, any live one honoured, release removes only the caller's own, dead and expired files tidied when a hold is
+  written; (3) a hold that cannot be written is said in the move's notes and the hand-off's holdProblem; (4)
+  `boardHeld` no longer exported, tested through `watchdogRun`; (5) the server.js source matches labelled wiring checks.

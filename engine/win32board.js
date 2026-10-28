@@ -276,7 +276,7 @@ const WATCHDOG_START_BOUNDARY = '2020-01-01T00:00:00';
 /* engine/win32boardwatch.js's hold file and its longest life, which the shim reads before it loads
    the engine. Spelled here because the shim is written from this file; a test pins the shim against
    a hold holdBoard really wrote (engine/win32boardwatch.test.js). */
-const WATCH_HOLD_NAME = 'board-hold.json';
+const WATCH_HOLD_FILE = /^board-hold\.\d+\.json$/;
 const WATCH_HOLD_MAX_MS = 5 * 60 * 1000;
 const WATCHDOG_INTERVAL = 'PT1M';
 
@@ -303,17 +303,23 @@ const WATCH_JS = [
   'try {',
   "  if (fs.existsSync(journal) && JSON.parse(fs.readFileSync(journal, 'utf8')).finished !== true) process.exit(0);",
   '} catch { process.exit(0); }',
-  '/* #2988 round 2: a deliberate stop that is not an update (a move, a hand-off serving in a window)',
-  '   holds the board for a few minutes while its owner runs (engine/win32boardwatch.js holdBoard). */',
-  'try {',
-  "  const hold = JSON.parse(fs.readFileSync(path.join(__dirname, " + JSON.stringify(WATCH_HOLD_NAME) + "), 'utf8'));",
-  '  const left = hold && Number.isFinite(hold.until) ? hold.until - Date.now() : 0;',
-  '  if (left > 0 && left <= ' + WATCH_HOLD_MAX_MS + ' && Number.isInteger(hold.pid) && hold.pid > 0) {',
-  '    let alive = true;',
-  "    try { process.kill(hold.pid, 0); } catch (e) { alive = !(e && e.code === 'ESRCH'); }",
-  '    if (alive) process.exit(0);',
-  '  }',
-  '} catch { /* no hold */ }',
+  '/* #2988: a deliberate stop that is not an update (a move, a hand-off serving in a window) holds',
+  '   the board for a few minutes while its owner runs, one file per owner (engine/win32boardwatch.js',
+  '   holdBoard). Any live one is enough. */',
+  'let names = [];',
+  'try { names = fs.readdirSync(__dirname); } catch {}',
+  'for (const name of names) {',
+  '  if (!' + WATCH_HOLD_FILE.toString() + '.test(name)) continue;',
+  '  try {',
+  "    const hold = JSON.parse(fs.readFileSync(path.join(__dirname, name), 'utf8'));",
+  '    const left = hold && Number.isFinite(hold.until) ? hold.until - Date.now() : 0;',
+  '    if (left > 0 && left <= ' + WATCH_HOLD_MAX_MS + ' && Number.isInteger(hold.pid) && hold.pid > 0) {',
+  '      let alive = true;',
+  "      try { process.kill(hold.pid, 0); } catch (e) { alive = !(e && e.code === 'ESRCH'); }",
+  '      if (alive) process.exit(0);',
+  '    }',
+  '  } catch { /* not a hold */ }',
+  '}',
   "let engine = '';",
   'try { engine = String(fs.readFileSync(path.join(__dirname, ' + JSON.stringify(win32anchor.POINTER_NAME) + "), 'utf8')).trim(); } catch {}",
   'const watch = engine ? path.join(engine, ' + JSON.stringify(WATCH_ENGINE_FILE) + ') : \'\';',

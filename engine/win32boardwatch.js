@@ -246,7 +246,7 @@ function defaultDeps(o) {
     board: require('./win32board'),
     mayStartBoard: () => require('./win32apply').boardMayStart(env, home),
     updateInFlight: () => updateInFlight({ anchorDir: o.anchorDir, root: o.root || path.resolve(__dirname, '..', '..') }),
-    held: () => boardHeld(o.anchorDir),
+    held: () => boardHeld(o.anchorDir, { now: (o.deps && o.deps.now) || Date.now }),
     look: async (port) => {
       const h = handoff();
       const answer = await h.probeBoardOnEveryAddress(port, env);
@@ -266,56 +266,89 @@ function defaultDeps(o) {
  * the anchor folder before its /End, and clears it when it is done; the watchdog (gate b) and its
  * shim (before it loads the engine) leave the board alone while it holds.
  *
- * `{ pid, at, until, why }`. It holds only while `until` has not passed, is no more than HOLD_MAX_MS
- * away, and its owner process is still running, so a hold left by a crash keeps the board down for
- * at most a few minutes, and none at all once its owner is gone.
+ * ONE FILE PER OWNER (round 3), `board-hold.<pid>.json` = `{ pid, at, until, why }`, so a second
+ * holder never overwrites or cancels the first; the watchdog and the shim honour ANY live one. A hold
+ * is live only while `until` has not passed, is no more than HOLD_MAX_MS away, and its owner process
+ * is still running, so a hold left by a crash keeps the board down for at most a few minutes, and none
+ * at all once its owner is gone. An owner whose work outlasts HOLD_MAX_MS refreshes it (refresh()).
+ * Files of dead or expired holds are removed whenever a hold is written.
  */
-const HOLD_NAME = 'board-hold.json';
+const HOLD_FILE = /^board-hold\.(\d+)\.json$/;
 const HOLD_MAX_MS = 5 * 60 * 1000;
 
+function holdState(file, t, alive) {
+  let h;
+  try { h = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return { live: false }; }
+  if (!h || !Number.isFinite(h.until) || t >= h.until || h.until - t > HOLD_MAX_MS) return { live: false };
+  if (!Number.isInteger(h.pid) || h.pid <= 0 || !alive(h.pid)) return { live: false };
+  return { live: true, why: h.why };
+}
+
+function holdFiles(anchorDir) {
+  try { return fs.readdirSync(anchorDir).filter((n) => HOLD_FILE.test(n)).map((n) => path.join(anchorDir, n)); } catch { return []; }
+}
+
 /**
- * Write the hold. `o`: { pid, now, ttlMs }. Returns `{ release() }`; release removes the file only if
- * it is still this hold (a later hold by someone else is left). Never throws: a hold that could not
- * be written is reported in `held: false` and its release does nothing.
+ * Write (or refresh) this owner's hold. `o`: { pid, now, ttlMs, pidAlive }. Returns
+ * `{ held, because?, refresh(), release() }`. refresh() writes it again with a fresh expiry and
+ * answers whether that worked; release() removes the file only if it is still the hold this call
+ * last wrote. Never throws: a hold that could not be written says why in `because`.
  */
 function holdBoard(anchorDir, why, opts) {
   const o = opts || {};
   const now = o.now || Date.now;
-  const none = { held: false, release() {} };
-  if (!anchorDir) return none;
-  const at = now();
+  if (!anchorDir) return { held: false, because: 'Kosmos could not tell where its startup files are', refresh: () => false, release() {} };
+  const pid = Number.isInteger(o.pid) ? o.pid : process.pid;
+  const alive = o.pidAlive || ((p) => require('./win32orphan').pidAlive(p));
   const ttl = Math.min(HOLD_MAX_MS, Number.isFinite(o.ttlMs) && o.ttlMs > 0 ? o.ttlMs : HOLD_MAX_MS);
-  const text = JSON.stringify({ pid: Number.isInteger(o.pid) ? o.pid : process.pid, at, until: at + ttl, why: oneLine(why) });
-  const file = path.join(anchorDir, HOLD_NAME);
-  const tmp = file + '.' + process.pid + '.tmp';
-  try {
-    fs.mkdirSync(anchorDir, { recursive: true });
-    fs.writeFileSync(tmp, text);
-    fs.renameSync(tmp, file);
-  } catch {
-    try { fs.unlinkSync(tmp); } catch { /* best effort */ }
-    return none;
+  const file = path.join(anchorDir, 'board-hold.' + pid + '.json');
+  let text = null;
+  let because = null;
+  const write = () => {
+    const at = now();
+    const next = JSON.stringify({ pid, at, until: at + ttl, why: oneLine(why) });
+    const tmp = file + '.' + process.pid + '.tmp';
+    try {
+      fs.mkdirSync(anchorDir, { recursive: true });
+      fs.writeFileSync(tmp, next);
+      fs.renameSync(tmp, file);
+      text = next;
+      because = null;
+      return true;
+    } catch (e) {
+      try { fs.unlinkSync(tmp); } catch { /* best effort */ }
+      because = 'its hold file could not be written (' + oneLine(e && (e.code || e.message)) + ')';
+      return false;
+    }
+  };
+  const held = write();
+  /* Opportunistic tidying: another owner's file that no longer holds anything. */
+  const t = now();
+  for (const other of holdFiles(anchorDir)) {
+    if (other === file) continue;
+    if (!holdState(other, t, alive).live) { try { fs.unlinkSync(other); } catch { /* the next writer tries again */ } }
   }
   return {
-    held: true,
+    held,
+    because,
+    refresh: () => write(),
     release() {
-      try { if (fs.readFileSync(file, 'utf8') === text) fs.unlinkSync(file); } catch { /* gone already, or another's */ }
+      try { if (text !== null && fs.readFileSync(file, 'utf8') === text) fs.unlinkSync(file); } catch { /* gone already */ }
     },
   };
 }
 
-/** Does a hold stop the watchdog now? `{ held: false }` or `{ held: true, why }`. Never throws. */
+/** Does any hold stop the watchdog now? `{ held: false }` or `{ held: true, why }`. Reads only; never throws. */
 function boardHeld(anchorDir, opts) {
   const o = opts || {};
   if (!anchorDir) return { held: false };
-  let h;
-  try { h = JSON.parse(fs.readFileSync(path.join(anchorDir, HOLD_NAME), 'utf8')); } catch { return { held: false }; }
   const t = (o.now || Date.now)();
-  if (!h || !Number.isFinite(h.until) || t >= h.until || h.until - t > HOLD_MAX_MS) return { held: false };
-  if (!Number.isInteger(h.pid) || h.pid <= 0) return { held: false };
   const alive = o.pidAlive || ((pid) => require('./win32orphan').pidAlive(pid));
-  if (!alive(h.pid)) return { held: false };
-  return { held: true, why: 'the board was stopped on purpose (' + (h.why || 'no reason given') + ')' };
+  for (const file of holdFiles(anchorDir)) {
+    const s = holdState(file, t, alive);
+    if (s.live) return { held: true, why: 'the board was stopped on purpose (' + (s.why || 'no reason given') + ')' };
+  }
+  return { held: false };
 }
 
 /* The crash-loop guard's state, a small file beside the log so a rotation cannot lose it:
@@ -460,7 +493,7 @@ function watchdogMain(opts) {
   });
 }
 
-/* recordBoardExits (server.js), watchdogMain (the shim), holdBoard (win32relocate, win32handoff) and
-   boardHeld are production entries. watchdogRun is the one test seam: watchdogMain's run with its
-   dependencies injectable, the shape of win32board.restartHelperMain(argv, deps). */
-module.exports = { recordBoardExits, watchdogMain, watchdogRun, holdBoard, boardHeld };
+/* recordBoardExits (server.js), watchdogMain (the shim) and holdBoard (win32relocate, win32handoff) are
+   production entries. watchdogRun is the one test seam: watchdogMain's run with its dependencies
+   injectable, the shape of win32board.restartHelperMain(argv, deps); boardHeld is tested through it. */
+module.exports = { recordBoardExits, watchdogMain, watchdogRun, holdBoard };

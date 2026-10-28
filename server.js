@@ -28096,6 +28096,8 @@ if (require.main === module) {
          board by hand). A double-clicked Kosmos.exe has a hidden console and shows
          its own box with the same advice once this board is listening. */
       process.stderr.write(`Kosmos could not move to the background (${handOff.because}), so it is running from this window instead. Keep this window open while you use Kosmos.\n`);
+      /* #2988 round 3: the hold against the board's restart check could not be written. */
+      if (handOff.holdProblem) process.stderr.write(`Kosmos could not stop its restart check from starting the background board while this window starts (${handOff.holdProblem}), so the background board may start again and this window may not get its port.\n`);
     }
     start().then(() => {
       /* #2988 round 2: this board now answers on the port, so the hold the hand-off took against the

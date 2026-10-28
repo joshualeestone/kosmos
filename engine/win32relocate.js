@@ -205,14 +205,27 @@ function anchorTo(o, to) {
  */
 function boardHolder(o) {
   let hold = null;
+  const notes = [];
+  const say = (h) => {
+    if (h && !h.held && !notes.length) {
+      notes.push('Kosmos could not stop its restart check from starting the board during the move (' + (h.because || 'no detail') + '), so the board may have started again from the old folder');
+    }
+  };
   return {
+    notes,
     take(why) {
+      if (hold) { this.refresh(); return; }
       let dir = o.holdDir || null;
       if (!dir && !liveExec.inTestProcess()) {
         try { dir = win32anchor.anchorDir(process.platform, o.home || os.homedir(), o.env || process.env); } catch { dir = null; }
       }
-      hold = require('./win32boardwatch').holdBoard(dir, why);
+      /* A test process with no holdDir takes no hold on purpose (see above), and says nothing about it. */
+      if (!dir && liveExec.inTestProcess()) return;
+      hold = require('./win32boardwatch').holdBoard(dir, why, { now: o.now });
+      say(hold);
     },
+    /* #2988 round 3: a copy can outlast one hold (HOLD_MAX_MS), so the move writes it again as it goes. */
+    refresh() { if (hold && !hold.refresh()) say(hold); },
     release() { if (hold) { hold.release(); hold = null; } },
   };
 }
@@ -220,7 +233,8 @@ function boardHolder(o) {
 async function relocate(opts) {
   const holder = boardHolder(opts || {});
   try {
-    return await moveKosmos(opts, holder);
+    const r = await moveKosmos(opts, holder);
+    return holder.notes.length ? { ...r, notes: [...(r.notes || []), ...holder.notes] } : r;
   } finally {
     holder.release();
   }
@@ -369,7 +383,10 @@ async function moveKosmos(opts, holder) {
   let oldIsAside = false;
   try {
     fs.mkdirSync(staging, { recursive: true });
-    for (const entry of entries) copy(path.join(from, entry), path.join(staging, entry));
+    for (const entry of entries) {
+      holder.refresh();
+      copy(path.join(from, entry), path.join(staging, entry));
+    }
     if (replacing) {
       fs.renameSync(to, aside);
       oldIsAside = true;
@@ -392,6 +409,21 @@ async function moveKosmos(opts, holder) {
       return refused('Kosmos could not be copied to ' + to + ' (' + firstLine(e) + '). The Kosmos that was there is kept in ' + aside + '. ' + KEEPS_WORKING);
     }
     return refused('Kosmos could not be copied to ' + to + ' (' + firstLine(e) + '), so it was not moved. ' + KEEPS_WORKING);
+  }
+  /* #2988 round 3: a board that came up during the copy anyway (a hold that could not be written, or
+     anything else that started the task) serves from the OLD folder through the old pointer. It is
+     ended before the pointer moves, the way the first one was, so the moved Kosmos's hand-off starts
+     the board from the new folder. */
+  if (boardEnded) {
+    holder.refresh();
+    let again = null;
+    try { again = await probe(port); } catch { again = null; }
+    if (!again || again.answering || handoff.boardMayBeOpen(again)) {
+      const reEnded = await endServingBoard(o, port, probe);
+      if (!reEnded.ok) {
+        holder.notes.push('A Kosmos board started from the old folder while Kosmos was being moved, and it could not be stopped (' + reEnded.because + '). Restart your computer to start Kosmos from its new folder');
+      }
+    }
   }
   if (replacing) {
     /* Minor finding: ONE previous build, as the updater keeps (H9). The old install's own .kosmos-update

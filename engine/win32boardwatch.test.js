@@ -609,16 +609,26 @@ test('#2988 the engine file the shim names is this module, and it exports the en
 
 // ── round 2: the board hold (a move, or a hand-off serving in a window) ─────
 
+/* Is the watchdog held off at this instant? watchdogRun reads its gates up to the first port look
+   synchronously, so calling it captures the hold as it is NOW (inside a synchronous copy seam too);
+   the answer is read when the promise settles. */
+function heldAt(anchor, now) {
+  const d = deps({ now: now || Date.now });   // a hold is judged against the clock it was written by
+  delete d.held;
+  return runWith(scratch('log'), d, { anchorDir: anchor }).then((r) => /the board was stopped on purpose/.test(r.why || ''));
+}
+const holdFilesIn = (dir) => { try { return fs.readdirSync(dir).filter((n) => /^board-hold\.\d+\.json$/.test(n)); } catch { return []; } };
+
 test('#2988 round 2: a live hold stops the watchdog; an expired hold, a dead owner\'s hold and a released hold do not', async () => {
   const anchor = scratch('hold');
-  const tick = async (extra) => { const d = deps(); delete d.held; const r = await runWith(scratch('log'), d, { anchorDir: anchor, ...(extra || {}) }); return { r, ran: d.ran }; };
+  const tick = async (extra) => { const d = deps({ now: Date.now }); delete d.held; const r = await runWith(scratch('log'), d, { anchorDir: anchor, ...(extra || {}) }); return { r, ran: d.ran }; };
   const h = watch.holdBoard(anchor, 'Kosmos is being moved to C:\\Kosmos', { ttlMs: 60000 });
   assert.equal(h.held, true);
   let t = await tick();
   assert.equal(t.ran, 0, 'held');
   assert.match(t.r.why, /the board was stopped on purpose \(Kosmos is being moved to C:\\Kosmos\)/);
   h.release();
-  assert.equal(fs.existsSync(path.join(anchor, 'board-hold.json')), false, 'released');
+  assert.deepEqual(holdFilesIn(anchor), [], 'released');
   assert.equal((await tick()).ran, 1, 'released: no hold');
 
   watch.holdBoard(anchor, 'old', { ttlMs: 1000, now: () => Date.now() - 5000 });
@@ -628,13 +638,44 @@ test('#2988 round 2: a live hold stops the watchdog; an expired hold, a dead own
   watch.holdBoard(anchor, 'crashed', { pid: gone });
   assert.equal((await tick()).ran, 1, 'a dead owner\'s hold does not block');
 
-  fs.writeFileSync(path.join(anchor, 'board-hold.json'), JSON.stringify({ pid: process.pid, until: Date.now() + 24 * 3600 * 1000 }));
+  fs.writeFileSync(path.join(anchor, 'board-hold.' + process.pid + '.json'), JSON.stringify({ pid: process.pid, until: Date.now() + 24 * 3600 * 1000 }));
   assert.equal((await tick()).ran, 1, 'a hold claiming more than five minutes is not honoured');
+});
+
+test('#2988 round 3: one file per owner: a second holder does not cancel the first, release removes only its own, dead owners\' files are tidied', async () => {
+  const anchor = scratch('owners');
+  const first = watch.holdBoard(anchor, 'first', { pid: process.pid });
+  const other = cp.spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'], { stdio: 'ignore' });
+  try {
+    const second = watch.holdBoard(anchor, 'second', { pid: other.pid });
+    assert.equal(holdFilesIn(anchor).length, 2, 'two owners, two files');
+    second.release();
+    assert.deepEqual(holdFilesIn(anchor), ['board-hold.' + process.pid + '.json'], 'release removed only its own file');
+    assert.equal(await heldAt(anchor), true, 'the first hold still holds after the second let go');
+    watch.holdBoard(anchor, 'third', { pid: other.pid });
+    first.release();
+    assert.equal(await heldAt(anchor), true, 'and the other way round');
+  } finally { other.kill(); }
+  await new Promise((r) => other.once('exit', r));
+  assert.equal(await heldAt(anchor), false, 'a dead owner\'s hold is ignored');
+  const gone = cp.spawnSync(process.execPath, ['-e', '0']).pid;
+  watch.holdBoard(anchor, 'crashed', { pid: gone, ttlMs: 1000, now: () => Date.now() - 5000 });
+  const mine = watch.holdBoard(anchor, 'tidy', { pid: process.pid });
+  assert.deepEqual(holdFilesIn(anchor), ['board-hold.' + process.pid + '.json'], 'writing a hold tidies the dead and expired ones');
+  mine.release();
+});
+
+test('#2988 round 3: a hold that cannot be written says why', () => {
+  const blocker = path.join(scratch('nohold'), 'a-file');
+  fs.writeFileSync(blocker, 'x');
+  const h = watch.holdBoard(path.join(blocker, 'anchor'), 'x');
+  assert.equal(h.held, false);
+  assert.match(h.because, /its hold file could not be written/);
 });
 
 test('#2988 round 2: a hold taken after the first look (between the two looks) still stops the /Run', async () => {
   const anchor = scratch('holdlate');
-  const d = deps();
+  const d = deps({ now: Date.now });
   delete d.held;
   d.sleep = async () => { watch.holdBoard(anchor, 'late'); };
   const r = await runWith(scratch('log'), d, { anchorDir: anchor });
@@ -659,35 +700,111 @@ test('#2988 round 2: the shim leaves a live hold alone without loading the engin
   assert.equal(fs.existsSync(s.marker), true, 'an expired hold must not stop the shim');
 });
 
+/* A Kosmos folder in a sandbox's Downloads, served (until it is ended) by its task's board. */
+function moveCase(name) {
+  const base = scratch(name);
+  const from = path.join(base, 'Downloads', 'Kosmos');
+  const to = path.join(base, 'Programs', 'Kosmos');
+  const holdDir = path.join(base, 'anchor');
+  fs.mkdirSync(from, { recursive: true });
+  fs.writeFileSync(path.join(from, 'manifest.json'), JSON.stringify({ product: 'kosmos', platform: 'win32', version: '0.6.61' }));
+  for (const e of ['app', 'runtime']) { fs.mkdirSync(path.join(from, e), { recursive: true }); fs.writeFileSync(path.join(from, e, 'x'), 'x'); }
+  return { from, to, holdDir, base: { from, to, port: 9, holdDir, entries: ['manifest.json', 'app', 'runtime'], liveExecutionAllowed: () => true,
+    readPointer: () => path.join(from, 'app', 'engine'), endBoardServingHere: true, sleep: async () => {}, pidState: () => 'gone' } };
+}
+
 test('#2988 round 2: the move holds the board from before its /End until it returns, and a tick during the copy does not /Run', async () => {
   const relocator = require('./win32relocate');
   for (const fail of [false, true]) {
-    const base = scratch('move');
-    const from = path.join(base, 'Downloads', 'Kosmos');
-    const to = path.join(base, 'Programs', 'Kosmos');
-    const holdDir = path.join(base, 'anchor');
-    fs.mkdirSync(from, { recursive: true });
-    fs.writeFileSync(path.join(from, 'manifest.json'), JSON.stringify({ product: 'kosmos', platform: 'win32', version: '0.6.61' }));
-    for (const e of ['app', 'runtime']) { fs.mkdirSync(path.join(from, e), { recursive: true }); fs.writeFileSync(path.join(from, e, 'x'), 'x'); }
+    const c = moveCase('move');
     let stopped = false;
-    const seen = {};
+    const seen = { atCopy: [] };
     const r = await relocator.relocate({
-      from, to, port: 9, holdDir, entries: ['manifest.json', 'app', 'runtime'], liveExecutionAllowed: () => true,
+      ...c.base,
       probe: async () => (stopped ? { answering: false, outcome: 'refused' } : { answering: true, identity: 'x', startedByTask: true }),
-      readPointer: () => path.join(from, 'app', 'engine'), endBoardServingHere: true, sleep: async () => {},
-      endBoard: () => { seen.atEnd = fs.existsSync(path.join(holdDir, 'board-hold.json')); stopped = true; return { ok: true }; },
+      endBoard: () => { seen.atEnd = heldAt(c.holdDir); stopped = true; return { ok: true }; },
       copy: (src, dst) => {
-        seen.atCopy = watch.boardHeld(holdDir).held;
+        seen.atCopy.push(heldAt(c.holdDir));
         if (fail) throw new Error('disk full');
         fs.cpSync(src, dst, { recursive: true });
       },
-      anchor: () => ({ ok: true }), pidState: () => 'gone',
+      anchor: () => ({ ok: true }),
     });
     assert.equal(r.ok, !fail, JSON.stringify(r));
-    assert.equal(seen.atEnd, true, 'the hold is written BEFORE the /End');
-    assert.equal(seen.atCopy, true, 'a watchdog tick during the copy sees the hold');
-    assert.equal(fs.existsSync(path.join(holdDir, 'board-hold.json')), false, 'released when the move returns, ' + (fail ? 'on failure too' : 'after success'));
+    assert.equal(await seen.atEnd, true, 'the hold is written BEFORE the /End');
+    assert.ok(seen.atCopy.length > 0);
+    for (const p of seen.atCopy) assert.equal(await p, true, 'a watchdog tick during the copy sees the hold');
+    assert.deepEqual(holdFilesIn(c.holdDir), [], 'released when the move returns, ' + (fail ? 'on failure too' : 'after success'));
   }
+});
+
+test('#2988 round 3: a copy that outlasts one hold (5 minutes) keeps the board held throughout, by refreshing it', async () => {
+  const relocator = require('./win32relocate');
+  const c = moveCase('slowmove');
+  const clock = { t: Date.now() };
+  let stopped = false;
+  const seen = [];
+  /* The hold files' own expiry, read straight off disk, against the move's clock: a second witness that
+     does not depend on the watchdog's reading of the clock. */
+  const allHoldFiles = () => { try { return fs.readdirSync(c.holdDir).filter((n) => /^board-hold(\.\d+)?\.json$/.test(n)); } catch { return []; } };
+  const liveUntil = (at) => allHoldFiles().some((n) => {
+    try { return JSON.parse(fs.readFileSync(path.join(c.holdDir, n), 'utf8')).until > at; } catch { return false; }
+  });
+  const witnessed = [];
+  const r = await relocator.relocate({
+    ...c.base, now: () => clock.t,
+    probe: async () => (stopped ? { answering: false, outcome: 'refused' } : { answering: true, identity: 'x', startedByTask: true }),
+    endBoard: () => { stopped = true; return { ok: true }; },
+    /* Each top-level entry takes four minutes: twelve in all, more than two holds. */
+    copy: (src, dst) => {
+      clock.t += 4 * 60 * 1000;
+      seen.push(heldAt(c.holdDir, () => clock.t));
+      witnessed.push(liveUntil(clock.t));
+      fs.cpSync(src, dst, { recursive: true });
+    },
+    anchor: () => { seen.push(heldAt(c.holdDir, () => clock.t + 4 * 60 * 1000)); witnessed.push(liveUntil(clock.t + 4 * 60 * 1000)); return { ok: true }; },
+  });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(witnessed, [true, true, true, true], 'the hold file on disk never lapsed during the copy');
+  assert.equal(seen.length, 4);
+  const got = [];
+  for (const p of seen) got.push(await p);
+  assert.deepEqual(got, [true, true, true, true], 'held at the end of every entry and up to the anchor (on cb4989f52f it lapsed after five minutes)');
+});
+
+test('#2988 round 3: a board that came up during the copy is ended again before the pointer moves', async () => {
+  const relocator = require('./win32relocate');
+  const c = moveCase('midcopy');
+  let serving = true;
+  const events = [];
+  const r = await relocator.relocate({
+    ...c.base,
+    probe: async () => (serving ? { answering: true, identity: 'x', startedByTask: true } : { answering: false, outcome: 'refused' }),
+    endBoard: () => { events.push('end'); serving = false; return { ok: true }; },
+    copy: (src, dst) => {
+      fs.cpSync(src, dst, { recursive: true });
+      if (src.endsWith('runtime')) { serving = true; events.push('a board came up'); }
+    },
+    anchor: () => { events.push('anchor'); return { ok: true }; },
+  });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(events, ['end', 'a board came up', 'end', 'anchor']);
+});
+
+test('#2988 round 3: a move whose hold cannot be written says so in its result (the log the launcher prints)', async () => {
+  const relocator = require('./win32relocate');
+  const c = moveCase('moveunheld');
+  fs.writeFileSync(c.holdDir, 'a file where the anchor folder should be');
+  let stopped = false;
+  const r = await relocator.relocate({
+    ...c.base,
+    probe: async () => (stopped ? { answering: false, outcome: 'refused' } : { answering: true, identity: 'x', startedByTask: true }),
+    endBoard: () => { stopped = true; return { ok: true }; },
+    copy: (src, dst) => fs.cpSync(src, dst, { recursive: true }),
+    anchor: () => ({ ok: true }),
+  });
+  assert.equal(r.ok, true);
+  assert.ok((r.notes || []).some((n) => /^Kosmos could not stop its restart check from starting the board during the move \(its hold file could not be written/.test(n)), JSON.stringify(r.notes));
 });
 
 test('#2988 round 2: the hand-off that serves in a window holds the board before its /End and leaves the release to the board once it listens', async () => {
@@ -698,24 +815,44 @@ test('#2988 round 2: the hand-off that serves in a window holds the board before
   const fakeBoard = {
     startedByTask: () => false, bundleRoot: () => 'C:\\Kosmos', status: () => ({ known: true, registered: true, enabled: true, running: null }),
     runNow: () => ({ ok: true }),
-    end: () => { seen.atEnd = watch.boardHeld(holdDir).held; ended = true; return { ok: true }; },
+    end: () => { seen.atEnd = heldAt(holdDir); ended = true; return { ok: true }; },
   };
+  const r = await handoff.handOffToTask(handOffOpts(fakeBoard, holdDir));
+  assert.equal(r.serve, true, JSON.stringify(r));
+  assert.equal(ended, true, 'the not-confirmed path ends the task: ' + r.because);
+  assert.equal(await seen.atEnd, true, 'held before the /End');
+  assert.equal(await heldAt(holdDir), true, 'still held while this board boots');
+  assert.equal(r.holdProblem, undefined);
+  r.releaseHold();
+  assert.equal(await heldAt(holdDir), false, 'released once the board listens (server.js calls releaseHold)');
+});
+
+function handOffOpts(fakeBoard, holdDir) {
   let t = 0;
-  const r = await handoff.handOffToTask({
+  return {
     platform: 'win32', env: {}, byTask: false, bundle: true, live: true, ensured: { ok: true, action: 'refreshed' },
     port: 9, identity: 'me', startedAt: 0, now: () => t, sleep: async (ms) => { t += ms; },
     probe: async () => ({ answering: false, outcome: 'refused' }), board: fakeBoard, holdDir, signalEnv: {},
     worlds: { worldenv: { bootedBaseDir: () => null, bootedWorld: () => null }, guard: { retractAttempt: () => false, recordAttempt: () => {} } },
-  });
-  assert.equal(r.serve, true, JSON.stringify(r));
-  assert.equal(ended, true, 'the not-confirmed path ends the task: ' + r.because);
-  assert.equal(seen.atEnd, true, 'held before the /End');
-  assert.equal(watch.boardHeld(holdDir).held, true, 'still held while this board boots');
-  r.releaseHold();
-  assert.equal(watch.boardHeld(holdDir).held, false, 'released once the board listens (server.js calls releaseHold)');
+  };
+}
+
+test('#2988 round 3: a hand-off whose hold cannot be written says so (server.js prints holdProblem)', async () => {
+  const handoff = require('./win32handoff');
+  const blocker = path.join(scratch('handoffnohold'), 'a-file');
+  fs.writeFileSync(blocker, 'x');
+  const fakeBoard = {
+    startedByTask: () => false, bundleRoot: () => 'C:\\Kosmos', status: () => ({ known: true, registered: true, enabled: true, running: null }),
+    runNow: () => ({ ok: true }), end: () => ({ ok: true }),
+  };
+  const r = await handoff.handOffToTask(handOffOpts(fakeBoard, path.join(blocker, 'anchor')));
+  assert.equal(r.serve, true);
+  assert.match(r.holdProblem || '', /its hold file could not be written/);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /if \(handOff\.holdProblem\) process\.stderr\.write\(`Kosmos could not stop its restart check/, 'wiring check: server.js prints it');
 });
 
-test('#2988 round 2: server.js releases the hand-off\'s hold once the board is listening', () => {
+test('#2988 round 2 (WIRING CHECK, a source match, not behaviour): server.js releases the hand-off\'s hold once the board is listening', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /start\(\)\.then\(\(\) => \{[\s\S]{0,400}handOff\.releaseHold\(\)/);
 });
