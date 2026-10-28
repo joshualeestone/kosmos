@@ -1741,6 +1741,8 @@ struct ChatBubble: View {
         }
         .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
         .accessibilityElement(children: .ignore)
+        // kosmos#7419 review 3: Message actions on the one element VoiceOver reads (the inner one is dropped by .ignore).
+        .messageActionsAccessibility(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text)
         .accessibilityLabel(spokenLabel)
         // Always present, doing nothing where there is no retry: without a default action VoiceOver's double-tap would
         // fall through as a tap at the bubble's centre, which can land on a link (#7014).

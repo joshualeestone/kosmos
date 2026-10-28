@@ -613,9 +613,20 @@ struct MessageActions: ViewModifier {
 extension Notification.Name { static let sampleSheetMore = Notification.Name("kosmos.sampleSheetMore") }
 #endif
 
+// Review 3: the same action on an element that reads its children as one (ChatBubble's children: .ignore drops the
+// inner one), applied after that element is formed.
+struct MessageActionsAccessibility: ViewModifier {
+    let target: () -> MessageActionTarget
+    @Environment(\.openMessageActions) private var open
+    func body(content: Content) -> some View { content.accessibilityAction(named: "Message actions") { open?(target()) } }
+}
+
 extension View {
     func messageActions(mine: Set<String>, react: ((String) -> Void)?, reply: (() -> Void)?, text: String) -> some View {
         modifier(MessageActions(target: { MessageActionTarget(mine: mine, react: react, reply: reply, text: text) }))
     }
     func messageActionsHost() -> some View { modifier(MessageActionsHost()) }
+    func messageActionsAccessibility(mine: Set<String>, react: ((String) -> Void)?, reply: (() -> Void)?, text: String) -> some View {
+        modifier(MessageActionsAccessibility(target: { MessageActionTarget(mine: mine, react: react, reply: reply, text: text) }))
+    }
 }
