@@ -1440,6 +1440,9 @@ struct WaveDots: View {
         }
         .frame(height: size + 4, alignment: .bottom)
         .onAppear { up = true }
+        // Review 3: a lazy thread keeps this state while the line is scrolled away and drops the running animation, so
+        // it goes back to rest without animating and the next appear starts the wave again (never frozen, raised).
+        .onDisappear { var t = Transaction(); t.disablesAnimations = true; withTransaction(t) { up = false } }
         .accessibilityHidden(true)
     }
 }
