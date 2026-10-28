@@ -490,6 +490,33 @@ _text_args() {
     KOSMOS_TEXT_ARGS+=("$_a")
   done
 }
+# kosmos#7408: `kosmos task message` takes `--to <agent>` (several allowed, up to 10) to tell agents besides the task's
+# assignees. Taken out of the args before `--`; past `--` it is words. Refuses a --to with no name, an option or `--`
+# as the name, --to=<name>, and a name with a quote, backslash or control character (no agent is named so). Sets
+# KOSMOS_TO_JSON (empty, or a JSON list) and KOSMOS_TO_REST (the other words, in order).
+KOSMOS_TO_JSON=""; KOSMOS_TO_REST=()
+_take_to() {
+  local _usage="$1" _past=0 _n=0 _v; shift
+  KOSMOS_TO_JSON=""; KOSMOS_TO_REST=()
+  while [ $# -gt 0 ]; do
+    if [ "$_past" = 0 ]; then
+      case "$1" in
+        --) _past=1; KOSMOS_TO_REST+=("$1"); shift; continue ;;
+        --to=*) say "Write it as --to <agent>, with a space."; exit 2 ;;
+        --to)
+          _v="${2:-}"
+          case "$_v" in ''|-*) say "--to needs the name of an agent on the project, so nothing was sent."; say "$_usage"; exit 2 ;; esac
+          case "$_v" in *[\"\\]*|*[[:cntrl:]]*) say "--to needs the name of an agent on the project, so nothing was sent. Not: an agent name with a quote or backslash in it."; exit 2 ;; esac
+          _n=$((_n + 1))
+          [ "$_n" -le 10 ] || { say "A task message can name up to 10 agents with --to."; exit 2; }
+          KOSMOS_TO_JSON="${KOSMOS_TO_JSON:+$KOSMOS_TO_JSON,}\"$_v\""
+          shift 2; continue ;;
+      esac
+    fi
+    KOSMOS_TO_REST+=("$1"); shift
+  done
+  [ -z "$KOSMOS_TO_JSON" ] || KOSMOS_TO_JSON="[$KOSMOS_TO_JSON]"
+}
 # #5970: `--body-file <path>` (or `--body-file=<path>`) gives a verb's text from a file, the same in every shell, as
 # the Windows CLI does (#5946). Taken out of the args before `--`, wherever it sits among the options, so the rest
 # parse as before; past `--` it is words. Refuses: given twice, no path, an option or `--` as the path.
@@ -5607,6 +5634,7 @@ cmd_task() {
       say "      --replaced-by <task-number>                              a later task replaced it: closed, but not done"
       say "  kosmos task reopen <project-id> <task-number> [\"why\"]        put a done one back; it keeps its number and history"
       say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
+      say "      --to <agent>                                             tell this agent too (several allowed); else only the assignees hear it"
       say "  kosmos task activity <project-id> <task-number>              read a task's conversation, oldest first, in this computer's local time, and whether the person has viewed it"
       say "  kosmos task built <project-id> <task-number> [\"note\"]  mark it built; with checks, the note says how each went"
       say "      --clear                                                  take the built mark off"
@@ -5753,11 +5781,12 @@ cmd_task() {
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       _no_more_words "task activity" 2 "Usage: kosmos task activity <project-id> <task-number>   (the number is shown by kosmos task list)" "$@" ;;
     message)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos task message <project-id> <task-number> \"<what to say>\""; exit 2; }
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\""; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
-      _text_args "task message" "Usage: kosmos task message <project-id> <task-number> \"<what to say>\"" "${@:3}"   # kosmos#4889
+      _take_to "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\"" "${@:3}"   # kosmos#7408
+      _text_args "task message" "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\"" ${KOSMOS_TO_REST[@]+"${KOSMOS_TO_REST[@]}"}   # kosmos#4889
       # Review 1: `message p 3 --` leaves no words once the -- is dropped; that is the usage error, not an empty send.
-      [ -n "${KOSMOS_TEXT_ARGS[*]+${KOSMOS_TEXT_ARGS[*]}}" ] || { say "Usage: kosmos task message <project-id> <task-number> \"<what to say>\""; exit 2; } ;;
+      [ -n "${KOSMOS_TEXT_ARGS[*]+${KOSMOS_TEXT_ARGS[*]}}" ] || { say "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\""; exit 2; } ;;
     built)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file's fingerprint; or --clear to take the mark off)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
@@ -6453,7 +6482,8 @@ cmd_task() {
       # (the same treatment `add` gives its detail).
       local project num text; project="${1:-}"; num="${2:-}"
       shift 2 2>/dev/null || true
-      _text_args "task message" "Usage: kosmos task message <project-id> <task-number> \"<what to say>\"" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+      _take_to "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\"" "$@"   # kosmos#7408
+      _text_args "task message" "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\"" ${KOSMOS_TO_REST[@]+"${KOSMOS_TO_REST[@]}"}; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
       text="$*"
       local esc_text esc_pane
       esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
@@ -6466,14 +6496,16 @@ cmd_task() {
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/message" \
         -H 'content-type: application/json' \
-        --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+        --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"${KOSMOS_TO_JSON:+,\"to\":$KOSMOS_TO_JSON}}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "send that message" "$rc" write; exit 1; }
       # Success is the board's own {"ok":true,...} shape, not merely the absence of an error.
       case "$body" in
         '{"ok":'*)
           # #4540: the board's own sentence about who was told (it carries no double quote); none from an older board.
           local told; told=$(printf '%s' "$body" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
-          say "Message recorded on task $num of ${project:-the project}.${told:+ $told}" ;;
+          say "Message recorded on task $num of ${project:-the project}.${told:+ $told}"
+          # kosmos#7408: on a task nobody holds, say how to reach someone next time.
+          case "$told" in "Nobody is assigned to it"*) say "To tell an agent anyway, name it: --to <agent>." ;; esac ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos refused that message: ${because:-it did not say why}."; exit 1 ;;

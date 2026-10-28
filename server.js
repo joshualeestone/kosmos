@@ -6043,6 +6043,7 @@ function taskFinalWordHint(t, senderName, projectId, byKey) {
 /* #6359: `kind` 'built' is a built mark's answer (`kosmos task built`): a kept line there is the built notice, not a
    message the marker sent. The same mark again tells nobody, and a new note replaces the kept notice, so the marker is
    not told not to send it again. */
+const TASK_MESSAGE_TO_MAX = 10;   // #7408: how many agents one task message may name with --to
 function taskMessageSummary(delivered, assigned, kind) {
   const plain = (x) => String(x == null ? '' : x).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
   const list = Array.isArray(delivered) ? delivered : [];
@@ -24593,6 +24594,31 @@ const server = http.createServer(async (req, res) => {
             return;
           }
         }
+        /* #7408: `to` names agents to tell besides the assignees (a ruling on a task nobody holds reached nobody). Checked
+           whole before anything is recorded: a list of 1 to 10 names, each an agent on this project (its reply into the
+           task would be refused otherwise). The stored spelling is the one told. */
+        let toNames = [];
+        if (body.to !== undefined) {
+          const list = body.to;
+          if (!Array.isArray(list) || list.length < 1 || list.length > TASK_MESSAGE_TO_MAX
+            || list.some((n) => typeof n !== 'string' || !n.trim() || n.length > 64)) {
+            sendJson(res, 400, { error: 'to has to be a list of 1 to ' + TASK_MESSAGE_TO_MAX + ' agent names, so that message was not recorded' });
+            return;
+          }
+          if (unreadable) { sendJson(res, 503, { error: 'we could not read the projects, so that message was not recorded' }); return; }
+          const agentsOn = (memberRecord && Array.isArray(memberRecord.agents)) ? memberRecord.agents : [];
+          const notOn = [];
+          for (const n of list) {
+            const hit = agentsOn.find((a) => sameAgentName(a, n.trim(), false));
+            if (!hit) notOn.push(n.trim());
+            else if (!toNames.includes(hit)) toNames.push(hit);
+          }
+          if (notOn.length && memberRecord) {
+            const plainName = (x) => String(x).replace(/[\u0000-\u001f\u007f"\\]/g, ' ');
+            sendJson(res, 400, { error: notOn.map(plainName).join(', ') + (notOn.length > 1 ? ' are' : ' is') + ' not on this project, so that message was not recorded. Name agents on the project, or add them to it first' });
+            return;
+          }
+        }
         /* The valve, before the record+deliver: a looping agent must not be able to
            spam a task's people. Counted for PROCESS senders only; the operator is
            never valved (the person driving is the remedy, not the hazard -- the same
@@ -24621,7 +24647,8 @@ const server = http.createServer(async (req, res) => {
            line never bumps chat's length cap. chat.deliver carries the rails
            (addressable, the trust-dialog guard, body validation); every task route
            that notifies people goes through the same roster. */
-        const named = tasks.whoOf(t);
+        const assignees = tasks.whoOf(t);
+        const named = assignees.concat(toNames.filter((n) => !assignees.some((m) => sameAgentName(m, n, false))));   // #7408
         const chat = require('./engine/chat');
         const proj = memberRecord;   // read once above; never re-read after the message is recorded (a failed read here would answer 400 for a recorded message)
         /* Strip the framing double-quote (and newlines defensively) from anything
