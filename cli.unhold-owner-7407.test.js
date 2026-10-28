@@ -107,7 +107,7 @@ test('#7407: a task nobody is on says the next idle agent will get it, and how t
     const n = make('nobody ' + label);
     const r = await holdThenUnhold(run, n);
     assert.equal(r.code, 0, label + ': ' + r.text);
-    assert.match(r.text, /^\s*Nobody is on it, so Kosmos will give it to the next idle agent on the project\. To choose who, assign it now\.$/m, label + ': ' + r.text);
+    assert.match(r.text, /^\s*Nobody is on it, so Kosmos will give it to an idle agent on the project in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/m, label + ': ' + r.text);
     assert.match(r.text, new RegExp('^\\s*kosmos task assign ' + projectId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' ' + n + ' <agent>$', 'm'), label + ': ' + r.text);
     // Review 1: CONTROL against the Assigner itself, not the function the sentence reads: pick gives it out.
     const p = projects.readAll().find((x) => x.id === projectId);
@@ -184,7 +184,7 @@ test('#7407 review 1: no agent that takes work here, a paused project, or a pare
   try {
     if (projects.isPaused(projectNow())) {
       const next = await unholdNext(paused);
-      assert.match(next, /^Nobody is on it\. The project is paused; when it is resumed, Kosmos will give it to an idle agent on it\. To choose who, assign it now\.$/, next);
+      assert.match(next, /^Nobody is on it\. The project is paused; when it is resumed, Kosmos will give it to an idle agent on the project in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/, next);
     } else {
       assert.fail('setup: could not pause the project with paused: true; find the field projects.isPaused reads');
     }
@@ -204,4 +204,53 @@ test('#7407 review 1: with failover on, "stays with" says a limited holder\'s pa
   } finally {
     assignerSetting.setFailover && assignerSetting.setFailover(was.failover === true);
   }
+});
+
+test('#7407 review 2: one agent, a subset, archived, a paused project nobody could take, a running-roster check, and failover only where it moves work', async () => {
+  // One agent: otto is swarm-off, so only mara can be given it.
+  projects.mutate(projectId, (p) => ({ ...p, swarmOff: ['otto'] }));
+  try {
+    const n = make('one');
+    const next = await unholdNext(n);
+    assert.match(next, /^Nobody is on it, so Kosmos will give it to mara when they are idle, in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/, next);
+    assert.equal((assigner.pick('mara', [{ ...projectNow(), tasks: [taskOf(n)] }], new Set()) || {}).n, n, 'CONTROL: pick gives mara it');
+    assert.equal(assigner.pick('otto', [{ ...projectNow(), tasks: [taskOf(n)] }], new Set()), null, 'CONTROL: and never otto');
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, swarmOff: [] }));
+  }
+  // A member this board does not run (no roster card) is never promised the task.
+  projects.mutate(projectId, (p) => ({ ...p, agents: [...p.agents, 'ghost'], swarmOff: ['mara', 'otto'] }));
+  try {
+    const n = make('ghost');
+    const next = await unholdNext(n);
+    assert.doesNotMatch(next, /ghost/, next);
+    assert.match(next, /^Nobody is on it, and no agent on the project can be given it now/, next);
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'ghost'), swarmOff: [] }));
+  }
+  // Paused, and nobody could take it even resumed.
+  projects.mutate(projectId, (p) => ({ ...p, paused: true, swarmOff: ['mara', 'otto'] }));
+  try {
+    const n = make('paused-none');
+    const next = await unholdNext(n);
+    assert.match(next, /^Nobody is on it, and the project is paused\. Even resumed, no agent on the project can be given it now/, next);
+  } finally {
+    projects.mutate(projectId, (p) => { const q = { ...p, swarmOff: [] }; delete q.paused; return q; });
+  }
+  // Failover never moves a part of a task marked built: no caveat, though failover is on.
+  const was = assignerSetting.read();
+  assignerSetting.setFailover(true);
+  try {
+    const w = make('built-held', 'otto');
+    projects.mutate(projectId, (p) => ({ ...p, tasks: p.tasks.map((t) => (t.number === w ? { ...t, builtAt: new Date().toISOString() } : t)) }));
+    const next = await unholdNext(w);
+    assert.equal(next, 'It stays with otto.', next);
+    assert.equal(assigner.stallable(taskOf(w)), false, 'CONTROL: stalledParts skips it');
+  } finally {
+    assignerSetting.setFailover(was.failover === true);
+  }
+  // A holder beside a part nobody is on: the loose part is said.
+  const m = make('loose', 'otto');
+  tasks.addPart(projectId, m, { sentence: 'the rest' });
+  assert.match(await unholdNext(m), /^It stays with otto\. Its part nobody is on waits for a person to assign it\.$/);
 });

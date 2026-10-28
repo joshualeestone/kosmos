@@ -23942,37 +23942,51 @@ const server = http.createServer(async (req, res) => {
       const prog = tasks.progressOf(t);
       if (prog.closed) return '';
       const assign = ' To choose who, assign it now.';
-      // Review 1: only who is on an OPEN part has it; someone who finished a part does not.
-      const holders = [...new Set(prog.parts.filter((x) => x.who && !x.closedAt).map((x) => x.who))];
-      let setting = {};
-      try { setting = assignerSetting.read() || {}; } catch { setting = {}; }
-      if (holders.length) {
-        const names = holders.map(plain).join(', ');
-        // Review 1: with failover on, the hold was what kept a limited holder's part from moving (stalledParts).
-        return 'It stays with ' + names + '.' + (setting.on === true && setting.failover === true
-          ? ' If ' + (holders.length > 1 ? 'one of them hits' : 'they hit') + ' a usage limit, Kosmos may move ' + (holders.length > 1 ? 'their part' : 'it') + ' to an idle agent.' : '');
-      }
-      if (tasks.whoOf(t).length) return 'Nobody is on its open parts, and Kosmos does not hand out a task someone has worked on.' + assign;
-      if (setting.on !== true) return 'Nobody is on it, and the Assigner is off, so it waits for a person.' + assign;
+      // Review 2: the Assigner gives out work in an order, so a promise is "in its turn", never "next".
+      const turn = ' in its turn (soonest due first, then oldest)';
+      const setting = assignerSetting.read() || {};   // review 2: unread is not "off": the catch below says nothing
       const p = projects.readAll().find((x) => x && x.id === projectId);
       if (!p) return '';
       const inP = (Array.isArray(p.tasks) ? p.tasks : []).find((x) => x && x.number === t.number);
       if (!inP) return '';
       const asg = require('./engine/assigner');
+      // Review 1: only who is on an OPEN part has it; someone who finished a part does not.
+      const holders = [...new Set(prog.parts.filter((x) => x.who && !x.closedAt).map((x) => x.who))];
+      if (holders.length) {
+        const names = holders.map(plain).join(', ');
+        const many = holders.length > 1;
+        // Review 2: a part nobody is on, beside a holder's, is never handed out (handOutable), so it is said.
+        const loose = prog.parts.some((x) => !x.who && !x.closedAt) ? ' Its part nobody is on waits for a person to assign it.' : '';
+        // Review 1/2: with failover on, a limited holder's part may move, unless failover never moves this task.
+        const may = setting.on === true && setting.failover === true && !projects.isPaused(p) && asg.stallable(inP)
+          ? ' If ' + (many ? 'one of them hits' : 'they hit') + ' a usage limit, Kosmos may move ' + (many ? 'their part' : 'it') + ' to an idle agent.' : '';
+        return 'It stays with ' + names + '.' + loose + may;
+      }
+      if (tasks.whoOf(t).length) return 'Nobody is on its open parts, and Kosmos does not hand out a task someone has worked on.' + assign;
+      if (setting.on !== true) return 'Nobody is on it, and the Assigner is off, so it waits for a person.' + assign;
       if (!asg.handOutable(inP)) return 'Nobody is on it, and Kosmos does not hand this one out on its own.' + assign;
       if (p.archived === true) return 'Nobody is on it, and the project is archived, so Kosmos will not give it to anyone.' + assign;
-      if (projects.isPaused(p)) return 'Nobody is on it. The project is paused; when it is resumed, Kosmos will give it to an idle agent on it.' + assign;
-      // Review 1: who pick itself could give it to (its open subtasks, another builder's tree, swarm off, no agents).
-      const may = asg.whoMayGet(p, inP);
-      if (!may.length) return 'Nobody is on it, and no agent on the project can be given it now (its subtasks go first, it belongs to another builder\'s work, or no agent here takes work).' + assign;
+      /* Review 2: who pick could give it to (by pick's own rules), and only agents this board runs (the roster the
+         Assigner reads): a member that is not running here is never given work. A paused project is asked as if
+         resumed, so the resume promise passes the same rules. */
+      const paused = projects.isPaused(p);
+      const roster = safeRoster();
+      const running = Array.isArray(roster) ? new Set(roster.filter((c) => c && c.isNamedOurs === true).map((c) => c.sessionName)) : null;
+      const may = asg.whoMayGet(paused ? { ...p, paused: false } : p, inP).filter((n) => !running || running.has(n));
+      const lead = paused ? 'Nobody is on it. The project is paused; when it is resumed, Kosmos will give it to ' : 'Nobody is on it, so Kosmos will give it to ';
+      if (!may.length) {
+        return (paused ? 'Nobody is on it, and the project is paused. Even resumed, no' : 'Nobody is on it, and no')
+          + ' agent on the project can be given it now (its subtasks go first, it belongs to another builder\'s work, or no running agent here takes work).' + assign;
+      }
       const all = (Array.isArray(p.agents) ? p.agents : []).length;
-      if (may.length === 1) return 'Nobody is on it, so Kosmos will give it to ' + plain(may[0]) + ' when they are idle.' + assign;
-      if (may.length === all) return 'Nobody is on it, so Kosmos will give it to the next idle agent on the project.' + assign;
-      return 'Nobody is on it, so Kosmos will give it to the next idle one of ' + may.map(plain).join(', ') + '.' + assign;
+      if (may.length === 1) return lead + plain(may[0]) + ' when they are idle,' + turn + '.' + assign;
+      if (may.length === all) return lead + 'an idle agent on the project' + turn + '.' + assign;
+      return lead + 'an idle one of ' + may.map(plain).join(', ') + turn + '.' + assign;
     } catch {
       return '';
     }
   }
+
 
   /* #4771: put a task on hold, or take it off. Body { onHold: true | false, until?: { task: <n> } | { at: <time> } }. The Prompter never nudges an agent about a
      task on hold and the Assigner never hands it out; tasks.setOnHold validates and records it in the task's activity.
