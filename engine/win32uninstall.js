@@ -116,6 +116,8 @@ function oneLine(sentence) {
 function classifyTask(taskPath) {
   const at = String(taskPath);
   if (at.toLowerCase() === win32board.TASK_NAME.toLowerCase()) return { kind: 'board', path: at };
+  /* #2988: the board's watchdog is Kosmos's own, removed with the board (win32board.remove). */
+  if (at.toLowerCase() === win32board.WATCHDOG_TASK_NAME.toLowerCase()) return { kind: 'board-watchdog', path: at };
   if (at.startsWith(win32job.TASK_PREFIX)) {
     const parsed = launchidentity.parseKey(at.slice(win32job.TASK_PREFIX.length));
     if (parsed.name) return { kind: 'agent', path: at, name: parsed.name, worldId: parsed.worldId };
@@ -126,6 +128,14 @@ function classifyTask(taskPath) {
 function agentLabel(task) {
   const inWorld = launchidentity.isDefaultWorld(task.worldId) ? '' : ' in the Kosmos "' + task.worldId + '"';
   return 'the startup job for the agent "' + task.name + '"' + inWorld + ' (' + task.path + ')';
+}
+
+/** What a Kosmos task is called in the report, by its kind. */
+function taskLabel(task) {
+  if (task.kind === 'agent') return agentLabel(task);
+  if (task.kind === 'board') return 'the startup job for the Kosmos board (' + task.path + ')';
+  if (task.kind === 'board-watchdog') return 'the job that starts the Kosmos board again if it stops (' + task.path + ')';
+  return 'a task named ' + task.path + ' in Task Scheduler\'s Kosmos folder';
 }
 
 /** Case-insensitive on Windows, where paths are; exact elsewhere. For names, not the disk. */
@@ -631,6 +641,7 @@ async function uninstall(opts) {
   } else {
     const tasks = before.paths.map(classifyTask);
     const board = tasks.find((t) => t.kind === 'board');
+    const watchdog = tasks.find((t) => t.kind === 'board-watchdog');
     const said = new Map();
     let boardSwitch = null;
     if (board) {
@@ -661,23 +672,32 @@ async function uninstall(opts) {
     }
     let boardRemoval = null;
     if (board) {
+      /* #2988: remove() takes the watchdog first, then the board. */
       boardRemoval = win32board.remove({ platform, env, home });
-      if (!boardRemoval.ok) said.set(board.path.toLowerCase(), boardRemoval.because);
+      if (!boardRemoval.ok && boardRemoval.boardRemoved !== true) said.set(board.path.toLowerCase(), boardRemoval.because);
+      if (watchdog && boardRemoval.watchdog && !boardRemoval.watchdog.ok) said.set(watchdog.path.toLowerCase(), boardRemoval.watchdog.because);
+    } else if (watchdog) {
+      /* A watchdog with no board task (the person deleted the board's) goes on its own. */
+      const gone = win32board.removeWatchdog();
+      if (!gone.ok) said.set(watchdog.path.toLowerCase(), gone.because);
     }
     const after = win32job.kosmosFolderTasks();
     if (!after.known) {
       left.push('the startup jobs in Task Scheduler\'s Kosmos folder, which we could not read again to see they were gone (' + after.because + ')');
       /* Round 4, finding 2: a board job Windows would not remove is still there, switched off by this
          removal, even though the list cannot show it. Its switch goes back as it was read. */
-      if (board && !boardRemoval.ok) {
+      if (board && !boardRemoval.ok && boardRemoval.boardRemoved !== true) {
         left.push('the startup job for the Kosmos board (' + board.path + '), which Windows would not remove (' + boardRemoval.because + ')'
           + putBoardSwitchBack(boardSwitch, notes));
       }
+      /* #2988: a watchdog Windows would not remove is named too; with the board task switched off it starts nothing. */
+      const watchdogLeft = watchdog && said.get(watchdog.path.toLowerCase());
+      if (watchdogLeft) left.push(taskLabel(watchdog) + ', which Windows would not remove (' + watchdogLeft + ')');
     } else {
       const remaining = new Set(after.paths.map((p) => p.toLowerCase()));
       for (const task of tasks) {
         if (task.kind === 'other' || remaining.has(task.path.toLowerCase())) continue;
-        done.push('removed ' + (task.kind === 'board' ? 'the startup job for the Kosmos board (' + task.path + ')' : agentLabel(task)));
+        done.push('removed ' + taskLabel(task));
       }
       for (const task of after.paths.map(classifyTask)) {
         const why = said.get(task.path.toLowerCase());
@@ -685,7 +705,7 @@ async function uninstall(opts) {
           left.push('a task named ' + task.path + ' in Task Scheduler\'s Kosmos folder, which Kosmos does not recognise, so it was left in place. '
             + 'Remove it in Task Scheduler (Task Scheduler Library, then Kosmos) and remove Kosmos again');
         } else {
-          left.push((task.kind === 'board' ? 'the startup job for the Kosmos board (' + task.path + ')' : agentLabel(task))
+          left.push(taskLabel(task)
             + ', which is still in Task Scheduler' + (why ? ' (' + why + ')' : '')
             + (task.kind === 'board' ? putBoardSwitchBack(boardSwitch, notes) : ''));
         }
@@ -843,10 +863,7 @@ async function uninstall(opts) {
       left.push('the startup jobs in Task Scheduler\'s Kosmos folder, which we could not read a last time to see nothing came back (' + later.because + ')');
     } else {
       for (const task of later.paths.map(classifyTask)) {
-        const label = task.kind === 'agent' ? agentLabel(task)
-          : task.kind === 'board' ? 'the startup job for the Kosmos board (' + task.path + ')'
-            : 'a task named ' + task.path + ' in Task Scheduler\'s Kosmos folder';
-        left.push(label + ', which was registered again while Kosmos was being removed. Remove Kosmos again');
+        left.push(taskLabel(task) + ', which was registered again while Kosmos was being removed. Remove Kosmos again');
       }
     }
     if ((await boardOnPort(port, o)).answering) left.push(KOSMOS_STILL_OPEN);

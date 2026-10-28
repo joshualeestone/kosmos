@@ -27811,6 +27811,11 @@ if (require.main === module) {
       if (r.anchor && !r.anchor.ok) {
         process.stderr.write(`Kosmos could not point its startup files at this folder, so your agents may start an older copy: ${r.anchor.because}\n`);
       }
+      /* #2988: the check that starts the board again if it stops. Not fatal, and never
+         a reason to call the startup job itself broken. */
+      if (r.watchdog && !r.watchdog.ok) {
+        process.stderr.write(`Kosmos could not set up the check that starts it again if it stops: ${r.watchdog.because}\n`);
+      }
       if (r.action === 'registered') {
         process.stdout.write(`Kosmos will now start when you log in. Task Scheduler > Kosmos > board; remove it with: ${r.removeHint}\n`);
       } else if (r.downgrade) {
@@ -27832,10 +27837,13 @@ if (require.main === module) {
        window opens that a person could close. `/End`, the first step of the
        board's own restart, then kills only that conhost, so the board leaves when
        its host does. See engine/win32orphan.js. Armed only for a task-started
-       board: a hand-started one belongs to whoever started it. */
+       board: a hand-started one belongs to whoever started it.
+       #2988: recordBoardExits arms that same watch, and writes this board's start
+       and the cause of its exit to win32-logs\board.log, which the board's
+       watchdog task reads when it has to start the board again. */
     try {
       if (require('./engine/win32board').startedByTask()) {
-        require('./engine/win32orphan').exitWhenParentGone({ onGone: () => process.exit(0) });
+        require('./engine/win32boardwatch').recordBoardExits({});
       }
     } catch (err) {
       process.stderr.write(`Kosmos could not watch the job that started it: ${String(err && err.message)}\n`);

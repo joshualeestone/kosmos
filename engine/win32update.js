@@ -1040,13 +1040,30 @@ function clearStaleLock(lockPath, stale, draft, log, hooks, judge) {
  * Removing the draft afterwards can fail (another prepare's sweep removing it at the same moment);
  * that is logged and never turns a lock this prepare took into a throw.
  */
-function takeLock(lockPath, log, hooks) {
+function lockJudge(hooks, log) {
   const h = hooks || {};
-  const judge = {
+  return {
     clock: h.clock || SYSTEM_CLOCK,
     processImage: h.processImage !== undefined ? h.processImage : DEFAULT_PROCESS_IMAGE,
     log,
   };
+}
+
+/**
+ * #2988: the update lock at `lockPath` as takeLock would judge it right now, read only: readLock's
+ * answer (`{ gone }`, `{ broken, why }` or `{ held, pid, why }`), never a write. The board's watchdog
+ * (engine/win32boardwatch.js) asks it so it never starts a board while an updater holds the lock.
+ * `hooks` are takeLock's (`clock`, `processImage`). Never throws: a look that fails is `broken`.
+ */
+function lockHeldNow(lockPath, hooks) {
+  try { return readLock(lockPath, lockJudge(hooks, () => {})); } catch (e) {
+    return { broken: true, why: 'could not be read (' + firstLine(e) + ')' };
+  }
+}
+
+function takeLock(lockPath, log, hooks) {
+  const h = hooks || {};
+  const judge = lockJudge(h, log);
   const now = judge.clock.now();
   const unique = `${process.pid}-${now}-${crypto.randomBytes(4).toString('hex')}`;
   const draft = `${lockPath}.${unique}.draft`;
@@ -2228,7 +2245,7 @@ async function cliMain(argv, write, seams) {
 }
 
 module.exports = {
-  prepare, begin, rollbackToPrevious, keptPreviousBuild, connectComputerRefusal, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, releaseLock, sweepLockLeftovers, resolveWorld,
+  prepare, begin, rollbackToPrevious, keptPreviousBuild, connectComputerRefusal, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, lockHeldNow, releaseLock, sweepLockLeftovers, resolveWorld,
   readFileRetryingHolds, tryRetryingHolds, QUICK_HELD_READ_BUDGET, HELD_FILE_CODES,
   processImageFromTasklist, processImageStamp, sha256OfFile, unusualLocationRefusal, helperLaunch, waitForOutcome,
   REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, releaseManifestName, STAGED_DIRNAME, DOWNLOAD_PART_NAME, LOCK_NAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
