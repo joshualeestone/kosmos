@@ -294,6 +294,12 @@ check(content.contains("PushBridge.roomOpening(target, keptAddress:"), "ContentV
 
 section("By project's key (kosmos#7421)")
 let firsts = Board.firstProjects(Board.parseProjects(Data(#"{"projects":[{"id":"z","name":"Zeta","agents":[{"sessionName":"a"}]},{"id":"b","name":"beta","agents":[{"sessionName":"a"},{"sessionName":"c"}]}]}"#.utf8)))
+let agentsSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentsView.swift"), encoding: .utf8)) ?? ""
+let clientSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardClient.swift"), encoding: .utf8)) ?? ""
+// Wiring guards (source checks, not behaviour): the order reaches the list with the person's stars, re-sorted only where
+// the list re-sorts, so starred agents stay on top and rows never move under a thumb (review 1 blocker).
+check(clientSrc.contains("Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known)") && clientSrc.contains("Board.agentOrder(agents, sort: sort, projects: projects, stars: shownStars)"), "kosmos#7421: the chosen order is applied with the stars, on a re-sort and when picked")
+check(agentsSrc.contains("client.setAgentSort(sortChoice, projects: projectNames)") && agentsSrc.contains("ForEach(client.agents)"), "kosmos#7421: the Agents list shows the client's order and hands it the person's pick")
 check(firsts["a"] == "beta" && firsts["c"] == "beta" && firsts["z"] == nil, "an agent's first project is its project names A to Z, without case")
 
 section("an agent's notification opens its chat natively (kosmos#7418)")

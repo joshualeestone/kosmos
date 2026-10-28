@@ -71,6 +71,16 @@ final class BoardClient: ObservableObject {
     private var stars: (mac: String, names: Set<String>)?
     // The stars of the Mac the shown list came from (Today orders its Needs you cards by them).
     var shownStars: Set<String>? { stars?.mac == shownMac?.address ? stars?.names : nil }
+    // kosmos#7421: the Agents list's order, applied where the list is re-sorted (opening it, a pull), never on a live update,
+    // so rows do not move under the person's thumb. `sortProjects` is By project's key (each agent's first project).
+    private(set) var agentSort: Board.AgentSort = Board.agentSortDefault
+    private(set) var sortProjects: [String: String] = [:]
+    // The person picked an order (or By project's names came in): the list takes it now, as on the desktop.
+    func setAgentSort(_ sort: Board.AgentSort, projects: [String: String]) {
+        guard sort != agentSort || projects != sortProjects else { return }
+        agentSort = sort; sortProjects = projects
+        agents = Board.agentOrder(agents, sort: sort, projects: projects, stars: shownStars)
+    }
     // Status reads by the order they started, and the one the shown list came from.
     private var readsStarted = 0
     private var shownTicket = 0
@@ -862,6 +872,7 @@ final class BoardClient: ObservableObject {
     // Another Mac keeps chatsOwner (the account has not changed); forget() clears it.
     private func forgetChats() {
         pending = [:]
+        sortProjects = [:]   // kosmos#7421: By project's names were the other computer's or account's
         pressing = []
         answered = [:]
         thumbnails = [:]
@@ -1346,7 +1357,7 @@ final class BoardClient: ObservableObject {
             // Stars are taken only with the re-sort they were read for, so Today never orders by stars the list is not.
             if sorting, let names { stars = (mac.address, names) }
             let known = stars?.mac == mac.address ? stars?.names : nil
-            agents = sorting ? Board.sorted(rows, stars: known) : Board.keepingOrder(agents, with: rows, stars: known)
+            agents = sorting ? Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known) : Board.keepingOrder(agents, with: rows, stars: known)
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
             tasksTab = AppTabs.tasksTab(fromStatus: data)   // kosmos#7032: Tasks earned, with no board page loaded
             projectsUnread = AppTabs.projectsUnread(fromStatus: data)     // kosmos#7032: the Projects tab's badge
