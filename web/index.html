@@ -75870,7 +75870,8 @@ function pjWinOlderLine() {
   const W = typeof PJ_ARCH !== 'undefined' && pjArchShowing() ? PJ_ARCH : PJ_WIN;
   const mine = W.pid === PJ_CURRENT && PJ_ROOM_QUERY.trim() === '';   // a search reads the whole room: no line then
   const failed = mine && Boolean(W.because) && !W.loading;
-  const text = !mine ? '' : failed ? W.because : W.opening ? 'Opening the archive\u2026' : W.loading ? 'Loading earlier messages\u2026' : '';
+  const text = !mine ? '' : failed ? W.because : W.opening ? 'Opening the archive\u2026' : W.loading ? 'Loading earlier messages\u2026'
+    : W.behind ? 'We could not refresh the archive just now; what is shown may be behind.' : '';
   if (textEl.textContent !== text) textEl.textContent = text;
   retry.hidden = !failed;
   if (line.parentNode) line.parentNode.classList.toggle('dm-earlier-failed', failed);
@@ -76027,9 +76028,9 @@ function pjWinAtStart() {
    to the room paints what is current. A search ends the view: search covers both, with an Archived tag. */
 /* `anchor` is the live room's place when the archive opened (threadAnchor), put back by Back to the room; `posts` maps
    the archive's own posts by id, so a reply in the archive can name an original that is also archived. */
-const PJ_ARCH = { on: false, pid: null, rows: [], posts: new Map(), cursor: null, olderCount: 0, count: 0, loading: false, opening: false, because: null, anchor: null, gen: 0 };
+const PJ_ARCH = { on: false, pid: null, rows: [], posts: new Map(), cursor: null, olderCount: 0, count: 0, marker: null, readAs: null, behind: false, loading: false, opening: false, because: null, anchor: null, gen: 0 };
 function pjArchReset() {
-  Object.assign(PJ_ARCH, { on: false, pid: null, rows: [], posts: new Map(), cursor: null, olderCount: 0, count: 0, loading: false, opening: false, because: null, anchor: null, gen: PJ_ARCH.gen + 1 });
+  Object.assign(PJ_ARCH, { on: false, pid: null, rows: [], posts: new Map(), cursor: null, olderCount: 0, count: 0, marker: null, readAs: null, behind: false, loading: false, opening: false, because: null, anchor: null, gen: PJ_ARCH.gen + 1 });
   if (typeof document === 'undefined') return;
   const head = document.getElementById('pj-arch-head'); if (head) head.hidden = true;
   const box = document.getElementById('pj-room'); if (box) box.classList.remove('pj-arch-on');
@@ -76039,10 +76040,11 @@ function pjArchReset() {
 function pjArchShowing() { return PJ_ARCH.on && PJ_ARCH.pid === PJ_CURRENT; }
 /* The archive header's count and Undo, from the archive read on screen. When the poll sees the archive change (an archive
    or Undo from another computer), loadRoom reads the archive again rather than changing the header alone. */
+function pjArchState(count, marker) { return (Number(count) || 0) + '|' + JSON.stringify(marker || null); }
 function pjArchHead() {
-  const n = PJ_ARCH.count;   // the archive page's own count: the header always describes the rows under it (review 7)
+  const n = PJ_ARCH.count;   // the archive page's own count and marker: the header always describes the rows under it (reviews 7, 8)
   document.getElementById('pj-arch-count').textContent = n.toLocaleString() + (n === 1 ? ' message' : ' messages');
-  document.getElementById('pj-arch-undo').hidden = !PJ_WIN.archiveMarker;
+  document.getElementById('pj-arch-undo').hidden = !PJ_ARCH.marker;
 }
 function paintArch() {
   const box = document.getElementById('pj-room');
@@ -76068,7 +76070,8 @@ async function pjArchOpen(again) {
   if (!again && PJ_ARCH.on && PJ_ARCH.pid === pid && PJ_ARCH.loading) return;   // a second press while the first read is out
   // A re-read of the view on screen keeps its header and look (its rows stay labelled as archived until the new read
   // lands, review 7); only the generation moves on, so an older read is dropped.
-  if (again && pjArchShowing()) PJ_ARCH.gen += 1; else pjArchReset();
+  const refreshing = !!again && pjArchShowing();   // a background re-read of the view on screen: no scroll, focus or announcement
+  if (refreshing) PJ_ARCH.gen += 1; else pjArchReset();
   // `opening`: said on the earlier-pages line while the read is out, so a slow archive does not look like a dead button
   // (review 2), and kept there by pjWinOlderLine whatever else repaints the line meanwhile (review 3).
   Object.assign(PJ_ARCH, { on: true, pid, loading: true, opening: true, anchor });
@@ -76078,6 +76081,12 @@ async function pjArchOpen(again) {
   try { page = await pjWinRead(pid, PJ_WIN_PAGE, null, true); } catch { page = null; }
   if (gen !== PJ_ARCH.gen || !pjArchShowing() || PJ_ARCH.pid !== pid) return;
   PJ_ARCH.loading = false; PJ_ARCH.opening = false;
+  if (!page && refreshing) {
+    /* A re-read that fails keeps the view as it is and says so on the line; the next poll tries again, since the archive is
+       still recorded as read under the old count (review 8: a blip closed an archive the reader never touched). */
+    PJ_ARCH.behind = true; pjWinOlderLine();
+    return;
+  }
   if (!page) {
     const placed = PJ_ARCH.anchor;
     pjArchReset(); msgToast('We could not open the archive just now.');
@@ -76085,10 +76094,19 @@ async function pjArchOpen(again) {
     if (b && b.__lastBody) { b.__lastRoom = undefined; paintRoom(b.__lastBody); if (placed) restoreThreadAnchor(b, placed); }
     return;
   }
-  Object.assign(PJ_ARCH, { rows: page.rows, cursor: page.olderCursor || null, olderCount: Number(page.olderCount) || 0, count: Number(page.archivedCount) || 0 });
+  // `readAs`: the count and marker this view was read under, which the poll compares with each live read (review 8).
+  Object.assign(PJ_ARCH, { rows: page.rows, cursor: page.olderCursor || null, olderCount: Number(page.olderCount) || 0, count: Number(page.archivedCount) || 0,
+    marker: page.archiveMarker || null, readAs: pjArchState(page.archivedCount, page.archiveMarker), behind: false });
   pjWinOlderLine();
-  paintArch();
   const box = document.getElementById('pj-room');
+  if (refreshing) {
+    // The reader stays on the message they were on (earlier pages they had read are read again as they scroll).
+    const at = threadAnchor(box);
+    paintArch();
+    if (at) restoreThreadAnchor(box, at);
+    return;
+  }
+  paintArch();
   box.scrollTop = box.scrollHeight;
   // The View archive button went with the old rows, so focus moves to the archive's own header (review 1).
   const back = document.getElementById('pj-arch-back');
@@ -76121,10 +76139,15 @@ async function pjArchEarlier() {
 function pjRoomDropArchived(box, before) {
   const cut = Date.parse(before);
   if (!Number.isFinite(cut)) return;
-  const live = (r) => !(r && Date.parse(r.at) < cut);
-  if (box.__lastBody && Array.isArray(box.__lastBody.rows)) box.__lastBody = Object.assign({}, box.__lastBody, { rows: box.__lastBody.rows.filter(live) });
-  if (Array.isArray(PJ_WIN.older)) PJ_WIN.older = PJ_WIN.older.filter(live);
-  if (Array.isArray(PJ_WIN.newest)) PJ_WIN.newest = PJ_WIN.newest.filter(live);
+  /* Only the leading run, as the server splits (engine/roomarchive.js archivedCount): it stops at the first row that is not
+     older or has no readable time, so a row out of order keeps everything after it live, there and here (review 8). */
+  const lead = (rows) => { let i = 0; while (i < rows.length && Date.parse(rows[i] && rows[i].at) < cut) i += 1; return i; };
+  const held = Array.isArray(PJ_WIN.older) ? PJ_WIN.older : [];
+  const heldGone = lead(held);
+  const newestGone = heldGone === held.length && Array.isArray(PJ_WIN.newest) ? lead(PJ_WIN.newest) : 0;
+  if (box.__lastBody && Array.isArray(box.__lastBody.rows)) box.__lastBody = Object.assign({}, box.__lastBody, { rows: box.__lastBody.rows.slice(lead(box.__lastBody.rows)) });
+  PJ_WIN.older = held.slice(heldGone);
+  if (Array.isArray(PJ_WIN.newest)) PJ_WIN.newest = PJ_WIN.newest.slice(newestGone);
 }
 function pjArchClose(quiet, hadFocusIn, forSearch, cutBefore) {
   if (!PJ_ARCH.on) return;
@@ -78792,7 +78815,6 @@ async function loadRoom() {
     } else {
       if (PJ_WIN.pid !== PJ_CURRENT) pjWinReset(PJ_CURRENT);
       const win = PJ_WIN.gen;
-      const archWas = PJ_WIN.pid === PJ_CURRENT ? PJ_WIN.archivedCount + '|' + JSON.stringify(PJ_WIN.archiveMarker || null) : null;
       body = await pjWinRead(PJ_CURRENT, PJ_WIN_PAGE, null);
       if (mine !== PJ_ROOM_GEN || win !== PJ_WIN.gen) return;
       /* The read worked: a "could not read" line from an earlier poll goes now, before the returns below that paint
@@ -78874,10 +78896,12 @@ async function loadRoom() {
          block, whose pjWinReset would otherwise zero them for one poll (review 2). */
       PJ_WIN.archivedCount = Number(body.archivedCount) || 0;
       PJ_WIN.archiveMarker = body.archiveMarker || null;
-      /* With the archive open and the archive changed since the last read (another computer archived or undid), the
-         archive is read again, keeping the reader's place in the room; its header and rows then agree (reviews 6, 7). */
-      if (typeof PJ_ARCH !== 'undefined' && pjArchShowing() && archWas !== null && !PJ_ARCH.loading
-        && archWas !== PJ_WIN.archivedCount + '|' + JSON.stringify(PJ_WIN.archiveMarker || null)) pjArchOpen(true);
+      /* With the archive open and the live read's count or marker no longer the one the archive was read under (another
+         computer archived or undid), the archive is read again in the background, keeping the reader's place; its header
+         and rows then agree (reviews 6-8). Compared with the archive's own read, not the previous poll, so a change seen
+         while a page is loading, or a re-read that failed, is still caught by the next poll. */
+      if (typeof PJ_ARCH !== 'undefined' && pjArchShowing() && !PJ_ARCH.loading && PJ_ARCH.readAs !== null
+        && PJ_ARCH.readAs !== pjArchState(PJ_WIN.archivedCount, PJ_WIN.archiveMarker)) pjArchOpen(true);
       /* A reader on the newest row lets the pages they scrolled back to go BEFORE the merge, so the return never paints
          the whole held body first (review 6). */
       // Not while the archive is on screen: offFloorNow would measure the archive's rows, not the room's (review 1).

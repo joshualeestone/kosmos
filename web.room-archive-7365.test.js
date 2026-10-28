@@ -142,12 +142,12 @@ function archPage({ reads }) {
     pjWinRead: (pid, n, cursor, archive) => { const r = reads.shift(); return typeof r === 'function' ? r({ pid, n, cursor, archive }) : r; },
   });
   vm.runInContext([liftConst(SCRIPT, 'PJ_WIN'), liftConst(SCRIPT, 'PJ_ARCH'),
-    liftAll(SCRIPT, ['pjArchReset', 'pjArchShowing', 'pjArchHead', 'paintArch', 'pjArchOpen', 'pjArchEarlier', 'pjArchClose', 'pjWinOlderLine', 'pjWinNoteReactions'])].join('\n')
+    liftAll(SCRIPT, ['pjArchReset', 'pjArchShowing', 'pjArchState', 'pjArchHead', 'paintArch', 'pjArchOpen', 'pjArchEarlier', 'pjArchClose', 'pjWinOlderLine', 'pjWinNoteReactions'])].join('\n')
     + '\nthis.PJ_WIN = PJ_WIN; this.PJ_ARCH = PJ_ARCH; this.pjArchOpen = pjArchOpen; this.pjArchEarlier = pjArchEarlier; this.pjArchClose = pjArchClose; this.pjWinNoteReactions = pjWinNoteReactions;', ctx);
   el('pj-room').__lastBody = { rows: [{ text: 'live' }] };
   return { ctx, el, doc, said, toasts, painted, restored };
 }
-const page1 = { rows: [{ kind: 'post', id: 'a1', text: 'archived one' }], olderCursor: 'c1', olderCount: 5, archivedCount: 6 };
+const page1 = { rows: [{ kind: 'post', id: 'a1', text: 'archived one' }], olderCursor: 'c1', olderCount: 5, archivedCount: 6, archiveMarker: { before: '2026-10-20T00:00:00.000Z' } };
 
 test('#7365 3b review 2: opening the archive paints its page, moves focus to Back and says so; Back restores the room and the place', async () => {
   const h = archPage({ reads: [page1] });
@@ -393,11 +393,9 @@ test('#7365 3b review 7: the archive header describes the rows under it; an arch
   await h.ctx.pjArchOpen();
   assert.equal(h.el('pj-arch-count').textContent, '6 messages', 'the page\'s own count, not an older live read');
   const src = liftAll(SCRIPT, ['loadRoom']);
-  const was = src.indexOf('const archWas = ');
-  const read = src.indexOf('body = await pjWinRead(PJ_CURRENT, PJ_WIN_PAGE, null);');
-  const again = src.indexOf('pjArchOpen(true)');
-  assert.ok(was > 0 && was < read, 'the archive is noted before the read');
-  assert.ok(again > src.indexOf('PJ_WIN.archiveMarker = body.archiveMarker'), 'and compared after the read is stored, reading the archive again');
+  const again = src.indexOf('pjArchState(PJ_WIN.archivedCount, PJ_WIN.archiveMarker)) pjArchOpen(true)');
+  assert.ok(again > src.indexOf('PJ_WIN.archiveMarker = body.archiveMarker'), 'compared with the archive\'s own read after the live read is stored, reading the archive again');
+  assert.ok(src.indexOf('PJ_ARCH.readAs !== pjArchState(') > 0, 'compared with what the archive was read under, not the previous poll (review 8)');
   assert.equal(src.indexOf('pjArchHead()'), -1, 'the header alone is never changed by the poll');
 });
 
@@ -417,4 +415,40 @@ test('#7365 3b review 7: an answer that lands after the confirm left the screen,
     assert.equal(h.doc.activeElement, other, 'focus left where it was');
     assert.match(h.toasts.join('|'), ok ? /^In Alpha: / : /^We could not archive Alpha just now; nothing changed\.$/);
   }
+});
+
+test('#7365 3b review 8: a background re-read keeps the reader where they are (no scroll, focus or announcement), and a failed one keeps the view', async () => {
+  const fresh = { rows: [{ kind: 'post', id: 'a1', text: 'archived one' }, { kind: 'post', id: 'a2', text: 'one more' }], olderCount: 0, archivedCount: 7, archiveMarker: { before: 'y' } };
+  const h = archPage({ reads: [page1, fresh, null] });
+  Object.assign(h.ctx.PJ_WIN, { pid: 'p1' });
+  await h.ctx.pjArchOpen();
+  const said = h.said.length;
+  h.el('pj-room').scrollTop = 120;
+  const elsewhere = { id: 'pj-post' }; h.doc.activeElement = elsewhere;
+  h.restored.length = 0;
+  await h.ctx.pjArchOpen(true);
+  assert.match(h.el('pj-room').innerHTML, /one more/);
+  assert.equal(h.el('pj-room').scrollTop, 120, 'not thrown to the bottom');
+  assert.equal(h.doc.activeElement, elsewhere, 'focus not taken');
+  assert.equal(h.said.length, said, 'nothing announced');
+  assert.equal(h.restored.length, 1, "the archive's own place is restored");
+  assert.equal(h.el('pj-arch-count').textContent, '7 messages');
+  assert.equal(h.ctx.PJ_ARCH.readAs, '7|{"before":"y"}');
+  await h.ctx.pjArchOpen(true);   // this read fails
+  assert.equal(h.ctx.PJ_ARCH.on, true, 'the view stays open');
+  assert.match(h.el('pj-room').innerHTML, /one more/);
+  assert.equal(h.el('pj-room-older-text').textContent, 'We could not refresh the archive just now; what is shown may be behind.');
+  assert.deepEqual(h.toasts, []);
+  assert.equal(h.ctx.PJ_ARCH.readAs, '7|{"before":"y"}', 'still recorded under the last read, so the next poll tries again');
+});
+
+test('#7365 3b review 8: after Archive the live room drops only the leading run older than the cutoff, as the server splits', () => {
+  const box = { __lastBody: { rows: [{ id: 'a', at: '2026-10-01T00:00:00.000Z' }, { id: 'b', at: '2026-10-25T00:00:00.000Z' }, { id: 'c', at: '2026-10-02T00:00:00.000Z' }] } };
+  const ctx = vm.createContext({ Date, Number, Array, Object });
+  vm.runInContext(liftConst(SCRIPT, 'PJ_WIN') + '\n' + liftAll(SCRIPT, ['pjRoomDropArchived']) + '\nthis.PJ_WIN = PJ_WIN; this.f = pjRoomDropArchived;', ctx);
+  Object.assign(ctx.PJ_WIN, { older: [{ id: 'o1', at: '2026-09-01T00:00:00.000Z' }, { id: 'o2' }, { id: 'o3', at: '2026-09-02T00:00:00.000Z' }], newest: [{ id: 'n1', at: '2026-09-03T00:00:00.000Z' }] });
+  ctx.f(box, '2026-10-20T00:00:00.000Z');
+  assert.deepEqual(box.__lastBody.rows.map((r) => r.id), ['b', 'c'], 'c is older but after b, which is not: it stays live');
+  assert.deepEqual(ctx.PJ_WIN.older.map((r) => r.id), ['o2', 'o3'], 'an undated row stops the run');
+  assert.deepEqual(ctx.PJ_WIN.newest.map((r) => r.id), ['n1'], 'the held pages did not end the run, so the newest page keeps its rows');
 });

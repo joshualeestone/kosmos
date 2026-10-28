@@ -200,3 +200,15 @@ map. Fixed by moving the return to just before the rows are written.
    - NIT 5: a re-read keeps the header and archive look while it reads; a failed open restores the reader's place.
    - NIT 6: answered by the header change (the page's own count).
    - NITs 7 and 8: no longer apply (nothing clears the body now, and nothing is marked seen over a blank room).
+9. Review 8 (sonnet, 19:4x CDT, the LAST round under the fleet's 8-round cap) 0 BLOCKERs, 3 WARNINGs, 2 NITs; all
+   applied. The loop stops here, with no BLOCKER open.
+   - (W) the poll's re-read ran a button-press open's tail (scroll to the bottom, focus to Back, announce): a background
+     re-read restores the archive's own place and leaves focus and the screen reader alone (vm test, mutation reds it).
+   - (W) a change seen while a page was loading was lost (the next poll compared with the previous one): the archive
+     records the count and marker it was read under (readAs), and each poll compares with that, so a skipped or failed
+     re-read is caught next time (source pin, mutation reds it).
+   - (W) a failed background re-read closed the archive: it keeps the view and says "We could not refresh the archive
+     just now; what is shown may be behind." on the line; the next poll tries again (vm test, mutation reds it).
+   - NIT 1: after Archive the live room drops only the leading run older than the cutoff, stopping at the first row
+     that is not older or has no readable time, as the server splits (vm test, mutation reds it).
+   - NIT 2: Undo's visibility comes from the archive page's own marker, like its count.
