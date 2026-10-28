@@ -17859,6 +17859,9 @@ window.kosmosMeasureScrollbarWidth();
         <p class="dhint" id="tk-hold-takeover" style="margin:4px 0 0;" hidden>Saving makes this hold yours, so only you can take it off.</p>
         <div class="tk-repeat-actions" id="tk-hold-for-actions" hidden><button class="btn" id="tk-hold-save" type="button" aria-label="Save what this hold waits for" disabled>Save</button></div>
         <p class="fmsg" id="tk-hold-msg" aria-live="polite" style="margin:2px 0 0;"></p>
+        <!-- kosmos#7430: Choose who, shown under the unhold sentence when nobody is on the task. Outside the live region,
+             so a screen reader reads the sentence, not a button inside it. -->
+        <div id="tk-hold-choose-row" hidden style="margin:8px 0 0;"><button class="btn" id="tk-hold-choose" type="button">Choose who</button></div>
         <p class="dhint" id="tk-hold-hint" style="margin:4px 0 0;">While a task is on hold, Kosmos does not nudge anyone about it or hand it out.</p>
         <!-- kosmos#4787 slice 1b: a task that repeats (a morning report, an hourly check). The person sets the rule here; the
              line under it is the board's own sentence (rule, last run, next run). Hourly runs on the hour from this screen;
@@ -69691,7 +69694,10 @@ function paintTaskPage() {
   const due = document.getElementById('tk-due');
   if (due && document.activeElement !== due) due.value = t.dueDate || '';
   /* #4771: the hold control speaks its current state; a message from another task's hold does not follow it here. */
-  { const hm = document.getElementById('tk-hold-msg'); if (hm && hm.dataset.task !== p.id + '#' + t.number) hm.textContent = ''; }
+  { const hm = document.getElementById('tk-hold-msg');
+    if (hm && hm.dataset.task !== p.id + '#' + t.number) { hm.textContent = ''; delete hm.dataset.nextSig; tkHoldChooseShow(false); }
+    // kosmos#7430: an unhold line is about who was on the task then; once that changes (Choose who, the Assigner) it goes.
+    else if (hm && hm.dataset.nextSig && hm.dataset.nextSig !== tkHoldNextSig(t)) { hm.textContent = ''; delete hm.dataset.nextSig; tkHoldChooseShow(false); } }
   const hold = document.getElementById('tk-hold');
   if (hold) hold.textContent = t.onHold === true ? 'Take off hold' : 'Put on hold';
   // A finished task has nothing to hold: no control, no hint.
@@ -70960,28 +70966,31 @@ async function tkHoldFresh(projectId, n) {
 /* Round 2: a line is written only while its task is still the one on screen (the Repeats Save's still()). */
 function tkHoldSay(key, words) {
   const msg = document.getElementById('tk-hold-msg');
-  if (msg && msg.dataset.task === key && PJ_CURRENT + '#' + TK_OPEN === key) msg.textContent = words;
+  if (msg && msg.dataset.task === key && PJ_CURRENT + '#' + TK_OPEN === key) { msg.textContent = words; delete msg.dataset.nextSig; tkHoldChooseShow(false); }
 }
 /* kosmos#7430: the unhold route's `next` sentence (#7407), shown where the hold words appear. When it ends by asking a
-   person to choose (TK_HOLD_ASSIGN, the route's own words), that ask becomes a Choose who button under it, which opens the
-   picker on the task's first open part nobody is on: the same control as the name in Who is on it. */
+   person to choose (TK_HOLD_ASSIGN, the route's own words), that ask becomes the Choose who row under it, which opens
+   the picker on the task's open part nobody is on. The line holds only while who is on the task stays as it was when
+   it was shown (tkHoldNextSig); the repaint takes it down once that changes. */
 const TK_HOLD_ASSIGN = ' To choose who, assign it now.';
-function tkHoldSayNext(key, next) {
+function tkHoldNextSig(t) {
+  const parts = Array.isArray(t.parts) && t.parts.length ? t.parts : [{ who: t.who || null, closedAt: t.closedAt || null }];
+  return (t.onHold === true ? 'held' : 'open') + '|' + parts.filter((x) => !x.closedAt).map((x) => x.who || '').join(',');
+}
+function tkHoldChooseShow(on) {
+  const row = document.getElementById('tk-hold-choose-row');
+  if (row) row.hidden = !on;
+}
+function tkHoldSayNext(key, next, t) {
   const msg = document.getElementById('tk-hold-msg');
   if (!msg || msg.dataset.task !== key || PJ_CURRENT + '#' + TK_OPEN !== key) return;
-  if (!next.endsWith(TK_HOLD_ASSIGN)) { msg.textContent = next; return; }
-  msg.textContent = next.slice(0, -TK_HOLD_ASSIGN.length);
-  // Design review (Mona Lisa): a bordered button on its own line, like Show me where the task conversations live,
-  // so it is a full tap target on a phone.
-  const b = document.createElement('button');
-  b.type = 'button'; b.className = 'btn'; b.id = 'tk-hold-choose'; b.textContent = 'Choose who';
-  b.style.display = 'block'; b.style.marginTop = '8px';
-  msg.appendChild(b);
+  const ask = next.endsWith(TK_HOLD_ASSIGN);
+  msg.textContent = ask ? next.slice(0, -TK_HOLD_ASSIGN.length) : next;
+  msg.dataset.nextSig = tkHoldNextSig(t);
+  tkHoldChooseShow(ask);
 }
-document.getElementById('tk-hold-msg').addEventListener('click', (e) => {
-  if (!e.target || e.target.id !== 'tk-hold-choose') return;
-  const picks = [...document.querySelectorAll('#tk-who .tkpart:not(.done) [data-pick-part]')];
-  const pick = picks.find((x) => x.textContent === 'Nobody yet') || picks[0];
+document.getElementById('tk-hold-choose').addEventListener('click', () => {
+  const pick = [...document.querySelectorAll('#tk-who .tkpart:not(.done) [data-pick-part]')].find((x) => x.textContent === 'Nobody yet');
   if (pick) pick.click();
 });
 function tkHoldStoredChoice(t) {
@@ -71097,7 +71106,7 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
   btn.disabled = true;
   btn.dataset.busy = '1';
   holdBtn.disabled = true;   // round 5: never both in flight (a take-off between Save's read and its POST would be undone)
-  if (msg) { msg.textContent = ''; msg.dataset.task = key; }
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; delete msg.dataset.nextSig; } tkHoldChooseShow(false);
   try {
     /* Review 1: Save is a screen hold, which would put back on hold (as the person's) a task an agent has just taken off.
        Read it again first; change nothing unless it is still on hold. */
@@ -71142,7 +71151,7 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
   const save = document.getElementById('tk-hold-save');
   btn.disabled = true;
   save.dataset.busy = '1'; save.disabled = true;   // round 5: Save waits while this is in flight
-  if (msg) { msg.textContent = ''; msg.dataset.task = key; }   // whose message it is (the page repaint clears another's)
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; delete msg.dataset.nextSig; } tkHoldChooseShow(false);   // whose message it is (the page repaint clears another's)
   try {
     /* kosmos#7184: a screen hold sets exactly what it sends, so a page that has not yet seen an agent's hold would
        replace what it waits for. Read the task again first; if it is already on hold, change nothing and show it. */
@@ -71167,7 +71176,10 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
     await pjReload();
     paintTaskActivity(TK_OPEN);
     // kosmos#7430: an unhold answers with who gets the task next (#7407); a hold answers with no `next`.
-    if (out && typeof out.next === 'string' && out.next) tkHoldSayNext(key, out.next);
+    if (out && typeof out.next === 'string' && out.next) {
+      const now = (pjById(p.id) && (pjById(p.id).tasks || []).find((x) => String(x.number) === String(t.number))) || (out && out.task);
+      if (now) tkHoldSayNext(key, out.next, now);
+    }
   } catch {
     tkHoldSay(key, 'We could not reach Kosmos to change that task.');
   } finally {
