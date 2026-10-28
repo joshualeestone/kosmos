@@ -1110,7 +1110,8 @@ struct WebView: UIViewRepresentable {
         // Folders a download left behind when the app was stopped mid-way (killed with a sheet up): gone the first time a
         // download starts in this launch. It runs before this launch makes its first folder, so every one it finds
         // belongs to an app that has already exited, and no age check is needed (reading file dates would be a
-        // required-reason API the privacy manifest does not declare, kosmos#7352).
+        // required-reason API the privacy manifest does not declare, kosmos#7352). That holds only while every place
+        // that makes a kosmos-download- folder calls sweepOnce() first: a new one that does not could lose a live folder.
         private static var swept = false
         private static func sweepOnce() {
             guard !swept else { return }

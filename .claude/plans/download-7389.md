@@ -66,7 +66,14 @@ Challenge loop to convergence. Merge on green (beta rule).
   own (each one needs a tap).
 - Review 4: the queue notices when what is on screen went without reporting back and moves on (its file's folder
   goes); retries stop after about ten seconds with nowhere to show, and a waiting sheet's file goes with them; folders
-  left by a killed app are swept once per launch (older than a day); a long name never starts on a dot.
+  left by a killed app are swept once per launch; a long name never starts on a dot.
 - Review 5: on lock (BoardWeb.drop) every download stops, lines go, what is on screen is dismissed and every kept file
   is removed, so no file is offered over the lock screen; a late report from a presentation the queue moved past
   changes nothing (a token); Cancel is its own VoiceOver button.
+- Review 6: NITs only (converged, 10-27 19:10).
+- After convergence, the full suite failed on ios.privacy-manifest-7352: review 4's sweep read file modification
+  dates, a required-reason API the manifest does not declare (App Store Connect refuses that upload, ITMS-91053).
+  The sweep runs before a launch makes its first folder, so every folder it finds is from an exited app: it now
+  removes them all and reads no dates. Rejected: declaring FileTimestamp (C617.1) for a check that protects nothing.
+- Review 7 (that fix, blind): no blocker, no warning. The comment now says every folder creator must call sweepOnce()
+  first.
