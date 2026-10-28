@@ -282,7 +282,6 @@ enum NewTeam {
         static let made = "Made"
         static let afterLead = "Made once the lead is made."
         static let tryAgain = "Try again"
-        static let nameAsTyped = "Kosmos could not use that name as it is typed. Change it and try again."
         static func reportsTo(_ title: String, _ manager: String) -> String { title + " · " + NewAgent.Words.reportsTo + " " + manager }
     }
 
