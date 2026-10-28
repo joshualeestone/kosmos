@@ -3222,7 +3222,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
   } catch (err) {
     try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
-    const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
+    const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', unrecorded: true, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
     /* Review 2: an agent's retry folds. Review 4 (Sonnet): NOT the person's. Folded, the page says "Posted." again for a
        post the room never shows, so the person's every repeat vanished until the window passed; a second delivery in
        this rare case (the record could not be written) is the lesser harm. */

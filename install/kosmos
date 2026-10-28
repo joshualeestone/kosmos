@@ -3431,18 +3431,28 @@ cmd_post() {
     '{"delivery":{"state":"unconfirmed"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       # kosmos#7414: name who is not confirmed and who was not reached, and say whether that needs anything. The
-      # outcomes object alone is read (as the placed branch does), one "name":"state" pair per comma.
+      # outcomes object alone is read (as the placed branch does), one "name":"state" pair per comma (agent names
+      # never hold a comma or a quote, create.js).
       _outs=$(printf '%s' "$body" | sed -n 's/^{"delivery":{.*"outcomes":{\([^}]*\)}.*/\1/p') || true
       _unsure=$(printf '%s' "$_outs" | tr ',' '\n' | sed -n 's/^"\([^"]*\)":"unconfirmed"$/\1/p' | paste -sd ',' - | sed 's/,/, /g') || true
       _missed=$(printf '%s' "$_outs" | tr ',' '\n' | sed -n 's/^"\([^"]*\)":"could_not"$/\1/p' | paste -sd ',' - | sed 's/,/, /g') || true
+      # Only a post the room could NOT record is missing from the room; the board marks it right after its reason, so a
+      # post's own words can never be read as the mark. Any other reason (a folded retry, a paused room) is in the room.
+      case "$body" in
+        '{"delivery":{"state":"unconfirmed","because":"'*'","unrecorded":true'*) _unrec=1 ;;
+        *) _unrec= ;;
+      esac
       say "Posted, but not everyone is confirmed${because:+: $because}."
-      if [ -n "$_unsure" ]; then say "Typed into, not confirmed: $_unsure. It may well have arrived; Kosmos could not see it land."; fi
-      if [ -n "$_missed" ]; then say "Not reached: $_missed. Kosmos could not type into their session."; fi
-      # A post the room could not record is not in the room, so only the board's own reason is said for it.
-      if [ -z "$because" ]; then
-        say "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post; the others would get it twice."
+      if [ -n "$_unsure" ]; then say "Kosmos may have typed it in, but could not confirm it, for: $_unsure. It may well have arrived."; fi
+      if [ -n "$_missed" ]; then
+        say "Not reached: $_missed. Kosmos could not type into their session."
+        _first=${_missed%%,*}
+        say "To reach one of them now, message them directly (it goes to them alone): kosmos msg $_first \"...\""
+      fi
+      if [ -n "$_unrec" ]; then
+        say "The room could not record it, so it may not show there. Do not re-post: anyone it reached could get it twice."
       else
-        say "Do not re-post; the room screen shows who got it."
+        say "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice."
       fi
       # #6925: an unconfirmed summary still used this member's one, so the agent is told here too.
       case "$body" in

@@ -826,14 +826,18 @@ async function verbPost(ctx, args) {
     return 0;
   }
   if (d.state === 'unconfirmed') {
-    /* kosmos#7414 parity with install/kosmos: name who is not confirmed and who was not reached, and whether it needs anything. */
+    /* kosmos#7414 parity with install/kosmos: name who is not confirmed and who was not reached, and whether it needs
+       anything. Only a post the room could not record (`unrecorded`) is missing from the room. */
     const outcomes = d.outcomes && typeof d.outcomes === 'object' ? d.outcomes : {};
-    const whose = (state) => Object.keys(outcomes).filter((n) => outcomes[n] === state).join(', ');
+    const whose = (state) => Object.keys(outcomes).filter((n) => outcomes[n] === state);
     const code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '.');
-    if (whose('unconfirmed')) ctx.err('Typed into, not confirmed: ' + whose('unconfirmed') + '. It may well have arrived; Kosmos could not see it land.');
-    if (whose('could_not')) ctx.err('Not reached: ' + whose('could_not') + '. Kosmos could not type into their session.');
-    ctx.err(d.because ? 'Do not re-post; the room screen shows who got it.'
-      : 'Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post; the others would get it twice.');
+    if (whose('unconfirmed').length) ctx.err('Kosmos may have typed it in, but could not confirm it, for: ' + whose('unconfirmed').join(', ') + '. It may well have arrived.');
+    if (whose('could_not').length) {
+      ctx.err('Not reached: ' + whose('could_not').join(', ') + '. Kosmos could not type into their session.');
+      ctx.err('To reach one of them now, message them directly (it goes to them alone): kosmos msg ' + whose('could_not')[0] + ' "..."');
+    }
+    ctx.err(d.unrecorded === true ? 'The room could not record it, so it may not show there. Do not re-post: anyone it reached could get it twice.'
+      : 'Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.');
     // #6925 parity with install/kosmos: an unconfirmed summary still used this member's one.
     if (d.closing === true) ctx.err('This went through as your one summary while the room is held; anything more is not posted until the hold lifts.');
     if (ambig) ctx.err(ambig);
