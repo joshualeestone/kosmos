@@ -915,13 +915,15 @@ function ensureWatchdog(opts) {
     const started = now();
     /* Review 1: one schtasks budget for the /Query and the /Create (a Settings request blocks the board's thread). */
     const left = () => SCHTASKS_TIMEOUT_MS - (now() - started);
-    const q = run(['/Query', '/TN', WATCHDOG_TASK_NAME], SCHTASKS_TIMEOUT_MS);
+    /* Review 2: every schtasks call here, the list read included, spends the one budget. */
+    const ask = (a) => (left() < MIN_SCHTASKS_QUERY_MS ? { ok: false, out: NO_TIME_LEFT } : run(a, left()));
+    const q = ask(['/Query', '/TN', WATCHDOG_TASK_NAME]);
     if (q.ok) return { ok: true, action: 'present', task: WATCHDOG_TASK_NAME };
     /* Review 1: a missing task is known by English words OR, on any language, by the label-free task list (as
        status() proves the board task absent, #2973). Neither: we cannot tell, so nothing is created blind. */
     let absent = /cannot find|does not exist/i.test(q.out || '');
     if (!absent) {
-      const all = win32job.machineTaskPaths(run);
+      const all = win32job.machineTaskPaths(ask);
       absent = all.known && !all.paths.some((x) => x.toLowerCase() === WATCHDOG_TASK_NAME.toLowerCase());
     }
     if (!absent) {

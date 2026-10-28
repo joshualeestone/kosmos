@@ -141,15 +141,18 @@ function withWatchdogState(state, watchdog) {
   const fn = (args) => {
     if (args[0] === '/Query' && args[2] === 'Kosmos\\board-watchdog') {
       base.calls.push(args.join(' '));
+      if (fn.onWatchdogQuery) fn.onWatchdogQuery();
       if (watchdog === 'present') return { ok: true, out: 'TaskName: \\Kosmos\\board-watchdog' };
       if (watchdog === 'unreadable') return { ok: false, out: 'ERROR: Access is denied.' };
-      if (watchdog === 'german') return { ok: false, out: 'FEHLER: Das System kann die angegebene Datei nicht finden.' };
+      if (watchdog === 'german' || watchdog === 'german-listed') return { ok: false, out: 'FEHLER: Das System kann die angegebene Datei nicht finden.' };
       return NOT_FOUND;
     }
     // Review 1: the label-free task list; unreadable too when the watchdog's own query is.
     if (args[0] === '/Query' && args.includes('/FO')) {
       base.calls.push(args.join(' '));
-      return watchdog === 'unreadable' ? { ok: false, out: 'ERROR: Access is denied.' } : { ok: true, out: '"\\Kosmos\\board","N/A","Ready"\r\n' };
+      if (watchdog === 'unreadable') return { ok: false, out: 'ERROR: Access is denied.' };
+      if (watchdog === 'german-listed') return { ok: true, out: '"\\Kosmos\\board","N/A","Ready"\r\n"\\KOSMOS\\Board-Watchdog","N/A","Bereit"\r\n' };
+      return { ok: true, out: '"\\Kosmos\\board","N/A","Ready"\r\n' };
     }
     if (args[0] === '/Create' && args[3] === 'Kosmos\\board-watchdog') {
       base.calls.push(args.join(' '));
@@ -221,4 +224,27 @@ test('#7498: switching it OFF never touches the watchdog (turning it off is not 
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.ok(!s.calls.some((c) => c.includes('board-watchdog')), s.calls.join(' | '));
   assert.equal('watchdog' in r, false);
+});
+
+test('#7498 review 2: a German error with the watchdog in the task list is "could not tell", never a second one', () => {
+  const s = withWatchdogState({ registered: true, enabled: false }, 'german-listed');
+  const r = board.setStartAtSignIn(true, BUNDLE);
+  assert.ok(!createdWatchdog(s.calls), s.calls.join(' | '));
+  assert.match(r.watchdog.because, /could not tell whether the job that restarts Kosmos if it stops is there/, JSON.stringify(r));
+});
+
+test('#7498 review 2: no node.exe at the anchor yet means no registration, and the reason says when it will be', () => {
+  const s = withWatchdogState({ registered: true, enabled: false }, 'missing');
+  const r = board.setStartAtSignIn(true, { ...BUNDLE, exists: (f) => !String(f).endsWith('node.exe') || !String(f).startsWith(ANCHOR_DIR) });
+  assert.ok(!createdWatchdog(s.calls), s.calls.join(' | '));
+  assert.match(r.watchdog.because, /registered the next time Kosmos starts/, JSON.stringify(r));
+});
+
+test('#7498 review 2: a Task Scheduler too slow for the budget registers nothing and says so', () => {
+  const s = withWatchdogState({ registered: true, enabled: false }, 'missing');
+  let t = 1000;
+  s.onWatchdogQuery = () => { t += 19500; };   // the watchdog's own query is the slow one
+  const r = board.setStartAtSignIn(true, { ...BUNDLE, now: () => t });
+  assert.ok(!createdWatchdog(s.calls), s.calls.join(' | '));
+  assert.match(r.watchdog.because, /no time left/, JSON.stringify(r));
 });
