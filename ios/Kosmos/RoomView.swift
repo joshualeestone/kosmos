@@ -224,6 +224,12 @@ struct RoomView: View {
                 searchOpen = true
                 query = words
             }
+            // kosmos#7365 slice 3c: KOSMOS_SAMPLE_ARCHIVE=open opens the sample room's archive, for its screenshots (=1 shows
+            // only the boundary row). Once a launch.
+            if RoomStore.sample, ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ARCHIVE"] == "open", !Self.sampleArchived {
+                Self.sampleArchived = true
+                Task { try? await Task.sleep(nanoseconds: 1_000_000_000); await store.openArchive(project.id) }
+            }
             #endif
         }
         .onDisappear {
@@ -838,6 +844,7 @@ struct RoomView: View {
     #if DEBUG
     // Once a launch, so coming back to the room in a screenshot run shows it as a person would.
     static var sampleSearched = false
+    static var sampleArchived = false
     #endif
 
     // kosmos#7096: the search row, as the chat's (#7089).

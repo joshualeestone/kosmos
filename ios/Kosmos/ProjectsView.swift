@@ -198,7 +198,7 @@ final class RoomStore: ObservableObject {
             }
             older[project] = (0, nil)
             // kosmos#7365 slice 3c: KOSMOS_SAMPLE_ARCHIVE=1 gives the sample room an archive, for its screenshots.
-            archivedCount[project] = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ARCHIVE"] == "1" ? 1240 : 0
+            archivedCount[project] = ["1", "open"].contains(ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ARCHIVE"] ?? "") ? 1240 : 0
             return true
         }
         #endif
