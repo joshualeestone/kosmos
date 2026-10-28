@@ -185,7 +185,8 @@ struct ChatView: View {
         .toolbar {
             // kosmos#7424 (Josh 10-27 20:49): the name and status open the same page as the info button.
             ToolbarItem(placement: .principal) {
-                Button { infoOpen = true } label: { title }.buttonStyle(.plain)
+                // Review 3: the whole title is the tap target, at least 44 pt tall, gaps included.
+                Button { infoOpen = true } label: { title.frame(minHeight: 44).contentShape(Rectangle()) }.buttonStyle(.plain)
                     .accessibilityHint("Opens \(shown.name)\u{2019}s profile and AI settings")
             }
             ToolbarItem(placement: .navigationBarTrailing) {

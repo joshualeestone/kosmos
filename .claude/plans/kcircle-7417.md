@@ -30,3 +30,9 @@ Josh, 2026-10-27 20:17 to 20:27 CDT, on TestFlight build 8. One branch so build 
 
 ## Review
 (rounds recorded in commit messages "review N:")
+- Round 1 (opus): 2 blockers (a different agent's notice reused the open chat; cold launch decided on an unstarted
+  client), 2 warnings (fade over banner/search; request survived sign-out), 2 nits. All fixed.
+- Round 2 (sonnet): 3 warnings (string checks are wiring guards: labelled; fade placement: checked in shots;
+  iOS 16 compile: verified clean), 3 nits accepted (missing agent opens an empty chat as the board did).
+- Round 3 (sonnet, with #7424): tap target under 44 pt (fixed); glass pill on the title (checked in shots); the
+  title is tappable while search is open, same as the (i) button (accepted, not new behaviour).
