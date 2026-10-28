@@ -9,6 +9,8 @@ struct AgentsView: View {
     @ObservedObject var client: BoardClient
     // kosmos#7222: notification permission is asked here, over a connected Mac's agents, not at launch.
     @ObservedObject var push: PushNotificationManager
+    // kosmos#7418: the chat a tapped notification asked for (ContentView.openAgentChat); opened, then cleared.
+    @Binding var agentRequest: PushBridge.AgentTarget?
     let openChat: (URL) -> Void
     let openBoard: () -> Void
     // kosmos#7266: the + at the top right, the board's own new-agent form (ContentView.openCreate).
@@ -42,6 +44,7 @@ struct AgentsView: View {
                 // kosmos#7343 (Josh 10-27, Mona Lisa's design): one bar on Agents, Projects and Tasks, no big title (the
                 // tab bar names the screen): the Kosmos mark, the computer switcher, then order and + in one capsule.
                 .navigationBarTitleDisplayMode(.inline)
+                .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
                 .toolbar {
                     ToolbarItem(placement: .principal) { ScreenHeading(title: "Agents") }
                     KosmosBarLeading(switcher: MacSwitcher(client: client))
@@ -68,9 +71,11 @@ struct AgentsView: View {
         .navigationViewStyle(.stack)
         // Signed out, another account or another Mac: the open chat was the previous one's, so it closes.
         .onChange(of: client.chatEpoch) { _ in openAgent = nil }
+        .onChange(of: agentRequest) { _ in openRequested() }
         .onAppear {
             visible = true
             client.show(BoardClient.agentsViewer)   // kosmos#7030: Today reads the same list
+            openRequested()   // kosmos#7418: a tap on a cold launch, or while another tab showed
             // kosmos#7222: a change made in iOS Settings is seen here, and a yes given there registers (review 1).
             push.refreshPermission(registerIfAllowed: true)
             #if DEBUG
@@ -89,6 +94,15 @@ struct AgentsView: View {
             if phase == .background { wasBackground = true; client.stop() }
             else if phase == .active && wasBackground { wasBackground = false; client.start(); push.refreshPermission(registerIfAllowed: true) }
         }
+    }
+
+    // kosmos#7418: a notification's agent opens as a tap on its row would: the list's own entry when it has it (its
+    // status and picture), else one made from the notice, which the chat then follows as the list arrives.
+    private func openRequested() {
+        guard let target = agentRequest else { return }
+        agentRequest = nil
+        openAgent = client.agents.first(where: { $0.session == target.session })
+            ?? Board.Agent(session: target.session, name: target.name, role: nil, state: "idle", task: nil, needsYou: false)
     }
 
     // Whether the list is on screen, and if so whether it is marked not updating. Decided once, so the list is drawn
@@ -565,6 +579,20 @@ struct KosmosBarLeading<S: View>: ToolbarContent {
             ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
         }
         if let switcher { ToolbarItem(placement: .navigationBarLeading) { switcher } }
+    }
+}
+
+// kosmos#7346 (Josh 10-27 20:21): the top of every screen gets the bottom strip's treatment: the bar is solid in the
+// page's own colour, so a scrolled row never shows behind the mark, the switcher or the buttons, and rows fade into
+// it over a few points just below it. Drawn over the page, so it takes no room and no touches.
+extension View {
+    func kosmosSolidTopBar() -> some View {
+        toolbarBackground(Palette.ground, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .overlay(alignment: .top) {
+                LinearGradient(colors: [Palette.ground, Palette.ground.opacity(0)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 10).allowsHitTesting(false).accessibilityHidden(true)
+            }
     }
 }
 

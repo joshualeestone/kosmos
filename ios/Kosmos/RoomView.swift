@@ -132,6 +132,7 @@ struct RoomView: View {
         }
         .background(Palette.ground.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
+        .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {

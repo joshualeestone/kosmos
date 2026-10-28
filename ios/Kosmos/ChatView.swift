@@ -181,6 +181,7 @@ struct ChatView: View {
             if let was = openedFile, was != now { client.closed(was); openedFile = now }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
         .toolbar {
             ToolbarItem(placement: .principal) { title }
             ToolbarItem(placement: .navigationBarTrailing) {

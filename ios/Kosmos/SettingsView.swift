@@ -62,6 +62,7 @@ struct SettingsView: View {
                 .background(Palette.ground.ignoresSafeArea())
                 .navigationTitle("Settings")
                 .navigationBarTitleDisplayMode(.inline)   // kosmos#7343: no big title (the tab bar names the screen)
+                .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
                 .refreshable { await read() }
                 .onAppear {
                     #if DEBUG
