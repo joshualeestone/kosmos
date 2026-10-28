@@ -2725,7 +2725,7 @@ function taskMessageRefusal(now = Date.now(), extra = 0, hasTo = extra > 0) {
     // "your token was refused", which would send the agent to fix its sign-in instead.
     // #7408 review 6/7: a message that names agents is told the screen cannot do that either (it names nobody).
     return { because: hasTo
-      ? 'task messages that name agents are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); send it without naming agents from the screen, or assign the task'
+      ? 'task messages that name agents are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can send it from the screen to the task\'s assignees (assign the task first)'
       : 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: null };
   }
   const cap = TASK_MSG_CAP_PER_HOUR;
@@ -2743,7 +2743,7 @@ function taskMessageRefusal(now = Date.now(), extra = 0, hasTo = extra > 0) {
     const costs = 'that message and the ' + extra + (extra === 1 ? ' agent' : ' agents') + ' it adds to tell count ' + cost
       + ' toward the limit of ' + cap + ' task messages an hour, shared by all agents together (one per message, and one per agent a message names)';
     if (cost > cap) {
-      return { because: costs + ', so it can never fit; name at most ' + (cap - 1) + (cap - 1 === 1 ? ' agent' : ' agents'), retryAfterSecs: null };
+      return { because: costs + ', so it can never fit; ' + (cap - 1 > 0 ? 'name at most ' + (cap - 1) + (cap - 1 === 1 ? ' agent' : ' agents') : 'send it without --to'), retryAfterSecs: null };
     }
     if (sent + cost <= cap) return null;
     const oldest = taskMessageSends.slice().sort((a, b) => a - b);
@@ -2751,7 +2751,9 @@ function taskMessageRefusal(now = Date.now(), extra = 0, hasTo = extra > 0) {
     const secs = Math.min(TASK_MSG_WINDOW_MS / 1000, Math.max(1, Math.ceil((freeAt - now) / 1000)));
     const mins = Math.max(1, Math.ceil(secs / 60));
     return { because: costs + ', and ' + (counted || (sent + (sent === 1 ? ' task message was' : ' task messages were') + ' sent in the last hour'))
-      + ', so it would pass the limit; name fewer agents, or send it again in about ' + mins + (mins === 1 ? ' minute' : ' minutes'), retryAfterSecs: secs };
+      // Review 8: naming fewer helps only while the message itself still fits; at the limit only waiting does.
+      + ', so it would pass the limit; ' + (sent < cap ? (cap - sent - 1 > 0 ? 'name at most ' + (cap - sent - 1) + (cap - sent - 1 === 1 ? ' agent' : ' agents') : 'send it without --to') + ', or send it again' : 'send it again')
+      + ' in about ' + mins + (mins === 1 ? ' minute' : ' minutes'), retryAfterSecs: secs };
   }
   const plain = runawayRefusal(taskMessageSends, counted
     ? { noun: 'of the hourly task-message count (one per message, and one per agent a message named with --to)', did: 'used',
@@ -24642,6 +24644,9 @@ const server = http.createServer(async (req, res) => {
            sender is the limit below, which counts every agent `to` adds (taskMessageValveRecord). */
         let toNames = [];
         if (body.to !== undefined) {
+          /* Review 8: the screen names nobody (it tells the task's assignees), so a screen claim carrying `to` is not the
+             screen: refused, rather than "The person said" typed to agents the person never chose. */
+          if (viaScreen) { sendJson(res, 400, { error: 'the screen tells the task\'s assignees and names no other agents, so that message was not recorded. To name agents, use kosmos task message --to' }); return; }
           const list = body.to;
           if (!Array.isArray(list) || list.length < 1 || list.length > TASK_MESSAGE_TO_MAX
             || list.some((n) => typeof n !== 'string' || !n.trim() || n.length > 64)) {

@@ -121,6 +121,7 @@ test('#7408: --to an agent already assigned tells it once; the sender is never t
     assert.equal(r.code, 0, label + ': ' + r.text);
     assert.match(r.text, REACHED_OTTO, label + ': delivery reached otto: ' + r.text);
     assert.doesNotMatch(r.text, /mara/, label + ': the sender is not told: ' + r.text);
+    assert.equal((r.text.match(/\botto\b/g) || []).length, 1, label + ': otto is said once: ' + r.text);
   }
 });
 
@@ -293,9 +294,10 @@ test('#7408 review 4: the limit counts every agent to names before the message i
     assert.ok(Number(oj.retry_after_secs) > 0, 'says when it fits');
     assert.equal(said(n).length, before, 'nothing recorded');
     assert.equal(taskMessageSendCountForTests(), c, 'nothing counted');
-    // A screen claim (a browser header, no token) naming agents is limited too.
+    // A screen claim (a browser header, no token) naming agents is refused (review 8: the screen names nobody).
     const screen = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'as the screen', to: ['otto', 'kai'] }) });
-    assert.equal(screen.status, 429, 'a screen claim with to is not exempt');
+    assert.equal(screen.status, 400, 'a screen claim with to is not the screen');
+    assert.match((await screen.json()).error, /the screen tells the task's assignees and names no other agents/);
     // CONTROL: one name fits (c + 2), and naming yourself adds nothing.
     const fits = await post(n, { text: 'one more', to: ['otto', 'mara'] });
     assert.equal(fits.status, 200, JSON.stringify(await fits.json()));
@@ -343,6 +345,9 @@ test('#7408 review 6: at the limit, a message with to is told the wait for its o
     assert.equal(r.status, 429);
     assert.match(j.error, /^that message and the 2 agents it adds to tell count 3 /, 'its own words, not the plain limit: ' + j.error);
     assert.ok(Number(j.retry_after_secs) > 0, j.error);
+    // Review 8: at the limit, naming fewer cannot help, so only the wait is offered.
+    assert.match(j.error, /so it would pass the limit; send it again in about \d+ minutes?$/, j.error);
+    assert.doesNotMatch(j.error, /name at most|name fewer|without --to/, j.error);
     // A screen claim WITHOUT to is never limited (CONTROL for the screen arm), and records once.
     const before = said(n).length;
     const screenPlain = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'the person' }) });
@@ -351,7 +356,7 @@ test('#7408 review 6: at the limit, a message with to is told the wait for its o
     // A screen claim WITH to is limited, and records and counts nothing.
     const c2 = taskMessageSendCountForTests();
     const screenTo = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'as the screen', to: ['otto'] }) });
-    assert.equal(screenTo.status, 429);
+    assert.equal(screenTo.status, 400, 'refused, not limited: the screen names nobody');
     assert.equal(said(n).length, before + 1, 'nothing recorded');
     assert.equal(taskMessageSendCountForTests(), c2, 'nothing counted');
     // Never fits, end to end: a limit of 2 and a list adding 2 (cost 3).
@@ -394,6 +399,24 @@ test('#7408 review 7: the wait for a message with to is exact, and the count is 
     try {
       assert.match(taskMessageRefusal(now, 0).because, /^agents have sent 5 task messages in the last hour/);
     } finally { restore2(); }
+  } finally {
+    setTaskMsgCapForTests();
+    restore();
+  }
+});
+
+test('#7408 review 8: below the limit the advice says how many fit; a limit of 1 says to send it without --to', () => {
+  const { seedTaskMessageSendsForTests, taskMessageRefusal, setTaskMsgCapForTests } = require('./server');
+  const now = Date.now();
+  const entries = [50, 40, 30].map((m) => now - m * 60000);
+  const restore = seedTaskMessageSendsForTests(entries, entries);
+  try {
+    setTaskMsgCapForTests(5);   // 3 sent: room for the message and 1 agent
+    assert.match(taskMessageRefusal(now, 3).because, /so it would pass the limit; name at most 1 agent, or send it again in about \d+ minutes?$/);
+    setTaskMsgCapForTests(4);   // room for the message alone
+    assert.match(taskMessageRefusal(now, 2).because, /so it would pass the limit; send it without --to, or send it again in about/);
+    setTaskMsgCapForTests(1);
+    assert.match(taskMessageRefusal(now, 1).because, /so it can never fit; send it without --to$/);
   } finally {
     setTaskMsgCapForTests();
     restore();
