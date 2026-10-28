@@ -310,7 +310,7 @@ test('#7407 review 4: a subtask of a tree someone holds is said as waiting on th
   tasks.setParent(projectId, child, parent);
   const next = await unholdNext(child);
   assert.doesNotMatch(next, /give it to mara/, next);
-  assert.match(next, new RegExp('^Nobody is on it\\. It is part of work mara is doing on task ' + parent + ' \\(one builder per task tree\\), so Kosmos will not give it out until they are done there\\. To choose who, assign it now\\.$'), next);
+  assert.match(next, new RegExp("^Nobody is on it\\. It is part of work mara is doing on task " + parent + "'s tree \\(one builder per task tree\\), so Kosmos will not give it out until they are done there\\. To choose who, assign it now\\.$"), next);
   // CONTROL against pick: while mara holds the tree, otto is not given the subtask...
   const scope = () => ({ ...projectNow(), tasks: [taskOf(parent), taskOf(child)] });
   assert.notEqual((assigner.pick('otto', [scope()], new Set()) || {}).n, child, 'otto is not given a subtask of mara\'s tree');
@@ -318,4 +318,26 @@ test('#7407 review 4: a subtask of a tree someone holds is said as waiting on th
   const part = tasks.progressOf(taskOf(parent)).parts.find((x) => x.who === 'mara');
   tasks.setPartClosed(projectId, parent, part.id, new Date().toISOString());
   assert.equal((assigner.pick('otto', [scope()], new Set()) || {}).n, child, 'once mara is done there, anyone may be given it');
+});
+
+test('#7407 review 5: with failover on, two holders on one task get no caveat (a part stays inside its tree), and a root task names its subtasks', async () => {
+  const was = assignerSetting.read();
+  assignerSetting.setFailover(true);
+  try {
+    projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'otto', 'kai'] }));
+    const n = make('two holders', 'otto');
+    tasks.addPart(projectId, n, { sentence: 'her half', who: 'mara' });
+    assert.equal(await unholdNext(n), 'It stays with otto, mara.', 'failover never moves a part out of a tree another builder holds');
+    // CONTROL: one holder, someone else free to take it: the caveat stands.
+    const one = make('one holder', 'otto');
+    assert.match(await unholdNext(one), /^It stays with otto\. If they hit a usage limit, Kosmos may move it to an idle agent\.$/);
+  } finally {
+    assignerSetting.setFailover(was.failover === true);
+    projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'otto'] }));
+  }
+  // A root task nobody is on, whose subtask mara is busy on.
+  const root = make('root');
+  const sub = make('sub', 'mara');
+  tasks.setParent(projectId, sub, root);
+  assert.match(await unholdNext(root), /^Nobody is on it\. It is part of work mara is doing on its subtasks \(one builder per task tree\)/);
 });
