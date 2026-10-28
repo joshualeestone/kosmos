@@ -139,12 +139,13 @@ const USAGE = {
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
-    'Usage: kosmos project <list|show|create|pause|role>',
+    'Usage: kosmos project <list|show|create|pause|role|remove-member>',
     '  kosmos project list                                             every project: members, model families, tasks',
     '  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member\'s family and summary',
     '  kosmos project create "<name>" <folder> ["<description>"]   make a new project (it shows on your board, tagged as made by you)',
     '  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)',
     '  kosmos project role <project-id> "<what you do here>"         say what you do on this project; project show lists it beside you ("" clears it)',
+    '  kosmos project remove-member <project-id> "<name>" [--yes]   take a member off a project, after a confirm (--yes for scripts)',
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
@@ -1916,6 +1917,82 @@ async function projectRole(ctx, args) {
   return 1;
 }
 
+/* kosmos#7405, as install/kosmos cmd_project remove-member: take a member off a project through the route the screen's
+   Remove sends (DELETE /api/project/<id>/agent/<sessionName>), after reading the project's overview for who is on it.
+   A name not on the project sends nothing (the route answers a non-member as success). A person at a terminal
+   confirms; a script says --yes. The words are the screen's (openMemModal and dropMember). */
+const PROJECT_REMOVE_MEMBER_USAGE = 'Usage: kosmos project remove-member <project-id> "<name>" [--yes]   (--yes: do not ask first, for scripts)';
+async function projectRemoveMember(ctx, args) {
+  const yes = args.includes('--yes');
+  const words = args.filter((a) => a !== '--yes');
+  const [project, who] = words;
+  if (!project || !who) { ctx.err(PROJECT_REMOVE_MEMBER_USAGE); return 2; }
+  for (const w of [project, who]) if (/^--[A-Za-z]/.test(w)) { refuseOption(ctx, 'project remove-member', PROJECT_REMOVE_MEMBER_USAGE, w, 'target'); return 2; }
+  const slug = projectSlug(project);
+  if (slug !== project || !slug.replace(/\./g, '')) { ctx.err('there is no project by that name'); return 1; }
+  if (tooManyWords(ctx, 'project remove-member', 2, PROJECT_REMOVE_MEMBER_USAGE, words)) return 2;
+  // Nobody can answer the question, so nothing is asked of the board either.
+  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was changed: there is no terminal here to confirm on. To take ' + who + ' off without being asked, add --yes.'); return 2; }
+  const o = await ctx.call('GET', '/api/project/' + slug + '/overview');
+  if (!o.reached) return ctx.unreachable('read that project');
+  /* Shown text goes through projectview.one (control, bidi and invisible characters), as project show prints it; the
+     sessionName that builds the DELETE path is sent raw, never cleaned (review 4). */
+  let clean = null;
+  try { clean = ctx.engine('projectview').one; } catch (_) { clean = null; }
+  const one = (v) => (clean ? clean(v) : String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g, ' '));   // the fallback only: projectview.one keeps ZWJ and ZWNJ
+  if (o.json && o.json.error) { const why = clause(one(o.json.error)); ctx.err('Kosmos could not read ' + project + ': ' + (why || 'it did not say why') + (/[?!)]$/.test(why) ? '' : '.')); return 1; }
+  const ov = o.json && o.json.project;   // the route answers { project: <overview>, agentsUnreadable }
+  const ms = ov && Array.isArray(ov.members) ? ov.members.filter((m) => m && typeof m.sessionName === 'string') : null;
+  if (!ms) { ctx.err('Kosmos gave an answer we could not read when asked about ' + project + '.'); return 1; }
+  // Every member the name could mean, by sessionName or display name, ignoring case; more than one sends nothing.
+  const means = (x) => { const v = String(x).toLowerCase(); return ms.filter((m) => m.sessionName.toLowerCase() === v || (typeof m.name === 'string' && m.name.toLowerCase() === v)); };
+  const hit = means(who);
+  const pj = one(ov.name || ov.id || project) || one(ov.id || project);
+  // A stopped member, or every member when the agents could not be read, shows by its sessionName only.
+  if (!hit.length) {
+    ctx.err('No member of ' + pj + ' is called ' + who + ', so nothing was changed. ' + (o.json.agentsUnreadable === true
+      ? 'Kosmos could not read its agents just now, so members may show by their machine names: kosmos project show ' + project + ' lists who is on it.'
+      : 'kosmos project show ' + project + ' lists who is on it, and a member that is not running shows by its machine name.'));
+    return 1;
+  }
+  // Only names that mean exactly one member are offered, so the answer never sends the person in a circle.
+  if (hit.length > 1) {
+    const offer = hit.map((m) => [m.sessionName, m.name].find((n) => typeof n === 'string' && n && one(n) === n && means(n).length === 1)).filter(Boolean);   // only a name that can be typed back as shown
+    // A member with no name of its own makes the list misleading (it reads as all of them), so none is offered.
+    ctx.err(offer.length === hit.length
+      ? 'More than one member of ' + pj + ' is called ' + who + ', so nothing was changed. Use one of these names instead: ' + offer.map((n) => '"' + n + '"').join(', ') + '.'
+      : 'More than one member of ' + pj + ' is called ' + who + ', and no name here tells them apart, so nothing was changed. Take the member off on the board instead.');
+    return 1;
+  }
+  const member = hit[0];
+  // A path step is no member name: encoded, "." and ".." would still be resolved away by fetch (another route).
+  if (member.sessionName === '.' || member.sessionName === '..') { ctx.err('Kosmos cannot take a member stored as "' + member.sessionName + '" off from here, so nothing was changed. Take it off on the board instead.'); return 1; }
+  const label = one(member.name) || one(member.sessionName);
+  ctx.out(label + ' comes off this project\'s list and stops getting its posts. Nothing else changes; you can put ' + label + ' back with the + at the top of the project.');
+  if (!yes) {
+    const answer = await ctx.ask('Remove ' + label + ' from ' + pj + '? [y/N] ');
+    if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was changed.'); return 1; }
+  }
+  // The board token opens the route, as for pause; the agent's own token rides too.
+  const r = await ctx.call('DELETE', '/api/project/' + slug + '/agent/' + encodeURIComponent(member.sessionName), undefined, { person: true, timeoutMs: POST_TIMEOUT_MS });
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + label + ' may be off ' + pj + '; look at the project on the board before trying again.') : ctx.unreachable('take ' + label + ' off ' + pj);
+  // An answer that is not JSON (a proxy's page) after the request left: it may have happened, as on the Mac.
+  if (!r.json || typeof r.json !== 'object') return maybe(ctx.err, 'Kosmos gave an answer we could not read after it was asked. ' + label + ' may be off ' + pj + '; look at the project on the board before trying again.');
+  const j = r.json;
+  if (j.error) { const why = clause(one(j.error)); ctx.err('Kosmos did not take ' + label + ' off ' + pj + ': ' + (why || 'it did not say why') + (/[?!)]$/.test(why) ? '' : '.')); return 1; }
+  // A 200 with no project read back: the change landed, the read after it did not (server.js).
+  if (!j.project) return maybe(ctx.err, 'Kosmos made the change but could not read the project back. ' + label + ' is most likely off ' + pj + '; look at the project on the board.');
+  if (j.told && j.told.state === 'could_not') {
+    const why = clause(one(j.told.because || ''));
+    // The screen's could-not sentence (Mona Lisa's ruling on #130): the frame names no noun the reason carries.
+    ctx.out(label + ' is off ' + pj + '. We could not update them, so this project may still be named in what they were told.'
+      + (why ? ' ' + why.charAt(0).toUpperCase() + why.slice(1) + (/[?!)]$/.test(why) ? '' : '.') : ''));
+    return 0;
+  }
+  ctx.out(label + ' is off ' + pj + ' and still on your computer.');
+  return 0;
+}
+
 /* #4581, as install/kosmos cmd_project list / show: read-only, with the agent's own token too (#4491), and
    printed by engine/projectview.js, the renderer the Mac command uses, so the two say the same words. */
 async function projectRead(ctx, route, render) {
@@ -2880,7 +2957,7 @@ const SUBCOMMAND_HANDLERS = {
   room: { reopen: roomReopen },
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
-  project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole },
+  project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole, 'remove-member': projectRemoveMember },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, remove: agentRemove },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
@@ -2911,7 +2988,7 @@ const DESCRIBE = {
   room: 'read a project room',
   notice: "a job on this computer writes a line in a room, in Kosmos's voice",
   task: "a project's tasks: list, add, close, reopen, message, mark built",
-  project: 'list, show, create or pause projects, or say your role on one',
+  project: 'list, show, create or pause projects, say your role on one, or take a member off one',
   records: "a project's records (accounts, leads, vendors): list, set, remove, label",
   agent: 'make or remove an agent, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
