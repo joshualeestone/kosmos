@@ -145,18 +145,47 @@ test('#7409: an unreadable removed list, or a print-disabled launchd will not an
   assert.deepEqual(calls, ['print-disabled gui/501'], 'it disabled without knowing what launchd held');
 });
 
-test('#7409: a sandboxed board never schedules it; a real board does, once, and logs the names it kept off', () => {
+test('#7409: a sandboxed board never schedules it; a real board does, logs the names, and tries once more only when not clean', () => {
   const timers = [];
   const setTimer = (fn, ms) => { timers.push({ fn, ms }); return { unref() {} }; };
-  assert.equal(remove.reapplyAtBoardStart({ enforcing: false, setTimer }), false);
+  const said = [];
+  const sinks = { out: (t) => said.push(t), err: (t) => said.push(t) };
+  assert.equal(remove.reapplyAtBoardStart({ enforcing: false, setTimer, ...sinks }), false);
   assert.equal(timers.length, 0, 'a sandboxed fixture board scheduled it');
-  assert.equal(remove.reapplyAtBoardStart({ enforcing: true, setTimer, out: () => {}, err: () => {} }), true);
-  assert.equal(timers.length, 1, 'CONTROL: a real board did not schedule it');
   removedList([removedRow('casey')]);
   roster([]);
   machine([]);
-  const said = [];
-  timers[0].fn.call(null);
-  remove.reapplyAtBoardStart({ enforcing: true, setTimer: (fn) => { fn(); return {}; }, out: (t) => said.push(t), err: (t) => said.push(t) });
-  assert.match(said.join(''), /removed agents kept from starting again .*: casey/, 'the board log did not name the agent: ' + said.join(''));
+  assert.equal(remove.reapplyAtBoardStart({ enforcing: true, setTimer, ...sinks }), true);
+  assert.equal(timers.length, 1, 'CONTROL: a real board did not schedule it');
+  timers[0].fn();
+  assert.match(said.join(''), /removed agents kept from running again .*: casey/, 'the board log did not name the agent: ' + said.join(''));
+  assert.equal(timers.length, 1, 'a clean run scheduled another');
+  machine([], { refuse: { disable: 5 } });
+  remove.reapplyAtBoardStart({ enforcing: true, setTimer, ...sinks });
+  timers[1].fn();
+  assert.equal(timers.length, 3, 'a run that was not clean did not try once more');
+  assert.equal(timers[2].ms, 30000);
+  timers[2].fn();
+  assert.equal(timers.length, 3, 'the second try scheduled a third');
+});
+
+test('#7409 review 2: an agent launchd already holds disabled still has its own running session ended (an untied one left)', () => {
+  removedList([removedRow('casey'), removedRow('dana')]);
+  roster([fleet.agent('casey', { state: 'working' }), fleet.agent('dana', { state: 'working', ours: false })]);
+  const calls = machine([[labelOf('casey'), 'disabled'], [labelOf('dana'), 'disabled']]);
+  const out = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
+  assert.deepEqual(out, { ok: true, reapplied: ['casey'], failed: [], unsure: [] });
+  assert.ok(calls.some((c) => /^kill-session -t =casey/.test(c)), 'the session missed earlier was not ended: ' + calls.join(' | '));
+  assert.ok(!calls.some((c) => /^kill-session -t =dana/.test(c)), 'an untied session was killed');
+  assert.ok(!calls.some((c) => c.startsWith('disable') || c.startsWith('bootout')), 'a job launchd already held disabled was touched again');
+});
+
+test('#7409 review 2: the default Kosmos legacy com.<name>.discord label is swept for its own name only', () => {
+  removedList([{ name: 'casey', label: 'com.casey.discord' }, { name: 'dana', label: 'com.casey.discord' }]);
+  roster([]);
+  const calls = machine([]);
+  const out = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
+  assert.equal(launchidentity.isDefaultWorld(launchidentity.currentWorldId()), true, 'CONTROL: this test runs in the default Kosmos');
+  assert.deepEqual(out.reapplied, ['casey']);
+  assert.ok(calls.includes('disable gui/501/com.casey.discord'), calls.join(' | '));
 });

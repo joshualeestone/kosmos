@@ -465,8 +465,12 @@ function removedNamesIn(storeRoot) { return removedNamesFrom(path.join(storeRoot
    leaves the agent running, hidden from the board). Restore's `enable` undoes it, as it undoes a removal.
    Only a label removal itself would record for the record's own name (create.serviceLabel in this Kosmos, or the
    default Kosmos's legacy com.<name>.discord) is used: removed.json is a file a person can edit. Nothing runs in a
-   dry run. Returns { ok, reapplied: [names], failed: [names], unsure: [names], because? }: failed is a step launchd or
-   tmux refused; unsure is a session the board could not tie to the agent, or could not ask about, left alone. */
+   dry run. A record of an agent the person chose to leave running is swept too: they asked for it to be removed.
+   The board's roster is read once (review 2: once per agent blocked the board's thread at start). An agent launchd
+   already holds disabled still has its session looked at, read-only first, and ended only when the board ties it to
+   the agent (review 2: a session missed at login was otherwise never looked at again).
+   Returns { ok, reapplied: [names], failed: [names], unsure: [names], because? }: failed is a step launchd or tmux
+   refused; unsure is a session the board could not tie to the agent, or could not ask about, left alone. */
 function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}) {
   const none = { ok: true, reapplied: [], failed: [], unsure: [] };
   if (platform !== 'darwin') return none;
@@ -495,15 +499,32 @@ function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}
     const m = /^\s*"([^"]+)"\s*=>\s*(disabled|true)\s*$/.exec(line);
     if (m) off.add(m[1]);
   }
+  // One roster read for every agent; a roster tmux cannot give is an unknown for each, never "nothing running".
+  let cards = null;
+  try { cards = status.paneRoster(); } catch { cards = null; }
+  const tie = (name) => {
+    if (!Array.isArray(cards)) return { kind: FOUND.UNKNOWN, session: null };
+    const card = cards.find((c) => c && c.sessionName === name);
+    if (!card) return { kind: FOUND.NONE, session: null };
+    if (!card.session) return { kind: FOUND.UNKNOWN, session: null };
+    return card.isNamedOurs ? { kind: FOUND.OURS, session: card.session } : { kind: FOUND.UNTIED, session: card.session };
+  };
   const out = { ok: true, reapplied: [], failed: [], unsure: [] };
   for (const { name, label } of owned) {
-    if (off.has(label)) continue;
+    if (off.has(label)) {
+      // Already held disabled: only a session the board ties to it is ended; an untied or unknown one is left as before.
+      const was = tie(name);
+      if (was.kind === FOUND.OURS) {
+        if (sessionOps('darwin').end(was.session)) out.reapplied.push(name); else out.failed.push(name);
+      }
+      continue;
+    }
     const dis = run('/bin/launchctl', ['disable', `gui/${id}/${label}`]);
     if (!dis || dis.ok === false) { out.failed.push(name); continue; }
     // 3 is launchd for "not loaded", which is the end state wanted; anything else refused is a failed step.
     const boot = run('/bin/launchctl', ['bootout', `gui/${id}/${label}`]);
     if (!(boot && (boot.ok !== false || boot.code === 3))) { out.failed.push(name); continue; }
-    const found = sessionFor(name);
+    const found = tie(name);
     if (found.kind === FOUND.OURS) {
       if (!sessionOps('darwin').end(found.session)) { out.failed.push(name); continue; }
     } else if (found.kind !== FOUND.NONE) {
@@ -519,17 +540,20 @@ function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}
 /* kosmos#7409: the board-start half, so it is tested and server.js only calls it. A real board (`enforcing`, which a
    sandboxed fixture never is) runs reapplyRemovedDisables once, `afterMs` after it starts, and says what it did on the
    board's own log (stdout, stderr). Returns whether it was scheduled. */
-function reapplyAtBoardStart({ enforcing, afterMs = 2000, setTimer = setTimeout, out = (t) => process.stdout.write(t), err = (t) => process.stderr.write(t) } = {}) {
+function reapplyAtBoardStart({ enforcing, afterMs = 2000, retryMs = 30000, setTimer = setTimeout, out = (t) => process.stdout.write(t), err = (t) => process.stderr.write(t) } = {}) {
   if (!enforcing) return false;
-  const t = setTimer(() => {
+  // Review 2: once more, 30 s on, when the first run was not clean (a board up before the login session answers).
+  const runOnce = (again) => {
     try {
       const kept = reapplyRemovedDisables();
-      if (kept.reapplied.length) out(`Kosmos: removed agents kept from starting again (launchd held no disable for them, as after a machine move): ${kept.reapplied.join(', ')}\n`);
+      if (!kept.ok && again) { const t2 = setTimer(() => runOnce(false), retryMs); if (t2 && typeof t2.unref === 'function') t2.unref(); }
+      if (kept.reapplied.length) out(`Kosmos: removed agents kept from running again (as after a machine move, where launchd's disable does not travel): ${kept.reapplied.join(', ')}\n`);
       if (kept.failed.length) err(`Kosmos: could not stop every removed agent starting again: ${kept.failed.join(', ')}\n`);
       if (kept.unsure.length) err(`Kosmos: removed agents whose running session could not be tied to them, left alone: ${kept.unsure.join(', ')}\n`);
       if (kept.because) err(`Kosmos: could not check removed agents' startup jobs: ${kept.because}\n`);
     } catch (e) { err(`Kosmos: could not check removed agents' startup jobs: ${String(e && e.message)}\n`); }
-  }, afterMs);
+  };
+  const t = setTimer(() => runOnce(true), afterMs);
   if (t && typeof t.unref === 'function') t.unref();
   return true;
 }
