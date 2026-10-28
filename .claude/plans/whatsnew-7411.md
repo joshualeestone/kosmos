@@ -9,7 +9,9 @@ latest list only), and fixes that take effect only when an agent starts looked b
   pool: it holds `held` items (features held or dropped) and pending ones newer than a build. engine/releasenotes.js
   notesFor(pool, version, platform) keeps only what that build contains (not held, `since` at or before it, and for
   its platform: an item tagged mac or windows is for those only, so a Linux build drops the Mac-only notes) and only
-  the readers' fields (version, title, line, platforms, restart).
+  the readers' fields (version, title, line, platforms, restart). A `pending` item at or below the build's version
+  ships: its code is in that build, and pending means only not yet announced in What's New. `held` is the one status
+  that never ships.
 - Every build (Mac bundle, Linux, Windows) writes app/release-notes.json with `whats-new-pool.js notes <version>
   --platform=<its own>`, right after checking its version, so it is in the signed manifest. A source checkout derives
   the same list. The Mac builder checks it has node first (it had no node dependency before).
