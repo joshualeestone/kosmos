@@ -298,11 +298,9 @@ struct NewAgentView: View {
                     if !detail.purpose.isEmpty { Text(detail.purpose).font(.footnote).foregroundColor(Palette.secondary) }
                     if let caution = detail.caution { Text(caution).font(.footnote).foregroundColor(Palette.askedWord) }
                     ForEach(detail.members) { m in
-                        VStack(alignment: .leading, spacing: 4) {
-                            nameField(m, editable: !teamLocked).disabled(teamLocked)
-                            Text(NewTeam.Words.reportsTo(m.title, m.isLead ? NewAgent.Words.you : leadName(detail)))
-                                .font(.footnote).foregroundColor(Palette.secondary)
-                        }
+                        nameField(m, editable: !teamLocked,
+                                  line: NewTeam.Words.reportsTo(m.title, m.isLead ? NewAgent.Words.you : leadName(detail)))
+                            .disabled(teamLocked)
                     }
                 } header: { Text(detail.label) }
                 Section(NewTeam.Words.project) {
@@ -380,12 +378,16 @@ struct NewAgentView: View {
 
     // Mona Lisa (build 14): a name that can be changed looks it, with a pencil while it can.
     // The name field takes its own taps; the pencil, beside it, puts the cursor in the name too.
-    private func nameField(_ m: NewTeam.Member, editable: Bool = true) -> some View {
-        HStack(spacing: 8) {
-            TextField(m.title, text: Binding(get: { names[m.slot] ?? "" }, set: { names[m.slot] = $0 }))
-                .textInputAutocapitalization(.words)
-                .focused($nameFocus, equals: m.slot)
-                .accessibilityLabel(m.title + ", " + NewAgent.Words.name)
+    // Mona Lisa (build 15): the name and its line below it stay together, and the pencil is centred on the whole row.
+    private func nameField(_ m: NewTeam.Member, editable: Bool = true, line: String? = nil) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                TextField(m.title, text: Binding(get: { names[m.slot] ?? "" }, set: { names[m.slot] = $0 }))
+                    .textInputAutocapitalization(.words)
+                    .focused($nameFocus, equals: m.slot)
+                    .accessibilityLabel(m.title + ", " + NewAgent.Words.name)
+                if let line { Text(line).font(.footnote).foregroundColor(Palette.secondary) }
+            }
             if editable {
                 Image(systemName: "pencil").foregroundColor(Palette.secondary).accessibilityHidden(true)
                     .frame(minWidth: 44, minHeight: 44)   // a tap target, not just the glyph
