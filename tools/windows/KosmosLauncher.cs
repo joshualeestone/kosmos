@@ -1297,6 +1297,187 @@ class KosmosLauncher
         return ConnectLink.Block;
     }
 
+    // ---- #7403 (Windows parity with the Mac's #7384): a download or link the window does not act on says why ----
+
+    // The Mac's refusalShouldShow (#5167, 2026-10-27), rule for rule: a refusal is put on screen only when no other
+    // Kosmos alert is up (`asking` is the Mac's Allow question; Windows has none, so the window passes false), not
+    // within `windowMs` of the last alert's OK WHATEVER its sentence (two alternating sentences would otherwise put one
+    // up straight after every OK, and a modal box blocks the window), and at most `perPage` of the SAME sentence on one
+    // page (a page retrying on a timer). Every refusal is logged either way (BoardWindowForm.TellRefusal).
+    internal static bool RefusalShouldShow(bool up, bool asking, long? lastAtMs, long nowMs, long windowMs, int shownThisPage, int perPage)
+    {
+        if (up || asking || shownThisPage >= perPage) return false;
+        if (lastAtMs.HasValue && nowMs - lastAtMs.Value < windowMs) return false;
+        return true;
+    }
+
+    internal const long RefusalRepeatMs = 10000;   // the Mac's refusalRepeatSeconds
+    internal const int RefusalsPerPage = 2;        // the Mac's refusalsPerPage
+
+    // The guard's state, apart from the window so the probe can drive it with its own clock: how many alerts are up,
+    // when the last one was answered, and how many of each sentence were shown on the page of commit `page`.
+    internal sealed class RefusalGate
+    {
+        int up;
+        long? lastAtMs;
+        int page = -1;
+        readonly Dictionary<string, int> shown = new Dictionary<string, int>(StringComparer.Ordinal);
+        internal int Up { get { return up; } }
+        // Whether `sentence` goes on screen now, on the page of commit `pageCommit`. When it does, it is counted as up
+        // until Answered: so a second refusal before the box has even opened waits too.
+        internal bool Ask(string sentence, long nowMs, int pageCommit)
+        {
+            if (page != pageCommit) { page = pageCommit; shown.Clear(); }
+            int n;
+            shown.TryGetValue(sentence, out n);
+            if (!RefusalShouldShow(up > 0, false, lastAtMs, nowMs, RefusalRepeatMs, n, RefusalsPerPage)) return false;
+            shown[sentence] = n + 1;
+            up++;
+            return true;
+        }
+        // The box was answered (OK, or closed): the cool-down counts from here, as the Mac's counts from the OK.
+        internal void Answered(long nowMs) { if (up > 0) up--; lastAtMs = nowMs; }
+    }
+
+    internal const string DidNotSaveFile = "Kosmos did not save that file: ";
+    internal const string DidNotOpenLink = "Kosmos did not open that link: ";
+
+    // COREWEBVIEW2_DOWNLOAD_STATE and COREWEBVIEW2_DOWNLOAD_INTERRUPT_REASON (WebView2.h 1.0.4191.47, lines 2524-2563).
+    internal const int DownloadStateInterrupted = 1;
+    internal const int DownloadInterruptUserCanceled = 26;
+    internal const int DownloadInterruptUserShutdown = 27;
+    internal const int DownloadInterruptUserPaused = 28;
+
+    // What the window says about a download WebView2 reports INTERRUPTED with `reason`, or null for one the person
+    // chose (they cancelled it in the Downloads panel, closed Kosmos, or paused it) and for NONE. The reasons a board
+    // download can meet are said in plain words; any other is said too, generically: a download that did not save
+    // never ends with nothing from Kosmos. An int chain, not a string switch (see ConnectLinkDecision).
+    internal static string DownloadInterruptedSays(int reason)
+    {
+        if (reason == 0 || reason == DownloadInterruptUserCanceled || reason == DownloadInterruptUserShutdown || reason == DownloadInterruptUserPaused) return null;
+        string why;
+        if (reason == 1 || reason == 7) why = "Windows could not write it to your Downloads folder. Try again in a moment.";            // FILE_FAILED, FILE_TRANSIENT_ERROR
+        else if (reason == 2) why = "Windows would not let it be written to your Downloads folder.";                                    // FILE_ACCESS_DENIED
+        else if (reason == 3 || reason == 5) why = "there is not enough free space on this computer for it.";                             // FILE_NO_SPACE, FILE_TOO_LARGE
+        else if (reason == 4) why = "its name is too long for Windows.";                                                                // FILE_NAME_TOO_LONG
+        else if (reason == 6) why = "Windows security found that it might be harmful.";                                                  // FILE_MALICIOUS
+        else if (reason == 8) why = "a setting on this computer blocks files like it.";                                                  // FILE_BLOCKED_BY_POLICY
+        else if (reason == 9) why = "Windows could not check it for viruses.";                                                           // FILE_SECURITY_CHECK_FAILED
+        else if (reason == 10 || reason == 11 || reason == 23 || reason == 24) why = "it arrived incomplete. Try again.";               // FILE_TOO_SHORT, FILE_HASH_MISMATCH, SERVER_UNEXPECTED_RESPONSE, SERVER_CONTENT_LENGTH_MISMATCH
+        else if (reason == 12 || reason == 14) why = "the connection dropped before it finished. Check this computer's internet connection and try again.";   // NETWORK_FAILED, NETWORK_DISCONNECTED
+        else if (reason == 13) why = "the connection took too long. Try again.";                                                         // NETWORK_TIMEOUT
+        else if (reason == 15) why = "the computer it comes from stopped answering. Try again in a moment.";                            // NETWORK_SERVER_DOWN
+        else if (reason == 19) why = "the file is not there. It may have been moved or removed.";                                        // SERVER_BAD_CONTENT (a 404: Chromium's "No file")
+        else if (reason == 20) why = "the computer it comes from asked for a sign-in first.";                                            // SERVER_UNAUTHORIZED
+        else if (reason == 21) why = "the connection to where it comes from could not be trusted.";                                      // SERVER_CERTIFICATE_PROBLEM
+        else if (reason == 22) why = "the computer it comes from refused to send it.";                                                   // SERVER_FORBIDDEN
+        else if (reason == 25) why = "it pointed somewhere Kosmos does not save from.";                                                  // SERVER_CROSS_ORIGIN_REDIRECT
+        else if (reason == 16 || reason == 17 || reason == 18) why = "the computer it comes from could not send it. Try again in a moment.";   // NETWORK_INVALID_REQUEST, SERVER_FAILED, SERVER_NO_RANGE
+        else if (reason == 29) why = "the part of Windows that saves downloads stopped unexpectedly. Try again.";                         // DOWNLOAD_PROCESS_CRASHED
+        else why = "the download stopped before it finished.";
+        return DidNotSaveFile + why;
+    }
+
+    // What the window says about a main-frame navigation it refused (ConnectLink.Block): the page tried to leave
+    // without a click, or for something that is not a web page. Only the host is named (punycode, so a lookalike
+    // cannot pass as a familiar name), never the page's own text, and never more than 80 characters of it.
+    internal static string LinkBlockedSays(string address)
+    {
+        Uri uri;
+        if (address == null || !Uri.TryCreate(address, UriKind.Absolute, out uri)) return DidNotOpenLink + "it is not an address Kosmos can open.";
+        string scheme = uri.Scheme.ToLowerInvariant();
+        if (scheme == "http" || scheme == "https")
+        {
+            string host = uri.IdnHost;
+            if (string.IsNullOrEmpty(host)) return DidNotOpenLink + "it is not an address Kosmos can open.";
+            if (host.Length > 80) host = host.Substring(0, 80) + "...";
+            return DidNotOpenLink + "this page tried to go to " + host + " on its own. Kosmos opens another site only when you click a link to it.";
+        }
+        if (scheme == "mailto" || scheme == "tel" || scheme == "sms")
+            return DidNotOpenLink + "this page tried to open a mail, phone or text link on its own. Kosmos opens those only when you click them.";
+        return DidNotOpenLink + "Kosmos does not open that kind of link from its window.";
+    }
+
+    // #7403: the board answers a plain navigation to a download it refuses with 204 and no body (server.js
+    // refuseDownload), which Chromium takes as nothing to show or save: the page stays and nothing is said.
+    // ⚠️ MEASURED (#7403, WebView2 Runtime on the Windows box): WebView2 reports that navigation as failed with
+    // WebErrorStatus CONNECTION_ABORTED (9) and an HttpStatusCode of 0, not 204: Chromium aborts a 204 navigation
+    // before it has a response to report. So the status alone cannot find it. What does: a main-frame navigation to
+    // one of the board's download routes (IsBoardDownloadAddress), on the board or a Kosmos Plus computer's board,
+    // that failed with CONNECTION_ABORTED or 204, and started no download (the caller waits a moment to know that: a
+    // download the board did send aborts its navigation the same way). The board's reason is not in the answer, so
+    // the sentence names the usual ones.
+    internal const int WebErrorConnectionAborted = 9;   // COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED (WebView2.h 2937)
+    internal const string NoContentRefusal = DidNotSaveFile + "the board would not send it. It may have been moved or removed, or be too large to send.";
+    internal static string NoContentNavigationSays(bool success, int webErrorStatus, int httpStatus, bool toBoard, string address)
+    {
+        if (success || !toBoard || !IsBoardDownloadAddress(address)) return null;
+        return httpStatus == 204 || webErrorStatus == WebErrorConnectionAborted ? NoContentRefusal : null;
+    }
+
+    // Whether a download that started at `startedAtMs` came of a navigation that ended at `endedAtMs`: it started at
+    // most two seconds before the end (the order of the two events is WebView2's) or within the wait after it. An
+    // older download (a file saved a minute ago, refused now) does not hide the refusal.
+    internal const long DownloadBeforeNavigationEndMs = 2000;
+    internal const int DownloadSettleMs = 1500;   // how long the window waits after the navigation ends before it looks
+    internal static bool DownloadCameOfNavigation(long startedAtMs, long endedAtMs, long settleMs)
+    {
+        return startedAtMs >= endedAtMs - DownloadBeforeNavigationEndMs && startedAtMs <= endedAtMs + settleMs;
+    }
+
+    // Review 1: ANY download that started in that window counts, whatever its address. Matching the address text
+    // missed a download that DID save under another spelling of it (a redirect inside the route, another encoding)
+    // and then said "the board would not send it" about a file that was saved. Erring this way can only leave a
+    // refusal unsaid while some other download starts at the same moment, which the panel shows anyway.
+    internal static bool AnyDownloadCameOfNavigation(IList<long> startedAtMs, long endedAtMs, long settleMs)
+    {
+        foreach (long started in startedAtMs) if (DownloadCameOfNavigation(started, endedAtMs, settleMs)) return true;
+        return false;
+    }
+
+    // Review 1: the start times kept are only those a wait still running could ask about. A check asks, at the
+    // latest, about starts from DownloadBeforeNavigationEndMs before an end at most DownloadSettleMs ago, so anything
+    // older than both together is dropped whenever a download starts.
+    internal const long DownloadStartsKeptMs = DownloadBeforeNavigationEndMs + DownloadSettleMs;
+    internal static void PruneDownloadStarts(List<long> startedAtMs, long nowMs)
+    {
+        for (int i = startedAtMs.Count - 1; i >= 0; i--) if (startedAtMs[i] < nowMs - DownloadStartsKeptMs) startedAtMs.RemoveAt(i);
+    }
+
+    // Review 1: a refused-looking download navigation is said only once the board is known to have answered: the
+    // window's quick check (CheckBoardBeforeReuse) proved it, or this board does not enforce sign-in (the window's
+    // own rule for staying, MayNavigateSignedIn). Any other answer means the board may have died under the request,
+    // and that goes to the window's existing not-confirmed check instead of a sentence blaming the file.
+    internal static bool NoContentRefusalStands(ReuseCheck check)
+    {
+        return MayNavigateSignedIn(check);
+    }
+
+    // The board's download routes, every one of which refuses through refuseDownload (server.js): one agent file
+    // (/api/agent/<name>/files/download), one agent folder as a zip (.../files/download-folder), one project file
+    // (/api/project/<id>/file-download). Matched on the path alone; the query (?name=) is the board's to judge.
+    internal static bool IsBoardDownloadAddress(string address)
+    {
+        Uri uri;
+        if (address == null || !Uri.TryCreate(address, UriKind.Absolute, out uri)) return false;
+        string[] parts = uri.AbsolutePath.Split('/');
+        // "", "api", "agent", <name>, "files", "download" | "download-folder"  /  "", "api", "project", <id>, "file-download"
+        if (parts.Length == 6 && parts[0].Length == 0 && parts[1] == "api" && parts[2] == "agent" && parts[3].Length > 0 && parts[4] == "files")
+            return parts[5] == "download" || parts[5] == "download-folder";
+        if (parts.Length == 5 && parts[0].Length == 0 && parts[1] == "api" && parts[2] == "project" && parts[3].Length > 0)
+            return parts[4] == "file-download";
+        return false;
+    }
+
+    // Every refusal is logged either way, as the Mac's logLine. The launcher keeps no log file, so
+    // it goes to the debugger stream: DebugView, or any debugger attached to Kosmos.exe, reads it.
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    static extern void OutputDebugStringW(string text);
+    internal static void NoteRefusal(string text)
+    {
+        try { OutputDebugStringW("Kosmos #7403: " + text + "\n"); } catch { /* a note that cannot be written changes nothing */ }
+    }
+
     // The board task this port is served by, or null: a launch that sets PORT serves a port the logon
     // task does not (#4543's rule, and engine/win32handoff.js overriddenBy's), so its task is never
     // disabled, enabled, ended or run from here. That is also what keeps a throwaway board on a spare
@@ -3540,6 +3721,13 @@ class BoardWindowForm : System.Windows.Forms.Form
     // #6882: the board navigations OnNavigationStarting let through, until each completes, so a failed one is known
     // as the board's (OnNavigationCompleted), and a redirect within one that was checked is not checked again.
     readonly Dictionary<ulong, string> boardNavs = new Dictionary<ulong, string>();
+    // #7403: the guard over "Kosmos did not save that file" and "Kosmos did not open that link" (TellRefusal), and the
+    // main-frame commits it counts pages by (OnContentLoading), as the Mac's pageCommits.
+    readonly KosmosLauncher.RefusalGate refusals = new KosmosLauncher.RefusalGate();
+    int pageCommits;
+    // #7403: when (windowClock) each recent download started, any address, so a board download navigation that became
+    // a download is not said as a refusal (SayUnlessADownloadStarted). Pruned as each one is added.
+    readonly List<long> downloadStarts = new List<long>();
     // #6882: which visit to the board this is. Moved on whenever the window starts or stops showing a board
     // (NavigateToBoard, ShowNotConfirmed, RunAgentsHere, SwitchToConnect), so a check that answers after the window
     // moved on is dropped rather than acted on against the next visit.
@@ -3722,6 +3910,15 @@ class BoardWindowForm : System.Windows.Forms.Form
         webView.add_WebMessageReceived(new WebMessageReceived(this), out token);
         webView.add_NavigationCompleted(new NavigationCompleted(this), out token);
         webView.add_ContentLoading(new ContentLoading(this), out token);
+        // #7403: a download that ends without saving says why. ICoreWebView2_4 is in every Runtime since 1.0.902; on an
+        // older one the window works as before, without the sentence.
+        // Never fatal: a failure here must not stop the board loading below.
+        try
+        {
+            ICoreWebView2_4 webView4 = webView as ICoreWebView2_4;
+            if (webView4 != null) webView4.add_DownloadStarting(new DownloadStarting(this), out token);
+        }
+        catch { /* downloads keep WebView2's defaults, unsaid */ }
         controller.add_AcceleratorKeyPressed(new AcceleratorKeyPressed(this), out token);   // #6882
         FitViewToWindow();
         controller.MoveFocus(0);
@@ -4121,8 +4318,12 @@ class BoardWindowForm : System.Windows.Forms.Form
             KosmosLauncher.ConnectLink decided = KosmosLauncher.ConnectLinkDecision(uri, userInitiated != 0 && redirected == 0, KosmosLauncher.IsKosmosPlusSiteAddress(committedPage), runsBoard ? port : 0);
             if (decided == KosmosLauncher.ConnectLink.InApp) { connectInWindow[navId] = uri; if (!KosmosLauncher.IsBoardAddress(uri, port)) navigationWaiting = null; return; }   // #6882: a page the person moved on to replaces a board navigation waiting for its check
             if (decided == KosmosLauncher.ConnectLink.Block && connectLoadPending && connectLoadNavKnown && navId == connectLoadNavId) connectLoadRefused = true;
+            bool refusedFirstLoad = connectLoadPending && connectLoadNavKnown && navId == connectLoadNavId;
             args.put_Cancel(1);
             if (decided == KosmosLauncher.ConnectLink.Browser) BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri, true)));
+            // #7403: a refused navigation says why (guarded: TellRefusal). Not a connect computer's refused first load:
+            // that one already says Kosmos Plus could not be reached (OnNavigationCompleted), and two boxes for one load is one too many.
+            else if (decided == KosmosLauncher.ConnectLink.Block && !refusedFirstLoad) TellRefusal(KosmosLauncher.LinkBlockedSays(uri));
             return;
         }
         if (KosmosLauncher.IsBoardAddress(uri, port) || KosmosLauncher.IsWindowOwnPage(uri)) return;
@@ -4146,10 +4347,117 @@ class BoardWindowForm : System.Windows.Forms.Form
             KosmosLauncher.ConnectLink decided = KosmosLauncher.ConnectLinkDecision(uri, true);
             if (decided == KosmosLauncher.ConnectLink.InApp) BeginInvoke(new Action(() => webView.Navigate(uri)));
             else if (decided == KosmosLauncher.ConnectLink.Browser) BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri, true)));
+            else TellRefusal(KosmosLauncher.LinkBlockedSays(uri));   // #7403: a refused new-window link says why too
             return;
         }
         if (KosmosLauncher.IsBoardAddress(uri, port)) BeginInvoke(new Action(() => webView.Navigate(uri)));
         else BeginInvoke(new Action(() => KosmosLauncher.OpenInPersonsBrowser(uri)));
+    }
+
+    // #7403 (the Mac's tellDownloadFailed with refusal: true): a download or link the window did not act on is said in
+    // one plain box, modal to this window, from the window's own thread on the next turn (the caller answers WebView2
+    // first). Logged every time; shown only under the guard (RefusalGate): never over another of these boxes, not
+    // within ten seconds of the last one's OK, and at most twice per sentence per page. So a page that repeats a
+    // refusal cannot pile boxes up or keep one on screen.
+    internal void TellRefusal(string sentence)
+    {
+        if (sentence == null) return;
+        KosmosLauncher.NoteRefusal(sentence);
+        if (IsDisposed || !refusals.Ask(sentence, windowClock.ElapsedMilliseconds, pageCommits)) return;
+        try
+        {
+            BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if (!IsDisposed)
+                        System.Windows.Forms.MessageBox.Show(this, sentence, "Kosmos",
+                            System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Warning);
+                }
+                catch { /* the note above still says it */ }
+                finally { refusals.Answered(windowClock.ElapsedMilliseconds); }
+            }));
+        }
+        catch { refusals.Answered(windowClock.ElapsedMilliseconds); }   // never left counted as up: that would silence every later one
+    }
+
+    // #7403: a download is starting. It goes exactly as before (WebView2's own Downloads panel, saved to Downloads):
+    // nothing here cancels, redirects or handles it. Its end is watched, so one that stops for a reason the person
+    // did not choose says why.
+    internal void OnDownloadStarting(ICoreWebView2DownloadStartingEventArgs args)
+    {
+        ICoreWebView2DownloadOperation download;
+        args.get_DownloadOperation(out download);
+        if (download == null) return;
+        long now = windowClock.ElapsedMilliseconds;
+        KosmosLauncher.PruneDownloadStarts(downloadStarts, now);
+        downloadStarts.Add(now);
+        // WebView2 holds the handler (it AddRefs the COM wrapper) for as long as the download can still raise it.
+        long token;
+        download.add_StateChanged(new DownloadStateChanged(this), out token);
+    }
+
+    // A navigation to a board download route that failed the way a refusal does (NoContentNavigationSays) is said only
+    // if no download started around it (a download the board did send aborts its navigation the same way, and its
+    // DownloadStarting comes after: measured, 16 ms), and only once the board is known to have answered (review 1:
+    // a board that died under the request is the not-confirmed check's business, not a sentence about the file).
+    // `checkBoard` is false for a Kosmos Plus computer's board, which this computer's port says nothing about.
+    internal void SayUnlessADownloadStarted(string address, string sentence, bool checkBoard)
+    {
+        long endedAt = windowClock.ElapsedMilliseconds;
+        int visit = boardVisit;
+        System.Windows.Forms.Timer settle = new System.Windows.Forms.Timer();
+        settle.Interval = KosmosLauncher.DownloadSettleMs;
+        settle.Tick += (s, e) =>
+        {
+            settle.Stop();
+            settle.Dispose();
+            if (IsDisposed) return;
+            if (KosmosLauncher.AnyDownloadCameOfNavigation(downloadStarts, endedAt, KosmosLauncher.DownloadSettleMs))
+            {
+                KosmosLauncher.NoteRefusal("a board download navigation became a download: " + address);
+                return;
+            }
+            if (!checkBoard) { TellRefusal(sentence); return; }
+            int boardPort = port;
+            ThreadPool.QueueUserWorkItem(unused =>
+            {
+                KosmosLauncher.ReuseCheck check = KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseQuickCheckMs);
+                try
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (visit != boardVisit) return;   // the window moved on to another visit meanwhile
+                        if (KosmosLauncher.NoContentRefusalStands(check)) TellRefusal(sentence);
+                        else
+                        {
+                            KosmosLauncher.NoteRefusal("a board download navigation failed and the board did not prove (" + check + "): " + address);
+                            CheckThenShowNotConfirmed(KosmosLauncher.MayNavigateSignedIn);
+                        }
+                    }));
+                }
+                catch { /* the window closed meanwhile */ }
+            });
+        };
+        settle.Start();
+    }
+
+    internal void OnDownloadStateChanged(ICoreWebView2DownloadOperation download)
+    {
+        int state;
+        download.get_State(out state);
+        // IN_PROGRESS is a resume. A pause arrives as INTERRUPTED with USER_PAUSED (said nothing, below); the handler
+        // stays registered, so a paused download that later fails or completes is still seen.
+        if (state == 0) return;
+        if (state != KosmosLauncher.DownloadStateInterrupted) return;   // COMPLETED: saved
+        int reason;
+        download.get_InterruptReason(out reason);
+        string address = null;
+        try { download.get_Uri(out address); } catch { address = null; }
+        string says = KosmosLauncher.DownloadInterruptedSays(reason);
+        if (says == null) { KosmosLauncher.NoteRefusal("a download the person stopped (reason " + reason + "): " + address); return; }
+        KosmosLauncher.NoteRefusal("download interrupted (reason " + reason + "): " + address);
+        TellRefusal(says);
     }
 
     // #5483: a new document committed. It is the page the next navigation leaves, as the Mac sets
@@ -4158,6 +4466,7 @@ class BoardWindowForm : System.Windows.Forms.Form
     // An error page, or a document no in-window navigation was allowed for, is not the site.
     internal void OnContentLoading(ICoreWebView2ContentLoadingEventArgs args)
     {
+        pageCommits++;   // #7403: a new page, so each refusal sentence may be shown again on it (RefusalGate)
         // #5492: run and both too, so a Kosmos Plus page opened in their window can hand off to checkout.
         if (mode != KosmosLauncher.ComputerMode.Connect && mode != KosmosLauncher.ComputerMode.Run && mode != KosmosLauncher.ComputerMode.Both) return;
         ulong navId;
@@ -4187,6 +4496,32 @@ class BoardWindowForm : System.Windows.Forms.Form
         string failedLoad;
         bool boardNav = boardNavs.TryGetValue(navId, out failedLoad);
         boardNavs.Remove(navId);
+        // #7403: a board's 204 to a plain navigation is its refusal of a download (the board's refuseDownload). Said once
+        // it is clear no download came of it, and not taken for a board that could not be reached (it answered).
+        if (success == 0)
+        {
+            string inWindowAddress;
+            bool inWindow = connectInWindow.TryGetValue(navId, out inWindowAddress);
+            string address = boardNav ? failedLoad : inWindowAddress;
+            bool toBoard = boardNav || (inWindow && KosmosLauncher.IsKosmosPlusAddress(inWindowAddress));
+            int webError;
+            args.get_WebErrorStatus(out webError);
+            int httpStatus = 0;
+            try
+            {
+                ICoreWebView2NavigationCompletedEventArgs2 args2 = args as ICoreWebView2NavigationCompletedEventArgs2;
+                if (args2 != null) args2.get_HttpStatusCode(out httpStatus);
+            }
+            catch { httpStatus = 0; }
+            string refused = KosmosLauncher.NoContentNavigationSays(false, webError, httpStatus, toBoard, address);
+            if (refused != null)
+            {
+                // Decided by SayUnlessADownloadStarted: a refusal, a download, or (the board did not prove) the same
+                // not-confirmed check the failed-load handling below would make for this error. So not handled twice.
+                SayUnlessADownloadStarted(address, refused, boardNav);
+                boardNav = false;
+            }
+        }
         // A board load that worked ends a run of failures: the next failure is retried again (once).
         if (boardNav && success != 0) failedLoadRetriedVisit = -1;
         if (boardNav && success == 0)
@@ -4981,6 +5316,31 @@ public class NavigationCompleted : ICoreWebView2NavigationCompletedEventHandler
     }
 }
 
+// #7403: a download is starting (BoardWindowForm.OnDownloadStarting), and how each one ends (OnDownloadStateChanged).
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public class DownloadStarting : ICoreWebView2DownloadStartingEventHandler
+{
+    readonly BoardWindowForm form;
+    internal DownloadStarting(BoardWindowForm form) { this.form = form; }
+    public int Invoke(ICoreWebView2 sender, ICoreWebView2DownloadStartingEventArgs args)
+    {
+        try { form.OnDownloadStarting(args); } catch { /* see above */ }
+        return 0;
+    }
+}
+
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public class DownloadStateChanged : ICoreWebView2StateChangedEventHandler
+{
+    readonly BoardWindowForm form;
+    internal DownloadStateChanged(BoardWindowForm form) { this.form = form; }
+    public int Invoke(ICoreWebView2DownloadOperation sender, object args)
+    {
+        try { form.OnDownloadStateChanged(sender); } catch { /* see above */ }
+        return 0;
+    }
+}
+
 // #1765: before this process sends the board token, the listener on the board port shows it already holds that
 // token. Every account on a Windows computer uses the same port, so whatever answers there is not always this
 // account's board. The exchange is engine/boardproof.js's, byte for byte (tools.win-launcher-board-proof-1765.test.js
@@ -5624,4 +5984,146 @@ public interface ICoreWebView2WebMessageReceivedEventArgs
 {
     void get_Source([MarshalAs(UnmanagedType.LPWStr)] out string source);
     void get_WebMessageAsJson([MarshalAs(UnmanagedType.LPWStr)] out string webMessageAsJson);
+}
+
+// ---- #7403: downloads, and a navigation's HTTP status. WebView2.h 1.0.4191.47, line ranges given per interface. ----
+//
+// ICoreWebView2_4 derives from _3, _2 and ICoreWebView2. A C# [ComImport] interface cannot inherit another's slots,
+// so this one restates every slot of all four, in the header's order: ICoreWebView2's 58 (lines 3019-3218), _2's 7
+// (5318-5345), _3's 5 (6130-6150), then _4's own (6891-6909) up to add_DownloadStarting, the one this file calls.
+// tools.win-launcher-download-say-7403.test.js counts them. Reached by a cast of the window's ICoreWebView2 (a
+// QueryInterface), never assumed.
+[ComImport, Guid("20d02d59-6df2-42dc-bd06-f98a694b1302"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2_4
+{
+    // ICoreWebView2 (WebView2.h 3019-3218)
+    void _unused_get_Settings();
+    void _unused_get_Source();
+    void _unused_Navigate();
+    void _unused_NavigateToString();
+    void _unused_add_NavigationStarting();
+    void _unused_remove_NavigationStarting();
+    void _unused_add_ContentLoading();
+    void _unused_remove_ContentLoading();
+    void _unused_add_SourceChanged();
+    void _unused_remove_SourceChanged();
+    void _unused_add_HistoryChanged();
+    void _unused_remove_HistoryChanged();
+    void _unused_add_NavigationCompleted();
+    void _unused_remove_NavigationCompleted();
+    void _unused_add_FrameNavigationStarting();
+    void _unused_remove_FrameNavigationStarting();
+    void _unused_add_FrameNavigationCompleted();
+    void _unused_remove_FrameNavigationCompleted();
+    void _unused_add_ScriptDialogOpening();
+    void _unused_remove_ScriptDialogOpening();
+    void _unused_add_PermissionRequested();
+    void _unused_remove_PermissionRequested();
+    void _unused_add_ProcessFailed();
+    void _unused_remove_ProcessFailed();
+    void _unused_AddScriptToExecuteOnDocumentCreated();
+    void _unused_RemoveScriptToExecuteOnDocumentCreated();
+    void _unused_ExecuteScript();
+    void _unused_CapturePreview();
+    void _unused_Reload();
+    void _unused_PostWebMessageAsJson();
+    void _unused_PostWebMessageAsString();
+    void _unused_add_WebMessageReceived();
+    void _unused_remove_WebMessageReceived();
+    void _unused_CallDevToolsProtocolMethod();
+    void _unused_get_BrowserProcessId();
+    void _unused_get_CanGoBack();
+    void _unused_get_CanGoForward();
+    void _unused_GoBack();
+    void _unused_GoForward();
+    void _unused_GetDevToolsProtocolEventReceiver();
+    void _unused_Stop();
+    void _unused_add_NewWindowRequested();
+    void _unused_remove_NewWindowRequested();
+    void _unused_add_DocumentTitleChanged();
+    void _unused_remove_DocumentTitleChanged();
+    void _unused_get_DocumentTitle();
+    void _unused_AddHostObjectToScript();
+    void _unused_RemoveHostObjectFromScript();
+    void _unused_OpenDevToolsWindow();
+    void _unused_add_ContainsFullScreenElementChanged();
+    void _unused_remove_ContainsFullScreenElementChanged();
+    void _unused_get_ContainsFullScreenElement();
+    void _unused_add_WebResourceRequested();
+    void _unused_remove_WebResourceRequested();
+    void _unused_AddWebResourceRequestedFilter();
+    void _unused_RemoveWebResourceRequestedFilter();
+    void _unused_add_WindowCloseRequested();
+    void _unused_remove_WindowCloseRequested();
+    // ICoreWebView2_2 (WebView2.h 5318-5345)
+    void _unused_add_WebResourceResponseReceived();
+    void _unused_remove_WebResourceResponseReceived();
+    void _unused_NavigateWithWebResourceRequest();
+    void _unused_add_DOMContentLoaded();
+    void _unused_remove_DOMContentLoaded();
+    void _unused_get_CookieManager();
+    void _unused_get_Environment();
+    // ICoreWebView2_3 (WebView2.h 6130-6150)
+    void _unused_TrySuspend();
+    void _unused_Resume();
+    void _unused_get_IsSuspended();
+    void _unused_SetVirtualHostNameToFolderMapping();
+    void _unused_ClearVirtualHostNameToFolderMapping();
+    // ICoreWebView2_4 (WebView2.h 6891-6909)
+    void _unused_add_FrameCreated();
+    void _unused_remove_FrameCreated();
+    void add_DownloadStarting(ICoreWebView2DownloadStartingEventHandler eventHandler, out long token);
+}
+
+// WebView2.h 7599-7607.
+[ComImport, Guid("efedc989-c396-41ca-83f7-07f845a55724"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2DownloadStartingEventHandler
+{
+    [PreserveSig] int Invoke(ICoreWebView2 sender, ICoreWebView2DownloadStartingEventArgs args);
+}
+
+// WebView2.h 43885-43913. Only the operation is read: the download is never cancelled, handled or redirected here.
+[ComImport, Guid("e99bbe21-43e9-4544-a732-282764eafa60"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2DownloadStartingEventArgs
+{
+    void get_DownloadOperation(out ICoreWebView2DownloadOperation downloadOperation);
+}
+
+// WebView2.h 43345-43406, up to get_InterruptReason.
+[ComImport, Guid("3d6b6cf2-afe1-44c7-a995-c65117714336"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2DownloadOperation
+{
+    void _unused_add_BytesReceivedChanged();
+    void _unused_remove_BytesReceivedChanged();
+    void _unused_add_EstimatedEndTimeChanged();
+    void _unused_remove_EstimatedEndTimeChanged();
+    void add_StateChanged(ICoreWebView2StateChangedEventHandler eventHandler, out long token);
+    void _unused_remove_StateChanged();
+    void get_Uri([MarshalAs(UnmanagedType.LPWStr)] out string uri);
+    void _unused_get_ContentDisposition();
+    void _unused_get_MimeType();
+    void _unused_get_TotalBytesToReceive();
+    void _unused_get_BytesReceived();
+    void _unused_get_EstimatedEndTime();
+    void _unused_get_ResultFilePath();
+    void get_State(out int downloadState);
+    void get_InterruptReason(out int interruptReason);
+}
+
+// WebView2.h 43799-43807. The args are a plain IUnknown (nothing to read).
+[ComImport, Guid("81336594-7ede-4ba9-bf71-acf0a95b58dd"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2StateChangedEventHandler
+{
+    [PreserveSig] int Invoke(ICoreWebView2DownloadOperation sender, [MarshalAs(UnmanagedType.IUnknown)] object args);
+}
+
+// WebView2.h 54722-54729: ICoreWebView2NavigationCompletedEventArgs's three (54616-54629, as declared above), then
+// get_HttpStatusCode. Reached by a cast of the args, never assumed.
+[ComImport, Guid("fdf8b738-ee1e-4db2-a329-8d7d7b74d792"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface ICoreWebView2NavigationCompletedEventArgs2
+{
+    void get_IsSuccess(out int isSuccess);
+    void get_WebErrorStatus(out int webErrorStatus);
+    void get_NavigationId(out ulong navigationId);
+    void get_HttpStatusCode(out int httpStatusCode);
 }
