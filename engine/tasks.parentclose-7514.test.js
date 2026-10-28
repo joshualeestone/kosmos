@@ -58,6 +58,9 @@ test('kosmos#7514: closing withBuilt closes its built subtasks, and only those',
   assert.ok(line, 'no closed line in the subtask history');
   assert.equal(line.via, 'parent', 'the subtask history does not say it closed with its parent');
   assert.equal(line.parent, top.number);
+  // and the history reads it: the conversation, the CLI's history and the page all phrase events through this.
+  assert.equal(require('../engine/taskactphrase').phrase(line, (x) => x), 'Marked done with task ' + top.number);
+  assert.equal(require('../engine/taskactphrase').phrase({ kind: 'closed' }, (x) => x), 'Marked done', 'CONTROL: a plain close reads as before');
 });
 
 test('kosmos#7514: a close as replaced takes no subtasks (that round was superseded, not done)', () => {

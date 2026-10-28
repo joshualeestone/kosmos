@@ -1367,7 +1367,8 @@ async function taskAssign(ctx, args) {
 
 const TASK_CLOSE_USAGE = 'Usage: kosmos task close <project-id> <task-number> [<task-number> ...] [--with-built | --replaced-by <task-number>]   (the numbers are shown by kosmos task list; --with-built also closes each one\'s built subtasks; --replaced-by takes one task)';
 /* kosmos#7514, as install/kosmos: the built subtasks a parent's close took with it (closedWith, with --with-built) or left
-   open (builtLeft); an older board sends neither. "13, 14", or '' when there are none. */
+   open (builtLeft); an older board sends neither field, and refuses --with-built (said where its refusal is read). "13, 14",
+   or '' when there are none. */
 function closedWithOf(task, key = 'closedWith') {
   const w = task && Array.isArray(task[key]) ? task[key].filter((x) => Number.isInteger(x)) : [];
   return w.join(', ');
@@ -1381,6 +1382,9 @@ async function taskClose(ctx, args) {
   const by = args[2] === '--replaced-by' ? args[3] : null;
   const wb = args.includes('--with-built');   // kosmos#7514
   const closeBody = wb ? { withBuilt: true } : undefined;
+  if (wb && args.includes('--replaced-by')) { ctx.err('--with-built and --replaced-by do not go together: a replaced task\'s subtasks are closed on their own.'); return 2; }
+  // kosmos#7514: a board older than --with-built refuses the body with words about replacedBy; say what happened instead.
+  const olderBoard = (why) => wb && /takes only replacedBy/.test(why || '');
   if (args[2] === '--replaced-by' && !/^[0-9]+$/.test(by || '')) { ctx.err('--replaced-by needs the number of the task that replaced it, from: kosmos task list <project-id>.'); return 2; }
   if (by) { if (tooManyWords(ctx, 'task close', 4, TASK_CLOSE_USAGE, args)) return 2; }   // kosmos#4889 review 6
   else {
@@ -1392,7 +1396,7 @@ async function taskClose(ctx, args) {
       if (!/^[0-9]+$/.test(w) && tooManyWords(ctx, 'task close', 2, TASK_CLOSE_USAGE, args)) return 2;   // not a number: as #4889 review 6
     }
     /* The board's own limit for closing several at once (server.js BULK_CLOSE_MAX), refused before anything is sent. */
-    if (args.length - 1 > 200) { ctx.err('Close up to 200 tasks at a time: run it again with the rest.'); return 2; }
+    if (args.length - 1 - (wb ? 1 : 0) > 200) { ctx.err('Close up to 200 tasks at a time: run it again with the rest.'); return 2; }
     const nums = args.slice(1).filter((x) => x !== '--with-built');
     if (nums.length > 1) {
       const ok = [];
@@ -1411,11 +1415,13 @@ async function taskClose(ctx, args) {
           const w = closedWithOf(one.json.task);
           if (w) withs.push('Task ' + n + '\'s built subtasks closed with it: ' + w + '.');
           const left = closedWithOf(one.json.task, 'builtLeft');
-          if (left) withs.push('Task ' + n + ' still has built subtasks open: ' + left + '. To close them with it: kosmos task close ' + projectSlug(project) + ' ' + n + ' --with-built');
+          if (left) withs.push('Task ' + n + ' still has built subtasks open: ' + left + '. To close them: kosmos task close ' + projectSlug(project) + ' ' + left.split(', ').join(' '));
+          if (typeof one.json.task.builtLeftWhy === 'string' && one.json.task.builtLeftWhy) withs.push('Kosmos stopped closing them: ' + one.json.task.builtLeftWhy.replace(/\.$/, '') + '.');
           continue;
         }
         // As install/kosmos: an error the board left empty did not say why; anything else is an answer we could not read.
-        const why = ctx.refusedBy(one) || (one.json && typeof one.json.error === 'string' ? 'it did not say why' : '');
+        let why = ctx.refusedBy(one) || (one.json && typeof one.json.error === 'string' ? 'it did not say why' : '');
+        if (olderBoard(why)) why = 'this Kosmos is older than --with-built, so it was not closed (update Kosmos, or close it and its subtasks by number)';
         // One line each: a reason can hold a ; or a ,. An answer we cannot read does not say it did not close.
         bad.push(why ? 'Could not close task ' + n + ': ' + why + '.' : 'Task ' + n + ': Kosmos gave an answer we could not read; check kosmos task list ' + project + '.');
         /* Who is asking (401/403), a board that could not check or read its projects (500/503), no such project, or an
@@ -1458,9 +1464,11 @@ async function taskClose(ctx, args) {
     const w = closedWithOf(r.json.task);
     if (w) ctx.out('Its built subtasks closed with it: ' + w + '.');
     const left = closedWithOf(r.json.task, 'builtLeft');
-    if (left) ctx.out('Its built subtasks are still open: ' + left + '. To close them with it: kosmos task close ' + projectSlug(project) + ' ' + num + ' --with-built');
+    if (left) ctx.out('Its built subtasks are still open: ' + left + '. To close them: kosmos task close ' + projectSlug(project) + ' ' + left.split(', ').join(' '));
+    if (typeof r.json.task.builtLeftWhy === 'string' && r.json.task.builtLeftWhy) ctx.out('Kosmos stopped closing them: ' + r.json.task.builtLeftWhy.replace(/\.$/, '') + '.');
     return 0;
   }
+  if (olderBoard(ctx.refusedBy(r))) { ctx.err('This Kosmos is older than --with-built, so task ' + num + ' was not closed. Update Kosmos, or close it and its subtasks by number.'); return 1; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not close that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when closing that task.');
   return 1;

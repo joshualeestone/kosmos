@@ -249,7 +249,7 @@ function treeOf(p) {
   /* kosmos#5956: `built` counts the open children marked built (builtAt), so a parent can say every subtask is built
      and waiting for the person, not only every subtask closed. Marking built already asks the agent to answer the
      task's done-when checks. */
-  const isBuilt = (t) => !progressOf(t).closed && !isOnHold(t) && typeof t.builtAt === 'string' && t.builtAt !== '';   // held reads held (taskState)
+  const isBuilt = isBuiltOpen;   // held reads held (taskState); one definition, shared with kosmos#7514's closesWithParent
   const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, total: k.length }; };
   return { byNum, up, under, progress };
 }
@@ -991,8 +991,8 @@ function replacedByValue(v) {
 /** kosmos#7514: whether a subtask may close with its parent: open, not held, marked built ("Built but waiting", #3951,
  * treeOf's test), and not a repeat the person set or whose reviewer they chose (theirs to end: the close route refuses
  * it). Read before the walk and again inside each write. */
-const closesWithParent = (t) => typeof t.builtAt === 'string' && t.builtAt !== '' && !isOnHold(t) && !progressOf(t).closed
-  && !(t.repeat && (t.repeatByPerson === true || t.repeatReviewerByPerson === true));
+function isBuiltOpen(t) { return !progressOf(t).closed && !isOnHold(t) && typeof t.builtAt === 'string' && t.builtAt !== ''; }
+const closesWithParent = (t) => isBuiltOpen(t) && !(t.repeat && (t.repeatByPerson === true || t.repeatReviewerByPerson === true));
 
 /** kosmos#7514: the subtasks under task `top` on project record `p` that may close with it, and theirs under them, in
  * order. A child that may not (open, held, closed, the person's repeat) is not taken, nor anything under it. One tree for
@@ -1030,14 +1030,15 @@ function close(projectId, n, { replacedBy = null, withBuilt = false, wantLeft = 
   if (withBuilt !== true) return { ...closed, builtLeft: built };
   const closedWith = [];
   let at = 0;
+  let why = '';   // what stopped the rest, said in the answer rather than swallowed
   try {
     for (; at < built.length; at += 1) {
       // Re-checked inside its own write: one that may no longer close with its parent is left as it is.
       if (setClosed(projectId, built[at], new Date().toISOString(), { via: 'parent', parent: closed.number }, { onlyIfBuilt: true })) closedWith.push(built[at]);
     }
-  } catch { /* stopped: the rest are named left, below */ }
+  } catch (err) { why = String((err && err.message) || err || 'it did not say why'); }
   const left = built.slice(at);
-  return { ...closed, ...(closedWith.length ? { closedWith } : {}), ...(left.length ? { builtLeft: left } : {}) };
+  return { ...closed, ...(closedWith.length ? { closedWith } : {}), ...(left.length ? { builtLeft: left } : {}), ...(why ? { builtLeftWhy: why } : {}) };
 }
 
 /** Reopen: the undo of the one human verb. #6157: who put it back (`by`, an agent its token named; `person`, the
@@ -1059,10 +1060,10 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
   let heldDropped = false;
   let repeatDropped = false;
   let skipped = false;   // kosmos#7514: `onlyIfBuilt` and it is no longer built: left as it is, and null returned
-  projects.mutate(projectId, (p) => {
+  try { projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
-    if (onlyIfBuilt && !closesWithParent(t)) { skipped = true; return p; }
+    if (onlyIfBuilt && !closesWithParent(t)) { skipped = true; throw NO_WRITE; }   // left as it is: no write, no updatedAt
     // #992: record on the DERIVED completion state (progressOf), not the raw
     // parent closedAt. Two reasons: (1) a re-close passes a fresh timestamp, so
     // comparing closed-ness rather than the value logs no duplicate; (2) an
@@ -1102,7 +1103,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
-  });
+  }); } catch (err) { if (err !== NO_WRITE) throw err; }   // kosmos#7514: NO_WRITE is the onlyIfBuilt skip
   if (skipped) return null;
   // kosmos#7514: a subtask closed with its parent says so (via, and which parent), as hold-cleared says via.
   const closedBy = said.via === 'parent' && Number.isInteger(said.parent) ? { via: 'parent', parent: said.parent } : {};

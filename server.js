@@ -24174,14 +24174,17 @@ const server = http.createServer(async (req, res) => {
         // ⚠️ `whoOf`, not `t.who`: a task with parts has no `who`, so the block
         // stopped following the record and an agent's instructions kept listing
         // a task it had already finished.
-        let told = tellEveryoneOn(t);
-        // kosmos#7514: the built subtasks closed with it: each of their agents is told once, from one roster (non-gating).
-        if (Array.isArray(t.closedWith) && t.closedWith.length) {
+        // kosmos#7514: with built subtasks closed too, one roster serves the parent's agents and theirs, each told once.
+        // `told` stays the parent's verdict (its one-verdict shape); the subtasks' agents are told without a verdict.
+        const withSubs = Array.isArray(t.closedWith) && t.closedWith.length > 0;
+        const roster = withSubs ? safeRoster() : undefined;
+        let told = tellEveryoneOn(t, roster);
+        if (withSubs) {
           const rec = (projects.readAll() || []).find((x) => x && x.id === id);   // raw: no claim join
           const named = new Set();
           for (const sub of t.closedWith) { const k = rec ? tasks.byNumber(rec, sub) : null; if (k) for (const one of tasks.whoOf(k)) named.add(one); }
           for (const one of tasks.whoOf(t)) named.delete(one);   // told above
-          if (named.size) { const roster = safeRoster(); for (const one of named) { try { projects.syncAgent(one, roster); } catch { /* non-gating */ } } }
+          for (const one of named) { try { projects.syncAgent(one, roster); } catch { /* non-gating */ } }
         }
         sendJson(res, 200, { task: t, told });
       } catch (err) {

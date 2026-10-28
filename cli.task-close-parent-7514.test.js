@@ -141,7 +141,7 @@ for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) 
     const a = round(name + 'Hint');
     const plain = await run(['task', 'close', projectId, String(a.top)]);
     assert.equal(plain.code, 0, plain.text);
-    assert.match(plain.text, new RegExp('Its built subtasks are still open: ' + a.kid + '\\. To close them with it: kosmos task close \\S+ ' + a.top + ' --with-built'));
+    assert.match(plain.text, new RegExp('Its built subtasks are still open: ' + a.kid + '\\. To close them: kosmos task close \\S+ ' + a.kid + '\\b'));
     assert.equal(isDone(a.kid), false);
     const b = round(name + 'One');
     const one = await run(['task', 'close', projectId, String(b.top), '--with-built']);
@@ -156,7 +156,7 @@ for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) 
     const e = round(name + 'ManyPlain');
     const f = round(name + 'ManyPlain2');
     const manyPlain = await run(['task', 'close', projectId, String(e.top), String(f.open)]);
-    assert.match(manyPlain.text, new RegExp('Task ' + e.top + ' still has built subtasks open: ' + e.kid + '\\.'));
+    assert.match(manyPlain.text, new RegExp('Task ' + e.top + ' still has built subtasks open: ' + e.kid + '\\. To close them: kosmos task close \\S+ ' + e.kid + '\\b'));
     assert.equal(isDone(e.kid), false);
     const g = round(name + 'Lone');
     const lone = await run(['task', 'close', projectId, String(g.open)]);
@@ -177,6 +177,80 @@ for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) 
     const c = round(name + 'Order');
     const refused = await run(['task', 'close', projectId, String(c.top), '--with-built', '--replaced-by', String(c.open)]);
     assert.notEqual(refused.code, 0, refused.text);
+    assert.match(refused.text, /--with-built and --replaced-by do not go together/);
     assert.equal(isDone(c.top), false, 'a refused close closed the task');
+    const other = await run(['task', 'close', projectId, String(c.top), '--replaced-by', String(c.open), '--with-built']);
+    assert.match(other.text, /--with-built and --replaced-by do not go together/, 'the other order: ' + other.text);
   });
 }
+
+const http = require('node:http');
+/* A board older than --with-built: it refuses any close body with more than replacedBy, as the route did before #7514. */
+async function olderBoard() {
+  const proxy = http.createServer((req, res) => {
+    if (req.method === 'POST' && /\/task\/\d+\/close$/.test(req.url)) {
+      let raw = ''; req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        if (raw.trim() && /withBuilt/.test(raw)) { res.writeHead(400, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'a close takes only replacedBy (the number of the task that replaced it), so the task was not closed' })); return; }
+        const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+        up.end(raw);
+      });
+      return;
+    }
+    const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+    up.on('error', () => { res.statusCode = 502; res.end(); });
+    req.pipe(up);
+  });
+  await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+  return proxy;
+}
+async function viaPort(label, port, argv) {
+  if (label === 'Mac') return mac(argv, '', port);
+  const pbase = 'http://127.0.0.1:' + port;
+  const out = []; const err = [];
+  const code = await cli.main(argv, { env: {}, url: pbase, hook: { resolveUrl: () => pbase, readBoardToken: () => null, agentToken: () => null }, out: (s) => out.push(s), err: (s) => err.push(s) });
+  return { code, text: out.concat(err).join('\n') };
+}
+
+for (const label of ['Windows', 'Mac']) {
+  test(`kosmos#7514: on a board older than --with-built the ${label} command says so, and nothing closed`, async () => {
+    const a = round(label + 'Old');
+    const b = round(label + 'Old2');
+    const proxy = await olderBoard();
+    try {
+      const one = await viaPort(label, proxy.address().port, ['task', 'close', projectId, String(a.top), '--with-built']);
+      assert.notEqual(one.code, 0, one.text);
+      assert.match(one.text, new RegExp('This Kosmos is older than --with-built, so task ' + a.top + ' was not closed'), one.text);
+      const many = await viaPort(label, proxy.address().port, ['task', 'close', projectId, String(a.top), String(b.top), '--with-built']);
+      assert.match(many.text, new RegExp('Could not close task ' + a.top + ': this Kosmos is older than --with-built'), many.text);
+    } finally { proxy.close(); }
+    assert.equal(isDone(a.top), false);
+  });
+
+  test(`kosmos#7514: the ${label} command says why Kosmos stopped closing the subtasks part way`, async () => {
+    const top = tasks.create(projectId, { sentence: label + ' partial' });
+    const k1 = tasks.create(projectId, { sentence: label + ' p1', parent: top.number, who: 'mara' });
+    const k2 = tasks.create(projectId, { sentence: label + ' p2', parent: top.number, who: 'mara' });
+    assert.equal(tasks.setBuilt(projectId, k1.number, { by: 'mara' }).ok, true);
+    assert.equal(tasks.setBuilt(projectId, k2.number, { by: 'mara' }).ok, true);
+    const real = projects.mutate;
+    let calls = 0;
+    projects.mutate = (...args) => { calls += 1; if (calls === 3) throw new Error('the disk is full'); return real(...args); };
+    let r;
+    try { r = await (label === 'Mac' ? mac : win)(['task', 'close', projectId, String(top.number), '--with-built']); } finally { projects.mutate = real; }
+    assert.match(r.text, new RegExp('Its built subtasks closed with it: ' + k1.number + '\\.'), r.text);
+    assert.match(r.text, new RegExp('Its built subtasks are still open: ' + k2.number + '\\.'), r.text);
+    assert.match(r.text, /Kosmos stopped closing them: the disk is full\./, r.text);
+  });
+}
+
+test('kosmos#7514: an agent on the parent and on a closed subtask is told once', async () => {
+  const top = tasks.create(projectId, { sentence: 'Both round', who: 'mara' });
+  const kid = tasks.create(projectId, { sentence: 'Both seat', parent: top.number, who: 'mara' });
+  assert.equal(tasks.setBuilt(projectId, kid.number, { by: 'mara' }).ok, true);
+  const told = [];
+  const real = projects.syncAgent;
+  projects.syncAgent = (name, roster) => { told.push(name); return real(name, roster); };
+  try { await post(top.number, { withBuilt: true }); } finally { projects.syncAgent = real; }
+  assert.equal(told.filter((x) => x === 'mara').length, 1, 'told ' + JSON.stringify(told));
+});

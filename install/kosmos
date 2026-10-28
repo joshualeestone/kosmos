@@ -5816,6 +5816,8 @@ cmd_task() {
       local _cusage="Usage: kosmos task close <project-id> <task-number> [<task-number> ...] [--with-built | --replaced-by <task-number>]   (the numbers are shown by kosmos task list; --with-built also closes each one's built subtasks; --replaced-by takes one task)"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_cusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      # kosmos#7514: a replaced task's subtasks are not closed with it, so the two do not go together (as the board refuses).
+      case " $* " in *" --with-built "*) case " $* " in *" --replaced-by "*) say "--with-built and --replaced-by do not go together: a replaced task's subtasks are closed on their own."; exit 2 ;; esac ;; esac
       # #6923: --replaced-by <n> closes it as replaced by task n, rather than done. Nothing else may follow the number.
       if [ "${3:-}" = "--replaced-by" ]; then
         case "${4:-}" in ''|*[!0-9]*) say "--replaced-by needs the number of the task that replaced it, from: kosmos task list <project-id>."; exit 2 ;; esac
@@ -5832,7 +5834,8 @@ cmd_task() {
           esac
         done
         # The board's own limit for closing several at once (server.js BULK_CLOSE_MAX), refused before anything is sent.
-        [ $(($# - 1)) -le 200 ] || { say "Close up to 200 tasks at a time: run it again with the rest."; exit 2; }
+        local _cn=$(($# - 1)) _cf; for _cf in "${@:3}"; do [ "$_cf" = "--with-built" ] && _cn=$((_cn - 1)); done   # the flag is not a task
+        [ "$_cn" -le 200 ] || { say "Close up to 200 tasks at a time: run it again with the rest."; exit 2; }
       fi ;;
     reopen)
       # #6157: put a done task back, keeping its number and history; the words after the number are why.
@@ -6263,13 +6266,17 @@ cmd_task() {
           case "$_code" in 3??) _redir="$_n"; _stop="$_n"; _left="$_n"; continue ;; esac
           case "$_b" in
             '{"task":'*) _ok="${_ok:+$_ok, }$_n"
-              # kosmos#7514: name the built subtasks closed with it (--with-built), or those still open (an older board sends neither).
+              # kosmos#7514: name the built subtasks closed with it (--with-built), or those still open (an older board sends neither field, and refuses --with-built: said below).
               _w=$(printf '%s' "$_b" | sed -n 's/.*"closedWith":\[\([0-9,]*\)\].*/\1/p' | sed 's/,/, /g')
               [ -z "$_w" ] || _withs="${_withs}Task $_n's built subtasks closed with it: $_w."$'\n'
               _w=$(printf '%s' "$_b" | sed -n 's/.*"builtLeft":\[\([0-9,]*\)\].*/\1/p' | sed 's/,/, /g')
-              [ -z "$_w" ] || _withs="${_withs}Task $_n still has built subtasks open: $_w. To close them with it: kosmos task close $project $_n --with-built"$'\n'
+              [ -z "$_w" ] || _withs="${_withs}Task $_n still has built subtasks open: $_w. To close them: kosmos task close $project ${_w//, / }"$'\n'
+              _w=$(printf '%s' "$_b" | sed -n 's/.*"builtLeftWhy":"\([^"]*\)".*/\1/p')
+              [ -z "$_w" ] || _withs="${_withs}Kosmos stopped closing them: ${_w%.}."$'\n'
               continue ;;
-            '{"error":'*) _why=$(printf '%s' "$_b" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'); _why="${_why%.}"; _why="${_why:-it did not say why}" ;;
+            '{"error":'*) _why=$(printf '%s' "$_b" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'); _why="${_why%.}"; _why="${_why:-it did not say why}"
+              # kosmos#7514: a board older than --with-built refuses the body; say that, not its words about replacedBy.
+              case "$_wb:$_why" in 1:*"takes only replacedBy"*) _why="this Kosmos is older than --with-built, so it was not closed (update Kosmos, or close it and its subtasks by number)" ;; esac ;;
             *) _why="" ;;
           esac
           # One line each: a reason can hold a ; or a ,. An answer we cannot read does not say it did not close.
@@ -6315,13 +6322,16 @@ cmd_task() {
             if [ -z "$_got" ]; then say "Closed task $num on ${project:-the project}, but this Kosmos did not record what replaced it (it is older than this command). It now reads as done. To undo that: kosmos task reopen $project $num"; exit 1; fi
             say "Closed task $num on ${project:-the project} as replaced by task $_got."
           else say "Closed task $num on ${project:-the project}."
-            # kosmos#7514: name the built subtasks closed with it (--with-built), or those still open (an older board sends neither).
+            # kosmos#7514: name the built subtasks closed with it (--with-built), or those still open (an older board sends neither field, and refuses --with-built: said below).
             local _w; _w=$(printf '%s' "$body" | sed -n 's/.*"closedWith":\[\([0-9,]*\)\].*/\1/p' | sed 's/,/, /g')
             [ -z "$_w" ] || say "Its built subtasks closed with it: $_w."
             _w=$(printf '%s' "$body" | sed -n 's/.*"builtLeft":\[\([0-9,]*\)\].*/\1/p' | sed 's/,/, /g')
-            [ -z "$_w" ] || say "Its built subtasks are still open: $_w. To close them with it: kosmos task close $project $num --with-built"; fi ;;
+            [ -z "$_w" ] || say "Its built subtasks are still open: $_w. To close them: kosmos task close $project ${_w//, / }"
+            _w=$(printf '%s' "$body" | sed -n 's/.*"builtLeftWhy":"\([^"]*\)".*/\1/p')
+            [ -z "$_w" ] || say "Kosmos stopped closing them: ${_w%.}."; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          case "$_wb:$because" in 1:*"takes only replacedBy"*) say "This Kosmos is older than --with-built, so task $num was not closed. Update Kosmos, or close it and its subtasks by number."; exit 1 ;; esac
           say "Kosmos could not close that task: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when closing that task."; exit 1 ;;
       esac
