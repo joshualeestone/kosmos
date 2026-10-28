@@ -321,3 +321,40 @@ test('review 1: a task its parts closed, then reopened by a new part, drops the 
   assert.equal(tasks.progressOf(stored(n)).closed, false, 'CONTROL: a new part reopened it');
   assert.equal(stored(n).landedCommit, undefined, 'new work kept the old commit');
 });
+
+test('review 5: a checkout with uncommitted changes is refused by both CLIs (HEAD would be the commit before the fix)', async () => {
+  const tok = sendertoken.mint('mona').token;
+  const r = makeRepo('dirty');
+  fs.writeFileSync(path.join(r.dir, 'fix.txt'), 'the fix, not committed yet\n');
+  const n = newTask('Fix not committed yet');
+  if (process.platform !== 'win32') {
+    const mr = await mac(['task', 'built', projectId, String(n), '--commit', 'HEAD'], { KOSMOS_AGENT_TOKEN: tok }, r.dir);
+    assert.equal(mr.code, 2, mr.out);
+    assert.match(mr.out, /changes that are not committed\. Commit the fix first/);
+  }
+  const wr = await win(['task', 'built', projectId, String(n), '--commit', 'HEAD'], r.dir);
+  assert.equal(wr.code, 2, wr.out + wr.err);
+  assert.match(wr.err, /changes that are not committed\. Commit the fix first/);
+  assert.equal(stored(n).builtAt, undefined, 'a dirty checkout still marked the task');
+  // CONTROL: an untracked file is not an uncommitted fix, and committing makes it clean.
+  git(r.dir, 'commit', '-q', '-am', 'the fix');
+  fs.writeFileSync(path.join(r.dir, 'notes.txt'), 'scratch\n');
+  const ok = await win(['task', 'built', projectId, String(n), '--commit', 'HEAD'], r.dir);
+  assert.equal(ok.code, 0, ok.out + ok.err);
+  assert.equal(stored(n).landedCommit, git(r.dir, 'rev-parse', 'HEAD'));
+});
+
+test('review 5: the Windows CLI says the commit was recorded only when the board\'s answer carries it', async () => {
+  const r = makeRepo('older-board');
+  const out = [];
+  const err = [];
+  const code = await winCli.main(['task', 'built', projectId, '1', '--commit', 'HEAD'], {
+    env: { KOSMOS_AGENT_TOKEN: sendertoken.mint('mona').token, KOSMOS_PORT: '1' },
+    out: (s) => out.push(s), err: (s) => err.push(s),
+    git: (args) => execFileSync('git', args, { cwd: r.dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }),
+    fetch: async () => ({ status: 200, text: async () => JSON.stringify({ task: { number: 1 }, changed: true }) }),   // an older board
+  });
+  assert.equal(code, 0, err.join('\n'));
+  assert.ok(out.join('\n').includes('This Kosmos did not record the commit'), out.join('\n'));
+  assert.equal(out.join('\n').includes('Recorded commit'), false, 'it said recorded when the board dropped it');
+});

@@ -43,3 +43,10 @@ test('#7508 slice 2: a closed row whose change cannot be found says so plainly; 
   // An open task is never flagged, even if a check were sent for it (control).
   assert.match(row({ ...base, landedCommit: SHA, landedOnRemote: true, landedCheck: 'missing' }), /Saved as change 0123456<\/div>/);
 });
+
+test('#7508 review 5: a closed row still only on this computer says it as a warning; an open one does not (control)', () => {
+  const local = { ...base, landedCommit: SHA, landedOnRemote: false };
+  assert.match(row({ ...local, state: 'closed' }), /<div class="why tsk-landed tsk-landed-missing">Saved as change 0123456, only on this computer so far<\/div>/);
+  assert.match(row(local), /<div class="why tsk-landed">Saved as change 0123456, only on this computer so far<\/div>/);
+  assert.doesNotMatch(row({ ...base, landedCommit: SHA.slice(0, 41) + 'a'.repeat(9), landedOnRemote: true }), /tsk-landed/, 'a 50-character value read as a sha');
+});

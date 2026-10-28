@@ -1663,6 +1663,11 @@ async function taskBuilt(ctx, args) {
     }
     const repo = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
     if (!repo) { ctx.err('Kosmos cannot read which repository that commit is in.'); return 2; }
+    if (!/^(?:[A-Za-z]:[\\/]|\/)/.test(repo)) { ctx.err('Kosmos cannot read which repository that commit is in (it needs git 2.31 or later).'); return 2; }   // review 5: as the Mac
+    /* Review 5, as install/kosmos: changed tracked files mean the fix is not (all) committed, so nothing is recorded. */
+    let dirty;
+    try { dirty = String(ctx.git(['status', '--porcelain', '--untracked-files=no'])).trim(); } catch { dirty = '?'; }
+    if (dirty) { ctx.err('Kosmos did not mark it: this checkout has changes that are not committed. Commit the fix first, then mark it built with --commit.'); return 2; }
     if (/[\u0000-\u001f\u007f]/.test(repo)) { ctx.err('Kosmos cannot record a commit from a repository whose path has control characters in it.'); return 2; }   // review 3: as the Mac
     commit = { sha, repo, onRemote: git(['branch', '-r', '--contains', sha]) !== '' };
   }
@@ -1679,7 +1684,11 @@ async function taskBuilt(ctx, args) {
     // #6761, as install/kosmos: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
     if (!clear && fingerprint) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
     // #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
-    if (!clear && commit) ctx.out('Recorded commit ' + commit.sha.slice(0, 7) + '.' + (commit.onRemote ? '' : ' It is not pushed yet: push it so it is not only on this computer.'));
+    // Review 5: only when the board's answer carries it (an older board drops a field it does not know).
+    if (!clear && commit) {
+      if (r.json.task.landedCommit === commit.sha) ctx.out('Recorded commit ' + commit.sha.slice(0, 7) + '.' + (commit.onRemote ? '' : ' It is not pushed yet: push it so it is not only on this computer.'));
+      else ctx.out('This Kosmos did not record the commit: it may be older than --commit. Update it, then mark the task again.');
+    }
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that task: ' + ctx.refusedBy(r) + '.'); return 1; }

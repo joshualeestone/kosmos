@@ -6379,6 +6379,10 @@ cmd_task() {
         case "$csha" in ????????????????????????????????????????|????????????????????????????????????????????????????????????????) ;; *) say "Kosmos cannot find that commit here: $cref. Run this inside the repository the fix was committed in, and name the commit (for example --commit HEAD)."; exit 2 ;; esac
         crepo=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || crepo=""
         [ -n "$crepo" ] || { say "Kosmos cannot read which repository that commit is in."; exit 2; }
+        # Review 5: an uncommitted fix with --commit HEAD would record the commit BEFORE it as the fix, the very case
+        # this is for. Changed tracked files here mean the fix is not (all) committed, so nothing is recorded.
+        local _dirty; _dirty=$(git status --porcelain --untracked-files=no 2>/dev/null) || _dirty="?"
+        [ -z "$_dirty" ] || { say "Kosmos did not mark it: this checkout has changes that are not committed. Commit the fix first, then mark it built with --commit."; exit 2; }
         # The board refuses a path with control characters, and one would break this hand-built JSON: say so here.
         case "$crepo" in *[[:cntrl:]]*) say "Kosmos cannot record a commit from a repository whose path has control characters in it."; exit 2 ;; esac
         case "$crepo" in /*) ;; *) say "Kosmos cannot read which repository that commit is in (it needs git 2.31 or later)."; exit 2 ;; esac   # review 3
@@ -6411,9 +6415,14 @@ cmd_task() {
             # #6761: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
             [ -z "$fingerprint" ] || say "Fingerprint sent: $fingerprint for $file"
             # #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
+            # Review 5: only when the board's answer carries it (an older board drops a field it does not know).
             if [ -n "$csha" ]; then
-              if [ "$conremote" = true ]; then say "Recorded commit ${csha:0:7}."
-              else say "Recorded commit ${csha:0:7}. It is not pushed yet: push it so it is not only on this computer."; fi
+              case "$body" in
+                *"\"landedCommit\":\"$csha\""*)
+                  if [ "$conremote" = true ]; then say "Recorded commit ${csha:0:7}."
+                  else say "Recorded commit ${csha:0:7}. It is not pushed yet: push it so it is not only on this computer."; fi ;;
+                *) say "This Kosmos did not record the commit: it may be older than --commit. Update it, then mark the task again." ;;
+              esac
             fi; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
