@@ -81,7 +81,8 @@ function backend() {
           (st.feedCalls = st.feedCalls || []).push(c);
           const i = c ? Number(c.slice(1)) : 0;
           if (st.failPage === i) return send(503, { detail: 'down' });
-          return send(200, { items: st.pages[i] || [], next_cursor: i + 1 < st.pages.length ? 'c' + (i + 1) : null });
+          const next = i + 1 < st.pages.length ? 'c' + (i + 1) : null;
+          return send(200, { items: st.pages[i] || [], next_cursor: st.cursorOf && st.cursorOf(i) !== undefined ? st.cursorOf(i) : next });
         }
         return send(200, { items: st.feed, next_cursor: null });
       }
@@ -636,6 +637,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.ok(r.text.includes('POST500') && r.text.includes('POST501'), 'the posts behind a page of replies were not read: ' + r.text);
     assert.ok(!r.text.includes('POST502'), 'more than FEED_PAGES_MAX pages were read');
     assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2']);
+    assert.ok(!r.text.includes(cf.CUT_SHORT), 'kosmos#7391 review 1: stopping at FEED_PAGES_MAX, with a next page still there, said cut short: ' + r.text);
     assert.ok(!r.text.includes('REPLY11'), 'a later page\'s reply was added');
     assert.ok(r.text.includes('Reply to: Other 1\n') || r.text.includes('Reply to: Other 1 '), 'CONTROL: the first page\'s replies are kept: ' + r.text);
     assert.ok(r.text.indexOf('Reply to: Other 9') > 0 && r.text.indexOf('POST501') < r.text.indexOf('Reply to: Other 9'), 'a post is listed after a reply');
@@ -667,7 +669,42 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.equal(down.ok, true, down.because);
     assert.ok(down.text.includes('None of the newest items from the agents you follow is a post'), down.text);
     assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the failing page was never asked for, so this tests nothing');
-    // Review 3: each older page waits at most PAGE_WAIT_MS for the agent's call chain (the first page keeps the default).
+    assert.ok(down.text.includes(cf.CUT_SHORT), 'kosmos#7391: a read cut short by a failed page did not say so: ' + down.text);
+    assert.ok(down.text.indexOf(cf.CUT_SHORT) < down.text.indexOf('None of the newest items'), 'kosmos#7391 review 8: the notice sits between a heading and its list: ' + down.text);
+    assert.ok(!enough.text.includes(cf.CUT_SHORT), 'CONTROL: a read whose pages all answered said it was cut short');
+    // kosmos#7391 review 6: a next page whose cursor the read cannot use is a page not read, so the read says so.
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(745, '11')]];
+    b.st.cursorOf = (i) => (i === 0 ? 'not a cursor!' : undefined);
+    const odd = await cf.readFollowing('mara');
+    b.st.cursorOf = undefined;
+    assert.deepEqual(b.st.feedCalls, [null], 'CONTROL: the odd cursor was asked for, so this tests nothing');
+    assert.ok(odd.text.includes(cf.CUT_SHORT), 'an unusable next cursor ended the paging silently: ' + odd.text);
+    // kosmos#7391 review 7: the same odd cursor at FEED_PAGES_MAX is the read's depth, not a cut; and a non-string one
+    // inside it is a page not read.
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(746, '11')], [post(747, '11')], [post(748, '10')]];
+    b.st.cursorOf = (i) => (i === 2 ? 'not a cursor!' : undefined);
+    const deep = await cf.readFollowing('mara');
+    assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'CONTROL: the read did not reach FEED_PAGES_MAX, so this tests nothing');
+    assert.ok(!deep.text.includes(cf.CUT_SHORT), 'an odd cursor at FEED_PAGES_MAX said cut short: ' + deep.text);
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(749, '11')]];
+    b.st.cursorOf = (i) => (i === 0 ? 42 : undefined);
+    const num = await cf.readFollowing('mara');
+    b.st.cursorOf = undefined;
+    assert.ok(num.text.includes(cf.CUT_SHORT), 'a non-string next cursor ended the paging silently: ' + num.text);
+    // kosmos#7391 review 2: nothing to show and an older page refused: the heading does not say "nothing new".
+    b.st.feedCalls = [];
+    b.st.pages = [[], [post(740, '11')]];
+    b.st.failPage = 1;
+    const empty = await cf.readFollowing('mara');
+    b.st.failPage = undefined;
+    assert.ok(empty.text.includes('Nothing new in the newest items Kosmos could read.') && empty.text.includes(cf.CUT_SHORT)
+      && !empty.text.includes('Nothing new from the agents you follow.'), empty.text);
+    // kosmos#7391: each older page waits for the board's call chain for what is left of READ_PAGES_MS (from the newest
+    // page's answer) and of READ_TOTAL_MS (from the read's start), whichever is less, never less than PAGE_WAIT_MS (the
+    // first page keeps the default). At 1 s a busy board refused them on every read.
     const calls = [];
     const real = cs.agentCall;
     cs.agentCall = (k, m, p, o) => { calls.push({ p, waitMs: o && o.waitMs }); return real(k, m, p, o); };
@@ -679,14 +716,76 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     const feedCalls = calls.filter((c) => c.p.startsWith('/agents/me/following/feed'));
     assert.equal(feedCalls.length, 2, JSON.stringify(calls));
     assert.equal(feedCalls[0].waitMs, undefined, 'the first page lost its default wait');
-    assert.equal(feedCalls[1].waitMs, cf.PAGE_WAIT_MS, 'an older page did not ask for the short PAGE_WAIT_MS wait');
-    // Review 3: no older page starts once READ_PAGES_MS has passed since the read began.
+    assert.ok(feedCalls[1].waitMs > cf.PAGE_WAIT_MS && feedCalls[1].waitMs <= 10000,
+      'an older page did not wait for the rest of the read-time bound: ' + feedCalls[1].waitMs);
+    // kosmos#7391 review 3, the reported case through the REAL chain: another agent's call holds the board's one
+    // community chain for about 1.5 s (its request is never answered and is cut at the timeout), queued between this
+    // read's newest page and its older page, so the older page has to wait longer than PAGE_WAIT_MS to get in.
+    cs.setTimeoutMs(1500);
+    b.st.hang = (req) => req.method === 'POST' && req.url === '/agents/by-name/quill/follow';
+    let holder = null;
+    let olderWaited = null;
+    cs.agentCall = (k, m, p, o) => {
+      if (k === 'mara' && p.includes('&cursor=')) {
+        const asked = Date.now();
+        return real(k, m, p, o).then((a) => { olderWaited = Date.now() - asked; return a; });
+      }
+      const out = real(k, m, p, o);
+      if (k === 'mara' && p.startsWith('/agents/me/following/feed')) holder = real('juno', 'POST', '/agents/by-name/quill/follow', {});
+      return out;
+    };
+    try {
+      b.st.feedCalls = [];
+      b.st.pages = [tens(1, '12'), [post(720, '11')]];
+      b.st.seen.length = 0;
+      const busy = await cf.readFollowing('mara');
+      const held = await holder;
+      const at = (f) => b.st.seen.findIndex(f);
+      const follow = at((q) => q.method === 'POST' && q.url === '/agents/by-name/quill/follow');
+      const older = at((q) => q.method === 'GET' && q.url.includes('following/feed') && q.url.includes('cursor='));
+      assert.ok(busy.text.includes('POST720') && !busy.text.includes(cf.CUT_SHORT), 'kosmos#7391: on a busy chain the post behind the newest page was not reached: ' + busy.text);
+      // The controls, so the pass above means the older page really waited behind the other agent's call.
+      assert.ok(follow >= 0 && older > follow, 'CONTROL: the other agent\'s follow did not reach the service before the older page, so it held nothing: ' + JSON.stringify(b.st.seen.map((q) => q.url)));
+      assert.equal(held.ok, false, 'CONTROL: the other agent\'s call was answered, so it did not hold the chain');
+      assert.ok(olderWaited > cf.PAGE_WAIT_MS, 'CONTROL: the older page itself waited only ' + olderWaited + ' ms, so this tests nothing');
+    } finally { cs.agentCall = real; cs.setTimeoutMs(5000); b.st.hang = null; }
+    // kosmos#7391 review 3: the whole read is bounded too, so it normally ends while the command is still asking.
+    cf._setReadTotalMs(200);
+    cs.agentCall = async (k, m, p, o) => { if (!p.includes('&cursor=')) await new Promise((res) => setTimeout(res, 300)); return real(k, m, p, o); };
+    try {
+      b.st.feedCalls = [];
+      b.st.pages = [tens(1, '12'), [post(725, '11')]];
+      const total = await cf.readFollowing('mara');
+      assert.deepEqual(b.st.feedCalls, [null], 'an older page was asked for after the whole read\'s bound');
+      assert.ok(total.text.includes(cf.CUT_SHORT), total.text);
+    } finally { cs.agentCall = real; cf._setReadTotalMs(null); }
+    // kosmos#7391 review 4: a read that took POSTS_WANTED posts from behind still says it could not reach a page: that page
+    // may hold the deepest posts, the next to pass the depth edge.
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(726, '11'), post(727, '11'), post(728, '11')], [post(729, '10')]];
+    b.st.failPage = 2;
+    const movedOn = await cf.readFollowing('mara');
+    b.st.failPage = undefined;
+    assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'CONTROL: the third page was not asked for, so this tests nothing');
+    assert.ok(['POST726', 'POST727', 'POST728'].every((t) => movedOn.text.includes(t)) && movedOn.text.includes(cf.CUT_SHORT), movedOn.text);
+    // kosmos#7391 review 1: on a busy board the newest page can itself wait most of READ_PAGES_MS; the older pages'
+    // bound counts from its answer, so they are still read.
+    cf._setReadPagesMs(200);
+    cs.agentCall = async (k, m, p, o) => { if (!p.includes('&cursor=')) await new Promise((res) => setTimeout(res, 300)); return real(k, m, p, o); };
+    try {
+      b.st.feedCalls = [];
+      b.st.pages = [tens(1, '12'), [post(730, '11')]];
+      const slowFirst = await cf.readFollowing('mara');
+      assert.ok(slowFirst.text.includes('POST730') && !slowFirst.text.includes(cf.CUT_SHORT), 'a slow newest page left the older pages no time: ' + slowFirst.text);
+    } finally { cs.agentCall = real; cf._setReadPagesMs(null); }
+    // Review 3, #7391: no older page is asked for once READ_PAGES_MS has passed since the newest page answered.
     cf._setReadPagesMs(0);
     try {
       b.st.feedCalls = [];
       const late = await cf.readFollowing('mara');
       assert.equal(late.ok, true, late.because);
       assert.deepEqual(b.st.feedCalls, [null], 'an older page started after the read-time bound');
+      assert.ok(late.text.includes(cf.CUT_SHORT), 'kosmos#7391: a read the time bound cut short did not say so: ' + late.text);
     } finally { cf._setReadPagesMs(null); }
   } finally { await b.close(); }
 });
