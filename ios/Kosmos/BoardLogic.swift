@@ -939,8 +939,9 @@ enum Board {
         }
     }
 
-    // The three the long-press offers (the native room's menu); a pill already on a message toggles any other.
-    static let quickReactions = ["\u{1F44D}", "\u{2764}\u{FE0F}", "\u{1F525}"]
+    // kosmos#7419 (Mona Lisa's design, 10-27): the long-press sheet's seven, Josh's three first, then the four a work room
+    // uses most (seen, done, funny, celebrate); all seven are in the board's own list (PJ_EMOJI).
+    static let quickReactions = ["\u{1F44D}", "\u{2764}\u{FE0F}", "\u{1F525}", "\u{1F602}", "\u{1F440}", "\u{2705}", "\u{1F389}"]
 
     // MARK: Replying and reacting (kosmos#7083; the board's DM reply #4256 and reactions #3650)
 

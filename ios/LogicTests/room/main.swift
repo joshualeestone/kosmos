@@ -303,6 +303,20 @@ check(agentsSrc.contains("client.setAgentSort(sortChoice, projects: projectNames
 // kosmos#7034 wiring guards (source checks): the row stars by a swipe, a long press and a VoiceOver action, and shows it.
 check(agentsSrc.contains(".swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent) }") && agentsSrc.contains(".contextMenu { starButton(agent) }") && agentsSrc.contains("starred: client.isStarred(agent.session)"),
       "kosmos#7034: a row is starred by a swipe (VoiceOver offers it) or a long press, and shows its star")
+// kosmos#7419: the long-press sheet. The seven quick reactions in Mona Lisa's order, each one the board's own (the 80 the
+// phone keeps as ComposerExtras.emoji, PJ_EMOJI); every message long-press opens the sheet, and no reaction menu is left.
+check(Board.quickReactions == ["👍", "❤️", "🔥", "😂", "👀", "✅", "🎉"], "kosmos#7419: the sheet's seven quick reactions, Josh's three first")
+let composerLogicSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ComposerLogic.swift"), encoding: .utf8)) ?? ""
+check(!composerLogicSrc.isEmpty && Board.quickReactions.allSatisfy { composerLogicSrc.contains("\"\($0)\"") }, "kosmos#7419: each quick reaction is one of the board's 80 (More offers the same list)")
+let sheetChat = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
+let sheetRoom = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
+let sheetSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ComposerExtras.swift"), encoding: .utf8)) ?? ""
+check(sheetChat.components(separatedBy: ".messageActions(").count - 1 == 2 && sheetRoom.components(separatedBy: ".messageActions(").count - 1 == 1,
+      "kosmos#7419: the chat bubble, the files bubble and the room's post open the sheet on a long press")
+check(!sheetChat.contains("Button(\"React with \" + e)") && !sheetRoom.contains("Button { react(\"👍\") }"), "kosmos#7419: no reaction menu is left beside the sheet")
+check(sheetSrc.contains("ForEach(ComposerExtras.emoji, id: \\.self) { e in face(e, size: 38) }") && sheetSrc.contains("count: 8)")
+      && sheetSrc.contains("\"More reactions\"") && sheetSrc.contains("\"Copy text\"") && sheetSrc.contains("simultaneousGesture(LongPressGesture"),
+      "kosmos#7419: More shows the board's 80 eight to a row; Copy text; the long press leaves links and the scroll working")
 check(firsts["a"] == "beta" && firsts["c"] == "beta" && firsts["z"] == nil, "an agent's first project is its project names A to Z, without case")
 
 section("an agent's notification opens its chat natively (kosmos#7418)")
@@ -1030,11 +1044,12 @@ if let unvAt, let wordsAt, let filesAt {
     check(wordsAt.upperBound < unvAt.lowerBound && unvAt.upperBound < filesAt.lowerBound, "the line sits under the words, before any file cards")
 }
 check(bubbleSource.components(separatedBy: "Board.unverifiedLine").count == 2, "the line is drawn in one place only")
-// Review 2: both Copy paths, VoiceOver's action and the long-press menu's, and no other pasteboard write in the bubble.
+// Review 2: both Copy paths, VoiceOver's action and the long press's (kosmos#7419: the sheet's Copy text, handed row.text),
+// and no other pasteboard write in the bubble.
 check(bubbleSource.contains("Button(\"Copy\") { UIPasteboard.general.string = row.text }")
-      && bubbleSource.contains("Button { UIPasteboard.general.string = row.text } label: { Label(\"Copy\", systemImage: \"doc.on.doc\") }")
-      && bubbleSource.components(separatedBy: "UIPasteboard.general.string =").count == 3,
-      "both Copy paths (VoiceOver's action and the long-press menu) take the row's words, never the line")
+      && bubbleSource.contains("reply: answerable ? reply : nil, text: row.text)")
+      && bubbleSource.components(separatedBy: "UIPasteboard.general.string =").count == 2,
+      "both Copy paths (VoiceOver's action and the long-press sheet) take the row's words, never the line")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
