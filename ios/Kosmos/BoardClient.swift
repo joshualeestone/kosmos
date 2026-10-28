@@ -81,7 +81,18 @@ final class BoardClient: ObservableObject {
     // answer that cannot be read keeps the last ones, and one Mac's stars never order another's list.
     private var stars: (mac: String, names: Set<String>)?
     // The stars of the Mac the shown list came from (Today orders its Needs you cards by them).
-    var shownStars: Set<String>? { stars?.mac == shownMac?.address ? stars?.names : nil }
+    var shownStars: Set<String>? {
+        #if DEBUG
+        if let sample = Self.sampleStars { return sample }
+        #endif
+        return stars?.mac == shownMac?.address ? stars?.names : nil
+    }
+    #if DEBUG
+    // Design shots only: KOSMOS_SAMPLE_STARS=<agent,agent> (or an empty value) gives the sample agents stars that are
+    // known, so the chat header's star shows (it waits for a known list, kosmos#7034). The sample has no computer.
+    static let sampleStars: Set<String>? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_STARS"]
+        .map { Set($0.split(separator: ",").map(String.init)) }
+    #endif
     // kosmos#7034: starring from the phone. The star shows and the row moves at once, as on the board; the board's answer
     // (the whole saved list) then decides, and a star that did not save goes back, with the board's own words why. One
     // save at a time per agent: a second press while one is out waits for nothing and is ignored.
@@ -99,7 +110,12 @@ final class BoardClient: ObservableObject {
     func isStarred(_ session: String) -> Bool { shownStars?.contains(session) == true }
     // build 11 review 1: a press is offered only once this computer's stars have been read. Before that the star would
     // show an outline for a starred agent, and a press would build on an empty list (a failed save would leave it so).
-    var canStar: Bool { shownMac != nil && shownStars != nil }
+    var canStar: Bool {
+        #if DEBUG
+        if Self.sampleStars != nil { return true }
+        #endif
+        return shownMac != nil && shownStars != nil
+    }
     // build 11 review 2: a chat opened before the stars were read (from a notification, or after a failed read) asks
     // once, so its star appears instead of waiting for the Agents list's next re-sort. Taken only if no press began or
     // ended meanwhile, as a re-sort's read is.

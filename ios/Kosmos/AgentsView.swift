@@ -33,15 +33,36 @@ struct AgentsView: View {
     private var sortChoice: Board.AgentSort { Board.agentSort(saved: agentSort) }
     #if DEBUG
     static func pressSortControl() {
-        func find(_ v: UIView) -> UIControl? {
-            if let c = v as? UIControl, (c.accessibilityLabel ?? "").hasPrefix("Sort:") { return c }
-            for s in v.subviews { if let c = find(s) { return c } }
+        // A SwiftUI toolbar Menu is not a UIControl that carries its spoken label, so look three ways, and write what
+        // was found to tmp/sortmenu.txt in the app's container (the first run found nothing and said nothing).
+        var notes: [String] = []
+        func label(_ o: NSObject) -> String { o.accessibilityLabel ?? "" }
+        func findElement(_ o: NSObject, depth: Int) -> NSObject? {
+            if depth > 40 { return nil }
+            if label(o).hasPrefix("Sort:") { return o }
+            if let v = o as? UIView {
+                for sv in v.subviews { if let f = findElement(sv, depth: depth + 1) { return f } }
+            }
+            for e in (o.accessibilityElements ?? []) { if let n = e as? NSObject, let f = findElement(n, depth: depth + 1) { return f } }
+            return nil
+        }
+        func findMenuButton(_ v: UIView) -> UIButton? {
+            if let b = v as? UIButton, b.menu != nil { return b }
+            for sv in v.subviews { if let f = findMenuButton(sv) { return f } }
             return nil
         }
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-        guard let control = windows.lazy.compactMap({ find($0) }).first else { print("KOSMOS_SAMPLE_SORTMENU: no Sort control found"); return }
-        if #available(iOS 17.4, *) { control.performPrimaryAction() } else { control.sendActions(for: .touchUpInside) }
-        print("KOSMOS_SAMPLE_SORTMENU: pressed \(type(of: control))")
+        if let found = windows.lazy.compactMap({ findElement($0, depth: 0) }).first {
+            notes.append("element \(type(of: found)) label=\(label(found))")
+            if let c = found as? UIControl, #available(iOS 17.4, *) { c.performPrimaryAction(); notes.append("performPrimaryAction") }
+            else { notes.append("accessibilityActivate=\(found.accessibilityActivate())") }
+        } else if let b = windows.lazy.compactMap({ findMenuButton($0) }).first {
+            notes.append("menu button \(type(of: b))")
+            if #available(iOS 17.4, *) { b.performPrimaryAction(); notes.append("performPrimaryAction") }
+        } else {
+            notes.append("nothing found")
+        }
+        try? notes.joined(separator: "\n").write(to: FileManager.default.temporaryDirectory.appendingPathComponent("sortmenu.txt"), atomically: true, encoding: .utf8)
     }
     #endif
     private var agentSortMenu: some View {
