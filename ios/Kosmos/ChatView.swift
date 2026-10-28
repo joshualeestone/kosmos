@@ -91,6 +91,8 @@ struct ChatView: View {
     @State private var diagContentWidth: CGFloat = 0
     @State private var diagReport: String?
     @State private var diagDone = false   // once per open chat, even after the line is dismissed
+    @State private var diagWideDone = false   // review 2: a width finding has its own once, so it cannot use up the blank one
+    @State private var diagShownOnce = false   // review 2: the record starts at the chat's first showing, not each return
     @State private var diagTick = 0   // bumped when the last row leaves the screen (review 1)
     private var diagWide: Bool { diagViewport.width > 0 && diagContentWidth > diagViewport.width + 1 }
     // kosmos#7016 part 2: each file card's state, and the file open in Quick Look.
@@ -241,8 +243,10 @@ struct ChatView: View {
         #endif
         .onAppear {
             visible = true
-            // kosmos#7420 review 1: the record starts with this chat, so a report never carries another chat's events.
-            if !diagDone { Self.diagRing = []; Self.trace("chat shown") }
+            // kosmos#7420 review 1 and 2: the record starts with this chat's first showing (a return from the info page keeps
+            // what came before), and a list blank from its first draw is checked too, since no row ever leaves it.
+            if !diagShownOnce { diagShownOnce = true; Self.diagRing = []; Self.trace("chat shown") } else { Self.trace("chat back") }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { diagTick &+= 1 }
             epoch = client.chatEpoch
             // kosmos#7420: this conversation gets no banner while it shows.
             if let host = client.switcherShown { PushNotificationManager.chatOnScreen = PushBridge.OpenChat(host: host, session: agent.session) }
@@ -305,7 +309,7 @@ struct ChatView: View {
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: client.chatEpoch) { now in
-            diagDone = false; diagReport = nil   // kosmos#7420 review 1: another account or computer is a new chat
+            diagDone = false; diagWideDone = false; diagReport = nil   // kosmos#7420 review 1: another account or computer is a new chat
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
@@ -539,8 +543,7 @@ struct ChatView: View {
                 // Whether it was at the newest message is read before the keyboard shrinks the thread (which hides the
                 // end marker), and acted on once it is up.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { n in
-                    diagKeyboard = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? 0
-                    Self.trace("keyboard up \(Int(diagKeyboard)) (atBottom \(atBottom))")
+                    if visible { diagKeyboard = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? 0; Self.trace("keyboard up \(Int(diagKeyboard)) (atBottom \(atBottom))") }
                     keepNewestInView = atBottom || (searchOpen && openedAtNewest && !searching)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
@@ -548,7 +551,7 @@ struct ChatView: View {
                 }
                 // Only the chat on screen: another tab can keep a chat alive under it.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                    diagKeyboard = 0; Self.trace("keyboard down")
+                    if visible { diagKeyboard = 0; Self.trace("keyboard down") }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
                     guard visible else { return }
@@ -653,15 +656,15 @@ struct ChatView: View {
     private func diagCheck(_ proxy: ScrollViewProxy, count: Int) {
         // Review 1: only for the chat on screen with the app in front: under the info page, another tab or Quick Look every
         // row leaves too, and that is not a fault.
-        guard visible, scenePhase == .active, onScreen.isEmpty, !endVisible, !topVisible, count > 0, thread != nil else { return }
+        guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible, !topVisible, count > 0, thread != nil else { return }
         diagCapture(proxy, why: "no message on screen", count: count)
     }
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
     // and whether that worked. Nothing leaves the phone unless the person shares it.
     private func diagCapture(_ proxy: ScrollViewProxy, why: String, count: Int, recover: Bool = true) {
-        guard !diagDone, visible, scenePhase == .active else { return }
-        diagDone = true
+        guard visible, scenePhase == .active, recover ? !diagDone : !diagWideDone else { return }
+        if recover { diagDone = true } else { diagWideDone = true }
         let info = Bundle.main.infoDictionary
         let anchor = positionId == nil ? "none" : positionId == "end" ? "end" : positionId == "top" ? "top" : "a message"
         var lines = ["Kosmos iPhone chat diagnostic (kosmos#7420)",
@@ -681,7 +684,7 @@ struct ChatView: View {
         }
     }
 
-    private func announceDiag() { UIAccessibility.post(notification: .announcement, argument: "This conversation did not draw properly. Share what happened is above the messages.") }
+    private func announceDiag() { UIAccessibility.post(notification: .announcement, argument: "This conversation did not draw properly. A Share button above the messages sends the details, if you choose.") }
 
     // The line that offers it: what happened in plain words, and Share. Stacked at the largest text sizes (review 1).
     private func diagLine(_ report: String) -> some View {
