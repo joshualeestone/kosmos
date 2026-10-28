@@ -71,10 +71,12 @@ function chk(ok, label, extra) {
       tasks.create(p.id, { sentence: 'Order the parts' });                  // 1: nobody on it, held
       tasks.create(p.id, { sentence: 'Book the courier', who: 'ada' });     // 2: Ada on it, held (the control)
       tasks.create(p.id, { sentence: 'Pack the boxes', who: 'ada' });      // 3: open, put on hold here
-      tasks.create(p.id, { sentence: 'Label the crates' });                 // 4: nobody on it, held, then given to Ada elsewhere
+      tasks.create(p.id, { sentence: 'Label the crates' });                 // 4: nobody on it, held, Choose who on a stale page
+      tasks.create(p.id, { sentence: 'Weigh the crates' });                 // 5: nobody on it, held, then given to Ada elsewhere
       tasks.setOnHold(p.id, 1, true, { viaScreen: true });
       tasks.setOnHold(p.id, 2, true, { viaScreen: true });
       tasks.setOnHold(p.id, 4, true, { viaScreen: true });
+      tasks.setOnHold(p.id, 5, true, { viaScreen: true });
       const phone = width < 600;   // the phone pass is a touch screen, where the page's tap targets grow to 44 px
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, hasTouch: phone, isMobile: phone });
       const errs = [];
@@ -125,7 +127,18 @@ function chk(ok, label, extra) {
       await settle(page);
       await page.waitForSelector('#tk-hold-choose-row:not([hidden])', { timeout: 6000 }).catch(() => {});
       chk(await rowShown(), `${tag} task 4 shows Choose who after its unhold (the premise)`, await text(page, '#tk-hold-msg'));
-      tasks.assignPart(p.id, 4, 1, 'ada');
+      // Review 2: Choose who pressed when no open part is free (a page that has not repainted yet): the stale row goes.
+      await page.evaluate(() => { for (const b of document.querySelectorAll('#tk-who [data-pick-nobody]')) b.removeAttribute('data-pick-nobody'); });
+      await page.click('#tk-hold-choose');
+      chk(!(await rowShown()) && await text(page, '#tk-hold-msg') === '' && !(await page.$('#tk-who .tkwho-sel')),
+        `${tag} Choose who with no free part takes the stale line down and opens no picker`, JSON.stringify([await rowShown(), await text(page, '#tk-hold-msg')]));
+      // Show it again for the Assigner arm below.
+      await openTask(page, p.id, 5);
+      await page.click('#tk-hold');
+      await settle(page);
+      await page.waitForSelector('#tk-hold-choose-row:not([hidden])', { timeout: 6000 }).catch(() => {});
+      chk(await rowShown(), `${tag} task 5 shows Choose who after its unhold (the premise)`, await text(page, '#tk-hold-msg'));
+      tasks.assignPart(p.id, 5, 1, 'ada');
       await page.waitForFunction(() => document.getElementById('tk-hold-msg').textContent === '' && document.getElementById('tk-hold-choose-row').hidden, null, { timeout: 7000 }).catch(() => {});
       chk(await text(page, '#tk-hold-msg') === '' && !(await rowShown()), `${tag} once the task is given out elsewhere, the line and Choose who go within a repaint`, JSON.stringify([await text(page, '#tk-hold-msg'), await rowShown()]));
 
