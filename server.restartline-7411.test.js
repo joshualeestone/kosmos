@@ -22,18 +22,20 @@ const { version } = require('./package.json');
 const rl = require('./engine/restartline');
 const st = require('./engine/status');
 const notes = require('./engine/releasenotes');
+const fleet = require('./test-support/fleet');
+const store = require('./engine/store');
+const RECORD = path.join(store.ROOT, 'version-start.json');
 
 // An update a minute ago, from the version before this one.
 const AT = Date.now() - 60000;
-fs.mkdirSync(path.dirname(rl._file()), { recursive: true });
-fs.writeFileSync(rl._file(), JSON.stringify({ version, previous: '0.0.1', at: AT }));
+fs.mkdirSync(path.dirname(RECORD), { recursive: true });
+fs.writeFileSync(RECORD, JSON.stringify({ version, previous: '0.0.1', at: AT }));
 
-// The roster, the session starts and the notes, as the board would read them. server.js calls each through its module
-// object, so replacing them here is what the route reads.
-let roster = [];
-let starts = new Map();
-st.paneRosterAsync = async () => roster;
-st.sessionStartsAsync = async () => starts;
+/* The roster through the real producers (test-support/fleet), and the session starts through status's own seam, as
+   tmux's list-sessions answers (seconds). Only the notes are replaced: the repo's pool marks no fix yet. */
+const sessions = (pairs) => pairs.map(([s, ms]) => s + '\t' + Math.floor(ms / 1000)).join('\n');
+let sessionText = '';
+st.setSessionSource(() => sessionText);
 notes.readNotes = () => ({ version, notes: [{ version, title: 'Hooks fix', line: 'x', restart: 'agents' }] });
 
 const { start, server } = require('./server');
@@ -46,15 +48,14 @@ test('#7411: start keeps this version\'s first start; the line names running age
 
   assert.equal(rl.read().at, AT, 'starting the board again on the same version moved its first start');
 
-  const card = (name, session, extra = {}) => ({ sessionName: name, session, isNamedOurs: true, ...extra });
-  roster = [
-    card('claudebot', 'claudebot-discord'),                              // named by its name (readIdentity: Splinter)
-    card('fresh', 'fresh-discord'),                                      // started after the update
-    card('paused', 'paused-discord', { swarm: { active: false } }),      // not running
-    { sessionName: 'stranger', session: 'stranger', isNamedOurs: false },   // not one of ours
-    card('unread', 'unread-discord'),                                    // its start could not be read
-  ];
-  starts = new Map([['claudebot-discord', AT - 3600000], ['fresh-discord', AT + 30000], ['paused-discord', AT - 3600000], ['stranger', AT - 3600000]]);
+  const world = fleet.install([
+    fleet.agent('claudebot'),         // named by its name (readIdentity: Splinter)
+    fleet.agent('fresh'),             // started after the update
+    fleet.stranger('stranger'),       // not one of ours
+    fleet.agent('unread'),            // its start could not be read
+  ]);
+  t.after(() => world.restore());
+  sessionText = sessions([['claudebot-discord', AT - 3600000], ['fresh-discord', AT + 30000], ['stranger', AT - 3600000]]);
   assert.deepEqual(await line(), {
     version,
     notes: [{ version, title: 'Hooks fix' }],
@@ -62,9 +63,11 @@ test('#7411: start keeps this version\'s first start; the line names running age
   });
 
   // tmux could not be read: no line, never a guessed one.
-  starts = null;
+  st.setSessionSource(() => null);
   assert.equal(await line(), null);
-  starts = new Map([['claudebot-discord', AT - 3600000]]);
+  st.setSessionSource(() => sessionText);
+  // CONTROL for the arm above: the same world read again names Splinter, so null there was the unread tmux.
+  assert.equal((await line()).agents.length, 1);
 
   const stale = await fetch(`${base}/api/restart-line/not-now`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: '0.0.1' }) });
   assert.equal(stale.status, 409, 'an old page hid the line for a newer update');
