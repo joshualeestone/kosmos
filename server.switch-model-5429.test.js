@@ -278,7 +278,8 @@ test('#7467: a switch to Claude whose picked account was refused, restarted, say
   assert.equal(r.body.restarted, true, 'setup: the restart worked (the branch under test)');
   assert.match(r.body.because, /^srv-sm-7467 is switched to Claude, on your main Claude account: it could not be moved to b@example\.com \(test\)\. /, r.body.because);
   assert.match(r.body.because, /It keeps its name, its instructions and its files, but its conversation does not come across: Claude cannot read what it said on Gemini\./, r.body.because);
-  assert.match(r.body.because, /anything it only remembered from talking is lost\. It is starting again now\.$/i, r.body.because);
+  assert.match(r.body.because, /Anything it only remembered from talking is lost\./, r.body.because);
+  assert.match(r.body.because, /\. It is starting again now\.$/, 'the conversation words come before the restart sentence');
   assert.doesNotMatch(r.body.because, /Claude it is\./, 'the partial keeps its own first sentence');
 });
 
