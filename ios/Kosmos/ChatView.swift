@@ -85,6 +85,12 @@ struct ChatView: View {
     @State private var endSeen = false
     // The conversation's items on screen now.
     @State private var onScreen: Set<String> = []
+    // kosmos#7420 diagnostic: the list's size, the keyboard's height, the stack's width, and the report once one is made.
+    @State private var diagViewport: CGSize = .zero
+    @State private var diagKeyboard: CGFloat = 0
+    @State private var diagContentWidth: CGFloat = 0
+    @State private var diagReport: String?
+    @State private var diagDone = false   // once per open chat, even after the line is dismissed
     // kosmos#7016 part 2: each file card's state, and the file open in Quick Look.
     @State private var fileStates: [String: FileCardState] = [:]
     @State private var previewURL: URL?
@@ -142,6 +148,7 @@ struct ChatView: View {
         let _ = tick
         VStack(spacing: 0) {
             if thread != nil, let note = bannerText { banner(note) }
+            if let diagReport { diagLine(diagReport) }   // kosmos#7420
             if searchMode { searchBar }
             ZStack(alignment: .bottom) {
                 conversation
@@ -322,6 +329,7 @@ struct ChatView: View {
             failedReads = 0
         }
         .onChange(of: scenePhase) { phase in
+            Self.trace("app \(phase == .active ? "active" : phase == .background ? "background" : "inactive")")   // kosmos#7420
             if phase == .background { loop?.cancel(); loop = nil } else if phase == .active, visible, loop == nil { startReading() }
         }
     }
@@ -426,6 +434,10 @@ struct ChatView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
+                    // kosmos#7420 diagnostic: the stack's width (wider than the list is the shift-left Josh saw).
+                    .background(GeometryReader { g in
+                        Color.clear.onAppear { diagContentWidth = g.size.width }.onChange(of: g.size.width) { diagContentWidth = $0 }
+                    })
                     .modifier(PositionTargets(on: Self.idAnchor))
                 }
                 .modifier(PositionById(on: Self.idAnchor, id: $positionId))
@@ -440,6 +452,18 @@ struct ChatView: View {
                 // (the board's paintOlderLine).
                 .kosmosTopFade()   // kosmos#7346: rows fade under the solid top bar; the banner and search above stay clear
                 .overlay(alignment: .top) { earlierLoadingLine }
+                // kosmos#7420 diagnostic: the list's size, and a check whenever no message is on screen.
+                .background(GeometryReader { g in
+                    Color.clear.onAppear { diagViewport = g.size }
+                        .onChange(of: g.size) { now in diagViewport = now; Self.trace("viewport \(Int(now.width))x\(Int(now.height))") }
+                })
+                .onChange(of: onScreen.isEmpty) { empty in
+                    guard empty else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { diagCheck(proxy, count: items.count) }
+                }
+                .onChange(of: diagContentWidth) { w in
+                    if diagViewport.width > 0, w > diagViewport.width + 1 { diagCapture(proxy, why: "a row wider than the screen", count: items.count) }
+                }
                 .onAppear {
                     // kosmos#7265: the eager stack starts at this row for as long as the chat stays open.
                     let firstEager = Board.eagerStart(items, from: nil, eager: Self.eagerTail)
@@ -502,13 +526,18 @@ struct ChatView: View {
                 // The keyboard shrinks the thread; one that was at the newest message stays there (the spec).
                 // Whether it was at the newest message is read before the keyboard shrinks the thread (which hides the
                 // end marker), and acted on once it is up.
-                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { n in
+                    diagKeyboard = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? 0
+                    Self.trace("keyboard up \(Int(diagKeyboard)) (atBottom \(atBottom))")
                     keepNewestInView = atBottom || (searchOpen && openedAtNewest && !searching)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                     if keepNewestInView { goNewest(proxy, animated: true) }
                 }
                 // Only the chat on screen: another tab can keep a chat alive under it.
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                    diagKeyboard = 0; Self.trace("keyboard down")
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
                     guard visible else { return }
                     goNewest(proxy, animated: true)
@@ -608,10 +637,60 @@ struct ChatView: View {
     static var followsScrollPhase: Bool { if #available(iOS 18.0, *) { return true } else { return false } }
 
     // kosmos#7265 debug: KOSMOS_SAMPLE_TRACE=1 appends the chat's scroll state to Documents/trace.txt.
+    // kosmos#7420 diagnostic: no message on screen for half a second while the conversation has some (the black list).
+    private func diagCheck(_ proxy: ScrollViewProxy, count: Int) {
+        guard onScreen.isEmpty, !endVisible, !topVisible, count > 0, thread != nil else { return }
+        diagCapture(proxy, why: "no message on screen", count: count)
+    }
+
+    // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
+    // and whether that worked. Nothing leaves the phone unless the person shares it.
+    private func diagCapture(_ proxy: ScrollViewProxy, why: String, count: Int) {
+        guard !diagDone else { return }
+        diagDone = true
+        let info = Bundle.main.infoDictionary
+        let anchor = positionId == nil ? "none" : positionId == "end" ? "end" : positionId == "top" ? "top" : "a message"
+        var lines = ["Kosmos iPhone chat diagnostic (kosmos#7420)",
+                     "what: \(why)",
+                     "app \(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?")), iOS \(UIDevice.current.systemVersion)",
+                     "list \(Int(diagViewport.width))x\(Int(diagViewport.height)), stack width \(Int(diagContentWidth)), keyboard \(Int(diagKeyboard))",
+                     "messages \(count), on screen \(onScreen.count), end showing \(endVisible), top showing \(topVisible), at newest \(atBottom)",
+                     "anchor \(anchor), id anchor \(Self.idAnchor), searching \(searchMode), keyboard focus \(composerFocused)",
+                     "recent events:"] + Self.diagRing
+        Self.trace("diag: \(why), trying the newest message")
+        goNewest(proxy)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            lines.append("after one try: " + (onScreen.isEmpty ? "still nothing on screen" : "messages on screen again"))
+            diagReport = lines.joined(separator: "\n")
+        }
+    }
+
+    // The line that offers it: what happened in plain words, and Share.
+    private func diagLine(_ report: String) -> some View {
+        HStack(spacing: 10) {
+            Text("This conversation did not draw properly.").font(.footnote).foregroundColor(Palette.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            ShareLink(item: report, subject: Text("Kosmos chat diagnostic")) { Text("Share what happened").font(.footnote.weight(.semibold)) }
+            Button { diagReport = nil } label: { Image(systemName: "xmark").font(.footnote) }
+                .buttonStyle(.plain).foregroundColor(Palette.secondary).accessibilityLabel("Dismiss")
+        }
+        .padding(12)
+        .background(Palette.banner)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 16).padding(.top, 8)
+    }
+
+    // kosmos#7420 (Josh 10-27, the list went black on his phone and never on the simulator): the last few dozen scroll
+    // events, always kept in memory (numbers and event names only, never message text), for the diagnostic below.
+    static var diagRing: [String] = []
+    static let diagStart = Date()
     static func trace(_ line: @autoclosure () -> String) {
+        let said = line()
+        diagRing.append(String(format: "%.2f ", Date().timeIntervalSince(diagStart)) + said)
+        if diagRing.count > 80 { diagRing.removeFirst(diagRing.count - 80) }
         #if DEBUG
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TRACE"] == "1" {
-            let text = String(format: "TRACE %.2f ", Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 1000)) + line() + "\n"
+            let text = String(format: "TRACE %.2f ", Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 1000)) + said + "\n"
             // Appended to Documents/trace.txt, pulled out with simctl get_app_container (stderr never reached a file).
             let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("trace.txt")
             if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data(text.utf8)); try? h.close() }
@@ -1137,6 +1216,8 @@ struct ChatView: View {
         #if DEBUG
         // KOSMOS_SAMPLE_EMOJI=open (with the agent samples): the panel open, for the design shots.
         .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
+        // kosmos#7420: KOSMOS_SAMPLE_DIAG=1 shows the diagnostic line with a sample report, for the design shots.
+        .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_DIAG"] == "1" { diagReport = "Kosmos iPhone chat diagnostic (kosmos#7420)\nwhat: sample" } }
         // kosmos#7420: KOSMOS_SAMPLE_FOCUS=<seconds> taps the box that long after opening (the keyboard rises), as a person
         // would (nothing in the simulator can tap here).
         .onAppear {
