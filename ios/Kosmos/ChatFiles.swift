@@ -24,6 +24,10 @@ struct FilesBubble: View {
     // kosmos#7083: Reply and the reactions, as VoiceOver actions on each file card (the container itself cannot be
     // focused, so actions on it are never offered).
     var actions: [(name: String, run: () -> Void)] = []
+    // kosmos#7419 review 4: the long-press sheet for this message, offered on each card too (the container's own action
+    // would never be), through the chat's one sheet.
+    var sheet: MessageActionTarget? = nil
+    @Environment(\.openMessageActions) private var openSheet
 
     // One file at a time: while one is on its way, the others are drawn off.
     private var busy: Bool { states.values.contains(.loading) }
@@ -42,6 +46,7 @@ struct FilesBubble: View {
                          waiting: busy && states[f.id] != .loading, open: { open(f) })
                     .accessibilityActions {
                         ForEach(Array(actions.enumerated()), id: \.offset) { _, a in Button(a.name, action: a.run) }
+                        if let sheet, let openSheet { Button("Message actions") { openSheet(sheet) } }
                     }
             }
         }
