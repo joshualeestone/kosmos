@@ -57,7 +57,7 @@ enum NewAgent {
         static let identity = "Identity"
         static let changePicture = "Change picture"
         static let markLabel = "Generated mark for this agent"
-        static let pictureTooBig = "That picture could not be made small enough to use. Choose another."
+        static let pictureTooBig = "That picture could not be used. Choose another."
         static let labelMissing = "Say what this agent does. One or two words."
         static func running(_ shown: String) -> String { shown + " is running" }
         static func notUp(_ shown: String) -> String { shown + " has not come up" }
@@ -341,6 +341,7 @@ enum NewTeam {
         let title: String
         let name: String          // the catalogue's suggested name
         let isLead: Bool
+        var portrait = false      // the catalogue has a picture for this seat (the detail's `portrait`)
         var id: String { slot }
     }
     struct Detail: Equatable {
@@ -389,7 +390,8 @@ enum NewTeam {
         guard let lead = team["lead"] as? String, !lead.isEmpty else { return nil }
         let members: [Member] = rows.compactMap { m in
             guard let slot = m["slot"] as? String, !slot.isEmpty, let title = m["title"] as? String else { return nil }
-            return Member(slot: slot, title: title, name: m["name"] as? String ?? "", isLead: slot == lead)
+            return Member(slot: slot, title: title, name: m["name"] as? String ?? "", isLead: slot == lead,
+                          portrait: m["portrait"] as? Bool == true)
         }
         // The board refuses a team without exactly one lead; so does the phone, rather than make one Create would refuse.
         guard !members.isEmpty, members.filter(\.isLead).count == 1, members.first?.isLead == true,

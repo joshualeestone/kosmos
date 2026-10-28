@@ -21,8 +21,11 @@ enum AgentPicture {
             guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n,
                                       space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
             let font = UIFont.systemFont(ofSize: 215, weight: .bold)
-            let line = CTLineCreateWithAttributedString(NSAttributedString(string: letter, attributes: [.font: font,
-                                                        .foregroundColor: UIColor.white]))
+            // White ink from the context itself, so the mask does not rest on which colour key CoreText reads.
+            ctx.setFillColor(gray: 1, alpha: 1)
+            let attrs: [NSAttributedString.Key: Any] = [.font: font,
+                NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true]
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: letter, attributes: attrs))
             let ink = CTLineGetImageBounds(line, ctx)
             ctx.textPosition = CGPoint(x: AgentMark.centre - ink.midX, y: AgentMark.centre - ink.midY)
             CTLineDraw(line, ctx)
@@ -55,19 +58,22 @@ enum AgentPicture {
     // redrawn as a JPEG on white, largest side first, as the desktop's fitPicture does for a picture with no
     // transparency; nil when even the smallest will not fit.
     static let maxBytes = 60000
+    static let minSide: CGFloat = 16   // the desktop's PICTURE_MIN_SIDE: a thinner picture is padded up to it
     static func fit(_ image: UIImage) -> Data? {
         let big = max(image.size.width, image.size.height)
         guard big > 0 else { return nil }
         for side in [512.0, 384, 256, 192, 128].map({ min(CGFloat($0), big) }) {
             let k = side / big
-            let size = CGSize(width: (image.size.width * k).rounded(), height: (image.size.height * k).rounded())
+            let drawn0 = CGSize(width: (image.size.width * k).rounded(), height: (image.size.height * k).rounded())
+            let size = CGSize(width: max(minSide, drawn0.width), height: max(minSide, drawn0.height))
             let format = UIGraphicsImageRendererFormat()
             format.scale = 1
             format.opaque = true
             let drawn = UIGraphicsImageRenderer(size: size, format: format).image { r in
                 UIColor.white.setFill()
                 r.fill(CGRect(origin: .zero, size: size))
-                image.draw(in: CGRect(origin: .zero, size: size))
+                image.draw(in: CGRect(x: (size.width - drawn0.width) / 2, y: (size.height - drawn0.height) / 2,
+                                      width: drawn0.width, height: drawn0.height))
             }
             for q in [0.85, 0.7, 0.55] {
                 if let data = drawn.jpegData(compressionQuality: q), data.count <= maxBytes { return data }

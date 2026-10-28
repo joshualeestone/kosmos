@@ -54,6 +54,9 @@ struct NewAgentView: View {
     @State private var loadingTeams = false
     @State private var gone = false
     @State private var photoPick: PhotosPickerItem?
+    @State private var markImage: UIImage?           // the mark for markName, drawn once per name, not per redraw
+    @State private var markName = ""
+    @State private var photoLoad = 0                 // the newest pick: an older one finishing late is not used
     @State private var projectUnsure = false         // a new project's create got no answer: look before making another
     @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
     @State private var checkedNames: [String: String] = [:]   // the names the board checked free, by slot
@@ -472,7 +475,7 @@ struct NewAgentView: View {
             if maybeMade[s.slot] == s.session, client.agents.contains(where: { $0.session == s.session && $0.boardSeesIt }) {
                 states[s.slot] = .made(session: s.session, shownAs: s.name)
                 maybeMade[s.slot] = nil
-                tellLater(s.session, teamProject.map { [$0] } ?? [], .init(name: s.name, team: d.key, slot: s.slot))
+                tellLater(s.session, teamProject.map { [$0] } ?? [], portraitFor(s.slot, name: s.name, team: d))
                 if s.slot == lead { leadMade = true }
                 continue
             }
@@ -486,7 +489,7 @@ struct NewAgentView: View {
                 states[s.slot] = .made(session: session, shownAs: shown)
                 memberWarnings[s.slot] = NewAgent.madeWarnings(got?.0)
                 maybeMade[s.slot] = nil
-                tellLater(session, NewAgent.addedProjects(got?.0), .init(name: shown, team: d.key, slot: s.slot))
+                tellLater(session, NewAgent.addedProjects(got?.0), portraitFor(s.slot, name: shown, team: d))
                 announce(shown + ": " + NewTeam.Words.made)
             case .refused(let why):
                 states[s.slot] = .failed(NewTeam.sentence(why))
@@ -509,12 +512,17 @@ struct NewAgentView: View {
             guard case .failed = states[slot] else { continue }
             let shown = NewProject.trimmed(names[slot] ?? session)
             states[slot] = .made(session: session, shownAs: shown)
-            tellLater(session, teamProject.map { [$0] } ?? [], .init(name: shown, team: detail?.key, slot: slot))
+            tellLater(session, teamProject.map { [$0] } ?? [], detail.map { portraitFor(slot, name: shown, team: $0) } ?? .init(name: shown))
             maybeMade[slot] = nil
         }
         if let made, !seen, on.contains(made.session) { seen = true; helloTimer?.cancel() }
         // A manager no longer listed goes back to you; an empty list (a failed read, a change of account) changes nothing.
         if !rows.isEmpty, !draft.reportsTo.isEmpty, !rows.contains(where: { $0.session == draft.reportsTo }) { draft.reportsTo = "" }
+    }
+
+    // A team member's picture: the catalogue's portrait only for a seat that has one, else the mark.
+    private func portraitFor(_ slot: String, name: String, team d: NewTeam.Detail) -> AgentPicture.Pending {
+        d.members.first(where: { $0.slot == slot })?.portrait == true ? .init(name: name, team: d.key, slot: slot) : .init(name: name)
     }
 
     private func tellLater(_ session: String, _ projects: [String], _ picture: AgentPicture.Pending) {
@@ -670,7 +678,9 @@ struct NewAgentView: View {
                 Section { Text(message).foregroundColor(Palette.dangerWord) }
             }
         }
-        .onChange(of: photoPick) { item in Task { await loadPhoto(item) } }
+        .onChange(of: photoPick) { item in if item != nil { Task { await loadPhoto(item) } } }
+        .onChange(of: draft.name) { _ in redrawMark() }
+        .onAppear { redrawMark() }
         .navigationTitle(NewAgent.Words.setupTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(sending)
@@ -787,8 +797,8 @@ struct NewAgentView: View {
     @ViewBuilder private var picturePreview: some View {
         if let data = draft.photo, let img = UIImage(data: data) {
             Image(uiImage: img).resizable().scaledToFill().clipShape(Circle())
-                .accessibilityLabel(NewAgent.Words.changePicture)
-        } else if let mark = AgentPicture.mark(draft.name) {
+                .accessibilityHidden(true)   // the picture itself; Change picture beside it is the control
+        } else if let mark = markImage, !NewProject.trimmed(draft.name).isEmpty {
             Image(uiImage: mark).resizable().scaledToFit().clipShape(Circle())
                 .accessibilityLabel(NewAgent.Words.markLabel)
         } else {
@@ -797,8 +807,22 @@ struct NewAgentView: View {
     }
 
     private func loadPhoto(_ item: PhotosPickerItem?) async {
-        guard let item, let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) else { return }
-        if let fitted = AgentPicture.fit(img) { draft.photo = fitted } else { message = NewAgent.Words.pictureTooBig }
+        guard let item else { return }
+        photoLoad += 1
+        let mine = photoLoad
+        photoPick = nil   // so choosing the same photo again is a new choice
+        let data = try? await item.loadTransferable(type: Data.self)
+        guard mine == photoLoad else { return }
+        if let data, let img = UIImage(data: data), let fitted = AgentPicture.fit(img) { draft.photo = fitted; message = nil }
+        else { message = NewAgent.Words.pictureTooBig }
+    }
+
+    // The mark follows the name as it is typed, drawn once per change rather than on every redraw.
+    private func redrawMark() {
+        let name = NewProject.trimmed(draft.name)
+        guard name != markName else { return }
+        markName = name
+        markImage = AgentPicture.mark(name)
     }
 
     // MARK: pieces
