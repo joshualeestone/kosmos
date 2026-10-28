@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 // kosmos#7488: + on Agents opens this full-height sheet, Mona Lisa's phone design of the desktop's New Agent (#4554):
@@ -9,7 +10,9 @@ struct NewAgentView: View {
     @ObservedObject var client: BoardClient
     let opened: (_ session: String, _ shownAs: String) -> Void   // Say hello: the new agent's chat (a team's lead)
     // The projects a new agent was put on, told by the app once the board sees it, so leaving this sheet early loses none.
-    let tell: (_ session: String, _ projects: [String]) -> Void
+    // A made agent's projects to tell and picture to set, both done by the app once the board sees the agent, so
+    // leaving this sheet early loses neither.
+    let afterMade: (_ session: String, _ projects: [String], _ picture: AgentPicture.Pending) -> Void
     // A team run outlives this sheet; held by the app so a sheet opened meanwhile does not start the same team again.
     @Binding var teamBusy: Bool
     @Environment(\.dismiss) private var dismiss
@@ -50,6 +53,7 @@ struct NewAgentView: View {
     @State private var maybeMade: [String: String] = [:]   // slot: the session a create with no answer may have made
     @State private var loadingTeams = false
     @State private var gone = false
+    @State private var photoPick: PhotosPickerItem?
     @State private var projectUnsure = false         // a new project's create got no answer: look before making another
     @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
     @State private var checkedNames: [String: String] = [:]   // the names the board checked free, by slot
@@ -275,7 +279,7 @@ struct NewAgentView: View {
                     if let caution = detail.caution { Text(caution).font(.footnote).foregroundColor(Palette.askedWord) }
                     ForEach(detail.members) { m in
                         VStack(alignment: .leading, spacing: 4) {
-                            nameField(m).disabled(teamLocked)
+                            nameField(m, editable: !teamLocked).disabled(teamLocked)
                             Text(NewTeam.Words.reportsTo(m.title, m.isLead ? NewAgent.Words.you : leadName(detail)))
                                 .font(.footnote).foregroundColor(Palette.secondary)
                         }
@@ -295,6 +299,7 @@ struct NewAgentView: View {
                         Picker(NewAgent.Words.model, selection: $draft.model) {
                             ForEach(models) { m in Text(m.label).tag(m.key) }
                         }
+                        .labelsHidden()   // Mona Lisa: the heading says Model; the row shows only the choice
                         .disabled(teamLocked)
                     } header: { Text(NewAgent.Words.model + " " + NewTeam.Words.modelSoft) }
                 }
@@ -347,10 +352,14 @@ struct NewAgentView: View {
     // Made screen instead.
     private var teamLocked: Bool { teamRunning || teamStarted }
 
-    private func nameField(_ m: NewTeam.Member) -> some View {
-        TextField(m.title, text: Binding(get: { names[m.slot] ?? "" }, set: { names[m.slot] = $0 }))
-            .textInputAutocapitalization(.words)
-            .accessibilityLabel(m.title + ", " + NewAgent.Words.name)
+    // Mona Lisa (build 14): a name that can be changed looks it, with a pencil while it can.
+    private func nameField(_ m: NewTeam.Member, editable: Bool = true) -> some View {
+        HStack(spacing: 8) {
+            TextField(m.title, text: Binding(get: { names[m.slot] ?? "" }, set: { names[m.slot] = $0 }))
+                .textInputAutocapitalization(.words)
+                .accessibilityLabel(m.title + ", " + NewAgent.Words.name)
+            if editable { Image(systemName: "pencil").foregroundColor(Palette.secondary).accessibilityHidden(true) }
+        }
     }
 
     private func leadName(_ d: NewTeam.Detail) -> String {
@@ -463,7 +472,7 @@ struct NewAgentView: View {
             if maybeMade[s.slot] == s.session, client.agents.contains(where: { $0.session == s.session && $0.boardSeesIt }) {
                 states[s.slot] = .made(session: s.session, shownAs: s.name)
                 maybeMade[s.slot] = nil
-                tellLater(s.session, teamProject.map { [$0] } ?? [])
+                tellLater(s.session, teamProject.map { [$0] } ?? [], .init(name: s.name, team: d.key, slot: s.slot))
                 if s.slot == lead { leadMade = true }
                 continue
             }
@@ -477,7 +486,7 @@ struct NewAgentView: View {
                 states[s.slot] = .made(session: session, shownAs: shown)
                 memberWarnings[s.slot] = NewAgent.madeWarnings(got?.0)
                 maybeMade[s.slot] = nil
-                tellLater(session, NewAgent.addedProjects(got?.0))
+                tellLater(session, NewAgent.addedProjects(got?.0), .init(name: shown, team: d.key, slot: s.slot))
                 announce(shown + ": " + NewTeam.Words.made)
             case .refused(let why):
                 states[s.slot] = .failed(NewTeam.sentence(why))
@@ -498,8 +507,9 @@ struct NewAgentView: View {
         for (slot, session) in maybeMade where on.contains(session) {
             // Only a row still failed is taken; a row being made again keeps its mark until its own answer lands.
             guard case .failed = states[slot] else { continue }
-            states[slot] = .made(session: session, shownAs: NewProject.trimmed(names[slot] ?? session))
-            tellLater(session, teamProject.map { [$0] } ?? [])
+            let shown = NewProject.trimmed(names[slot] ?? session)
+            states[slot] = .made(session: session, shownAs: shown)
+            tellLater(session, teamProject.map { [$0] } ?? [], .init(name: shown, team: detail?.key, slot: slot))
             maybeMade[slot] = nil
         }
         if let made, !seen, on.contains(made.session) { seen = true; helloTimer?.cancel() }
@@ -507,8 +517,8 @@ struct NewAgentView: View {
         if !rows.isEmpty, !draft.reportsTo.isEmpty, !rows.contains(where: { $0.session == draft.reportsTo }) { draft.reportsTo = "" }
     }
 
-    private func tellLater(_ session: String, _ projects: [String]) {
-        if !projects.isEmpty { tell(session, projects) }
+    private func tellLater(_ session: String, _ projects: [String], _ picture: AgentPicture.Pending) {
+        afterMade(session, projects, picture)
     }
 
     // Not once the sheet has gone: a team still being made would speak its names over the lock.
@@ -622,6 +632,13 @@ struct NewAgentView: View {
 
     private var setupScreen: some View {
         Form {
+            Section(NewAgent.Words.identity) {
+                HStack(spacing: 16) {
+                    picturePreview.frame(width: 72, height: 72)
+                    PhotosPicker(selection: $photoPick, matching: .images) { Text(NewAgent.Words.changePicture) }
+                        .buttonStyle(.bordered)
+                }
+            }
             Section {
                 TextField(NewAgent.Words.name, text: $draft.name)
                     .textInputAutocapitalization(.words)
@@ -645,6 +662,7 @@ struct NewAgentView: View {
                     Picker(NewAgent.Words.model, selection: $draft.model) {
                         ForEach(models) { m in Text(m.label).tag(m.key) }
                     }
+                    .labelsHidden()
                 } header: { Text(NewAgent.Words.model + " " + NewAgent.Words.modelSoft) }
             }
             if draft.kind == .swarm { swarmSection }
@@ -652,6 +670,7 @@ struct NewAgentView: View {
                 Section { Text(message).foregroundColor(Palette.dangerWord) }
             }
         }
+        .onChange(of: photoPick) { item in Task { await loadPhoto(item) } }
         .navigationTitle(NewAgent.Words.setupTitle)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(sending)
@@ -711,7 +730,7 @@ struct NewAgentView: View {
                 if !Task.isCancelled && !seen { timedOut = true }
             }
             path.append(.made)
-            tellLater(session, NewAgent.addedProjects(got?.0))
+            tellLater(session, NewAgent.addedProjects(got?.0), .init(photo: sent.photo, name: sent.name))
         case .refused(let why):
             message = NewTeam.sentence(why)
             announce(NewTeam.sentence(why))
@@ -762,6 +781,24 @@ struct NewAgentView: View {
                 pinned(NewAgent.Words.done, enabled: true) { dismiss() }
             }
         }
+    }
+
+    // The chosen picture, else the mark from the name as it is typed, else the desktop's empty ring.
+    @ViewBuilder private var picturePreview: some View {
+        if let data = draft.photo, let img = UIImage(data: data) {
+            Image(uiImage: img).resizable().scaledToFill().clipShape(Circle())
+                .accessibilityLabel(NewAgent.Words.changePicture)
+        } else if let mark = AgentPicture.mark(draft.name) {
+            Image(uiImage: mark).resizable().scaledToFit().clipShape(Circle())
+                .accessibilityLabel(NewAgent.Words.markLabel)
+        } else {
+            Circle().stroke(Palette.separator, lineWidth: 2).accessibilityHidden(true)
+        }
+    }
+
+    private func loadPhoto(_ item: PhotosPickerItem?) async {
+        guard let item, let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) else { return }
+        if let fitted = AgentPicture.fit(img) { draft.photo = fitted } else { message = NewAgent.Words.pictureTooBig }
     }
 
     // MARK: pieces

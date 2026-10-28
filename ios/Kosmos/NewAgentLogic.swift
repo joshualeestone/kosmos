@@ -54,6 +54,10 @@ enum NewAgent {
         static func makingNamed(_ n: String) -> String { n.isEmpty ? making : "Making " + n }
         static let hello = "Say “hello” to your agent to activate it on Kosmos."
         static func sayHello(_ shown: String) -> String { "Say Hello to " + shown }
+        static let identity = "Identity"
+        static let changePicture = "Change picture"
+        static let markLabel = "Generated mark for this agent"
+        static let pictureTooBig = "That picture could not be made small enough to use. Choose another."
         static let labelMissing = "Say what this agent does. One or two words."
         static func running(_ shown: String) -> String { shown + " is running" }
         static func notUp(_ shown: String) -> String { shown + " has not come up" }
@@ -156,6 +160,7 @@ enum NewAgent {
         var model = ""
         var maxHelpers = NewAgent.helpersStart
         var capMillions = NewAgent.capStart
+        var photo: Data?                // a chosen picture, fitted (AgentPicture.fit); nil for the generated mark
     }
 
     // The example the editor starts from: the template, with the name it does not know yet read as the desktop reads it.
@@ -205,6 +210,25 @@ enum NewAgent {
         return out
     }
     static let notAdded = "It was not added to the project"
+
+    // kosmos#7488 build 14: the new agent's picture, PUT to the route the desktop's uploadPendingAvatar uses, once the
+    // board can see the agent (it refuses a name it does not know). The type is the picture's: PNG, JPEG or a catalogue portrait's WebP.
+    static func pictureRequest(mac: URL, session: String, data: Data, type: String) -> URLRequest? {
+        guard Board.isAgentSession(session), !data.isEmpty, data.count <= 60000, ["image/png", "image/jpeg", "image/webp"].contains(type) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/avatar", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "PUT"
+        r.setValue(type, forHTTPHeaderField: "Content-Type")
+        r.httpBody = data
+        return r
+    }
+    // A ready-made team member's portrait, from the catalogue the board holds (the desktop's tcPortrait): team and slot
+    // only pick among its members, and 404 is "no portrait", which leaves the mark.
+    static func portraitRequest(mac: URL, team: String, slot: String) -> URLRequest? {
+        guard NewTeam.isKey(team), NewTeam.isKey(slot) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/catalogue/portrait?team=\(team)&slot=\(slot)", relativeTo: mac)!.absoluteURL)
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
 
     static func tellRequest(mac: URL, project: String, session: String) -> URLRequest? {
         guard Board.isProjectId(project), Board.isAgentSession(session) else { return nil }
