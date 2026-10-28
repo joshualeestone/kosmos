@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: roomarchive3b-7365
-diff_hash: faac45b5289076dd16662e96aa026f52fc0b66d1280a22dbe5e14af77c184685
+diff_hash: f8651c864586d13aa309dcc2ed05ef6f3ebe0628905cb6a46f964fc01ae5c607
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-28T17:25:27Z
+timestamp: 2026-10-28T18:24:46Z
 iterations: 12
 converged: true
 ---
@@ -90,6 +90,11 @@ The full per-finding detail is the ledger in .claude/plans/roomarchive3b-7365.md
   (the comment says what CI measured)
 - Not measured locally: this Mac draws overlay scrollbars, so the 15px gutter cannot be reproduced here. The PR's CI
   run is the measurement.
+
+#### After iteration 12: main merged in
+- #7501 landed on main with design-shot screens beside this branch's in docs/browser-checks/mobile-shots.js; main was
+  merged in (not rebased, so the shas above stay valid) and the one conflict kept both helpers. The shot-tool tests
+  pass (110/110) and the full validation re-ran on Mortals for this merged diff.
 
 ### Not guarded by unit tests (stated so nobody reads the unit suite as covering them)
 The archive-view thread having no end row is guarded by both. The delegated click on the end row and the
