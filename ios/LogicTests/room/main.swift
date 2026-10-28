@@ -1249,6 +1249,9 @@ for (name, fam, first) in markRef {
     let close = zip(got, first).allSatisfy { d, e in abs(d.x - e.0) < 1e-4 && abs(d.y - e.1) < 1e-4 && abs(d.r - e.2) < 1e-4 && d.color == e.3 }
     check(AgentMark.familyIndex(name) == fam && got.count == 240 && close, "the mark for \(name) is the desktop's: family, count and the first dots")
 }
+check(boardPage.contains("const S = 256; const C = 128; const R = \(Int(AgentMark.radius));") && boardPage.contains("while (dots.length < \(AgentMark.count) && tries < 40000)")
+      && boardPage.contains("const rad = 2.5 + rnd() * rnd() * 11;") && boardPage.contains("const clear = rad + 2;"),
+      "the mark's constants are still the desktop's (its size, radius, dot count, tries, dot sizes and clearance)")
 check(AgentMark.families.count == 14 && AgentMark.families.allSatisfy { fam in
     boardPage.contains("[" + fam.map { "'#" + String(format: "%06x", $0) + "'" }.joined(separator: ", ") + "]")
 }, "each of the 14 families is the desktop's, colour for colour")

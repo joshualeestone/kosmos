@@ -379,17 +379,19 @@ struct NewAgentView: View {
     private var teamLocked: Bool { teamRunning || teamStarted }
 
     // Mona Lisa (build 14): a name that can be changed looks it, with a pencil while it can.
-    // A tap anywhere on the row, the pencil included, puts the cursor in the name.
+    // The name field takes its own taps; the pencil, beside it, puts the cursor in the name too.
     private func nameField(_ m: NewTeam.Member, editable: Bool = true) -> some View {
         HStack(spacing: 8) {
             TextField(m.title, text: Binding(get: { names[m.slot] ?? "" }, set: { names[m.slot] = $0 }))
                 .textInputAutocapitalization(.words)
                 .focused($nameFocus, equals: m.slot)
                 .accessibilityLabel(m.title + ", " + NewAgent.Words.name)
-            if editable { Image(systemName: "pencil").foregroundColor(Palette.secondary).accessibilityHidden(true) }
+            if editable {
+                Image(systemName: "pencil").foregroundColor(Palette.secondary).accessibilityHidden(true)
+                    .contentShape(Rectangle())
+                    .onTapGesture { nameFocus = m.slot }
+            }
         }
-        .contentShape(Rectangle())
-        .onTapGesture { if editable { nameFocus = m.slot } }
     }
 
     private func leadName(_ d: NewTeam.Detail) -> String {
@@ -707,9 +709,14 @@ struct NewAgentView: View {
             }
         }
         // Create is off from the moment of the pick, not from when the load starts.
-        .onChange(of: photoPick) { item in if item != nil { photoLoading = true; Task { @MainActor in await loadPhoto(item) } } }
+        .onChange(of: photoPick) { item in
+            guard item != nil else { return }
+            photoLoad += 1
+            let mine = photoLoad
+            photoLoading = true
+            Task { @MainActor in await loadPhoto(item, mine: mine) }
+        }
         .onChange(of: draft.name) { _ in redrawMark() }
-
         .onAppear { redrawMark() }
         .navigationTitle(NewAgent.Words.setupTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -845,11 +852,9 @@ struct NewAgentView: View {
         }
     }
 
-    private func loadPhoto(_ item: PhotosPickerItem?) async {
-        guard let item else { return }
-        photoLoad += 1
-        let mine = photoLoad
-        photoLoading = true
+    // `mine` is the pick's own number, taken at the pick, so a role change in between makes it stale.
+    private func loadPhoto(_ item: PhotosPickerItem?, mine: Int) async {
+        guard let item, mine == photoLoad else { return }
         defer { if mine == photoLoad { photoLoading = false } }
         photoPick = nil   // so choosing the same photo again is a new choice
         let data = try? await item.loadTransferable(type: Data.self)
