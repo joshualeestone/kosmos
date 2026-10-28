@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: switchwords-7445
-diff_hash: e38dfcd318c9d8c66ea12158db1341f49a6d61c6c7a25a03d0d872c1819de1f0
-validation: switchwords 11/11, web switchwords 6/6, switch-family-7410 6/6, switchmem-7410 31/31, create.test 127 pass; policy tests green
+diff_hash: 82bf1bd36420d67ef16be4086ae3f2a8073862c8b304c6b88d4d2bd9d2987c5a
+validation: switchwords 11/11 (pointer fixture fixed for Mac job-first lookup), web switchwords 6/6, switch-family-7410 6/6, switchmem-7410 31/31, create.test 127 pass; policy tests green
 subdir_audit: passed
-timestamp: 2026-10-28T06:06:33Z
+timestamp: 2026-10-28T08:08:58Z
 iterations: 5
 converged: true
 ---
