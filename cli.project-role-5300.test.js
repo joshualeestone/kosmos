@@ -84,3 +84,15 @@ test('#5300 Mac CLI: no role, three words unquoted, a bad id and an option are r
     const opt = await runCli(['project', 'role', 'p1', '--clear'], env);
     assert.match(opt.stdout + opt.stderr, /--clear is not an option of kosmos project role, so nothing was done\.\s*Usage: kosmos project role <project-id> "<what you do here>"/, opt.stdout + opt.stderr);
   }));
+
+test('#7429 Mac CLI: a role the board reads as review only says what that does; without the flag it says nothing more (control)', () =>
+  withBoard(() => [200, { ok: true, role: 'QA only', reviewOnly: true }], async (env) => {
+    const r = await runCli(['project', 'role', 'p1', 'QA only'], env);
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /Set your role on p1\./);
+    assert.match(r.stdout, /It says you only review, so the automatic Assigner hands you none of this project's tasks \(your person still can\)\./);
+  }).then(() => withBoard(() => [200, { ok: true, role: 'Builder' }], async (env) => {
+    const r = await runCli(['project', 'role', 'p1', 'Builder'], env);
+    assert.equal(r.code, 0, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stdout, /only review/, 'a builder was told it only reviews');
+  })));

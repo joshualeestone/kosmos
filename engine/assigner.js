@@ -8,7 +8,8 @@
  * open part of any task assigned to it.
  *
  * WHAT IT DELIBERATELY DOES NOT DO. It never creates a project or a task, never adds an agent to
- * a project, never touches a task somebody is already on (one exception, #5382's failover, off by
+ * a project, never hands a task to an agent whose role on that project is review only (#7429), never touches a task
+ * somebody is already on (one exception, #5382's failover, off by
  * default: an agent rate-limited for FAILOVER_MS), and never assigns in an archived
  * project. An agent whose last stated list named work (fresh or stale), or whose record cannot be
  * read or is dated in the future, is left alone.
@@ -161,11 +162,16 @@ function hasOpenWork(session, projects) {
 
 /* #5678 review 2: does `who` holding an open part of `t` keep it busy, by hasOpenWork's own rules (on hold, between
    runs, built and freed: not busy)? A tree is locked only by holds like that, so a parked hold never locks a tree for
-   good. One more than hasOpenWork (review 5: so the two do not fully agree): a holder switched off in this project
-   holds nothing here, because the person turned its swarm work off; its tree is free to the others. Its callers have
+   good. Two more than hasOpenWork (review 5: so the two do not fully agree): a holder switched off in this project
+   holds nothing here, because the person turned its swarm work off; and a review-only holder (#7429) holds nothing
+   here either; in both cases its tree is free to the others. Its callers have
    already left out closed tasks and paused projects, hasOpenWork's other two checks (review 7). */
 function busyHold(p, t, who) {
   if (tasks.isOnHold(t) || require('./taskrepeat').waitingForNextRun(t)) return false;
+  /* #7429 review 1: a review-only member holding ANY part (usually a review subtask; a build task a person gave it by
+     hand counts the same) never takes the tree's other tasks, so it does not lock the tree away from builders, as a
+     member switched off does not. The cost, accepted: a builder can then be on a tree beside it. */
+  if (require('./projects').reviewOnlyHere(p, who)) return false;
   if (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(who)))) return false;
   return !isSwarmOff(p, who);
 }
@@ -279,6 +285,8 @@ function pick(session, projects, taken) {
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
     if (require('./projects').isPaused(p)) continue;   // #4771: nothing in a paused project is handed out
+    // #7429: an agent whose role here is review only is not handed this project's tasks (a person still can).
+    if (require('./projects').reviewOnlyHere(p, session)) continue;
     /* #5678: a task tree (a parent and everything under it) is one builder's work: its holders' (the project's agents on
        an open part of an open task in it), or, this pass, the agent it was just given to (`taken` carries
        "<project>#tree#<root>#<agent>", review 1: a parent and its subtask given to two idle agents in one tick). */
@@ -418,6 +426,9 @@ function saveMemory(mem, last) {
 function goalProject(session, projects, goals, asked, now, askedSig) {
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session) || aloneOnItsOwn(p, session)) continue;
+    /* #7429 review 1: a review-only member is not asked to draft tasks: it would never be handed them, and it would
+       use up the project's one ask for the day before a builder is asked. */
+    if (require('./projects').reviewOnlyHere(p, session)) continue;
     /* #4771: a paused project is not asked about. (A task on hold still counts as open work here: the project is
        not empty, the person parked it, so its goal is not put to an agent.) */
     if (require('./projects').isPaused(p)) continue;
@@ -476,6 +487,8 @@ function stalledParts(projects, ripe, runnerOf, now = Date.now(), limitedSince =
       const prog = tasks.progressOf(t);
       for (const x of prog.parts) {
         if (x.closedAt || !ripe.has(x.who)) continue;
+        // #7429 final review: a review-only member's part is its review; moving it to another agent is not failover.
+        if (require('./projects').reviewOnlyHere(p, x.who)) continue;
         /* Review 13: a part a PERSON gave this agent while it was already limited stays (they may be queueing work for
            after its reset); only work it held before its limit began moves. */
         const since = limitedSince instanceof Map ? limitedSince.get(x.who) : undefined;
@@ -506,6 +519,7 @@ function failoverPick(session, runner, stalled, projects, movedParts, taken = ne
     if (!s.fromRunner || !runner || s.fromRunner === runner || movedParts.has(s.projectId + '#' + s.n + '#' + s.partId)) continue;
     const p = projects.find((q) => q.id === s.projectId);
     if (!p || !(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
+    if (require('./projects').reviewOnlyHere(p, session)) continue;   // #7429: nor is a stalled part moved to one
     /* #5678 review 2: a moved part must not make a second builder on its tree: the tree's other busy holders (leaving
        out the stalled one, whose part this is) must be none or this agent, and no one else got the tree this pass. */
     const tree = tasks.treeOf(p);

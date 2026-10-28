@@ -24327,7 +24327,10 @@ const server = http.createServer(async (req, res) => {
      The caller is identified by processCaller and sets its own: a token names it exactly; a pane (from_pane) is taken
      as given, and the screen names the member (`name`), with a local process that claims to be the screen
      (isViaScreen) taken at its word, as on the sibling routes. describe carries it as `roleHere`, beside `role`.
-     Not valved: one field per member per project, rewritten in place; display only, so it decides no routing. */
+     Not valved: one field per member per project, rewritten in place. #7429: it now decides one thing, whether the
+     Assigner hands this member work here (projects.reviewOnlyHere), and only for the member itself: an agent sets
+     only its own role, so the most a caller can do is take ITSELF out of hand-outs, which its answer tells it
+     (reviewOnly), and the person can set or clear it from the screen. Nothing there needs a valve either. */
   const roleHere = pathname.match(/^\/api\/project\/([^/]+)\/role$/);
   if (roleHere && req.method === 'POST') {
     const id = decodeSegment(roleHere[1]);
@@ -24377,7 +24380,10 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 500, { error: 'Kosmos could not save that role just now' });
         return;
       }
-      sendJson(res, 200, { ok: true, role: out.role });
+      // #7429: say when the words take this member out of the Assigner's hand-outs, so it is never a silent effect.
+      // From the role just saved, not a second read (review 2: a read races a later write, and its failure was silent).
+      const reviewOnly = out.role !== null && projects.reviewOnlyHere({ rolesHere: { [name]: out.role } }, name);
+      sendJson(res, 200, { ok: true, role: out.role, ...(reviewOnly ? { reviewOnly: true } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });
