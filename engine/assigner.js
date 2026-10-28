@@ -250,6 +250,15 @@ function candidateIn(p, tree, holdersOf, t, session, taken) {
 /* #7407: the project's agents pick could give task `t` to right now, by pick's own rules (archived, paused, swarm off,
    the task's filters, its open subtasks, another builder's tree), whether or not they are idle. Empty: nobody will be
    given it without a person. `t` is the task object inside `p`. */
+/* #7407 review 4: who holds `t`'s task tree busy now (pick's holdersOf at its root), and the root's number. Such a
+   tree is one builder's: pick gives `t` only to that holder, who is busy by definition, and to anyone once they are
+   done there, so the unhold answer says that rather than naming them. */
+function treeHeldBy(p, t) {
+  const tree = tasks.treeOf(p);
+  const holdersOf = tasks.treeHolders(p, tree, (x, who) => busyHold(p, x, who));
+  const root = tasks.rootIn(tree, t);
+  return { root, holders: [...(holdersOf.get(root) || [])] };
+}
 function whoMayGet(p, t) {
   if (!p || p.archived === true || require('./projects').isPaused(p)) return [];
   const tree = tasks.treeOf(p);
@@ -748,4 +757,4 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
-  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, handOutable, whoMayGet, stallable, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };
+  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, handOutable, whoMayGet, treeHeldBy, stallable, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };
