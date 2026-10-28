@@ -734,7 +734,7 @@ cutonly() (   # <which check is busy> ; every other check quiet
   }
   KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-none" kosmos_cut_quiet_box_busy
 )
-for c in "prepush:relay pre-push build" "shards:shell shards running" "shards-unreadable:shell shards running" \
+for c in "prepush:relay pre-push build" "shards:shell shards running" "shards-unreadable:could not tell whether shell shards run" \
          "install:running: tools/test-install.sh" "install-unreadable:could not tell whether tools/test-install.sh runs"; do
   out="$(CUTONLY="${c%%:*}" cutonly 2>&1)"; rc=$?
   { [ "$rc" -eq 0 ] && has "$out" "${c#*:}"; } && pass "#7512 ${c%%:*} alone holds the cut ($out)" \

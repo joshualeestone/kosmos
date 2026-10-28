@@ -636,8 +636,8 @@ kosmos_refuse_if_suite_live() {
 # Unlike kosmos_refuse_if_suite_live it keeps suites started inside a test (no _kosmos_drop_test_fixtures), as the
 # wrapper's copy did: that only errs toward busy.
 # Seams: KOSMOS_SUITE_PROBE and KOSMOS_SUITE_SELF_PID, as kosmos_refuse_if_suite_live reads them.
-# Review 2: a pgrep that fails (rc 2 or more) is busy too, as the comment above promises; only 1 is "none".
-_kosmos_shell_shards_live() { local rc=0; pgrep -f "tools/shell-shard\.js run" >/dev/null 2>&1 || rc=$?; [ "$rc" -ne 1 ]; }
+# 0 shards live, 1 none, 2 or more pgrep failed (review 2: busy too; review 6: said as "could not tell").
+_kosmos_shell_shards_live() { local rc=0; pgrep -f "tools/shell-shard\.js run" >/dev/null 2>&1 || rc=$?; return "$rc"; }
 kosmos_cut_quiet_box_busy() {
   local probe="${KOSMOS_SUITE_PROBE:-}" self="${KOSMOS_SUITE_SELF_PID:-$$}" out rc sc
   if kosmos_prepush_build_live; then echo "relay pre-push build"; return 0; fi
@@ -646,7 +646,9 @@ kosmos_cut_quiet_box_busy() {
   [ -n "$out" ] && out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
   [ -n "$out" ] && out="$(printf '%s\n' "$out" | _kosmos_drop_claim_bound_suite_waiters || true)"
   if [ -n "$out" ]; then echo "suite ${out%% *}"; return 0; fi
-  if _kosmos_shell_shards_live; then echo "shell shards running"; return 0; fi
+  _kosmos_shell_shards_live; rc=$?
+  if [ "$rc" -eq 0 ]; then echo "shell shards running"; return 0; fi
+  if [ "$rc" -ge 2 ]; then echo "could not tell whether shell shards run (rc $rc): treated as busy"; return 0; fi
   for sc in tools/test-install.sh tools/browser-checks.sh; do
     if kosmos_running_lines "$sc" >/dev/null; then echo "running: $sc"; return 0; else rc=$?; fi
     [ "$rc" -eq 1 ] || { echo "could not tell whether $sc runs (rc $rc): treated as busy"; return 0; }
