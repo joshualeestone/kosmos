@@ -224,3 +224,168 @@ enum NewAgent {
         return status >= 500 || (200...299).contains(status) ? .unknown : .refused(fallback)
     }
 }
+
+// kosmos#7488 slice 2: New Agent's Team, natively. The desktop's Team screens (cstep-team, cstep-teammake) in its own
+// words: a ready-made team from the board's catalogue (GET /api/teams/seeded, then /api/teams/seeded/<key> for its
+// members, lead first), an optional project, one model for every member. Making it is the desktop's own order (tcMake):
+// the names are checked first with nothing made (specs with check), then the new project if one was chosen, then the
+// specs again with the project, then each member through POST /api/agents, the lead first; a report is never made
+// before its lead exists.
+enum NewTeam {
+    enum Words {
+        static let title = "Create a Team of Agents"
+        static let hint = "A lead and the agents who report to it, made in one go."
+        static let pick = "Pick a ready-made team"
+        static let project = "Project (optional)"
+        static func newProject(_ name: String) -> String { "A new project called " + name }
+        static let noProject = "No project for now"
+        static let modelSoft = "(for every agent in the team; you can change each later)"
+        static func create(_ n: Int) -> String { "Create \(n)" + (n == 1 ? " agent" : " agents") }
+        static func goTo(_ n: Int) -> String { n == 1 ? "Go to your agent" : "Go to your team" }
+        static let teamsUnread = "Kosmos could not load the teams. Try again."
+        static let none = "There are no ready-made teams on this computer yet."
+        static let waiting = "Waiting"
+        static let making = "Making"
+        static let made = "Made"
+        static let afterLead = "Made once the lead is made."
+        static let tryAgain = "Try again"
+    }
+
+    struct Team: Equatable, Identifiable {
+        let key: String
+        let label: String
+        let blurb: String
+        let count: Int
+        let group: String?
+        var id: String { key }
+    }
+    struct Member: Equatable, Identifiable {
+        let slot: String
+        let title: String
+        let name: String          // the catalogue's suggested name
+        let isLead: Bool
+        var id: String { slot }
+    }
+    struct Detail: Equatable {
+        let key: String
+        let label: String
+        let purpose: String
+        let caution: String?
+        let projectName: String?
+        let projectGoal: String?
+        let members: [Member]     // lead first, as served
+    }
+
+    static func get(_ path: String, mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: path, relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    static func teamsRequest(mac: URL) -> URLRequest { get("/api/teams/seeded", mac: mac) }
+    static func isKey(_ k: String) -> Bool {
+        !k.isEmpty && k.count <= 64 && k.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }
+    }
+    static func detailRequest(mac: URL, key: String) -> URLRequest? { isKey(key) ? get("/api/teams/seeded/" + key, mac: mac) : nil }
+
+    static func parseTeams(_ data: Data) -> [Team]? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rows = obj["teams"] as? [[String: Any]] else { return nil }
+        return rows.compactMap { t in
+            guard let key = t["key"] as? String, isKey(key), let label = t["label"] as? String, !NewProject.trimmed(label).isEmpty else { return nil }
+            return Team(key: key, label: label, blurb: t["blurb"] as? String ?? "", count: t["count"] as? Int ?? 0,
+                        group: (t["group"] as? String).flatMap { NewProject.trimmed($0).isEmpty ? nil : $0 })
+        }
+    }
+
+    static func parseDetail(_ data: Data) -> Detail? {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let team = obj["team"] as? [String: Any], let key = team["key"] as? String, isKey(key),
+              let rows = obj["members"] as? [[String: Any]] else { return nil }
+        let members: [Member] = rows.compactMap { m in
+            guard let slot = m["slot"] as? String, !slot.isEmpty, let title = m["title"] as? String else { return nil }
+            return Member(slot: slot, title: title, name: m["name"] as? String ?? "", isLead: m["reportsTo"] is NSNull || m["reportsTo"] == nil)
+        }
+        // The board refuses a team without exactly one lead; so does the phone, rather than make one Create would refuse.
+        guard !members.isEmpty, members.filter(\.isLead).count == 1, members.first?.isLead == true else { return nil }
+        let project = team["project"] as? [String: Any]
+        return Detail(key: key, label: team["label"] as? String ?? key, purpose: team["purpose"] as? String ?? "",
+                      caution: (team["caution"] as? String).flatMap { NewProject.trimmed($0).isEmpty ? nil : $0 },
+                      projectName: (project?["name"] as? String).flatMap { NewProject.trimmed($0).isEmpty ? nil : $0 },
+                      projectGoal: (project?["goal"] as? String).flatMap { NewProject.trimmed($0).isEmpty ? nil : $0 },
+                      members: members)
+    }
+
+    // The desktop's tcFillProjects: the team's project name (else its label), and the first free "<name> N" when a project
+    // by that name exists already, since the board refuses a project whose folder is taken.
+    static let projectNameCap = 100
+    static func newProjectName(_ d: Detail, taken: [String]) -> String {
+        let base = d.projectName ?? d.label
+        let names = Set(taken.map { NewProject.trimmed($0).lowercased() })
+        var wanted = base
+        var next = 2
+        while names.contains(wanted.lowercased()) && next < projectNameCap { wanted = base + " \(next)"; next += 1 }
+        return wanted
+    }
+
+    enum ProjectChoice: Hashable { case new, none, existing(String) }
+
+    // names: every slot to the name on its row (the board refuses a request that leaves one out).
+    static func specsRequest(mac: URL, key: String, names: [String: String], project: String?, model: String, check: Bool) -> URLRequest? {
+        guard isKey(key) else { return nil }
+        var b: [String: Any] = ["names": names, "check": check]
+        if let project { b["project"] = project }
+        if !model.isEmpty { b["model"] = model }
+        guard let data = try? JSONSerialization.data(withJSONObject: b) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/teams/seeded/" + key + "/specs", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = data
+        return r
+    }
+
+    struct Spec: Equatable {
+        let slot: String
+        let session: String
+        let name: String
+        let body: Data            // the member's create body, as the board built it
+    }
+    enum SpecsAnswer: Equatable { case specs([Spec]), refused(String), unknown }
+    static func specsAnswer(status: Int, body: Data?) -> SpecsAnswer {
+        if status == 0 { return .unknown }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if (200...299).contains(status), let rows = obj?["specs"] as? [[String: Any]] {
+            let specs: [Spec] = rows.compactMap { s in
+                guard let slot = s["slot"] as? String, let session = s["session"] as? String, Board.isAgentSession(session),
+                      var spec = s["spec"] as? [String: Any], let name = spec["name"] as? String else { return nil }
+                spec["notifyCreated"] = true   // the desktop's "Let Kosmos know an agent was created", on by default
+                guard let data = try? JSONSerialization.data(withJSONObject: spec) else { return nil }
+                return Spec(slot: slot, session: session, name: name, body: data)
+            }
+            return specs.count == rows.count && !specs.isEmpty ? .specs(specs) : .unknown
+        }
+        if let e = obj?["error"] as? String, !NewProject.trimmed(e).isEmpty { return .refused(NewTeam.sentence(e)) }
+        return status >= 500 ? .unknown : .refused(NewAgent.fallback)
+    }
+
+    static func memberRequest(mac: URL, spec: Spec) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/agents", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = spec.body
+        return r
+    }
+
+    // The board's refusals here are lower-case clauses ("give the Writer a name"): the desktop's tcSay capitalises them
+    // and ends them with a full stop.
+    static func sentence(_ s: String) -> String {
+        let t = NewProject.trimmed(s)
+        guard let first = t.first else { return t }
+        let up = first.uppercased() + t.dropFirst()
+        return [".", "!", "?"].contains(String(up.last!)) ? up : up + "."
+    }
+
+    enum State: Equatable { case waiting, making, made(session: String, shownAs: String), failed(String), afterLead }
+}
