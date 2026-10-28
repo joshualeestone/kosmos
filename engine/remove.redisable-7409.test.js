@@ -159,7 +159,7 @@ test('#7409: a sandboxed board never schedules it; a real board does, logs the n
   assert.equal(remove.reapplyAtBoardStart({ enforcing: true, setTimer, ...sinks }), true);
   assert.equal(timers.length, 1, 'CONTROL: a real board did not schedule it');
   timers[0].fn();
-  assert.match(said.join(''), /removed agents found able to run again and stopped .*: casey/, 'the board log did not name the agent: ' + said.join(''));
+  assert.match(said.join(''), /removed agents switched off again .*: casey/, 'the board log did not name the agent: ' + said.join(''));
   assert.equal(timers.length, 1, 'a clean run scheduled another');
   machine([], { refuse: { disable: 5 } });
   remove.reapplyAtBoardStart({ enforcing: true, setTimer, ...sinks });
@@ -222,4 +222,19 @@ test('#7409 review 3: a record the person chose to leave running, or a name remo
   const calls = machine([]);
   assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [] });
   assert.deepEqual(calls, [], 'a kept session or an unsafe name reached launchctl or tmux');
+});
+
+test('#7409 review 4: a launchctl that does not answer stops the sweep, and every agent left is reported failed', () => {
+  removedList([removedRow('a'), removedRow('b'), removedRow('c')]);
+  roster([]);
+  const calls = [];
+  remove.setRunner((file, args) => {
+    calls.push(args.join(' '));
+    if (args[0] === 'print-disabled') return { ok: true, stdout: 'disabled services = {\n}\n' };
+    if (args[0] === 'disable' && args[1].endsWith('/' + labelOf('b'))) return { ok: false, code: null, stdout: '', stderr: '' };   // no answer
+    return { ok: true, stdout: '' };
+  });
+  const out = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
+  assert.deepEqual(out, { ok: false, reapplied: ['a'], failed: ['b', 'c'], unsure: [] });
+  assert.ok(!calls.some((c) => c.endsWith('/' + labelOf('c'))), 'it went on waiting on launchd after it stopped answering: ' + calls.join(' | '));
 });

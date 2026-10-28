@@ -477,7 +477,7 @@ function removedNamesIn(storeRoot) { return removedNamesFrom(path.join(storeRoot
 function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}) {
   const none = { ok: true, reapplied: [], failed: [], unsure: [] };
   if (platform !== 'darwin') return none;
-  if (!commandsAreReal()) return none;
+  if (!commandsAreReal() || (DRY_RUN && !runner)) return none;   // as waitUnloaded: a live dry run reads nothing real
   const list = readRemovedForWrite();
   if (list === UNREADABLE) return { ...none, ok: false, because: 'the list of removed agents could not be read' };
   const wid = launchidentity.currentWorldId();
@@ -485,7 +485,7 @@ function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}
   const seen = new Set();
   for (const r of list) {
     if (!r || typeof r.name !== 'string' || typeof r.label !== 'string') continue;
-    if (r.leftRunningByChoice === true) continue;   // the person kept that session: never swept
+    if (r.leftRunningByChoice === true) continue;   // the person kept that session (its label is null today; a second guard)
     const clean = create.cleanName(r.name);
     if (!clean || unsafeToActOn(clean)) continue;
     const ours = r.label === create.serviceLabel(clean, wid) || (launchidentity.isDefaultWorld(wid) && r.label === `com.${clean}.discord`);
@@ -515,13 +515,17 @@ function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}
   };
   const out = { ok: true, reapplied: [], failed: [], unsure: [] };
   for (const { name, label } of owned) {
+    // A launchctl that gave no answer at all (no exit code: a timeout) stops the sweep: the rest would each wait as long.
+    const silent = (r) => !r || (r.ok === false && r.code == null);
     if (!off.has(label)) {
       const dis = run('/bin/launchctl', ['disable', `gui/${id}/${label}`]);
-      if (!dis || dis.ok === false) { out.failed.push(name); continue; }
+      if (silent(dis)) { out.failed.push(...owned.slice(owned.findIndex((o) => o.label === label)).map((o) => o.name)); break; }
+      if (dis.ok === false) { out.failed.push(name); continue; }
     }
     // 3 is launchd for "not loaded", which is the end state wanted; anything else refused is a failed step.
     const boot = run('/bin/launchctl', ['bootout', `gui/${id}/${label}`]);
-    if (!(boot && (boot.ok !== false || boot.code === 3))) { out.failed.push(name); continue; }
+    if (silent(boot)) { out.failed.push(...owned.slice(owned.findIndex((o) => o.label === label)).map((o) => o.name)); break; }
+    if (!(boot.ok !== false || boot.code === 3)) { out.failed.push(name); continue; }
     const unloaded = boot.ok !== false;   // it was loaded and is not now: a change, even for a job already disabled
     const found = tie(name);
     if (found.kind === FOUND.OURS) {
@@ -548,7 +552,7 @@ function reapplyAtBoardStart({ enforcing, afterMs = 2000, retryMs = 30000, setTi
     try {
       const kept = reapplyRemovedDisables();
       if (!kept.ok && again) { const t2 = setTimer(() => runOnce(false), retryMs); if (t2 && typeof t2.unref === 'function') t2.unref(); }
-      if (kept.reapplied.length) out(`Kosmos: removed agents found able to run again and stopped (their startup job switched off and unloaded, their session ended): ${kept.reapplied.join(', ')}\n`);
+      if (kept.reapplied.length) out(`Kosmos: removed agents switched off again (their startup job unloaded, and their session ended where it was running): ${kept.reapplied.join(', ')}\n`);
       if (kept.failed.length) err(`Kosmos: could not stop every removed agent starting again: ${kept.failed.join(', ')}\n`);
       if (kept.unsure.length) err(`Kosmos: removed agents whose running session could not be tied to them, left alone: ${kept.unsure.join(', ')}\n`);
       if (kept.because) err(`Kosmos: could not check removed agents' startup jobs: ${kept.because}\n`);

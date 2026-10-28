@@ -47,9 +47,11 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
 - A Restore that started the agent but could not take it off the removed list (writeRemoved threw; the person is told
   it was only partly done) leaves the record, so the next board start switches it off again. Accepted: it needs a
   failed write, on the path that already told the person it was half done.
-- It runs on the board's thread, synchronously (one roster read, and launchctl and tmux calls only for agents that need
-  them; an unmoved Mac pays one print-disabled and one roster read). Not moved to the async driver: the work is small
-  after the single roster read.
+- It runs on the board's thread, synchronously: one print-disabled, one roster read, and a bootout for every owned
+  label (a disable too for one launchd does not hold disabled), so N removed agents cost N launchctl calls on every
+  start. A launchctl that gives no answer (a timeout) stops the sweep, with the rest reported failed, so a launchd that
+  is not answering costs one wait, not N. Not moved to the async driver.
+- One retry, 30 s after the first run, only when it was not clean; after that, nothing until the next board start.
 - On every board start, not only after a move, a removed agent whose job is still loaded is unloaded and its tied
   session ended. That finishes a half-done removal too (one whose bootout failed at the time), and switches off again an
   agent a person re-enabled by hand with launchctl: the board cannot tell that from a move, and the record says removed.
