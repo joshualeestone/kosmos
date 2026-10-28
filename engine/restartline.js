@@ -7,20 +7,21 @@
  * A fix "needs a restart" when its release note carries `restart: "agents"` (engine/releasenotes.js): a running agent
  * keeps the old behaviour (an instruction section, a hook, its launch command) until its session starts again.
  *
- * WHEN. The board records the version it runs and when it first started on it (version-start.json). When it starts on
- * a newer version it keeps the one before as `previous`, so the notes that matter are the marked ones newer than
- * `previous`, up to the version running now. The first version a computer is ever seen on has no `previous`: an
- * install is not an update, and nothing is said.
+ * WHEN. The board keeps the versions it has run, each with when it first started on it (version-start.json, the last
+ * MAX_HISTORY changes). A marked fix shipped in version V reached this computer at the start of the latest run that
+ * went from below V to V or above: the first update to carry it, or the update back up after a rollback below it. An
+ * agent whose session started before that moment does not have the fix. A fix the computer had from its first
+ * recorded version had no such moment: an install is not an update, and nothing is said for it. Because each fix keeps
+ * its own moment, a second update before the agents restart does not forget the first update's fix.
  *
  * WHO. Only agents that are running (a live session; a stopped agent gets the fix when it next starts, so naming it
- * asks for a restart nobody needs), and only those whose session started before this version's first board start.
- * tmux reads session starts in whole seconds, so this version's start is compared in whole seconds too: an agent
- * started in the same second as the board counts as started after it. A session start that could not be read is left
- * out rather than guessed.
+ * asks for a restart nobody needs), and only those whose session started before a fix they lack. tmux reads session
+ * starts in whole seconds, so the moment is compared in whole seconds too: an agent started in the same second as the
+ * board counts as started after it. A session start that could not be read is left out rather than guessed.
  *
- * NOT NOW hides the line until the next update (it is recorded against this version). The line also goes by itself
- * once no named agent is still on its old session. Every read and write is best effort: this is a courtesy, never a
- * gate.
+ * NOT NOW hides the line until the next update (it is recorded against the version running now). The line also goes
+ * by itself once no named agent is still on an old session. Every read and write is best effort: this is a courtesy,
+ * never a gate.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -28,6 +29,7 @@ const store = require('./store');
 
 const file = () => path.join(store.ROOT, 'version-start.json');
 const VERSION = /^\d{1,6}\.\d{1,6}\.\d{1,6}$/;
+const MAX_HISTORY = 50;
 
 function cmp(a, b) {
   const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number);
@@ -37,13 +39,10 @@ function cmp(a, b) {
 function read() {
   try {
     const v = JSON.parse(fs.readFileSync(file(), 'utf8'));
-    if (!v || typeof v !== 'object' || !VERSION.test(v.version) || !Number.isFinite(v.at)) return null;
-    return {
-      version: v.version,
-      previous: VERSION.test(v.previous) ? v.previous : null,
-      at: v.at,
-      notNow: v.notNow === v.version,
-    };
+    const history = v && Array.isArray(v.history) ? v.history.filter((h) => h && VERSION.test(h.version) && Number.isFinite(h.at)) : [];
+    if (!history.length) return null;
+    const version = history[history.length - 1].version;
+    return { version, history, notNow: v.notNow === version };
   } catch { return null; }
 }
 function write(rec) {
@@ -55,46 +54,65 @@ function write(rec) {
 }
 
 /**
- * At board start: record `version` and when it was first started on, keeping the version before as `previous`.
- * A start on the version already recorded changes nothing, so `at` stays this version's FIRST start. Returns the record.
+ * At board start: when `version` differs from the one recorded last, add it with `now` as its first start. A start on
+ * the version already recorded changes nothing, so each entry keeps its version's FIRST start. Returns the record.
  */
 function atStart(version, now = Date.now()) {
   if (!VERSION.test(String(version || ''))) return null;
   const was = read();
   if (was && was.version === version) return was;
-  // Only a move UP is an update. A rollback, or a switch to an older build, keeps no `previous`, so nothing is said:
-  // the agents running then may already have every fix the older version has.
-  const rec = { version, previous: was && cmp(version, was.version) > 0 ? was.version : null, at: now };
-  write(rec);
-  return { ...rec, notNow: false };
+  const history = (was ? was.history : []).concat([{ version, at: now }]).slice(-MAX_HISTORY);
+  write({ history });
+  return { version, history, notNow: false };
 }
 
-/** The notes marked restart:"agents" that this update brought (newer than `previous`, up to this version), or [] when
- *  there is no line to make (no update, Not now, no record). The route asks this first, so a board with nothing marked
- *  never reads tmux or the roster for the page's once-a-minute check. */
+/** When a fix shipped in `v` reached this computer: the first start of the latest run that went from below `v` to `v`
+ *  or above, or null when the computer had it from its first recorded version (or does not have it now). */
+function fixReachedAt(history, v) {
+  let at = null;
+  for (let i = 0; i < history.length; i++) {
+    const has = cmp(history[i].version, v) >= 0;
+    if (!has) at = null;
+    else if (i > 0 && cmp(history[i - 1].version, v) < 0) at = history[i].at;
+  }
+  return at;
+}
+
+/** The marked notes the running version carries that reached this computer by an update, each with that moment
+ *  (`reachedAt`), or [] when there is no line to make (Not now, no record). The route asks this first, so a board with
+ *  nothing marked never reads tmux or the roster for the page's once-a-minute check. */
 function markedNotes(record, notes) {
-  if (!record || !record.previous || record.notNow || !Number.isFinite(record.at)) return [];
-  return (Array.isArray(notes) ? notes : []).filter((n) => n && n.restart === 'agents'
-    && VERSION.test(n.version) && cmp(n.version, record.previous) > 0 && cmp(n.version, record.version) <= 0
-    && typeof n.title === 'string' && n.title.trim());
+  if (!record || record.notNow || !Array.isArray(record.history) || !record.history.length) return [];
+  const out = [];
+  for (const n of Array.isArray(notes) ? notes : []) {
+    if (!n || n.restart !== 'agents' || !VERSION.test(n.version) || cmp(n.version, record.version) > 0) continue;
+    if (typeof n.title !== 'string' || !n.title.trim()) continue;
+    const reachedAt = fixReachedAt(record.history, n.version);
+    if (reachedAt !== null) out.push({ version: n.version, title: n.title.trim(), reachedAt });
+  }
+  return out;
 }
 
 /**
  * The line to show, or null. Pure, so the rule is tested without a disk or tmux.
- *   record  what atStart recorded ({ version, previous, at, notNow })
+ *   record  what atStart recorded ({ version, history, notNow })
  *   notes   this install's release notes (releasenotes.readNotes(...).notes)
  *   agents  the running agents: [{ name, label, startedAt }], startedAt in ms or null when it could not be read
- * Answers { version, notes: [{ version, title }], agents: [{ name, label }] }.
+ * Answers { version, notes: [{ version, title }], agents: [{ name, label }] }: the agents that lack at least one fix,
+ * and the fixes at least one of them lacks.
  */
 function lineFor({ record, notes, agents }) {
   const marked = markedNotes(record, notes);
   if (!marked.length) return null;
-  const startSec = Math.floor(record.at / 1000) * 1000;
+  const lacks = (a, n) => a.startedAt < Math.floor(n.reachedAt / 1000) * 1000;
   const named = (Array.isArray(agents) ? agents : [])
-    .filter((a) => a && typeof a.name === 'string' && a.name && Number.isFinite(a.startedAt) && a.startedAt < startSec)
-    .map((a) => ({ name: a.name, label: typeof a.label === 'string' && a.label.trim() ? a.label.trim() : a.name }));
+    .filter((a) => a && typeof a.name === 'string' && a.name && Number.isFinite(a.startedAt) && marked.some((n) => lacks(a, n)));
   if (!named.length) return null;
-  return { version: record.version, notes: marked.map((n) => ({ version: n.version, title: n.title.trim() })), agents: named };
+  return {
+    version: record.version,
+    notes: marked.filter((n) => named.some((a) => lacks(a, n))).map((n) => ({ version: n.version, title: n.title })),
+    agents: named.map((a) => ({ name: a.name, label: typeof a.label === 'string' && a.label.trim() ? a.label.trim() : a.name })),
+  };
 }
 
 /** Not now: hide the line until the next update. Only for the version recorded now, so an old page cannot hide a
@@ -103,7 +121,7 @@ function notNow(version) {
   const rec = read();
   if (!rec) return true;
   if (rec.version !== version) return false;
-  return write({ version: rec.version, previous: rec.previous, at: rec.at, notNow: rec.version });
+  return write({ history: rec.history, notNow: rec.version });
 }
 
 module.exports = { atStart, lineFor, markedNotes, notNow, read };

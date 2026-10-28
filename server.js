@@ -20374,7 +20374,7 @@ const server = http.createServer(async (req, res) => {
     (async () => {
       const rl = require('./engine/restartline');
       const record = rl.read();
-      if (!record || !record.previous || record.notNow) return null;
+      if (!record || record.notNow) return null;
       let notes;
       try { notes = require('./engine/releasenotes').readNotes(__dirname).notes; } catch { return null; }
       if (!rl.markedNotes(record, notes).length) return null;   // nothing marked: no tmux read for the minute's check

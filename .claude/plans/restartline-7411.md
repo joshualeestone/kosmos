@@ -13,8 +13,10 @@ session. Kosmos never restarts anyone by itself.
 
 ## Pieces
 
-1. `engine/restartline.js`: `atStart(version)` records the version and its first board start in version-start.json,
-   keeping the version before as `previous`; `lineFor({record, notes, agents})` is the pure rule; `notNow(version)`.
+1. `engine/restartline.js`: `atStart(version)` adds each new version and its first board start to a history in
+   version-start.json (the last 50); `markedNotes` gives each marked fix the moment it reached this computer (the
+   first start of the latest run that went from below its version to it or above); `lineFor` names agents started
+   before a fix they lack; `notNow(version)`.
 2. `engine/status.js`: `sessionStartsAsync()`, every session's start in one list-sessions read.
 3. `server.js`: `atStart` at boot (beside restartnote); `GET /api/restart-line` (roster + session starts + release
    notes, agents named by readIdentity as #7430 does); `POST /api/restart-line/not-now` (409 for an old page's version).
@@ -29,13 +31,15 @@ session. Kosmos never restarts anyone by itself.
 - No line when tmux, the roster or the notes cannot be read. Rejected: guessing (it would name agents that are fine).
 - An agent whose session started in the same second as the board counts as after it (tmux is whole seconds).
 - Not now is recorded against the version on the board, so an old page cannot hide a newer update's line.
-- Only a move UP is an update. A rollback or a switch to an older build records no `previous`, so nothing is said.
-  Rejected: treating any version change as an update (it would name agents after a rollback for fixes they may have).
+- Each fix keeps its own moment, so a second update before the agents restart does not forget the first one's fix.
+  Rejected: comparing only against the version before (it forgot an earlier update's fix, review round 4).
+- A rollback below a fix and back up counts from the update back up (agents started during the rollback lack it); a
+  rollback that stays below a fix says nothing for it, since the running version does not carry it.
 - Kosmos versions are x.y.z only (releasenotes.js holds the same rule); anything else records nothing.
 
 ## Weakest premise
 
-That this version's first board start is when agents stop missing the fix. An agent restarted during the update window
+That a version's first board start is when agents stop missing its fixes. An agent restarted during the update window
 but before the board came back reads as old and is named once; a restart clears it.
 
 ## Known cost
