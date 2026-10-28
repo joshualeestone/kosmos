@@ -157,11 +157,12 @@ function findUnder(dir, name) {
       'the confirm asks "Archive older messages?", with "Older than [this week]" and its three choices under it, and says what it does', JSON.stringify(ask));
     chk(ask.focus === 'pjarch-when', 'the confirm opens with the choice focused', String(ask.focus));
     // It sits inside the room's section (no spare body row); position:fixed must still make it cover everything a fixed
-    // layer can. Measured against a fixed inset:0 probe, not the window or clientWidth: with classic scrollbars (CI,
-    // the Windows app) the tab layout's scrollbar-gutter on <html> takes 15px from every fixed layer while
-    // clientWidth still reads the full width there, and #4506 dims that strip (render-dialog-gutter-4506).
+    // layer can. Measured against a fixed inset:0 probe, not the window or clientWidth: on CI (classic scrollbars) the
+    // tab layout's scrollbar-gutter on <html> took 15px from every fixed layer while clientWidth read 1280 in that run.
+    // #4506 dims that strip for every open .rm-back (render-dialog-gutter-4506 measures the class with another dialog).
+    // The probe is inserted and removed in one synchronous evaluate, before any observer runs.
     const cover = await p.evaluate(() => { const el = document.getElementById('pjarch-modal'); const r = el.getBoundingClientRect(); const pr = document.createElement('div'); pr.style.cssText = 'position:fixed;inset:0;pointer-events:none;visibility:hidden'; document.body.appendChild(pr); const q = pr.getBoundingClientRect(); pr.remove(); const rd = (b) => [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)]; return { pos: getComputedStyle(el).position, box: rd(r), fixedArea: rd(q), iw: innerWidth, ih: innerHeight }; });
-    chk(cover.pos === 'fixed' && cover.box.join() === cover.fixedArea.join(), 'the confirm\'s backdrop covers everything a fixed layer can, though it sits inside the room\'s section', JSON.stringify(cover));
+    chk(cover.pos === 'fixed' && cover.box.join() === cover.fixedArea.join() && cover.fixedArea[0] === 0 && cover.fixedArea[1] === 0 && cover.fixedArea[3] === cover.ih && cover.iw - cover.fixedArea[2] >= 0 && cover.iw - cover.fixedArea[2] <= 20, 'the confirm\'s backdrop covers everything a fixed layer can, though it sits inside the room\'s section', JSON.stringify(cover));
     const onTop = await p.evaluate(([x0, y0, w, h]) => [[x0 + w / 2, y0 + h / 2], [x0 + 4, y0 + 4], [x0 + w - 4, y0 + h - 4]].map(([x, y]) => { const e = document.elementFromPoint(x, y); return !!(e && e.closest('#pjarch-modal')); }), cover.fixedArea);
     chk(onTop.every(Boolean), 'the confirm paints above everything: the middle and two corners a fixed layer can reach are the confirm', JSON.stringify(onTop));
     await p.screenshot({ path: path.join(OUT, 'confirm.png') });
