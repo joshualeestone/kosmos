@@ -480,3 +480,52 @@ test('kosmos#7461: the pair budget is per pause: a new pause starts each pair ag
     assert.deepEqual(post(board, 'pigeonpete', '@monalisa new pause').woke, ['monalisa'], 'the pair budget carried over to a new pause');
   });
 });
+
+test('kosmos#7461 review 1: a ring of agents handing on under a pause is bounded by THROUGH_CAP for the project, not by its pairs', () => {
+  withFleet(room(), (board) => {
+    pause(board);
+    const ring = [['pigeonpete', 'monalisa'], ['monalisa', 'angel'], ['angel', 'pigeonpete'], ['pigeonpete', 'angel'], ['angel', 'monalisa'], ['monalisa', 'pigeonpete']];
+    let woke = 0;
+    for (let i = 0; i < 4; i += 1) for (const [from, to] of ring) woke += post(board, from, '@' + to + ' hand on ' + i).woke.length;
+    assert.equal(woke, roomloop.THROUGH_CAP, 'a ring escaped the project bound under a pause: ' + woke);
+  });
+});
+
+test('kosmos#7461 review 1: a pause that runs out forgets the pair counts, so the next pause starts every pair again', () => {
+  roomloop.setCapForTests(2);
+  const p = 'expiry-7461';
+  const t0 = Date.parse('2026-10-28T07:00:00Z');
+  roomloop.noteWake(p, t0); roomloop.noteWake(p, t0 + 1);
+  assert.equal(roomloop.paused(p, t0 + 2), true, 'fixture: not paused');
+  for (let i = 0; i < roomloop.PAIR_CAP; i += 1) { assert.equal(roomloop.pairCan(p, 'a', 'b'), true); roomloop.pairTake(p, 'a', 'b'); }
+  assert.equal(roomloop.pairCan(p, 'a', 'b'), false, 'fixture: the pair is not spent');
+  assert.equal(roomloop.paused(p, t0 + 2 + roomloop.LOOP_WINDOW_MS), false, 'fixture: the pause did not run out');
+  const t1 = t0 + 2 * roomloop.LOOP_WINDOW_MS;
+  roomloop.noteWake(p, t1); roomloop.noteWake(p, t1 + 1);
+  assert.equal(roomloop.paused(p, t1 + 2), true, 'fixture: no second pause');
+  assert.equal(roomloop.pairCan(p, 'a', 'b'), true, 'a pause that ran out kept its pair counts');
+});
+
+test('kosmos#7461 review 1: checking a pair spends nothing; only a post that gets through spends a slot', () => {
+  withFleet(room(), (board) => {
+    pause(board);
+    // The check (pairCan) runs before the board's refusals (the room valve, the acknowledgement rule); the slot is spent
+    // only where the post is counted, after them. So checking, however often, must leave the budget whole.
+    for (let i = 0; i < 10; i += 1) assert.equal(roomloop.pairCan(PROJECT, 'pigeonpete', 'monalisa'), true, 'checking spent a slot');
+    for (let i = 0; i < roomloop.PAIR_CAP; i += 1) assert.deepEqual(post(board, 'pigeonpete', '@monalisa handoff ' + i).woke, ['monalisa']);
+    assert.equal(roomloop.pairCan(PROJECT, 'pigeonpete', 'monalisa'), false, 'CONTROL: posts that got through did spend');
+  });
+});
+
+test('kosmos#7461 review 1: under a pause an @all is never one member, even when all but one are switched off here', () => {
+  const projects = require('./projects');
+  const real = projects.swarmOffSet;
+  projects.swarmOffSet = () => new Set(['angel']);
+  try {
+    withFleet(room(), (board) => {
+      pause(board);
+      assert.deepEqual(post(board, 'pigeonpete', '@all status?').woke, [], 'an @all got through the pause as a one-member post');
+      assert.deepEqual(post(board, 'pigeonpete', '@monalisa status?').woke, ['monalisa'], 'CONTROL: a one-member post still gets through');
+    });
+  } finally { projects.swarmOffSet = real; }
+});

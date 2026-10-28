@@ -2607,13 +2607,17 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   /* C, decided once per post (round 1): the whole post is quiet or none of it, so an @all never stops partway. */
   const loopPaused = operator !== true && require('./roomloop').paused(projectId);
   const asksMember = (name) => mentioned.has(name) || Boolean(answeredAsked && answered.operator !== true && answered.from === name);
-  /* kosmos#7461: while paused, a post asking exactly ONE member still wakes it (a handoff, a closing summary), within
-     the pair's budget for this pause (engine/roomloop.js pairWake). Decided once per post, as the pause itself is. */
+  /* kosmos#7461: while paused, a post asking exactly ONE member still wakes it (a handoff; a summary to one member),
+     within the pair's and the project's budget for this pause (engine/roomloop.js pairCan; spent with the wake count,
+     below). Decided once per post, as the pause itself is. One is counted before switched-off members are set aside, so
+     an @all to a room where all but one are switched off is still an @all (review 1). */
   const askedHere = operator === true ? [] : recipients.filter((n) => !offHere.has(n) && asksMember(n));
-  const oneThrough = loopPaused && askedHere.length === 1 && require('./roomloop').pairWake(projectId, from, askedHere[0]);
+  const askedAll = operator === true ? 0 : recipients.filter((n) => asksMember(n)).length;
+  const oneThrough = loopPaused && askedAll === 1 && askedHere.length === 1 && require('./roomloop').pairCan(projectId, from, askedHere[0]);
   const loopQuiet = loopPaused && !oneThrough;
   /* #3564: the post is charged for the members it is sent to. kosmos#7246 slice 2 (round 3): an agent's post is charged
-     only for the members it will wake (addressed, not switched off here, the project not paused), as reachedCount
+     only for the members it will wake (addressed, not switched off here, the project not paused, or kosmos#7461 a one-member
+     post the pause lets through), as reachedCount
      counts it once logged, so a post that addresses one member is not held as if it reached the whole room. */
   const charged = operator === true ? recipients.length - offHere.size
     : (loopQuiet ? 0 : askedHere.length);
@@ -3259,6 +3263,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      posts started meanwhile all read "not paused" and run past the cap. `charged` is the members this post wakes. A post
      that then reaches nobody still counts: the cap is a backstop, and it errs toward quiet. */
   if (operator !== true && !loopPaused && charged > 0) require('./roomloop').noteWake(projectId);
+  if (oneThrough) require('./roomloop').pairTake(projectId, from, askedHere[0]);   // kosmos#7461: spent only by a post that got this far
 
   if (asynchronousDelivery) {
     /* #4765: every member AT ONCE, not one after another. Most of a delivery is a wait (the paste-to-Enter gap,
