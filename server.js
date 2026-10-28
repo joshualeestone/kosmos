@@ -26435,6 +26435,9 @@ function start(port = PORT) {
       } else {
         boardAuthState.token = null;
       }
+      /* kosmos#7409: a removed agent stays off after a machine move (engine/remove.js reapplyAtBoardStart); a real board
+         only, never a sandboxed fixture. */
+      removal.reapplyAtBoardStart({ enforcing: boardAuthState.on });
       // Keep a listener attached for the life of the process. Without one, an
       // error after a successful bind is uncaught and exits with a raw stack.
       server.on('error', (err) => {
