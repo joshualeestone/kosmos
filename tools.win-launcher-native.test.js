@@ -194,33 +194,71 @@ test('W-07: Kosmos.exe is a GUI-subsystem exe, so a double-click opens no consol
     'the committed Kosmos.exe is not a GUI exe (subsystem 3 is the console window W-07 removed); rebuild it with /target:winexe');
 });
 
-/* #7492: the committed exe carries the source's words. Every non-empty `const string` in KosmosLauncher.cs is stored in
-   the compiled exe as UTF-16, so a source text change committed with an exe built from the previous text (the exe is
-   rebuilt and signed on the Windows box, by hand) fails here, on any machine, where verify-launcher.ps1 runs only on
-   Windows. It reads text, not bytes: verify-launcher.ps1 still owns the full comparison. */
+/* #7492: the committed exe carries the source's words. csc stores each `const string` value in the compiled exe as
+   UTF-16, behind a length prefix (the byte count, plus one in the user-string heap), so a source text change committed
+   with an exe built from the previous text (the exe is rebuilt and signed on the Windows box, by hand) fails here, on
+   any machine; verify-launcher.ps1 runs only on Windows. A value made with + from literals and other constants of this
+   file is folded first, as csc folds it. It reads text, not bytes: verify-launcher.ps1 still owns the full comparison.
+   Decodes \0 \n \r \t \" \' \\ and \uXXXX, the escapes this source uses; another would read as two characters and fail
+   here rather than pass. */
 function csharpLiteral(raw) {
   return raw.replace(/\\(u[0-9a-fA-F]{4}|[0nrt"'\\])/g, (_, e) => (e[0] === 'u' ? String.fromCharCode(parseInt(e.slice(1), 16))
     : { 0: '\0', n: '\n', r: '\r', t: '\t', '"': '"', "'": "'", '\\': '\\' }[e]));
 }
-function constantsMissingFromExe(source, exe) {
-  const missing = [];
-  let count = 0;
-  for (const m of source.matchAll(/const string (\w+) =\s*"((?:[^"\\]|\\.)*)";/g)) {
-    const value = csharpLiteral(m[2]);
-    if (!value) continue;
-    count++;
-    if (exe.indexOf(Buffer.from(value, 'utf16le')) < 0) missing.push(m[1]);
+/* Every `const string` in `source` as name -> value, folding + over literals and other constants of the file. A value
+   that uses anything else (a call, a non-const field) is left out, by name, in `unresolved`. */
+function stringConstants(source) {
+  const raw = new Map();
+  for (const m of source.matchAll(/const string (\w+) =\s*((?:"(?:[^"\\]|\\.)*"|[A-Za-z_]\w*|\s|\+)+);/g)) raw.set(m[1], m[2]);
+  const values = new Map();
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [name, expr] of raw) {
+      if (values.has(name)) continue;
+      const parts = [...expr.matchAll(/"((?:[^"\\]|\\.)*)"|([A-Za-z_]\w*)/g)];
+      if (parts.some((t) => t[2] !== undefined && !values.has(t[2]))) continue;
+      values.set(name, parts.map((t) => (t[2] !== undefined ? values.get(t[2]) : csharpLiteral(t[1]))).join(''));
+      changed = true;
+    }
   }
-  return { count, missing };
+  return { values, unresolved: [...raw.keys()].filter((n) => !values.has(n)) };
+}
+// ECMA-335 II.23.2: a compressed unsigned integer, as csc writes the length in front of a blob or a user string.
+function compressedLength(n) {
+  if (n < 0x80) return Buffer.from([n]);
+  if (n < 0x4000) return Buffer.from([0x80 | (n >> 8), n & 0xff]);
+  return Buffer.from([0xc0 | ((n >> 24) & 0x1f), (n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff]);
+}
+/* True when `value` is in `exe` as a whole stored string: its UTF-16 bytes right after the length prefix for exactly
+   that many bytes, so a value that is only the start of a longer one (a cut sentence in an older exe) is not found. */
+function storedInExe(exe, value) {
+  const text = Buffer.from(value, 'utf16le');
+  const prefixes = [compressedLength(text.length), compressedLength(text.length + 1)];
+  for (let at = exe.indexOf(text); at >= 0; at = exe.indexOf(text, at + 1)) {
+    if (prefixes.some((p) => at >= p.length && exe.subarray(at - p.length, at).equals(p))) return true;
+  }
+  return false;
+}
+function constantsMissingFromExe(source, exe) {
+  const { values, unresolved } = stringConstants(source);
+  const named = [...values].filter(([, v]) => v);
+  return { count: named.length, unresolved, missing: named.filter(([, v]) => !storedInExe(exe, v)).map(([n]) => n) };
 }
 test('#7492: every string constant in KosmosLauncher.cs is in the committed Kosmos.exe (no exe built from older text)', () => {
-  const { count, missing } = constantsMissingFromExe(SOURCE, EXE);
+  const { count, unresolved, missing } = constantsMissingFromExe(SOURCE, EXE);
   assert.ok(count >= 50, 'found only ' + count + ' string constants in the source: the pattern no longer reads it');
+  assert.deepEqual(unresolved, [], 'a const string this test cannot fold: teach stringConstants its form');
   assert.deepEqual(missing, [], 'Kosmos.exe was built from different words than KosmosLauncher.cs: rebuild and sign it on the Windows box (tools/windows/README.md)');
-  // CONTROL: one changed word in the source must be caught, so a pass above is the exe agreeing, not a check that cannot fail.
-  const changed = SOURCE.replace('const string RunningHereMessage =\n        "Kosmos', 'const string RunningHereMessage =\n        "Kosmox');
-  assert.notEqual(changed, SOURCE, 'the control did not change the source');
+  // CONTROLS, so a pass above is the exe agreeing and not a check that cannot fail: one changed word is caught, and so
+  // is a sentence cut off the end (the new value is the start of the old one, which an older exe still holds).
+  const changed = SOURCE.replace(/(const string RunningHereMessage =\s*")Kosmos/, '$1Kosmox');
+  assert.notEqual(changed, SOURCE, 'the changed-word control did not change the source');
   assert.deepEqual(constantsMissingFromExe(changed, EXE).missing, ['RunningHereMessage']);
+  const cut = SOURCE.replace(/(const string RunningHereMessage =\s*"[^"]*?) To see why, run Kosmos\.exe --console\.";/, '$1";');
+  assert.notEqual(cut, SOURCE, 'the cut-sentence control did not change the source');
+  assert.deepEqual(constantsMissingFromExe(cut, EXE).missing, ['RunningHereMessage']);
+  // And the folded values: a page built with + is read whole (the window's starting page).
+  assert.ok(stringConstants(SOURCE).values.get('StartingPage').startsWith('<!doctype html><html><head><meta charset="utf-8">'));
 });
 
 test('W-08: Kosmos.exe carries the Kosmos icon at 16, 32, 48 and 256, byte for byte from assets/kosmos.ico', () => {

@@ -38,8 +38,8 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   slow-but-successful boot, because the board runs `ensureInstalled` and its roster
   syncs before the hand-off, past any fixed time. OK stops that board and everything
   still descended from it (`taskkill /T`), and the box closes by itself if the board
-  ends first. With Start Kosmos when I sign in to Windows on, the board watchdog (#2988)
-  then starts the background board again, so the box says so (#7492).
+  ends first. With 'Start Kosmos when I sign in to Windows' on, the board watchdog
+  (#2988) then tries to start the background board again, so the box says so (#7492).
 - **A stuck board is replaced, not reopened (#4543).** Before it hands off, a launch by a
   person at the desktop checks the board's port. If something holds it and `/api/status`
   (asked on 127.0.0.1 only) gives no answer at all within 10 s, timing out or refusing the
