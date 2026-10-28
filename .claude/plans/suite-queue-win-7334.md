@@ -164,3 +164,13 @@ All four testable arms fail with e6f24b7cfd's lib (5 reds) and pass with this on
   different installs on one box do not see each other.
 - heavy-gate.sh, queued-heavy.sh and release.sh on Windows: they now get the same reads when they source the libs, but
   nothing here measures them there.
+
+### Review 4 (no blocker, no warning: converged)
+- NIT: `command -v timeout` could find Windows' C:\Windows\System32\timeout.exe (a different program; every walk would fail, over-refusing). Now /usr/bin/timeout when executable, else unbounded as before.
+- NIT, accepted: GNU timeout puts itself in its own process group (no --foreground), so a shell-parallel stop of a shard's group leaves a running walk's timeout and powershell.exe alive for at most 12 s (bounded, harmless).
+
+### Round summary (for the proof)
+- Round 1: no blocker. [WARNING] new Windows shard-stop kill path untested --> FIXED: test (own shards stop, an outside process lives). [WARNING] PowerShell answer lost per pipe subshell --> FIXED: file cache keyed pid+winpid+start. [WARNING] backslashed script paths missed (fail-open) --> FIXED. [NIT] walk failure counts the run real --> documented.
+- Round 2: no blocker. [WARNING] an unreadable command line of a listed process skipped silently (fail-open) --> FIXED: pgrep exits 2. [NIT] x4 --> FIXED (spaced unquoted path, empty answer caching, stat parsing, empty glob).
+- Round 3: no blocker. [WARNING] PowerShell walk unbounded (a wedged WMI hangs the queue) --> FIXED: timeout -k 2 10, test. [NIT] unreadable `ps -o command=` reads as gone, removing a live marker --> DOCUMENTED (no caller reads the status; changing callers means Mac-shared code).
+- Round 4: no blocker, no warning. [NIT] timeout.exe on PATH --> FIXED. [NIT] timeout's own process group --> ACCEPTED.
