@@ -395,7 +395,8 @@ struct ChatView: View {
         guard lost else { return client.starNoteAgent == agent.session ? client.starNote : nil }
         // kosmos#7416: when the Mac was last heard from only while the Mac itself is not answering (a chat can stop
         // reading on its own); the chat's own "Last checked" stays unless it says the same minute (Shell.saysLastChecked).
-        let heard = client.phase.isUnreachable ? client.failingMacLastHeard : nil
+        var heard: Double? = nil
+        if case .unreachable = client.phase { heard = client.failingMacLastHeard }   // not phase.isUnreachable: fileprivate to TodayView
         let time = Shell.saysLastChecked(lastRead, lastHeard: heard)
             ? (lastRead.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? "") : ""
         return Shell.notUpdatingLine(client.failingMacName, lastHeard: heard) + time   // kosmos#7197: named
