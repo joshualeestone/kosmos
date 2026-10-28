@@ -406,10 +406,14 @@ struct ContentView: View {
             return false
         }
         if let photo = picture.photo, await put(photo, "image/jpeg") { return }
+        // A portrait is asked for only for a seat the catalogue has one for, and fitted like a chosen photo when the
+        // board's limit or types would refuse it as it came (the desktop refits it too).
         if let team = picture.team, let slot = picture.slot,
-           let got = await board.throughMac({ NewAgent.portraitRequest(mac: $0, team: team, slot: slot) }), got.1.statusCode == 200,
-           let type = got.1.value(forHTTPHeaderField: "Content-Type")?.split(separator: ";").first.map(String.init),
-           await put(got.0, type) { return }
+           let got = await board.throughMac({ NewAgent.portraitRequest(mac: $0, team: team, slot: slot) }), got.1.statusCode == 200 {
+            let type = got.1.value(forHTTPHeaderField: "Content-Type")?.split(separator: ";").first.map(String.init) ?? ""
+            if got.0.count <= AgentPicture.maxBytes, ["image/png", "image/jpeg", "image/webp"].contains(type), await put(got.0, type) { return }
+            if let img = UIImage(data: got.0), let fitted = AgentPicture.fit(img), await put(fitted, "image/jpeg") { return }
+        }
         if let mark = AgentPicture.mark(picture.name)?.pngData() { _ = await put(mark, "image/png") }
     }
 

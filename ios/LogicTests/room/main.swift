@@ -1251,6 +1251,21 @@ for (name, fam, first) in markRef {
 }
 check(boardPage.contains("['#d6a62e', '#e3b341', '#b88920'],   // gold (brand, fixed)") && boardPage.contains("['#b2784c', '#c49468', '#9a6034'],   // clay")
       && AgentMark.families.count == 14, "the 14 families are the desktop's")
+// With a letter in the way (a rectangle, x 96 to 159 and y 70 to 189, run through the desktop's code the same way): the
+// clearance test and the draws a rejected dot uses are the desktop's too, to the last dot.
+let rectInk: (Int, Int) -> Bool = { x, y in x >= 96 && x < 160 && y >= 70 && y < 190 }
+let inkRef: [(String, Int, (Double, Double, Double, UInt32), (Double, Double, Double, UInt32))] = [
+    ("Ada", 240, (170.08716, 124.148504, 6.387738, 0xc4a3d9), (65.973425, 158.783798, 2.703701, 0xb289cd)),
+    ("Maya", 233, (29.256261, 65.977565, 3.922968, 0xbd6659), (212.412633, 161.55019, 2.515663, 0xd8a099)),
+]
+for (name, n, third, last) in inkRef {
+    let got = AgentMark.dots(name: name, ink: rectInk)
+    func near(_ d: AgentMark.Dot?, _ e: (Double, Double, Double, UInt32)) -> Bool {
+        guard let d else { return false }
+        return abs(d.x - e.0) < 1e-4 && abs(d.y - e.1) < 1e-4 && abs(d.r - e.2) < 1e-4 && d.color == e.3
+    }
+    check(got.count == n && near(got[safe: 2], third) && near(got.last, last), "with a letter, the mark for \(name) is still the desktop's: its count, third and last dots")
+}
 let inkAll = AgentMark.dots(name: "Ada", ink: { x, _ in x < 128 })
 check(inkAll.allSatisfy { $0.x + $0.r + 2 >= 127.5 }, "no dot is drawn over the letter's ink")
 check(AgentMark.letter("  zoë ") == "Z" && AgentMark.letter("   ") == nil, "the letter is the trimmed name's first, upper-cased")
@@ -1263,6 +1278,8 @@ check(NewAgent.pictureRequest(mac: npMac, session: "../x", data: Data([1]), type
       && NewAgent.pictureRequest(mac: npMac, session: "ada", data: Data(count: 60001), type: "image/png") == nil
       && NewAgent.pictureRequest(mac: npMac, session: "ada", data: Data([1]), type: "image/gif") == nil, "never a bad name, an oversized picture or a type the board refuses")
 let portReq = NewAgent.portraitRequest(mac: npMac, team: "marketing", slot: "head")
+check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""name":"Maya","reportsTo":null"#, with: #""name":"Maya","reportsTo":null,"portrait":true"#).utf8))?.members.map(\.portrait) == [true, false],
+      "a seat's portrait flag is read from the team's detail")
 check(portReq?.url?.path == "/api/catalogue/portrait" && portReq?.url?.query == "team=marketing&slot=head"
       && NewAgent.portraitRequest(mac: npMac, team: "marketing", slot: "Head of x") == nil, "a portrait only for a team and seat the route's pattern allows")
 check(boardPage.contains("PICTURE_MAX_BYTES = 60000"), "the picture limit is the desktop's")
