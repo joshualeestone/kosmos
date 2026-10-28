@@ -4577,8 +4577,8 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 /* kosmos#4787 slice 2: a repeating task's line turns the error red while a run is missed (row and task page alike). */
 .tsk-row .why.tsk-repeat.missed, #tk-repeat-line.missed { color: var(--danger); }
-.why.tsk-landed-missing { color: var(--danger); }
-.why.tsk-landed-local { color: var(--warn-ink); }   /* kosmos#7508: a closed fix that is only on this computer (Mona Lisa: amber, not red) */   /* kosmos#7508: a closed fix whose change cannot be found */
+.why.tsk-landed-missing { color: var(--danger); }   /* kosmos#7508: a closed fix whose change cannot be found */
+.why.tsk-landed-local { color: var(--warn-ink); }   /* kosmos#7508: a closed fix that is only on this computer (Mona Lisa: amber, not red) */
 .tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
 .tsk-who { display: inline-flex; align-items: center; gap: 6px; font: 600 .8125rem var(--font-ui); color: var(--k-ink); padding: 2px 9px;
   border-radius: 999px; border: 1px solid var(--k-rule); background: var(--k-surface); cursor: pointer; }
