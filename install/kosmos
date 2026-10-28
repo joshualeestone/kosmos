@@ -6505,7 +6505,12 @@ cmd_task() {
           local told; told=$(printf '%s' "$body" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
           say "Message recorded on task $num of ${project:-the project}.${told:+ $told}"
           # kosmos#7408: on a task nobody holds, say how to reach someone next time.
-          case "$told" in "Nobody is assigned to it"*) say "To tell an agent anyway, name it: --to <agent>." ;; esac ;;
+          # Review 1: a board that answers no "to" does not know --to, so the names were not told; never the hint then.
+          if [ -n "$KOSMOS_TO_JSON" ]; then
+            case "$body" in *'"to":['*) ;; *) say "This Kosmos does not know --to yet, so only the task's assignees were told. Update Kosmos, or assign the task." ;; esac
+          else
+            case "$told" in "Nobody is assigned to it"*) say "To tell an agent anyway, name it: --to <agent>." ;; esac
+          fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos refused that message: ${because:-it did not say why}."; exit 1 ;;

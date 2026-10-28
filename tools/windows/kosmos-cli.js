@@ -1516,7 +1516,9 @@ async function taskMessage(ctx, args) {
     // #4540: the board's own sentence about who was told and who was not; none from an older board.
     const told = typeof r.json.summary === 'string' && r.json.summary.trim() ? ' ' + r.json.summary.trim() : '';
     ctx.out('Message recorded on task ' + num + ' of ' + project + '.' + told);
-    if (/^ Nobody is assigned to it/.test(told)) ctx.out('To tell an agent anyway, name it: --to <agent>.');   // kosmos#7408
+    // kosmos#7408 review 1: a board that answers no "to" does not know --to, so the names were not told; never the hint then.
+    if (took.to.length) { if (!Array.isArray(r.json.to)) ctx.err('This Kosmos does not know --to yet, so only the task\'s assignees were told. Update Kosmos, or assign the task.'); }
+    else if (/^ Nobody is assigned to it/.test(told)) ctx.out('To tell an agent anyway, name it: --to <agent>.');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that message: ' + ctx.refusedBy(r) + '.'); return 1; }

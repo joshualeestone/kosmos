@@ -101,7 +101,8 @@ test('#7408: --to tells a named agent on a task nobody holds, from either comman
     const r = await run(['task', 'message', projectId, String(n), '--to', 'otto', 'the', 'ruling'], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
     assert.doesNotMatch(r.text, /Nobody is assigned|--to <agent>/, label + ': ' + r.text);
-    assert.match(r.text, /otto/, label + ': the summary names otto: ' + r.text);
+    assert.match(r.text, /(Told|Not told:|may have been told)[^.]*\botto\b/, label + ': the summary says what happened for otto: ' + r.text);
+    assert.doesNotMatch(r.text, /does not know --to/, label);
     assert.equal(said(n).length, 1, label);
     assert.equal(said(n)[0].text, 'the ruling', label + ': --to and its name are not part of the words');
   }
@@ -112,7 +113,7 @@ test('#7408: --to an agent already assigned tells it once; the sender is never t
     const n = make('dup ' + label, 'otto');
     const r = await run(['task', 'message', projectId, String(n), '--to', 'otto', '--to', 'mara', 'once'], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
-    assert.equal((r.text.match(/otto/g) || []).length, 1, label + ': otto named once: ' + r.text);
+    assert.match(r.text, /(Told|Not told:|may have been told)[^.]*\botto\b/, label + ': ' + r.text);
     assert.doesNotMatch(r.text, /mara/, label + ': the sender is not told: ' + r.text);
   }
 });
@@ -168,5 +169,58 @@ test('#7408: CONTROL, a message with no --to on an assigned task still tells the
     assert.equal(r.code, 0, label + ': ' + r.text);
     assert.match(r.text, /otto/, label);
     assert.doesNotMatch(r.text, /--to <agent>/, label);
+  }
+});
+
+test('#7408 review 1: the route delivers to a --to name once, also when it is assigned, and answers the names it took', async () => {
+  const n = make('route-dup', 'otto');
+  const r = await post(n, { text: 'once', to: ['otto', 'otto'] });
+  assert.equal(r.status, 200);
+  const j = await r.json();
+  assert.equal(j.delivered.filter((d) => d.agent === 'otto').length, 1, JSON.stringify(j.delivered));
+  assert.deepEqual(j.to, ['otto']);
+  const m = make('route-plain');
+  const plain = await (await post(m, { text: 'no to' })).json();
+  assert.equal('to' in plain, false, 'a message with no to answers none');
+  const u = make('route-unassigned');
+  const u1 = await (await post(u, { text: 'x', to: ['otto'] })).json();
+  assert.deepEqual(u1.delivered.map((d) => d.agent), ['otto'], 'an unassigned task tells the --to name');
+});
+
+test('#7408 review 1: a sender that names only itself on a task nobody holds hears that nobody is assigned', async () => {
+  for (const [label, run] of BOTH) {
+    const n = make('self ' + label);
+    const r = await run(['task', 'message', projectId, String(n), '--to', 'mara', 'me'], token('mara'));
+    assert.equal(r.code, 0, label + ': ' + r.text);
+    assert.match(r.text, /Nobody is assigned to it, so no agent was told\./, label + ': ' + r.text);
+  }
+});
+
+test('#7408 review 1: against an older board that ignores to, both commands say the names were not told', async () => {
+  const http = require('node:http');
+  const old = http.createServer((req, res) => {
+    if (req.method === 'POST' && /\/task\/\d+\/message$/.test(req.url)) {
+      req.resume();
+      req.on('end', () => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ ok: true, delivered: [], summary: 'Nobody is assigned to it, so no agent was told.' })); });
+      return;
+    }
+    const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+    up.on('error', () => { res.statusCode = 502; res.end(); });
+    req.pipe(up);
+  });
+  await new Promise((r) => old.listen(0, '127.0.0.1', r));
+  const obase = 'http://127.0.0.1:' + old.address().port;
+  try {
+    const n = make('older');
+    const argv = ['task', 'message', projectId, String(n), '--to', 'otto', 'ruling'];
+    const m = await mac(argv, token('mara'), old.address().port);
+    const out = []; const err = [];
+    await cli.main(argv, { env: {}, url: obase, hook: { resolveUrl: () => obase, readBoardToken: () => null, agentToken: () => token('mara') }, out: (s) => out.push(s), err: (s) => err.push(s) });
+    for (const [label, text] of [['Mac', m.text], ['Windows', out.concat(err).join('\n')]]) {
+      assert.match(text, /This Kosmos does not know --to yet, so only the task's assignees were told\./, label + ': ' + text);
+      assert.doesNotMatch(text, /name it: --to/, label + ': never tells them to do what they did: ' + text);
+    }
+  } finally {
+    old.close();
   }
 });
