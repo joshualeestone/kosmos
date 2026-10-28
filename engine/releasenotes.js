@@ -15,6 +15,9 @@ const fs = require('fs');
 const path = require('path');
 
 const RESTART = ['agents'];
+// The statuses whose items a build may ship. An allowlist, so a status added later (held's cousins) stays out until
+// someone decides it ships: the filter fails closed.
+const SHIPS = ['shown', 'pending'];
 
 function parseVersion(v) {
   const m = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})$/.exec(String(v || ''));
@@ -39,7 +42,7 @@ function notesFor(pool, version, platform) {
   const items = (pool && Array.isArray(pool.items)) ? pool.items : [];
   const forPlatform = (it) => !(Array.isArray(it.platforms) && it.platforms.length) || it.platforms.includes(platform);
   return items
-    .filter((it) => it && it.status !== 'held' && parseVersion(it.since) && compareVersions(it.since, version) <= 0 && forPlatform(it))
+    .filter((it) => it && SHIPS.includes(it.status) && parseVersion(it.since) && compareVersions(it.since, version) <= 0 && forPlatform(it))
     .sort((a, b) => compareVersions(a.since, b.since) || ((a.rank || 0) - (b.rank || 0)))
     .map((it) => {
       const n = { version: it.since, title: it.title, line: it.line || '' };

@@ -207,3 +207,8 @@ test('#7411 review 6: a note with a bad line, restart or platforms is damaged; n
   assert.equal(r.status, 2);
   assert.match(r.stderr, /^could not write /);
 });
+
+test('#7411 review 7: the status filter fails closed (an unknown status never ships)', () => {
+  const p2 = { items: [...pool.items, { title: 'Dropped later', line: 'x', rank: 1, since: '0.7.50', status: 'dropped' }] };
+  assert.ok(!rn.notesFor(p2, '0.7.72', 'mac').some((n) => n.title === 'Dropped later'), 'an unknown status shipped');
+});

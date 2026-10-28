@@ -10,11 +10,11 @@ latest list only), and fixes that take effect only when an agent starts looked b
   notesFor(pool, version, platform) keeps only what that build contains (not held, `since` at or before it, and for
   its platform: an item tagged mac or windows is for those only, so a Linux build drops the Mac-only notes) and only
   the readers' fields (version, title, line, platforms, restart). A `pending` item at or below the build's version
-  ships: its code is in that build, and pending means only not yet announced in What's New. `held` is the one status
-  that never ships.
+  ships: its code is in that build, and pending means only not yet announced in What's New. Only `shown` and `pending` ship (an allowlist, so a
+  status added later stays out); `held` never does.
 - Every build (Mac bundle, Linux, Windows) writes app/release-notes.json with `whats-new-pool.js notes <version>
   --platform=<its own>`, right after checking its version, so it is in the signed manifest. A source checkout derives
-  the same list. The Mac builder checks it has node first (it had no node dependency before).
+  the same list.
 - A pool item may carry `restart: "agents"` (readPool refuses any other value): a running agent keeps the old
   behaviour until it restarts. Set beside the item's words by whoever writes the fix.
 - `kosmos whats-new [--since <version>] [--json]`, on the Mac and Linux CLI and the Windows one alike: both call
@@ -35,7 +35,7 @@ Weakest premise: that highlights are the right granularity; a restart-needing fi
 unsaid. Remedy if it matters: pool entries never shown in What's New but listed here.
 
 ## Tests
-engine/releasenotes.test.js (17): the filter (held and future excluded, with a control), since and its refusal, the
+engine/releasenotes.test.js (18): the filter (held and future excluded, with a control), since and its refusal, the
 format and its single restart line, the built file vs the source fallback, the pool's restart check and the `notes`
 command, the real pool ships no held item, all three builds call `notes` after their version and none copies the
 pool, the CLI end to end (text, --json, a bad --since), the platform filter, the newest-version
