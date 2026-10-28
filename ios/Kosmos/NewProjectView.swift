@@ -19,6 +19,7 @@ struct NewProjectView: View {
                     TextField(NewProject.Words.nameExample, text: $draft.name)
                         .focused($nameFocused)
                         .submitLabel(.done)
+                        .onSubmit { if NewProject.canCreate(draft) { Task { await create() } } }   // review 2: Done creates
                         .accessibilityLabel(NewProject.Words.name)
                 } header: { Text(NewProject.Words.name) }
                 Section {
@@ -33,13 +34,13 @@ struct NewProjectView: View {
             .navigationTitle(NewProject.Words.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                // Review 2: not while sending (only the swipe was stopped), so an answer always has the sheet to land on.
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending) }
                 ToolbarItem(placement: .confirmationAction) {
                     if sending {
                         ProgressView().accessibilityLabel("Creating the project")
                     } else {
                         Button(NewProject.Words.create) { Task { await create() } }
-                            .font(.body.weight(.semibold))
                             .disabled(!NewProject.canCreate(draft))
                     }
                 }

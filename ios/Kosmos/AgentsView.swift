@@ -465,6 +465,9 @@ struct AgentRow: View {
     // kosmos#7342: the pill's word (Issue on a red pill that would say Idle or Working); a list not updating keeps the plain
     // word, as its pill is grey.
     private var word: String { stale ? Board.statusWord(agent) : Board.pillWord(agent) }
+    // kosmos#7342 review 2: a blocked agent that does not need him has no pill, so neither the not-updating grey pill nor
+    // VoiceOver says "Waiting" either (Josh ruled the word off the row).
+    private var quietBlocked: Bool { agent.state == "blocked" && Board.pill(agent) == nil }
     private var large: Bool { typeSize.isAccessibilitySize }
 
     var body: some View {
@@ -483,7 +486,7 @@ struct AgentRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         // A list shown as not current says so to VoiceOver too, not only by colour.
-        .accessibilityLabel(([agent.name, starred ? "starred" : nil, agent.role, word, stale ? nil : Board.presenceWords(Board.presence(agent), word: word),
+        .accessibilityLabel(([agent.name, starred ? "starred" : nil, agent.role, quietBlocked ? nil : word, stale ? nil : Board.presenceWords(Board.presence(agent), word: word),
                               stale ? nil : Board.noticeWords(Board.noticeCount(agent)),
                               Board.memoryWords(agent.contextPercent, full: agent.contextFull)]
                              + (stale ? ["not updating"] : [])).compactMap { $0 }.joined(separator: ", "))
@@ -521,7 +524,7 @@ struct AgentRow: View {
     @ViewBuilder private var status: some View {
         HStack(spacing: 6) {
             ZStack(alignment: large ? .leading : .trailing) {
-                if stale || Board.pill(agent) != nil {
+                if (stale && !quietBlocked) || Board.pill(agent) != nil {
                     StatusPill(word: word, pill: stale ? .cantTell : Board.pill(agent) ?? .cantTell, wraps: large)
                         .id(word)
                         .transition(.opacity)
