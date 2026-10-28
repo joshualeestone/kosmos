@@ -104,8 +104,10 @@ test('#7411 review: the board deploy (deploy/install-board.sh) writes the same n
   const src = fs.readFileSync(path.join(ROOT, 'deploy', 'install-board.sh'), 'utf8');
   const fn = src.slice(src.indexOf('stage_app() {'), src.indexOf('\n}\n', src.indexOf('stage_app() {')));
   assert.ok(fn.length > 0, 'stage_app is in deploy/install-board.sh');
-  const ver = fn.indexOf('_ver="$("$NODE" -e');
-  const call = fn.indexOf('"$NODE" "$REPO/tools/whats-new-pool.js" notes "$_ver" --platform="$_plat" --out="$_d/release-notes.json"');
+  const ver = fn.indexOf('_ver="$("$_nn" -e');
+  const call = fn.indexOf('"$_nn" "$REPO/tools/whats-new-pool.js" notes "$_ver" --platform="$_plat" --out="$_d/release-notes.json"');
+  // CI's Linux runner has no /opt/homebrew/bin/node: the board's node, else the one on PATH.
+  assert.ok(fn.includes('_nn="$NODE"; [ -x "$_nn" ] || _nn="$(command -v node 2>/dev/null || true)"'), 'stage_app falls back to the node on PATH');
   assert.ok(ver >= 0 && call > ver, 'stage_app writes the release notes into the staged board, after reading its version');
   assert.ok(/_plat=linux; \[ "\$\(uname -s\)" = Darwin \] && _plat=mac/.test(fn), 'stage_app names its platform from uname');
 });
