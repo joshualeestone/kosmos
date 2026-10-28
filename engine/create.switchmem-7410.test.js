@@ -586,3 +586,28 @@ test('#7410: the family rule, and the result sentence keeps its old words only w
   assert.doesNotMatch(server, /it is\. Everything it knows and everything it has done stays/, 'the route still has its own copy of the old sentence');
   assert.match(server, /create\.switchCarryWords\(label, wrote\.carried/);
 });
+
+// #7455: a switch saved but not restarted says, in the future tense, that the conversation will be lost when it starts.
+test('#7455: a switch that starts a new conversation returns losesConversation, and the not-restarted words say what will be lost', () => {
+  const name = born('sm7455-loses');
+  claudeProject(name, { 'MEMORY.md': '- [Topic](topic.md)\n', 'topic.md': 'a thing\n' });
+  const sw = create.setProvider(name, 'openai', OPTS);
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
+  assert.equal(sw.losesConversation, true, 'Claude to Codex starts a new conversation');
+  const later = create.switchLaterWords(sw.losesConversation);
+  assert.match(later, /^ When it does start again, it starts a new conversation, and anything it only remembered from talking will be lost\.$/);
+  assert.doesNotMatch(later, /\bis lost\b/, 'future tense: nothing is lost yet, it is still running as before');
+});
+
+test('#7455: a switch that keeps its conversation keeps today\'s sentence (nothing added)', () => {
+  assert.equal(create.switchLaterWords(false), '');
+  assert.equal(create.switchLosesConversation('codex', 'codex', 'openai', 'alibaba'), false, 'CONTROL: Codex to Qwen is one runner and keeps its conversation');
+  assert.equal(create.switchLosesConversation('claude', 'codex', 'anthropic', 'openai'), true, 'CONTROL: across the Claude line it does not');
+});
+
+test('#7455: both not-restarted branches of the provider route say it, after "still running as before"', () => {
+  const server = fs.readFileSync(nodePath.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.equal(server.split('create.switchLaterWords(wrote.losesConversation)').length - 1, 2, 'both branches (the engine partial and the restart that failed)');
+  assert.match(server, /It is still running as before until it restarts\.` \+ create\.switchLaterWords\(wrote\.losesConversation\)/);
+  assert.match(server, /\+ runsOn\('When it restarts it will run on'\)\n\s+\+ create\.switchLaterWords\(wrote\.losesConversation\)/);
+});

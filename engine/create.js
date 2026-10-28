@@ -2748,13 +2748,19 @@ function setProvider(name, provider, opts) {
       }
     } catch { carried = null; }
   }
+  /* #7455: whether this switch starts a new conversation, decided apart from the notes copy (which may fail), so a
+     switch saved but not restarted can still say the conversation will be lost when it starts. From `leaving`, the
+     same provider the carry used (#7445). */
+  let losesConversation;
+  try { losesConversation = switchLosesConversation(job && job.runner, runner, from, provider); }
+  catch { losesConversation = carried !== null; }
   /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
      a refusal here is PARTIAL, said as such: it runs on Claude, on the main account, not the one picked. */
   if (claudePick && !claudePick.isDefault) {
     const moved = setAccount(clean, claudePick.dir, { ...(opts || {}), carryImports: false });   // #6063: see setAccount
     if (moved && moved.outcome === OUTCOME.REFUSED) {
       const why = String(moved.because || '').replace(/[.\s]+$/, '');
-      return { outcome: OUTCOME.PARTIAL, because: `${spoken} is switched to Claude, on your main Claude account: it could not be moved to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) }, carried };
+      return { outcome: OUTCOME.PARTIAL, because: `${spoken} is switched to Claude, on your main Claude account: it could not be moved to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) }, carried, losesConversation };
     }
   }
   return {
@@ -2778,6 +2784,7 @@ function setProvider(name, provider, opts) {
     /* #7410: null for a switch that keeps its conversation (#7445: only OpenAI <-> Qwen, one Codex home); else what
        happened to its notes (carryClaudeNotes), which the route says. */
     carried,
+    losesConversation,   // #7455
   };
 }
 
@@ -3032,6 +3039,17 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
     } catch { /* no brief we may write: the result still says where the notes are, or that there are none */ }
   }
   return out;
+}
+
+/**
+ * #7455: for a switch that is saved but could not restart, said after "It is still running as before until it restarts."
+ * The future tense switchCarryWords' own sentence takes when it has already started: a switch that starts a new
+ * conversation says what will be lost when it does; one that keeps its conversation says nothing more.
+ */
+function switchLaterWords(losesConversation) {
+  return losesConversation
+    ? ' When it does start again, it starts a new conversation, and anything it only remembered from talking will be lost.'
+    : '';
 }
 
 /**
@@ -7332,6 +7350,7 @@ module.exports = {
   restoreAccountSteps,
   setProvider,
   switchCarryWords,   // #7410: the route's result sentence for a switch, family change or not
+  switchLaterWords,   // #7455: what a saved-but-not-restarted switch will lose when it starts
   crossesFamily,      // #7410
   switchLosesConversation,   // #7410 review 1
   carryClaudeNotes,   // #7410 review 1: exported for its own test (a blocked folder, a linked note)
