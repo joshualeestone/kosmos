@@ -13,13 +13,21 @@
  *
  * The page is read and stamped per request (server.js, #271: so an update arrives), so the compressed bytes
  * are cached against the exact bytes they came from: a changed page is compressed again, an unchanged one
- * never is. Brotli quality 9 takes about a quarter of a second on the page once (1.5 MB from 5.8 MB); 11
- * saves another 130 KB for 7 seconds of CPU, which is not worth it on a person's computer.
+ * never is. The cache holds one copy of the page and its compressed forms for the board's lifetime.
+ * Why brotli 9 and not 11: .claude/plans/pagegzip-7490.md has the measurements.
  */
 const zlib = require('node:zlib');
 
 const BROTLI_QUALITY = 9;
-const GZIP_LEVEL = 6;
+const GZIP_LEVEL = 6;   // zlib's default level; gzip only serves a browser that does not accept br
+
+const FAILURES_SAID = new Set();   // one line per distinct failure, not one per page load
+function sayOnce(what, err) {
+  const cause = what + ': ' + String((err && (err.code || err.message)) || err);
+  if (FAILURES_SAID.has(cause)) return;
+  FAILURES_SAID.add(cause);
+  console.error('pagecompress: ' + cause);
+}
 
 /** The encoding to send for an Accept-Encoding header: 'br', 'gzip', or null (send it as it is).
     Brotli is preferred whenever it is accepted at all, whatever the q values rank (the server may choose);
@@ -90,7 +98,13 @@ function sendPage(req, res, headers, buf, compressed) {
   compressed(encoding, buf).then((out) => {
     res.writeHead(200, { ...headers, vary: 'accept-encoding', 'content-encoding': encoding, 'content-length': out.length });
     res.end(head ? undefined : out);
-  }, plain).catch(() => { res.destroy(); });   // a throw while answering ends this one answer, never the board
+  }, (err) => {
+    sayOnce(encoding + ' compression failed; the page was sent uncompressed', err);
+    plain();
+  }).catch((err) => {
+    sayOnce('the page answer failed and was ended', err);
+    res.destroy();
+  });
 }
 
 module.exports = { pickEncoding, makePageCompressor, sendPage, BROTLI_QUALITY, GZIP_LEVEL };

@@ -119,16 +119,26 @@ test('a compression that fails sends the page as it is', async () => {
   const plain = Buffer.from('<html>plain</html>');
   let head = null; let body = null;
   const res = { writeHead: (s, h) => { head = { s, h }; }, end: (b) => { body = b; }, destroy: () => { head = 'destroyed'; } };
-  sendPage({ method: 'GET', headers: { 'accept-encoding': 'br' } }, res, { 'content-type': 'text/html' }, plain, () => Promise.reject(new Error('no memory')));
-  await new Promise((r) => setImmediate(r));
+  const said = [];
+  const realError = console.error;
+  console.error = (line) => { said.push(String(line)); };
+  try {
+    for (let i = 0; i < 2; i += 1) {
+      sendPage({ method: 'GET', headers: { 'accept-encoding': 'br' } }, res, { 'content-type': 'text/html' }, plain, () => Promise.reject(new Error('no memory')));
+      await new Promise((r) => setImmediate(r));
+    }
+  } finally { console.error = realError; }
   assert.equal(head.s, 200);
   assert.equal(head.h['content-encoding'], undefined);
   assert.equal(head.h.vary, 'accept-encoding');
   assert.equal(body, plain);
+  assert.equal(said.length, 1, `a failure is said once, not per load: ${JSON.stringify(said)}`);
+  assert.match(said[0], /^pagecompress: br compression failed; the page was sent uncompressed: no memory$/);
 });
 
 test('a failed compression is tried again on the next request', async () => {
-  const zlib = require('node:zlib');
+  // Stubs the shared zlib module while the server above is up: safe only because this file's tests run one
+  // at a time (node:test's default). Do not give this file `concurrency`.
   const real = zlib.brotliCompress;
   let calls = 0;
   zlib.brotliCompress = (buf, opts, done) => { calls += 1; if (calls === 1) { done(new Error('once')); return; } real(buf, opts, done); };
