@@ -225,10 +225,9 @@ struct AgentsView: View {
                                  starred: client.isStarred(agent.session))
                     }
                     .buttonStyle(.plain)
-                    // kosmos#7034: star or unstar from the row: a swipe to the right, or a long press, and VoiceOver's actions.
+                    // kosmos#7034: star or unstar from the row: a swipe to the right (VoiceOver offers it as an action), or a long press.
                     .swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent) }
                     .contextMenu { starButton(agent) }
-                    .accessibilityAction(named: client.isStarred(agent.session) ? "Unstar" : "Star") { Task { await client.toggleStar(agent.session) } }
                     .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
                     .listRowBackground(Palette.card)
                     .listRowSeparatorTint(Palette.separator)
