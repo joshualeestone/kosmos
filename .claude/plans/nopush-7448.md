@@ -30,3 +30,4 @@ install never reaches a phone without anybody remembering to list it.
   Warnings fixed: existsSync never throws, so an unreadable mark read as unmarked; now only ENOENT is unmarked. A
   turn-on in flight when the mark appears saves nothing. Nit fixed: status no longer claims offByChoice while marked.
   Not done (coordinator): retiring the token there; events the coordinator already holds.
+- Round 2 (sonnet): no blocker or warning. CONVERGED.
