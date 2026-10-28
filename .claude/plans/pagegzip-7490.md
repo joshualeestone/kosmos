@@ -25,7 +25,10 @@ request accepts gzip and br. Over Kosmos+ it crosses the tunnel and the relay to
 - `server.pagecompress-7490.test.js`: real server over node:http (fetch decompresses on its own): plain
   when not accepted, br and gzip decode to the plain page byte for byte, HEAD, /api/health stays plain,
   pickEncoding cases, the cache recompresses a changed page and not an unchanged one.
-- `web.win32-board-copy.test.js`: its source pin follows the route to the new shape.
+  Also pins `pageCompress.sendPage` to exactly one call site, inside the page route (BREACH is structural).
+- Source-reading tests that moved with the change: `web.win32-board-copy.test.js` (the stamped page is what is
+  sent), `web.stale-page.test.js` (the page still says no-store), `engine/win32-separator-guard.test.js` and
+  `engine/windows-coupling-audit-1732.test.js` (a classified row for the Accept-Encoding `split(';')`).
 
 ## Measured (sandboxed boards, Chromium, network throttled, 4x CPU)
 4G 9 Mbit/s: 5.7 s before, 2.0 s after. Slow 4G 1.6 Mbit/s: 30.0 s before, 9.2 s after. Parse after the

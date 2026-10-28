@@ -95,6 +95,14 @@ test('HEAD says the length GET would send, and sends no body', async () => {
 test('API answers stay uncompressed, however the request asks (BREACH: caller text beside secrets)', async () => {
   const r = await get('/api/health', { 'accept-encoding': 'gzip, br' });
   assert.equal(r.headers['content-encoding'], undefined, '/api/health came back compressed');
+  // The guarantee is structural: the page route is the only caller. A second call site is a decision to
+  // compress something else, so it must come with its own BREACH reasoning (and a change here).
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const calls = src.split('pageCompress.sendPage(').length - 1;
+  assert.equal(calls, 1, `server.js calls pageCompress.sendPage ${calls} times`);
+  const pageRead = src.indexOf("path.join(__dirname, 'web', 'index.html')");
+  const call = src.indexOf('pageCompress.sendPage(');
+  assert.ok(pageRead > 0 && call > pageRead && call - pageRead < 3000, 'sendPage is no longer inside the page route');
 });
 
 test('pickEncoding: brotli first, gzip next, q=0 refuses, * stands for the rest', () => {

@@ -107,4 +107,4 @@ function sendPage(req, res, headers, buf, compressed) {
   });
 }
 
-module.exports = { pickEncoding, makePageCompressor, sendPage, BROTLI_QUALITY, GZIP_LEVEL };
+module.exports = { pickEncoding, makePageCompressor, sendPage };

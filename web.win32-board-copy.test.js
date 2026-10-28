@@ -71,7 +71,7 @@ test('the server stamps the page with ITS platform, per request, and leaves an u
   const unmarked = Buffer.from('<html>no marker</html>');
   assert.equal(stampWith('win32')(unmarked), unmarked, 'a page without the marker was rewritten');
   // kosmos#7490: the stamped page is what the route sends (compressed or not, engine/pagecompress.js).
-  assert.match(SERVER, /const page = stampServedPlatform\(buf\);\s*pageCompress\.sendPage\([^\n]*\n[^\n]*Buffer\.isBuffer\(page\) \? page : Buffer\.from\(page, 'utf8'\), compressedPage\);/,
+  assert.match(SERVER, /const page = stampServedPlatform\(buf\);\s*pageCompress\.sendPage\([\s\S]*?Buffer\.isBuffer\(page\) \? page : Buffer\.from\(page, 'utf8'\), compressedPage\);/,
     'the page route no longer stamps what it serves');
   assert.match(PAGE, /<meta name="kosmos-platform" content="__KOSMOS_PLATFORM__">/, 'the marker left the page head');
   assert.ok(PAGE.indexOf('name="kosmos-platform"') < PAGE.indexOf('</head>'));
