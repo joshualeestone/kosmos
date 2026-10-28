@@ -4,7 +4,7 @@ import Foundation
 // Mona Lisa's phone design of the desktop's (#4554), screen for screen and in the desktop's own words (web/index.html
 // cstep-kind, cstep-role, cstep-name, cstep-made). Every list comes from the board's own routes (/api/roles), never
 // typed into the app, so the phone and the Mac cannot drift. It creates through POST /api/agents, the desktop's
-// Create button's route, with the desktop's body: only what the person changed travels.
+// Create button's route, with the desktop's body: the model always, the rest only when the person changed it.
 // Not in this slice (the card says why): the provider and account pickers (the board's default account, and the Claude
 // models /api/roles serves), a swarm limit as a share of the weekly allowance (tokens only), import, org chart.
 enum NewAgent {
@@ -199,7 +199,10 @@ enum NewAgent {
         }
         for p in (obj?["projects"] as? [[String: Any]]) ?? [] where p["added"] as? Bool == false {
             let why = NewProject.trimmed(p["because"] as? String ?? "")
-            out.append(why.isEmpty ? notAdded + "." : notAdded + ": " + NewTeam.sentence(why).prefix(1).lowercased() + NewTeam.sentence(why).dropFirst())
+            let said = NewTeam.sentence(why)
+            // Lower-cased after the colon only when it reads as a word, so "GitHub is..." keeps its capital.
+            let lower = said.count > 1 && said.dropFirst().first!.isLowercase ? said.prefix(1).lowercased() + said.dropFirst() : said
+            out.append(why.isEmpty ? notAdded + "." : notAdded + ": " + lower)
         }
         return out
     }
