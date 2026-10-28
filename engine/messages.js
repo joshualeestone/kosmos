@@ -2607,11 +2607,16 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   /* C, decided once per post (round 1): the whole post is quiet or none of it, so an @all never stops partway. */
   const loopPaused = operator !== true && require('./roomloop').paused(projectId);
   const asksMember = (name) => mentioned.has(name) || Boolean(answeredAsked && answered.operator !== true && answered.from === name);
+  /* kosmos#7461: while paused, a post asking exactly ONE member still wakes it (a handoff, a closing summary), within
+     the pair's budget for this pause (engine/roomloop.js pairWake). Decided once per post, as the pause itself is. */
+  const askedHere = operator === true ? [] : recipients.filter((n) => !offHere.has(n) && asksMember(n));
+  const oneThrough = loopPaused && askedHere.length === 1 && require('./roomloop').pairWake(projectId, from, askedHere[0]);
+  const loopQuiet = loopPaused && !oneThrough;
   /* #3564: the post is charged for the members it is sent to. kosmos#7246 slice 2 (round 3): an agent's post is charged
      only for the members it will wake (addressed, not switched off here, the project not paused), as reachedCount
      counts it once logged, so a post that addresses one member is not held as if it reached the whole room. */
   const charged = operator === true ? recipients.length - offHere.size
-    : (loopPaused ? 0 : recipients.filter((n) => !offHere.has(n) && asksMember(n)).length);
+    : (loopQuiet ? 0 : askedHere.length);
   /* #4786: WORK MOVING EARNS MORE ROOM, BOUNDED. A pipeline of agents handing tasks along fills the budget as fast
      as a loop does, and was held until the person stepped in (daily feedback, 2026-09-30). So each first-time step
      forward in this project since countFrom (engine/taskchat.js progressTimes: a task made, a part added, a first
@@ -2918,10 +2923,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        agent-wake cap is used up (engine/roomloop.js). A person's post is never quiet. */
     if (operator !== true) {
       const asked = asksMember(name);
-      if (asked && loopPaused) loopPausedHere = true;
-      /* Members this agent post did not address (or the project's agent-wake cap paused) are left quiet: not typed, not
-         held, the post in the room for them to read. */
-      if (!asked || loopPaused) { outcomes[name] = roomhold.QUIET; return null; }
+      if (asked && loopQuiet) loopPausedHere = true;
+      /* Members this agent post did not address (or the project's agent-wake cap paused, kosmos#7461: unless it asks
+         this one member alone) are left quiet: not typed, not held, the post in the room for them to read. */
+      if (!asked || loopQuiet) { outcomes[name] = roomhold.QUIET; return null; }
     }
     /* #4624: a colleague's post that does not name this member, arriving mid-turn or while it waits (a hook's idle),
        is held rather than typed (engine/roomhold.js says who and why). A post that cannot be held is typed as before. */

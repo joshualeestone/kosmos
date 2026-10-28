@@ -23,6 +23,13 @@ const wakes = new Map();
 const pausedAt = new Map();
 /* projectId -> the pause (its pausedAt) last said, so each pause is said once; a pause lasts at least an hour. */
 const said = new Map();
+/* kosmos#7461: while a project is paused, a post asking exactly ONE member still wakes it, so a handoff gets through (a
+   gate queue's "my run ended" to the next in line; a closing summary). Each ordered pair (sender to recipient) has
+   PAIR_CAP such wakes per pause, so a handoff chain (A to B, B to C) uses each pair once and two agents answering each
+   other are still bounded (2 x PAIR_CAP a pause, against LOOP_CAP an hour). key project\u0000from\u0000to -> wakes this
+   pause; forgotten whenever the pause ends (it runs out, or a person clears it), so each pause starts every pair again. */
+const PAIR_CAP = 3;
+const pairWakes = new Map();
 
 function recent(projectId, now) {
   const list = (wakes.get(projectId) || []).filter((t) => now - t < LOOP_WINDOW_MS);
@@ -37,11 +44,28 @@ function paused(projectId, now = Date.now()) {
     const p = String(projectId);
     if (pausedAt.has(p)) {
       if (now - pausedAt.get(p) < LOOP_WINDOW_MS) return true;
-      pausedAt.delete(p); wakes.delete(p);
+      pausedAt.delete(p); wakes.delete(p); forgetPairs(p);
       return false;
     }
     if (recent(p, now).length >= cap) { pausedAt.set(p, now); return true; }
     return false;
+  } catch { return false; }
+}
+
+function forgetPairs(p) {
+  for (const k of [...pairWakes.keys()]) if (k.startsWith(p + '\u0000')) pairWakes.delete(k);
+}
+/* kosmos#7461: may this paused project's one-member post from `from` wake `to`? True takes one of the pair's PAIR_CAP for
+   this pause. False when the project is not paused (the caller asks only while it is), or either name is missing. */
+function pairWake(projectId, from, to, now = Date.now()) {
+  try {
+    const p = String(projectId);
+    if (!pausedAt.has(p) || typeof from !== 'string' || !from || typeof to !== 'string' || !to) return false;
+    const key = p + '\u0000' + from + '\u0000' + to;
+    const n = pairWakes.get(key) || 0;
+    if (n >= PAIR_CAP) return false;
+    pairWakes.set(key, n + 1);
+    return true;
   } catch { return false; }
 }
 
@@ -79,7 +103,7 @@ function senderNote(projectId, now = Date.now()) {
 
 /* Round 3: a person posted in `projectId`, so its count starts over and the next pause is said at once. */
 function clear(projectId) {
-  try { const p = String(projectId); wakes.delete(p); said.delete(p); pausedAt.delete(p); } catch { /* the pause runs out instead */ }
+  try { const p = String(projectId); wakes.delete(p); said.delete(p); pausedAt.delete(p); forgetPairs(p); } catch { /* the pause runs out instead */ }
 }
 
 /* The cap in force (LOOP_CAP unless a test set it), for the board's log line. */
@@ -87,6 +111,6 @@ function liveCap() { return cap; }
 
 /* A test that is about something else (the room valve) and sends many posts sets this high. */
 function setCapForTests(n) { cap = n; }
-function resetForTests() { wakes.clear(); said.clear(); pausedAt.clear(); cap = LOOP_CAP; }
+function resetForTests() { wakes.clear(); said.clear(); pausedAt.clear(); pairWakes.clear(); cap = LOOP_CAP; }
 
-module.exports = { LOOP_CAP, LOOP_WINDOW_MS, paused, noteWake, clear, liveCap, freesAt, pauseNote, senderNote, setCapForTests, resetForTests };
+module.exports = { LOOP_CAP, LOOP_WINDOW_MS, paused, noteWake, clear, liveCap, freesAt, pauseNote, senderNote, setCapForTests, resetForTests, pairWake, PAIR_CAP };
