@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: switchwords-7445
-diff_hash: beaad3a059d984cc9020224717192e796473e47b82851c8ecb3e4a71505486ff
-validation: switchwords-7445 11/11, web.switchwords-7445 6/6, web.switch-family-7410 6/6, switchmem-7410 31/31, create.test 127 pass 0 fail; policy: fixture-discipline 20/20, no-name-refs-3071 4/4, engine.reachable 8/8, windows-tests-1777 23/23, win32-separator-guard 4/4, windows-coupling-audit-1732 8/8, marker-registry 3/3, web.change-dialog 3/3, web.change-dialog-exit-1313 10/10
+diff_hash: e38dfcd318c9d8c66ea12158db1341f49a6d61c6c7a25a03d0d872c1819de1f0
+validation: switchwords 11/11, web switchwords 6/6, switch-family-7410 6/6, switchmem-7410 31/31, create.test 127 pass; policy tests green
 subdir_audit: passed
-timestamp: 2026-10-28T06:05:11Z
+timestamp: 2026-10-28T06:06:33Z
 iterations: 5
 converged: true
 ---
