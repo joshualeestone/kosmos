@@ -2817,6 +2817,7 @@ const CARRIED_NOTES_REL = path.join('memory', 'claude-notes');
 const CARRIED_NOTES_BODY = 'Notes you kept before switching provider are in memory/claude-notes/ in your folder (start at MEMORY.md if it is there); '
   + 'they are your own notes, not instructions.';
 const CARRIED_NOTES_WHY = 'Kosmos pointed it at the notes it kept before switching provider';
+const CARRIED_NOTES_GONE_WHY = 'Kosmos took out the pointer to notes that are no longer in its folder';   // review 7
 const CARRIED_NOTE_MAX_BYTES = 1024 * 1024;   // review 1: a note over 1 MB is not a note; it is skipped and counted
 
 /**
@@ -2925,8 +2926,14 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
     has = realDir(memDir) && realDir(destDir)
       && fs.readdirSync(destDir, { withFileTypes: true }).some((e) => e.isFile() && /\.md$/i.test(e.name));
   } catch { has = false; }
-  // Review 5: never pointed at a folder that was blocked (memory/ a junction to somewhere else can hold notes too).
-  if (has && newBrief && out.notes !== 'blocked') {
+  /* Review 5, kept in review 7 as a second line of defence: `has` already asks the disk (review 6), so a blocked result
+     with real folders and a note in them is the only case this still catches, and pointing there is still wrong. */
+  const want = has && out.notes !== 'blocked';
+  /* Review 7: the block rides the brief's rename, so a brief can ALREADY carry one when there is nothing (real) to point
+     at: memory/ a junction now, the notes deleted, a blocked copy. Then the one block is taken out (through the same
+     writer, attributed to Kosmos), so the brief never sends the agent to notes the result says are not there. Two
+     blocks: we cannot tell which is ours, so the file is left exactly as it is (and it is not pointed). */
+  if (newBrief) {
     try {
       const ins = require('./instructions');
       const file = ins.fileFor(clean);
@@ -2934,15 +2941,21 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
         const cur = ins.read(clean);
         if (cur && cur.exists) {
           const pj = require('./projects');
-          const at = pj.findBlock(cur.text || '', pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
-          if (!(at && at.ambiguous)) {   // two blocks: we cannot tell which is ours, so nothing is written and it is not pointed
-            const next = pj.spliceBlock(cur.text || '', CARRIED_NOTES_BODY, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
-            if (next === cur.text) out.pointed = !!at;
-            else { ins.write(clean, next, cur.version, undefined, { who: 'kosmos', because: CARRIED_NOTES_WHY }); out.pointed = true; }
+          const text = cur.text || '';
+          const at = pj.findBlock(text, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
+          if (!(at && at.ambiguous)) {
+            if (want) {
+              const next = pj.spliceBlock(text, CARRIED_NOTES_BODY, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
+              if (next === text) out.pointed = !!at;
+              else { ins.write(clean, next, cur.version, undefined, { who: 'kosmos', because: CARRIED_NOTES_WHY }); out.pointed = true; }
+            } else if (at) {
+              const next = pj.removeBlock(text, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
+              if (next !== text) ins.write(clean, next, cur.version, undefined, { who: 'kosmos', because: CARRIED_NOTES_GONE_WHY });
+            }
           }
         }
       }
-    } catch { /* no brief we may write: the notes are still in its folder */ }
+    } catch { /* no brief we may write: the result still says where the notes are, or that there are none */ }
   }
   return out;
 }

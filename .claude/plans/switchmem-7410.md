@@ -204,3 +204,18 @@ One warning and one nit, both taken; both tests are red on ca3c2c3ae2.
    sentence without "notes in its folder".
 2. **memory/ that became a file (or a link) between the first check and the mkdir** read as `failed`; it is `blocked`
    now (checked before failures are counted). Test: an mkdir seam that puts a file at memory/ and throws ENOTDIR.
+
+## Review 7 (decided)
+One warning and one nit, both taken; the test is red on 2541797735.
+1. **A pointer the brief already carried was never taken out.** The block rides the brief's rename, so with nothing
+   real to point at (memory/ now a junction, the notes deleted, a blocked copy) the brief still sent the agent to
+   memory/claude-notes/ while the result said no notes. Now, when there is nothing to point at and the brief holds
+   exactly one carried-notes block, it is removed with `projects.removeBlock` through `instructions.write`
+   (who: kosmos, "Kosmos took out the pointer to notes that are no longer in its folder"). **Two blocks are left
+   exactly as they are**: we cannot tell which is ours, and guessing would edit text Kosmos may not have written; the
+   brief then keeps a stale pointer, which is the accepted cost (a person or a later switch with one block clears it).
+   Test: a seeded block, memory/ a junction, codex -> claude: the block is gone, the rest of the brief is kept, the
+   write is attributed to Kosmos, and the sentence makes no notes claim. Controls in the same test: real folders with
+   a note keep the block; two blocks are left untouched.
+2. **The `out.notes !== 'blocked'` guard is kept**, commented as a second line of defence: `has` already asks the disk,
+   and a blocked result with real folders and a note in them is the only case it still catches.

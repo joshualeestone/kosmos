@@ -335,6 +335,42 @@ test('#7410 review 6: memory/ a junction is never pointed at, whatever the outco
   assert.doesNotMatch(create.switchCarryWords('Claude', r, 'OpenAI'), /notes in its folder/);
 });
 
+test('#7410 review 7: a pointer the brief already carries is taken out when there is nothing real to point at; real folders keep it', (t) => {
+  const block = '<!-- kosmos:carried-notes:start -->\nold pointer\n<!-- kosmos:carried-notes:end -->\n';
+  // CONTROL: real folders with a note keep the block (and it is counted as pointed).
+  const keep = born('sm7410-keepblock');
+  fs.mkdirSync(notesDir(keep), { recursive: true });
+  fs.writeFileSync(nodePath.join(notesDir(keep), 'MEMORY.md'), 'a note\n', 'utf8');
+  const keepBrief = nodePath.join(create.workerDir(keep), 'CLAUDE.md');
+  fs.writeFileSync(keepBrief, '# brief for this agent\n' + block, 'utf8');
+  const k = create.carryClaudeNotes(keep, { runner: 'codex' }, 'claude', keepBrief, 'openai', 'anthropic');
+  assert.equal(k.pointed, true);
+  assert.equal(blocks(read(keepBrief)), 1, 'CONTROL: a real notes folder lost its pointer');
+
+  const name = born('sm7410-staleblock');
+  const brief = nodePath.join(create.workerDir(name), 'CLAUDE.md');
+  fs.writeFileSync(brief, '# brief for this agent\n' + block, 'utf8');
+  const elsewhere = nodePath.join(SANDBOX, 'elsewhere-stale-7410');
+  fs.mkdirSync(nodePath.join(elsewhere, 'claude-notes'), { recursive: true });
+  fs.writeFileSync(nodePath.join(elsewhere, 'claude-notes', 'MEMORY.md'), 'not this agent\'s folder\n', 'utf8');
+  try { fs.symlinkSync(elsewhere, nodePath.join(create.workerDir(name), 'memory'), 'junction'); }
+  catch (e) { t.skip('this computer will not make a link here (' + e.code + ')'); return; }
+  const r = create.carryClaudeNotes(name, { runner: 'codex' }, 'claude', brief, 'openai', 'anthropic');
+  assert.equal(r.pointed, false);
+  assert.equal(blocks(read(brief)), 0, 'the brief still sends the agent to notes behind a junction');
+  assert.match(read(brief), /^# brief for this agent/, 'the rest of the brief was changed');
+  assert.equal(store.readProfile(name).instructionsWrite.who, 'kosmos', 'the pointer was taken out around the instructions writer');
+  assert.doesNotMatch(create.switchCarryWords('Claude', r, 'OpenAI'), /notes in its folder/);
+
+  // Two blocks and nothing to point at: left exactly as it is.
+  const two = born('sm7410-twostale');
+  const twoBrief = nodePath.join(create.workerDir(two), 'CLAUDE.md');
+  fs.writeFileSync(twoBrief, '# brief for this agent\n' + block + block, 'utf8');
+  const before = read(twoBrief);
+  create.carryClaudeNotes(two, { runner: 'codex' }, 'claude', twoBrief, 'openai', 'anthropic');
+  assert.equal(read(twoBrief), before, 'an ambiguous brief was changed');
+});
+
 test('#7410 review 6: memory/ that became a file between the check and the mkdir is blocked, not failed', () => {
   const name = born('sm7410-memfile');
   claudeProject(name, { 'MEMORY.md': 'a note\n' });
