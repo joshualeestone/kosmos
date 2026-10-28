@@ -96,6 +96,8 @@ struct RoomView: View {
     @AccessibilityFocusState private var archiveBackFocused: Bool
     // Review 1: the archive was showing (its rows in), so Back can put the reader back at the boundary row.
     @State private var archiveWasShown = false
+    // Review 2: the rows are swapping between the archive and the live room: the new-row scroll stays out of it.
+    @State private var archiveSwap = false
     // The rows the search keeps, before refusals fold (as the board filters before its fold).
     private var shownRows: [Board.RoomRow] {
         guard searching else { return rows }
@@ -131,8 +133,9 @@ struct RoomView: View {
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
                     .onAppear {
                         Self.say(note)
+                        let id = store.archiveNoteId[project.id]
                         DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
-                            if store.archiveNote[project.id] == note { store.archiveNote[project.id] = nil }
+                            if store.archiveNoteId[project.id] == id { store.archiveNote[project.id] = nil }
                         }
                     }
             } else if let note = store.notes[project.id] {
@@ -347,6 +350,7 @@ struct RoomView: View {
     private func backToRoom() {
         store.closeArchive(project.id)
         Self.say(Board.Archive.backAnnouncement)
+        Task { await store.markSeen(project.id) }   // review 2: seen on Back, as the board's pjArchClose, not at the next poll
         DispatchQueue.main.async { composerFocused = true }
     }
     // The archive's top: opening, its earlier pages on reaching the top (as the live part's), or the start of the room.
@@ -718,6 +722,7 @@ struct RoomView: View {
             }
             .kosmosTopFade()   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
             .onChange(of: rows.last?.id) { _ in
+                if archiveSwap { return }   // review 2: the archive's own handler places the reader
                 if !settledAtBottom {
                     // The first page: straight to the newest row, then the top may ask for older ones. A page that fits
                     // on one screen moves neither marker, so settle here when the end is already showing.
@@ -767,7 +772,10 @@ struct RoomView: View {
                 pendingCount = n
             }
             // The first scroll has happened and the top is already showing (a room shorter than the screen).
-            .onChange(of: settledAtBottom) { done in if done && olderShowing { loadOlder(proxy) } }
+            .onChange(of: settledAtBottom) { done in
+                guard done && olderShowing else { return }
+                if archiveShown != nil { loadArchiveOlder(proxy) } else { loadOlder(proxy) }   // review 2: the part on screen
+            }
             // The magnifier opened the row over a reader at the newest post: back there once the keyboard is up too (the
             // room has no other keyboard rule; the chat's keepNewestInView does this there).
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
@@ -802,6 +810,8 @@ struct RoomView: View {
             // only once that scroll has settled, as on opening the room (review 1). Back: the reader is put back at the
             // boundary row they left from, as the board's PJ_ARCH.anchor. A failed open never moved them.
             .onChange(of: archiveShown != nil) { shown in
+                archiveSwap = true
+                DispatchQueue.main.async { archiveSwap = false }
                 if shown {
                     archiveWasShown = true
                     settledAtBottom = false
@@ -811,7 +821,10 @@ struct RoomView: View {
                     archiveBackFocused = true
                 } else if archiveWasShown {
                     archiveWasShown = false
-                    DispatchQueue.main.async { proxy.scrollTo("archiveBoundary", anchor: .top) }
+                    // The boundary row, when it is still drawn; else the newest post (an Undo on the computer took it).
+                    let back = Board.Archive.boundaryShown(olderCursor: store.older[project.id]?.cursor,
+                                                           archivedCount: store.archivedCount[project.id] ?? 0, searching: searchMode)
+                    DispatchQueue.main.async { if back { proxy.scrollTo("archiveBoundary", anchor: .top) } else { proxy.scrollTo("bottom", anchor: .bottom) } }
                 }
             }
             .onAppear {

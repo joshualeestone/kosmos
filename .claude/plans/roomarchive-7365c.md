@@ -28,6 +28,19 @@
   route gives a cursor exactly when olderCount > 0, so they agree, but a computer that sends olderCount > 0 with no
   cursor would show the row with earlier live messages unread.
 
+## Review rounds (ledger)
+
+1. opus: 4 MAJOR, 7 MINOR, all fixed (commit 68312eb8dc lists them).
+2. sonnet: 0 BLOCKER/MAJOR, 10 MINOR. Fixed: the settle after the archive's first page asks the archive's loader,
+   not the live one; the new-row scroll stays out of the archive/live swap; Back scrolls to the boundary row only when
+   it is still drawn, else to the newest post; a failed refresh is not asked again until the count changes again; each
+   note's timer clears only its own note; the live rows are replaced when the archived count moves (no archived row
+   left above the boundary, the board's pjRoomDropArchived); Back marks the room seen at once.
+   Not fixed, decided: a refresh shows the archive's newest page and drops earlier pages read (the reader's place
+   inside a deep archive is not kept; the board keeps it). The change check is the count only, not count plus marker.
+   The 0.85 opacity's contrast is to be checked in the shots. A search over an empty live part with messages archived
+   shows nothing (the board would search the archive too; the phone's search is of the live room).
+
 ## Not verified
 
 - No screenshots yet: they go through the heavy queue, and the 0.7.73 cut holds the machine. A Debug sample

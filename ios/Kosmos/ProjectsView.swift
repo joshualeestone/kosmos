@@ -63,6 +63,10 @@ final class RoomStore: ObservableObject {
     // Said once when opening the archive did not work (the board's toast): the room shows it for a few seconds and
     // clears it (review 1), and the next open clears it too.
     @Published var archiveNote: [String: String] = [:]
+    // Review 2: each note's number, so a timer clears only the note it was started for.
+    @Published private(set) var archiveNoteId: [String: Int] = [:]
+    // Review 2: the count a refresh last failed to read, so a failing read is not asked again on every poll.
+    private var archiveRefreshFailed: [String: Int] = [:]
     // A post in the air or one that did not go, by project: its words, the line under it once answered, and the ids of
     // the person's posts already in the room when Post was pressed (so an earlier post with the same words never
     // settles it).
@@ -108,7 +112,7 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
-        archivedCount = [:]; archive = [:]; archiveNote = [:]; archiveOpens = [:]; archiveRefreshing = []   // kosmos#7365 slice 3c
+        archivedCount = [:]; archive = [:]; archiveNote = [:]; archiveNoteId = [:]; archiveOpens = [:]; archiveRefreshing = []; archiveRefreshFailed = [:]   // kosmos#7365 slice 3c
         returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAsk = [:]
         held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
@@ -206,7 +210,11 @@ final class RoomStore: ObservableObject {
         roomFailed.remove(project)
         roomPartial = Board.partialRooms(roomPartial, project: project, partial: page.unread)
         if Board.readMayWriteHold(read: read, reopenedAt: reopenedAt[project]) { if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil } }
-        let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)
+        // Review 2: the archive moved under the rows shown (set or undone on the computer): the page replaces them, so no
+        // row now archived stays above the boundary (the board's pjRoomDropArchived).
+        let moved = archivedCount[project].map { $0 != page.archivedCount } ?? false
+        let fresh = moved ? (rows: page.rows, older: (count: page.olderCount, cursor: page.olderCursor))
+            : Board.refreshRoom(rows[project], older: older[project], page: page)
         // Stamped before the rows are replaced: `before` must be what the room held until this read. The phone's clock,
         // as BoardClient.updatedAt is (its env.now() is Date() outside the tests).
         let stamped = Board.stampSpeakers(spokeAt[project] ?? [:], baselined: spokeBaseline.contains(project), before: rows[project],
@@ -218,7 +226,10 @@ final class RoomStore: ObservableObject {
         archivedCount[project] = page.archivedCount
         // Review 1: an archive set or undone elsewhere while this one shows: read it again, as the board's poll does
         // when the count it sees changes.
-        if let a = archive[project], !a.opening, a.count != page.archivedCount { Task { await self.refreshArchive(project) } }
+        if let a = archive[project], !a.opening, a.count != page.archivedCount, archiveRefreshFailed[project] != page.archivedCount {
+            let want = page.archivedCount
+            Task { await self.refreshArchive(project, want: want) }
+        }
         settle(project)
         return true
     }
@@ -243,7 +254,7 @@ final class RoomStore: ObservableObject {
         let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, part: .archive) }
         guard same(epoch), archiveOpens[project] == open, archive[project] != nil else { return }
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
-            archive[project] = nil; archiveNote[project] = Board.Archive.couldNotOpen; return
+            archive[project] = nil; archiveNote[project] = Board.Archive.couldNotOpen; archiveNoteId[project, default: 0] += 1; return
         }
         archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
         archivedCount[project] = page.archivedCount
@@ -251,21 +262,25 @@ final class RoomStore: ObservableObject {
     // The archive's newest page again, in place of what it showed (its count changed under it). Kept as it was when the
     // read fails; dropped when the archive was closed or opened again meanwhile.
     private var archiveRefreshing: Set<String> = []
-    func refreshArchive(_ project: String) async {
+    func refreshArchive(_ project: String, want: Int) async {
         guard archive[project] != nil, !archiveRefreshing.contains(project) else { return }
         archiveRefreshing.insert(project)
         defer { archiveRefreshing.remove(project) }
         let open = archiveOpens[project]
         let epoch = client.chatEpoch
         let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, part: .archive) }
-        guard same(epoch), archiveOpens[project] == open, archive[project] != nil,
-              let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else { return }
+        guard same(epoch), archiveOpens[project] == open, archive[project] != nil else { return }
+        guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
+            archiveRefreshFailed[project] = want; return
+        }
+        archiveRefreshFailed[project] = nil
         archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
     }
     // Back to the room: the archive's rows go, and a read still on its way for it is dropped.
     func closeArchive(_ project: String) {
         archiveOpens[project, default: 0] += 1
         archive[project] = nil
+        archiveRefreshFailed[project] = nil
     }
     // The archive's page before the oldest one shown.
     func loadArchiveOlder(_ project: String) async {
