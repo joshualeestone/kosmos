@@ -87,7 +87,7 @@ const make = (label, who) => tasks.create(projectId, { sentence: 'Message to ' +
    that far reads "Not told: otto (we could not check its window ...)"; any earlier stop (off the project, switched off)
    gives another reason, and a dropped name gives no otto at all. */
 const REACHED_OTTO = /(\bTold [^.]*\botto\b|Not told: otto \(we could not check its window)/;
-// Review 2: as an agent with its own token (mara by default), since an unnamed sender may not use to; null sends none.
+// As an agent with its own token (mara by default); null sends none (the person at a terminal, allowed since review 3).
 const post = (n, body, as = 'mara') => fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', ...(as ? { 'x-kosmos-agent-token': token(as) } : {}) }, body: JSON.stringify(body) });
 
 test('#7408: on a task nobody holds, either command says nobody was told and how to name someone', async () => {
@@ -224,7 +224,7 @@ test('#7408 review 1: against an older board that ignores to, both commands say 
     const out = []; const err = [];
     await cli.main(argv, { env: {}, url: obase, hook: { resolveUrl: () => obase, readBoardToken: () => null, agentToken: () => token('mara') }, out: (s) => out.push(s), err: (s) => err.push(s) });
     for (const [label, text] of [['Mac', m.text], ['Windows', out.concat(err).join('\n')]]) {
-      assert.match(text, /This Kosmos does not know --to yet, so only the task's assignees were told\./, label + ': ' + text);
+      assert.match(text, /This Kosmos does not know --to yet, so the agents you named were not told\./, label + ': ' + text);
       assert.doesNotMatch(text, /name it: --to/, label + ': never tells them to do what they did: ' + text);
     }
   } finally {
@@ -232,7 +232,7 @@ test('#7408 review 1: against an older board that ignores to, both commands say 
   }
 });
 
-test('#7408 review 2: an agent stored under its key is found by its name, and a sender the board cannot name may not use to', async () => {
+test('#7408 review 2: an agent stored under its key is found by its name', async () => {
   projects.mutate(projectId, (p) => ({ ...p, agents: [...p.agents, 'icecreamkitty'] }));
   try {
     const n = make('keyed');
@@ -275,4 +275,29 @@ test('#7408 review 3: a name that could be two agents is refused as such; a proj
   }
   const gone = await fetch(`${base}/api/project/no-such-project-7408/task/1/message`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': token('mara') }, body: JSON.stringify({ text: 'x', to: ['otto'] }) });
   assert.equal(gone.status, 404);
+});
+
+test('#7408 review 4: the limit counts every agent to names before the message is sent, and a screen claim with to is limited too', async () => {
+  const { taskMessageSendCountForTests, setTaskMsgCapForTests } = require('./server');
+  projects.mutate(projectId, (p) => ({ ...p, agents: [...p.agents, 'kai'] }));
+  try {
+    const n = make('cap-to');
+    const c = taskMessageSendCountForTests();
+    setTaskMsgCapForTests(c + 2);
+    const before = said(n).length;
+    const over = await post(n, { text: 'two more', to: ['otto', 'kai'] });   // 1 + 2 would make c + 3
+    assert.equal(over.status, 429, 'refused before it is sent: ' + JSON.stringify(await over.json()));
+    assert.equal(said(n).length, before, 'nothing recorded');
+    assert.equal(taskMessageSendCountForTests(), c, 'nothing counted');
+    // A screen claim (a browser header, no token) naming agents is limited too.
+    const screen = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'as the screen', to: ['otto', 'kai'] }) });
+    assert.equal(screen.status, 429, 'a screen claim with to is not exempt');
+    // CONTROL: one name fits (c + 2), and naming yourself adds nothing.
+    const fits = await post(n, { text: 'one more', to: ['otto', 'mara'] });
+    assert.equal(fits.status, 200, JSON.stringify(await fits.json()));
+    assert.equal(taskMessageSendCountForTests(), c + 2, 'the message plus otto; mara is the sender');
+  } finally {
+    setTaskMsgCapForTests();
+    projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'kai') }));
+  }
 });
