@@ -422,3 +422,19 @@ test('#7430: the unhold sentence names an agent by its name, as Who is on it doe
     if (had === null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, had);
   }
 });
+
+test('#7430 review 5: the page turns the route\'s closing ask into Choose who by its exact words, so the two copies stay one', () => {
+  const { unholdNext } = require('./server');
+  const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const m = /const TK_HOLD_ASSIGN = '([^']+)';/.exec(page);
+  assert.ok(m, 'web/index.html declares TK_HOLD_ASSIGN');
+  assignerSetting.setOn(false);
+  try {
+    const n = make('the ask');
+    const next = unholdNext(projectId, taskOf(n), () => null);
+    assert.match(next, /assign it now\.$/, 'CONTROL: this sentence is one that asks: ' + next);
+    assert.ok(next.endsWith(m[1]), 'the route ends with the page\'s TK_HOLD_ASSIGN: ' + JSON.stringify([next, m[1]]));
+  } finally {
+    assignerSetting.setOn(true);
+  }
+});

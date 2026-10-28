@@ -27,7 +27,9 @@ given it, which is the case the card came from.
 
 Rejected: building the sentence on the page from the task and the Assigner setting (two derivations drift; the
 route is the one the CLIs use). A separate flag from the route for "show the button" (the closing words are the
-route's own ask, and the browser check compares the page with the route, so a wording change goes red there).
+route's own ask; a node test in cli.unhold-owner-7407.test.js pins the page's TK_HOLD_ASSIGN to the route's real
+output, so a wording change goes red in the ordinary suite, and the page alone degrades to the whole sentence with no
+button, which is safe).
 
 ## Tests
 - docs/browser-checks/render-unholdnext-7430.js (gated; boots its own board): light 1400 and dark 390. Unholding a
