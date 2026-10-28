@@ -2275,7 +2275,11 @@ function ambiguousNote(ambiguous, mentioned, shown) {
    BIG_ROOM are typed at once, so a small room is exactly as before.
    ⚠️ The sender's answer still waits for every delivery (#4765: it is built from each member's outcome), so one
    provider's spread is capped at WAKE_SPREAD_MAX_MS: past that the gaps shrink, so a 100-member room still answers
-   within about 10 s. Each number is one constant. */
+   within about 10 s. Each number is one constant.
+   Accepted (review round 2): a member the hold will only keep (busy) still takes a free slot and waits its turn, so a
+   room of busy members is slower than it needs to be, never burstier; and the person's own post shows in the room only
+   once the answer comes, so up to 10 s in the biggest rooms, during which a second Enter posts it twice, as before
+   (a person's repeat is never folded, see the twin check). */
 const WAKE_GAP_MS = [150, 350];
 const WAKE_SPREAD_MAX_MS = 10000;
 let spreadSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -3321,7 +3325,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        about 6 s after Enter before the post appeared (measured; the page shows it only once this returns).
        Safe to overlap: each member is its own pane, chat.deliverAsync already queues deliveries to one pane,
        and what deliverOne shares (outcomes, spilled, the held posts) is keyed by the member's name. Each
-       deliverOne's synchronous part still runs in turn, in the members' order.
+       deliverOne's synchronous part still runs in turn, in the members' order (except the delayed ones, #7406 below).
        Every delivery is ALLOWED TO FINISH before the answer, so the person is never told "could not post"
        while members are still being typed at. A member whose typing threw is that member's unconfirmed outcome
        (#4926, typingBroke above), so the post is recorded and the sender is never told it failed when it landed.
@@ -3357,7 +3361,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       for (let i = 0; i < recipients.length; i++) {
         if (i > 0) await new Promise((resolve) => setImmediate(resolve));
         const name = recipients[i];
-        const wait = inOrder(name, spread.get(name) || 0);
+        // Round 2: only a woken member is ordered or delayed; a quiet or off one is never typed, so it never waits.
+        const wait = spread.has(name) ? inOrder(name, spread.get(name) || 0) : 0;
         /* Review 3: a member switched off in this project while it waited is not typed, as one off at the start. */
         const run = wait > 0
           ? spreadSleep(wait).then(() => {
