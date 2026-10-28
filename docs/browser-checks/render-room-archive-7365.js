@@ -159,8 +159,8 @@ function findUnder(dir, name) {
     // It sits inside the room's section (no spare body row); position:fixed must still make it cover the whole page.
     // The page's area, not innerWidth: with classic scrollbars (CI, the Windows app) the tab layout keeps a 15px
     // gutter on <html> that no fixed layer covers, and #4506 dims it through the canvas (render-dialog-gutter-4506).
-    const cover = await p.evaluate(() => { const r = document.getElementById('pjarch-modal').getBoundingClientRect(); const root = document.documentElement; return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), cw: root.clientWidth, ch: root.clientHeight }; });
-    chk(cover.x === 0 && cover.y === 0 && cover.w === cover.cw && cover.h === cover.ch, 'the confirm\'s backdrop covers the whole page, though it sits inside the room\'s section', JSON.stringify(cover));
+    const cover = await p.evaluate(() => { const el = document.getElementById('pjarch-modal'); const r = el.getBoundingClientRect(); const root = document.documentElement; return { pos: getComputedStyle(el).position, x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), cw: root.clientWidth, ch: root.clientHeight, iw: innerWidth }; });
+    chk(cover.pos === 'fixed' && cover.x === 0 && cover.y === 0 && cover.w === cover.cw && cover.h === cover.ch, 'the confirm\'s backdrop covers the whole page, though it sits inside the room\'s section', JSON.stringify(cover));
     const onTop = await p.evaluate(() => { const root = document.documentElement; return [[root.clientWidth / 2, root.clientHeight / 2], [4, 4], [root.clientWidth - 4, root.clientHeight - 4]].map(([x, y]) => { const e = document.elementFromPoint(x, y); return !!(e && e.closest('#pjarch-modal')); }); });
     chk(onTop.every(Boolean), 'the confirm paints above everything: the middle and two corners of the page are the confirm', JSON.stringify(onTop));
     await p.screenshot({ path: path.join(OUT, 'confirm.png') });
