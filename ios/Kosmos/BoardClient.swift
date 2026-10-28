@@ -542,6 +542,7 @@ final class BoardClient: ObservableObject {
         tasksTab = nil
         projectsUnread = nil
         fedShown = false
+        swarmsOn = false   // kosmos#7488: the last computer's, until this one's status says
         readyTasks = nil
         tasksFailed = false
         tasksList = nil

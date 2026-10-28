@@ -79,6 +79,7 @@ struct NewAgentView: View {
         // A team run is not cancelled: the person asked for the whole team, so it finishes off screen (the lock closes
         // this sheet), and its project tells go through the app. Only the timers stop.
         .onDisappear { helloTimer?.cancel(); leadTimer?.cancel(); gone = true }
+        .onAppear { gone = false }
         .task {
             #if DEBUG
             if showSample() { return }
@@ -817,6 +818,7 @@ struct NewAgentView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 50)
         }
+        .accessibilityLabel(busy ? NewAgent.Words.making : title)   // the hidden title is not what is happening
         .buttonStyle(.borderedProminent)
         .disabled(!enabled)
         .padding(.horizontal, 16)
