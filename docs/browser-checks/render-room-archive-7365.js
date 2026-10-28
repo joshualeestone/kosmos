@@ -149,10 +149,11 @@ function findUnder(dir, name) {
     await p.click('#pj-arch-ask');
     await p.waitForSelector('#pjarch-modal:not([hidden])', { timeout: 5000 });
     const ask = await p.evaluate(() => ({ title: document.getElementById('pjarch-title').textContent.replace(/\s+/g, ' ').trim(),
+      pick: document.querySelector('.pjarch-pick').textContent.replace(/\s+/g, ' ').trim(),
       small: document.getElementById('pjarch-small').textContent.trim(), focus: document.activeElement && document.activeElement.id }));
-    chk(/^Archive messages older than this week/.test(ask.title) && /this month/.test(ask.title) && /everything older than a day/.test(ask.title)
-      && /^They leave this room and what agents read here\. You can still search and open them, and undo this from the archive\.$/.test(ask.small),
-      'the confirm reads "Archive messages older than [this week]?" with the three choices and what it does', JSON.stringify(ask));
+    chk(ask.title === 'Archive older messages?' && /^Older than this week/.test(ask.pick) && /this month/.test(ask.pick) && /everything older than a day/.test(ask.pick)
+      && /^They leave this room and what agents read here\. You can still search and open them, and put them back from the archive\.$/.test(ask.small),
+      'the confirm asks "Archive older messages?", with "Older than [this week]" and its three choices under it, and says what it does', JSON.stringify(ask));
     chk(ask.focus === 'pjarch-when', 'the confirm opens with the choice focused', String(ask.focus));
     // It sits inside the room's section (no spare body row); position:fixed must still make it cover the whole window.
     const cover = await p.evaluate(() => { const r = document.getElementById('pjarch-modal').getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight }; });
@@ -186,7 +187,7 @@ function findUnder(dir, name) {
     await p.click('#pjarch-go');
     await p.waitForSelector('#pjarch-modal', { state: 'hidden', timeout: 5000 });
     // The page closes the confirm, then reads the count, then writes the toast (60 ms after its first): wait for the words.
-    const receipt = await toastSays(/Messages before [^.]+ are archived\. Undo is in the archive\./);
+    const receipt = await toastSays(/Messages before [^.]+ are archived\. You can put them back from the archive\./);
     chk(!!receipt, 'Archive answers with a receipt naming the time the server used', String(receipt && receipt[0]));
     const marked = await (await fetch(base + '/api/project/' + pid + '/room?n=1&archive=0')).json();
     const usedMs = marked.archiveMarker ? Date.parse(marked.archiveMarker.before) : NaN;
@@ -218,6 +219,10 @@ function findUnder(dir, name) {
     await p.click('#pj-arch-open');
     await p.waitForSelector('#pj-arch-head:not([hidden])', { timeout: 5000 });
     chk(await p.evaluate(() => document.activeElement && document.activeElement.id) === 'pj-arch-back', 'opening the archive moves focus to its header (Back to the room)');
+    // Mona Lisa: while the archive is open the composer is one line, with the way back.
+    const reading = await p.evaluate(() => { const n = document.getElementById('pj-arch-note'); const post = document.getElementById('pj-post');
+      return { note: !!n && !n.hidden && n.getClientRects().length > 0 ? n.textContent.replace(/\s+/g, ' ').trim() : null, postShown: !!post && post.getClientRects().length > 0 }; });
+    chk(reading.note === 'You are reading the archive. Back to the room to write.' && !reading.postShown, 'while the archive is open the composer reads "You are reading the archive. Back to the room to write." and the message box is set aside', JSON.stringify(reading));
     const arch = await p.evaluate(() => {
       const box = document.getElementById('pj-room');
       const msgs = [...box.querySelectorAll('.msg')];
@@ -225,7 +230,7 @@ function findUnder(dir, name) {
         n: msgs.length, last: msgs.length ? msgs[msgs.length - 1].textContent : '', on: box.classList.contains('pj-arch-on'),
         start: !!box.querySelector('.pj-arch-edge') && /start of the room/.test(box.textContent), live: /live post/.test(box.textContent) };
     });
-    chk(/^Archive 260 messages Undo Back to the room$/.test(arch.head) && arch.undo, 'the archive header reads Archive, 260 messages, Undo, Back to the room', arch.head);
+    chk(/^Archive 260 messages Put them back Back to the room$/.test(arch.head) && arch.undo, 'the archive header reads Archive, 260 messages, Put them back, Back to the room', arch.head);
     chk(arch.on && arch.n === 200 && /archived post 259/.test(arch.last) && !arch.live, 'the archive shows its newest page, the newest archived post at the bottom, and no live post', JSON.stringify({ n: arch.n, live: arch.live }));
     chk(!arch.start, 'CONTROL: on the first archive page the start-of-room line is not shown yet');
     chk(await p.locator('#pj-room .msg-archived').count() === 0, 'inside the archive view no row carries the Archived tag (the header says it)');
@@ -261,12 +266,14 @@ function findUnder(dir, name) {
     chk(earlier.n === ARCHIVED && earlier.start && earlier.first === 'archived post 0', 'scrolling to the top of the archive reads the earlier page and reaches "This is the start of the room."', JSON.stringify(earlier));
 
     // Back to the room.
-    await p.click('#pj-arch-back');
+    // The note's own "Back to the room" is the way back (the header's is checked on the next open).
+    await p.click('#pj-arch-note-back');
     await p.waitForTimeout(300);
     const back = await p.evaluate(() => ({ head: document.getElementById('pj-arch-head').hidden, on: document.getElementById('pj-room').classList.contains('pj-arch-on'),
       live: /live post 229/.test(document.getElementById('pj-room').textContent), arch: /archived post/.test(document.getElementById('pj-room').textContent) }));
     chk(back.head && !back.on && back.live && !back.arch, 'Back to the room hides the archive header and paints the live room', JSON.stringify(back));
     chk(await p.evaluate(() => /posted while the archive was open/.test(document.getElementById('pj-room').textContent)), 'Back shows the post that arrived while the archive was open');
+    chk(await p.evaluate(() => { const n = document.getElementById('pj-arch-note'); const post = document.getElementById('pj-post'); return n.hidden && post.getClientRects().length > 0; }), 'after Back the message box is back and the note is gone');
     chk(await p.evaluate(() => document.activeElement && document.activeElement.id) === 'pj-post', 'Back moves focus to the room\'s message box');
     const placeAfter = await place();
     chk(!!placeBefore && !!placeAfter && placeBefore.text === placeAfter.text && Math.abs(placeBefore.dy - placeAfter.dy) <= 2, 'Back puts the reader back where they were (the same message at the same place at the top of the view)', JSON.stringify({ placeBefore, placeAfter }));
@@ -296,13 +303,13 @@ function findUnder(dir, name) {
     chk(Number(marker.archivedCount) === 0 && !marker.archiveMarker, 'Undo clears the marker: the live read says nothing is archived', JSON.stringify({ archivedCount: marker.archivedCount, marker: marker.archiveMarker }));
     const undone = await p.evaluate(() => ({ head: document.getElementById('pj-arch-head').hidden, count: PJ_WIN.archivedCount }));
     chk(undone.head && undone.count === 0, 'after Undo the page leaves the archive and counts nothing archived', JSON.stringify(undone));
-    const undoSaid = await p.evaluate(() => ({ toast: /Undone\. Messages you archived are back in the room/.test(document.body.textContent), focus: document.activeElement && document.activeElement.id }));
+    const undoSaid = await p.evaluate(() => ({ toast: /Put back\. Messages you archived are back in the room/.test(document.body.textContent), focus: document.activeElement && document.activeElement.id }));
     chk(undoSaid.toast && undoSaid.focus === 'pj-post', 'Undo says what it did and moves focus to the message box', JSON.stringify(undoSaid));
     await scrollToStart();
     await p.waitForTimeout(300);
     chk(await p.locator('#pj-arch-head').isHidden() && await p.locator('#pj-arch-open').count() === 0, 'after Undo the start of the room has no boundary row (and the archive is not on screen)');
     // "everything older than a day": the receipt names a time 24 hours back, the time the server keeps live from.
-    const daySaid = await archiveWith('day', /Messages before [^.]+ are archived\. Undo is in the archive\./);
+    const daySaid = await archiveWith('day', /Messages before [^.]+ are archived\. You can put them back from the archive\./);
     const dayM = await (await fetch(base + '/api/project/' + pid + '/room?n=1&archive=0')).json();
     const dayMs = dayM.archiveMarker ? Date.parse(dayM.archiveMarker.before) : NaN;
     const live = Number(dayM.olderCount) + dayM.rows.length;

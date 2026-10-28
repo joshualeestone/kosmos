@@ -51,7 +51,7 @@ test('#7365 3b: the receipt names the time the server answered with, and an unre
   const { pjArchReceipt } = page();
   const used = new Date(2026, 9, 26, 16, 10).toISOString();
   const line = pjArchReceipt(used);
-  assert.match(line, /^Messages before .+, .+ are archived\. Undo is in the archive\.$/);
+  assert.match(line, /^Messages before .+, .+ are archived\. You can put them back from the archive\.$/);
   const d = new Date(used);
   assert.ok(line.includes(d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })), line);
   assert.equal(pjArchReceipt(undefined), 'Older messages are archived.');
@@ -142,7 +142,7 @@ function archPage({ reads }) {
     pjWinRead: (pid, n, cursor, archive) => { const r = reads.shift(); return typeof r === 'function' ? r({ pid, n, cursor, archive }) : r; },
   });
   vm.runInContext([liftConst(SCRIPT, 'PJ_WIN'), liftConst(SCRIPT, 'PJ_ARCH'),
-    liftAll(SCRIPT, ['pjArchReset', 'pjArchShowing', 'pjArchState', 'pjArchHead', 'paintArch', 'pjArchOpen', 'pjArchEarlier', 'pjArchClose', 'pjWinOlderLine', 'pjWinNoteReactions'])].join('\n')
+    liftAll(SCRIPT, ['pjArchReset', 'pjArchComposer', 'pjArchShowing', 'pjArchState', 'pjArchHead', 'paintArch', 'pjArchOpen', 'pjArchEarlier', 'pjArchClose', 'pjWinOlderLine', 'pjWinNoteReactions'])].join('\n')
     + '\nthis.PJ_WIN = PJ_WIN; this.PJ_ARCH = PJ_ARCH; this.pjArchOpen = pjArchOpen; this.pjArchEarlier = pjArchEarlier; this.pjArchClose = pjArchClose; this.pjWinNoteReactions = pjWinNoteReactions;', ctx);
   el('pj-room').__lastBody = { rows: [{ text: 'live' }] };
   return { ctx, el, doc, said, toasts, painted, restored };
@@ -214,13 +214,13 @@ test('#7365 3b review 3: what Archive says depends on the count before and after
   const ctx = vm.createContext({ Date, Number });
   vm.runInContext(liftAll(SCRIPT, ['pjRoomArchWhen', 'pjArchReceipt', 'pjArchOutcome']) + '\nthis.f = pjArchOutcome;', ctx);
   const t = new Date(2026, 9, 26, 16, 10).toISOString();
-  assert.match(ctx.f(0, 260, t), /^Messages before .+, .+ are archived\. Undo is in the archive\.$/);
+  assert.match(ctx.f(0, 260, t), /^Messages before .+, .+ are archived\. You can put them back from the archive\.$/);
   assert.match(ctx.f(260, 10, t), /^Messages before .+ are archived; newer ones you had archived are back in the room\.$/);
   assert.match(ctx.f(260, 260, t), /^Nothing more in this room was old enough to archive \(before .+\)\.$/);
   assert.equal(ctx.f(0, 0, undefined), 'Nothing more in this room was old enough to archive.');
-  assert.equal(ctx.f(0, 5, undefined), 'Older messages are archived. Undo is in the archive.');
-  assert.equal(ctx.f(NaN, 5, undefined), 'The archive is set. Undo is in the archive.');
-  assert.match(ctx.f(NaN, NaN, t), /^Messages before .+ are archived\. Undo is in the archive\.$/);
+  assert.equal(ctx.f(0, 5, undefined), 'Older messages are archived. You can put them back from the archive.');
+  assert.equal(ctx.f(NaN, 5, undefined), 'The archive is set. You can put them back from the archive.');
+  assert.match(ctx.f(NaN, NaN, t), /^Messages before .+ are archived\. You can put them back from the archive\.$/);
   for (const x of [ctx.f(0, 0, undefined), ctx.f(NaN, 3, ''), ctx.f(1, 2, 'bad')]) assert.doesNotMatch(x, /  |\( /, 'no hole where a time would be: ' + x);
 });
 
@@ -228,7 +228,7 @@ test('#7365 3b review 4: the Undo sentence states the server\'s own archive rule
   const roomarchive = require('./engine/roomarchive');
   const days = roomarchive.ARCHIVE_AGE_MS / (24 * 60 * 60 * 1000);
   const keep = roomarchive.ARCHIVE_KEEP.toLocaleString('en-US');
-  const said = SCRIPT.match(/msgToast\('Undone\. Messages you archived are back in the room; any older than (\d+) days and past the newest ([\d,]+) stay archived\.'\)/);
+  const said = SCRIPT.match(/msgToast\('Put back\. Messages you archived are back in the room; any older than (\d+) days and past the newest ([\d,]+) stay archived\.'\)/);
   assert.ok(said, 'the Undo sentence was not found');
   assert.equal(Number(said[1]), days);
   assert.equal(said[2], keep);
@@ -281,7 +281,7 @@ test('#7365 3b review 5: opening another project closes the confirm without movi
   answer(marked);
   await press;
   assert.equal(h.toasts.length, 1);
-  assert.match(h.toasts[0], /^In Alpha: Messages before .+ are archived\. Undo is in the archive\.$/);
+  assert.match(h.toasts[0], /^In Alpha: Messages before .+ are archived\. You can put them back from the archive\.$/);
   assert.deepEqual(h.loads, [], 'the room on screen is another one, so nothing reloads');
 });
 

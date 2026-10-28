@@ -7321,8 +7321,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* .linkish.pj-arch-ctl, not .pj-arch-ctl: the later .linkish rule (min-height 24px) has the same specificity and won,
    so the first shots measured these at 24px on a phone. */
 @media (hover: none) { .linkish.pj-arch-ctl { min-height: 44px; } }
-.pjarch-pick { white-space: nowrap; }
+.pjarch-pick { display: flex; flex-wrap: wrap; gap: .5em; align-items: center; }
 #pjarch-when { font: inherit; }
+.pj-arch-note { margin: 0; padding: 10px 4px; font-size: .875rem; color: var(--k-ink-2); text-align: center; }
+/* Everything else in the composer is set aside while the archive is open (it stays sticky, and the phone fit measures it). */
+.composer.pj-arch-reading > :not(#pj-arch-note) { display: none !important; }
 .msg-archived { display: inline-block; margin-right: .5em; padding: 0 .4em; border: 1px solid var(--k-rule); border-radius: 4px; font-size: .7rem; }
 /* #5406 part 2 slice C: a question's choices, inside its bubble (Josh #3419: no box, no banner). The old answer buttons'
    tokens (AA on both themes); labels wrap, never nowrap (an agent's words are unbounded, and a nowrap button stretches
@@ -17478,16 +17481,17 @@ window.kosmosMeasureScrollbarWidth();
       <!-- kosmos#7365: the room's earlier pages load as the reader scrolls back, as a Direct conversation's do (#6086):
            this line floats over the top while one loads, and a failed load takes a row of its own with Try again. -->
       <!-- kosmos#7365 slice 3: the room's archive opens in this same panel, under this header (Mona's design). -->
-      <div class="pj-arch-head" id="pj-arch-head" hidden><b>Archive</b> <span id="pj-arch-count"></span> <button type="button" class="linkish pj-arch-ctl" id="pj-arch-undo" hidden>Undo</button> <button type="button" class="linkish pj-arch-ctl" id="pj-arch-back">Back to the room</button></div>
+      <div class="pj-arch-head" id="pj-arch-head" hidden><b>Archive</b> <span id="pj-arch-count"></span> <button type="button" class="linkish pj-arch-ctl" id="pj-arch-undo" hidden>Put them back</button> <button type="button" class="linkish pj-arch-ctl" id="pj-arch-back">Back to the room</button></div>
       <!-- Inside the room's section, not the body: it is opened only from here, and the consolidated grid has no spare
            body row (web.consolidated-980.test.js). It is position:fixed, so it still covers the window. -->
       <!-- kosmos#7365 slice 3b: "Archive older messages" (Mona's design, card comment 6449440652). The wording promises no
            more than the server does: it keeps the last day live, so the receipt states the time it actually used. -->
       <div class="rm-back" id="pjarch-modal" hidden>
         <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="pjarch-title" aria-describedby="pjarch-small">
-          <h2 class="rm-title" id="pjarch-title">Archive messages older than <span class="pjarch-pick"><select id="pjarch-when" aria-label="Archive messages older than"><option value="week">this week</option><option value="month">this month</option><option value="day">everything older than a day</option></select>?</span></h2>
+          <h2 class="rm-title" id="pjarch-title">Archive older messages?</h2>
+          <p class="rm-small pjarch-pick"><label for="pjarch-when">Older than</label> <select id="pjarch-when"><option value="week">this week</option><option value="month">this month</option><option value="day">everything older than a day</option></select></p>
           <p class="rm-small" id="pjarch-cut"></p>
-          <p class="rm-small" id="pjarch-small">They leave this room and what agents read here. You can still search and open them, and undo this from the archive.</p>
+          <p class="rm-small" id="pjarch-small">They leave this room and what agents read here. You can still search and open them, and put them back from the archive.</p>
           <div class="rm-acts">
             <button class="btn" id="pjarch-keep" type="button">Keep them here</button>
             <button class="btn uprime" id="pjarch-go" type="button">Archive</button>
@@ -17520,6 +17524,8 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #3745: "Replying to <name>: <first words>" with an x, while a reply is being written. -->
       <div class="pj-replying" id="pj-reply" hidden></div>
       <div class="composer">
+        <!-- kosmos#7365 slice 3b (Mona Lisa): while the archive is open, this one line stands in for the composer. -->
+        <p class="pj-arch-note" id="pj-arch-note" hidden>You are reading the archive. <button type="button" class="linkish pj-arch-ctl" id="pj-arch-note-back">Back to the room</button> to write.</p>
         <!-- #5800: while the loop guard holds the room, why, who can end it, and Reopen. INSIDE the sticky composer, not
              between the thread and it: the composer sticks to the window's bottom, so a strip placed above it in the
              flow sat UNDER it whenever the page was not scrolled to its end, which is how a held room opens (the
@@ -76040,8 +76046,18 @@ function pjArchReset() {
   if (typeof document === 'undefined') return;
   const head = document.getElementById('pj-arch-head'); if (head) head.hidden = true;
   const box = document.getElementById('pj-room'); if (box) box.classList.remove('pj-arch-on');
+  pjArchComposer(false);
   pjWinOlderLine();
   if (typeof pjFitRoomPhone === 'function') pjFitRoomPhone();
+}
+/* The room's composer while the archive is open: one line, "You are reading the archive. Back to the room to write." */
+function pjArchComposer(reading) {
+  if (typeof document === 'undefined') return;
+  const note = document.getElementById('pj-arch-note');
+  const comp = note && note.closest('.composer');
+  if (!note || !comp) return;
+  note.hidden = !reading;
+  comp.classList.toggle('pj-arch-reading', !!reading);
 }
 function pjArchShowing() { return PJ_ARCH.on && PJ_ARCH.pid === PJ_CURRENT; }
 /* The archive header's count and Undo, from the archive read on screen. When the poll sees the archive change (an archive
@@ -76059,6 +76075,7 @@ function paintArch() {
   pjArchHead();
   document.getElementById('pj-arch-head').hidden = false;
   box.classList.add('pj-arch-on');
+  pjArchComposer(true);
   const start = PJ_ARCH.olderCount === 0 ? '<div class="pj-arch-edge">This is the start of the room.</div>' : '';
   PJ_ARCH.posts = new Map(PJ_ARCH.rows.filter((r) => r && r.kind === 'post' && typeof r.id === 'string').map((r) => [r.id, r]));
   const body = PJ_ARCH.rows.map((m) => pjRoomRow(m, p, false)).join('');
@@ -76161,7 +76178,7 @@ function pjArchClose(quiet, hadFocusIn, forSearch, cutBefore) {
   // Focus was in the header (or fell to the page from it, as a clicked button does in WebKit): it goes to the message box.
   const a = document.activeElement;
   const hadFocus = hadFocusIn !== undefined ? hadFocusIn
-    : !a || a === document.body || !!(a.closest && a.closest('#pj-arch-head'));
+    : !a || a === document.body || !!(a.closest && (a.closest('#pj-arch-head') || a.closest('#pj-arch-note')));
   pjArchReset();
   const box = document.getElementById('pj-room');
   /* Posts that arrived while the archive was open are about to be on screen (the first-paint path does not mark them,
@@ -76179,6 +76196,7 @@ function pjArchClose(quiet, hadFocusIn, forSearch, cutBefore) {
   if (!quiet) pjRoomAnnounce('Back in the room.');
 }
 document.getElementById('pj-arch-back').addEventListener('click', () => pjArchClose());
+document.getElementById('pj-arch-note-back').addEventListener('click', () => pjArchClose());
 document.getElementById('pj-arch-undo').addEventListener('click', async (e) => {
   const pid = PJ_ARCH.pid;
   if (!pid) return;
@@ -76194,7 +76212,7 @@ document.getElementById('pj-arch-undo').addEventListener('click', async (e) => {
   if (!ok) { msgToast('We could not undo the archive just now; nothing changed.'); return; }
   // msgToast is a polite live region, so it is heard once; no second announcement (review 4). The numbers are the
   // server's ARCHIVE_AGE_MS and ARCHIVE_KEEP (engine/roomarchive.js); web.room-archive-7365.test.js ties them.
-  msgToast('Undone. Messages you archived are back in the room; any older than 30 days and past the newest 1,000 stay archived.');
+  msgToast('Put back. Messages you archived are back in the room; any older than 30 days and past the newest 1,000 stay archived.');
   /* The view it was pressed in closes. One closed and opened again meanwhile is not closed under the reader (review 4),
      but it was read before Undo landed, so it reads again (review 5: it kept the old count and a live Undo). */
   const reopened = gen !== PJ_ARCH.gen && pjArchShowing() && PJ_ARCH.pid === pid;
@@ -76227,7 +76245,7 @@ function pjRoomArchWhen(before) {
 function pjArchReceipt(before) {
   const when = pjRoomArchWhen(before);
   if (!when) return 'Older messages are archived.';
-  return 'Messages before ' + when + ' are archived. Undo is in the archive.';
+  return 'Messages before ' + when + ' are archived. You can put them back from the archive.';
 }
 let PJ_ARCH_ASK_CLOSE = null;
 /* What Archive did, from the room's archived count read before and after it (review 3: the total alone cannot tell
@@ -76236,8 +76254,8 @@ let PJ_ARCH_ASK_CLOSE = null;
 function pjArchOutcome(was, now, before) {
   const when = pjRoomArchWhen(before);
   const since = when ? 'Messages before ' + when : 'Older messages';
-  if (!Number.isFinite(was) || !Number.isFinite(now)) return when ? pjArchReceipt(before) : 'The archive is set. Undo is in the archive.';
-  if (now > was) return since + ' are archived. Undo is in the archive.';
+  if (!Number.isFinite(was) || !Number.isFinite(now)) return when ? pjArchReceipt(before) : 'The archive is set. You can put them back from the archive.';
+  if (now > was) return since + ' are archived. You can put them back from the archive.';
   if (now < was && now === 0) return 'Nothing in this room is ' + (when ? 'older than ' + when : 'old enough') + '; the messages you had archived are back in the room.';
   if (now < was) return since + ' are archived; newer ones you had archived are back in the room.';
   return 'Nothing more in this room was old enough to archive' + (when ? ' (before ' + when + ').' : '.');
