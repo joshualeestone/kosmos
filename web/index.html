@@ -25804,6 +25804,11 @@ const HEARD_GAP_MS = 2 * 60 * 1000;   // a throttled hidden tab still asks about
 /* Whether "We last heard from it at ..." is true: the page heard from the computer, and its first unanswered poll went
    out within HEARD_GAP_MS of that, so nothing was missed in between. Otherwise the sentence is left out (Mona Lisa:
    with no time known, drop it rather than guess). */
+/* A good answer: the page heard from the computer now, and any first miss before it is over. */
+function statusHeard(now) {
+  LAST_STATUS_OK_AT = now;
+  STATUS_FIRST_MISS_AT = null;
+}
 function lastHeardTrusted() {
   if (typeof LAST_STATUS_OK_AT !== 'number') return false;
   if (typeof STATUS_FIRST_MISS_AT !== 'number') return true;
@@ -26699,8 +26704,8 @@ async function tick() {
     // the shared ager. The ~1s timer keeps aging it between polls, so the stamp
     // reflects how long since we last HEARD from the board, not the age of a
     // just-built response (`data.checkedAt`, which was structurally always ~0).
-    LAST_STATUS_OK_AT = Date.now();
-    if (typeof STATUS_FIRST_MISS_AT !== 'undefined') STATUS_FIRST_MISS_AT = null;   // tests lift tick() alone
+    // kosmos#7416 review 5: one helper for "heard from it now", so the first miss is cleared with every good answer.
+    if (typeof statusHeard === 'function') statusHeard(Date.now()); else LAST_STATUS_OK_AT = Date.now();   // tests lift tick() alone
     STATUS_POLL_FAILED = false;
     ageCheckedStamp();
 

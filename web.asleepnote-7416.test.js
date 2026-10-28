@@ -209,3 +209,19 @@ test('#7416 review 4: a refusal is an answer, so it clears a first miss', async 
   w.clock.now = at2(27, 23, 0, 5); await w.fail();
   assert.equal(w.ctx.lastHeardTrusted(), false, 'said "at 7:59 PM" for a computer answering until 11 PM');
 });
+
+test('#7416 review 5: a good answer clears the first miss (statusHeard), and tick() records a good answer through it', () => {
+  const ctx = vm.createContext({});
+  vm.runInContext('var LAST_STATUS_OK_AT = null, STATUS_FIRST_MISS_AT = null;\n' + [liftConst(SCRIPT, 'HEARD_GAP_MS'), liftAll(SCRIPT, ['statusHeard', 'lastHeardTrusted'])].join('\n'), ctx);
+  // A blip at 8 PM, then good answers: the blip must not survive them.
+  ctx.STATUS_FIRST_MISS_AT = at2(27, 20, 0);
+  ctx.statusHeard(at2(27, 21, 0));
+  assert.equal(ctx.LAST_STATUS_OK_AT, at2(27, 21, 0));
+  assert.equal(ctx.STATUS_FIRST_MISS_AT, null, 'a good answer left the old first miss standing');
+  // Then the tab sleeps; at 8 AM its first poll fails: no time is said (the 9 PM answer is not the computer's last).
+  ctx.STATUS_FIRST_MISS_AT = at2(28, 8, 0);
+  assert.equal(ctx.lastHeardTrusted(), false);
+  // tick()'s success path goes through statusHeard (the 200 path draws the whole page, so it is pinned in the source).
+  const tickSrc = liftAll(SCRIPT, ['tick']);
+  assert.match(tickSrc, /statusHeard\(Date\.now\(\)\)/, 'tick() no longer records a good answer through statusHeard');
+});
