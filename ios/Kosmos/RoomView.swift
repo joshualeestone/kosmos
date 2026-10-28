@@ -110,6 +110,7 @@ struct RoomView: View {
                     .padding(.horizontal, 16).padding(.vertical, 8)
             }
             thread
+                .messagesVisibleArea()   // kosmos#7419 review 4: the lit message's hole stays in the posts' own area
                 .background(GeometryReader { g in Color.clear.onAppear { threadHeight = g.size.height }
                     .onChange(of: g.size.height) { threadHeight = $0 } })
             // The board has one line here and the newest write wins: a jump to a hidden post is the newest when it

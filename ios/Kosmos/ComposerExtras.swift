@@ -441,15 +441,32 @@ extension EnvironmentValues {
 // kosmos#7419 build 11 (Mona Lisa's design: "the message stays lit above a dim"): the bubble whose sheet is up says
 // where it is, on its own 18 pt shape and before its width frame (review 1: outside it, the frame's empty side counted).
 // The host draws the dim with that bubble cut out, so it stays at full brightness. Nothing is drawn on the bubble.
+// Review 4: with the area messages are seen in (below the bar, above the composer's strip), so the hole lights only the
+// part of the bubble that shows, never a patch of the composer a half-hidden bubble sits under.
+struct PressedBubble: Equatable {
+    var bubble: Anchor<CGRect>?
+    var visible: Anchor<CGRect>?
+    static func == (a: PressedBubble, b: PressedBubble) -> Bool { (a.bubble == nil) == (b.bubble == nil) && (a.visible == nil) == (b.visible == nil) }
+}
 struct PressedBubbleKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>? = nil
-    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = value ?? nextValue() }
+    static var defaultValue = PressedBubble()
+    static func reduce(value: inout PressedBubble, nextValue: () -> PressedBubble) {
+        let n = nextValue()
+        value.bubble = value.bubble ?? n.bubble
+        value.visible = value.visible ?? n.visible
+    }
+}
+extension View {
+    /// The area a chat's or room's messages are seen in, for the lit message's cut-out (kosmos#7419).
+    func messagesVisibleArea() -> some View {
+        anchorPreference(key: PressedBubbleKey.self, value: .bounds) { PressedBubble(bubble: nil, visible: $0) }
+    }
 }
 struct PressedBubbleMark: View {
     @Environment(\.messagePressed) private var pressed
     var body: some View {
         Color.clear.allowsHitTesting(false).accessibilityHidden(true)
-            .anchorPreference(key: PressedBubbleKey.self, value: .bounds) { pressed ? $0 : nil }
+            .anchorPreference(key: PressedBubbleKey.self, value: .bounds) { PressedBubble(bubble: pressed ? $0 : nil, visible: nil) }
     }
 }
 
@@ -457,13 +474,16 @@ struct PressedBubbleMark: View {
 // pressed bubble. A tap on it closes the sheet, as a tap on the system's dim does. At full height (More) the system's dim
 // is back, so this one goes.
 private struct LitDim: View {
-    let anchor: Anchor<CGRect>?
+    let anchor: PressedBubble
     let close: () -> Void
     var body: some View {
         // Review 3: the bubble is resolved in THIS reader, the one the dim is drawn in (it reaches under the bars), so the
         // cut-out sits on the bubble; resolved in another reader it was off by the top inset (about 100 pt).
         GeometryReader { g in
-            let bubble = anchor.map { g[$0] }
+            let seen = anchor.visible.map { g[$0] }
+            let whole = anchor.bubble.map { g[$0] }
+            let shown = whole.map { b in seen.map { b.intersection($0) } ?? b }
+            let bubble = shown.flatMap { $0.isNull || $0.isEmpty ? nil : $0 }
             let shape = Path { p in
                 p.addRect(CGRect(origin: .zero, size: g.size).insetBy(dx: -400, dy: -400))
                 if let bubble { p.addRoundedRect(in: bubble, cornerSize: CGSize(width: 18, height: 18), style: .continuous) }
