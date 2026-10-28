@@ -15,7 +15,9 @@ function page() {
   const start = PAGE.indexOf('let RLINE = ');
   const end = PAGE.indexOf('\n}\n', PAGE.indexOf('function paintRestartLine()')) + 2;
   assert.ok(start > 0 && end > start, 'the restart line block is not in the page');
-  const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  // The page's own esc, as shipped.
+  const escAt = PAGE.indexOf('function esc(s) {');
+  const esc = new Function(PAGE.slice(escAt, PAGE.indexOf('\n}\n', escAt) + 2) + '\nreturn esc;')();
   // The page's own asSentence (with no cloudWords in this sandbox it uses the words as given).
   const at = PAGE.indexOf('function asSentence(s) {');
   const asSentence = new Function(PAGE.slice(at, PAGE.indexOf('\n}\n', at) + 2) + '\nreturn asSentence;')();

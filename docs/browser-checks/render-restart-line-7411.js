@@ -18,6 +18,8 @@
  *                  the line and, once the line has gone, in a note with a close button
  *   busy        -> Show who pressed while Restart all runs does nothing (the running button keeps its progress words)
  *   gone        -> a refused agent that also left the board's list is still named in the note left in the line's place
+ *   second      -> a second press keeps the first press's results, replacing only the re-restarted agent's
+ *   stale reply -> a re-check that was asking before Not now answers after it and does not bring the line back
  *   not now     -> POSTs this version and empties the slot; a refusal keeps the line and says why
  *   tones       -> neutral (--label-2) in light and dark
  *   phone       -> at 390px the line fits the screen (no sideways scroll) and the list opens
@@ -161,6 +163,42 @@ const text = (pg, sel) => pg.evaluate((s) => { const el = document.querySelector
     say(gone === 'Ada did not restart: Kosmos could not find its window.', 'gone: a refused agent that left the line is still named, with the reason', JSON.stringify(gone));
     say(await pg.evaluate(() => RLINE.busy === false && RLINE.progress === null), 'gone: the line is not left busy');
     say(errs.length === 0, 'gone: no page errors', errs.join(' | '));
+    await pg.close();
+  }
+
+  {
+    // A second press keeps the first press's results: Restart all with Lee refused, then Restart Lee. Ada's "say hello"
+    // stays on screen, and Lee's refusal is replaced by Lee's own result.
+    const state = { line: JSON.parse(JSON.stringify({ ...LINE, agents: [AGENTS[0], AGENTS[2]] })), refuse: ['lee'], notNow: 200 };
+    const { pg, errs } = await open(b, { width: 1400, height: 800 }, state);
+    await pg.click('#rline-slot [data-rl-all]');
+    await pg.waitForFunction(() => !RLINE.busy && /Say hello to Ada/.test((document.querySelector('#rline-slot .rlwoke') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+    state.refuse = [];
+    await pg.click('#rline-slot [data-rl-all]');   // now "Restart Lee"
+    await pg.waitForFunction(() => /Lee/.test(((document.querySelector('#rline-slot .rldone') || {}).textContent || '').replace('did not restart', '')), null, { timeout: 8000 }).catch(() => {});
+    const kept = await text(pg, '#rline-slot .rldone .utxt b');
+    say(kept === 'Say hello to Ada and Lee to wake them.', 'second press: the first press\'s results stay; the re-restarted agent\'s old result goes', JSON.stringify(kept));
+    say(errs.length === 0, 'second press: no page errors', errs.join(' | '));
+    await pg.close();
+  }
+
+  {
+    // A re-check that was already asking when Not now was pressed answers after it: it must not bring the line back.
+    const state = { line: JSON.parse(JSON.stringify(LINE)), refuse: [], notNow: 200 };
+    const { pg, errs } = await open(b, { width: 1400, height: 800 }, state);
+    let slow = false;
+    await pg.route('**/api/restart-line', async (route) => {
+      const body = JSON.stringify({ line: JSON.parse(JSON.stringify(LINE)) });   // the answer from before the press
+      if (slow) await new Promise((r) => setTimeout(r, 800));
+      try { await route.fulfill({ status: 200, contentType: 'application/json', body }); } catch { /* closed */ }
+    });
+    slow = true;
+    await pg.evaluate(() => { restartLineCheck(); });   // asking, not awaited
+    await pg.waitForTimeout(100);
+    await pg.click('#rline-slot [data-rl-later]');
+    await pg.waitForTimeout(1300);
+    say(await pg.evaluate(() => document.getElementById('rline-slot').innerHTML.trim() === ''), 'stale reply: a re-check from before Not now does not bring the line back');
+    say(errs.length === 0, 'stale reply: no page errors', errs.join(' | '));
     await pg.close();
   }
 
