@@ -57,10 +57,10 @@ test('the no-phone-notices file stops every send, and Settings says why', async 
     const s = pn.status();
     assert.equal(s.noPush, true);
     assert.equal(s.on, false, 'shown off whatever the older file holds');
-    assert.match(s.because, /never to send phone notices/);
+    assert.match(s.because, /never sends phone notices/);
     const r = await pn.turnOn();
     assert.equal(r.ok, false);
-    assert.match(r.because, /never to send phone notices/);
+    assert.match(r.because, /never sends phone notices/);
     assert.equal(await pn.ensureDefaultOn(), null, 'the switch never turns itself on');
   } finally { fs.rmSync(mark, { force: true }); }
   pn.resetCooldownForTests();
