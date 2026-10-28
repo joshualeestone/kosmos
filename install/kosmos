@@ -3457,7 +3457,42 @@ cmd_post() {
       ;;
     '{"delivery":{"state":"unconfirmed"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
-      say "Posted, but not everyone is confirmed${because:+: $because}. Do not re-post; the room screen shows who got it."
+      # kosmos#7414: name who is not confirmed and who was not reached, and say whether that needs anything. The
+      # outcomes object alone is read (as the placed branch does), one "name":"state" pair per comma (agent names
+      # never hold a comma or a quote, create.js).
+      _outs=$(printf '%s' "$body" | sed -n 's/^{"delivery":{.*"outcomes":{\([^}]*\)}.*/\1/p') || true
+      _unsure=$(printf '%s' "$_outs" | tr ',' '\n' | sed -n 's/^"\([^"]*\)":"unconfirmed"$/\1/p' | paste -sd ',' - | sed 's/,/, /g') || true
+      _missed=$(printf '%s' "$_outs" | tr ',' '\n' | sed -n 's/^"\([^"]*\)":"could_not"$/\1/p' | paste -sd ',' - | sed 's/,/, /g') || true
+      # Only a post the room could NOT record is missing from the room; the board marks it right after its reason, so a
+      # post's own words can never be read as the mark. Any other reason (a folded retry, a paused room) is in the room.
+      # Exact adjacency (a reason holds no quote), the same prefix engine/messages.typingbroke-4926.test.js pins.
+      _unrec=$(printf '%s' "$body" | sed -n 's/^{"delivery":{"state":"unconfirmed","because":"[^"]*","unrecorded":true[,}].*/1/p') || true
+      _fail="If that fails too, its answer says why; if they are not running, ask the person to start them."
+      if [ -n "$_unrec" ]; then
+        # Round 5: a post the room could not record is in no one's room view, so ONE plain block: every member not
+        # placed for sure is named (unconfirmed, not reached, held, or not addressed), and none is said to have a copy.
+        # Not reached first, then not confirmed, then held or not addressed, so the example below names one it was meant for.
+        _notsure=$( { printf '%s' "$_outs" | tr ',' '\n' | sed -n 's/^"\([^"]*\)":"could_not"$/\1/p'
+                      printf '%s' "$_outs" | tr ',' '\n' | sed -n 's/^"\([^"]*\)":"unconfirmed"$/\1/p'
+                      printf '%s' "$_outs" | tr ',' '\n' | sed -n -e '/":"placed"$/d' -e '/":"could_not"$/d' -e '/":"unconfirmed"$/d' -e 's/^"\([^"]*\)":"[^"]*"$/\1/p'; } | paste -sd ',' - | sed 's/,/, /g') || true
+        say "Posted, but the room could not record it, so it is not in the room."
+        if [ -n "$_notsure" ]; then
+          say "Not surely reached: $_notsure. They may have no copy anywhere."
+          say "Do not re-post to fix this: a repeat sent soon after is usually skipped, and a later one is typed again to every member who has it. Message them directly instead (it goes to each alone): kosmos msg ${_notsure%%,*} \"...\""
+          say "$_fail"
+        else
+          say "Every member it was typed to has it. Do not re-post: a repeat sent soon after is usually skipped, and a later one would reach them twice."
+        fi
+      else
+        say "Posted, but not everyone is confirmed${because:+: $because}."
+        if [ -n "$_unsure" ]; then say "Kosmos may have typed it in, but could not confirm it, for: $_unsure. It may well have arrived."; fi
+        if [ -n "$_missed" ]; then
+          say "Not reached: $_missed. Kosmos could not deliver it to them, so they will see it only when they read the room (kosmos room $project)."
+          say "To reach them sooner, message them directly (it goes to each alone): kosmos msg ${_missed%%,*} \"...\""
+          say "$_fail"
+        fi
+        say "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice."
+      fi
       # #6925: an unconfirmed summary still used this member's one, so the agent is told here too.
       case "$body" in
         *'"closing":true'*|*'"closing": true'*)

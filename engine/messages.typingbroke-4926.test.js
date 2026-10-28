@@ -203,6 +203,11 @@ test('#4926 review 1 (Opus): a post the members got but the record could not tak
     try { d = await agentPost(roster, 'cannot be recorded', false); } finally { fs.appendFileSync = real; }
     assert.equal(d.state, chat.DELIVERY.UNCONFIRMED, 'answered ' + d.state);
     assert.match(String(d.because), /could not be recorded/);
+    /* kosmos#7414: install/kosmos finds the mark by its place in the board's answer (right after the reason), so a
+       reordered answer would read as "the post is in the room" for a post the room never recorded. Pinned here on the
+       real answer, as the CLI reads it (server.js sends { delivery } as is). */
+    assert.equal(d.unrecorded, true);
+    assert.match(JSON.stringify({ delivery: d }), /^\{"delivery":\{"state":"unconfirmed","because":"[^"]*","unrecorded":true[,}]/);
   });
 });
 
@@ -237,6 +242,8 @@ test('#4926 review 2 (Sonnet): a re-post of a post that reached the room but cou
       const typed = enters(calls).length;
       const again = await agentPost(roster, 'unrecorded once', false);
       assert.equal(again.duplicate, true, 'the re-post was sent again');
+      // kosmos#7414: the folded twin keeps the mark in its place too, so the CLI says the same for it.
+      assert.match(JSON.stringify({ delivery: again }), /^\{"delivery":\{"state":"unconfirmed","because":"[^"]*","unrecorded":true[,}]/);
       assert.equal(enters(calls).length, typed, 'a member was typed into twice');
     } finally { fs.appendFileSync = real; }
   });

@@ -828,7 +828,33 @@ async function verbPost(ctx, args) {
     return 0;
   }
   if (d.state === 'unconfirmed') {
-    const code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
+    /* kosmos#7414 parity with install/kosmos: name who is not confirmed and who was not reached, and whether it needs
+       anything. Only a post the room could not record (`unrecorded`) is missing from the room. */
+    const outcomes = d.outcomes && typeof d.outcomes === 'object' ? d.outcomes : {};
+    const whose = (state) => Object.keys(outcomes).filter((n) => outcomes[n] === state);
+    const fail = 'If that fails too, its answer says why; if they are not running, ask the person to start them.';
+    let code;
+    if (d.unrecorded === true) {
+      // Round 5: in no one's room view, so ONE plain block naming every member not placed for sure (parity with install/kosmos).
+      // Not reached first, then not confirmed, then held or not addressed, so the example names one it was meant for.
+      const rank = (n) => (outcomes[n] === 'could_not' ? 0 : outcomes[n] === 'unconfirmed' ? 1 : 2);
+      const notSure = Object.keys(outcomes).filter((n) => outcomes[n] !== 'placed').sort((a, b) => rank(a) - rank(b));
+      code = maybe(ctx.err, 'Posted, but the room could not record it, so it is not in the room.');
+      if (notSure.length) {
+        ctx.err('Not surely reached: ' + notSure.join(', ') + '. They may have no copy anywhere.');
+        ctx.err('Do not re-post to fix this: a repeat sent soon after is usually skipped, and a later one is typed again to every member who has it. Message them directly instead (it goes to each alone): kosmos msg ' + notSure[0] + ' "..."');
+        ctx.err(fail);
+      } else ctx.err('Every member it was typed to has it. Do not re-post: a repeat sent soon after is usually skipped, and a later one would reach them twice.');
+    } else {
+      code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '.');
+      if (whose('unconfirmed').length) ctx.err('Kosmos may have typed it in, but could not confirm it, for: ' + whose('unconfirmed').join(', ') + '. It may well have arrived.');
+      if (whose('could_not').length) {
+        ctx.err('Not reached: ' + whose('could_not').join(', ') + '. Kosmos could not deliver it to them, so they will see it only when they read the room (kosmos room ' + project + ').');
+        ctx.err('To reach them sooner, message them directly (it goes to each alone): kosmos msg ' + whose('could_not')[0] + ' "..."');
+        ctx.err(fail);
+      }
+      ctx.err('Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.');
+    }
     // #6925 parity with install/kosmos: an unconfirmed summary still used this member's one.
     if (d.closing === true) ctx.err('This went through as your one summary while the room is held; anything more is not posted until the hold lifts.');
     if (ambig) ctx.err(ambig);
