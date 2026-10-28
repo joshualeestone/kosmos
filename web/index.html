@@ -21003,6 +21003,8 @@ function windowsCopyTable() {
     adminDetailsSummary: 'For IT admins',
     /* The switch on the autostart row (W-21a, win32-installer-native). */
     startAtSignInLabel: 'Start Kosmos when I sign in to Windows',
+    /* #7493: the same switch is the #2988 watchdog's off switch, so the row says both things it does. */
+    startAtSignInHint: 'This also restarts Kosmos if it closes unexpectedly. Turned off, Kosmos stays closed until you open it.',
     startAtSignInFailure: 'We could not change whether Kosmos starts when you sign in just now.',
     startAtSignInUnread: 'We could not read whether Kosmos starts when you sign in just now.',
     /* Settings > Updates, the in-app updater armed (S4). The confirm dialog: the win32 updater
@@ -27176,9 +27178,10 @@ function machineRows(report) {
        engine/machine.js puts a boolean there, and nothing when it could not look, so the switch is
        never drawn in a position nobody checked. After a click it is repainted from /api/machine. */
     + (typeof c.startAtSignIn === 'boolean'
-      ? '<div class="setrow" style="margin-top:12px;align-items:center;"><div><b>' + windowsCopy('startAtSignInLabel') + '</b></div>'
+      ? '<div class="setrow" style="margin-top:12px;align-items:center;"><div><b>' + windowsCopy('startAtSignInLabel') + '</b>'
+        + '<div class="dhint" id="start-at-sign-in-hint" style="margin:2px 0 0;">' + windowsCopy('startAtSignInHint') + '</div></div>'
         + '<button class="toggle' + (c.startAtSignIn ? ' on' : '') + '" type="button" role="switch" aria-checked="' + c.startAtSignIn + '"'
-        + ' aria-label="' + windowsCopy('startAtSignInLabel') + '" data-start-at-sign-in><i></i></button></div>'
+        + ' aria-label="' + windowsCopy('startAtSignInLabel') + '" aria-describedby="start-at-sign-in-hint" data-start-at-sign-in><i></i></button></div>'
       : ''))).join('');
 }
 /* The controls the machine rows carry, wired after every paint of `#set-machine`. */
