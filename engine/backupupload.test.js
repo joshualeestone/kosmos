@@ -31,6 +31,9 @@ async function bucket() {
       const q = script.get(key);
       if (q && q.length) {
         const [status, body, delay, location] = q.shift();
+        // kosmos#7478: Infinity never answers (the client's own timeout is the only way out), so a "lost answer" arm
+        // does not race a held answer against the client's timer on a loaded machine. close() ends the connection.
+        if (delay === Infinity) return undefined;
         return setTimeout(() => { res.statusCode = status; if (location) res.setHeader('location', location); res.end(body || ''); }, delay || 0);
       }
       const body = Buffer.concat(parts);
@@ -197,8 +200,8 @@ test('a lost answer (timeout) is retried on the SAME key, and the 412 that prove
   const b = await bucket();
   try {
     const cs = [chunk(1)];
-    // The first PUT is held past the uploader's timeout (its answer is "lost"); the retry finds the key taken.
-    b.script.set(keyN(1), [[200, '', 400], [412, '<Error><Code>PreconditionFailed</Code></Error>']]);
+    // The first PUT's answer never comes (its answer is "lost"; Infinity, kosmos#7478); the retry finds the key taken.
+    b.script.set(keyN(1), [[200, '', Infinity], [412, '<Error><Code>PreconditionFailed</Code></Error>']]);
     const c = coordinator(b);
     const r = await up.uploadChunks(deps(c), cs, { putTimeoutMs: 100 });
     assert.strictEqual(r.ok, true, r.because);
@@ -332,8 +335,9 @@ test('two chunks with one name but different bytes are refused (a caller bug), n
 test('a lost answer that LANDED, then S3 says the grant expired: no new grant, no second locked copy (retryLater)', async () => {
   const b = await bucket();
   try {
-    // The first PUT lands but its answer is held past the timeout; the retry is told the grant expired.
-    b.script.set(keyN(1), [[200, '', 400], [403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']]);
+    // The first PUT lands but its answer never comes (Infinity: no timer to race, kosmos#7478); the retry is told the
+    // grant expired.
+    b.script.set(keyN(1), [[200, '', Infinity], [403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>']]);
     const c = coordinator(b);
     const r = await up.uploadChunks(deps(c), [chunk(1)], { putTimeoutMs: 100 });
     assert.strictEqual(r.ok, false); assert.strictEqual(r.retryLater, true);
@@ -450,7 +454,7 @@ test('a refusal stops the run and still names the chunks that met trouble on the
   try {
     const cs = [chunk(1), chunk(2)];
     // Chunk 1: a lost answer (timeout) then a refusal; chunk 2 is refused outright after chunk 1's trouble began.
-    b.script.set(keyN(1), [[200, '', 400], [400, '<Error><Code>BadDigest</Code></Error>']]);
+    b.script.set(keyN(1), [[200, '', Infinity], [400, '<Error><Code>BadDigest</Code></Error>']]);   // kosmos#7478
     const r = await up.uploadChunks(deps(coordinator(b)), cs, { putTimeoutMs: 100, concurrency: 1 });
     assert.strictEqual(r.ok, false);
     assert.deepStrictEqual(r.unsure, [{ name: cs[0].name, key: keyN(1) }]);
