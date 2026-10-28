@@ -1285,7 +1285,18 @@ check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""name":"M
       "a seat's portrait flag is read from the team's detail")
 check(portReq?.url?.path == "/api/catalogue/portrait" && portReq?.url?.query == "team=marketing&slot=head"
       && NewAgent.portraitRequest(mac: npMac, team: "marketing", slot: "Head of x") == nil, "a portrait only for a team and seat the route's pattern allows")
-check(boardPage.contains("PICTURE_MAX_BYTES = 60000"), "the picture limit is the desktop's")
+check(boardPage.contains("PICTURE_MAX_BYTES = 60000") && NewAgent.pictureMaxBytes == 60000, "the picture limit is the desktop's")
+let pngHead = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+check(NewAgent.keepsPortrait(type: "image/png", bytes: pngHead, width: 256, height: 256, frames: 1), "a still PNG within the limits is kept as it came")
+check(!NewAgent.keepsPortrait(type: "image/jpeg", bytes: pngHead, width: 256, height: 256, frames: 1)
+      && !NewAgent.keepsPortrait(type: "image/png", bytes: pngHead + Data("eXIf".utf8), width: 256, height: 256, frames: 1)
+      && !NewAgent.keepsPortrait(type: "image/png", bytes: pngHead, width: 256, height: 256, frames: 2)
+      && !NewAgent.keepsPortrait(type: "image/png", bytes: pngHead, width: 15, height: 256, frames: 1)
+      && !NewAgent.keepsPortrait(type: "image/png", bytes: pngHead, width: 2049, height: 256, frames: 1)
+      && !NewAgent.keepsPortrait(type: "image/png", bytes: pngHead + Data(count: 60000), width: 256, height: 256, frames: 1)
+      && !NewAgent.keepsPortrait(type: "image/png", bytes: Data([0xFF, 0xD8]), width: 256, height: 256, frames: 1),
+      "anything else (JPEG, eXIf, animated, under 16 or over 2048 a side, over the limit, not a PNG) is redrawn")
+check(boardPage.contains("PICTURE_MIN_SIDE = 16") && boardPage.contains("PICTURE_MAX_SIDE = 2048"), "the sides are the desktop's")
 check(boardPage.contains("<h3 class=\"sform-h\">" + NewAgent.Words.identity + "</h3>") && boardPage.contains(">" + NewAgent.Words.changePicture + "</button>")
       && boardPage.contains("aria-label=\"" + NewAgent.Words.markLabel + "\""), "Identity, Change picture and the mark's label are the desktop's own markup")
 

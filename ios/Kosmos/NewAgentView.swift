@@ -814,7 +814,8 @@ struct NewAgentView: View {
         HStack(spacing: 12) {
             PhotosPicker(selection: $photoPick, matching: .images) { Text(NewAgent.Words.changePicture) }
                 .buttonStyle(.bordered)
-            if photoLoading { ProgressView().accessibilityLabel(NewAgent.Words.making) }
+                .disabled(sending)   // a picture chosen once Create has gone would never be used
+            if photoLoading { ProgressView().accessibilityLabel(NewAgent.Words.readingPicture) }
         }
     }
 
