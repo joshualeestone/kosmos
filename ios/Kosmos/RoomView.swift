@@ -133,7 +133,7 @@ struct RoomView: View {
         .background(Palette.ground.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .kosmosSolidTopBar(fade: false)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
-        .messageActionsHost()   // kosmos#7419: the one long-press sheet of this room (around its posts, not the composer)
+        .messageActionsHost()   // kosmos#7419: the one long-press sheet of this room, around its posts
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
@@ -1320,7 +1320,7 @@ struct RoomBubble: View {
         .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
         // kosmos#7419: the long-press sheet, as in a direct message (Reply and reactions only on a post of this room).
         .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: answerable ? react : nil,
-                        reply: answerable ? reply : nil, text: row.text)
+                        reply: answerable ? reply : nil, text: Board.roomWords(row))   // review 2: the words shown
     }
 
     var mentionNames: [String] = []

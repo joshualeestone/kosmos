@@ -593,6 +593,8 @@ struct MessageActions: ViewModifier {
     func body(content: Content) -> some View {
         content
             .highPriorityGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in open?(target()) })
+            // Review 2: VoiceOver reaches the sheet (Copy text, More) as an action, since a long press is not one.
+            .accessibilityAction(named: "Message actions") { open?(target()) }
             #if DEBUG
             // Design shots only: KOSMOS_SAMPLE_SHEET=1 (or =more) opens the sheet on the first message that takes reactions.
             .onAppear {
