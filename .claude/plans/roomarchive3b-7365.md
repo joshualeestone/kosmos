@@ -212,3 +212,9 @@ map. Fixed by moving the return to just before the rows are written.
    - NIT 1: after Archive the live room drops only the leading run older than the cutoff, stopping at the first row
      that is not older or has no readable time, as the server splits (vm test, mutation reds it).
    - NIT 2: Undo's visibility comes from the archive page's own marker, like its count.
+10. Browser run 2 (473e7a449e, queued-heavy 20:4x): 51 PASS, 1 FAIL, a real defect: Back did not return the reader to
+    their place. While the archive was open, loadRoom measured "is the reader on the newest row" on the room box, which
+    shows the archive scrolled to its bottom, so a new post's push dropped the reader's row (live post 30) from the
+    window and Back fell to the top. offFloorNow now counts the reader as off the newest row while the archive is open
+    (their place is the anchor). Test in web.room-window-7365.test.js with a control (no archive: the rows go);
+    mutation reds it.

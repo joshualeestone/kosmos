@@ -78823,7 +78823,12 @@ async function loadRoom() {
       if (failMsg && failMsg.textContent === 'We cannot read this room right now. What is shown may be behind.') failMsg.textContent = '';
       const box0 = document.getElementById('pj-room');
       // A hidden box (no height) counts as off the newest row: nothing is let go or folded while the room is not shown.
-      const offFloorNow = () => !!box0 && (box0.clientHeight <= 0 || (box0.scrollHeight - box0.scrollTop - box0.clientHeight) > THREAD_BOTTOM_SLACK);
+      /* kosmos#7365 slice 3b: while the archive is open, the box shows the archive, not the room, so its scroll says
+         nothing about the reader's place in the room; that place is the anchor taken when the archive opened, off the
+         newest row (browser run 2: measured on the archive, the reader read as on the newest row and the row they were
+         on was dropped from the window, so Back had nothing to return to). */
+      const offFloorNow = () => (typeof PJ_ARCH !== 'undefined' && pjArchShowing())
+        || (!!box0 && (box0.clientHeight <= 0 || (box0.scrollHeight - box0.scrollTop - box0.clientHeight) > THREAD_BOTTOM_SLACK));
       const offFloor = offFloorNow();
       /* A reader off the newest row who already holds PJ_WIN_HOLD_MAX rows that new posts pushed in: this poll folds in
          nothing more and paints nothing, so they stay on their message (review 7: a reset threw them to the newest

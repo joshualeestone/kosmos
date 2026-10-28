@@ -52,7 +52,7 @@ function fakeRoom(n) {
   return { rows, add, remove, calls, fetch };
 }
 
-function harness(room, project = 'proj') {
+function harness(room, project = 'proj', extra = {}) {
   // On the floor unless a test scrolls it up (the live position loadRoom measures before anchoring a gap).
   const box = { __lastBody: undefined, clientHeight: 500, scrollHeight: 10000, scrollTop: 9500 };
   const msg = { textContent: '' };   // #pj-room-msg
@@ -67,6 +67,7 @@ function harness(room, project = 'proj') {
     threadAnchor: () => { anchors.taken += 1; return { mid: 'x' }; },
     restoreThreadAnchor: () => { anchors.restored += 1; return true; },
     convPause: () => {},
+    ...extra,
   };
   vm.createContext(ctx);
   vm.runInContext('var PJ_CURRENT = ' + JSON.stringify(project) + '; var PJ_ROOM_GEN = 0; var PJ_ROOM_QUERY = "";\n' + SRC
@@ -427,4 +428,17 @@ test('#7365 review 8: a hidden room box neither keeps rows nor lets go of held p
   Object.assign(h2.box, { clientHeight: 0, scrollHeight: 0, scrollTop: 0 });
   await h2.api.loadRoom();
   assert.equal(h2.api.PJ_WIN.older.length, 0, 'a hidden room keeps no rows pushed out of the newest page');
+});
+
+test('#7365 3b browser run 2: with the archive open, a poll keeps the rows of the reader\'s place in the room, wherever the archive is scrolled', async () => {
+  for (const open of [true, false]) {
+    const room = fakeRoom(1000);
+    const h = harness(room, 'proj', open ? { PJ_ARCH: { readAs: null }, pjArchShowing: () => true } : {});
+    await h.api.loadRoom();
+    h.box.scrollTop = 9500;   // the box is at its bottom: where the archive opens, or a reader on the newest row
+    for (let i = 0; i < 20; i++) room.add();
+    await h.api.loadRoom();
+    if (open) assert.deepEqual(ids(h.painted.at(-1)), range(801, 1020), 'with the archive open, the rows pushed out are kept for Back');
+    else assert.deepEqual(ids(h.painted.at(-1)), range(821, 1020), 'CONTROL: a reader really on the newest row follows it');
+  }
 });
