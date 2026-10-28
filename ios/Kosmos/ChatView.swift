@@ -162,6 +162,7 @@ struct ChatView: View {
                 // Not over a search: new messages are not followed then (follow), so it would offer a jump in a filtered list.
                 if unseenNew && !searching { newMessagesCapsule }
             }
+            .messagesVisibleArea()   // kosmos#7419 review 4: the lit message's hole stays above the composer's strip
             // kosmos#7346 (Josh 10-27, Mona Lisa's design): the message box sits on a solid strip down to the home indicator,
             // with messages fading into it; the inset keeps the newest message above the box.
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -192,7 +193,8 @@ struct ChatView: View {
         // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
         .toolbar(.hidden, for: .tabBar)
         .messageActionsHost()   // kosmos#7419: the one long-press sheet of this chat
-        .task { await client.readStarsIfUnknown() }   // kosmos#7034 build 11 review 2: the header star's stars
+        // kosmos#7034 build 11 reviews 2 and 4: the header star's stars, asked again on a switch to another computer.
+        .task(id: client.chatEpoch) { await client.readStarsIfUnknown() }
         .quickLookPreview($previewURL)
         // Closed: the file it showed is removed from the phone (#7016 review 1).
         .onChange(of: previewURL) { now in
@@ -209,9 +211,10 @@ struct ChatView: View {
             }
             // kosmos#7034 (Mona Lisa, build 11): a star you can see, answering Josh's "where do I star them": an outline
             // that turns gold when the agent is starred, the same save as the Agents row's swipe (BoardClient.toggleStar).
+            // Review 2-4: no star (and no empty slot) until this computer's stars are known, never a greyed control; the
+            // item itself is conditional, so on iOS 16 it is never built at zero width and grown later.
+            if client.canStar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                // Review 2-3: no star (and no empty slot) until this computer's stars are known, never a greyed control.
-                if client.canStar {
                 let starred = client.isStarred(agent.session)
                 Button {
                     Task {
@@ -227,7 +230,7 @@ struct ChatView: View {
                 }
                 .disabled(client.starring.contains(agent.session))
                 .accessibilityLabel(starred ? "Unstar \(shown.name)" : "Star \(shown.name)")
-                }
+            }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
