@@ -61,6 +61,16 @@ final class BoardClient: ObservableObject {
 
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var agents: [Board.Agent] = []
+    // kosmos#7342 review 1: whether the Agents list is shown as not updating (one rule for the list and its tab badge).
+    // A list already read stays on screen while the app reconnects or the Mac does not answer, and a list from an
+    // earlier read is not current until the first new read.
+    var agentsListStale: Bool {
+        switch phase {
+        case .starting, .connecting, .unreachable: return true
+        case .live: return !fresh
+        default: return false
+        }
+    }
     @Published private(set) var updatedAt: Date?
     // Counts the re-sorts applied (appear, pull to refresh). Today re-takes its held order on this, never on any
     // update: a live read landing during a pull carries the old order and the old stars.

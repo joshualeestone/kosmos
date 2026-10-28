@@ -188,12 +188,10 @@ struct AgentsView: View {
     // the person back to the top and cancels a pull in progress.
     private var shownList: Bool? {
         guard !client.agents.isEmpty else { return nil }
+        // The reaching spinner is only for a first connect with nothing to show yet (spec frame 3); the rule for "not
+        // updating" is the client's, shared with the tab badge (kosmos#7342 review 1).
         switch client.phase {
-        // A list already on screen stays while the app reconnects or the Mac does not answer, marked not updating; the
-        // reaching spinner is only for a first connect with nothing to show yet (spec frame 3).
-        case .starting, .connecting, .unreachable: return true
-        // Back on the tab with a list from an earlier read: shown as not current until the first new read.
-        case .live: return !client.fresh
+        case .starting, .connecting, .unreachable, .live: return client.agentsListStale
         default: return nil
         }
     }
@@ -566,8 +564,6 @@ struct AgentAvatar: View {
     // A list that is not updating draws the arc in the secondary colour its words take then (opaque, so it stays clear of
     // the translucent track).
     var memoryQuiet = false
-    // kosmos#7354: the red count at the top right (Board.noticeCount), the tab badge's red; 0 draws nothing.
-    var notices = 0
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -605,25 +601,10 @@ struct AgentAvatar: View {
                     .animation(.easeInOut(duration: 0.2), value: tone)
             }
         }
-        .overlay(alignment: .topTrailing) { noticeBadge }
         .accessibilityHidden(true)
     }
 
-    // kosmos#7354: white numerals on the system red, as the tab bar's own badge, 9+ past nine; a ring in the card colour
-    // keeps it clear of the picture and the context ring.
-    @ViewBuilder private var noticeBadge: some View {
-        if notices > 0 {
-            Text(notices > 9 ? "9+" : String(notices))
-                .font(.system(size: 11, weight: .bold)).monospacedDigit()
-                .foregroundColor(.white)
-                .padding(.horizontal, 4)
-                .frame(minWidth: 18, minHeight: 18)
-                .background(Capsule().fill(Color.red))
-                .overlay(Capsule().stroke(Palette.card, lineWidth: 2))
-                .offset(x: 5, y: -5)
-                .transition(.scale.combined(with: .opacity))
-        }
-    }
+    // kosmos#7342: #7354's corner count moved to the row's right (NoticeBubble), one fact in one place.
 
     // A track and an arc of the percent from 12 o'clock, just outside the picture, one weight in every band as the
     // board's small rings keep (the arc's length carries the value, the colour repeats it). It overhangs the picture's
