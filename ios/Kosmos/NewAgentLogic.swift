@@ -199,7 +199,7 @@ enum NewAgent {
         }
         for p in (obj?["projects"] as? [[String: Any]]) ?? [] where p["added"] as? Bool == false {
             let why = NewProject.trimmed(p["because"] as? String ?? "")
-            out.append(notAdded + (why.isEmpty ? "." : ": " + (".!?".contains(why.last!) ? why : why + ".")))
+            out.append(why.isEmpty ? notAdded + "." : notAdded + ": " + NewTeam.sentence(why).prefix(1).lowercased() + NewTeam.sentence(why).dropFirst())
         }
         return out
     }
