@@ -149,6 +149,16 @@ enum Shell {
         return "\(n) isn't answering"
     }
 
+    // kosmos#7416 (focused review): whether a "not updating" line also says "Last checked <time>". "Last checked" is
+    // how old what is on screen is (a list's or a chat's own last good read); "last heard" is when the Mac last
+    // answered anyone. They differ when the Mac still reports to Kosmos+ or a chat stopped reading on its own, so the
+    // line keeps both, and leaves "Last checked" out only when it would say the same minute twice.
+    static func saysLastChecked(_ checked: Date?, lastHeard: Double?) -> Bool {
+        guard let checked else { return false }
+        guard let heard = lastHeard, heard > 0 else { return true }
+        return abs(checked.timeIntervalSince1970 - heard) >= 60
+    }
+
     // The line over a list that is no longer updating. kosmos#7416 (Mona Lisa: "last heard 8:12 PM"): with when the
     // Mac was last heard from, after its name (#7197 keeps the name).
     static func notUpdatingLine(_ name: String?, lastHeard: Double? = nil, now: Date = Date(),
