@@ -19367,10 +19367,10 @@ window.kosmosMeasureScrollbarWidth();
     <section class="dbox">
       <h3 class="dlab">Agents on one account at once</h3>
       <div class="frow" id="workcap-row" hidden style="margin-top:14px; align-items:center; gap:8px;">
-        <label class="dhint" for="workcap-max" style="margin:0;">Working at the same time, per account</label>
+        <label class="dhint" for="workcap-max" style="margin:0;">Working at the same time</label>
         <select id="workcap-max" aria-describedby="workcap-hint"></select>
       </div>
-      <p class="dhint" id="workcap-hint" style="margin:8px 0 0;">Agents signed in to the same account (one Claude, OpenAI or other sign-in) share that provider's limits, so many working at once can hit them together and their turns fail. With a limit, Kosmos holds its own automatic messages, other agents' room posts and the tasks it hands out to the others on that account while that many are working, counting each one it just started for a few minutes, so those can arrive late. Your own messages, and a restart or new team you start, are not held by this limit, though a restart or new team counts toward it. Gemini subscription agents have their own limit, above. No limit by default.</p>
+      <p class="dhint" id="workcap-hint" style="margin:8px 0 0;">Agents signed in to the same account share its limits, so many working at once can hit them and their turns fail. With a limit, Kosmos waits to send its own automatic messages, other agents' room posts and the tasks it hands out on that account while that many are working, so those can arrive late. Your own messages always go straight through. A restart or new team you start goes ahead too, and counts toward the limit. Gemini subscription agents have their own limit, above. No limit by default.</p>
       <p class="dhint" id="workcap-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
