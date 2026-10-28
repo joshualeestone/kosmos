@@ -549,7 +549,7 @@ test('a Mac not connected to Kosmos+ cannot turn it on, and nothing is saved', a
   assert.equal(on.code, 400);
   assert.match(on.json.error, /connect this computer to Kosmos\+ first/);
   assert.equal(phonenotify.readState().on, false);
-  assert.equal(mints(), 0);
+  await phonenotify.whenNoticesIdle(); assert.equal(signedCalls(), 0);
 });
 
 test('PUT refuses anything but a boolean', async () => {
@@ -568,6 +568,9 @@ test.afterEach(async () => { await phonenotify.whenNoticesIdle(); });
 /* #6488 (Josh, 2026-10-18 09:43: "Let's have notifications switched on by default"): ensureDefaultOn turns the master
    on for a connected computer whose person never touched it, and never for one whose person turned it off. */
 const PN_FILE = () => path.join(STATE, 'phone-notify.json');
+// #7448 review 2: every signed call, report included, for the states where nothing at all may leave this computer (not
+// connected, or Kosmos+ switched off here); mints() for the states where the report is an expected extra call.
+const signedCalls = () => (fs.existsSync(TUNNEL_LOG) ? fs.readFileSync(TUNNEL_LOG, 'utf8').split('\n').filter((l) => l.startsWith('ARGV: mac-request')).length : 0);
 // #7448: only the mint route counts; the board's phone-notices report (POST /v1/mac/phone-notices) is a call too.
 const mints = () => (fs.existsSync(TUNNEL_LOG)
   ? fs.readFileSync(TUNNEL_LOG, 'utf8').split('\n').filter((l) => l.startsWith('ARGV: mac-request') && l.includes('/v1/mac/notify-credential')).length : 0);
@@ -590,7 +593,7 @@ test('#6488: a connected computer that never touched the switch is turned on, mi
 
 test('#6488: not connected to Kosmos+, the default does nothing and saves nothing', async () => {
   assert.equal(await phonenotify.ensureDefaultOn(), null);
-  assert.equal(mints(), 0, 'the tunnel ran on a computer not connected');
+  await phonenotify.whenNoticesIdle(); assert.equal(signedCalls(), 0, 'the tunnel ran on a computer not connected');
   assert.equal(fs.existsSync(PN_FILE()), false);
 });
 
@@ -915,7 +918,7 @@ test('#6488: signed in but Kosmos+ switched off: the default mints nothing, and 
   enrolSwitchedOff();
   assert.equal(phonenotify.masterChoice(), 'unset');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
-  assert.equal(mints(), 0, 'minted for a computer whose person switched Kosmos+ off');
+  await phonenotify.whenNoticesIdle(); assert.equal(signedCalls(), 0, 'minted for a computer whose person switched Kosmos+ off');
   assert.equal((await call('GET', '/api/phone-notify')).json.connected, false);
   plusSwitch(true);
   assert.equal((await phonenotify.ensureDefaultOn()).ok, true);
@@ -962,7 +965,7 @@ test('#6488: a press on Turn on while Kosmos+ is switched off here mints nothing
   const r = await call('PUT', '/api/phone-notify', { body: { on: true } });
   assert.equal(r.code, 400, r.text);
   assert.match(r.json.error, /switch Kosmos\+ on for this computer first/, 'a signed-in computer was told to connect');
-  assert.equal(mints(), 0, 'a signed mint went to Kosmos+ while its switch was off');
+  await phonenotify.whenNoticesIdle(); assert.equal(signedCalls(), 0, 'a signed mint went to Kosmos+ while its switch was off');
   assert.equal(phonenotify.readState().on, false);
 });
 
