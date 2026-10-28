@@ -366,6 +366,12 @@ enum Board {
         let word = statusWord(a)
         return pill(a) == .problem && (word == "Idle" || word == "Working") ? "Issue" : word
     }
+    // Review 1: where the word is coloured by the tone instead (Today, the DM header), the same rule keyed on that tone, so
+    // the word and its colour can never disagree (never a grey or green Issue, never a red Idle).
+    static func toneWord(_ a: Agent) -> String {
+        let word = statusWord(a)
+        return tone(a) == .needsYou && (word == "Idle" || word == "Working") ? "Issue" : word
+    }
 
     static func pill(_ a: Agent) -> Pill? {
         let p = statePill(a)

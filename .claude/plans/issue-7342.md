@@ -16,3 +16,6 @@ Issue, the Mac's own red word for needs you. Any other word the Mac sent (Messag
 ## Verify
 - iOS 16 typecheck; all nine LogicTests scripts (main: red Idle and red Working say Issue, a green Working and a plain
   Idle keep theirs, a Mac word such as Messages stuck stays).
+
+## Review
+- Round 1 (sonnet): 1 warning fixed: Today and the DM header colour the word by tone(), not pill(), so pillWord could put Issue in grey or green (a restart that failed, a crash loop, or the Mac's tone disagreeing). They now use toneWord, keyed on the tone they are drawn in; the Agents pill keeps pillWord. Test: over every red route found, Issue appears exactly where its colour is red, by either rule.
