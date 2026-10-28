@@ -401,6 +401,17 @@ function check(name, pass, detail) {
     check('#6488: ' + (st.connected ? 'connected' : 'not connected') + ', off' + (st.offByChoice ? ' by choice' : ', never touched') + ': the sentence says so',
       said === want, JSON.stringify(said));
   }
+  // #7448: a computer marked never to send (a demo or test install): off, the reason, and no button to press.
+  pnState = { available: true, on: false, connected: true, offByChoice: false, defaultBecause: null, noPush: true,
+    because: 'this computer is set never to send phone notices (a demo or test install)', kinds: pnState.kinds };
+  await pnPage.reload({ waitUntil: 'load' });
+  if (await pnPage.$('#firstrun:not([hidden])')) { await pnPage.keyboard.press('Escape'); await pnPage.waitForTimeout(300); }
+  const noPushWant = 'Off. This computer is set never to send phone notices (a demo or test install).';
+  const noPushSaid = await pnPage.waitForFunction((w) => { const m = document.getElementById('phone-notify-msg'); return !!m && m.textContent === w; }, noPushWant, { timeout: 8000 })
+    .then(() => noPushWant, () => pnPage.evaluate(() => { const m = document.getElementById('phone-notify-msg'); return m ? m.textContent : null; }));
+  check('#7448: a computer marked never to send says why', noPushSaid === noPushWant, JSON.stringify(noPushSaid));
+  const noPushBtn = await pnPage.evaluate(() => { const b = document.getElementById('phone-notify-toggle'); return b ? b.disabled : null; });
+  check('#7448: and offers no Turn on to press', noPushBtn === true, JSON.stringify(noPushBtn));
   check('#6254: no page errors while painting the sub-switches', pnErrors.length === 0, pnErrors.join(' | ').slice(0, 160));
   await pnCtx.close();
 
