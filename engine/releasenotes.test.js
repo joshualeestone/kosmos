@@ -100,6 +100,24 @@ test('#7411 every build (Mac, Linux, Windows) writes app/release-notes.json with
   }
 });
 
+test('#7411 review 10: stage_app, run for real into a temp folder, writes this version\'s notes there', () => {
+  // The source-text test below cannot see a broken call; this runs the function itself (not the script, which would
+  // touch a live board), with a node that is not there as KOSMOS_BOARD_NODE, as on CI's Linux runner.
+  const src = fs.readFileSync(path.join(ROOT, 'deploy', 'install-board.sh'), 'utf8');
+  const start = src.indexOf('stage_app() {');
+  const fn = src.slice(start, src.indexOf('\n}\n', start) + 3);
+  assert.ok(start >= 0 && fn.endsWith('}\n'), 'stage_app is in deploy/install-board.sh');
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'rn-stage-'));
+  const harness = path.join(d, 'harness.sh');
+  fs.writeFileSync(harness, 'REPO="$1"; NODE=/nonexistent/node\n' + fn + 'stage_app "$2/app" && echo STAGED\n');
+  const r = spawnSync('sh', [harness, ROOT, d], { encoding: 'utf8' });
+  assert.match(r.stdout || '', /STAGED/, 'stage_app ran to the end: ' + (r.stderr || '').slice(-300));
+  const notes = JSON.parse(fs.readFileSync(path.join(d, 'app', 'release-notes.json'), 'utf8'));
+  const version = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+  assert.equal(notes.version, version, 'the notes are for this version');
+  assert.ok(Array.isArray(notes.notes), 'the notes are a list');
+});
+
 test('#7411 review: the board deploy (deploy/install-board.sh) writes the same notes into the board it stages', () => {
   const src = fs.readFileSync(path.join(ROOT, 'deploy', 'install-board.sh'), 'utf8');
   const fn = src.slice(src.indexOf('stage_app() {'), src.indexOf('\n}\n', src.indexOf('stage_app() {')));
