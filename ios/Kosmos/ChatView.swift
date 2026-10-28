@@ -146,8 +146,8 @@ struct ChatView: View {
                 // Not over a search: new messages are not followed then (follow), so it would offer a jump in a filtered list.
                 if unseenNew && !searching { newMessagesCapsule }
             }
-            // kosmos#7346 (Josh 10-27, Mona Lisa's design): the message box floats over the conversation, which runs
-            // behind it; the inset keeps the newest message above the box.
+            // kosmos#7346 (Josh 10-27, Mona Lisa's design): the message box sits on a solid strip down to the home indicator,
+            // with messages fading into it; the inset keeps the newest message above the box.
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     if let line = composerNote ?? attachLine ?? pressLine ?? (sentWhileSearching ? Board.chatSentWhileSearching : nil) {
@@ -164,11 +164,11 @@ struct ChatView: View {
                 // kosmos#7346 (Josh 10-27 19:59): solid behind and below the box, down to the home indicator, as Discord: no
                 // message shows through or under it. The inset already ends the list above this strip.
                 .background(Palette.ground.ignoresSafeArea(edges: .bottom))
-                // Josh 10-27: "with a slide fade into it so it looks smooth": messages fade into the strip over 18 pt above it,
+                // Josh 10-27: "with a slide fade into it so it looks smooth": messages fade into the strip over fadeHeight above it,
                 // never a hard edge. Drawn over the list, so it takes no room and no touches.
                 .overlay(alignment: .top) {
                     LinearGradient(colors: [Palette.ground.opacity(0), Palette.ground], startPoint: .top, endPoint: .bottom)
-                        .frame(height: 18).offset(y: -18).allowsHitTesting(false).accessibilityHidden(true)
+                        .frame(height: ChatView.fadeHeight).offset(y: -ChatView.fadeHeight).allowsHitTesting(false).accessibilityHidden(true)
                 }
             }
         }
@@ -392,7 +392,7 @@ struct ChatView: View {
                         chatRows(items)
                         pendingBubbles
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
-                        Color.clear.frame(height: 19).id("end")   // 1 + the 18 pt fade (kosmos#7346): at the end, the newest message sits clear of it
+                        Color.clear.frame(height: ChatView.fadeHeight + 8).id("end")   // the fade plus 8 pt (kosmos#7346): at the end, the newest message sits clear of it
                             .onAppear {
                                 Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
                                 endVisible = true
@@ -583,6 +583,10 @@ struct ChatView: View {
         return true
         #endif
     }()
+
+    // kosmos#7346: how far above the solid strip messages fade into it. The end marker and the New messages button
+    // are both set from it, so changing it can never hide the newest message under the fade.
+    static let fadeHeight: CGFloat = 18
 
     // kosmos#7265: iOS 18 reports the scroll phase, which tells the person's scroll from rows moving under them.
     static var followsScrollPhase: Bool { if #available(iOS 18.0, *) { return true } else { return false } }
@@ -1064,7 +1068,7 @@ struct ChatView: View {
                 .background(Capsule().fill(Palette.card).shadow(color: .black.opacity(0.15), radius: 6, y: 2))
         }
         .buttonStyle(.plain)
-        .padding(.bottom, 8 + 18)   // above the 18 pt fade (kosmos#7346)
+        .padding(.bottom, 8 + ChatView.fadeHeight)   // above the fade (kosmos#7346)
     }
 
     // MARK: - Sending
