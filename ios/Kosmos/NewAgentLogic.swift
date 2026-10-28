@@ -58,6 +58,7 @@ enum NewAgent {
         static let changePicture = "Change picture"
         static let markLabel = "Generated mark for this agent"
         static let chosenPicture = "Chosen picture"
+        static let readingPicture = "Reading the picture"
         static let pictureTooBig = "That picture could not be used. Choose another."
         static let labelMissing = "Say what this agent does. One or two words."
         static func running(_ shown: String) -> String { shown + " is running" }
@@ -215,6 +216,13 @@ enum NewAgent {
     // kosmos#7488 build 14: the new agent's picture, PUT to the route the desktop's uploadPendingAvatar uses, once the
     // board can see the agent (it refuses a name it does not know). The type is the picture's: PNG or JPEG (anything else is redrawn first).
     static let pictureMaxBytes = 60000   // the board's and the desktop's PICTURE_MAX_BYTES
+
+    // Whether a catalogue portrait is sent as it came: a still PNG (one frame) with no eXIf chunk at all (the desktop
+    // redraws a turned one; the phone redraws any, the safe side), within the byte limit and 16 to 2048 px a side.
+    static func keepsPortrait(type: String, bytes: Data, width: Int, height: Int, frames: Int) -> Bool {
+        type == "image/png" && bytes.count <= pictureMaxBytes && bytes.starts(with: [0x89, 0x50, 0x4E, 0x47])
+            && bytes.range(of: Data("eXIf".utf8)) == nil && frames == 1 && min(width, height) >= 16 && max(width, height) <= 2048
+    }
     static func pictureRequest(mac: URL, session: String, data: Data, type: String) -> URLRequest? {
         guard Board.isAgentSession(session), !data.isEmpty, data.count <= pictureMaxBytes, ["image/png", "image/jpeg"].contains(type) else { return nil }
         var r = URLRequest(url: URL(string: "/api/agent/\(session)/avatar", relativeTo: mac)!.absoluteURL)

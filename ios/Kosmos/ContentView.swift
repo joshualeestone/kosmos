@@ -413,6 +413,7 @@ struct ContentView: View {
             return false
         }
         if let photo = picture.photo, await put(photo, "image/jpeg") { return }
+        guard board.macURL?.host == host else { return }   // another computer now: nothing more is fetched or drawn
         // A portrait is asked for only for a seat the catalogue has one for; AgentPicture.portrait keeps or redraws it,
         // off the main thread.
         if let team = picture.team, let slot = picture.slot,
@@ -421,6 +422,7 @@ struct ContentView: View {
             let raw = got.0
             if let (data, kind) = await Task.detached(operation: { AgentPicture.portrait(raw, type: type) }).value, await put(data, kind) { return }
         }
+        guard board.macURL?.host == host else { return }
         let name = picture.name
         // The mark through the same fitting when it would not fit as it is (it is far under the limit at 144 px).
         let mark: (Data, String)? = await Task.detached(operation: {

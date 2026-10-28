@@ -85,6 +85,7 @@ enum AgentPicture {
             let drawn = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { r in
                 UIColor.white.setFill()
                 r.fill(CGRect(x: 0, y: 0, width: side, height: side))
+                r.cgContext.interpolationQuality = .high   // the desktop's imageSmoothingQuality 'high'
                 image.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
             }
             for q in [0.85, 0.7, 0.55] {
@@ -94,18 +95,13 @@ enum AgentPicture {
         return nil
     }
 
-    // A catalogue portrait: a still PNG with no turn, within the board's bytes and the desktop's 16 to 2048 sides, is
-    // kept as it came.
-    // Anything else, an animated PNG included, is redrawn the phone's way (fit: a centred square, JPEG on white), where
-    // the desktop keeps the shape and any transparency; the plan names that difference.
-    static let maxSide = 2048
+    // A catalogue portrait: kept as it came when NewAgent.keepsPortrait says so; anything else is redrawn the phone's way
+    // (fit: a centred square, JPEG on white), where the desktop keeps the shape and any transparency (the plan says so).
     static func portrait(_ data: Data, type: String) -> (Data, String)? {
-        if type == "image/png", data.count <= maxBytes, data.starts(with: [0x89, 0x50, 0x4E, 0x47]),
-           data.range(of: Data("eXIf".utf8)) == nil,   // a turned picture is redrawn upright, as the desktop's pictureStill
-           let src = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(src) == 1,
+        if let src = CGImageSourceCreateWithData(data as CFData, nil),
            let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
            let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int,
-           min(w, h) >= minSide, max(w, h) <= maxSide { return (data, type) }
+           NewAgent.keepsPortrait(type: type, bytes: data, width: w, height: h, frames: CGImageSourceGetCount(src)) { return (data, type) }
         return fit(data: data).map { ($0, "image/jpeg") }
     }
 }
