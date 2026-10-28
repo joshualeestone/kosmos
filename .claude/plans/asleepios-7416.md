@@ -96,3 +96,12 @@ nothing from it.
   chooseMac landing, and round 3's ticket each red.
 - [CONCERN] the ticket and owner guards had no test. FIXED: the review 4 section above.
 - [NIT] the .task comment's claim. FIXED with the id.
+
+### Round 5 (0 B, 0 W, 1 C, 1 N), both applied
+- Reviewer re-ran four mutations of round 4's guards; all red. Late refresh reads after stop/forget/sign-out, a stuck
+  in-flight flag and the .task id were checked and found sound.
+- [CONCERN] a last_seen from Kosmos+'s clock more than a minute ahead of the phone's won the max and was then refused as a
+  future time, hiding the phone's own fresh read. FIXED: `Board.lastHeard(now:)` ignores such a last_seen. Test with a
+  CONTROL inside the allowance; mutation (no clamp) red.
+- [NIT] chooseMac assigned its list without the ordering check. FIXED: shown only when `ticket > macsLanded`; the pick
+  uses the run's own answer either way. Not separately tested (reasoned; the ordering tests cover readMacs).
