@@ -139,7 +139,7 @@ test('OFF until turned on (by the person, or by #6488\'s default turn-on below):
     assert.equal((await reply(h)).json.kept, true);
   });
   assert.equal(sent.length, 0, 'something left the Mac while phone notifications were off');
-  assert.equal(fs.existsSync(TUNNEL_LOG), false, 'the tunnel ran while off');
+  assert.equal(mints(), 0, 'the tunnel ran while off');
 });
 
 test('OFF even with a token on disk: only an explicit on:true sends', async () => {
@@ -549,7 +549,7 @@ test('a Mac not connected to Kosmos+ cannot turn it on, and nothing is saved', a
   assert.equal(on.code, 400);
   assert.match(on.json.error, /connect this computer to Kosmos\+ first/);
   assert.equal(phonenotify.readState().on, false);
-  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+  assert.equal(mints(), 0);
 });
 
 test('PUT refuses anything but a boolean', async () => {
@@ -561,6 +561,9 @@ test('PUT refuses anything but a boolean', async () => {
 });
 
 test.beforeEach(() => { if (fs.existsSync(REMOTE_FILE())) plusSwitch(false); });
+// #7448: the default-on run starts a phone-notices report it does not wait for; it must land inside its own test, and
+// the checks above that "nothing went to Kosmos+" count mints (the report is an expected signed call now).
+test.afterEach(async () => { await phonenotify.whenNoticesIdle(); });
 
 /* #6488 (Josh, 2026-10-18 09:43: "Let's have notifications switched on by default"): ensureDefaultOn turns the master
    on for a connected computer whose person never touched it, and never for one whose person turned it off. */
@@ -587,7 +590,7 @@ test('#6488: a connected computer that never touched the switch is turned on, mi
 
 test('#6488: not connected to Kosmos+, the default does nothing and saves nothing', async () => {
   assert.equal(await phonenotify.ensureDefaultOn(), null);
-  assert.equal(fs.existsSync(TUNNEL_LOG), false, 'the tunnel ran on a computer not connected');
+  assert.equal(mints(), 0, 'the tunnel ran on a computer not connected');
   assert.equal(fs.existsSync(PN_FILE()), false);
 });
 
@@ -611,7 +614,7 @@ test('#6488: an off from before #6488 (a token held, switch off, no marker) is r
   fs.writeFileSync(PN_FILE(), JSON.stringify({ on: false, notifyId: 'n1', token: 'knt1_heldtoken0123' }));
   assert.equal(phonenotify.masterChoice(), 'off');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
-  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+  assert.equal(mints(), 0);
 });
 
 test('#6488: only a sub-switch set (no turn-on ever) is still "never touched", and its choice survives the turn-on', async () => {
@@ -632,14 +635,14 @@ test('#6488: a setting file we cannot read is never turned on for the person', a
     assert.equal(phonenotify.masterChoice(), 'off', 'unreadable read as never-touched: ' + content);
     assert.equal(await phonenotify.ensureDefaultOn(), null);
   }
-  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+  assert.equal(mints(), 0);
 });
 
 test('#6488: with the ship gate closed the default does nothing', async () => {
   enrol();
   phonenotify.setAvailableForTests(false);
   try { assert.equal(await phonenotify.ensureDefaultOn(), null); } finally { phonenotify.setAvailableForTests(true); }
-  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+  assert.equal(mints(), 0);
 });
 
 test('#6488: the board starts the default turn-on at real startup, not at require, and runs it after sign-in', () => {
@@ -734,7 +737,7 @@ test('#6488: an off from before #6488 is copied out of the state dir, so it surv
   unenrol(); enrol();
   assert.equal(phonenotify.masterChoice(), 'off', 'a pre-#6488 off was lost to a reconnect');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
-  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+  assert.equal(mints(), 0);
 });
 
 test('#6488: an off with no token ever minted is still kept through a sub-switch change (the marker alone carries it)', async () => {
@@ -746,7 +749,7 @@ test('#6488: an off with no token ever minted is still kept through a sub-switch
   assert.equal((await call('PUT', '/api/phone-notify', { body: { kind: 'replied', on: false } })).code, 200);
   assert.equal(phonenotify.masterChoice(), 'off', 'the sub-switch write dropped the person\'s off');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
-  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+  assert.equal(mints(), 0);
 });
 
 test('#6488: an off that could not be saved is not kept for later either', async () => {
@@ -903,7 +906,7 @@ test('#6488: a file we cannot read keeps the default from turning it on, but is 
   enrol();
   fs.writeFileSync(PN_FILE(), 'not json');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
-  assert.equal(fs.existsSync(TUNNEL_LOG), false, 'turned on over a file we could not read');
+  assert.equal(mints(), 0, 'turned on over a file we could not read');
   const CHOICE = path.join(path.dirname(require('./engine/remote').FILE), 'phone-notify-choice.json');
   assert.equal(fs.existsSync(CHOICE), false, 'one bad read became a permanent off for someone who never chose');
 });
@@ -912,7 +915,7 @@ test('#6488: signed in but Kosmos+ switched off: the default mints nothing, and 
   enrolSwitchedOff();
   assert.equal(phonenotify.masterChoice(), 'unset');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
-  assert.equal(fs.existsSync(TUNNEL_LOG), false, 'minted for a computer whose person switched Kosmos+ off');
+  assert.equal(mints(), 0, 'minted for a computer whose person switched Kosmos+ off');
   assert.equal((await call('GET', '/api/phone-notify')).json.connected, false);
   plusSwitch(true);
   assert.equal((await phonenotify.ensureDefaultOn()).ok, true);
@@ -951,7 +954,7 @@ test('#6488: a notifyId left from an earlier turn-on counts as the person\'s off
   fs.writeFileSync(PN_FILE(), JSON.stringify({ on: false, notifyId: 'n1', token: null }));
   assert.equal(phonenotify.masterChoice(), 'off');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
-  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+  assert.equal(mints(), 0);
 });
 
 test('#6488: a press on Turn on while Kosmos+ is switched off here mints nothing', async () => {
@@ -959,7 +962,7 @@ test('#6488: a press on Turn on while Kosmos+ is switched off here mints nothing
   const r = await call('PUT', '/api/phone-notify', { body: { on: true } });
   assert.equal(r.code, 400, r.text);
   assert.match(r.json.error, /switch Kosmos\+ on for this computer first/, 'a signed-in computer was told to connect');
-  assert.equal(fs.existsSync(TUNNEL_LOG), false, 'a signed mint went to Kosmos+ while its switch was off');
+  assert.equal(mints(), 0, 'a signed mint went to Kosmos+ while its switch was off');
   assert.equal(phonenotify.readState().on, false);
 });
 
@@ -978,14 +981,14 @@ test('#6488: a kept off we cannot read still keeps the default off after a recon
   fs.writeFileSync(CHOICE, 'garbled');
   assert.equal(phonenotify.masterChoice(), 'off', 'an unreadable kept off read as never touched');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
-  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+  assert.equal(mints(), 0);
 });
 
 test('#6488: under the test runner a connect poke with no schedule mints nothing (route tests sign in on fake tunnels)', async () => {
   enrol();
   assert.ok(process.env.NODE_TEST_CONTEXT, 'premise: running under node --test');
   assert.strictEqual(await phonenotify.pokeDefaultOn(), null);
-  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+  assert.equal(mints(), 0);
 });
 
 test('#6487 a send that throws writes no "sent" line; the same send that goes writes one', async () => {

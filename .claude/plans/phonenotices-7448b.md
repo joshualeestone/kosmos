@@ -19,3 +19,6 @@ phonenotices-7458. Stacked on nopush-7448.
 ## Verify
 - engine.phonenotify-nopush-7448.test.js: once per change, a 404 retried and never read as off, a new id reported
   again, nothing while Kosmos+ is off (7 pass). The phone-notify suites: 76 pass.
+
+## Review
+- Round 1 (sonnet): 2 warnings fixed: a confirmation now needs the coordinator's own echo (#7458 answers { ok, send }), so an old catch-all 200 or an answer without it is retried, never recorded; the report is started, not awaited, so a slow coordinator never holds up the default turn-on (one report at a time). Ice Cream Kitty m837: the tunnel signs only the routes on its list; until a Mac's tunnel has /v1/mac/phone-notices it refuses locally, which is the same retried failure (tested with macRequest's real shapes). Tests: the vacuous 404 check is gone; real refusal shapes; the default-on run starts the report without waiting. server.phonenotify-718: its 14 "nothing went to Kosmos+" checks now count mints (the report is an expected signed call), and each test waits for a report in flight so none lands in the next. 77 pass.
