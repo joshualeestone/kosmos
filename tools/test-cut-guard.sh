@@ -722,6 +722,27 @@ _rm_claim; rm -f "$W/chain"
 out="$(cutbusy "$T/sprobe-self" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "suite $$" ] && pass "#7512 CONTROL: the same suite with no wait running reads as a running suite" \
   || fail "#7512 CONTROL: an unmarked suite read as quiet (rc=$rc, $out)"
+# #7512 review 3: each of the other four checks holds the cut on its own (busy, and unreadable), with no suite at all.
+printf '#!/bin/sh\nexit 1\n' > "$T/sprobe-none"; chmod +x "$T/sprobe-none"
+cutonly() (   # <which check is busy> ; every other check quiet
+  kosmos_prepush_build_live() { [ "$CUTONLY" = prepush ]; }
+  pgrep() { case "$CUTONLY" in shards) return 0 ;; shards-unreadable) return 2 ;; *) return 1 ;; esac; }
+  kosmos_running_lines() {
+    case "$CUTONLY:$1" in install:tools/test-install.sh) echo "1 bash tools/test-install.sh"; return 0 ;;
+      install-unreadable:tools/test-install.sh) return 2 ;; esac
+    return 1
+  }
+  KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-none" kosmos_cut_quiet_box_busy
+)
+for c in "prepush:relay pre-push build" "shards:shell shards running" "shards-unreadable:shell shards running" \
+         "install:running: tools/test-install.sh" "install-unreadable:could not tell whether tools/test-install.sh runs"; do
+  out="$(CUTONLY="${c%%:*}" cutonly 2>&1)"; rc=$?
+  { [ "$rc" -eq 0 ] && has "$out" "${c#*:}"; } && pass "#7512 ${c%%:*} alone holds the cut ($out)" \
+    || fail "#7512 ${c%%:*} alone did not hold the cut (rc=$rc, $out)"
+done
+out="$(CUTONLY=none cutonly 2>&1)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ -z "$out" ]; } && pass "#7512 CONTROL: with every check quiet the box reads quiet (rc 1, nothing said)" \
+  || fail "#7512 CONTROL: an all-quiet box did not read quiet (rc=$rc, $out)"
 # And the wiring the chain leans on: run-tests.sh asks about the claim inside the box check, and waits for that check in
 # the suite queue (which is what writes the marker).
 _wired "$RT" '^_rt_box_clear() {' && grep -A1 '^_rt_box_clear() {' "$RT" | grep -q 'kosmos_refuse_if_machine_claimed "this test run" || return 1' \

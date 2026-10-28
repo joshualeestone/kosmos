@@ -32,9 +32,13 @@ suite and the suite waited on the cut, for about 20 minutes, until someone stopp
 - Review 1, the wiring: run-tests.sh's box check asks about the claim on its first line, and it waits for that check
   in the suite queue.
 
+- Review 3: each other check holds the cut alone (a pre-push build; shard workers, and a pgrep that fails; an install
+  harness, and one that cannot be read); CONTROL: all quiet reads quiet, saying nothing.
+
 Mutants: no waiter drop (3 red), every suite dropped (2 red), an unreadable read taken as quiet (1 red), the queue
 writing no marker (the chain arm red), the claim check moved out of the box check and the suite queue dropped (the
-wiring arms red).
+wiring arms red); review 3's five: no pre-push, no shards, a shard error read as none, no install, cannot-tell read as
+quiet (each red on its own arm).
 
 ## Rejected / out of scope
 

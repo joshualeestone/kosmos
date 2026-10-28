@@ -626,6 +626,12 @@ kosmos_refuse_if_suite_live() {
 # suite, stray shell-shard workers (a #7100 shard can outlive its leader), an install harness, a browser-checks run.
 # KNOWN RESIDUAL: a suite started with the suite check off (KOSMOS_TESTS_IGNORE_SUITE=1, or inside a test) waits
 # without a marker, so it still reads as busy; its wait gives up at its own bound (KOSMOS_WAIT_MAX_S, 20 minutes).
+# 🔑 SAFE ONLY WHILE THE CALLER HOLDS THE MACHINE CLAIM AND RENEWS IT (review 3). Skipping a waiting suite is safe
+# because that suite's box check asks about the claim first, so it cannot leave its wait while the claim stands. A
+# caller that waits for quiet BEFORE claiming, or lets the claim lapse, could read a waiter as not running in the very
+# moment it unmarks and starts. The wrapper claims first and renews every poll.
+# Unlike kosmos_refuse_if_suite_live it keeps suites started inside a test (no _kosmos_drop_test_fixtures), as the
+# wrapper's copy did: that only errs toward busy.
 # Seams: KOSMOS_SUITE_PROBE and KOSMOS_SUITE_SELF_PID, as kosmos_refuse_if_suite_live reads them.
 # Review 2: a pgrep that fails (rc 2 or more) is busy too, as the comment above promises; only 1 is "none".
 _kosmos_shell_shards_live() { local rc=0; pgrep -f "tools/shell-shard\.js run" >/dev/null 2>&1 || rc=$?; [ "$rc" -ne 1 ]; }
