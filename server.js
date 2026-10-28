@@ -20403,7 +20403,8 @@ const server = http.createServer(async (req, res) => {
         const rl = require('./engine/restartline');
         if (!rl.isVersion(v)) { sendJson(res, 400, { error: 'that is not a version we can record' }); return; }
         const now = rl.read();
-        if (now && now.version !== v) { sendJson(res, 409, { error: 'Kosmos has been updated again since this page loaded. Reload to see what is new.' }); return; }
+        if (!now) { sendJson(res, 500, { error: 'Kosmos could not record that just now. Try again in a moment.' }); return; }
+        if (now.version !== v) { sendJson(res, 409, { error: 'Kosmos has been updated again since this page loaded. Reload to see what is new.' }); return; }
         let ok = false;
         try { ok = rl.notNow(v); } catch { ok = false; }
         if (!ok) { sendJson(res, 500, { error: 'Kosmos could not record that just now. Try again in a moment.' }); return; }

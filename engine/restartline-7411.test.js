@@ -81,6 +81,7 @@ test('#7411: no line on a first install, after Not now, or with no record; a bla
 
 test('#7411: atStart keeps each version\'s first start; Not now holds until the next update', () => {
   fs.rmSync(RECORD, { force: true });
+  assert.equal(rl.notNow('0.7.71'), false, 'Not now said it was recorded with no record to write');
   assert.deepEqual(rl.atStart('0.7.71', 1000).history, [{ version: '0.7.71', at: 1000 }]);
   assert.equal(rl.atStart('0.7.71', 5000).history.length, 1, 'a restart on the same version added an entry');
   assert.deepEqual(rl.atStart('0.7.72', 9000).history, [{ version: '0.7.71', at: 1000 }, { version: '0.7.72', at: 9000 }]);
