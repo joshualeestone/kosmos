@@ -1760,6 +1760,7 @@ final class FakeBoardWorld {
     // kosmos#7034: the answer to a star pressed on the phone (PUT /api/agent-stars), and the last body it carried.
     var starWriteAnswer: (Int, String)? = nil
     var starWriteBodies: [String] = []
+    var starWriteYields = 0   // review 2: hold a star's save this many turns
     // Each stars read waits the first count's yields before it answers; empty: none.
     var starsYields: [Int] = []
     // Each status read waits the first count's yields before it is sent; statusStarted counts the status reads begun.
@@ -1927,6 +1928,7 @@ func boardLoopTests() async {
                                  env: .init(send: { r in
                                                 if r.httpMethod == "POST" { for _ in 0..<world.postYields { await Task.yield() } }
                                                 else if r.url?.path.hasSuffix("/thread") == true { for _ in 0..<world.threadYields { await Task.yield() } }
+                                                if r.url?.path == "/api/agent-stars", r.httpMethod == "PUT" { for _ in 0..<world.starWriteYields { await Task.yield() } }
                                                 else if r.url?.path == "/api/agent-stars", r.httpMethod != "PUT", !world.starsYields.isEmpty { for _ in 0..<world.starsYields.removeFirst() { await Task.yield() } }
                                                 else if r.url?.path == "/api/status" { world.statusStarted += 1; if !world.statusYields.isEmpty { for _ in 0..<world.statusYields.removeFirst() { await Task.yield() } } }
                                                 else if r.url?.path.hasPrefix("/api/attachment/") == true { world.attachmentStarted.append(r.url!.path); for _ in 0..<world.attachmentYields { await Task.yield() } }
@@ -2039,6 +2041,28 @@ section("starring from the phone (kosmos#7034)")
         w.starWriteAnswer = (502, "{}")
         await c.toggleStar("dana")
         check(c.isStarred("dana") && !c.isStarred("wes"), "a failed unstar puts back only that agent")
+        c.stop()
+    }
+
+    do {
+        // Review 2: a pull that begins while a star is still saving never undoes it (its read may predate the save).
+        let (c, w, _, _) = make("kst1")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"},{"sessionName":"wes","name":"Wes","state":"working"}]}"#)
+        w.starsAnswer = (200, #"{"names":[],"ok":true}"#)
+        c.start()
+        let ok = await settle { isLive(c) }
+        w.starsAnswer = (200, #"{"names":[],"ok":true}"#)   // the board's list before it applied the press
+        // The save is out first; the pull begins while it is out; the save ends; only then does the pull's stars read land.
+        w.starWriteYields = 60
+        w.starWriteAnswer = (200, #"{"names":["wes"],"ok":true}"#)
+        async let press: () = c.toggleStar("wes")
+        let outNow = await settle { c.starring.contains("wes") }
+        check(ok && outNow && c.isStarred("wes"), "premise: the star is out (held) and already shown")
+        w.starsYields = [600]
+        async let pull: () = c.refreshNow()
+        await press
+        await pull
+        check(c.isStarred("wes"), "review 2: a pull begun while the star was saving does not take it away")
         c.stop()
     }
 
