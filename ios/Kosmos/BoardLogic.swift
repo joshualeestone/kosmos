@@ -258,6 +258,11 @@ enum Board {
         var lastActiveAt: Date? = nil
         var createdAt: Date? = nil
         var model: String? = nil
+        // The role the person picked on the agent's profile (profile.role), which the desktop's roleLine names before the
+        // line parsed from its instructions; and whether its messages are stuck (deliveryStall, #7212), which the
+        // desktop's Needs you first ranks with the agents that need the person.
+        var profileRole: String? = nil
+        var deliveryStall = false
         var id: String { session }
     }
 
@@ -300,7 +305,9 @@ enum Board {
                          lastTalkedAt: isoDate(row["lastTalkedAt"] as? String),
                          lastActiveAt: isoDate(row["lastActiveAt"] as? String),
                          createdAt: isoDate(row["createdAt"] as? String),
-                         model: Board.sortModel(row))
+                         model: Board.sortModel(row),
+                         profileRole: ((row["profile"] as? [String: Any])?["role"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 },
+                         deliveryStall: row["deliveryStall"] is [String: Any] || (row["deliveryStall"] as? Bool) == true)
         }
     }
 
@@ -372,14 +379,33 @@ enum Board {
     // A saved choice: one of the eight, or the phone's older "board" (its Needs you first), else the default.
     static func agentSort(saved: String) -> AgentSort { saved == "board" ? .needs : AgentSort(rawValue: saved) ?? agentSortDefault }
 
-    // The model the row says, as the desktop's tileModelLine reads it for the order: the live model, else the one its job
-    // will start on, else the earlier session's (a bare Claude model name gets "Claude " in front, as there). nil when
-    // none is known, which sorts last.
+    // The model line the desktop's order reads (web/index.html sortAgents: tileModelLine over modelLine), ported branch
+    // for branch so an agent groups with the same model on both: a stopped agent names the model its job will start on;
+    // Codex, Qwen, DeepSeek, Gemini, Grok, Antigravity and Muse carry their provider's words; a Claude name gets "Claude ";
+    // an agent known only by an earlier session's model is named by that. nil (sorted last) when the desktop's key is.
     static func sortModel(_ row: [String: Any]) -> String? {
-        func text(_ k: String) -> String? { (row[k] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } }
-        if let m = text("modelName") ?? text("plannedModelName") { return m }
-        if let e = text("earlierModelName") { return e.lowercased().hasPrefix("claude") ? e : "Claude " + e }
-        return text("runner").flatMap { ["codex", "gemini", "grok", "antigravity", "muse"].contains($0) ? $0 : nil }
+        func text(_ k: String) -> String? { (row[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        func has(_ s: String, _ pattern: String) -> Bool { s.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil }
+        let runner = text("runner"), provider = (row["account"] as? [String: Any])?["provider"] as? String
+        let earlier = text("earlierModelName")
+        guard ["codex", "gemini", "grok", "antigravity", "muse"].contains(runner ?? "") || text("modelName") != nil
+                || text("plannedModelName") != nil || earlier != nil else { return nil }
+        let notRunning = text("state") == "stopped"
+        let name = (notRunning ? text("plannedModelName") : nil) ?? text("modelName") ?? text("plannedModelName")
+        let line: String
+        if runner == "codex" && provider == "alibaba" { line = name.map { has($0, "qwen") ? $0 : "Qwen " + $0 } ?? "Qwen" }
+        else if runner == "codex" { line = name.map { has($0, "^(gpt|openai|codex)\\b") ? $0 : "OpenAI " + $0 } ?? "OpenAI Codex" }
+        else if provider == "deepseek" { line = name.map { has($0, "deepseek") ? $0 : "DeepSeek " + $0 } ?? "DeepSeek" }
+        else if runner == "gemini", let n = name, !notRunning, let set = text("settingModelName") { line = n + " (set to " + set + ")" }
+        else if runner == "gemini" || runner == "grok" { line = name ?? (runner == "gemini" ? "Gemini" : "Grok") }
+        else if runner == "antigravity" { line = name ?? "Gemini (Google subscription)" }
+        else if runner == "muse" { line = name ?? "Meta Muse" }
+        else if let n = name { line = has(n, "^claude") ? n : "Claude " + n }
+        else { line = (row["neverRecorded"] as? Bool) == true ? "Made before Kosmos recorded this" : "Unknown Model" }
+        // tileModelLine: an agent with only an earlier session's model is named by it.
+        if let e = earlier, text("modelName") == nil, text("plannedModelName") == nil,
+           line == "Made before Kosmos recorded this" || line == "Unknown Model" { return has(e, "^claude") ? e : "Claude " + e }
+        return line
     }
 
     // The role as the desktop's roleLine shows it for the order: the first character a capital, the rest as written.
@@ -414,7 +440,7 @@ enum Board {
             }
         }
         func needsRank(_ a: Agent) -> Int {
-            if a.needsYou { return 0 }
+            if a.needsYou || a.deliveryStall { return 0 }
             switch a.state {
             case "blocked": return 1
             case "working", "restarting": return 2
@@ -428,7 +454,7 @@ enum Board {
             case .model: return cmpText(a.model, b.model)
             case .needs: return needsRank(a) - needsRank(b)
             case .project: return cmpText(projects[a.session], projects[b.session])
-            case .role: return cmpText(sortRole(a.role), sortRole(b.role))
+            case .role: return cmpText(sortRole(a.profileRole ?? a.role), sortRole(b.profileRole ?? b.role))
             case .active: return cmpTime(a.lastActiveAt, b.lastActiveAt)
             case .newest: return cmpTime(a.createdAt, b.createdAt)
             case .talked: return cmpTime(a.lastTalkedAt, b.lastTalkedAt)

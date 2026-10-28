@@ -78,8 +78,12 @@ struct AgentsView: View {
         // Signed out, another account or another Mac: the open chat was the previous one's, so it closes.
         .onChange(of: client.chatEpoch) { _ in openAgent = nil }
         .onChange(of: agentRequest) { _ in openRequested() }
-        // kosmos#7421: By project needs the projects list; read when that order is picked, and again on each visit.
-        .task(id: sortChoice) { if sortChoice == .project { await readProjectNames() } }
+        // kosmos#7421: the chosen order goes to the list at once, and on each visit; By project first reads each agent's
+        // projects (again after a computer or account change, whose names were the other one's).
+        .task(id: SortRead(sort: sortChoice, epoch: client.chatEpoch)) {
+            if sortChoice != .project { projectNames = [:] } else { await readProjectNames() }
+            client.setAgentSort(sortChoice, projects: projectNames)
+        }
         .onAppear {
             visible = true
             client.show(BoardClient.agentsViewer)   // kosmos#7030: Today reads the same list
@@ -107,8 +111,11 @@ struct AgentsView: View {
     // kosmos#7421: each agent's first project name, for By project. A read that fails keeps the last answer (agents with no
     // known project sort last, after the rest, as on the desktop).
     private func readProjectNames() async {
+        let epoch = client.chatEpoch
         let answer = await client.throughMac { Board.projectsRequest(mac: $0) }
+        guard epoch == client.chatEpoch else { return }   // review 1: never another computer's names
         if let answer, answer.1.statusCode == 200, let list = Board.parseProjects(answer.0) { projectNames = Board.firstProjects(list) }
+        else { projectNames = [:] }   // review 1: unread is unknown (sorted last), never an older map
     }
 
     // kosmos#7418: a notification's agent opens as a tap on its row would: the list's own entry when it has it (its
@@ -184,7 +191,7 @@ struct AgentsView: View {
                 }
             }
             Section(footer: footer) {
-                ForEach(Board.agentOrder(client.agents, sort: sortChoice, projects: projectNames)) { agent in
+                ForEach(client.agents) { agent in   // in the chosen order (BoardClient.setAgentSort, kosmos#7421)
                     // kosmos#7008: the agent's chat, native; anything it does not draw opens the board's (openChat).
                     Button {
                         openAgent = agent
@@ -583,6 +590,9 @@ struct KosmosMark: View {
 // kosmos#7417 (Josh 10-27): the mark is its own circle, apart from the computer switcher. On iOS 26 the bar draws
 // neighbouring items in one glass pill, which clipped the mark's sides; so the mark draws no glass of its own and a
 // fixed gap starts a new pill for the switcher. Before iOS 26 there is no pill and the two simply sit side by side.
+// kosmos#7421: what the Agents list's sort read is keyed on.
+private struct SortRead: Equatable { let sort: Board.AgentSort; let epoch: Int }
+
 struct KosmosBarLeading<S: View>: ToolbarContent {
     let switcher: S?
 
