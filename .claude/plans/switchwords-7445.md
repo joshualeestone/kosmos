@@ -1,5 +1,7 @@
 # #7445: a switch between two non-Claude providers says the conversation does not come across
 
+**Posture:** production
+
 ## Done when
 1. A non-Claude to non-Claude switch (Codex to Gemini, Gemini to Grok, ...) says the conversation does not come across,
    in the dialog (web/index.html switchCrossesFamily / switchFamilyNote) and in the result sentence (engine/create.js
