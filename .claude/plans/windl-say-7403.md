@@ -45,9 +45,9 @@ All in `tools/windows/KosmosLauncher.cs`; decisions are pure statics on `KosmosL
    reported the same way, and its `DownloadStarting` arrives about 16 ms AFTER NavigationCompleted (measured). So
    `NoContentNavigationSays` picks a failed board (or Kosmos Plus computer) navigation to a board download route
    (`/api/agent/<n>/files/download`, `.../download-folder`, `/api/project/<id>/file-download`) with
-   CONNECTION_ABORTED or 204, and `SayUnlessADownloadStarted` waits 1.5 s and says it only if no download of that
-   address started (`DownloadCameOfNavigation`: from 2 s before the end to the end of the wait). Such a navigation is
-   then not handed to the failed-board-load path (the board answered). The board's own `?check=1` path is unchanged:
+   CONNECTION_ABORTED or 204, and `SayUnlessADownloadStarted` waits 1.5 s and says it only if no download started
+   (`AnyDownloadCameOfNavigation`: any address, from 2 s before the end to the end of the wait) and the board proves
+   it answered (Review 1). Such a navigation is decided there, not also by the failed-board-load path. The board's own `?check=1` path is unchanged:
    nothing on the board side changed at all.
 5. **Logging.** The launcher keeps no log file, so every refusal goes to `OutputDebugStringW` ("Kosmos #7403: ..."),
    readable with DebugView. (`work\dlmeasure\dbwin.ps1` is a minimal reader.)
@@ -96,12 +96,44 @@ COREWEBVIEW2_WEB_ERROR_STATUS CONNECTION_ABORTED = 9 (2937).
   11 s, shown (second of that sentence); after another 11 s, none (third on the page); after a reload, shown again.
   Screenshots: `work\dlmeasure\f2a-win1.png`, `f2c-win1.png`, `f3-win1.png`, `f1-win1.png`, `n2a-win1.png`.
 
+## Review 1 (decided)
+
+No blocker. Four fixes, each with a probe or source check that fails on 063ff655b8 (confirmed: 3 of 9 tests fail there):
+
+1. **(warning) Any download counts, not only one with the same address.** Matching the address text missed a
+   download that did save under another spelling (a redirect inside the route, another encoding), which would then
+   be told "the board would not send it". `AnyDownloadCameOfNavigation` now accepts any download that started from
+   2 s before the navigation ended to the end of the 1.5 s wait. Weakest part: an unrelated download starting in
+   that same moment hides a real refusal; the Downloads panel still shows that one.
+2. **(warning) A board that died under the request is not told as a refusal.** After the wait, and only for this
+   computer's board, the window runs its quick check (`CheckBoardBeforeReuse`, 1.5 s, on a thread-pool thread, the
+   same check NavigationStarting makes). `NoContentRefusalStands` says the sentence only for Proved or NotEnforcing
+   (the window's own rule for staying, `MayNavigateSignedIn`); anything else goes to `CheckThenShowNotConfirmed`, the
+   path the old code took for this error, and the sentence is not said. An answer after the window moved to another
+   visit is dropped. Known gap, chosen: on a board that does not enforce sign-in (no board.token) the quick check
+   does not contact the board, so a died-board there would still be told as a refusal. Every current board
+   enforces. A Kosmos Plus computer's board is not checked (this computer's port says nothing about it).
+3. **(nit) Pause.** The comment now says a pause arrives as INTERRUPTED with USER_PAUSED (said nothing), and the
+   `downloadsWatched` list is dropped: WebView2 holds each StateChanged handler for as long as its download can
+   raise it, so a paused download that later fails is still seen.
+4. **(nit) Pruning.** Download start times are a list pruned on each add to what a running wait can still ask
+   about (`DownloadStartsKeptMs` = 2 s + 1.5 s).
+
+Left as is (nit): the sentence per host, as the Mac.
+
+Re-measured in the real window with the Review 1 build (signed exe, scratch folder, live board): case 1 saved with no
+box (`r1-win1.png`); a download by navigation saved with no box; 2a, 2c (after the board's quick check proved) and 3
+each showed their sentence (`r2a-win1.png`, `r2c-win1.png`, `r3-win1.png`). The died-board branch was not driven in
+the window (that needs the live board stopped); the probe and source checks cover it.
+
+**Signing note:** this branch's Kosmos.exe is the first commit signed under the intermediate "Microsoft ID Verified
+CS EOC CA 03" (earlier ones: "AOC CA 04"). Same root, same signer name (Kosmos Agent Manager, Inc.); the pinned
+checks and verify-launcher.ps1 pass.
+
 ## Not covered
 
 - A download from a connected Kosmos+ computer's board (this box has none); the code path is the same handler.
 - Chromium's own "Download multiple files" prompt is unchanged.
 - The 204 sentence cannot name the board's exact reason (gone, too big, busy, not allowed).
 - A download Chromium interrupts that WebView2 can resume is still said as not saved (true at that moment).
-- The last two source edits after the window measurement (an equivalent rewrite of the first-load condition and a
-  comment) were not re-measured in the window; the tests cover both.
 - `OutputDebugString` is not a log a person can send; the launcher has no log file.

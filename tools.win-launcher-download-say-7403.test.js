@@ -107,7 +107,7 @@ test('#7403: every new interface is a prefix of the header\'s order, under the h
 test('#7403: a download goes exactly as before: the handler only watches, never cancels, handles or redirects', () => {
   const start = method('internal void OnDownloadStarting(');
   assert.doesNotMatch(start, /put_Cancel|put_Handled|put_ResultFilePath|GetDeferral|\.Cancel\(/);
-  assert.match(start, /add_StateChanged\(watch, out token\)/);
+  assert.match(start, /add_StateChanged\(new DownloadStateChanged\(this\), out token\)/);
   assert.doesNotMatch(slice('public interface ICoreWebView2DownloadStartingEventArgs', '\n}\n'), /put_/, 'nothing that could change a download is even declared');
   const ready = method('internal void ControllerReady(');
   assert.match(ready, /webView as ICoreWebView2_4/, 'reached by a QueryInterface, never assumed');
@@ -116,6 +116,10 @@ test('#7403: a download goes exactly as before: the handler only watches, never 
   const changed = method('internal void OnDownloadStateChanged(');
   assert.match(changed, /KosmosLauncher\.DownloadInterruptedSays\(reason\)/);
   assert.match(changed, /TellRefusal\(says\)/);
+  // Review 1 (nit 3): a pause is INTERRUPTED with USER_PAUSED, and no list of handlers is kept that a pause could
+  // leave wrong (WebView2 holds each handler while its download can raise it).
+  assert.match(changed, /A pause arrives as INTERRUPTED with USER_PAUSED/);
+  assert.doesNotMatch(SOURCE, /downloadsWatched/);
 });
 
 test('#7403: a refused link says why, on both refusal paths, but not twice for a connect computer\'s first load', () => {
@@ -128,11 +132,20 @@ test('#7403: a refused link says why, on both refusal paths, but not twice for a
 test('#7403: a board 204 to a navigation is said only after the window has seen no download come of it', () => {
   const done = method('internal void OnNavigationCompleted(');
   assert.match(done, /KosmosLauncher\.NoContentNavigationSays\(false, webError, httpStatus, toBoard, address\)/);
-  assert.match(done, /boardNav = false;\s*SayUnlessADownloadStarted\(address, refused\);/, 'an answered refusal is not a board that could not be reached');
+  assert.match(done, /SayUnlessADownloadStarted\(address, refused, boardNav\);\s*boardNav = false;/, 'decided in one place, with whether it was this computer\'s board');
   assert.ok(done.indexOf('SayUnlessADownloadStarted') < done.indexOf('if (boardNav && success == 0)'), 'decided before the failed-load handling');
   const settle = method('internal void SayUnlessADownloadStarted(');
-  assert.match(settle, /DownloadCameOfNavigation\(startedAt, endedAt, DownloadSettleMs\)/);
-  assert.match(method('internal void OnDownloadStarting('), /downloadStartedAt\[address\] = windowClock\.ElapsedMilliseconds/);
+  // Review 1 (warning 1): any download in the window counts, not only one whose address text matches.
+  assert.match(settle, /KosmosLauncher\.AnyDownloadCameOfNavigation\(downloadStarts, endedAt, KosmosLauncher\.DownloadSettleMs\)/);
+  assert.doesNotMatch(settle, /TryGetValue\(address/);
+  // Review 1 (warning 2): the board is checked first, off the window's thread; one that does not prove goes to the
+  // existing not-confirmed check, never to a sentence blaming the file.
+  const tick = settle.slice(settle.indexOf('if (!checkBoard)'));
+  assert.match(tick, /ThreadPool\.QueueUserWorkItem\(unused =>\s*\{\s*KosmosLauncher\.ReuseCheck check = KosmosLauncher\.CheckBoardBeforeReuse\(boardPort, KosmosLauncher\.ReuseQuickCheckMs\);/);
+  assert.match(tick, /if \(KosmosLauncher\.NoContentRefusalStands\(check\)\) TellRefusal\(sentence\);\s*else\s*\{[^}]*CheckThenShowNotConfirmed\(KosmosLauncher\.MayNavigateSignedIn\);/);
+  assert.match(tick, /if \(visit != boardVisit\) return;/, 'an answer after the window moved on is dropped');
+  // Review 1 (nit 4): pruned as each download is added.
+  assert.match(method('internal void OnDownloadStarting('), /KosmosLauncher\.PruneDownloadStarts\(downloadStarts, now\);\s*downloadStarts\.Add\(now\);/);
 });
 
 test('#7403: one box at a time, modal to the window, from its own thread, every refusal logged first', () => {
@@ -252,7 +265,26 @@ static class DlProbe
         Row(!KosmosLauncher.DownloadCameOfNavigation(1000, 70000, 1500), "settle", "WINDOWS CONTROL: a download of the same file a minute earlier does not hide a refusal now");
         Row(!KosmosLauncher.DownloadCameOfNavigation(4000, 1000, 1500), "settle", "WINDOWS CONTROL: nor one after the wait is over");
 
-        const int expected = 51;
+        // Review 1 (warning 1): ANY download that started in the window counts, whatever its address.
+        var starts = new System.Collections.Generic.List<long> { 1016 };
+        Row(KosmosLauncher.AnyDownloadCameOfNavigation(starts, 1000, 1500), "any", "REVIEW 1: a download started with the navigation counts whatever its address (a redirect, another encoding): no refusal said for a saved file");
+        Row(!KosmosLauncher.AnyDownloadCameOfNavigation(new System.Collections.Generic.List<long>(), 1000, 1500), "any", "REVIEW 1 CONTROL: no download at all: the refusal is said");
+        Row(!KosmosLauncher.AnyDownloadCameOfNavigation(new System.Collections.Generic.List<long> { 100, 9000 }, 5000, 1500), "any", "REVIEW 1 CONTROL: downloads well before or after the window do not hide it");
+        Row(KosmosLauncher.AnyDownloadCameOfNavigation(new System.Collections.Generic.List<long> { 100, 5200, 9000 }, 5000, 1500), "any", "REVIEW 1: one inside the window among others counts");
+        // Review 1 (nit 4): pruning keeps exactly what a running wait could still ask about.
+        var kept = new System.Collections.Generic.List<long> { 0, 6499, 6500, 9000 };
+        KosmosLauncher.PruneDownloadStarts(kept, 10000);
+        Row(kept.Count == 2 && kept[0] == 6500 && kept[1] == 9000, "prune", "REVIEW 1: starts older than 3.5 s are dropped, the boundary and newer kept (kept " + string.Join(",", kept) + ")");
+        Row(KosmosLauncher.DownloadStartsKeptMs == KosmosLauncher.DownloadBeforeNavigationEndMs + KosmosLauncher.DownloadSettleMs, "prune", "REVIEW 1: what is kept covers the latest a wait can look back (2 s before an end 1.5 s ago)");
+        // Review 1 (warning 2): the refusal is said only once the board is known to have answered.
+        Row(KosmosLauncher.NoContentRefusalStands(KosmosLauncher.ReuseCheck.Proved), "board", "REVIEW 1: a board that proves answered: the refusal is said");
+        Row(KosmosLauncher.NoContentRefusalStands(KosmosLauncher.ReuseCheck.NotEnforcing), "board", "REVIEW 1: a board that does not enforce sign-in, as the window's own rule for staying");
+        Row(!KosmosLauncher.NoContentRefusalStands(KosmosLauncher.ReuseCheck.NoListener), "board", "REVIEW 1: nothing listening (the board died): no refusal, the not-confirmed check instead");
+        Row(!KosmosLauncher.NoContentRefusalStands(KosmosLauncher.ReuseCheck.NoAnswer), "board", "REVIEW 1: no answer in time: no refusal");
+        Row(!KosmosLauncher.NoContentRefusalStands(KosmosLauncher.ReuseCheck.NotProven), "board", "REVIEW 1: something that is not this board: no refusal");
+        Row(!KosmosLauncher.NoContentRefusalStands(KosmosLauncher.ReuseCheck.TokenUnreadable), "board", "REVIEW 1: a token that cannot be read: no refusal");
+
+        const int expected = 63;
         if (ran != expected) { Console.WriteLine("\ndl-check: only " + ran + " of " + expected + " rows ran, so this proved nothing"); return 1; }
         if (bad > 0) { Console.WriteLine("\ndl-check: " + bad + " row(s) wrong"); return 1; }
         Console.WriteLine("\ndl-check: all good (" + ran + " rows)");
@@ -274,8 +306,8 @@ test('#7403: the probe compiles beside the launcher, and every row runs and pass
   assert.equal(built.status, 0, 'the probe did not compile: ' + built.stdout + built.stderr);
   const r = spawnSync(out, [], { encoding: 'utf8', windowsHide: true });
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /\ndl-check: all good \(51 rows\)\s*$/, 'the probe exited 0 without its verdict: ' + r.stdout);
-  assert.equal((r.stdout.match(/^PASS /gm) || []).length, 51, r.stdout);
+  assert.match(r.stdout, /\ndl-check: all good \(63 rows\)\s*$/, 'the probe exited 0 without its verdict: ' + r.stdout);
+  assert.equal((r.stdout.match(/^PASS /gm) || []).length, 63, r.stdout);
   assert.doesNotMatch(r.stdout, /^FAIL /m, r.stdout);
   /* The Mac's refusalShouldShow rows are all here, by their words: a row dropped on one side is a rule the two no
      longer share. */

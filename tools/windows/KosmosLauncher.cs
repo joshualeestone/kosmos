@@ -1417,11 +1417,40 @@ class KosmosLauncher
 
     // Whether a download that started at `startedAtMs` came of a navigation that ended at `endedAtMs`: it started at
     // most two seconds before the end (the order of the two events is WebView2's) or within the wait after it. An
-    // older download of the same address (a file saved a minute ago, refused now) does not hide the refusal.
+    // older download (a file saved a minute ago, refused now) does not hide the refusal.
     internal const long DownloadBeforeNavigationEndMs = 2000;
+    internal const int DownloadSettleMs = 1500;   // how long the window waits after the navigation ends before it looks
     internal static bool DownloadCameOfNavigation(long startedAtMs, long endedAtMs, long settleMs)
     {
         return startedAtMs >= endedAtMs - DownloadBeforeNavigationEndMs && startedAtMs <= endedAtMs + settleMs;
+    }
+
+    // Review 1: ANY download that started in that window counts, whatever its address. Matching the address text
+    // missed a download that DID save under another spelling of it (a redirect inside the route, another encoding)
+    // and then said "the board would not send it" about a file that was saved. Erring this way can only leave a
+    // refusal unsaid while some other download starts at the same moment, which the panel shows anyway.
+    internal static bool AnyDownloadCameOfNavigation(IList<long> startedAtMs, long endedAtMs, long settleMs)
+    {
+        foreach (long started in startedAtMs) if (DownloadCameOfNavigation(started, endedAtMs, settleMs)) return true;
+        return false;
+    }
+
+    // Review 1: the start times kept are only those a wait still running could ask about. A check asks, at the
+    // latest, about starts from DownloadBeforeNavigationEndMs before an end at most DownloadSettleMs ago, so anything
+    // older than both together is dropped whenever a download starts.
+    internal const long DownloadStartsKeptMs = DownloadBeforeNavigationEndMs + DownloadSettleMs;
+    internal static void PruneDownloadStarts(List<long> startedAtMs, long nowMs)
+    {
+        for (int i = startedAtMs.Count - 1; i >= 0; i--) if (startedAtMs[i] < nowMs - DownloadStartsKeptMs) startedAtMs.RemoveAt(i);
+    }
+
+    // Review 1: a refused-looking download navigation is said only once the board is known to have answered: the
+    // window's quick check (CheckBoardBeforeReuse) proved it, or this board does not enforce sign-in (the window's
+    // own rule for staying, MayNavigateSignedIn). Any other answer means the board may have died under the request,
+    // and that goes to the window's existing not-confirmed check instead of a sentence blaming the file.
+    internal static bool NoContentRefusalStands(ReuseCheck check)
+    {
+        return MayNavigateSignedIn(check);
     }
 
     // The board's download routes, every one of which refuses through refuseDownload (server.js): one agent file
@@ -3696,11 +3725,9 @@ class BoardWindowForm : System.Windows.Forms.Form
     // main-frame commits it counts pages by (OnContentLoading), as the Mac's pageCommits.
     readonly KosmosLauncher.RefusalGate refusals = new KosmosLauncher.RefusalGate();
     int pageCommits;
-    // #7403: each download's StateChanged handler, held until the download ends.
-    readonly List<DownloadStateChanged> downloadsWatched = new List<DownloadStateChanged>();
-    // #7403: when (windowClock) a download of each address last started, so a board download navigation that became a
-    // download is not said as a refusal (SayUnlessADownloadStarted).
-    readonly Dictionary<string, long> downloadStartedAt = new Dictionary<string, long>(StringComparer.Ordinal);
+    // #7403: when (windowClock) each recent download started, any address, so a board download navigation that became
+    // a download is not said as a refusal (SayUnlessADownloadStarted). Pruned as each one is added.
+    readonly List<long> downloadStarts = new List<long>();
     // #6882: which visit to the board this is. Moved on whenever the window starts or stops showing a board
     // (NavigateToBoard, ShowNotConfirmed, RunAgentsHere, SwitchToConnect), so a check that answers after the window
     // moved on is dropped rather than acted on against the next visit.
@@ -4362,46 +4389,66 @@ class BoardWindowForm : System.Windows.Forms.Form
         ICoreWebView2DownloadOperation download;
         args.get_DownloadOperation(out download);
         if (download == null) return;
-        string address = null;
-        try { download.get_Uri(out address); } catch { address = null; }
-        if (address != null) downloadStartedAt[address] = windowClock.ElapsedMilliseconds;
-        DownloadStateChanged watch = new DownloadStateChanged(this);
+        long now = windowClock.ElapsedMilliseconds;
+        KosmosLauncher.PruneDownloadStarts(downloadStarts, now);
+        downloadStarts.Add(now);
+        // WebView2 holds the handler (it AddRefs the COM wrapper) for as long as the download can still raise it.
         long token;
-        download.add_StateChanged(watch, out token);
-        downloadsWatched.Add(watch);
+        download.add_StateChanged(new DownloadStateChanged(this), out token);
     }
 
     // A navigation to a board download route that failed the way a refusal does (NoContentNavigationSays) is said only
-    // if no download for that address started around it: a download the board did send aborts its navigation the
-    // same way. The order of the two events is WebView2's, so the window waits a moment and then looks.
-    const int DownloadSettleMs = 1500;
-    internal void SayUnlessADownloadStarted(string address, string sentence)
+    // if no download started around it (a download the board did send aborts its navigation the same way, and its
+    // DownloadStarting comes after: measured, 16 ms), and only once the board is known to have answered (review 1:
+    // a board that died under the request is the not-confirmed check's business, not a sentence about the file).
+    // `checkBoard` is false for a Kosmos Plus computer's board, which this computer's port says nothing about.
+    internal void SayUnlessADownloadStarted(string address, string sentence, bool checkBoard)
     {
         long endedAt = windowClock.ElapsedMilliseconds;
+        int visit = boardVisit;
         System.Windows.Forms.Timer settle = new System.Windows.Forms.Timer();
-        settle.Interval = DownloadSettleMs;
+        settle.Interval = KosmosLauncher.DownloadSettleMs;
         settle.Tick += (s, e) =>
         {
             settle.Stop();
             settle.Dispose();
             if (IsDisposed) return;
-            long startedAt;
-            if (downloadStartedAt.TryGetValue(address, out startedAt) && KosmosLauncher.DownloadCameOfNavigation(startedAt, endedAt, DownloadSettleMs))
+            if (KosmosLauncher.AnyDownloadCameOfNavigation(downloadStarts, endedAt, KosmosLauncher.DownloadSettleMs))
             {
                 KosmosLauncher.NoteRefusal("a board download navigation became a download: " + address);
                 return;
             }
-            TellRefusal(sentence);
+            if (!checkBoard) { TellRefusal(sentence); return; }
+            int boardPort = port;
+            ThreadPool.QueueUserWorkItem(unused =>
+            {
+                KosmosLauncher.ReuseCheck check = KosmosLauncher.CheckBoardBeforeReuse(boardPort, KosmosLauncher.ReuseQuickCheckMs);
+                try
+                {
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (visit != boardVisit) return;   // the window moved on to another visit meanwhile
+                        if (KosmosLauncher.NoContentRefusalStands(check)) TellRefusal(sentence);
+                        else
+                        {
+                            KosmosLauncher.NoteRefusal("a board download navigation failed and the board did not prove (" + check + "): " + address);
+                            CheckThenShowNotConfirmed(KosmosLauncher.MayNavigateSignedIn);
+                        }
+                    }));
+                }
+                catch { /* the window closed meanwhile */ }
+            });
         };
         settle.Start();
     }
 
-    internal void OnDownloadStateChanged(DownloadStateChanged watch, ICoreWebView2DownloadOperation download)
+    internal void OnDownloadStateChanged(ICoreWebView2DownloadOperation download)
     {
         int state;
         download.get_State(out state);
-        if (state == 0) return;   // IN_PROGRESS: a pause or a resume, not an end
-        downloadsWatched.Remove(watch);
+        // IN_PROGRESS is a resume. A pause arrives as INTERRUPTED with USER_PAUSED (said nothing, below); the handler
+        // stays registered, so a paused download that later fails or completes is still seen.
+        if (state == 0) return;
         if (state != KosmosLauncher.DownloadStateInterrupted) return;   // COMPLETED: saved
         int reason;
         download.get_InterruptReason(out reason);
@@ -4469,8 +4516,10 @@ class BoardWindowForm : System.Windows.Forms.Form
             string refused = KosmosLauncher.NoContentNavigationSays(false, webError, httpStatus, toBoard, address);
             if (refused != null)
             {
+                // Decided by SayUnlessADownloadStarted: a refusal, a download, or (the board did not prove) the same
+                // not-confirmed check the failed-load handling below would make for this error. So not handled twice.
+                SayUnlessADownloadStarted(address, refused, boardNav);
                 boardNav = false;
-                SayUnlessADownloadStarted(address, refused);
             }
         }
         // A board load that worked ends a run of failures: the next failure is retried again (once).
@@ -5287,7 +5336,7 @@ public class DownloadStateChanged : ICoreWebView2StateChangedEventHandler
     internal DownloadStateChanged(BoardWindowForm form) { this.form = form; }
     public int Invoke(ICoreWebView2DownloadOperation sender, object args)
     {
-        try { form.OnDownloadStateChanged(this, sender); } catch { /* see above */ }
+        try { form.OnDownloadStateChanged(sender); } catch { /* see above */ }
         return 0;
     }
 }
