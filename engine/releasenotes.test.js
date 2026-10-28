@@ -186,3 +186,11 @@ test('#7411 review 4: a notes file for another version than the installed app is
   fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ version: '0.7.72' }));
   assert.equal(rn.render(d, { since: null, json: false }).code, 0, 'CONTROL: matching versions read fine');
 });
+
+test('#7411 review 5: a damaged notes entry is a sentence, not a crash', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-releasenotes-'));
+  fs.writeFileSync(path.join(d, 'release-notes.json'), JSON.stringify({ version: '0.7.72', notes: [{ version: 'bad', title: 'x', line: '' }] }));
+  const r = rn.render(d, { since: null, json: false });
+  assert.equal(r.code, 1);
+  assert.match(r.err, /release notes file is damaged/);
+});

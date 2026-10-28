@@ -6,7 +6,7 @@
  * best of them.
  *
  * The pool, release/whats-new-pool.json, holds every highlight once: { title, line, icon, platforms?, rank, since,
- * status }. rank 1 is the most important. status is
+ * status, restart? }. restart: "agents" (kosmos#7411) says a running agent keeps the old behaviour until it restarts. rank 1 is the most important. status is
  *   pending  not yet shown to prod users: eligible
  *   shown    shown by a release that reached prod (shownIn names it): never chosen again
  * "prod" here is the Mac prod family (promote-channel.sh without --family win). Windows is promoted on its own and
@@ -19,6 +19,9 @@
  * caps the file, not each platform's view), so that platform's window shows fewer. Tag an item only when it truly is
  * one platform's; build refuses a list that leaves a platform with none.
  *
+ *   node tools/whats-new-pool.js notes <version> --platform=mac|linux|windows --out=<file> [--pool=<file>]
+ *       kosmos#7411: writes the release notes a build of <version> for that platform ships (app/release-notes.json):
+ *       nothing held, nothing newer than it, nothing for another platform; `kosmos whats-new` reads it. Every build runs it.
  *   node tools/whats-new-pool.js build <version> [--max=5] [--pool=<file>] [--out=<file>] [--offline]
  *       #5713: FIRST it reads what Mac PROD serves (installkosmos.com's prod pointer and its manifest, which names the
  *       app commit the build was cut from) and, if that is newer than the pool's lastProd, marks that version's
@@ -290,7 +293,7 @@ function main(argv) {
   }
   const [cmd, version] = positional;
   if (positional.length !== 2 || !['build', 'shown'].includes(cmd) || !version || !whatsnew.VERSION_RE.test(version)) {
-    process.stderr.write('usage: node tools/whats-new-pool.js prod-check | build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--promoted] [--from-history --ref=<frozen sha> | --from=<file>]\n');
+    process.stderr.write('usage: node tools/whats-new-pool.js prod-check | notes <version> --platform=mac|linux|windows --out=<file> | build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--promoted] [--from-history --ref=<frozen sha> | --from=<file>]\n');
     return 2;
   }
   const poolFile = opt(argv, 'pool', POOL);
