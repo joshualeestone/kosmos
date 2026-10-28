@@ -35,9 +35,9 @@ function round() {
   return { id, top, built, open, held };
 }
 
-test('kosmos#7514: a plain close takes no subtasks, and names the built ones left', () => {
+test('kosmos#7514: a plain close takes no subtasks, and names the built ones left when asked', () => {
   const { id, top, built, open, held } = round();
-  const t = tasks.close(id, top.number);
+  const t = tasks.close(id, top.number, { wantLeft: true });
   assert.equal(t.closedWith, undefined, 'a plain close took subtasks (built means waiting for a check, #3951)');
   assert.deepEqual(t.builtLeft, [built.number]);
   assert.equal(rowOf(id, built.number).isClosed, false);
@@ -113,4 +113,59 @@ test('kosmos#7514: a subtask that stopped being built between the read and its w
     assert.equal(t.closedWith, undefined, 'a subtask put on hold after the read was closed anyway');
     assert.equal(rowOf(id, built.number).isClosed, false);
   } finally { projects.readAll = real; }
+});
+
+test('kosmos#7514: a close that asks for neither reads nothing extra and answers as it always did', () => {
+  const { id, top } = round();
+  const real = projects.readAll;
+  let reads = 0;
+  projects.readAll = (...a) => { reads += 1; return real(...a); };
+  let t;
+  try { t = tasks.close(id, top.number); } finally { projects.readAll = real; }
+  assert.equal(t.closedWith, undefined);
+  assert.equal(t.builtLeft, undefined);
+  assert.equal(reads, 0, 'a plain close read the store for subtasks nobody asked about');
+});
+
+test('kosmos#7514: a person\'s repeat set after the read is not ended by the parent close', () => {
+  const { id, top, built } = round();
+  const real = projects.readAll;
+  projects.readAll = () => {
+    const all = real();
+    projects.readAll = real;
+    projects.mutate(id, (p) => ({ ...p, tasks: p.tasks.map((t) => (t.number === built.number ? { ...t, repeat: { every: 'day' }, repeatByPerson: true } : t)) }));
+    return all;
+  };
+  try {
+    const t = tasks.close(id, top.number, { withBuilt: true });
+    assert.equal(t.closedWith, undefined, 'a repeat the person set after the read was ended');
+  } finally { projects.readAll = real; }
+});
+
+test('kosmos#7514: a built grandchild under an open child stays open', () => {
+  const id = projects.create({ name: 'Under open ' + Math.random().toString(36).slice(2), agents: ['rex'] }).id;
+  const top = tasks.create(id, { sentence: 'Top' });
+  const mid = tasks.create(id, { sentence: 'Open mid', parent: top.number, who: 'rex' });
+  const leaf = tasks.create(id, { sentence: 'Built leaf', parent: mid.number, who: 'rex' });
+  assert.equal(tasks.setBuilt(id, leaf.number, { by: 'rex' }).ok, true);
+  const t = tasks.close(id, top.number, { withBuilt: true });
+  assert.equal(t.closedWith, undefined, 'a built task under unfinished work closed with the top');
+  assert.equal(rowOf(id, leaf.number).isClosed, false);
+});
+
+test('kosmos#7514: a subtask that cannot be closed stops the rest; the answer says how far it got', () => {
+  const id = projects.create({ name: 'Partial ' + Math.random().toString(36).slice(2), agents: ['rex'] }).id;
+  const top = tasks.create(id, { sentence: 'Top' });
+  const a = tasks.create(id, { sentence: 'A', parent: top.number, who: 'rex' });
+  const b = tasks.create(id, { sentence: 'B', parent: top.number, who: 'rex' });
+  assert.equal(tasks.setBuilt(id, a.number, { by: 'rex' }).ok, true);
+  assert.equal(tasks.setBuilt(id, b.number, { by: 'rex' }).ok, true);
+  const real = projects.mutate;
+  let calls = 0;
+  projects.mutate = (...args) => { calls += 1; if (calls === 3) throw new Error('disk full'); return real(...args); };
+  let t;
+  try { t = tasks.close(id, top.number, { withBuilt: true }); } finally { projects.mutate = real; }
+  assert.equal(rowOf(id, top.number).isClosed, true, 'premise: the parent closed');
+  assert.deepEqual(t.closedWith, [a.number]);
+  assert.deepEqual(t.builtLeft, [b.number], 'the subtask that could not be closed was not named left');
 });

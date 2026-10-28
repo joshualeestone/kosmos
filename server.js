@@ -24167,7 +24167,7 @@ const server = http.createServer(async (req, res) => {
       try {
         /* #6157: a reopen records who put it back (the person from the screen, or the agent its token named; an agent
            that sends no token stays unnamed, as above) and why. #6923: a close may name the task that replaced it. */
-        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2], { replacedBy, withBuilt })
+        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2], { replacedBy, withBuilt, wantLeft: true })
           : tasks.reopen(id, taskAct[2], { by: actor, person: isViaScreen(req, {}), why });
         // Close and reopen change what the assignee's block should list, so
         // the block follows the record. Non-gating.

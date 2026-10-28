@@ -165,3 +165,18 @@ for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) 
     assert.notEqual(refused.code, 0, 'replaced and --with-built together were accepted: ' + refused.text);
   });
 }
+
+for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) {
+  test(`kosmos#7514: the ${name} command takes --with-built anywhere after the numbers, and refuses it with --replaced-by either way round`, async () => {
+    const a = round(name + 'Mid');
+    const b = round(name + 'Mid2');
+    const mid = await run(['task', 'close', projectId, String(a.top), '--with-built', '0' + String(b.top)]);
+    assert.equal(mid.code, 0, mid.text);
+    assert.equal(isDone(a.kid), true, 'the flag before a later number was not applied to the first: ' + mid.text);
+    assert.equal(isDone(b.kid), true, 'the flag was not applied to a zero-padded number after it: ' + mid.text);
+    const c = round(name + 'Order');
+    const refused = await run(['task', 'close', projectId, String(c.top), '--with-built', '--replaced-by', String(c.open)]);
+    assert.notEqual(refused.code, 0, refused.text);
+    assert.equal(isDone(c.top), false, 'a refused close closed the task');
+  });
+}

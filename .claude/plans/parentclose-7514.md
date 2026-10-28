@@ -11,9 +11,12 @@ must list each one.
 ## Change (opt-in)
 - `engine/tasks.js` `close(projectId, n, { replacedBy, withBuilt })`: with `withBuilt`, a plain close of a parent also
   closes its BUILT subtasks (built mark set, not held, not closed, not a repeat the person set), and theirs under them,
-  read from one raw snapshot (no claim join). Each is re-checked inside its own write (`onlyIfBuilt`) and records
-  `closed` with `via: 'parent'`. The result carries `closedWith`. Without it, a parent that still has built subtasks
-  returns `builtLeft`, so a caller can offer the choice. A close as replaced does neither.
+  read from one raw snapshot (no claim join) and one tree. Each is re-checked inside its own write (`onlyIfBuilt`, the
+  same predicate, the person's repeat included) and records `closed` with `via: 'parent'`. The result carries
+  `closedWith`. `wantLeft` (the route asks it) returns `builtLeft` without closing them, so a caller can offer the choice;
+  a close that asks for neither reads nothing extra (the bulk route, the Assigner, every other caller). A subtask that
+  cannot be closed stops the rest: the parent is closed, and `closedWith` and `builtLeft` say how far it got. A close
+  as replaced does neither.
 - `server.js` task close route: accepts `{ withBuilt: true }` (a boolean only; refused beside `replacedBy`), and tells
   the closed subtasks' agents, each once, from one roster. The Tasks screen's bulk close is unchanged.
 - `install/kosmos` and `tools/windows/kosmos-cli.js`: `kosmos task close <project> <n> [...] --with-built`. They say
