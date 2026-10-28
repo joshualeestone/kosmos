@@ -385,8 +385,10 @@ async function readLinux(browser, platform) {
          (the conversation measured in the Windows app), and a 1px-wide screenshot down the middle of its
          10px bar. The track is transparent over the pane's white, so a row whose colour differs from the
          bottom row (the track) is thumb. With the 40px floor the visible thumb is about 36 rows (the 2px
-         transparent border insets it); without it, about 600*600/46000 = 8. CONTROL: the same pane with
-         the floor overridden to 0 must be short, so the arm can fail. */
+         transparent border insets it); without it Chromium's own minimum gives about 13 (measured in the
+         Windows app's WebView2), not the 600*600/46000 = 8 proportion. CONTROL: the same pane with the
+         floor overridden to 0 must be short, so the arm can fail; its bound (under 25) leaves room above
+         Chromium's 13 and stays clear of the floor arm's 30. */
       const thumbRows = async (floorOff) => {
         const page = await sbBrowser.newPage({ viewport: { width: 400, height: 640 } });
         await page.addInitScript(stubPageFetches);
@@ -411,6 +413,8 @@ async function readLinux(browser, platform) {
         /* A 1px-wide PNG: each row is a filter byte then one pixel. With no left neighbour, Sub is raw,
            Up adds the row above, Average adds half of it and Paeth predicts from it. */
         if (col[24] !== 8 || (col[25] !== 2 && col[25] !== 6) || col[28] !== 0) throw new Error('thumbRows: not an 8-bit, non-interlaced RGB(A) PNG');
+        // The decoder below reads exactly 600 rows of 1px: a scaled screenshot would misread silently.
+        if (col.readUInt32BE(16) !== 1 || col.readUInt32BE(20) !== 600) throw new Error('thumbRows: expected a 1x600 screenshot, got ' + col.readUInt32BE(16) + 'x' + col.readUInt32BE(20));
         const bpp = col[25] === 6 ? 4 : 3;
         const idat = [];
         for (let o = 8; o < col.length;) { const len = col.readUInt32BE(o), type = col.toString('ascii', o + 4, o + 8); if (type === 'IDAT') idat.push(col.subarray(o + 8, o + 8 + len)); o += 12 + len; }
@@ -430,7 +434,7 @@ async function readLinux(browser, platform) {
       const withFloor = await thumbRows(false);
       const noFloor = await thumbRows(true);
       check('win32 thumb on a very long pane keeps a grabbable length (#7497)', withFloor.sw === 10 && withFloor.rows >= 30, `thumb rows = ${withFloor.rows} (bar ${withFloor.sw}px)`);
-      check('CONTROL with the floor overridden the same thumb is short, so the arm can fail (#7497)', noFloor.rows > 0 && noFloor.rows < 20, `thumb rows without the floor = ${noFloor.rows}`);
+      check('CONTROL with the floor overridden the same thumb is short, so the arm can fail (#7497)', noFloor.rows > 0 && noFloor.rows < 25, `thumb rows without the floor = ${noFloor.rows}`);
     } finally {
       await sbBrowser.close();
     }
