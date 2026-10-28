@@ -459,37 +459,79 @@ function removedNamesIn(storeRoot) { return removedNamesFrom(path.join(storeRoot
 
 /* kosmos#7409 (an outside user's list): launchd keeps `disable` in its own per-machine database, never in the plist,
    and Migration Assistant copies ~/Library/LaunchAgents but not that database. So after a move a removed agent's plist
-   loads at login, enabled, and the agent runs again. At board start, each removed agent's recorded Mac label that
-   launchd does not hold disabled is disabled again and stopped. Restore's `enable` undoes it, as it undoes a removal.
-   Returns { ok, reapplied: [labels], failed: [labels], because? }. Only labels shaped like a launchd label are used,
-   since this record is a file a person can edit. */
-const REDISABLE_LABEL_RE = /^[A-Za-z0-9._-]{1,200}$/;
+   loads at login, enabled, and the agent runs again in its tmux session. At board start, each removed agent whose
+   recorded job launchd does not hold disabled gets removal's own three steps again: `disable`, `bootout`, and its
+   session ended when the board can tie it to the agent (review 1: the session is not the job's, so bootout alone
+   leaves the agent running, hidden from the board). Restore's `enable` undoes it, as it undoes a removal.
+   Only a label removal itself would record for the record's own name (create.serviceLabel in this Kosmos, or the
+   default Kosmos's legacy com.<name>.discord) is used: removed.json is a file a person can edit. Nothing runs in a
+   dry run. Returns { ok, reapplied: [names], failed: [names], unsure: [names], because? }: failed is a step launchd or
+   tmux refused; unsure is a session the board could not tie to the agent, or could not ask about, left alone. */
 function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}) {
-  if (platform !== 'darwin') return { ok: true, reapplied: [], failed: [] };
+  const none = { ok: true, reapplied: [], failed: [], unsure: [] };
+  if (platform !== 'darwin') return none;
+  if (!commandsAreReal()) return none;
   const list = readRemovedForWrite();
-  if (list === UNREADABLE) return { ok: false, reapplied: [], failed: [], because: 'the list of removed agents could not be read' };
-  const labels = [...new Set(list.map((r) => r && r.label).filter((l) => typeof l === 'string' && REDISABLE_LABEL_RE.test(l)))];
-  if (!labels.length) return { ok: true, reapplied: [], failed: [] };
+  if (list === UNREADABLE) return { ...none, ok: false, because: 'the list of removed agents could not be read' };
+  const wid = launchidentity.currentWorldId();
+  const owned = [];
+  const seen = new Set();
+  for (const r of list) {
+    if (!r || typeof r.name !== 'string' || typeof r.label !== 'string') continue;
+    const clean = create.cleanName(r.name);
+    if (!clean) continue;
+    const ours = r.label === create.serviceLabel(clean, wid) || (launchidentity.isDefaultWorld(wid) && r.label === `com.${clean}.discord`);
+    if (!ours || seen.has(r.label)) continue;
+    seen.add(r.label);
+    owned.push({ name: clean, label: r.label });
+  }
+  if (!owned.length) return none;
   const id = uid != null ? uid : process.getuid();
   const held = run('/bin/launchctl', ['print-disabled', `gui/${id}`]);
-  if (!held || held.ok === false) return { ok: false, reapplied: [], failed: [], because: 'launchd did not say which jobs it holds disabled' };
-  // `"<label>" => disabled` (macOS 13 on) or `=> true` (before); enabled is `=> enabled` or `=> false`.
+  if (!held || held.ok === false) return { ...none, ok: false, because: 'launchd did not say which jobs it holds disabled' };
+  // `"<label>" => disabled` (macOS 13 on) or `=> true` (before). A job launchd has never seen has no line: enabled.
   const off = new Set();
   for (const line of String(held.stdout || '').split('\n')) {
     const m = /^\s*"([^"]+)"\s*=>\s*(disabled|true)\s*$/.exec(line);
     if (m) off.add(m[1]);
   }
-  const reapplied = [];
-  const failed = [];
-  for (const label of labels) {
+  const out = { ok: true, reapplied: [], failed: [], unsure: [] };
+  for (const { name, label } of owned) {
     if (off.has(label)) continue;
-    const done = run('/bin/launchctl', ['disable', `gui/${id}/${label}`]);
-    if (!done || done.ok === false) { failed.push(label); continue; }
-    // A login may already have started it; 3 is launchd for "not loaded", which is what we want.
-    run('/bin/launchctl', ['bootout', `gui/${id}/${label}`]);
-    reapplied.push(label);
+    const dis = run('/bin/launchctl', ['disable', `gui/${id}/${label}`]);
+    if (!dis || dis.ok === false) { out.failed.push(name); continue; }
+    // 3 is launchd for "not loaded", which is the end state wanted; anything else refused is a failed step.
+    const boot = run('/bin/launchctl', ['bootout', `gui/${id}/${label}`]);
+    if (!(boot && (boot.ok !== false || boot.code === 3))) { out.failed.push(name); continue; }
+    const found = sessionFor(name);
+    if (found.kind === FOUND.OURS) {
+      if (!sessionOps('darwin').end(found.session)) { out.failed.push(name); continue; }
+    } else if (found.kind !== FOUND.NONE) {
+      out.unsure.push(name);   // untied, or tmux could not be asked: left alone, as a removal leaves it
+      continue;
+    }
+    out.reapplied.push(name);
   }
-  return { ok: failed.length === 0, reapplied, failed };
+  out.ok = !out.failed.length && !out.unsure.length;
+  return out;
+}
+
+/* kosmos#7409: the board-start half, so it is tested and server.js only calls it. A real board (`enforcing`, which a
+   sandboxed fixture never is) runs reapplyRemovedDisables once, `afterMs` after it starts, and says what it did on the
+   board's own log (stdout, stderr). Returns whether it was scheduled. */
+function reapplyAtBoardStart({ enforcing, afterMs = 2000, setTimer = setTimeout, out = (t) => process.stdout.write(t), err = (t) => process.stderr.write(t) } = {}) {
+  if (!enforcing) return false;
+  const t = setTimer(() => {
+    try {
+      const kept = reapplyRemovedDisables();
+      if (kept.reapplied.length) out(`Kosmos: removed agents kept from starting again (launchd held no disable for them, as after a machine move): ${kept.reapplied.join(', ')}\n`);
+      if (kept.failed.length) err(`Kosmos: could not stop every removed agent starting again: ${kept.failed.join(', ')}\n`);
+      if (kept.unsure.length) err(`Kosmos: removed agents whose running session could not be tied to them, left alone: ${kept.unsure.join(', ')}\n`);
+      if (kept.because) err(`Kosmos: could not check removed agents' startup jobs: ${kept.because}\n`);
+    } catch (e) { err(`Kosmos: could not check removed agents' startup jobs: ${String(e && e.message)}\n`); }
+  }, afterMs);
+  if (t && typeof t.unref === 'function') t.unref();
+  return true;
 }
 
 /** Is this agent currently removed from Kosmos? */
@@ -2685,6 +2727,7 @@ function forget(name) {
 
 module.exports = {
   reapplyRemovedDisables,
+  reapplyAtBoardStart,
   plan,
   restart,
   restartAsync,   // #6173: an account move's restarts, without blocking the board's thread

@@ -1,9 +1,11 @@
 'use strict';
 /**
  * kosmos#7409: a removed agent stays off after a machine move. launchd keeps `disable` in its own per-machine database,
- * which Migration Assistant does not copy, so on the new Mac a removed agent's plist loads at login, enabled. At board
- * start, reapplyRemovedDisables disables again (and stops) every removed agent's recorded Mac label that launchd does
- * not hold disabled. Driven through remove.setRunner, against a sandboxed removed.json; every call is recorded.
+ * which Migration Assistant does not copy, so on the new Mac a removed agent's plist loads at login, enabled, and the
+ * agent runs again in its tmux session. At board start, reapplyRemovedDisables gives each removed agent whose recorded
+ * job launchd does not hold disabled removal's own steps again: disable, bootout, and its session ended when the board
+ * can tie it to the agent. Driven through remove.setRunner (every launchctl and tmux call recorded) against a sandboxed
+ * removed.json, with the board's roster from test-support/fleet.
  */
 require('../test-support/tmpscope');
 const test = require('node:test');
@@ -22,76 +24,139 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 
 const remove = require('./remove');
 const store = require('./store');
+const create = require('./create');
+const launchidentity = require('./launchidentity');
+const fleet = require('../test-support/fleet');
 const REMOVED = nodePath.join(store.ROOT, 'removed.json');
+const labelOf = (name) => create.serviceLabel(name, launchidentity.currentWorldId());
 
 function removedList(rows) {
   fs.mkdirSync(nodePath.dirname(REMOVED), { recursive: true });
   fs.writeFileSync(REMOVED, JSON.stringify(rows));
 }
-/* A launchctl that answers print-disabled with `held` and records every call. */
-function launchd(held, { disableFails = [] } = {}) {
+const removedRow = (name) => ({ name, label: labelOf(name), plist: '/x/' + labelOf(name) + '.plist', stopped: true });
+
+/* A launchctl and tmux that answer from `held` (print-disabled) and record every call. A killed session is gone. */
+function machine(held, { refuse = {} } = {}) {
   const calls = [];
   remove.setRunner((file, args) => {
     calls.push(args.join(' '));
     if (args[0] === 'print-disabled') return { ok: true, stdout: 'disabled services = {\n' + held.map(([l, v]) => '\t"' + l + '" => ' + v + '\n').join('') + '}\n' };
-    if (args[0] === 'disable' && disableFails.some((l) => args[1].endsWith('/' + l))) return { ok: false, code: 5, stdout: '', stderr: 'no' };
+    for (const [verb, code] of Object.entries(refuse)) if (args[0] === verb) return { ok: false, code, stdout: '', stderr: 'no' };
+    if (args[0] === 'has-session') return { ok: false, code: 1, stdout: '', stderr: '' };   // gone after the kill
     return { ok: true, stdout: '' };
   });
   return calls;
 }
-test.afterEach(() => { remove.setRunner(null); try { fs.rmSync(REMOVED, { force: true }); } catch { /* none */ } });
+let board = null;
+function roster(agents) { if (board) board.restore(); board = fleet.install(agents); }
+test.afterEach(() => {
+  remove.setRunner(null);
+  if (board) { board.restore(); board = null; }
+  try { fs.rmSync(REMOVED, { force: true }); } catch { /* none */ }
+});
 
-test('#7409: a removed agent launchd holds enabled (after a move) is disabled again and stopped', () => {
-  removedList([{ name: 'casey', label: 'com.kosmos.agent.casey', plist: '/x/com.kosmos.agent.casey.plist' }]);
-  const calls = launchd([['com.apple.foo', 'disabled']]);   // the new Mac's database: nothing of ours
+test('#7409: a removed agent launchd holds enabled (after a move) is disabled, booted out, and its running session ended', () => {
+  removedList([removedRow('casey')]);
+  roster([fleet.agent('casey', { state: 'working' })]);
+  const calls = machine([['com.apple.foo', 'disabled']]);
   const out = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
-  assert.deepEqual(out, { ok: true, reapplied: ['com.kosmos.agent.casey'], failed: [] });
-  assert.deepEqual(calls, ['print-disabled gui/501', 'disable gui/501/com.kosmos.agent.casey', 'bootout gui/501/com.kosmos.agent.casey']);
+  assert.deepEqual(out, { ok: true, reapplied: ['casey'], failed: [], unsure: [] });
+  assert.equal(calls[0], 'print-disabled gui/501');
+  assert.ok(calls.includes('disable gui/501/' + labelOf('casey')) && calls.includes('bootout gui/501/' + labelOf('casey')), calls.join(' | '));
+  assert.ok(calls.some((c) => /^kill-session -t =casey/.test(c)), 'the agent\'s own session was not ended (bootout alone leaves it running): ' + calls.join(' | '));
+});
+
+test('#7409: a removed agent that is not running is disabled and booted out, with no session to end', () => {
+  removedList([removedRow('casey')]);
+  roster([]);
+  const calls = machine([]);
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }).reapplied, ['casey']);
+  assert.ok(!calls.some((c) => c.startsWith('kill-session')), calls.join(' | '));
+});
+
+test('#7409: a session the board cannot tie to the agent is left alone and reported (control: its own is ended)', () => {
+  removedList([removedRow('casey')]);
+  roster([fleet.agent('casey', { state: 'working', ours: false })]);
+  const calls = machine([]);
+  const out = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
+  assert.deepEqual(out, { ok: false, reapplied: [], failed: [], unsure: ['casey'] });
+  assert.ok(!calls.some((c) => c.startsWith('kill-session')), 'a session not tied to the agent was killed');
 });
 
 test('#7409: a label launchd already holds disabled (either spelling) is left alone (control: an enabled one is not)', () => {
-  removedList([{ name: 'a', label: 'com.kosmos.agent.a' }, { name: 'b', label: 'com.kosmos.agent.b' }, { name: 'c', label: 'com.kosmos.agent.c' }]);
-  const calls = launchd([['com.kosmos.agent.a', 'disabled'], ['com.kosmos.agent.b', 'true'], ['com.kosmos.agent.c', 'enabled']]);
-  const out = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
-  assert.deepEqual(out.reapplied, ['com.kosmos.agent.c'], 'CONTROL: an enabled one must be disabled again');
-  assert.ok(!calls.some((c) => /agent\.(a|b)$/.test(c)), 'a job launchd already holds disabled was touched: ' + calls.join(' | '));
+  removedList([removedRow('a'), removedRow('b'), removedRow('c')]);
+  roster([]);
+  const calls = machine([[labelOf('a'), 'disabled'], [labelOf('b'), 'true'], [labelOf('c'), 'enabled']]);
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }).reapplied, ['c'], 'CONTROL: an enabled one must be disabled again');
+  assert.ok(!calls.some((c) => c.endsWith('/' + labelOf('a')) || c.endsWith('/' + labelOf('b'))), calls.join(' | '));
 });
 
-test('#7409: a disable launchd refuses is reported, and the others still go', () => {
-  removedList([{ name: 'a', label: 'com.kosmos.agent.a' }, { name: 'b', label: 'com.kosmos.agent.b' }]);
-  launchd([], { disableFails: ['com.kosmos.agent.a'] });
-  const out = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
-  assert.deepEqual(out, { ok: false, reapplied: ['com.kosmos.agent.b'], failed: ['com.kosmos.agent.a'] });
+test('#7409: a label that is not the one removal records for that name is never touched (a hand-edited removed.json)', () => {
+  removedList([{ name: 'casey', label: 'com.apple.Dock' }, { name: 'dana', label: labelOf('casey') }, { name: 'w', label: null }]);
+  roster([]);
+  const calls = machine([]);
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [] });
+  assert.deepEqual(calls, [], 'a foreign or mismatched label reached launchctl');
 });
 
-test('#7409: nothing runs off a Mac, with no removed agents, or for a label that is not launchd-shaped', () => {
-  removedList([{ name: 'a', label: 'com.kosmos.agent.a' }]);
-  let calls = launchd([]);
+test('#7409: a refused disable or bootout is a failure, and its session is not touched; the others still go', () => {
+  removedList([removedRow('a'), removedRow('b')]);
+  roster([fleet.agent('a', { state: 'working' })]);
+  let calls = machine([], { refuse: { disable: 5 } });
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: ['a', 'b'], unsure: [] });
+  assert.ok(!calls.some((c) => c.startsWith('kill-session')));
+  calls = machine([], { refuse: { bootout: 5 } });
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }).failed, ['a', 'b']);
+  assert.ok(!calls.some((c) => c.startsWith('kill-session')), 'a session was ended after launchd refused the bootout');
+  calls = machine([], { refuse: { bootout: 3 } });   // CONTROL: 3 is "not loaded", the wanted end state
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }).reapplied, ['a', 'b']);
+});
+
+test('#7409: nothing runs off a Mac, in a dry run, or with nothing removed', () => {
+  removedList([removedRow('a')]);
+  roster([]);
+  let calls = machine([]);
   assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'win32', uid: 501 }).reapplied, []);
-  assert.deepEqual(calls, [], 'launchctl was asked off a Mac');
-  removedList([{ name: 'w', label: null }, { name: 'x', label: 'evil/../label' }, { name: 'y', label: 'a b' }]);
-  calls = launchd([]);
-  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }).reapplied, []);
-  assert.deepEqual(calls, [], 'an unusable label reached launchctl');
+  assert.deepEqual(calls, []);
+  remove.setRunner(null);   // no runner: a dry run, where nothing would really happen
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [] });
   fs.rmSync(REMOVED, { force: true });
-  calls = launchd([]);
-  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [] });
-  assert.deepEqual(calls, [], 'with nothing removed, launchctl was asked anyway');
+  calls = machine([]);
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }).reapplied, []);
+  assert.deepEqual(calls, []);
 });
 
 test('#7409: an unreadable removed list, or a print-disabled launchd will not answer, does nothing and says why', () => {
   fs.mkdirSync(nodePath.dirname(REMOVED), { recursive: true });
   fs.writeFileSync(REMOVED, '{ not json');
-  let calls = launchd([]);
+  roster([]);
+  let calls = machine([]);
   const bad = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
   assert.equal(bad.ok, false);
   assert.match(bad.because, /could not be read/);
   assert.deepEqual(calls, []);
-  removedList([{ name: 'a', label: 'com.kosmos.agent.a' }]);
+  removedList([removedRow('a')]);
   calls = [];
   remove.setRunner((file, args) => { calls.push(args.join(' ')); return { ok: false, code: 1 }; });
   const quiet = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
   assert.equal(quiet.ok, false);
   assert.match(quiet.because, /did not say which jobs it holds disabled/);
   assert.deepEqual(calls, ['print-disabled gui/501'], 'it disabled without knowing what launchd held');
+});
+
+test('#7409: a sandboxed board never schedules it; a real board does, once, and logs the names it kept off', () => {
+  const timers = [];
+  const setTimer = (fn, ms) => { timers.push({ fn, ms }); return { unref() {} }; };
+  assert.equal(remove.reapplyAtBoardStart({ enforcing: false, setTimer }), false);
+  assert.equal(timers.length, 0, 'a sandboxed fixture board scheduled it');
+  assert.equal(remove.reapplyAtBoardStart({ enforcing: true, setTimer, out: () => {}, err: () => {} }), true);
+  assert.equal(timers.length, 1, 'CONTROL: a real board did not schedule it');
+  removedList([removedRow('casey')]);
+  roster([]);
+  machine([]);
+  const said = [];
+  timers[0].fn.call(null);
+  remove.reapplyAtBoardStart({ enforcing: true, setTimer: (fn) => { fn(); return {}; }, out: (t) => said.push(t), err: (t) => said.push(t) });
+  assert.match(said.join(''), /removed agents kept from starting again .*: casey/, 'the board log did not name the agent: ' + said.join(''));
 });
