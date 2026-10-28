@@ -23,3 +23,8 @@ who wants Kosmos only when they open it, but kept up after a crash, is not serve
   turned back on has none until the next boot, and a slow or failed boot registration leaves none). The copy now says
   "When this is on, Kosmos also tries to start again ..."; the real fix (register it when the switch goes on) is
   #7498. NIT taken: "When this is on" also stops the off row reading as a contradiction.
+- Review 2 (sonnet, 11:53 10-28): NO BLOCKER. Kept NITs: the test's failure messages print true/false; the hint
+  shows beside an off switch by design. Converged.
+- Browser checks: all 14 that tools/bc-pr-select.js names for this diff passed (7 bare, 7 through tools/browser-checks.sh,
+  which boots their boards; "all page checks passed"). No check covers this Windows row (the coarse gate's trailer
+  says so); web.win32-start-at-sign-in.test.js is its committed coverage.
