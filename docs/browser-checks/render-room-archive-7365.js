@@ -364,6 +364,16 @@ function findUnder(dir, name) {
     const afterFocus = await p.evaluate(() => { const a = document.activeElement; return { id: a ? a.id : null, tag: a ? a.tagName : null,
       ask: !!(a && a.closest && a.closest('#pj-room [data-arch-ask]') && a.getClientRects().length), post: !!(a && a.id === 'pj-post') }; });
     chk(afterFocus.ask || afterFocus.post, 'at 390px, after Archive from the thread\'s last row and the room\'s fresh read, focus is on the link on screen or the composer', JSON.stringify(afterFocus));
+    /* The repaint that does replace the row: a new post lands by poll while the row has focus (a same-shape read keeps
+       the node, so the arm above cannot see the loss on its own). Focus must not fall to the page. */
+    await p.focus('#pj-room [data-arch-ask]');
+    await fetch(base + '/api/project/' + pid + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'posted while the end row had focus' }) });
+    await p.waitForFunction(() => [...document.querySelectorAll('#pj-room .msg .msg-bd > p')].some((x) => x.textContent.trim() === 'posted while the end row had focus'), null, { timeout: 15000 }).catch(() => null);
+    await p.waitForTimeout(300);
+    const pollFocus = await p.evaluate(() => { const a = document.activeElement; return { tag: a ? a.tagName : null,
+      landed: [...document.querySelectorAll('#pj-room .msg .msg-bd > p')].some((x) => x.textContent.trim() === 'posted while the end row had focus'),
+      ask: !!(a && a.closest && a.closest('#pj-room [data-arch-ask]') && a.getClientRects().length), post: !!(a && a.id === 'pj-post') }; });
+    chk(pollFocus.landed && (pollFocus.ask || pollFocus.post), 'at 390px, a new post repainting the room keeps focus on Archive older messages (or the composer), never the page', JSON.stringify(pollFocus));
     await scrollToStart();
     await needViewArchive('at 390px');
     await p.click('#pj-arch-open');
