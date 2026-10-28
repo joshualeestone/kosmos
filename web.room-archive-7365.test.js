@@ -13,10 +13,10 @@ const vm = require('node:vm');
 const { scriptOf, liftAll, liftConst } = require('./test-support/page');
 
 const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
-const SRC = [liftConst(SCRIPT, 'PJ_WIN'), liftAll(SCRIPT, ['pjArchBefore', 'pjRoomArchWhen', 'pjArchReceipt', 'pjWinAtStart'])].join('\n');
+const SRC = [liftConst(SCRIPT, 'PJ_WIN'), liftAll(SCRIPT, ['pjArchBefore', 'pjRoomArchWhen', 'pjArchReceipt', 'pjWinAtStart', 'pjRoomTopEdge'])].join('\n');
 function page(extra = {}) {
   const ctx = vm.createContext({ PJ_CURRENT: 'p1', Date, Number, Array, ...extra });
-  vm.runInContext(SRC + '\nthis.PJ_WIN = PJ_WIN; this.pjArchBefore = pjArchBefore; this.pjArchReceipt = pjArchReceipt; this.pjWinAtStart = pjWinAtStart;', ctx);
+  vm.runInContext(SRC + '\nthis.PJ_WIN = PJ_WIN; this.pjArchBefore = pjArchBefore; this.pjArchReceipt = pjArchReceipt; this.pjWinAtStart = pjWinAtStart; this.pjRoomTopEdge = pjRoomTopEdge;', ctx);
   return ctx;
 }
 
@@ -251,6 +251,7 @@ function askPage({ answers, current = 'p1', projects = { p1: { id: 'p1', name: '
     msgToast: (t) => toasts.push(t), pjRoomAnnounce: () => {}, pjArchReset: () => calls.push('reset'), pjArchClose: () => calls.push('close'),
     pjArchAfter: (before) => { calls.push(['after', before]); loads.push(ctx.PJ_CURRENT); },
     pjWinReset: () => calls.push('winreset'), loadRoom: () => loads.push(ctx.PJ_CURRENT),
+    pjArchAskShown: () => doc.getElementById('pj-arch-ask'),   // the header's link (this fake document has no layout)
     fetch: async (url, opt) => { const a = answers.shift(); calls.push((opt && opt.method) || 'GET'); return typeof a === 'function' ? a(url, opt) : a; },
   });
   vm.runInContext([liftAll(SCRIPT, ['pjArchBefore', 'pjRoomArchWhen', 'pjArchReceipt', 'pjArchOutcome', 'pjArchCount', 'pjArchAsk']),
@@ -468,4 +469,33 @@ test('#7365 3b browser runs 2-3: Back paints the room with no scroll state measu
     assert.deepEqual(seen, { had: false, top: undefined, bottom: !anchored },
       anchored ? 'with a place to return to, nothing pins or restores a pixel top' : 'with none, the room lands on the newest post');
   }
+});
+
+test('#7365 3b (Mona Lisa, phone): the thread\'s first row carries Archive older messages, beside the archived line, never a second line', () => {
+  const { pjRoomTopEdge } = page();
+  const asks = (h) => (h.match(/data-arch-ask/g) || []).length;
+  const lines = (h) => (h.match(/class="pj-arch-edge/g) || []).length;
+  // Rows, nothing archived yet: one row, holding the link.
+  const a = pjRoomTopEdge(false, true, false);
+  assert.equal(lines(a), 1); assert.equal(asks(a), 1); assert.match(a, /pj-arch-top/);
+  // At the start with messages archived: ONE line, the archived sentence, View archive and the link beside them.
+  const b = pjRoomTopEdge(false, true, true);
+  assert.equal(lines(b), 1, 'two competing lines at the top of the thread');
+  assert.equal(asks(b), 1); assert.match(b, /Older messages are archived\./); assert.match(b, /id="pj-arch-open"/);
+  assert.doesNotMatch(b, /pj-arch-top/, 'the archived line is shown on every screen, not only on a phone');
+  // Searching, or an empty room: no link (nothing to archive, or the search covers both).
+  assert.equal(asks(pjRoomTopEdge(true, true, true)), 0); assert.equal(pjRoomTopEdge(true, true, false), '');
+  assert.equal(pjRoomTopEdge(false, false, false), '');
+  // CONTROL: an empty room at its start with messages archived still says so, with View archive.
+  assert.match(pjRoomTopEdge(false, false, true), /View archive/);
+});
+
+test('#7365 3b (phone): CSS hides the header link and shows the thread one only in the 30rem room query', () => {
+  const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(html, /\.pj-arch-top, \.pj-arch-ask-top \{ display: none; \}/, 'shown on the desktop too');
+  const i = html.indexOf('.pj-arch-top, .pj-arch-ask-top { display: none; }');
+  const block = html.slice(i, html.indexOf('}', html.indexOf('@media (max-width: 30rem) {', i) + 400) + 400);
+  assert.match(block, /@media \(max-width: 30rem\) \{[\s\S]*#pj-arch-ask \{ display: none; \}/, 'the header link stays on a phone');
+  assert.match(block, /\.pj-arch-top \{ display: flex; \}/);
+  assert.match(block, /\.linkish\.pj-arch-ctl\.pj-arch-ask-top \{[^}]*min-height: 44px/, 'not a 44 px target');
 });

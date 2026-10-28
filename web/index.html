@@ -7595,8 +7595,16 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    #d-dmthread); this is the room's. At desktop widths 78ch still binds first, unchanged.
    78ch is the base .msg-bd cap repeated; web.room-phone-718.test.js pins the two equal. */
 #pj-room .msg.you .msg-bd { max-width: min(78ch, 100%); }
+/* kosmos#7365 slice 3b (Mona Lisa, 04:0x): on a phone the header is a column of full-width rows, so "Archive older
+   messages" there was a 44 px row of its own, and pjFitRoomPhone took that height off the thread (113 px to its 96 px
+   floor on a 375x667 phone). There it moves to the top of the thread, scrolling with it, so it costs nothing until
+   someone scrolls up. The desktop keeps it beside search. */
+.pj-arch-top, .pj-arch-ask-top { display: none; }
 @media (max-width: 30rem) {
   .pjcol.pjmid { padding: 12px 8px 8px; }
+  #pj-arch-ask { display: none; }
+  .pj-arch-top { display: flex; }
+  .linkish.pj-arch-ctl.pj-arch-ask-top { display: inline-flex; align-items: center; min-height: 44px; }
   /* The avatar's size and its gap, said once: the far-side margin mirrors the avatar's side. */
   #pj-room.thread { padding: 12px 6px; gap: 12px; --room-av: 28px; --room-av-gap: 14px; }
   /* kosmos#7196: the thread fits the screen above the composer (pjFitRoomPhone writes --pj-room-fit). Both bounds move:
@@ -76030,6 +76038,18 @@ async function pjWinRead(pid, n, cursor, archive) {
   if (!res.ok || !body || !Array.isArray(body.rows)) throw new Error((body && body.error) || 'we could not read the room');
   return body;
 }
+/* kosmos#7365 slices 3 and 3b: the thread's first row. At the start of the live history with messages archived, "Older
+   messages are archived. View archive". On a phone (CSS shows it only there, Mona Lisa), "Archive older messages" too:
+   beside that line when it shows, never a second line competing with it, else alone as the first row. Not while
+   searching, and not in an empty room (nothing to archive). */
+function pjRoomTopEdge(filtering, hasRows, archived) {
+  const ask = !filtering && hasRows
+    ? '<button type="button" class="linkish pj-arch-ctl pj-arch-ask-top" data-arch-ask="1">Archive older messages</button>' : '';
+  if (!filtering && archived) {
+    return '<div class="pj-arch-edge"><span>Older messages are archived.</span> <button type="button" class="linkish pj-arch-ctl" id="pj-arch-open">View archive</button>' + (ask ? ' ' + ask : '') + '</div>';
+  }
+  return ask ? '<div class="pj-arch-edge pj-arch-top">' + ask + '</div>' : '';
+}
 /* kosmos#7365 slice 3: whether the window holds the room's live history back to its start (nothing older is unread). */
 function pjWinAtStart() {
   return PJ_WIN.pid === PJ_CURRENT && Array.isArray(PJ_WIN.newest) && (PJ_WIN.older.length ? PJ_WIN.olderCount : PJ_WIN.newestOlder) === 0;
@@ -76303,7 +76323,7 @@ function pjArchAsk() {
     PJ_ARCH_ASK_GEN += 1;
     back.hidden = true; keep.onclick = null; go.onclick = null; when.onchange = null; PJ_ARCH_ASK_CLOSE = null;
     document.removeEventListener('keydown', onEsc);
-    if (restoreFocus) { const a = document.getElementById('pj-arch-ask'); if (a) a.focus(); }
+    if (restoreFocus) { const a = pjArchAskShown(); if (a) a.focus(); }
   };
   // openProject closes it: the choice belongs to the room it was asked in, and focus stays where the person put it.
   PJ_ARCH_ASK_CLOSE = () => { leftFor = true; close(false); };
@@ -76365,6 +76385,17 @@ function pjArchAsk() {
   when.focus();
 }
 document.getElementById('pj-arch-ask').addEventListener('click', () => pjArchAsk());
+/* kosmos#7365 slice 3b: the phone's copy at the top of the thread is painted with the rows, so its click is taken here. */
+document.getElementById('pj-room').addEventListener('click', (e) => {
+  const b = e.target && e.target.closest && e.target.closest('[data-arch-ask]');
+  if (b) pjArchAsk();
+});
+/* The "Archive older messages" on screen: the header's, or on a phone the thread's (the other is display:none). */
+function pjArchAskShown() {
+  const head = document.getElementById('pj-arch-ask');
+  if (head && head.getClientRects().length) return head;
+  return document.querySelector('#pj-room [data-arch-ask]') || head;
+}
 let PJ_POSTING = false;
 let PJ_REPLY_SENDING = null;   // #3745: { project, id } of the reply on its way, so x knows whether THIS reply already left
 
@@ -78618,9 +78649,9 @@ function paintRoom(body) {
           : '<p class="fhint" style="margin:0;">Put an agent on this project and the room opens.</p>')));
   /* kosmos#7365 slice 3: once the reader has the live history back to its start, its first row says older messages are
      archived, with the way in. Not while searching (search covers both), and not a standing notice. */
-  const archivedEdge = !filtering && typeof PJ_WIN !== 'undefined' && pjWinAtStart() && PJ_WIN.archivedCount > 0
-    ? '<div class="pj-arch-edge"><span>Older messages are archived.</span> <button type="button" class="linkish pj-arch-ctl" id="pj-arch-open">View archive</button></div>' : '';
-  const html = note + archivedEdge + (rows || (archivedEdge ? '' : empty));
+  const archived = !filtering && typeof PJ_WIN !== 'undefined' && pjWinAtStart() && PJ_WIN.archivedCount > 0;
+  const top = pjRoomTopEdge(filtering, Boolean(rows), archived);
+  const html = note + top + (rows || (archived ? '' : empty));
   /* #5800: the hold notice, written only when it changes (it holds a button the person may be focused on), and said
      aloud when the room goes on hold, so a screen-reader user hears it as a sighted person sees it appear. */
   const heldEl = document.getElementById('pj-held');
