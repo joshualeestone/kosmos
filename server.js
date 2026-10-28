@@ -10635,6 +10635,8 @@ const server = http.createServer(async (req, res) => {
             + ' unverified; if it does not respond, switch it to an OpenAI API-key'
             + ' account, which Kosmos can verify.'
           : '';
+        // #7410/#7467: the words for the provider it came from, in both answers below.
+        const carriedFrom = (c) => (c && c.from ? (c.from === 'anthropic' ? 'Claude' : create.providerLabel(c.from)) : null);
         /* #5091: the switch happened but the picked Claude account could not be applied. It is a PARTIAL, said first,
            so the page shows it as one (not "Ready"), whether or not the restart worked. */
         if (wrote.outcome === create.OUTCOME.PARTIAL) {
@@ -10643,7 +10645,10 @@ const server = http.createServer(async (req, res) => {
             provider: wrote.provider,
             restarted: ok,   // #5091: the page repaints Runs on from this, not from a sentence
             ...(pickedModel ? { model: pickedModel } : {}),   // #5429 review 2: the model was still written; say so
-            because: wrote.because + (pickedModel && pickedModel.label ? ' It runs on ' + pickedModel.label + '.' : '') + modelMissWords + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.` + create.switchLaterWords(wrote.losesConversation)),   // #7455
+            because: wrote.because + (pickedModel && pickedModel.label ? ' It runs on ' + pickedModel.label + '.' : '') + modelMissWords + ' '
+              /* #7467: when it did restart, the same conversation and notes sentences as the ordinary result (a Codex,
+                 Gemini or Grok agent switched to Claude this way starts a new conversation); none when it keeps its own. */
+              + (ok ? create.switchCarryDetail(label, wrote.carried || null, carriedFrom(wrote.carried)) + 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.` + create.switchLaterWords(wrote.losesConversation)),   // #7455
             steps: back.steps || [],
           });
           return;
@@ -10661,8 +10666,7 @@ const server = http.createServer(async (req, res) => {
           because: ok
             /* #7410: a switch across the Claude line does not keep its conversation or Claude's memory, so it never says
                everything it knows stays; switchCarryWords says what came across. A same-family switch keeps the old words. */
-            ? create.switchCarryWords(label, wrote.carried || null,
-              wrote.carried && wrote.carried.from ? (wrote.carried.from === 'anthropic' ? 'Claude' : create.providerLabel(wrote.carried.from)) : null)
+            ? create.switchCarryWords(label, wrote.carried || null, carriedFrom(wrote.carried))
               + (droppedWords ? `${droppedWords.charAt(0).toUpperCase()}${droppedWords.slice(1)}. ` : '')
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn

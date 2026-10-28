@@ -3051,6 +3051,16 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
  */
 function switchCarryWords(label, carried, fromLabel) {
   if (!carried) return `${label} it is. Everything it knows and everything it has done stays. `;
+  return `${label} it is. ${switchCarryDetail(label, carried, fromLabel)}`;
+}
+
+/**
+ * #7467: switchCarryWords' sentences after "<label> it is.", for an answer that opens with its own first sentence (the
+ * #5091 partial: "is switched to Claude, on your main Claude account: ..."). Empty for a switch that keeps its
+ * conversation, so that answer keeps today's words.
+ */
+function switchCarryDetail(label, carried, fromLabel) {
+  if (!carried) return '';
   const from = fromLabel || 'its previous provider';
   const lost = 'Anything it only remembered from talking is lost. ';
   // Review 4: why a note is left out, and a note whose place in its folder holds something else, said apart.
@@ -3107,7 +3117,7 @@ function switchCarryWords(label, carried, fromLabel) {
   // Review 8: an old pointer that could not be taken out is said, so nothing here reads as "its instructions point at no notes".
   const stale = carried.unpointFailed
     ? 'Its instructions may still mention notes in memory/claude-notes/ that are not there; we could not take that line out. ' : '';
-  return `${label} it is. It keeps its name, its instructions and its files, but its conversation does not come across: `
+  return 'It keeps its name, its instructions and its files, but its conversation does not come across: '
     + `${label} cannot read what it said on ${from}. ${notes}${stale}`;
 }
 
@@ -7351,6 +7361,7 @@ module.exports = {
   restoreAccountSteps,
   setProvider,
   switchCarryWords,   // #7410: the route's result sentence for a switch, family change or not
+  switchCarryDetail,   // #7467: the same sentences without "<label> it is.", for the #5091 partial answer
   switchLaterWords,   // #7455: what a saved-but-not-restarted switch will lose when it starts
   crossesFamily,      // #7410
   switchLosesConversation,   // #7410 review 1

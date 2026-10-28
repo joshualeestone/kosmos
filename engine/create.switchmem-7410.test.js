@@ -611,3 +611,14 @@ test('#7455: both not-restarted branches of the provider route say it, after "st
   assert.match(server, /It is still running as before until it restarts\.` \+ create\.switchLaterWords\(wrote\.losesConversation\)/);
   assert.match(server, /\+ runsOn\('When it restarts it will run on'\)\n\s+\+ create\.switchLaterWords\(wrote\.losesConversation\)/);
 });
+
+// #7467: switchCarryDetail is switchCarryWords without its "<label> it is." opening, and empty when nothing changes.
+test('#7467: switchCarryDetail is the family-change sentences without "<label> it is.", and empty for a same-family switch', () => {
+  const carried = { notes: 'none', from: 'google', toClaude: true, pointed: false };
+  const full = create.switchCarryWords('Claude', carried, 'Gemini');
+  const detail = create.switchCarryDetail('Claude', carried, 'Gemini');
+  assert.equal(full, 'Claude it is. ' + detail);
+  assert.match(detail, /^It keeps its name, its instructions and its files, but its conversation does not come across: Claude cannot read what it said on Gemini\./);
+  assert.equal(create.switchCarryDetail('Claude', null, null), '');
+  assert.equal(create.switchCarryWords('Claude', null, null), 'Claude it is. Everything it knows and everything it has done stays. ', 'CONTROL: the same-family words are unchanged');
+});

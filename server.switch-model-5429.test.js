@@ -263,3 +263,33 @@ test('#5534: under a company model list, a switch WITH a listed model goes throu
     fs.rmSync(orgpolicy.APPLIED(), { force: true });
   }
 });
+
+// #7467: the #5091 partial answer (the picked Claude account refused, the restart worked) says the conversation did not
+// come across, as the ordinary result does, for an agent switched to Claude from another family.
+test('#7467: a switch to Claude whose picked account was refused, restarted, says its conversation did not come across', async () => {
+  const name = born('srv-sm-7467');
+  await switchTo(name, { provider: 'google' });
+  const real = create.setProvider;
+  create.setProvider = (...a) => { const w = real(...a); return { ...w, outcome: create.OUTCOME.PARTIAL, because: 'srv-sm-7467 is switched to Claude, on your main Claude account: it could not be moved to b@example.com (test).' }; };
+  let r;
+  try { r = await switchTo(name, { provider: 'anthropic' }); } finally { create.setProvider = real; }
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'partial');
+  assert.equal(r.body.restarted, true, 'setup: the restart worked (the branch under test)');
+  assert.match(r.body.because, /^srv-sm-7467 is switched to Claude, on your main Claude account: it could not be moved to b@example\.com \(test\)\. /, r.body.because);
+  assert.match(r.body.because, /It keeps its name, its instructions and its files, but its conversation does not come across: Claude cannot read what it said on Gemini\./, r.body.because);
+  assert.match(r.body.because, /anything it only remembered from talking is lost\. It is starting again now\.$/i, r.body.because);
+  assert.doesNotMatch(r.body.because, /Claude it is\./, 'the partial keeps its own first sentence');
+});
+
+test('#7467 CONTROL: a partial whose switch keeps its conversation (carried null, as a same-family switch is) keeps today\'s words', async () => {
+  const name = born('srv-sm-7467c');
+  await switchTo(name, { provider: 'google' });
+  const real = create.setProvider;
+  create.setProvider = (...a) => { const w = real(...a); return { ...w, carried: null, outcome: create.OUTCOME.PARTIAL, because: 'srv-sm-7467c is switched to Claude, on your main Claude account: it could not be moved to b@example.com (test).' }; };
+  let r;
+  try { r = await switchTo(name, { provider: 'anthropic' }); } finally { create.setProvider = real; }
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'partial');
+  assert.equal(r.body.because, 'srv-sm-7467c is switched to Claude, on your main Claude account: it could not be moved to b@example.com (test). It is starting again now.');
+});
