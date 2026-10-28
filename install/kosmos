@@ -6143,21 +6143,22 @@ cmd_task() {
           if [ "$_r" -ne 0 ]; then
             _stop="$_n"; _stoprc="$_r"
             # Only an answer cut off after the request went (as say_unreached's write words) may have closed it. Any other
-            # failure (a refused connection, a board not proven ours, an interrupt) sent nothing, so it is still open.
+            # failure (a refused connection, a board not proven ours, an interrupt) sent nothing, so it is named as not tried.
             case "$_r" in 18|28|52|56) ;; *) _left="$_n" ;; esac
             continue
           fi
           _code="${_b##*$'\n'}"; _b="${_b%$'\n'*}"
           case "$_b" in
             '{"task":'*) _ok="${_ok:+$_ok, }$_n"; continue ;;
-            '{"error":'*) _why=$(printf '%s' "$_b" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'); _why="${_why:-it did not say why}" ;;
+            '{"error":'*) _why=$(printf '%s' "$_b" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'); _why="${_why%.}"; _why="${_why:-it did not say why}" ;;
             *) _why="Kosmos gave an answer we could not read" ;;
           esac
           _bad="${_bad}Could not close task $_n: $_why."$'\n'   # one line each: a reason can hold a ; or a ,
-          # Who is asking (401/403), a board that could not check (503), or no such project: every later close would be
-          # refused the same way, so send no more.
+          # Who is asking (401/403), a board that could not check or read its projects (500/503), no such project, or an
+          # answer that is not the board's (a redirect, 421; Windows stops there too): every later close would be refused
+          # the same way, so send no more.
           case "$_code:$_why" in
-            401:*|403:*|503:*|404:*"no project by that name"*|400:*"not a name we can read"*) _wide=1; _stop="$_n" ;;
+            3??:*|401:*|403:*|421:*|500:*|503:*|404:*"no project by that name"*|400:*"not a name we can read"*) _wide=1; _stop="$_n" ;;
           esac
         done
         case "$_ok" in '') ;; *,*) say "Closed tasks $_ok on ${project:-the project}." ;; *) say "Closed task $_ok on ${project:-the project}." ;; esac
@@ -6168,7 +6169,7 @@ cmd_task() {
         elif [ "$_wide" = 1 ] && [ -n "$_left" ]; then
           say "That reason holds for every task on ${project:-the project}, so the rest were not sent."
         fi
-        [ -z "$_left" ] || say "Not tried, so still open: $_left."
+        [ -z "$_left" ] || say "Not tried: $_left."   # never read, so not said to be open: one may be closed already
         { [ -z "$_bad" ] && [ "$_stoprc" -eq 0 ]; } || exit 1
         exit 0
       fi

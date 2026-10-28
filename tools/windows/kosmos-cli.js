@@ -1367,23 +1367,26 @@ async function taskClose(ctx, args) {
         if (one.json && one.json.task) { ok.push(n); continue; }
         const why = ctx.refusedBy(one) || 'Kosmos gave an answer we could not read';
         bad.push('Could not close task ' + n + ': ' + why + '.');   // one line each: a reason can hold a ; or a ,
-        /* Who is asking (401/403), a board that could not check (503), or no such project: every later close would be
-           refused the same way, so send no more. */
-        if ([401, 403, 503].includes(one.status) || (one.status === 404 && /no project by that name/.test(why))
+        /* Who is asking (401/403), a board that could not check or read its projects (500/503), no such project, or an
+           answer that is not the board's (421): every later close would be refused the same way, so send no more. */
+        if ([401, 403, 421, 500, 503].includes(one.status) || (one.status === 404 && /no project by that name/.test(why))
           || (one.status === 400 && /not a name we can read/.test(why))) { stop = i; wide = true; break; }
       }
       if (ok.length) ctx.out((ok.length > 1 ? 'Closed tasks ' : 'Closed task ') + ok.join(', ') + ' on ' + project + '.');
       for (const line of bad) ctx.err(line);
       /* As a single close's words (ctx.unreachable): only a timeout or a reset after the request went may have closed it;
-         a refused connection or a board not proven ours sent nothing, so that task is still open. */
+         a refused connection or a board not proven ours sent nothing, so that task is named as not tried. */
       const mayHaveClosed = lost && !lost.refused && !lost.notConnected && !lost.notProven;
       let left = stop >= 0 ? all.slice(stop + 1) : [];
       if (lost) {
-        ctx.unreachable('close task ' + all[stop]);
+        /* A reset or cut-off answer after the request went: install/kosmos's say_unreached write words for curl 52/56,
+           not ctx.unreachable's "is it running?", which says nothing happened. */
+        if (mayHaveClosed && !lost.timedOut) ctx.err('Kosmos is running but did not answer in time, so we could not close task ' + all[stop] + '. It may still have happened: check before doing it again. It does not need a restart.');
+        else ctx.unreachable('close task ' + all[stop]);
         if (mayHaveClosed) ctx.err('Task ' + all[stop] + ' may have closed anyway: check kosmos task list ' + project + ' before closing it again.');
         else left = all.slice(stop);
       } else if (wide && left.length) ctx.err('That reason holds for every task on ' + project + ', so the rest were not sent.');
-      if (left.length) ctx.err('Not tried, so still open: ' + left.join(', ') + '.');
+      if (left.length) ctx.err('Not tried: ' + left.join(', ') + '.');   // never read, so not said to be open: one may be closed already
       return bad.length || lost ? 1 : 0;
     }
   }
