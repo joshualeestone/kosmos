@@ -26064,6 +26064,9 @@ async function tick() {
      failure paints only if no newer poll has answered since this one went out. */
   const pollSeq = tick.seq = (tick.seq || 0) + 1;
   const pollStartAt = Date.now();   // kosmos#7416 review 3: when this poll went out (STATUS_FIRST_MISS_AT)
+  // typeof-guarded: tests lift tick() alone, without the const beside RESTART_SCREEN_AFTER_MS. Out here so the catch can
+  // tell a poll that failed in its time from one that failed on waking (kosmos#7416 review 4).
+  const statusLimit = typeof STATUS_POLL_TIMEOUT_MS === 'number' ? STATUS_POLL_TIMEOUT_MS : 10000;
   try {
     // Captured BEFORE the request goes out, so a slow poll can be recognised as
     // predating a save or a reload.
@@ -26073,8 +26076,7 @@ async function tick() {
        AbortController, not AbortSignal.timeout: Safari before 16 lacks the latter (as at the first-run
        fetch); where neither exists the poll goes out with no limit, as before. */
     const statusAbort = typeof AbortController === 'function' ? new AbortController() : null;
-    // typeof-guarded: tests lift tick() alone, without the const beside RESTART_SCREEN_AFTER_MS.
-    const statusLimit = typeof STATUS_POLL_TIMEOUT_MS === 'number' ? STATUS_POLL_TIMEOUT_MS : 10000;
+
     if (statusAbort) statusCut = setTimeout(() => { statusTimedOut = true; statusAbort.abort(); }, statusLimit);
     const res = await fetch('/api/status', statusAbort ? { cache: 'no-store', signal: statusAbort.signal } : { cache: 'no-store' });
     /* 🛑 THE SERVER'S SENTENCE WAS NEVER READ. This threw `status 500` and the
@@ -26733,8 +26735,16 @@ async function tick() {
     clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
     if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
     if (!answered && tick.answeredSeq > pollSeq) return;   // a newer poll already answered: this is old news
-    // kosmos#7416 review 3: the first unanswered poll since the last good one, by when it went out.
-    if (!answered && typeof STATUS_FIRST_MISS_AT !== 'undefined' && STATUS_FIRST_MISS_AT == null) STATUS_FIRST_MISS_AT = pollStartAt;
+    /* kosmos#7416 reviews 3-4: the first unanswered poll since the last good one. Not while THIS device is offline (the
+       page was not asking the computer then). Dated by when it went out, unless it failed long after its time limit
+       (a poll in flight across a sleep or a lock fails on waking), then by now. Any answer, even a refusal, means the
+       computer was there, so it clears a first miss. */
+    if (typeof STATUS_FIRST_MISS_AT !== 'undefined') {
+      if (answered) STATUS_FIRST_MISS_AT = null;
+      else if (STATUS_FIRST_MISS_AT == null && !deviceOffline()) {
+        STATUS_FIRST_MISS_AT = Date.now() - pollStartAt > statusLimit + 5000 ? Date.now() : pollStartAt;
+      }
+    }
     /* kosmos#6721: the first unanswered poll, over a board that has answered before, keeps everything on screen and
        only says Reconnecting in the header; the second in a row falls through to the full failure below. A refusal is
        an answer (it resets the count), and this device being offline is known at once, so neither waits. */

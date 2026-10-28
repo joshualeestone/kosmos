@@ -65,3 +65,16 @@ person knows.
 - [NIT] weekday and month follow the device's language. Kept, deferred: the iPhone slice does the same; change both
   together. [NIT] two test patterns refused a dotted time. FIXED to [^<]*?\. as the browser check.
 Note tests 75/75.
+
+### Round 4 (0 B, 3 W, 1 C)
+- [WARNING] no test drove tick()'s STATUS_FIRST_MISS_AT. FIXED: four tests run the page's real tick() with the poll
+  stubbed and a fixed clock (built on the reviewer's harness); each mutation below is red, and "never recorded" too.
+- [WARNING] a miss while THIS device was offline counted as the computer's first miss ("yesterday at 8:00 PM" for a
+  computer answering until 2 AM). FIXED: recorded only when !deviceOffline(). Test; mutation red.
+- [WARNING] a poll in flight across a sleep or a lock was dated by when it went out (before the sleep). FIXED: a poll
+  that fails long after its time limit (statusLimit + 5 s; statusLimit moved out of the try) is dated now. Test;
+  mutation red.
+- [CONCERN] a refusal (an answer) never cleared a first miss, so an old blip outlived hours of answers. FIXED: any
+  answer clears it. Test; mutation red. NOT tested: the 200 path's reset (it draws the whole page; reasoned, unchanged
+  since round 3).
+Related tests 114/114 (asleepnote, offline-note, win32-board-copy, retry-feedback, plus-tab, rename-4421, cloudwords).
