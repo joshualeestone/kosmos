@@ -23957,6 +23957,8 @@ const server = http.createServer(async (req, res) => {
       const running = Array.isArray(roster) && roster.length
         ? new Set(roster.filter((c) => c && c.isNamedOurs === true && !(c.swarm && c.swarm.active === false)).map((c) => c.sessionName)) : null;
       const reachable = (n) => !running || running.has(n);
+      // Review 5: whose part failover can take is limitedCard's test (ours, limited), with no swarm condition.
+      const ours = Array.isArray(roster) && roster.length ? new Set(roster.filter((c) => c && c.isNamedOurs === true).map((c) => c.sessionName)) : null;
       // Review 1: only who is on an OPEN part has it; someone who finished a part does not.
       const holders = [...new Set(prog.parts.filter((x) => x.who && !x.closedAt).map((x) => x.who))];
       if (holders.length) {
@@ -23968,7 +23970,11 @@ const server = http.createServer(async (req, res) => {
         /* Review 1-3: with failover on, a limited holder's part may move, but only where failover looks (a live, unpaused
            project, a task it moves) and only if another agent here could take it (a reachable member not switched off). */
         const someoneElse = (Array.isArray(p.agents) ? p.agents : []).some((n) => !holders.includes(n) && !projects.isSwarmOff(p, n) && reachable(n));
-        const may = setting.on === true && setting.failover === true && p.archived !== true && !projects.isPaused(p) && asg.stallable(inP) && someoneElse && holders.some(reachable)
+        /* Review 5: failoverPick keeps a moved part inside its tree's builder (treeIsOthers, except the limited holder),
+           so a part can move only when that holder is the tree's sole busy holder. */
+        const treeBusy = asg.treeHeldBy(p, inP).holders;
+        const soleTreeHolder = holders.some((h) => (!ours || ours.has(h)) && treeBusy.every((x) => x === h));
+        const may = setting.on === true && setting.failover === true && p.archived !== true && !projects.isPaused(p) && asg.stallable(inP) && someoneElse && soleTreeHolder
           ? ' If ' + (many ? 'one of them hits' : 'they hit') + ' a usage limit, Kosmos may move ' + (many ? 'their part' : 'it') + ' to an idle agent.' : '';
         return 'It stays with ' + names + '.' + loose + may;
       }
@@ -23984,8 +23990,10 @@ const server = http.createServer(async (req, res) => {
          once they are done there, so neither a name nor "an idle agent" is promised. */
       const held = asg.treeHeldBy(p, inP);
       if (held.holders.length) {
-        return 'Nobody is on it. It is part of work ' + held.holders.map(plain).join(', ') + (held.holders.length > 1 ? ' are' : ' is')
-          + ' doing on task ' + held.root + ' (one builder per task tree), so Kosmos will not give it out until they are done there.' + assign;
+        // Review 5: name where the work is (its own subtasks when it is the root), and say a pause.
+        const where = held.root === inP.number ? 'on its subtasks' : 'on task ' + held.root + "'s tree";
+        return 'Nobody is on it.' + (paused ? ' The project is paused.' : '') + ' It is part of work ' + held.holders.map(plain).join(', ')
+          + (held.holders.length > 1 ? ' are' : ' is') + ' doing ' + where + ' (one builder per task tree), so Kosmos will not give it out until they are done there.' + assign;
       }
       const may = asg.whoMayGet(paused ? { ...p, paused: false } : p, inP).filter(reachable);
       const lead = paused ? 'Nobody is on it. The project is paused; when it is resumed, Kosmos will give it to ' : 'Nobody is on it, so Kosmos will give it to ';
