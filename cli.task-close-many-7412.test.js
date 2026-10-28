@@ -111,7 +111,7 @@ test('#7412: one the board refuses does not stop the others; the command says wh
     const r = await run(['task', 'close', projectId, String(a), '9999', String(b)], token('mara'));
     assert.equal(r.code, 1, label + ': ' + r.text);
     assert.match(r.text, new RegExp('^\\s*Closed tasks ' + a + ', ' + b + ' on ', 'm'), label + ': ' + r.text);
-    assert.match(r.text, /^\s*Could not close: 9999 \(.+\)\.$/m, label + ': ' + r.text);
+    assert.match(r.text, /^\s*Could not close task 9999: .+\.$/m, label + ': one line for the refused task: ' + r.text);
     assert.equal(isDone(a), true, label); assert.equal(isDone(b), true, label);
   }
 });
@@ -121,7 +121,7 @@ test('#7412: when the FIRST number is refused, the rest are still closed', async
     const [a] = open('first ' + label, 1);
     const r = await run(['task', 'close', projectId, '9998', String(a)], token('mara'));
     assert.equal(r.code, 1, label + ': ' + r.text);
-    assert.match(r.text, /^\s*Could not close: 9998 \(/m, label + ': ' + r.text);
+    assert.match(r.text, /^\s*Could not close task 9998: /m, label + ': ' + r.text);
     assert.match(r.text, new RegExp('^\\s*Closed task ' + a + ' on ', 'm'), label + ': one closed reads as one task: ' + r.text);
     assert.equal(isDone(a), true, label + ': ' + r.text);
   }
@@ -190,7 +190,7 @@ test('#7412: a close Kosmos does not answer stops the run: the ones before are s
   const http = require('node:http');
   for (const [label] of BOTH) for (const firstLost of [false, true]) {
     const [a0, b0, c] = open('lost ' + label + ' ' + firstLost);
-    // firstLost: the very first number is the one not answered (the Mac sends it on the single-close path).
+    // firstLost: the very first number is the one not answered.
     const [a, b] = firstLost ? [null, a0] : [a0, b0];
     // A board that drops the connection on task b's close and passes everything else through to the real one.
     const proxy = http.createServer((req, res) => {
@@ -221,5 +221,71 @@ test('#7412: a close Kosmos does not answer stops the run: the ones before are s
     } finally {
       proxy.close();
     }
+  }
+});
+
+/* Runs either command against a stand-in board at `pbase`. */
+async function runVia(label, port, argv, agentToken) {
+  if (label === 'Mac') return mac(argv, agentToken, port);
+  const pbase = 'http://127.0.0.1:' + port;
+  const out = []; const err = [];
+  const code = await cli.main(argv, { env: {}, url: pbase, hook: { resolveUrl: () => pbase, readBoardToken: () => null, agentToken: () => agentToken }, out: (s) => out.push(s), err: (s) => err.push(s) });
+  return { code, text: out.concat(err).join('\n') };
+}
+
+test('#7412 review 4: a close whose connection is refused sent nothing, so it is named as still open, never as maybe closed', async () => {
+  const http = require('node:http');
+  for (const [label] of BOTH) {
+    const [a, b, c] = open('refusedconn ' + label);
+    // A board that answers task a's close, then stops listening: the next connection is refused (curl 7, ECONNREFUSED).
+    const proxy = http.createServer((req, res) => {
+      const last = req.method === 'POST' && new RegExp('/task/' + a + '/close$').test(req.url);
+      const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers: req.headers }, (r) => {
+        const h = { ...r.headers }; if (last) h.connection = 'close';
+        res.writeHead(r.statusCode, h); r.pipe(res);
+        if (last) res.on('finish', () => { proxy.close(); setImmediate(() => proxy.closeAllConnections()); });
+      });
+      up.on('error', () => { res.statusCode = 502; res.end(); });
+      req.pipe(up);
+    });
+    await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+    try {
+      const r = await runVia(label, proxy.address().port, ['task', 'close', projectId, String(a), String(b), String(c)], token('mara'));
+      assert.notEqual(r.code, 0, label + ': ' + r.text);
+      assert.match(r.text, new RegExp('^\\s*Closed task ' + a + ' on ', 'm'), label + ': ' + r.text);
+      assert.doesNotMatch(r.text, /may have closed/, label + ': nothing was sent for task ' + b + ': ' + r.text);
+      assert.match(r.text, new RegExp('^\\s*Not tried, so still open: ' + b + ', ' + c + '\\.$', 'm'), label + ': ' + r.text);
+      assert.equal(isDone(a), true, label); assert.equal(isDone(b), false, label); assert.equal(isDone(c), false, label);
+    } finally {
+      proxy.close();
+    }
+  }
+});
+
+test('#7412 review 4: an agent not on the project is told once, and the rest are not sent', async () => {
+  for (const [label, run] of BOTH) {
+    const [a, b, c] = open('notmine ' + label);
+    const r = await run(['task', 'close', projectId, String(a), String(b), String(c)], token('kai'));
+    assert.equal(r.code, 1, label + ': ' + r.text);
+    assert.equal((r.text.match(/Could not close task/g) || []).length, 1, label + ': one refusal line, not one per task: ' + r.text);
+    assert.match(r.text, new RegExp('^\\s*Could not close task ' + a + ': that agent is not on this project', 'm'), label + ': ' + r.text);
+    assert.match(r.text, new RegExp('^\\s*Not tried, so still open: ' + b + ', ' + c + '\\.$', 'm'), label + ': ' + r.text);
+    for (const n of [a, b, c]) assert.equal(isDone(n), false, label + ': task ' + n + ' closed by an agent not on the project');
+  }
+});
+
+test('#7412 review 4: both commands keep to the board limit for closing several at once, refused before anything is sent', async () => {
+  const MAX = Number(/const BULK_CLOSE_MAX = (\d+);/.exec(fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8'))[1]);
+  assert.ok(MAX > 1, 'read the board limit');
+  for (const [label, run] of BOTH) {
+    const [a] = open('cap ' + label, 1);
+    const over = await run(['task', 'close', projectId, ...Array(MAX + 1).fill(String(a))], token('mara'));
+    assert.equal(over.code, 2, label + ': ' + over.text);
+    assert.match(over.text, new RegExp('Close up to ' + MAX + ' tasks at a time'), label + ': ' + over.text);
+    assert.equal(isDone(a), false, label + ': closed past the limit');
+    // CONTROL: exactly the limit passes (the same number repeated is one close).
+    const at = await run(['task', 'close', projectId, ...Array(MAX).fill(String(a))], token('mara'));
+    assert.equal(at.code, 0, label + ': ' + at.text);
+    assert.equal(isDone(a), true, label);
   }
 });
