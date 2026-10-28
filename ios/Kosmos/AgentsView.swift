@@ -46,8 +46,15 @@ struct AgentsView: View {
             for e in (o.accessibilityElements ?? []) { if let n = e as? NSObject, let f = findElement(n, depth: depth + 1) { return f } }
             return nil
         }
+        // Run 2 pressed the first menu in the bar (the computer switcher): pick the one that offers the sort orders.
+        func offersSort(_ m: UIMenu) -> Bool {
+            m.children.contains { e in
+                if let sub = e as? UIMenu { return offersSort(sub) }
+                return e.title == Board.agentSortLabel(.talked)
+            }
+        }
         func findMenuButton(_ v: UIView) -> UIButton? {
-            if let b = v as? UIButton, b.menu != nil { return b }
+            if let b = v as? UIButton, let m = b.menu, offersSort(m) { return b }
             for sv in v.subviews { if let f = findMenuButton(sv) { return f } }
             return nil
         }
