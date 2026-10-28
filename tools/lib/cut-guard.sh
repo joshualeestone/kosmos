@@ -614,6 +614,8 @@ kosmos_refuse_if_suite_live() {
 # Only 0 (busy) and 1 (quiet) are answers; anything else is busy:
 #   running() { local r; kosmos_cut_quiet_box_busy; r=$?; [ "$r" -le 1 ] && return "$r"
 #               echo "could not ask whether the box is quiet (rc $r; is the main checkout pulled?): treated as busy"; return 0; }
+# Call it only as a condition (`while why=$(running)`, `if running`): under `set -e` a bare call stops the wrapper on a
+# quiet box (review 2), which starts no cut but says nothing.
 # The 0.7.73 cut deadlocked for about 20 minutes because the wrapper's own copy counted ANY live
 # `bash tools/run-tests.sh` as busy, including a suite that was only WAITING on the cut's own machine claim (it runs no
 # test, and waits for the claim to go). That is the 0.7.27 deadlock (#5467, #5470) through another door. Here a suite
@@ -625,7 +627,8 @@ kosmos_refuse_if_suite_live() {
 # KNOWN RESIDUAL: a suite started with the suite check off (KOSMOS_TESTS_IGNORE_SUITE=1, or inside a test) waits
 # without a marker, so it still reads as busy; its wait gives up at its own bound (KOSMOS_WAIT_MAX_S, 20 minutes).
 # Seams: KOSMOS_SUITE_PROBE and KOSMOS_SUITE_SELF_PID, as kosmos_refuse_if_suite_live reads them.
-_kosmos_shell_shards_live() { pgrep -f "tools/shell-shard\.js run" >/dev/null 2>&1; }
+# Review 2: a pgrep that fails (rc 2 or more) is busy too, as the comment above promises; only 1 is "none".
+_kosmos_shell_shards_live() { local rc=0; pgrep -f "tools/shell-shard\.js run" >/dev/null 2>&1 || rc=$?; [ "$rc" -ne 1 ]; }
 kosmos_cut_quiet_box_busy() {
   local probe="${KOSMOS_SUITE_PROBE:-}" self="${KOSMOS_SUITE_SELF_PID:-$$}" out rc sc
   if kosmos_prepush_build_live; then echo "relay pre-push build"; return 0; fi
