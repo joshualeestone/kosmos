@@ -1296,6 +1296,7 @@ check(!NewAgent.keepsPortrait(type: "image/jpeg", bytes: pngHead, width: 256, he
       && !NewAgent.keepsPortrait(type: "image/png", bytes: pngHead + Data(count: 60000), width: 256, height: 256, frames: 1)
       && !NewAgent.keepsPortrait(type: "image/png", bytes: Data([0xFF, 0xD8]), width: 256, height: 256, frames: 1),
       "anything else (JPEG, eXIf, animated, under 16 or over 2048 a side, over the limit, not a PNG) is redrawn")
+check(NewAgent.pictureType(pngHead) == "image/png" && NewAgent.pictureType(Data([0xFF, 0xD8, 0xFF])) == "image/jpeg", "a fitted picture is sent as what its bytes are")
 check(boardPage.contains("PICTURE_MIN_SIDE = 16") && boardPage.contains("PICTURE_MAX_SIDE = 2048"), "the sides are the desktop's")
 check(boardPage.contains("<h3 class=\"sform-h\">" + NewAgent.Words.identity + "</h3>") && boardPage.contains(">" + NewAgent.Words.changePicture + "</button>")
       && boardPage.contains("aria-label=\"" + NewAgent.Words.markLabel + "\""), "Identity, Change picture and the mark's label are the desktop's own markup")

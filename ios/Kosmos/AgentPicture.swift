@@ -16,13 +16,13 @@ enum AgentPicture {
     // The letter's outline at the desktop's size (215 pt bold in a 256 field), its ink centred, read as a mask.
     private static func inkMask(_ letter: String) -> [UInt8]? {
         let n = Int(AgentMark.side)
-        // Grey and alpha per pixel; the mask is the alpha, as the desktop reads its canvas's alpha, so a colour glyph (an
-        // emoji) covers what it covers whatever its colours.
-        var px = [UInt8](repeating: 0, count: n * n * 2)
+        // Alpha only (one of CoreGraphics' documented bitmap formats: gray, 8 bits, alpha only): the mask is the alpha, as
+        // the desktop reads its canvas's alpha, so a colour glyph (an emoji) covers what it covers whatever its colours.
+        var px = [UInt8](repeating: 0, count: n * n)
         let ok: Bool = px.withUnsafeMutableBytes { buf in
-            guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 2,
+            guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n,
                                       space: CGColorSpaceCreateDeviceGray(),
-                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+                                      bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return false }
             let font = UIFont.systemFont(ofSize: 215, weight: .bold)
             // Opaque ink from the context itself, so the mask does not rest on which colour key CoreText reads.
             ctx.setFillColor(gray: 0, alpha: 1)
@@ -34,7 +34,7 @@ enum AgentPicture {
             CTLineDraw(line, ctx)
             return true
         }
-        return ok ? stride(from: 1, to: px.count, by: 2).map { px[$0] } : nil
+        return ok ? px : nil
     }
 
     // The mark as an image, or nil for a name with nothing in it.
@@ -58,10 +58,11 @@ enum AgentPicture {
         }
     }
 
-    // The board keeps a picture up to 60,000 bytes (the desktop's PICTURE_MAX_BYTES, the community's cap). A photo is
-    // decoded already shrunk and upright from its file (never the full-size bitmap), cut to the centred square the
-    // desktop's crop editor opens on, and redrawn as a JPEG on white, 512 px down to 128, as the desktop's fitPicture
-    // does for a picture with no transparency. nil when it cannot be read or will not fit. Not on the main thread.
+    // The board keeps a picture up to 60,000 bytes (the desktop's PICTURE_MAX_BYTES, the community's cap). A picture is
+    // decoded already shrunk and upright from its file (never the full-size bitmap) and cut to the centred square the
+    // desktop's crop editor opens on. One with transparency is tried as a PNG at each size first (the desktop tries WebP
+    // or PNG; the phone cannot write WebP), then any as a JPEG on white, 512 px down to 128, at the desktop's qualities.
+    // nil when it cannot be read or will not fit. Not on the main thread.
     static let maxBytes = NewAgent.pictureMaxBytes
     static let minSide = 16   // the desktop's PICTURE_MIN_SIDE
     static func fit(data: Data) -> Data? {
@@ -80,6 +81,20 @@ enum AgentPicture {
         // Each size once (a small picture is tried at its own size only), never under the board's smallest side.
         var sides: [CGFloat] = []
         for s in [512.0, 384, 256, 192, 128].map({ max(CGFloat(minSide), min(CGFloat($0), square)) }) where !sides.contains(s) { sides.append(s) }
+        let alpha = ![.none, .noneSkipFirst, .noneSkipLast].contains(cg.alphaInfo)
+        if alpha {
+            for side in sides {
+                let format = UIGraphicsImageRendererFormat()
+                format.scale = 1
+                format.opaque = false
+                format.preferredRange = .standard
+                let png = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).pngData { r in
+                    r.cgContext.interpolationQuality = .high
+                    image.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
+                }
+                if png.count <= maxBytes { return png }
+            }
+        }
         for side in sides {
             let format = UIGraphicsImageRendererFormat()
             format.scale = 1
@@ -91,20 +106,21 @@ enum AgentPicture {
                 r.cgContext.interpolationQuality = .high   // the desktop's imageSmoothingQuality 'high'
                 image.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
             }
-            for q in [0.85, 0.7, 0.55] {
+            for q in [0.86, 0.72] {
                 if let out = drawn.jpegData(compressionQuality: q), out.count <= maxBytes { return out }
             }
         }
         return nil
     }
 
-    // A catalogue portrait: kept as it came when NewAgent.keepsPortrait says so; anything else is redrawn the phone's way
-    // (fit: a centred square, JPEG on white), where the desktop keeps the shape and any transparency (the plan says so).
+    // A catalogue portrait: kept as it came when NewAgent.keepsPortrait says so (a still PNG; the catalogue serves WebP, so
+    // in practice every portrait is redrawn); anything else goes through fit, a centred square that keeps transparency
+    // as PNG where it fits, where the desktop keeps the shape (the plan says so).
     static func portrait(_ data: Data, type: String) -> (Data, String)? {
         if let src = CGImageSourceCreateWithData(data as CFData, nil),
            let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
            let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int,
            NewAgent.keepsPortrait(type: type, bytes: data, width: w, height: h, frames: CGImageSourceGetCount(src)) { return (data, type) }
-        return fit(data: data).map { ($0, "image/jpeg") }
+        return fit(data: data).map { ($0, NewAgent.pictureType($0)) }
     }
 }
