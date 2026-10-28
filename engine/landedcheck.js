@@ -12,8 +12,10 @@
  * A squash or rebase merge whose branch was then deleted everywhere also reads 'missing' (the card's weakest premise),
  * which is why the person-facing words say it "may not have been saved".
  *
- * The repository is a path an agent's own mark recorded. These git commands only read: rev-parse, cat-file and
- * for-each-ref run no hooks, and only a token-holding agent can set the field.
+ * The repository is a path an agent's own mark recorded, and only a token-holding agent can set the field. These git
+ * commands only read (rev-parse, cat-file, for-each-ref, none of which runs a hook or touches the index), and each runs
+ * with fsmonitor and the hooks path switched off and no optional locks, so that repository's config cannot add a
+ * command to them.
  *
  * Bounded and never blocking: git runs asynchronously with a time limit per call (at most four calls per check),
  * answers are kept for TTL_MS, and a request starts at most `budget.left` new checks; past that a row gets no answer
@@ -23,13 +25,16 @@ const fs = require('node:fs');
 const childProcess = require('node:child_process');
 
 const TTL_MS = 5 * 60 * 1000;
+/* review 2: an 'unknown' (often a slow history walk on a big repository) is tried again sooner. */
+const UNKNOWN_TTL_MS = 30 * 1000;
 const GIT_TIMEOUT_MS = 3000;
 const cache = new Map();
 
 /** git, resolving its standard output, or rejecting with the child's status, signal and code. */
 function runGit(args) {
   return new Promise((resolve, reject) => {
-    childProcess.execFile('git', args, { encoding: 'utf8', timeout: GIT_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024 }, (err, stdout) => {
+    childProcess.execFile('git', ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + (process.platform === 'win32' ? 'NUL' : '/dev/null'), ...args],
+      { encoding: 'utf8', timeout: GIT_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }, (err, stdout) => {
       if (err) reject(err); else resolve(stdout);
     });
   });
@@ -63,7 +68,7 @@ async function checkTask(t, { budget = { left: 10 }, git = runGit, exists = fs.e
   if (!t || typeof t.landedCommit !== 'string' || typeof t.landedRepo !== 'string') return null;
   const key = t.landedRepo + '\u0000' + t.landedCommit;
   const hit = cache.get(key);
-  if (hit && now() - hit.at < TTL_MS) return hit.result;
+  if (hit && now() - hit.at < (hit.result.state === 'unknown' ? UNKNOWN_TTL_MS : TTL_MS)) return hit.result;
   if (!(budget.left > 0)) return null;
   budget.left -= 1;
   let result;
@@ -75,4 +80,4 @@ async function checkTask(t, { budget = { left: 10 }, git = runGit, exists = fs.e
 
 function resetForTests() { cache.clear(); }
 
-module.exports = { checkTask, resetForTests, TTL_MS };
+module.exports = { checkTask, resetForTests, TTL_MS, UNKNOWN_TTL_MS };

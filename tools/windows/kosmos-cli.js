@@ -1636,6 +1636,7 @@ async function taskBuilt(ctx, args) {
   }
   if (wantFile) { ctx.err('--file needs the path of the delivered file.'); return 2; }
   if (wantCommit || cref === '') { ctx.err('--commit needs the commit the fix landed as, for example --commit HEAD.'); return 2; }
+  if (cref !== null && cref.startsWith('-')) { ctx.err('--commit needs the commit the fix landed as, for example --commit HEAD (got ' + cref + ').'); return 2; }   // review 2: not the next option
   const note = words.join(' ');
   if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
   /* #6330 slice 2: the delivered file's fingerprint, worked out here; the board never reads the file. kosmos#6849: the one

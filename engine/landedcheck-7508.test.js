@@ -94,3 +94,16 @@ test('#7508: no commit means nothing to check; answers are cached; a request sta
   assert.equal(one.state, 'kept');
   assert.equal(two, null, 'a check past the budget ran, or said something');
 });
+
+test('#7508 review 2: a could-not-check answer is tried again sooner than a kept one', async () => {
+  let calls = 0;
+  const slow = async () => { calls += 1; throw Object.assign(new Error('timed out'), { code: null, signal: 'SIGTERM', killed: true }); };
+  const t = { landedCommit: '3'.repeat(40), landedRepo: SANDBOX };
+  const t0 = Date.now();
+  assert.equal((await landedcheck.checkTask(t, { git: slow, now: () => t0 })).state, 'unknown');
+  const after = calls;
+  await landedcheck.checkTask(t, { git: slow, now: () => t0 + landedcheck.UNKNOWN_TTL_MS - 1 });
+  assert.equal(calls, after, 'CONTROL: within its short time it is cached');
+  await landedcheck.checkTask(t, { git: slow, now: () => t0 + landedcheck.UNKNOWN_TTL_MS + 1 });
+  assert.ok(calls > after, 'an unknown answer was kept as long as a kept one');
+});

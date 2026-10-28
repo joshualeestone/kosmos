@@ -188,6 +188,9 @@ test('Mac: a ref that is not a commit here, --commit with nothing, and --commit 
   const empty = await mac(['task', 'built', projectId, String(n), '--commit'], { KOSMOS_AGENT_TOKEN: tok }, local.dir);
   assert.equal(empty.code, 2, empty.out);
   assert.match(empty.out, /--commit needs the commit the fix landed as/);   // not the unknown-option refusal
+  const option = await mac(['task', 'built', projectId, String(n), '--commit', '--clear'], { KOSMOS_AGENT_TOKEN: tok }, local.dir);
+  assert.equal(option.code, 2, option.out);
+  assert.match(option.out, /--commit needs the commit the fix landed as, for example --commit HEAD \(got --clear\)/, 'an option was read as the commit');
   const both = await mac(['task', 'built', projectId, String(n), '--clear', '--commit', 'HEAD'], { KOSMOS_AGENT_TOKEN: tok }, local.dir);
   assert.equal(both.code, 2, both.out);
   assert.match(both.out, /takes no commit/);
@@ -231,6 +234,9 @@ test('Windows `kosmos task built --commit`: the same commit, the same words, and
   const empty = await win(['task', 'built', projectId, String(k), '--commit'], local.dir);
   assert.equal(empty.code, 2);
   assert.match(empty.err, /--commit needs the commit the fix landed as/);
+  const option = await win(['task', 'built', projectId, String(k), '--commit', '--clear'], local.dir);
+  assert.equal(option.code, 2);
+  assert.match(option.err, /\(got --clear\)/, 'an option was read as the commit');
   const both = await win(['task', 'built', projectId, String(k), '--clear', '--commit', 'HEAD'], local.dir);
   assert.equal(both.code, 2);
   assert.match(both.err, /takes no commit/);

@@ -69174,9 +69174,9 @@ function tskRow(t, at) {
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
       + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain)) + ' not built yet">Not built yet</button></div>';
   /* #7508 (Mona Lisa's words): the commit a code fix was saved as, from the agent's built mark, on open and closed rows
-     alike, in the row's quiet text. The short sha stays, for whoever checks it. */
-  /* Slice 2: a closed row carries the board's check of that commit now (landedCheck): 'missing' says it plainly in place
-     of the saved line, 'unknown' says what could not be checked, and no answer (not checked this read) is the saved line. */
+     alike, in the row's quiet text; the short sha stays, for whoever checks it. A closed row also carries the board's
+     check of that commit now (landedCheck): 'missing' says it plainly in place of the saved line, 'unknown' says what
+     could not be checked, and no answer (not checked this read) is the saved line. */
   const landedSha = typeof t.landedCommit === 'string' && /^[0-9a-f]{40,64}$/.test(t.landedCommit) ? t.landedCommit.slice(0, 7) : '';
   const landedLine = !landedSha ? ''
     : t.state === 'closed' && t.landedCheck === 'missing'
