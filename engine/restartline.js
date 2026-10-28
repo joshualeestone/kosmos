@@ -116,10 +116,10 @@ function lineFor({ record, notes, agents }) {
 }
 
 /** Not now: hide the line until the next update. Only for the version recorded now, so an old page cannot hide a
- *  newer update's line. Returns true when recorded (or when there is nothing to hide). */
+ *  newer update's line. Returns true only when it was recorded. */
 function notNow(version) {
   const rec = read();
-  if (!rec) return true;
+  if (!rec) return false;
   if (rec.version !== version) return false;
   return write({ history: rec.history, notNow: rec.version });
 }
