@@ -356,6 +356,7 @@ struct NewAgentView: View {
             teamStarted = false
             checkedNames = [:]
             memberWarnings = [:]
+            maybeMade = [:]
             states = [:]
         } else {
             detailFailed = true
@@ -363,11 +364,11 @@ struct NewAgentView: View {
     }
 
     // The desktop's tcMake: names checked with nothing made, then the project, then the members, the lead first.
+    // Started only by runTeam, which has already set teamRunning.
     private func makeTeam() async {
-        guard !teamRunning, let d = detail else { return }
-        teamRunning = true
-        teamMessage = nil
         defer { teamRunning = false }
+        guard let d = detail else { return }
+        teamMessage = nil
         let epoch = client.chatEpoch
         let typed = names.mapValues { NewProject.trimmed($0) }
         let model = draft.model
@@ -420,7 +421,10 @@ struct NewAgentView: View {
         teamStarted = true
         let lead = d.members.first?.slot
         for s in specs {
-            if Task.isCancelled { return }   // the sheet went: nothing more is made that nobody can see
+            if Task.isCancelled {   // the sheet went: nothing more is made that nobody can see
+                for m in d.members where !isMade(m.slot) && states[m.slot] != nil { states[m.slot] = .failed(NewAgent.unsureWords) }
+                return
+            }
             if case .made = states[s.slot] { continue }
             if s.slot != lead, let lead, !isMade(lead) { states[s.slot] = .afterLead; continue }
             // A create whose answer was lost may have landed: once that agent is on the board, it is this member (the
@@ -475,8 +479,10 @@ struct NewAgentView: View {
 
     private func announce(_ words: String) { UIAccessibility.post(notification: .announcement, argument: words) }
 
+    // teamRunning is set here, before the task starts, so a second tap in between starts nothing.
     private func runTeam() {
         guard !teamRunning else { return }
+        teamRunning = true
         teamTask = Task { await makeTeam() }
     }
 
@@ -524,15 +530,17 @@ struct NewAgentView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .safeAreaInset(edge: .bottom) {
-            if allMade, let lead = members.first, case .made(let session, let shown) = states[lead.slot] {
+            // As Say hello: the lead's chat once the board can see the lead running.
+            if allMade, let lead = members.first, case .made(let session, let shown) = states[lead.slot],
+               client.agents.contains(where: { $0.session == session && $0.boardSeesIt }) {
                 pinned(NewTeam.Words.goTo(members.count), enabled: true) { dismiss(); opened(session, shown) }
-            } else if !teamRunning {
+            } else if !teamRunning && !allMade {
                 pinned(NewTeam.Words.tryAgain, enabled: members.allSatisfy { isMade($0.slot) || !NewProject.trimmed(names[$0.slot] ?? "").isEmpty }) { runTeam() }
             }
         }
         .toolbar {
             // A way out when the rest is not wanted: the members made stay made.
-            if !teamRunning && !allMade { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            if !teamRunning { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         }
     }
 
