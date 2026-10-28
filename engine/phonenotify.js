@@ -333,6 +333,27 @@ function plusLive() {
   try { return remote.enrolled() === true && remote.read().on === true; } catch { return false; }
 }
 
+/* #7448 (with #7458, Ice Cream Kitty's coordinator half): the board tells the coordinator whether this computer sends phone
+   notices (signed POST /v1/mac/phone-notices { send }), so it drops a muted computer's events too and the account's
+   computer list can show it. Reported on the default-on schedule (at start, after a sign-in, then every few minutes)
+   whenever the mark differs from what the coordinator last answered 2xx for, per computer id (a Forget plus a new
+   sign-in is a new id, so it is reported again). Any failure, a 404 before the coordinator has the route included, is
+   only retried on that schedule: never read as "notices off", never blocking the board. Nothing goes to Kosmos+ while
+   it is switched off here (plusLive). */
+const PHONE_NOTICES_ROUTE = '/v1/mac/phone-notices';
+let noticesReported = null;   // { mac, send } the coordinator last confirmed
+async function reportPhoneNotices() {
+  try {
+    if (!remote.enrolled() || !plusLive()) return null;
+    const mac = remote.macIdHere();
+    const send = !noPush();
+    if (noticesReported && noticesReported.mac === mac && noticesReported.send === send) return null;
+    const r = await remote.macRequest('POST', PHONE_NOTICES_ROUTE, { send });
+    if (r && r.ok === true) { noticesReported = { mac, send }; return { ok: true, send }; }
+    return { ok: false };
+  } catch { return null; }
+}
+
 let defaultBecause = null;   // #6488: why the default could not turn it on, last time (the person's sentence), or null
 
 /** #6488: turn phone notifications on for a computer whose person never touched the switch, once it is connected to
@@ -341,6 +362,7 @@ let defaultBecause = null;   // #6488: why the default could not turn it on, las
     one-at-a-time guard. Resolves to turnOn's answer, or null when it did nothing. Never throws. */
 async function ensureDefaultOn() {
   try {
+    await reportPhoneNotices();   // #7448: first, whatever the switch does; it never throws
     if (!available) return null;
     const choice = masterChoice();
     // An off that lives only in phone-notify.json (one from before #6488: a token or notifyId held with the switch
@@ -584,4 +606,4 @@ function happened(event) {
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { noPush, NO_PUSH_WHY, setProjectLevel, PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
+module.exports = { noPush, NO_PUSH_WHY, reportPhoneNotices, PHONE_NOTICES_ROUTE, resetNoticesReportedForTests: () => { noticesReported = null; }, setProjectLevel, PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
