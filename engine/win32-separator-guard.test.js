@@ -110,6 +110,7 @@ const ALLOW = [
   { file: 'restoresink.js', snippet: "line.split(':')", count: 1, why: 'an /etc/group line (name:password:gid:members); : is that file\'s field separator, not a path. In isPrivateGroup, reached only on the non-win32 branch (#5536)' },
   { file: 'startcommands.js', snippet: "value.split(':')", count: 1, why: 'a PATH= assignment inside a POSIX shell command line a hook or server runs: : is that shell syntax\'s own separator (Git Bash on Windows too), not the host path.delimiter (#5774)' },
   { file: 'backupupload.js', snippet: ".split(';')", count: 1, why: 'AWS SigV4 X-Amz-SignedHeaders, a ;-joined list of header names fixed by the protocol on every platform, not a path list (#5535)' },
+  { file: 'pagecompress.js', snippet: ".toLowerCase().split(';')", count: 1, why: 'HTTP Accept-Encoding: an encoding and its q parameter are ;-separated (RFC 9110), not a path list (#7490)' },
 ];
 
 function scanEngineSeparatorHits() {

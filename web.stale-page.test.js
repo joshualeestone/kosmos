@@ -41,7 +41,8 @@ function built(baked, polled) {
 
 test('the page is served with the same do-not-cache the API already had', () => {
   const srv = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
-  const line = srv.match(/res\.writeHead\(200, \{ 'content-type': 'text\/html[^}]*\}/);
+  // kosmos#7490: the page's headers go to pageCompress.sendPage, which sends them compressed or not.
+  const line = srv.match(/pageCompress\.sendPage\(req, res, \{ 'content-type': 'text\/html[^}]*\}/);
   assert.ok(line, 'the page response moved');
   assert.match(line[0], /'cache-control': 'no-store'/,
     'the page is served with no cache instruction, so the browser decides and keeps it');
