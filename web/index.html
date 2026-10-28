@@ -10492,6 +10492,13 @@ html[data-kosmos-platform="win32"] ::-webkit-scrollbar { width: 10px; height: 10
 html[data-kosmos-platform="win32"] ::-webkit-scrollbar-track { background: transparent; }
 html[data-kosmos-platform="win32"] ::-webkit-scrollbar-thumb { background: var(--k-ink-2); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
 html[data-kosmos-platform="win32"] ::-webkit-scrollbar-thumb:hover { background: var(--k-ink); }
+/* #7497: on a long conversation the thumb fell to Chromium's own minimum, 17 lit rows in the
+   scrollbar column (a 46,000px thread in a 600px pane, measured in the Windows app), too small
+   to grab with a mouse. A floor of 40px along the bar keeps it grabbable; the bar stays 10px
+   wide. Measured in WebView2 on the Windows box: 17 lit rows before, 40 after. On a pane too
+   short for 40px the thumb fills the track instead (a 30px pane: 26 rows), it does not vanish. */
+html[data-kosmos-platform="win32"] ::-webkit-scrollbar-thumb:vertical { min-height: 40px; }
+html[data-kosmos-platform="win32"] ::-webkit-scrollbar-thumb:horizontal { min-width: 40px; }
 html[data-kosmos-platform="win32"] ::-webkit-scrollbar-corner { background: transparent; }
 /* Hide the native up/down arrow buttons Chromium can glue to a custom-width scrollbar on
    Windows, so the bar stays a clean thin thumb rather than a thin bar with wide OS buttons. */
