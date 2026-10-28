@@ -158,9 +158,19 @@ function accountOf(c, now) {
   const key = String(c.sessionName);
   const hit = ACCOUNT_MEMO.get(key);
   if (hit && now - hit.at >= 0 && now - hit.at < ACCOUNT_MS) return hit.account;
+  // Review 3: the folder as signedoutaccounts compares it (a symlink or trailing slash is the same folder), and the
+  // runner from the job, which is the authority there too.
   let dir = '';
-  try { const job = require('./create').readJob(key); dir = job && job.configDir ? String(job.configDir) : ''; } catch { dir = ''; }
-  const account = (c.runner || 'claude') + '\u0000' + dir;
+  let runner = c.runner || 'claude';
+  try {
+    const job = require('./create').readJob(key);
+    if (job && job.runner) runner = String(job.runner);
+    if (job && job.configDir) {
+      const d = String(job.configDir);
+      try { dir = require('node:fs').realpathSync.native(d); } catch { dir = require('node:path').resolve(d); }
+    }
+  } catch { dir = ''; }
+  const account = runner + '\u0000' + dir;
   ACCOUNT_MEMO.set(key, { at: now, account });
   return account;
 }

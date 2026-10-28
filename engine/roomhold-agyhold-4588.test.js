@@ -753,3 +753,25 @@ test('kosmos#7406 room: under the per-account cap an agent\'s post to an idle Cl
     agyquota.CAP_STARTS.clear();
   }
 });
+
+/* kosmos#7406 review 3 (a blocker): only a Claude box can be read, so the cap retry must not wait on the box for any
+   other runner, or a capped post to an idle Codex member waits for good. */
+test('kosmos#7406 review 3: a cap-held post to an idle Codex member is told by the retry though its box cannot be read; CONTROL a Claude member whose box reads text waits', async () => {
+  const room = [fleet.agent('leo', { state: 'idle' }), fleet.agent('cx', { state: 'unknown', runner: 'codex', command: 'codex', screen: '' }), fleet.agent('kit', { state: 'idle' })];
+  agyquota.CAP_STARTS.clear();
+  await withFleetAsync(room, async (board) => {
+    const r = rosterOf(board, null);
+    for (const name of ['cx', 'kit']) {
+      roomhold.forget(name);
+      assert.ok(roomhold.hold(name, PROJECT, roomhold.addressedId('m7406')));
+      assert.equal(roomhold.noteCap(name, PROJECT, roomhold.addressedId('m7406')), true);
+    }
+    const tmux = arm();
+    const told = await roomhold.flushReleased(r, { ...releasedDeps(r, Date.now()), boxEmpty: () => false });
+    // The retry TRIES the Codex member (what this guards). This fake tmux answers as a Claude pane, so the typing itself
+    // is refused here; that it is typed on a real Codex pane is the delivery's own tests' job.
+    assert.deepEqual(told.filter((d) => d.why === 'cap').map((d) => d.name), ['cx'], 'the retry skipped the Codex member: ' + JSON.stringify(told));
+    assert.deepEqual(typedTo(tmux, 'kit'), [], 'CONTROL: a Claude member whose box holds text was typed into');
+    roomhold.forget('cx'); roomhold.forget('kit');
+  });
+});

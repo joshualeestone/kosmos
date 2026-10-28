@@ -129,22 +129,65 @@ test('a cap-held post is noted, and only while it is still held', () => {
   roomhold.forget('cl-c');
 });
 
-test('review 1 (a blocker): a person\'s own message kept for a usage limit is typed with the cap off', () => {
+test('reviews 1-3: an agent\'s kept queue goes through the cap, but never while it holds a person\'s own message', () => {
   const chat = require('./chat');
   const limitqueue = require('./limitqueue');
   const real = chat.deliverAutomaticAsync;
   const seen = [];
   chat.deliverAutomaticAsync = (...args) => { seen.push(args); return Promise.resolve({ state: 'placed' }); };
+  const at = new Date(NOW).toISOString();
   try {
     const hooks = limitqueue.sweepHooks({ chat, messages: require('./messages') });
-    hooks.deliver('cl-a', 'env', [], { kind: 'dm', text: 'hi', envelope: '', trailer: '' });
-    hooks.deliver('cl-a', 'a task line', [], { kind: limitqueue.TASK_KIND, person: true });
+    // Only an agent's line kept: the cap applies (review 3: a usage limit resets a whole account at once).
+    assert.ok(limitqueue.add('cl-a', { id: 'x1', from: 'cl-b', envelope: 'e', at, reset: at }));
     hooks.deliver('cl-a', 'an agent line', [], { kind: 'msg' });
-  } finally { chat.deliverAutomaticAsync = real; }
-  assert.deepEqual(seen[0][5], { cap: false }, 'a person\'s kept DM can be held by the cap');
-  // Review 2: a person's task message too, and an agent's kept line, since one capped entry stops the flush for all.
-  assert.deepEqual(seen[1][5], { cap: false }, 'a person\'s kept task message can be held by the cap');
-  assert.deepEqual(seen[2][5], { cap: false }, 'a kept agent line can stop the queue behind it');
+    // A person's DM joins the same queue: the whole run goes with the cap off (it is in order and one held entry stops it).
+    assert.ok(limitqueue.add('cl-a', { id: 'x2', kind: 'dm', from: 'you', text: 'hi', envelope: 'e', at, reset: at }));
+    hooks.deliver('cl-a', 'an agent line', [], { kind: 'msg' });
+    hooks.deliver('cl-a', 'env', [], { kind: 'dm', text: 'hi', envelope: '', trailer: '' });
+    // A task line the person typed counts the same.
+    assert.ok(limitqueue.add('cl-b', { id: 'x3', kind: limitqueue.TASK_KIND, person: true, from: 'you', envelope: 'e', at, reset: at }));
+    hooks.deliver('cl-b', 'a task line', [], { kind: limitqueue.TASK_KIND, person: true });
+  } finally {
+    chat.deliverAutomaticAsync = real;
+    for (const n of ['cl-a', 'cl-b']) for (const e of limitqueue.list(n)) limitqueue.remove(n, e.id);
+  }
+  assert.deepEqual(seen[0][5], {}, 'CONTROL: an agent-only queue skipped the cap (the reset burst)');
+  assert.deepEqual(seen[1][5], { cap: false }, 'an agent line ahead of a person\'s DM can stop it');
+  assert.deepEqual(seen[2][5], { cap: false }, 'a person\'s kept DM can be held by the cap');
+  assert.deepEqual(seen[3][5], { cap: false }, 'a person\'s kept task message can be held by the cap');
+});
+
+test('review 3: the note of the person\'s own post from another computer is never held by the cap', () => {
+  const chat = require('./chat');
+  const messages = require('./messages');
+  const real = chat.deliverAutomatic;
+  const seen = [];
+  chat.deliverAutomatic = (...args) => { seen.push(args); return { state: 'placed' }; };
+  try {
+    const r = world(ALL_IDLE).map((c) => ({ ...c, target: c.target || 'x:0.0' }));
+    messages.nudgeOwnComputerPost('proj7406', 'Proj', 'm1', ['cl-a'], r, NOW);
+  } finally { chat.deliverAutomatic = real; }
+  assert.equal(seen.length, 1, 'fixture: nothing was nudged');
+  assert.deepEqual(seen[0][5], { cap: false });
+});
+
+test('review 3: both Enter retries pass the typed-line rule (an Enter on a remembered line is never capped)', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
+  assert.equal(src.split('quotaHeldVerdict(name, roster, typedLineCap(name, roster))').length - 1, 2, 'an Enter retry calls the cap without the typed-line rule');
+});
+
+test('review 3: a turn-end line the cap held is noted for the retry, for a Claude member, not a Gemini one', async () => {
+  const r = world(ALL_IDLE);
+  for (const name of ['cl-c', 'agy-f']) {
+    roomhold.forget(name);
+    assert.ok(roomhold.hold(name, 'proj', roomhold.addressedId('m5')));
+    await roomhold.flushOnIdle(name, { deliver: async () => ({ state: 'could_not', held: true, heldBy: 'cap' }), roster: r,
+      DELIVERY: require('./chat').DELIVERY, env: {}, shownOf: () => 'Proj', now: NOW });
+  }
+  assert.deepEqual(roomhold.capProjects('cl-c'), ['proj'], 'a capped turn-end line was not noted');
+  assert.deepEqual(roomhold.capProjects('agy-f'), [], 'a Gemini member was noted (it has its own retry)');
+  roomhold.forget('cl-c'); roomhold.forget('agy-f');
 });
 
 test('review 1: an Enter for a line already in the box is not held by the per-account cap; a Gemini agent keeps its own rule', () => {

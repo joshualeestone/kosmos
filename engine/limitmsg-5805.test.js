@@ -562,7 +562,7 @@ test('#5805 2a review 15: the board wires the sweep to the automatic gate, the r
   const lq = fs.readFileSync(path.join(__dirname, 'limitqueue.js'), 'utf8');
   const at = lq.indexOf('function sweepHooks(');
   const body = lq.slice(at, lq.indexOf('\nfunction ', at + 1));   // the whole function, however long it grows
-  for (const want of [/chat\.deliverAutomaticAsync\(n, env, r, undefined, undefined, \{ cap: false \}\)/,   // kosmos#7406: never on a working-at-once cap
+  for (const want of [/chat\.deliverAutomaticAsync\(n, env, r, undefined, undefined, opts\)/,   // kosmos#7406: a person's queue never on a working-at-once cap
       /isReleased: \(card, roster, live\) => chat\.limitQueueReleased\(card, roster\)/,   // #6774: and the box rule
      /messages\.logHeldDelivered\(e, v\)/, /messages\.tellHeldDropped\(e, r\)/]) {
     assert.match(body, want);

@@ -283,14 +283,21 @@ function retryRows(chat) {
    are typed through the automatic gate, each as its own route types it, once chat.limitQueueReleased; a typed or
    dropped message is recorded where its sender looks (the message log and its sender's pane, or the person's
    conversation row), and a task message's in its task's conversation (#5842). */
+/* kosmos#7406: whether this agent's kept queue holds a person's own message (a DM, or a task line they typed). */
+function personsIn(name) {
+  try { return list(name).some((x) => x && (x.kind === 'dm' || x.person === true)); } catch { return true; }   // unreadable: never hold a person's
+}
 function sweepHooks({ chat, messages }) {
   retryRows(chat);
   return {
-    /* kosmos#7406: nothing kept here waits on a working-at-once cap. Review 1 (a blocker): a person's kept DM would
-       otherwise wait on it and be dropped a day later. Review 2 (a blocker): so would a task message the person typed
-       on the screen (kind task, person: true), and one capped entry stops the flush, so everything behind it waits too.
-       This queue already waits for the usage limit to reset, which is the limit that kept them. */
-    deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e), { cap: false }) : chat.deliverAutomaticAsync(n, env, r, undefined, undefined, { cap: false })),
+    /* kosmos#7406: a person's kept message never waits on a working-at-once cap (review 1: a kept DM; review 2: a task
+       message the person typed on the screen, person: true). An agent's kept lines DO (review 3: a usage limit resets
+       for a whole account at once, which is exactly the burst the cap is for), except while the same agent's queue also
+       holds a person's message: the queue is in order and one held entry stops it, so that agent's whole run goes. */
+    deliver: (n, env, r, e) => {
+      const opts = personsIn(n) ? { cap: false } : {};
+      return e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e), opts) : chat.deliverAutomaticAsync(n, env, r, undefined, undefined, opts);
+    },
     resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
     /* #6774: a queue holding a message kept for a stuck input box waits for the box to read empty as well (the #6256
        rule: an unreadable box keeps them waiting). */

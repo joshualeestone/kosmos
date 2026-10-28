@@ -4448,7 +4448,8 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
     const card = roster.find((c) => c && c.sessionName === name);
     if (!card || !card.target) continue;   // only an addressable card, as the #185 sweep
     let sent;
-    try { sent = chat.deliverAutomatic(name, line, roster); } catch { continue; }   // one failing pane does not skip the rest
+    // kosmos#7406 review 3: this tells the member of the PERSON's own post, so no working-at-once cap holds it.
+    try { sent = chat.deliverAutomatic(name, line, roster, undefined, undefined, { cap: false }); } catch { continue; }   // one failing pane does not skip the rest
     // Held (a shared quota, a usage limit, or a Claude screen waiting on its menu or a permission prompt), or not typed
     // at all: nothing reached the agent, so the gap is not spent and the next post can try.
     if (sent && (sent.held === true || sent.state === chat.DELIVERY.COULD_NOT)) continue;

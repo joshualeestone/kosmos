@@ -650,7 +650,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
         /* Review 1: a menu up or text in the box would hold the line again, and the take, put-back and log line would
            repeat every minute (#4797), so those wait too, as the input-box path above does. */
         if (chatMod.addressable(inName, roster).ok === true && !chatMod.accountHeldVerdict(inName, roster) && !chatMod.menuHeld(inName, roster)
-          && (typeof boxEmpty !== 'function' || boxEmpty(card) === true)
+          && (String(card.runner || 'claude') !== 'claude' || typeof boxEmpty !== 'function' || boxEmpty(card) === true)   // review 3: only a Claude box can be read; any other reads never-empty
           && require('./agyquota').heldForCap(inName, roster, now, undefined, env || process.env) === null) {
           const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: capIn, modeOf, now });
           capProjects(inName);   // drop the notes for posts now told
