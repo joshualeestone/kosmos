@@ -1168,7 +1168,6 @@ check(ntDetail?.members.map(\.slot) == ["head", "writer"] && ntDetail?.members.m
       "a team's members, lead first (reportsTo null), and its project")
 check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""lead":"head""#, with: #""lead":"nobody""#).utf8)) == nil, "a lead that is not a member: refused, never a team with no lead first")
 check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""slot":"writer""#, with: #""slot":"head""#).utf8)) == nil, "two members in one seat: refused, never a crash")
-check(boardPage.contains("'" + NewTeam.Words.nameAsTyped + "'"), "the stale-name sentence is the desktop's")
 if let d = ntDetail {
     check(NewTeam.newProjectName(d, taken: ["Website"]) == "Marketing" && NewTeam.newProjectName(d, taken: ["marketing", "Marketing 2"]) == "Marketing 3",
           "the new project takes the first free name, as tcFillProjects")

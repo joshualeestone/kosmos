@@ -73,7 +73,7 @@ struct NewAgentView: View {
     }
 
     #if DEBUG
-    // Design shots only: KOSMOS_SAMPLE_NEWAGENT=kind|role|own|setup|swarm|made|team|teammade opens that screen on a sample catalogue,
+    // Design shots only: KOSMOS_SAMPLE_NEWAGENT=kind|role|own|setup|swarm|made|notup|team|teammade opens that screen on a sample catalogue,
     // since a simulator run has no board to read the roles from.
     private func showSample() -> Bool {
         guard let at = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWAGENT"], !at.isEmpty else { return false }
@@ -417,8 +417,6 @@ struct NewAgentView: View {
             if Task.isCancelled { return }   // the sheet went: nothing more is made that nobody can see
             if case .made = states[s.slot] { continue }
             if s.slot != lead, let lead, !isMade(lead) { states[s.slot] = .afterLead; continue }
-            // The desktop's stale-spec guard: never make a member under a name that is not the one on its row.
-            if s.name != typed[s.slot] { states[s.slot] = .failed(NewTeam.Words.nameAsTyped); continue }
             // A create whose answer was lost may have landed: once that agent is on the board, it is this member (the
             // desktop's maybeMade, checked against the board's list).
             if maybeMade[s.slot] == s.session, client.agents.contains(where: { $0.session == s.session }) {

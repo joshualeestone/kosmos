@@ -15,6 +15,7 @@
 - **A swarm's limit is in tokens a day** (the desktop's token mode). The desktop switches to a share of the weekly allowance when the chosen Claude account is calibrated; the phone does not read that calibration yet.
 - **Say hello waits for the agent to appear in the phone's list** (read every 5 s, as the desktop waits for /api/status). After 30 s unseen the screen says the desktop's "has not come up" and offers Done, not hello, as the desktop does; the list keeps being watched, so hello appears if the agent comes up later.
 - **Agents made into a project are told about it** once the board sees them (POST /api/project/<id>/agent/<name>, the desktop's tell). Team portraits are not set by the phone in this build (the desktop uploads the catalogue's picture or a generated mark).
+- **A project tell is sent once, when the phone's list first shows the agent, and not retried** (the desktop's fire-and-forget): if the phone is not connected at that moment, the tell is not sent, and the project's own screen shows the stored verdict.
 - **Duplicate names inside a team** are refused by the board's own name check, in its words; the phone does not check them a second time.
 - **Team names are editable on the preview**, because the board refuses a name already taken and the person must be able to change it.
 - The team's button reads the desktop's "Create N agents", not "Create the team" (Mona's note named the desktop's words as the rule).
