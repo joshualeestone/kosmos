@@ -411,9 +411,12 @@ struct ContentView: View {
             for i in 0..<2 {
                 if i > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
                 guard host != nil, board.macURL?.host == host else { return .refused }
-                let got = await board.throughMac({ NewAgent.pictureRequest(mac: $0, session: session, data: data, type: type) })
+                var sent = false   // whether a request went out at all (no connected computer sends nothing)
+                let got = await board.throughMac({ mac -> URLRequest? in
+                    let r = NewAgent.pictureRequest(mac: mac, session: session, data: data, type: type); sent = r != nil; return r
+                })
                 if let got, (200...299).contains(got.1.statusCode) { return .set }
-                last = got == nil ? .unknown : .refused
+                last = got == nil && sent ? .unknown : .refused
             }
             return last
         }
