@@ -70962,6 +70962,25 @@ function tkHoldSay(key, words) {
   const msg = document.getElementById('tk-hold-msg');
   if (msg && msg.dataset.task === key && PJ_CURRENT + '#' + TK_OPEN === key) msg.textContent = words;
 }
+/* kosmos#7430: the unhold route's `next` sentence (#7407), shown where the hold words appear. When it ends by asking a
+   person to choose (TK_HOLD_ASSIGN, the route's own words), that ask becomes a Choose who button, which opens the
+   picker on the task's first open part nobody is on: the same control as the name in Who is on it. */
+const TK_HOLD_ASSIGN = ' To choose who, assign it now.';
+function tkHoldSayNext(key, next) {
+  const msg = document.getElementById('tk-hold-msg');
+  if (!msg || msg.dataset.task !== key || PJ_CURRENT + '#' + TK_OPEN !== key) return;
+  if (!next.endsWith(TK_HOLD_ASSIGN)) { msg.textContent = next; return; }
+  msg.textContent = next.slice(0, -TK_HOLD_ASSIGN.length) + ' ';
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'linkish'; b.id = 'tk-hold-choose'; b.textContent = 'Choose who';
+  msg.appendChild(b);
+}
+document.getElementById('tk-hold-msg').addEventListener('click', (e) => {
+  if (!e.target || e.target.id !== 'tk-hold-choose') return;
+  const picks = [...document.querySelectorAll('#tk-who .tkpart:not(.done) [data-pick-part]')];
+  const pick = picks.find((x) => x.textContent === 'Nobody yet') || picks[0];
+  if (pick) pick.click();
+});
 function tkHoldStoredChoice(t) {
   const u = t && t.onHoldUntil;
   if (u && Number.isInteger(u.task)) return { kind: 'task', task: u.task };
@@ -71144,6 +71163,8 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
     if (!res.ok) { tkHoldSay(key, (out && out.error) || 'We could not change that task.'); return; }   // round 4: only on its own task
     await pjReload();
     paintTaskActivity(TK_OPEN);
+    // kosmos#7430: an unhold answers with who gets the task next (#7407); a hold answers with no `next`.
+    if (out && typeof out.next === 'string' && out.next) tkHoldSayNext(key, out.next);
   } catch {
     tkHoldSay(key, 'We could not reach Kosmos to change that task.');
   } finally {
