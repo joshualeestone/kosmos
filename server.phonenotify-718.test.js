@@ -565,7 +565,9 @@ test.beforeEach(() => { if (fs.existsSync(REMOTE_FILE())) plusSwitch(false); });
 /* #6488 (Josh, 2026-10-18 09:43: "Let's have notifications switched on by default"): ensureDefaultOn turns the master
    on for a connected computer whose person never touched it, and never for one whose person turned it off. */
 const PN_FILE = () => path.join(STATE, 'phone-notify.json');
-const mints = () => (fs.existsSync(TUNNEL_LOG) ? fs.readFileSync(TUNNEL_LOG, 'utf8').split('ARGV: mac-request').length - 1 : 0);
+// #7448: only the mint route counts; the board's phone-notices report (POST /v1/mac/phone-notices) is a call too.
+const mints = () => (fs.existsSync(TUNNEL_LOG)
+  ? fs.readFileSync(TUNNEL_LOG, 'utf8').split('\n').filter((l) => l.startsWith('ARGV: mac-request') && l.includes('/v1/mac/notify-credential')).length : 0);
 
 test('#6488: a connected computer that never touched the switch is turned on, minting once, and then sends', async () => {
   enrol();

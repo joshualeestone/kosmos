@@ -102,3 +102,54 @@ test('review 1: a mark that cannot be looked at counts as marked (never send)', 
   } finally { Object.defineProperty(remote, 'FILE', { value: real, configurable: true, writable: true }); }
   assert.equal(pn.noPush(), false, 'CONTROL: the real place, unmarked');
 });
+
+// #7448 with #7458 (Ice Cream Kitty's coordinator half): the board reports whether it sends, per computer id.
+test('the board reports send to the coordinator once per change and computer, retries a failure, and never reads a 404 as off', async () => {
+  const realReq = remote.macRequest, realId = remote.macIdHere;
+  const calls = [];
+  let answer = { ok: true };
+  let id = 'mac-one';
+  remote.macRequest = async (method, route, body) => { calls.push({ method, route, body }); return answer; };
+  remote.macIdHere = () => id;
+  pn.resetNoticesReportedForTests();
+  // The Forget test above emptied the state dir: signed in again for this one (premise checked below).
+  for (const f of ['mac_id', 'mac_key', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(path.join(state, f), 'x');
+  assert.equal(remote.enrolled(), true, 'premise: signed in');
+  try {
+    assert.deepEqual(await pn.reportPhoneNotices(), { ok: true, send: true });
+    assert.deepEqual(calls.at(-1), { method: 'POST', route: '/v1/mac/phone-notices', body: { send: true } });
+    assert.equal(await pn.reportPhoneNotices(), null, 'nothing changed: nothing sent');
+    assert.equal(calls.length, 1);
+
+    fs.writeFileSync(mark, '');
+    answer = { ok: false, status: 404, because: 'not found' };   // the coordinator before #7458 is deployed
+    assert.deepEqual(await pn.reportPhoneNotices(), { ok: false });
+    assert.deepEqual(calls.at(-1).body, { send: false });
+    assert.equal(pn.noPush(), true, 'a 404 is never read as "notices off" or on: the board\'s own gate decides');
+    answer = { ok: true };
+    assert.deepEqual(await pn.reportPhoneNotices(), { ok: true, send: false }, 'retried on the next tick');
+    assert.equal(calls.length, 3);
+
+    id = 'mac-two';   // Forget plus a new sign-in
+    assert.deepEqual(await pn.reportPhoneNotices(), { ok: true, send: false }, 'a new computer id is told again');
+    assert.equal(calls.length, 4);
+  } finally {
+    fs.rmSync(mark, { force: true });
+    remote.macRequest = realReq; remote.macIdHere = realId;
+  }
+});
+
+test('nothing is reported while Kosmos+ is switched off here', async () => {
+  const realReq = remote.macRequest;
+  let called = false;
+  remote.macRequest = async () => { called = true; return { ok: true }; };
+  pn.resetNoticesReportedForTests();
+  fs.writeFileSync(remote.FILE, JSON.stringify({ on: false }));
+  try {
+    assert.equal(await pn.reportPhoneNotices(), null);
+    assert.equal(called, false);
+  } finally {
+    fs.writeFileSync(remote.FILE, JSON.stringify({ on: true }));
+    remote.macRequest = realReq;
+  }
+});
