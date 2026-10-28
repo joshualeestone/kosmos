@@ -24231,9 +24231,8 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       // #7429: say when the words take this member out of the Assigner's hand-outs, so it is never a silent effect.
-      let reviewOnly = false;
-      try { reviewOnly = projects.reviewOnlyHere(projects.readAll().find((x) => x && x.id === id) || null, name); }
-      catch { reviewOnly = false; }
+      // From the role just saved, not a second read (review 2: a read races a later write, and its failure was silent).
+      const reviewOnly = out.role !== null && projects.reviewOnlyHere({ rolesHere: { [name]: out.role } }, name);
       sendJson(res, 200, { ok: true, role: out.role, ...(reviewOnly ? { reviewOnly: true } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });

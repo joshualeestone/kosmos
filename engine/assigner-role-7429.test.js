@@ -61,13 +61,16 @@ function afterIdle(w) {
 test('reviewOnlyHere: only an explicit form counts (review 1: a wrong yes costs more than a wrong no)', () => {
   const p = (role) => ({ rolesHere: { s: role } });
   for (const role of ['reviewer', 'Code reviewer', 'QA', 'reviews', 'Review only', 'QA only.', 'only reviews',
-    'reviews PRs, review only', 'reviewer  only']) {
+    'QA-only', 'reviewer  only', ' code reviewer only ']) {
     assert.equal(projects.reviewOnlyHere(p(role), 's'), true, role);
   }
   // Review 1's false positives under the first rule, and roles that also make something.
   for (const role of ["reviews the builders' work", 'design review and copy', 'designs, then reviews', 'reviews and drafts',
     'reviews and rebuilds', 'reviewer, refactors', 'QA engineer', 'reviews builds', 'builds and reviews',
-    'builder and reviewer', 'previews the site', 'Researcher', '']) {
+    'builder and reviewer', 'previews the site', 'Researcher', '',
+    // Review 2: an "only" phrase inside a longer role, or negated.
+    'Reviews only the frontend', 'builds, QA only on mobile', 'not QA only', 'not only reviews but builds',
+    'Only reviews, also builds', 'reviews PRs, review only']) {
     assert.equal(projects.reviewOnlyHere(p(role), 's'), false, JSON.stringify(role));
   }
   assert.equal(projects.reviewOnlyHere({}, 's'), false, 'no role at all');
@@ -106,6 +109,16 @@ test('review 1: a reviewer holding a review subtask does not lock the tree from 
   const got = a.pick('bld', proj('reviewer'), new Set());
   assert.ok(got && got.n === 3, 'the reviewer\'s part locked the tree: ' + JSON.stringify(got));
   assert.equal(a.pick('bld', proj(null), new Set()), null, 'CONTROL: a builder holding a part keeps the tree');
+});
+
+test('review 2: a parent whose only open subtask a reviewer holds goes to a builder; the review part stays the reviewer\'s', () => {
+  const proj = (role) => [{ id: 'pp', agents: ['rev', 'bld'], rolesHere: role ? { rev: role } : {}, tasks: [
+    { number: 1, sentence: 'Feature' },
+    { number: 2, sentence: 'Review it', parent: 1, who: 'rev' },
+  ] }];
+  const got = a.pick('bld', proj('QA only'), new Set());
+  assert.ok(got && got.n === 1, 'the feature waited on its own review: ' + JSON.stringify(got));
+  assert.equal(a.pick('bld', proj(null), new Set()), null, 'CONTROL: a builder\'s open subtask keeps its parent back');
 });
 
 test('review 1: a review-only member is not asked to draft tasks toward the goal; a builder is (control)', () => {

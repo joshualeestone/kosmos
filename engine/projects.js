@@ -690,17 +690,17 @@ function roleHereOf(p, key) {
 
 /* #7429: does this member's role here say it only reviews? Only an explicit form counts, because a wrong yes costs
    more than a wrong no: a yes takes the agent out of the Assigner's hand-outs in this project (a person can still give
-   it any task), a no keeps today's behaviour. So the whole role is a bare review word ("reviewer", "code reviewer",
-   "QA", "reviews"), or it says so ("review only", "QA only", "only reviews"). "reviews the builders' work" and "design
-   review and copy" are not review only. The project instructions name these forms, and `kosmos project role` says
-   when a role is read this way (review 1). */
-const REVIEW_ONLY_BARE = /^(?:code\s+)?(?:reviews?|reviewer|reviewing|qa)$/i;
-const REVIEW_ONLY_SAID = /\b(?:reviews?|reviewer|reviewing|qa)\s+only\b|\bonly\s+(?:reviews?|reviewing|qa)\b/i;
+   it any task), a no keeps today's behaviour. So the WHOLE role must be one of these forms: a review word ("reviewer",
+   "code reviewer", "QA", "reviews"), the same with "only" after it ("review only", "QA-only"), or "only" before it
+   ("only reviews"). Anything more ("reviews the builders' work", "builds, QA only on mobile", "not QA only") is not
+   review only. The project instructions name these forms, and `kosmos project role` says when a role is read this
+   way (reviews 1 and 2). */
+const REVIEW_ONLY = /^(?:(?:code )?(?:reviews?|reviewer|reviewing|qa)(?: only)?|only (?:reviews?|reviewing|qa))$/i;
 function reviewOnlyHere(p, key) {
   const r = roleHereOf(p, key);
   if (r === null) return false;
-  const words = r.trim().replace(/[.!]+$/, '').replace(/\s+/g, ' ');
-  return REVIEW_ONLY_BARE.test(words) || REVIEW_ONLY_SAID.test(words);
+  const words = r.trim().replace(/[.!]+$/, '').replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  return REVIEW_ONLY.test(words);
 }
 
 /* #4557: the profile's reportsTo, read like profileRole (the profile is a bag; an absent key means none). */
@@ -3882,9 +3882,8 @@ function blockRules(sessionName, cliShown) {
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
       `\`${cliShown} project role <project-id> "what you do here"\` (an empty "" clears it).`,
       /* #7429: say what the role changes, in the forms reviewOnlyHere matches. */
-      'If you only review on a project, say so: a role of just "reviewer" (or "code reviewer", "QA"), or one that says',
-      '"review only" or "QA only", means the automatic Assigner hands you none of that project\'s tasks; your person',
-      'still can.',
+      'If you only review on a project, make that the whole role: "reviewer", "code reviewer", "QA", "review only" or',
+      '"QA only", nothing more. Then the automatic Assigner hands you none of that project\'s tasks; your person still can.',
     ],
   };
 }
