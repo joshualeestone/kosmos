@@ -6428,12 +6428,13 @@ cmd_project() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos project <list|show|create|pause|role>"
+      say "Usage: kosmos project <list|show|create|pause|role|remove-member>"
       say "  kosmos project list                                             every project: members, model families, tasks"
       say "  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member's family and summary"
       say "  kosmos project create \"<name>\" <folder> [\"<description>\"]   make a new project (it shows on your board, tagged as made by you)"
       say "  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)"
       say "  kosmos project role <project-id> \"<what you do here>\"         say what you do on this project; project show lists it beside you (\"\" clears it)"
+      say "  kosmos project remove-member <project-id> \"<name>\" [--yes]   take a member off a project, after a confirm (--yes for scripts)"
       say "  <folder> is a path on this machine; the project's files live there."
       exit 2 ;;
     list)
@@ -6471,8 +6472,28 @@ cmd_project() {
       require_valid_project_id "$1"
       case "$1" in *[!.]*) ;; *) say "there is no project by that name"; exit 1 ;; esac
       case "$2" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "project role" "Usage: kosmos project role <project-id> \"<what you do here>\"" "$2" target ;; esac ;;
+    # kosmos#7405 (an outside user's list): taking a member off a project was the screen's only. Same route as its
+    # Remove button, so the board decides and the words match; a person confirms at a terminal, a script says --yes.
+    remove-member)
+      local KOSMOS_RMM_USAGE='Usage: kosmos project remove-member <project-id> "<name>" [--yes]   (--yes: do not ask first, for scripts)'
+      local _rmmw=() _rmma
+      KOSMOS_RMM_YES=""
+      for _rmma in "$@"; do if [ "$_rmma" = "--yes" ]; then KOSMOS_RMM_YES=1; else _rmmw+=("$_rmma"); fi; done
+      { [ -n "${_rmmw[0]:-}" ] && [ -n "${_rmmw[1]:-}" ]; } || { say "$KOSMOS_RMM_USAGE"; exit 2; }
+      for _rmma in "${_rmmw[0]}" "${_rmmw[1]}"; do
+        case "$_rmma" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "project remove-member" "$KOSMOS_RMM_USAGE" "$_rmma" target ;; esac
+      done
+      require_valid_project_id "${_rmmw[0]}"
+      case "${_rmmw[0]}" in *[!.]*) ;; *) say "there is no project by that name"; exit 1 ;; esac
+      _no_more_words "project remove-member" 2 "$KOSMOS_RMM_USAGE" "${_rmmw[@]}"
+      # Nobody can answer the question, so nothing is asked of the board either.
+      if [ -z "$KOSMOS_RMM_YES" ] && [ ! -t 0 ]; then
+        say "Nothing was changed: there is no terminal here to confirm on. To take ${_rmmw[1]} off without being asked, add --yes."
+        exit 2
+      fi
+      set -- "${_rmmw[0]}" "${_rmmw[1]}" ;;
     *)
-      say "Unknown: kosmos project $sub. Try: list | show | create | pause | role"
+      say "Unknown: kosmos project $sub. Try: list | show | create | pause | role | remove-member"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -6480,6 +6501,7 @@ cmd_project() {
       create) say_not_up "a project cannot be created" ;;
       pause) say_not_up "the project cannot be paused" ;;
       role) say_not_up "the role cannot be set" ;;
+      remove-member) say_not_up "nobody can be taken off a project" ;;
       *) say_not_up "its projects cannot be read" ;;
     esac
     exit 1
@@ -6533,6 +6555,87 @@ cmd_project() {
           because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not pause that project: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when pausing that project."; exit 1 ;;
+      esac
+      exit 0
+      ;;
+    remove-member)
+      # kosmos#7405: the project's own overview first (who is on it, by what names), then the DELETE the screen's
+      # Remove sends, with the sessionName the screen sends. A name not on the project sends nothing: the route
+      # answers a non-member as success, which would read as a removal that never happened.
+      local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
+      local _mtok="" _mbt rc=0 body mm_plan mm_state mm_sess mm_who mm_pj mm_path mm_out mm_why mm_end mm_answer
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _mtok="$KOSMOS_AGENT_TOKEN" ;; esac
+      body=$(kosmos_curl "$_bt" "$_mtok" -sS -m 15 "$URL/api/project/$1/overview" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say_unreached "read that project" "$rc"; exit 1; }
+      # Fields, tab-separated: state (ok, none, many, error), the sessionName, the member's name, the project's name;
+      # for many, the sessionNames to choose from; for error, the board's reason.
+      mm_plan=$(printf '%s' "$body" | KOSMOS_RMM_WHO="$2" "$_node" -e '
+        let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+          const one = (v) => String(v == null ? "" : v).replace(/[\t\r\n]+/g, " ");
+          let j; try { j = JSON.parse(s); } catch { process.exit(1); }
+          if (!j || typeof j !== "object") process.exit(1);
+          if (j.error) { console.log(["error", "", "", "", one(j.error)].join("\t")); return; }
+          const want = process.env.KOSMOS_RMM_WHO;
+          const ms = Array.isArray(j.members) ? j.members.filter((m) => m && typeof m.sessionName === "string") : null;
+          if (!ms) process.exit(1);
+          let hit = ms.filter((m) => m.sessionName === want);
+          if (!hit.length) hit = ms.filter((m) => typeof m.name === "string" && m.name.toLowerCase() === want.toLowerCase());
+          const pj = one(j.name || j.id);
+          if (!hit.length) { console.log(["none", "", "", pj].join("\t")); return; }
+          if (hit.length > 1) { console.log(["many", "", "", pj, hit.map((m) => one(m.sessionName)).join(", ")].join("\t")); return; }
+          console.log(["ok", one(hit[0].sessionName), one(hit[0].name || hit[0].sessionName), pj].join("\t"));
+        });') || { say "Kosmos gave an answer we could not read when asked about $1."; exit 1; }
+      # cut, not `IFS=<tab> read`: a tab is whitespace to read, so an empty field would take the next one's value.
+      mm_state=$(printf '%s\n' "$mm_plan" | cut -f1); mm_sess=$(printf '%s\n' "$mm_plan" | cut -f2)
+      mm_who=$(printf '%s\n' "$mm_plan" | cut -f3); mm_pj=$(printf '%s\n' "$mm_plan" | cut -f4); mm_why=$(printf '%s\n' "$mm_plan" | cut -f5)
+      case "$mm_state" in
+        ok) ;;
+        none) say "$2 is not on ${mm_pj:-$1}, so nothing was changed."; exit 1 ;;
+        many) say "More than one member of ${mm_pj:-$1} is called $2, so nothing was changed. Use one of these names instead: $mm_why."; exit 1 ;;
+        error)
+          while [[ "$mm_why" == *[.[:space:]] ]]; do mm_why="${mm_why%?}"; done
+          say "Kosmos could not read $1: ${mm_why:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when asked about $1."; exit 1 ;;
+      esac
+      # The screen's confirm (openMemModal), word for word apart from where the + is.
+      say "$mm_who comes off this project's list and stops getting its posts. Nothing else changes; you can put $mm_who back on the board, with the + at the top of the project."
+      if [ -z "$KOSMOS_RMM_YES" ]; then
+        mm_answer=""
+        printf '%sRemove %s from %s? [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "$mm_who" "$mm_pj" >&2
+        read -r mm_answer || mm_answer=""
+        case "$(printf '%s' "$mm_answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in y|yes) ;; *) say "Cancelled. Nothing was changed."; exit 1 ;; esac
+      fi
+      mm_path=$(KOSMOS_RMM_SESS="$mm_sess" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_RMM_SESS))') || { say "We could not use that name."; exit 1; }
+      # The board token opens the route whatever KOSMOS_AGENT_TOKEN_ONLY says, as for pause; the agent's own token
+      # rides too, so the board can tell an agent's change from the person's.
+      _mbt="$(board_token || true)"
+      rc=0
+      body=$(kosmos_curl "$_mbt" "$_mtok" -sS -m 30 -X DELETE "$URL/api/project/$1/agent/$mm_path" 2>/dev/null) || rc=$?
+      # 28 is curl's timeout; 18, 52 and 56 also mean the request left before the connection broke.
+      case "$rc" in
+        0) ;;
+        28|18|52|56) say "Kosmos stopped answering after it was asked. $mm_who may be off $mm_pj; look at the project on the board before trying again: $URL/"; exit 3 ;;
+        *) say_unreached "take $mm_who off $mm_pj" "$rc" write; exit 1 ;;
+      esac
+      # Fields: state (ok, could_not, error), then the reason the board gave.
+      mm_out=$(printf '%s' "$body" | "$_node" -e '
+        let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
+          const one = (v) => String(v == null ? "" : v).replace(/[\t\r\n]+/g, " ");
+          let j; try { j = JSON.parse(s); } catch { process.exit(1); }
+          if (!j || typeof j !== "object") process.exit(1);
+          if (j.error) { console.log(["error", one(j.error)].join("\t")); return; }
+          if (!j.project) process.exit(1);
+          if (j.told && j.told.state === "could_not") { console.log(["could_not", one(j.told.because)].join("\t")); return; }
+          console.log("ok");
+        });') || { say "Kosmos gave an answer we could not read when taking $mm_who off $mm_pj. Look at the project on the board: $URL/"; exit 1; }
+      mm_state=$(printf '%s\n' "$mm_out" | cut -f1); mm_why=$(printf '%s\n' "$mm_out" | cut -f2)
+      while [[ "$mm_why" == *[.[:space:]] ]]; do mm_why="${mm_why%?}"; done
+      case "$mm_why" in *[?!]|*\)) mm_end="" ;; *) mm_end="." ;; esac
+      case "$mm_state" in
+        ok) say "$mm_who is off $mm_pj and still on your computer." ;;
+        # The screen's could-not sentence (Mona Lisa's ruling on #130): the frame names no noun the reason carries.
+        could_not) say "$mm_who is off $mm_pj. We could not update them, so this project may still be named in what they were told. $(printf '%s' "${mm_why:0:1}" | tr '[:lower:]' '[:upper:]')${mm_why:1}${mm_end}" ;;
+        *) say "Kosmos did not take $mm_who off $mm_pj: ${mm_why:-it did not say why}${mm_end}"; exit 1 ;;
       esac
       exit 0
       ;;

@@ -138,12 +138,13 @@ const USAGE = {
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
-    'Usage: kosmos project <list|show|create|pause|role>',
+    'Usage: kosmos project <list|show|create|pause|role|remove-member>',
     '  kosmos project list                                             every project: members, model families, tasks',
     '  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member\'s family and summary',
     '  kosmos project create "<name>" <folder> ["<description>"]   make a new project (it shows on your board, tagged as made by you)',
     '  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)',
     '  kosmos project role <project-id> "<what you do here>"         say what you do on this project; project show lists it beside you ("" clears it)',
+    '  kosmos project remove-member <project-id> "<name>" [--yes]   take a member off a project, after a confirm (--yes for scripts)',
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
@@ -1829,6 +1830,57 @@ async function projectRole(ctx, args) {
   return 1;
 }
 
+/* kosmos#7405, as install/kosmos cmd_project remove-member: take a member off a project through the route the screen's
+   Remove sends (DELETE /api/project/<id>/agent/<sessionName>), after reading the project's overview for who is on it.
+   A name not on the project sends nothing (the route answers a non-member as success). A person at a terminal
+   confirms; a script says --yes. The words are the screen's (openMemModal and dropMember). */
+const PROJECT_REMOVE_MEMBER_USAGE = 'Usage: kosmos project remove-member <project-id> "<name>" [--yes]   (--yes: do not ask first, for scripts)';
+async function projectRemoveMember(ctx, args) {
+  const yes = args.includes('--yes');
+  const words = args.filter((a) => a !== '--yes');
+  const [project, who] = words;
+  if (!project || !who) { ctx.err(PROJECT_REMOVE_MEMBER_USAGE); return 2; }
+  for (const w of [project, who]) if (/^--[A-Za-z]/.test(w)) { refuseOption(ctx, 'project remove-member', PROJECT_REMOVE_MEMBER_USAGE, w, 'target'); return 2; }
+  const slug = projectSlug(project);
+  if (slug !== project || !slug.replace(/\./g, '')) { ctx.err('there is no project by that name'); return 1; }
+  if (tooManyWords(ctx, 'project remove-member', 2, PROJECT_REMOVE_MEMBER_USAGE, words)) return 2;
+  // Nobody can answer the question, so nothing is asked of the board either.
+  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was changed: there is no terminal here to confirm on. To take ' + who + ' off without being asked, add --yes.'); return 2; }
+  const o = await ctx.call('GET', '/api/project/' + slug + '/overview');
+  if (!o.reached) return ctx.unreachable('read that project');
+  const ov = o.json;
+  if (ov && ov.error) { ctx.err('Kosmos could not read ' + project + ': ' + (clause(ov.error) || 'it did not say why') + '.'); return 1; }
+  const ms = ov && Array.isArray(ov.members) ? ov.members.filter((m) => m && typeof m.sessionName === 'string') : null;
+  if (!ms) { ctx.err('Kosmos gave an answer we could not read when asked about ' + project + '.'); return 1; }
+  let hit = ms.filter((m) => m.sessionName === who);
+  if (!hit.length) hit = ms.filter((m) => typeof m.name === 'string' && m.name.toLowerCase() === who.toLowerCase());
+  const pj = ov.name || ov.id || project;
+  if (!hit.length) { ctx.err(who + ' is not on ' + pj + ', so nothing was changed.'); return 1; }
+  if (hit.length > 1) { ctx.err('More than one member of ' + pj + ' is called ' + who + ', so nothing was changed. Use one of these names instead: ' + hit.map((m) => m.sessionName).join(', ') + '.'); return 1; }
+  const member = hit[0];
+  const label = member.name || member.sessionName;
+  ctx.out(label + ' comes off this project\'s list and stops getting its posts. Nothing else changes; you can put ' + label + ' back on the board, with the + at the top of the project.');
+  if (!yes) {
+    const answer = await ctx.ask('Remove ' + label + ' from ' + pj + '? [y/N] ');
+    if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was changed.'); return 1; }
+  }
+  // The board token opens the route, as for pause; the agent's own token rides too.
+  const r = await ctx.call('DELETE', '/api/project/' + slug + '/agent/' + encodeURIComponent(member.sessionName), undefined, { person: true, timeoutMs: POST_TIMEOUT_MS });
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + label + ' may be off ' + pj + '; look at the project on the board before trying again.') : ctx.unreachable('take ' + label + ' off ' + pj);
+  const j = r.json || {};
+  if (j.error) { const why = clause(j.error); ctx.err('Kosmos did not take ' + label + ' off ' + pj + ': ' + (why || 'it did not say why') + (/[?!)]$/.test(why) ? '' : '.')); return 1; }
+  if (!j.project) { ctx.err('Kosmos gave an answer we could not read when taking ' + label + ' off ' + pj + '. Look at the project on the board.'); return 1; }
+  if (j.told && j.told.state === 'could_not') {
+    const why = clause(j.told.because || '');
+    // The screen's could-not sentence (Mona Lisa's ruling on #130): the frame names no noun the reason carries.
+    ctx.out(label + ' is off ' + pj + '. We could not update them, so this project may still be named in what they were told.'
+      + (why ? ' ' + why.charAt(0).toUpperCase() + why.slice(1) + (/[?!)]$/.test(why) ? '' : '.') : ''));
+    return 0;
+  }
+  ctx.out(label + ' is off ' + pj + ' and still on your computer.');
+  return 0;
+}
+
 /* #4581, as install/kosmos cmd_project list / show: read-only, with the agent's own token too (#4491), and
    printed by engine/projectview.js, the renderer the Mac command uses, so the two say the same words. */
 async function projectRead(ctx, route, render) {
@@ -2793,7 +2845,7 @@ const SUBCOMMAND_HANDLERS = {
   room: { reopen: roomReopen },
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
-  project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole },
+  project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole, 'remove-member': projectRemoveMember },
   agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, remove: agentRemove },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
