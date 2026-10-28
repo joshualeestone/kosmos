@@ -742,6 +742,38 @@ async function stallRoute(page, data, kind) {
     } catch { /* the page closed at teardown (#6022) */ }
   });
 }
+/* kosmos#7365 slice 3b: the room's reads, answered as a room with an archive (see room-archive-edge-7365). Installed once
+   per page; the archived rows are dated ten days back and the live rows are the board's own. */
+async function archiveRoute7365(page, data) {
+  if (page.__arch7365) return;
+  page.__arch7365 = true;
+  const day = 24 * 60 * 60 * 1000;
+  const archived = [
+    'The printer quote came in at 4,200 for the first run.',
+    'Agreed: we hold the launch until the proofs are signed off.',
+    'Proofs are signed off. The launch date is the 14th.',
+  ].map((text, i) => ({ kind: 'post', id: 'arch-7365-' + i, from: data.chatAgent, fromKind: 'agent', text, at: new Date(Date.now() - 10 * day + i * 60000).toISOString() }));
+  archived.forEach((r, i) => { r.key = r.at + '|0'; if (i === 2) r.replyTo = 'arch-7365-1'; });
+  const marker = { before: new Date(Date.now() - 7 * day).toISOString(), setAt: new Date(Date.now() - day).toISOString() };
+  await page.route(/\/api\/project\/[^/]+\/room(\?[^#]*)?$/, async (r) => {
+    try {
+      if (r.request().method() !== 'GET') { await r.continue(); return; }
+      const u = new URL(r.request().url());
+      const res = await r.fetch();
+      let body = null;
+      try { body = await res.json(); } catch { body = null; }
+      if (!body || typeof body !== 'object') { await r.fulfill({ response: res }); return; }
+      if (u.searchParams.get('archive') === '1') {
+        body = Object.assign({}, body, { rows: archived.map((x) => Object.assign({}, x)), olderCount: 0, olderCursor: null, archivedCount: archived.length, archiveMarker: marker });
+      } else if (u.searchParams.has('n')) {
+        body = Object.assign({}, body, { olderCount: 0, olderCursor: null, archivedCount: archived.length, archiveMarker: marker });
+      } else {
+        body = Object.assign({}, body, { rows: archived.map((x) => Object.assign({ archived: true }, x)).concat(Array.isArray(body.rows) ? body.rows : []), archivedCount: archived.length, archiveMarker: marker });
+      }
+      await r.fulfill({ response: res, body: JSON.stringify(body) });
+    } catch { /* the page closed at teardown (#6022) */ }
+  });
+}
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -1248,6 +1280,43 @@ const SCREENS = [
   after: async (page) => {
     if (page.__vp7272) { await page.setViewportSize(page.__vp7272); page.__vp7272 = null; }
     await throwawayProjectGone(page, BUSY_7196);
+  } },
+  /* kosmos#7365 slice 3b (Renet Tilley, for Mona Lisa): the room archive. The board's room reads are answered on the way
+     to the page (nothing is written to the board): the live read says 260 rows are archived and nothing older is live,
+     so the boundary row shows; the archive read (archive=1) and the whole-room read (a search) carry archived rows from
+     chatAgent. room-archive-edge is the boundary row, -view the archive panel, -confirm the Archive dialog, -search an
+     archived hit with its tag. */
+  { name: 'room-archive-edge-7365', owner: 'Renet Tilley', noServiceWorker: true, go: async (page, data) => {
+    await archiveRoute7365(page, data);
+    await SCREENS.find((s) => s.name === 'project-room').go(page, data);
+    await page.waitForSelector('#pj-arch-open', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => { const b = document.getElementById('pj-room'); b.scrollTop = 0; });
+    await page.waitForTimeout(150);
+  } },
+  { name: 'room-archive-view-7365', owner: 'Renet Tilley', noServiceWorker: true, go: async (page, data) => {
+    await SCREENS.find((s) => s.name === 'room-archive-edge-7365').go(page, data);
+    await page.click('#pj-arch-open');
+    await page.waitForSelector('#pj-arch-head:not([hidden])', { timeout: 8000 });
+    await page.waitForTimeout(200);
+    await page.mouse.move(1, 1);
+  } },
+  { name: 'room-archive-confirm-7365', owner: 'Renet Tilley', noServiceWorker: true, go: async (page, data) => {
+    await archiveRoute7365(page, data);
+    await SCREENS.find((s) => s.name === 'project-room').go(page, data);
+    await page.click('#pj-arch-ask');
+    await page.waitForSelector('#pjarch-modal:not([hidden])', { timeout: 8000 });
+    await page.waitForTimeout(150);
+  }, after: async (page) => {
+    await page.keyboard.press('Escape').catch(() => {});
+  } },
+  { name: 'room-archive-search-7365', owner: 'Renet Tilley', noServiceWorker: true, go: async (page, data) => {
+    await archiveRoute7365(page, data);
+    await SCREENS.find((s) => s.name === 'project-room').go(page, data);
+    await page.fill('#pj-room-search', 'launch');
+    await page.waitForSelector('#pj-room .msg-archived', { state: 'attached', timeout: 8000 });
+    await page.waitForTimeout(200);
+  }, after: async (page) => {
+    await page.fill('#pj-room-search', '').catch(() => {});
   } },
   /* kosmos#5391 (Mona Lisa): the project page header with Pause / Resume, and a paused project (header, Paused line,
      and the list card's badge). Paused through the page's own call, as the header button makes it, then reloaded. */
