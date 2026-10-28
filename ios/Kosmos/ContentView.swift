@@ -402,6 +402,8 @@ struct ContentView: View {
         // agent of the same name.
         let host = board.macURL?.host
         func put(_ data: Data, _ type: String) async -> Bool {
+            // One the board would refuse (too big, a type it does not keep) fails at once, without the retry's wait.
+            guard let url = board.macURL, NewAgent.pictureRequest(mac: url, session: session, data: data, type: type) != nil else { return false }
             for i in 0..<2 {
                 if i > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
                 guard host != nil, board.macURL?.host == host else { return false }

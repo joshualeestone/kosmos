@@ -213,9 +213,9 @@ enum NewAgent {
     static let notAdded = "It was not added to the project"
 
     // kosmos#7488 build 14: the new agent's picture, PUT to the route the desktop's uploadPendingAvatar uses, once the
-    // board can see the agent (it refuses a name it does not know). The type is the picture's: PNG, JPEG or a catalogue portrait's WebP.
+    // board can see the agent (it refuses a name it does not know). The type is the picture's: PNG or JPEG (anything else is redrawn first).
     static func pictureRequest(mac: URL, session: String, data: Data, type: String) -> URLRequest? {
-        guard Board.isAgentSession(session), !data.isEmpty, data.count <= 60000, ["image/png", "image/jpeg", "image/webp"].contains(type) else { return nil }
+        guard Board.isAgentSession(session), !data.isEmpty, data.count <= 60000, ["image/png", "image/jpeg"].contains(type) else { return nil }
         var r = URLRequest(url: URL(string: "/api/agent/\(session)/avatar", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "PUT"
         r.setValue(type, forHTTPHeaderField: "Content-Type")
