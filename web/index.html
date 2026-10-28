@@ -76096,9 +76096,14 @@ function paintArch() {
   document.getElementById('pj-arch-head').hidden = false;
   box.classList.add('pj-arch-on');
   pjArchComposer(true);
-  const start = PJ_ARCH.olderCount === 0 ? '<div class="pj-arch-edge">This is the start of the room.</div>' : '';
   PJ_ARCH.posts = new Map(PJ_ARCH.rows.filter((r) => r && r.kind === 'post' && typeof r.id === 'string').map((r) => [r.id, r]));
   const body = PJ_ARCH.rows.map((m) => pjRoomRow(m, p, false)).join('');
+  /* kosmos#7365 3b (Mona Lisa, phone): the archive view's thread carries Archive older messages too (the header's is
+     hidden on a phone, and the desktop offers it here), beside "This is the start of the room" when that shows. */
+  const ask = '<button type="button" class="linkish pj-arch-ctl pj-arch-ask-top" data-arch-ask="1">Archive older messages</button>';
+  const start = PJ_ARCH.olderCount === 0
+    ? '<div class="pj-arch-edge"><span>This is the start of the room.</span> ' + ask + '</div>'
+    : '<div class="pj-arch-edge pj-arch-top">' + ask + '</div>';
   box.innerHTML = start + (body || '<p class="fhint" style="margin:0;">Nothing in this room is archived now.</p>');
   // The header above the thread moves its top, so the phone's fit (#7196) is measured again (review 3).
   if (typeof pjFitRoomPhone === 'function') pjFitRoomPhone();

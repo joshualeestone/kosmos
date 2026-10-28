@@ -204,7 +204,8 @@ function findUnder(dir, name) {
       const b = document.getElementById('pj-arch-open');
       const e = b && b.closest('.pj-arch-edge');
       const first = document.querySelector('#pj-room').firstElementChild;
-      return { text: e ? e.textContent.replace(/\s+/g, ' ').trim() : null, first: !!(e && first === e), archived: PJ_WIN.archivedCount };
+      // innerText, what is shown: the phone's Archive older messages beside it is in the markup but hidden at this width.
+      return { text: e ? e.innerText.replace(/\s+/g, ' ').trim() : null, first: !!(e && first === e), archived: PJ_WIN.archivedCount };
     });
     chk(edge.text === 'Older messages are archived. View archive' && edge.first, 'at the start of the live history the first row reads "Older messages are archived. View archive"', JSON.stringify(edge));
     chk(edge.archived === ARCHIVED, 'the live read says 260 posts are archived', String(edge.archived));
