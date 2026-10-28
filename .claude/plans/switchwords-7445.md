@@ -41,11 +41,12 @@ both twins drop their `alibaba -> openai` runner fold.
 | From -> to | Loses the conversation? | Dialog (switchFamilyNote) | Result (switchCarryWords) |
 |---|---|---|---|
 | Claude -> non-Claude | yes (#7410) | notes copied into its folder | notes copied / why not |
-| non-Claude -> Claude | yes (#7410) | notes in its folder stay | notes in its folder stay (if pointed) |
+| non-Claude -> Claude | yes (#7410) | "Any notes in its folder stay there; ..." (#7445 rounds 1-2) | notes in its folder stay (if pointed) |
 | Claude <-> DeepSeek | yes (#7410) | notes stay behind with X | notes stay behind with X |
-| non-Claude -> another non-Claude RUNNER (Codex/Qwen, Gemini, Grok, Antigravity, Muse) | **yes (#7445, new)** | "Its conversation does not come across: Y cannot read X's history. Notes in its folder stay there for it to read; anything it only remembers from talking is lost." | "Y it is. It keeps its name, its instructions and its files, but its conversation does not come across: Y cannot read what it said on X." + "Anything it only remembered from talking is lost." (or, when its instructions point at notes an earlier switch left: "The notes in its folder stay there for it to read, and anything ...") |
+| non-Claude -> another non-Claude RUNNER (Codex/Qwen, Gemini, Grok, Antigravity, Muse) | **yes (#7445, new)** | "Its conversation does not come across: Y cannot read X's history. Any notes in its folder stay there; anything it only remembers from talking is lost." | "Y it is. It keeps its name, its instructions and its files, but its conversation does not come across: Y cannot read what it said on X." + "Anything it only remembered from talking is lost." (or, when its instructions point at notes an earlier switch left: "The notes in its folder stay there for it to read, and anything ...") |
 | OpenAI <-> Qwen (both Codex) | no | '' (old sentence, Switch and restart, no handoff button) | "Y it is. Everything it knows and everything it has done stays." |
 | same provider | not a switch (refused earlier) | '' | n/a |
+| Claude -> non-Claude, and the carry THREW (round 2) | yes | as Claude -> non-Claude | conversation clause as above + "We could not check its saved notes; any it had are still where Claude keeps them, and anything it only remembered from talking is lost." (notes 'unchecked-error'; a throw on the other kinds keeps their own sentence) |
 
 Shape: carryClaudeNotes returns, for the new case, the usual object with `notes: 'none-kept-by-runner'` and an extra
 `between: true` field, set ONLY in that case, so every Claude case keeps its exact shape (the #7410 deepEqual tests
@@ -58,17 +59,19 @@ checks they agree on every provider pair the menu offers.
 
 ## Tests (controls)
 
-- engine/create.switchwords-7445.test.js (7): 4 fail on the pre-change code (every non-Claude runner pair, Codex ->
-  Gemini state and sentence, pointer kept/taken out, end to end Claude -> OpenAI -> Gemini through setProvider).
+- engine/create.switchwords-7445.test.js (8): 5 fail on the pre-change code 958acd2421 (every non-Claude runner pair,
+  Codex -> Gemini state and sentence, pointer kept/taken out, end to end Claude -> OpenAI -> Gemini through setProvider,
+  and the carry-throws test, which also fails on 85337e54ef since round 2 asserts its whole sentence).
   3 pass on it by design: they are the keep-today's-wording controls (OpenAI <-> Qwen and the #7410 rule, the old
   sentence for carried null, the Claude cases' exact shape).
 - web.switchwords-7445.test.js (4): 2 fail on the pre-change page (every non-Claude pair warns, the new note's words).
   2 pass on it: the keep-today's-dialog control, and the page/engine agreement check (both copies were wrong the same
   way before; it guards future drift).
 - web.switch-family-7410.test.js: its OpenAI -> Gemini "no warning" assertions encoded the bug; replaced by OpenAI ->
-  Qwen (6 tests, pass).
+  Qwen (6 tests, pass). Its back-to-Claude dialog assertion is updated deliberately to the round 1-2 words.
 - tools/windows-tests.js ALSO gains the new engine test (it branches on a win32 host for its .cmd stand-ins).
 
 ## Log
 - Round 0 (build): rule, carried state, sentence and dialog built; tests above; policy tests run (see commit).
 - Round 1: no blockers. [WARNING] dialog said "Notes in its folder stay" to an agent with none while the result named none --> FIXED ("Any notes", between and to-Claude; #7410 test updated deliberately); [NIT] OpenAI <-> Qwen reasoning is Mac-only (Windows CODEX_HOME is the account folder) --> FIXED (comments at REFUSE_QWEN_WIN32 and both twins, weakest point rewritten); [NIT] forAgent(x) === forAgent(x) proved nothing --> FIXED (dropped, supervisor lines cited); [NIT] web test restated the alibaba fold --> FIXED (reads engine providerRunner); [NIT] missing space in `?'The notes` --> FIXED; [NIT] person-like fixture name in the new web test --> FIXED ('Helper'); [NIT] a carry that throws said everything stays --> FIXED (setProvider falls back to lostConversationCarried, the one base shape carryClaudeNotes also starts from; new test stubs backupsessions.ownedClaudeMemory to throw, red on the round 0 commit). An off-Claude throw reads "It had no saved notes to copy", which may be untrue; the conversation wording is right, the notes clause is the residual.
+- Round 2: no blockers. [WARNING] a carry that threw on a switch off Claude said "It had no saved notes to copy", maybe untrue (review 3 rule) --> FIXED (notes 'unchecked-error', its own sentence; the whole sentence asserted, red on 85337e54ef); [NIT] dialog "stay there for it to read" promised a pointer that can fail --> FIXED ("Any notes in its folder stay there", between and to-Claude; both tests updated); [NIT] plan counts and quoted dialog words stale --> FIXED.

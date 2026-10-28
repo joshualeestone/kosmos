@@ -51,7 +51,7 @@ test('#7445: the warning between two non-Claude runners: the conversation does n
   // Round 1: "Any notes": an agent that was never on Claude may have none, and the result sentence then names none.
   assert.equal(s, 'Helper keeps its name, its face, its instructions and its files, and restarts. '
     + 'Its conversation does not come across: Gemini cannot read OpenAI’s history. '
-    + 'Any notes in its folder stay there for it to read; anything it only remembers from talking is lost. ');
+    + 'Any notes in its folder stay there; anything it only remembers from talking is lost. ');   // round 2: no "for it to read"
   for (const [from, to] of [['google', 'xai'], ['xai', 'meta'], ['alibaba', 'antigravity'], ['antigravity', 'openai']]) {
     const w = fns.switchFamilyNote(from, to, SHOWN, WORD[from], WORD[to]);
     assert.match(w, new RegExp('Its conversation does not come across: ' + WORD[to].replace(/[()]/g, '\\$&') + ' cannot read '), from + ' -> ' + to);

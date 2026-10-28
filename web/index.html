@@ -59848,7 +59848,7 @@ function switchFamilyNote(fromProv, toProv, shown, fromWord, toWord) {
   const notes = (claudeSide(fromProv) && claudeSide(toProv))
     ? 'Its saved notes stay behind with ' + fromWord + ' and do not come across; anything it only remembers from talking is lost.'
     : (claudeSide(toProv) || !claudeSide(fromProv))   // #7445: back to Claude, or between two that are not Claude Code
-    ? 'Any notes in its folder stay there for it to read; anything it only remembers from talking is lost.'   // round 1: it may have none
+    ? 'Any notes in its folder stay there; anything it only remembers from talking is lost.'   // round 1: it may have none; round 2: no promise it is pointed at them
     : 'Its saved notes are copied into its folder; anything it only remembers from talking is lost.';
   return shown + ' keeps its name, its face, its instructions and its files, and restarts. '
     + 'Its conversation does not come across: ' + toWord + ' cannot read ' + fromWord + '’s history. ' + notes + ' ';

@@ -166,10 +166,12 @@ test('#7445 round 1: a carry that throws still says the conversation does not co
   const sw = create.setProvider(name, 'openai', OPTS);
   assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
   assert.ok(sw.carried, 'a switch off Claude whose carry threw came back as one that keeps its conversation');
-  assert.deepEqual(sw.carried, { from: 'anthropic', toClaude: false, rootChange: false, notes: 'none', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false });
-  const w = create.switchCarryWords('OpenAI', sw.carried, 'Claude');
-  assert.match(w, /its conversation does not come across: OpenAI cannot read what it said on Claude\./);
-  assert.doesNotMatch(w, /Everything it knows/);
+  // Round 2: nobody looked at its notes, so its own state, never 'none' ("it had no saved notes", maybe untrue).
+  assert.deepEqual(sw.carried, { from: 'anthropic', toClaude: false, rootChange: false, notes: 'unchecked-error', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false });
+  assert.equal(create.switchCarryWords('OpenAI', sw.carried, 'Claude'),
+    'OpenAI it is. It keeps its name, its instructions and its files, but its conversation does not come across: '
+    + 'OpenAI cannot read what it said on Claude. '
+    + 'We could not check its saved notes; any it had are still where Claude keeps them, and anything it only remembered from talking is lost. ');
 });
 
 test('#7445: end to end, Claude -> OpenAI -> Gemini says the conversation does not come across on the second switch too', () => {

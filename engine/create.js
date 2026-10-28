@@ -2730,7 +2730,12 @@ function setProvider(name, provider, opts) {
     carried = null;
     try {
       const from = jobProvider(job);
-      if (switchLosesConversation(job && job.runner, runner, from, provider)) carried = lostConversationCarried(job && job.runner, runner, from);
+      if (switchLosesConversation(job && job.runner, runner, from, provider)) {
+        carried = lostConversationCarried(job && job.runner, runner, from);
+        /* Round 2: off Claude the carry is what looks at its notes, so a throw means nobody looked: never "it had no
+           saved notes" (review 3's rule). Back to Claude, a root change and between keep their own true sentences. */
+        if (!carried.toClaude && !carried.rootChange && !carried.between) carried.notes = 'unchecked-error';
+      }
     } catch { carried = null; }
   }
   /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
@@ -2853,6 +2858,8 @@ const CARRIED_NOTE_MAX_BYTES = 1024 * 1024;   // review 1: a note over 1 MB is n
  *           'none'    nothing to carry (no Claude memory for it; or a switch TO Claude, where nothing is copied)
  *           'none-kept-by-runner' #7445: neither side is Claude Code (Codex to Gemini, say), so there are no Claude
  *                     notes and nothing is copied; `between: true` is set only then
+ *           'unchecked-error' #7445 round 2: never returned here; setProvider's fallback when this function threw on a
+ *                     switch off Claude, so its notes were never looked at
  *           'stayed'  rootChange: Claude <-> a vendor on Claude Code; the notes stay with the old config folder
  *           'shared' | 'unattributed' | 'collides' | 'newer'  backupsessions.ownedClaudeMemory refused: not copied
  *           'unchecked' the folders Kosmos knows could not be read, so a shared Claude name could not be ruled out
@@ -3058,6 +3065,9 @@ function switchCarryWords(label, carried, fromLabel) {
     if (carried.occupied) parts.push(OCCUPIED(carried.occupied));   // review 4
     notes = `It had saved notes, but none were copied: ${parts.join(', and ') || 'they could not be copied into its folder'}. `
       + 'They are still where Claude keeps them. ' + lost;
+  } else if (carried.notes === 'unchecked-error') {
+    // #7445 round 2: the carry failed before it looked at its notes (setProvider's fallback), so say only what is true.
+    notes = 'We could not check its saved notes; any it had are still where Claude keeps them, and anything it only remembered from talking is lost. ';
   } else if (notCopied[carried.notes]) {
     notes = `Its saved notes were not copied: ${notCopied[carried.notes]}. ${lost}`;
   } else {

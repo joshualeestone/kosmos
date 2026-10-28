@@ -32,7 +32,7 @@ test('#7410: across the line the dialog says the conversation does not come acro
   assert.match(off, /Its saved notes are copied into its folder; anything it only remembers from talking is lost\./);
   assert.doesNotMatch(off, /everything it has done|past stays readable/);
   const back = fns.switchFamilyNote('openai', 'anthropic', 'Mara', 'OpenAI', 'Claude');
-  assert.match(back, /Claude cannot read OpenAI’s history\. Any notes in its folder stay there for it to read/);   // #7445 round 1: "Any"
+  assert.match(back, /Claude cannot read OpenAI’s history\. Any notes in its folder stay there; anything it only remembers/);   // #7445 rounds 1-2
   assert.doesNotMatch(back, /are copied/, 'nothing is copied on the way back to Claude');
   for (const s of [off, back]) assert.doesNotMatch(s, /—/, 'an em dash');
 });
