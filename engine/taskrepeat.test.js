@@ -199,12 +199,12 @@ test('#4787 slice 2: whenWords says a past slot as yesterday or its weekday, and
   assert.equal(r.whenWords(at(2026, 10, 9, 9, 0), now), 'Friday at 9am');
 });
 
-test('#4787 slice 2 review 1: a run up to the miss grace early answers its slot, so it is never called missed (control: 20 minutes early is not)', () => {
+test('#4787 slice 2 review 1: a run up to the early window early answers its slot, so it is never called missed (control: 40 minutes early is not, #7413)', () => {
   const base = { repeat: { every: 'day', at: '09:00' }, repeatSetAt: new Date(at(2026, 10, 1, 12, 0)).toISOString() };
   const early = { ...base, lastRunAt: new Date(at(2026, 10, 6, 8, 50)).toISOString() };
   assert.equal(r.missedRuns(early, at(2026, 10, 6, 9, 30)), null, 'ran at 08:50 for 09:00');
   assert.equal(r.missedRuns(early, at(2026, 10, 7, 9, 20)).lastAt, at(2026, 10, 7, 9, 0), 'the next day is still counted when missed');
-  const tooEarly = { ...base, lastRunAt: new Date(at(2026, 10, 6, 8, 40)).toISOString() };
+  const tooEarly = { ...base, lastRunAt: new Date(at(2026, 10, 6, 8, 20)).toISOString() };   // #7413: past the 30-minute window
   assert.deepEqual(r.missedRuns(tooEarly, at(2026, 10, 6, 9, 30)), { count: 1, more: false, lastAt: at(2026, 10, 6, 9, 0) });
 });
 
@@ -226,7 +226,8 @@ test('#4787 slice 2 review 2: runIsLate depends only on the rule and the run\'s 
   /* review 4: one rule with missedRuns: a run answers the next slot only within the miss grace before it; earlier, it
      answers the slot before, so it is late for that one (and the next slot is missed if nobody runs it). */
   assert.equal(r.runIsLate(day, at(2026, 10, 6, 8, 45)), false, '15 minutes early answers today\'s 9am');
-  assert.equal(r.runIsLate(day, at(2026, 10, 6, 8, 44)), true, '16 minutes early answers yesterday\'s 9am, late');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 8, 30)), false, '#7413: 30 minutes early still answers today\'s 9am');
+  assert.equal(r.runIsLate(day, at(2026, 10, 6, 8, 29)), true, '#7413: 31 minutes early answers yesterday\'s 9am, late');
   assert.equal(r.runIsLate(day, at(2026, 10, 6, 20, 0)), true);
   const week = { repeat: { every: 'week', day: 1, at: '09:00' }, repeatSetAt: new Date(at(2026, 9, 1, 12, 0)).toISOString() };
   assert.equal(r.runIsLate(week, at(2026, 10, 4, 9, 0)), true, 'a weekly Monday job run on Sunday is late for last Monday');
@@ -277,4 +278,24 @@ test('#4787 slice 2 review 5: a weekly task\'s missed run and its next run never
     assert.notEqual(f.repeatMissedWords, f.repeatNextWords, 'Oct ' + d + ': ' + f.repeatMissedWords);
   }
   assert.equal(r.fieldsOf(t, at(2026, 10, 8, 12, 0)).repeatMissedWords, 'last Monday at 9am');
+});
+
+test('#7413: a daily run up to 30 minutes before its slot is that slot\'s: no nag, not late, not missed; hourly unchanged', () => {
+  // The reported case: a 06:45 task run at 06:15.
+  const base = { repeat: { every: 'day', at: '06:45' }, repeatSetAt: new Date(at(2026, 10, 1, 12, 0)).toISOString() };
+  const ran = { ...base, lastRunAt: new Date(at(2026, 10, 6, 6, 15)).toISOString() };
+  assert.equal(r.waitingForNextRun(ran, at(2026, 10, 6, 7, 0)), true, 'at 07:00 it waits for tomorrow, so it is not nudged');
+  assert.equal(r.missedRuns(ran, at(2026, 10, 6, 7, 30)), null, 'the 06:45 slot is not missed');
+  assert.equal(r.runIsLate(base, at(2026, 10, 6, 6, 15)), false, 'and the 06:15 run is not marked late');
+  // Control: 40 minutes early answers nothing new, so 06:45 is still due and is missed if nobody runs it.
+  const early = { ...base, lastRunAt: new Date(at(2026, 10, 6, 6, 5)).toISOString() };
+  assert.equal(r.waitingForNextRun(early, at(2026, 10, 6, 7, 0)), false, '06:05 is too early: 06:45 is due');
+  assert.equal(r.missedRuns(early, at(2026, 10, 6, 7, 30)).count, 1);
+  // Hourly keeps its small windows (review 3 of #4787): a 09:55 run is late for 09:00 and leaves 10:00 due.
+  const hourly = { repeat: { every: 'hour' }, repeatSetAt: new Date(at(2026, 10, 6, 8, 0)).toISOString(), lastRunAt: new Date(at(2026, 10, 6, 9, 40)).toISOString() };
+  assert.equal(r.waitingForNextRun(hourly, at(2026, 10, 6, 10, 1)), false, 'hourly: a 09:40 run leaves 10:00 due');
+  assert.equal(r.earlyWindowFor({ every: 'hour' }), 15 * 60000, 'hourly early window stays 15 minutes');
+  assert.equal(r.earlyWindowFor({ every: 'day', at: '06:45' }), 30 * 60000, 'daily: 30 minutes');
+  // A daily rule with two close times keeps a quarter of their gap: 09:00 and 09:40 gives 10 minutes.
+  assert.equal(r.earlyWindowFor({ every: 'day', at: ['09:00', '09:40'] }), 10 * 60000);
 });
