@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: roomarchive3b-7365
-diff_hash: 3418edc48db9426574ef549331b984f80c3234fb4eba02e6208e19cab85f8e8a
+diff_hash: faac45b5289076dd16662e96aa026f52fc0b66d1280a22dbe5e14af77c184685
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-28T16:20:39Z
-iterations: 11
+timestamp: 2026-10-28T17:25:27Z
+iterations: 12
 converged: true
 ---
 
@@ -74,13 +74,22 @@ The full per-finding detail is the ledger in .claude/plans/roomarchive3b-7365.md
 #### Iteration 11 (focused, after CI: the confirm check under classic scrollbars)
 **Reviewer model:** sonnet
 - The PR's browser-checks job was red twice on render-room-archive-7365: the backdrop measured 1265 in a 1280 window.
-  CI draws classic scrollbars and the tab layout keeps a 15px gutter on <html> that no fixed layer covers (#4506 dims
-  it through the canvas, measured by render-dialog-gutter-4506). The check was wrong, not the page --> FIXED
-  (04c2a0437a: measure against documentElement.clientWidth/clientHeight, probe corners inside them)
-- [WARNING] the page-area comparison no longer proves the backdrop is fixed --> FIXED (assert position fixed; innerWidth
-  back in the evidence)
-- Not measured locally: this Mac draws overlay scrollbars, and a forced 15px scrollbar takes no width on a page that does
-  not scroll, so the local run cannot tell the old assertion from the new. The PR's CI run is the measurement.
+  First fix (04c2a0437a, ebf69af967) measured against documentElement.clientWidth; its stated cause was WRONG: the next
+  CI run read the backdrop at 1265 with clientWidth 1280. The tab layout's scrollbar-gutter on <html> takes 15px from
+  every fixed layer there, and #4506 dims that strip on purpose (the class is measured by render-dialog-gutter-4506).
+- [WARNING] the comparison no longer proved the backdrop is fixed --> FIXED (asserts position fixed)
+
+#### Iteration 12 (focused, after the second CI red)
+**Reviewer model:** opus
+- The check now compares the confirm to a fixed inset:0 probe measured in the same evaluate (c17f332267). A right:20px
+  mutation on the confirm reds both arms.
+- [WARNING] a containing block on html or body would shrink the probe and the confirm alike --> FIXED (the fixed
+  area must start at 0,0, be the window's height, and be narrower only by a scrollbar of at most 20px; a body
+  transform with a 1000px width reds it)
+- [WARNING] the stated cause read as a general rule about clientWidth, which the #4506 harness contradicts --> FIXED
+  (the comment says what CI measured)
+- Not measured locally: this Mac draws overlay scrollbars, so the 15px gutter cannot be reproduced here. The PR's CI
+  run is the measurement.
 
 ### Not guarded by unit tests (stated so nobody reads the unit suite as covering them)
 The archive-view thread having no end row is guarded by both. The delegated click on the end row and the
