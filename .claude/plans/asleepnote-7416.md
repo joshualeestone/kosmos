@@ -51,3 +51,17 @@ person knows.
    - NIT 1: the "never claims asleep" regex catches "is probably asleep" too. NIT 2 (the check's time patterns assume
      no dot in the time, as an es locale writes "p. m."): to loosen once the queued check run is done, since it reads
      that file. NIT (the key is the whole html in a data attribute): kept, it is a few hundred bytes and exact.
+
+### Round 3 (0 B, 1 W, 1 C, 2 N)
+- [WARNING] LAST_STATUS_OK_AT is when THIS PAGE last heard, which is the computer's last moment only if the page was
+  still asking: a locked iPad or a hidden tab stops polling, so "yesterday at 11:00 PM" could be said for a Mac that
+  answered until 2 AM. FIXED: STATUS_FIRST_MISS_AT (when the first unanswered poll since the last good one went out);
+  lastHeardTrusted says the time only when that is within HEARD_GAP_MS (2 min, a throttled tab asks about once a
+  minute) of LAST_STATUS_OK_AT, else no time (Mona Lisa: drop it rather than guess). Test: polling up to the outage
+  (time), a tab away all night (no time), a throttled tab (time); mutation red. NOT tested: tick() recording the first
+  miss (the tests that lift tick() run without the global, by its typeof guard); reasoned from the code.
+- [CONCERN] the cloud-machine note had changed (a Kosmos-given name, "isn't", a time) with no approval. FIXED: exactly
+  as main has it, hostMachineCap() title, "is not answering", no time. Test; two mutations red.
+- [NIT] weekday and month follow the device's language. Kept, deferred: the iPhone slice does the same; change both
+  together. [NIT] two test patterns refused a dotted time. FIXED to [^<]*?\. as the browser check.
+Note tests 75/75.

@@ -25535,14 +25535,19 @@ function paintOfflineNote(down, deviceIsOffline) {
     /* kosmos#7416 (Mona Lisa's words): the computer by its own name when Kosmos+ has told the page (THIS_COMPUTER_NAME,
        from Your computers), and when this page last heard from it, after the sentence's first clause. Never a claim it
        is asleep: from here asleep, off and offline look the same. */
-    const named = (typeof THIS_COMPUTER_NAME === 'string' && THIS_COMPUTER_NAME.trim()) ? esc(THIS_COMPUTER_NAME.trim()) : hostMachineCap();
+    /* Review 3: a cloud machine keeps seam H's note exactly (the person never named it, and Mona Lisa's words cover the
+       board note only), so neither its name nor a time; and a time is said only when this page was still asking when
+       the computer stopped answering (lastHeardTrusted). */
+    const named = !cloud && typeof THIS_COMPUTER_NAME === 'string' && THIS_COMPUTER_NAME.trim() ? esc(THIS_COMPUTER_NAME.trim()) : hostMachineCap();
     const said = cloud ? CLOUD_ASLEEP_SENTENCE : MAC_ASLEEP_SENTENCE + at;
-    const heard = typeof LAST_STATUS_OK_AT === 'number' ? lastHeardSentence(LAST_STATUS_OK_AT, Date.now()) : '';
+    // typeof-guarded: tests lift paintOfflineNote alone (without lastHeardTrusted it says the time whenever there is one).
+    const trusted = typeof lastHeardTrusted === 'function' ? lastHeardTrusted() : typeof LAST_STATUS_OK_AT === 'number';
+    const heard = !cloud && trusted ? lastHeardSentence(LAST_STATUS_OK_AT, Date.now()) : '';
     const first = said.search(/[.!?] /);   // the end of the first sentence; the time goes after it, or at the end
     const cut = first >= 0 ? first + 1 : said.length;
     const html = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt"><b>' + named + ' isn\'t answering</b>'
+      + '<div class="utxt"><b>' + named + (cloud ? ' is not answering' : ' isn\'t answering') + '</b>'   // the cloud title as main has it
       + '<small>' + (heard ? said.slice(0, cut) + ' ' + heard + said.slice(cut) : said) + '</small>'
       + '</div></div>';
     /* Repainted only when what it says changes (review 1): the name can arrive after the first paint, and the time's
@@ -25791,6 +25796,19 @@ function paintRestartScreen(down, deviceIsOffline) {
    `STATUS_POLL_FAILED` hands the message to tick()'s catch path, which owns
    "could not refresh" and must not be aged over. */
 let LAST_STATUS_OK_AT = null;
+/* kosmos#7416 review 3: when the first poll that got no answer, after the last good one, went out. LAST_STATUS_OK_AT is
+   when THIS PAGE last heard, which is when the computer stopped answering only if the page was still asking then: a
+   locked phone or a hidden tab stops polling (Safari suspends it), and the computer can go on answering for hours. */
+let STATUS_FIRST_MISS_AT = null;
+const HEARD_GAP_MS = 2 * 60 * 1000;   // a throttled hidden tab still asks about once a minute
+/* Whether "We last heard from it at ..." is true: the page heard from the computer, and its first unanswered poll went
+   out within HEARD_GAP_MS of that, so nothing was missed in between. Otherwise the sentence is left out (Mona Lisa:
+   with no time known, drop it rather than guess). */
+function lastHeardTrusted() {
+  if (typeof LAST_STATUS_OK_AT !== 'number') return false;
+  if (typeof STATUS_FIRST_MISS_AT !== 'number') return true;
+  return STATUS_FIRST_MISS_AT - LAST_STATUS_OK_AT <= HEARD_GAP_MS;
+}
 let STATUS_POLL_FAILED = false;
 
 function ageCheckedStamp() {
@@ -26045,6 +26063,7 @@ async function tick() {
      after a newer poll has answered. Numbered on the function itself (tests lift tick() alone), and a
      failure paints only if no newer poll has answered since this one went out. */
   const pollSeq = tick.seq = (tick.seq || 0) + 1;
+  const pollStartAt = Date.now();   // kosmos#7416 review 3: when this poll went out (STATUS_FIRST_MISS_AT)
   try {
     // Captured BEFORE the request goes out, so a slow poll can be recognised as
     // predating a save or a reload.
@@ -26679,6 +26698,7 @@ async function tick() {
     // reflects how long since we last HEARD from the board, not the age of a
     // just-built response (`data.checkedAt`, which was structurally always ~0).
     LAST_STATUS_OK_AT = Date.now();
+    if (typeof STATUS_FIRST_MISS_AT !== 'undefined') STATUS_FIRST_MISS_AT = null;   // tests lift tick() alone
     STATUS_POLL_FAILED = false;
     ageCheckedStamp();
 
@@ -26713,6 +26733,8 @@ async function tick() {
     clearTimeout(statusCut);   // #4562: a refusal or a failure; either way the limit is done with
     if (answered && !(tick.answeredSeq > pollSeq)) tick.answeredSeq = pollSeq;   // a refusal is an answer too (#268)
     if (!answered && tick.answeredSeq > pollSeq) return;   // a newer poll already answered: this is old news
+    // kosmos#7416 review 3: the first unanswered poll since the last good one, by when it went out.
+    if (!answered && typeof STATUS_FIRST_MISS_AT !== 'undefined' && STATUS_FIRST_MISS_AT == null) STATUS_FIRST_MISS_AT = pollStartAt;
     /* kosmos#6721: the first unanswered poll, over a board that has answered before, keeps everything on screen and
        only says Reconnecting in the header; the second in a row falls through to the full failure below. A refusal is
        an answer (it resets the count), and this device being offline is known at once, so neither waits. */

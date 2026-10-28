@@ -13,7 +13,7 @@ const vm = require('node:vm');
 const { scriptOf, liftAll, liftConst } = require('./test-support/page');
 
 const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
-const SRC = liftAll(SCRIPT, ['lastHeardSentence', 'paintOfflineNote']);
+const SRC = [liftConst(SCRIPT, 'HEARD_GAP_MS'), liftAll(SCRIPT, ['lastHeardSentence', 'lastHeardTrusted', 'paintOfflineNote'])].join('\n');
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /* A clock the test sets: Date.now() inside the page reads `clock.now`, so nothing depends on when the test runs. */
@@ -31,6 +31,7 @@ function page(extra = {}, clock = { now: new Date(2026, 9, 27, 22, 0).getTime() 
     MAC_ASLEEP_SENTENCE: vm.runInNewContext(liftConst(SCRIPT, 'MAC_ASLEEP_SENTENCE') + '; MAC_ASLEEP_SENTENCE', { onLinux: () => false }),
     CLOUD_ASLEEP_SENTENCE: 'It may be restarting, and this page asks again by itself.',
     ENGINE_RESTARTING: false,
+    STATUS_FIRST_MISS_AT: null,
     ...extra,
   });
   vm.runInContext(SRC + '\nthis.heard = lastHeardSentence; this.paint = paintOfflineNote;', ctx);
@@ -61,7 +62,7 @@ test('#7416: the note names the computer, says it is not answering, and when it 
   const { ctx, slot } = page({ THIS_COMPUTER_NAME: 'Studio', LAST_STATUS_OK_AT: at(27, 21, 59) });
   ctx.paint(true, false);
   assert.match(slot.innerHTML, /<b>Studio isn't answering<\/b>/);
-  assert.match(slot.innerHTML, /<small>It may be asleep, off or offline\. We last heard from it at [^.<]+\. Wake it/);
+  assert.match(slot.innerHTML, /<small>It may be asleep, off or offline\. We last heard from it at [^<]*?\. Wake it/);
   assert.match(slot.innerHTML, /If it is on, check this phone/, 'the body says "it", not a second machine, under a named title');
   assert.match(slot.innerHTML, /Nothing answered at studio\.kosmosplus\.com\./, 'the rest of the remote sentence stays');
   assert.doesNotMatch(slot.innerHTML, /\b(is|was|went)\b[^.]*\basleep/, 'it never claims the computer is asleep');
@@ -83,10 +84,30 @@ test('#7416: a page that never heard from the computer (opened while it was asle
   assert.match(slot.innerHTML, /<small>It may be asleep, off or offline\. Wake it/);
 });
 
-test('#7416: the cloud machine\'s note carries the time too, after its own first sentence', () => {
-  const { ctx, slot } = page({ onCloudMachine: () => true, THIS_COMPUTER_NAME: 'cloud-ab12', LAST_STATUS_OK_AT: at(27, 21, 59) });
+test('#7416 review 3: the cloud machine\'s note is as main has it: seam H\'s title, no name, no time', () => {
+  const { ctx, slot } = page({ onCloudMachine: () => true, THIS_COMPUTER_NAME: 'cloud-ab12', hostMachineCap: () => 'Your cloud machine', LAST_STATUS_OK_AT: at(27, 21, 59) });
   ctx.paint(true, false);
-  assert.match(slot.innerHTML, /<small>It may be restarting, and this page asks again by itself\. We last heard from it at /);
+  assert.match(slot.innerHTML, /<b>Your cloud machine is not answering<\/b>/);
+  assert.doesNotMatch(slot.innerHTML, /cloud-ab12/, 'a name the person never gave');
+  assert.doesNotMatch(slot.innerHTML, /We last heard/, 'a time not in Mona Lisa\'s words for the cloud note');
+  assert.match(slot.innerHTML, /<small>It may be restarting, and this page asks again by itself\.<\/small>/);
+});
+
+test('#7416 review 3: the time is said only when this page was still asking when the computer stopped answering', () => {
+  // Polling every few seconds up to the outage: the first unanswered poll went out right after the last good one.
+  const a = page({ THIS_COMPUTER_NAME: 'Studio', LAST_STATUS_OK_AT: at(27, 20, 12), STATUS_FIRST_MISS_AT: at(27, 20, 12) + 5000 });
+  a.ctx.paint(true, false);
+  assert.match(a.slot.innerHTML, /We last heard from it at /, 'CONTROL: a page polling up to the outage says the time');
+  // A tab put away at 9 PM and opened at 8 AM: its first unanswered poll is hours after the last answer it got, so the
+  // computer may have answered all night. No time, rather than a wrong one.
+  const b = page({ THIS_COMPUTER_NAME: 'Studio', LAST_STATUS_OK_AT: at(27, 21, 0), STATUS_FIRST_MISS_AT: at(28, 8, 0) }, { now: at(28, 8, 0) });
+  b.ctx.paint(true, false);
+  assert.match(b.slot.innerHTML, /<b>Studio isn't answering<\/b>/);
+  assert.doesNotMatch(b.slot.innerHTML, /We last heard/, 'a time from before this page went quiet');
+  // A throttled hidden tab (about once a minute) still counts as asking.
+  const c = page({ THIS_COMPUTER_NAME: 'Studio', LAST_STATUS_OK_AT: at(27, 20, 12), STATUS_FIRST_MISS_AT: at(27, 20, 13) + 30000 });
+  c.ctx.paint(true, false);
+  assert.match(c.slot.innerHTML, /We last heard from it at /, 'a throttled tab asking once a minute lost its time');
 });
 
 test('#7416 review 1: a note left up overnight moves to "yesterday", and a name that arrives later is shown', () => {

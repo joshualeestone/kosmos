@@ -756,8 +756,8 @@ test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos",
   // CONTROL: the same source on a Mac says "your Mac", as before.
   assert.ok(remoteNote('darwin', false).includes('<b>Your Mac isn\'t answering</b>'));
   // kosmos#7416 review 1: the time goes after the real first sentence, on every platform's own words.
-  assert.match(remoteNote('darwin', false), /<small>It may be asleep, off or offline\. We last heard from it [^.]+\. Wake it/);
-  assert.match(remoteNote('linux', false), /<small>It may be turned off, or Kosmos may have stopped on it\. We last heard from it [^.]+\. Make sure it is on/);
+  assert.match(remoteNote('darwin', false), /<small>It may be asleep, off or offline\. We last heard from it [^<]*?\. Wake it/);
+  assert.match(remoteNote('linux', false), /<small>It may be turned off, or Kosmos may have stopped on it\. We last heard from it [^<]*?\. Make sure it is on/);
   assert.ok(remoteNote('darwin', true).includes('so it cannot reach your Mac.</small>'));
   assert.match(sentence('darwin', 'MAC_ASLEEP_SENTENCE'), /^It may be asleep, off or offline\. Wake it/);   // kosmos#7416, Mona Lisa's words
   for (const name of ['SIGNED_OUT_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE']) {   // #6537: OFFLINE_SENTENCE names no machine
