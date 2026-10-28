@@ -86,6 +86,17 @@ const POSTED_ROOM_COOLDOWN_MS = 10 * 60 * 1000;
 const COOLDOWN_PRUNE_MS = POSTED_ROOM_COOLDOWN_MS;   // the longest; an entry older than this has expired for every class
 
 const file = () => path.join(remote.stateDir(), 'phone-notify.json');
+/* #7448 (after #7446: a demo board signed in to a real account pushed its made-up agents to that person's phone): a
+   computer can be marked never to send phone notices, for a demo or test install. Either the file below (made once by
+   whoever sets the install up, kept across restarts and updates) or KOSMOS_NO_PHONE_NOTICES=1 (for a check run). While
+   marked: nothing is sent, the switch never turns itself on, a press is refused with the reason, and Settings says
+   why. The coordinator may still keep its own list (#7446); this is the board's half, so it holds wherever it runs. */
+const noPushFile = () => path.join(remote.stateDir(), 'no-phone-notices');
+function noPush() {
+  if (process.env.KOSMOS_NO_PHONE_NOTICES === '1') return true;
+  try { return fs.existsSync(noPushFile()); } catch { return true; }   // cannot tell: never send
+}
+const NO_PUSH_WHY = 'this computer is set never to send phone notices (a demo or test install)';
 // #6488: the person's off, kept beside remote.json and OUTSIDE the tunnel state dir, because removing this computer
 // from Kosmos+ deletes that dir (remote.forget), and a reconnect must not turn back on what the person turned off.
 // It holds only { off: true }: no token. Written by turnOff (and by ensureDefaultOn, copying an off from before
@@ -219,6 +230,8 @@ function status() {
   const offByChoice = !s.on && masterChoice() === 'off';
   // defaultBecause: why it has not turned on by itself yet (Settings says it instead of promising), or null.
   // #6488: connected means Kosmos+ is live here (signed in AND switched on), the only state anything is sent in.
+  // #7448: a computer marked never to send says so (noPush), and is shown off whatever an older file holds.
+  if (noPush()) return { available: true, on: false, connected: plusLive(), kinds: s.kinds, offByChoice: true, defaultBecause: null, noPush: true, because: NO_PUSH_WHY };
   return { available: true, on: s.on, connected: plusLive(), kinds: s.kinds, offByChoice,
     defaultBecause: !s.on && !offByChoice ? defaultBecause : null };
 }
@@ -232,6 +245,7 @@ function status() {
 let turningOn = null;
 function turnOn(opts) {
   if (!available) return Promise.resolve({ ok: false, because: 'phone notifications are not available yet' });
+  if (noPush()) return Promise.resolve({ ok: false, notSent: true, because: NO_PUSH_WHY });   // #7448
   if (!turningOn) turningOn = doTurnOn(opts || {}).finally(() => { turningOn = null; });
   return turningOn;
 }
@@ -333,6 +347,7 @@ async function ensureDefaultOn() {
     if (choice === 'off' && !choiceSaysOff() && stateSaysOff()) writeChoice(true);
     if (!remote.enrolled()) { defaultBecause = null; return null; }
     if (choice !== 'unset') { defaultBecause = null; return null; }
+    if (noPush()) { defaultBecause = null; return null; }   // #7448: a demo or test install never turns itself on
     // Signed in but Kosmos+ switched off on this computer: the person took it off Kosmos+, so nothing is minted
     // and nothing about agents goes there until they switch it back on (Settings reads it as not connected).
     if (!plusLive()) { defaultBecause = null; return null; }
@@ -530,6 +545,7 @@ function happened(event) {
   try {
     if (!available) return;
     if (!event || !KINDS.has(event.kind)) return;
+    if (noPush()) return;   // #7448: a demo or test install never reaches a phone
     const route = routeFor(event);
     if (!route) return;
     if (!levelAllows(event, route)) return;   // #7210, before the cooldown so a muted event spends no window
@@ -564,4 +580,4 @@ function happened(event) {
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { setProjectLevel, PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
+module.exports = { noPush, NO_PUSH_WHY, setProjectLevel, PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
