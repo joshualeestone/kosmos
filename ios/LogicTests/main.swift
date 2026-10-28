@@ -1927,7 +1927,7 @@ func boardLoopTests() async {
                                  env: .init(send: { r in
                                                 if r.httpMethod == "POST" { for _ in 0..<world.postYields { await Task.yield() } }
                                                 else if r.url?.path.hasSuffix("/thread") == true { for _ in 0..<world.threadYields { await Task.yield() } }
-                                                else if r.url?.path == "/api/agent-stars", !world.starsYields.isEmpty { for _ in 0..<world.starsYields.removeFirst() { await Task.yield() } }
+                                                else if r.url?.path == "/api/agent-stars", r.httpMethod != "PUT", !world.starsYields.isEmpty { for _ in 0..<world.starsYields.removeFirst() { await Task.yield() } }
                                                 else if r.url?.path == "/api/status" { world.statusStarted += 1; if !world.statusYields.isEmpty { for _ in 0..<world.statusYields.removeFirst() { await Task.yield() } } }
                                                 else if r.url?.path.hasPrefix("/api/attachment/") == true { world.attachmentStarted.append(r.url!.path); for _ in 0..<world.attachmentYields { await Task.yield() } }
                                                 return world.send(r)
@@ -2022,6 +2022,23 @@ section("starring from the phone (kosmos#7034)")
         w.starWriteAnswer = (200, #"{"names":["dana","wes"],"ok":true}"#)
         await c.toggleStar("dana")
         check(c.isStarred("wes") && c.isStarred("dana"), "the board's answer decides: a star set elsewhere meanwhile shows too")
+        // Review 1: a pull whose stars read began before a press never undoes the press.
+        w.starsAnswer = (200, #"{"names":["dana","wes"],"ok":true}"#)   // the stars as they were when the pull began
+        w.starsYields = [400]
+        let epochBefore = c.sortEpoch
+        let starGets = w.requests.filter { $0 == "GET studio.kosmosplus.com/api/agent-stars" }.count
+        async let pull: () = c.refreshNow()
+        let inRead = await settle { w.requests.filter { $0 == "GET studio.kosmosplus.com/api/agent-stars" }.count > starGets }
+        check(inRead, "premise: the pull's stars read is out (held) before the press")
+        w.starWriteAnswer = (200, #"{"names":["dana"],"ok":true}"#)
+        await c.toggleStar("wes")
+        await pull
+        check(!c.isStarred("wes") && c.isStarred("dana"), "a pull that was already reading when wes was unstarred does not put his star back")
+        check(c.sortEpoch > epochBefore, "review 1: a star tells Today to re-take its order")
+        // Review 1: a failed save puts back only its own agent, never another star the board confirmed meanwhile.
+        w.starWriteAnswer = (502, "{}")
+        await c.toggleStar("dana")
+        check(c.isStarred("dana") && !c.isStarred("wes"), "a failed unstar puts back only that agent")
         c.stop()
     }
 

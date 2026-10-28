@@ -301,9 +301,8 @@ let clientSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos
 check(clientSrc.contains("Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known)") && clientSrc.contains("Board.agentOrder(agents, sort: sort, projects: projects, stars: shownStars)"), "kosmos#7421: the chosen order is applied with the stars, on a re-sort and when picked")
 check(agentsSrc.contains("client.setAgentSort(sortChoice, projects: projectNames)") && agentsSrc.contains("ForEach(client.agents)"), "kosmos#7421: the Agents list shows the client's order and hands it the person's pick")
 // kosmos#7034 wiring guards (source checks): the row stars by a swipe, a long press and a VoiceOver action, and shows it.
-check(agentsSrc.contains(".swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent) }") && agentsSrc.contains(".contextMenu { starButton(agent) }")
-      && agentsSrc.contains(".accessibilityAction(named: client.isStarred(agent.session) ? \"Unstar\" : \"Star\")") && agentsSrc.contains("starred: client.isStarred(agent.session)"),
-      "kosmos#7034: a row is starred by a swipe, a long press or VoiceOver, and shows its star")
+check(agentsSrc.contains(".swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent) }") && agentsSrc.contains(".contextMenu { starButton(agent) }") && agentsSrc.contains("starred: client.isStarred(agent.session)"),
+      "kosmos#7034: a row is starred by a swipe (VoiceOver offers it) or a long press, and shows its star")
 check(firsts["a"] == "beta" && firsts["c"] == "beta" && firsts["z"] == nil, "an agent's first project is its project names A to Z, without case")
 
 section("an agent's notification opens its chat natively (kosmos#7418)")
