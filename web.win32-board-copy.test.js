@@ -723,11 +723,12 @@ test('#4408: a refused restart promises no remedy it cannot keep, on any platfor
 const sentence = (platform, name) => runPage(platform, [], '(() => { ' + page.liftConst(SCRIPT, name) + ' return ' + name + '; })()');
 function remoteNote(platform, deviceIsOffline) {
   const slot = { dataset: {}, innerHTML: '' };
-  runPage(platform, ['bakedVersion', 'kplusRemote', 'offlineRemoteView', 'lastHeardSentence', 'paintOfflineNote'],
+  runPage(platform, ['bakedVersion', 'kplusRemote', 'offlineRemoteView', 'lastHeardSentence', 'lastHeardTrusted', 'paintOfflineNote'],
     'paintOfflineNote(true, ' + (deviceIsOffline ? 'true' : 'false') + ')', {
       esc, location: { host: 'box.kosmosplus.com', hostname: 'box.kosmosplus.com' }, __byId: { 'uoffline-slot': slot },
       MAC_ASLEEP_SENTENCE: sentence(platform, 'MAC_ASLEEP_SENTENCE'),   // the page's constant, chosen for this platform
       LAST_STATUS_OK_AT: Date.now() - 1000,   // kosmos#7416: the page heard from it a moment ago, so the splice runs on the real sentence
+      STATUS_FIRST_MISS_AT: Date.now(), HEARD_GAP_MS: 2 * 60 * 1000,   // the real trust rule (lastHeardTrusted): asking up to the outage
     });
   return slot.innerHTML;
 }

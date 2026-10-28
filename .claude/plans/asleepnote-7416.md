@@ -87,3 +87,13 @@ Related tests 114/114 (asleepnote, offline-note, win32-board-copy, retry-feedbac
   dropped poll leaves a stale first miss that later passes the gap check. FIXED: statusHeard(now) sets LAST_STATUS_OK_AT
   and clears STATUS_FIRST_MISS_AT; tick()'s success path calls it. Unit test of the helper, and a source pin that tick()
   calls it (the 200 path draws the whole page). Both mutations red. Related tests 135/135.
+
+### Round 6 (0 B, 0 W, 2 C, 4 N): judged proportionate (the first miss must be remembered because the note paints on the
+second miss; every gap drops the time rather than inventing one)
+- [CONCERN] a typeof fallback in paintOfflineNote only tests reached, so two test files checked a rule that does not
+  ship. FIXED: the fallback is gone (a missing helper now fails loudly); web.offline-note and web.win32-board-copy lift
+  the real lastHeardTrusted and HEARD_GAP_MS. [CONCERN] lastHeardTrusted's comment sat above statusHeard. FIXED (moved).
+- [NIT] a stray blank line in tick(); "first clause" said for the first sentence; a test comment about another device's
+  clock (LAST_STATUS_OK_AT is this page's own). FIXED. [NIT] a behavioural 200-path test instead of the source pin. KEPT:
+  the pin is red under its mutation, and the 200 path draws the whole page.
+Every test naming paintOfflineNote 91/91; related files 144/144.
