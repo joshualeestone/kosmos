@@ -160,7 +160,11 @@ struct ContentView: View {
                             // kosmos#7030: Today's badge is the board's one number, the Dock's (counts.waiting); none at 0 or off.
                             // kosmos#7032: Projects' is the board's unread room posts (counts.projectsUnread).
                             // kosmos#7252: with Today off, its number (agents waiting on you) is on Agents.
-                            .badge(which == (AppTabs.todayTab ? .today : .agents) ? (board.waitingCount ?? 0) : which == .projects ? (board.projectsUnread ?? 0) : 0)
+                            // kosmos#7342 (Mona Lisa's rule: every tab's number is the sum of what its own list shows): Agents
+                            // shows its rows' bubbles added up; Today, like the Dock, keeps the full total.
+                            .badge(which == .today && AppTabs.todayTab ? (board.waitingCount ?? 0)
+                                   : which == .agents && !AppTabs.todayTab ? Board.agentsTabBadge(waiting: board.waitingCount, agents: board.agents)
+                                   : which == .projects ? (board.projectsUnread ?? 0) : 0)
                             .tag(which)
                     }
                 }

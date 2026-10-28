@@ -496,8 +496,9 @@ struct AgentRow: View {
     private var size: CGFloat { large ? 48 : 40 }
 
     private var avatar: some View {
+        // kosmos#7342 (Josh 10-28, Mona Lisa): the count moved off the avatar's corner to the row's right (NoticeBubble).
         AgentAvatar(name: agent.name, picture: picture, tone: nil, presence: stale ? .unsure : Board.presence(agent), size: size, memoryPercent: agent.contextPercent,
-                    memoryQuiet: stale, notices: stale ? 0 : Board.noticeCount(agent))
+                    memoryQuiet: stale)
     }
 
     private var name: some View {
@@ -517,15 +518,36 @@ struct AgentRow: View {
     // change crossfades in 0.2s, the animation on the container so the outgoing word fades as the new one comes in.
     // kosmos#7342: a pill only when there is something to see (Board.pill); Idle shows nothing. Not updating: every row
     // keeps its last word in a grey pill, Idle included, so no row reads as current.
+    // kosmos#7342 (Josh 10-28 09:34, Mona Lisa's spec): the agent's unread notifications as a red numbered bubble, to the
+    // right of the pill (6 pt) or alone. A list not updating shows none, as it showed no avatar count.
     @ViewBuilder private var status: some View {
-        ZStack(alignment: large ? .leading : .trailing) {
-            if stale || Board.pill(agent) != nil {
-                StatusPill(word: word, pill: stale ? .cantTell : Board.pill(agent) ?? .cantTell, wraps: large)
-                    .id(word)
-                    .transition(.opacity)
+        HStack(spacing: 6) {
+            ZStack(alignment: large ? .leading : .trailing) {
+                if stale || Board.pill(agent) != nil {
+                    StatusPill(word: word, pill: stale ? .cantTell : Board.pill(agent) ?? .cantTell, wraps: large)
+                        .id(word)
+                        .transition(.opacity)
+                }
             }
+            .animation(.easeInOut(duration: 0.2), value: word)
+            if !stale, let text = Board.noticeBubbleText(Board.noticeCount(agent)) { NoticeBubble(text: text) }
         }
-        .animation(.easeInOut(duration: 0.2), value: word)
+    }
+}
+
+// kosmos#7342 (Mona Lisa): the tab bar badge's look, the system red with white bold numerals, a capsule 20 pt tall and at
+// least 20 wide, its padding growing with the digits. The row's VoiceOver label says the count (Board.noticeWords).
+struct NoticeBubble: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .bold)).monospacedDigit()
+            .foregroundColor(.white)
+            .padding(.horizontal, 6)
+            .frame(minWidth: 20, minHeight: 20)
+            .background(Capsule().fill(Color.red))
+            .fixedSize()
+            .accessibilityHidden(true)
     }
 }
 

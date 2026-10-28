@@ -296,6 +296,10 @@ check(PushBridge.roomOpening(studio, keptAddress: nil) == .board(URL(string: "ht
 check(content.contains("PushBridge.roomOpening(target, keptAddress:"), "ContentView decides through roomOpening")
 
 section("By project's key (kosmos#7421)")
+// kosmos#7342 (Mona Lisa): a Mentions-only or Muted project (the board's notify, #7210) is quiet: its row's bubble is grey,
+// since its count adds nothing to the Projects tab. "all" or none is not.
+let notifyRows = Board.parseProjects(Data(#"{"projects":[{"id":"m","name":"M","notify":"muted"},{"id":"n","name":"N","notify":"mentions"},{"id":"a","name":"A","notify":"all"},{"id":"x","name":"X"}]}"#.utf8))?.projects ?? []
+check(notifyRows.map(\.quiet) == [true, true, false, false], "a muted or mentions-only project is quiet; all and none are not")
 let firsts = Board.firstProjects(Board.parseProjects(Data(#"{"projects":[{"id":"z","name":"Zeta","agents":[{"sessionName":"a"}]},{"id":"b","name":"beta","agents":[{"sessionName":"a"},{"sessionName":"c"}]}]}"#.utf8)))
 let agentsSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentsView.swift"), encoding: .utf8)) ?? ""
 let clientSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardClient.swift"), encoding: .utf8)) ?? ""

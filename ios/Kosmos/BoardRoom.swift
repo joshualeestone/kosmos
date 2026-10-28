@@ -577,6 +577,9 @@ extension Board {
         let needsYouQuestions: Int
         let working: Int
         let restarting: Int
+        // kosmos#7342 (Mona Lisa): on Mentions only or Muted (the board's notify, #7210): its count stays on its row but
+        // adds nothing to the Projects tab or the Dock, so its bubble is grey.
+        var quiet = false
     }
 
     struct ProjectList: Equatable {
@@ -743,7 +746,8 @@ extension Board {
                               paused: isTrue(p["paused"]), createdAt: isoDate(p["createdAt"] as? String), members: members,
                               folderProblem: folderProblem.flatMap { $0.isEmpty ? nil : $0 },
                               needsYou: integer(s["needsYou"]) ?? 0, needsYouQuestions: integer(s["needsYouQuestions"]) ?? 0,
-                              working: integer(s["working"]) ?? 0, restarting: integer(s["restarting"]) ?? 0)
+                              working: integer(s["working"]) ?? 0, restarting: integer(s["restarting"]) ?? 0,
+                              quiet: ["mentions", "muted"].contains(p["notify"] as? String ?? ""))
         }
         return ProjectList(projects: rows, agentsUnreadable: isTrue(obj["agentsUnreadable"]))
     }
