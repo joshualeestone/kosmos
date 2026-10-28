@@ -25429,17 +25429,18 @@ function offlineRemoteView() {
   try { return !onWindows() && kplusRemote(); } catch { return false; }   // a document with no location is not remote
 }
 /* kosmos#7416: "We last heard from it ..." in the person's own clock and words (Mona Lisa): the time alone today,
-   "yesterday at", the weekday within the week, the date before that. Null for a time that is not a time. */
+   "yesterday at", the weekday within the week, the date before that. Empty for a time that is not a past time.
+   Not rebootWhen or seenAtWords: Mona's words drop the clock after a week ("on Oct 21") and spell the weekday out. */
 function lastHeardSentence(ms, now) {
   const t = new Date(ms), n = new Date(now);
   if (!Number.isFinite(t.getTime()) || !Number.isFinite(n.getTime()) || ms > now + 60 * 1000) return '';
-  const clock = t.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const clock = t.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const day = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const days = Math.round((day(n) - day(t)) / (24 * 60 * 60 * 1000));   // calendar days, so a clock change is not a day
   if (days <= 0) return 'We last heard from it at ' + clock + '.';
   if (days === 1) return 'We last heard from it yesterday at ' + clock + '.';
-  if (days < 7) return 'We last heard from it on ' + t.toLocaleDateString(undefined, { weekday: 'long' }) + ' at ' + clock + '.';
-  return 'We last heard from it on ' + t.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + '.';
+  if (days < 7) return 'We last heard from it on ' + t.toLocaleDateString([], { weekday: 'long' }) + ' at ' + clock + '.';
+  return 'We last heard from it on ' + t.toLocaleDateString([], { month: 'short', day: 'numeric' }) + '.';
 }
 /**
  * The one thing worth saying when nothing is answering at all.
@@ -25460,8 +25461,9 @@ function lastHeardSentence(ms, now) {
  *
  * 📌 ONE NAMED EXCEPTION, THROUGH KOSMOS+ (#718 state 2). A phone or remote computer is not at
  * the Mac, so "on this computer" names the wrong machine and the Applications-folder remedy
- * cannot be done from it. That arm says "Your Mac is not answering" and names the usual cause,
- * hedged ("It may be asleep or turned off"), because it is the one a person far from the Mac can
+ * cannot be done from it. That arm names the computer ("Studio isn't answering", or "Your Mac" when Kosmos+ has
+ * not told the page its name) and the usual causes, hedged ("It may be asleep, off or offline", kosmos#7416; "offline"
+ * appears only inside that hedge, never as the phone's own state), with when this page last heard from it, because it is the one a person far from the Mac can
  * act on, and points at the phone's own connection because that looks the same from here. It
  * still names no server, crash, stop, restart or firewall; its own test holds that.
  *
@@ -25505,9 +25507,9 @@ function paintOfflineNote(down, deviceIsOffline) {
   /* #718 state 1: the note says which end is offline, and a change of end is a change of
      message, so the key is which one it is saying rather than only that it is saying one. */
   const which = deviceIsOffline ? 'device' : 'mac';
-  if (slot.dataset.on === which) return;   // already saying it; do not re-announce
-  slot.dataset.on = which;
   if (deviceIsOffline) {
+    if (slot.dataset.on === which) return;   // already saying it; do not re-announce
+    slot.dataset.on = which;
     /* Not "on this computer", and no version or host line: nothing on the Mac was asked,
        so there is nothing about it to report. The remedy is the person's own connection. */
     slot.innerHTML = '<div class="utoast stale" role="status">'
@@ -25519,7 +25521,7 @@ function paintOfflineNote(down, deviceIsOffline) {
   }
   /* #718 state 2: through Kosmos+ the person is not at the Mac, so "on this computer" names
      the wrong machine and "open Kosmos from your Applications folder" is not something a phone
-     can do. Say it is the Mac, the usual reason (asleep or off), and what to do about it from
+     can do. Say it is the Mac, the usual reasons (asleep, off or offline, hedged), and what to do about it from
      here; and since a phone on a captive portal also reads as online (state 1 cannot see it),
      point at its own connection too. */
   const remote = offlineRemoteView();
@@ -25536,14 +25538,24 @@ function paintOfflineNote(down, deviceIsOffline) {
     const named = (typeof THIS_COMPUTER_NAME === 'string' && THIS_COMPUTER_NAME.trim()) ? esc(THIS_COMPUTER_NAME.trim()) : hostMachineCap();
     const said = cloud ? CLOUD_ASLEEP_SENTENCE : MAC_ASLEEP_SENTENCE + at;
     const heard = typeof LAST_STATUS_OK_AT === 'number' ? lastHeardSentence(LAST_STATUS_OK_AT, Date.now()) : '';
-    const cut = said.indexOf('. ') + 1 || said.length;   // after the first sentence, or at the end if it is the only one
-    slot.innerHTML = '<div class="utoast stale" role="status">'
+    const first = said.search(/[.!?] /);   // the end of the first sentence; the time goes after it, or at the end
+    const cut = first >= 0 ? first + 1 : said.length;
+    const html = '<div class="utoast stale" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt"><b>' + named + ' isn\'t answering</b>'
       + '<small>' + (heard ? said.slice(0, cut) + ' ' + heard + said.slice(cut) : said) + '</small>'
       + '</div></div>';
+    /* Repainted only when what it says changes (review 1): the name can arrive after the first paint, and the time's
+       words change at midnight ("at 11:50 PM" becomes "yesterday at 11:50 PM"), so the key is the sentence itself, not
+       only which end is down. A live region is then announced at most once per real change, never every poll. */
+    const key = which + '|' + html;
+    if (slot.dataset.on === key) return;
+    slot.dataset.on = key;
+    slot.innerHTML = html;
     return;
   }
+  if (slot.dataset.on === which) return;   // already saying it; do not re-announce
+  slot.dataset.on = which;
   /* Both details are knowable with nothing answering: the version is baked into
      this page, and the host is what this page was loaded from. */
   const v = bakedVersion();
@@ -40641,7 +40653,7 @@ const CLOUD_ASLEEP_SENTENCE = 'It may be restarting, and this page asks again by
   + 'device\'s own connection.';
 const MAC_ASLEEP_SENTENCE = onLinux()   // per platform since #5865, the name kept for its callers
   ? 'It may be turned off, or Kosmos may have stopped on it. Make sure it is on, then run kosmos restart in a terminal on it, and this page asks again by itself. If it is running, check this phone or computer\'s own connection.'
-  : 'It may be asleep, off or offline. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If ' + hostMachine() + ' is on, check this phone or computer\'s own connection.';   // kosmos#7416: Mona Lisa's first sentence
+  : 'It may be asleep, off or offline. Wake it and make sure Kosmos is open on it, and this page asks again by itself. If it is on, check this phone or computer\'s own connection.';   // kosmos#7416: Mona Lisa's first sentence; "it", so a note titled by the computer's own name never names a second machine
 /* #6537: the top note (#uoffline-slot) already says "You are offline" and that this phone or computer is not connected,
    and it goes up with these. Both places that set BOARD_DEVICE_OFFLINE true paint it in the same failure branch: the
    status poll (tick's catch) and the projects poll (loadProjects' catch); every box that shows this sentence (the

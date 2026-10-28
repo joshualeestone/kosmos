@@ -27,3 +27,17 @@ across a failed read, so a rename on another device shows the old name until the
 person knows.
 
 ## Review rounds
+1. (general-purpose, 23:1x CDT) 0 BLOCKERs, 4 WARNINGs, 2 CONVENTIONs, 5 NITs; all applied.
+   - (W) the note painted once and never again while the computer stayed down, so "at 11:50 PM" left overnight read as
+     tonight, and (W) a name that arrived after the first paint never showed: the remote arm's guard keys on the
+     sentence itself, so it repaints when the name or the day's words change, and never re-announces otherwise (test
+     over midnight and a late name; the old key reds it).
+   - (W) the splice was never run on the real MAC_ASLEEP_SENTENCE: the new test lifts it, and the #5865 test asserts the
+     time lands after the first sentence on the Mac's and Linux's own words.
+   - (W) render-phone-offline-718 asserted nothing new: it checks the heard sentence after the first sentence.
+   - (C) the docblock and the remote-arm comment describe the new note and the narrowed "offline" rule. (C) why this is
+     not rebootWhen or seenAtWords is in its comment (Mona's words drop the clock after a week and spell the weekday);
+     the locale argument is [] like the others.
+   - NITs: a fixed clock in the tests; the weekday variable named for Wednesday; a 30 s future case; the body says "If it
+     is on", so a named title never names a second machine; the splice looks for any sentence end ([.!?] ).
+   - Not done: a daylight-saving test (the runner's zone is fixed at start; the calendar-day count is by local dates).
