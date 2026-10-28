@@ -25,16 +25,35 @@ fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
-// The overview's shape (engine/projectview.js): each member has its display name and its sessionName.
-const OVERVIEW = [200, { id: 'launch', name: 'Launch', members: [
-  { name: 'Sally Sales', sessionName: 'sally-sales' },
-  { name: 'Ada', sessionName: 'ada' },
-  { name: 'Twin', sessionName: 'twin-1' },
-  { name: 'twin', sessionName: 'twin-2' },
-] }];
+/* kosmos#7405 review 1: the overview is the board's own, never hand-built (fixture-discipline): fleet cards through
+   projects.describe and projectview.overviewOf, wrapped as the route wraps it ({ project, agentsUnreadable }). A
+   hand-built top-level shape passed every test while both commands failed on a real board. The data roots are a temp
+   folder, set before the engine is loaded. */
+const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-pjrm-data-'));
+test.after(() => fs.rmSync(DATA, { recursive: true, force: true }));
+process.env.AGENT_WORKFORCE_DATA = path.join(DATA, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(DATA, 'workers');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(DATA, 'projects');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+const projects = require('./engine/projects');
+const view = require('./engine/projectview');
+const fleet = require('./test-support/fleet');
+const FLEET = fleet.install([
+  fleet.agent('sally-sales', { displayName: 'Sally Sales' }), fleet.agent('ada', { displayName: 'Ada' }),
+  fleet.agent('twin-1', { displayName: 'Twin' }), fleet.agent('twin-2', { displayName: 'twin' }),
+]);
+const RAW = { id: 'launch', name: 'Launch', folder: '/p/launch', agents: ['sally-sales', 'ada', 'twin-1', 'twin-2'], tasks: [] };
+const SHOWN = view.overviewOf(projects.describe(RAW, FLEET.agents, [RAW]), [], { folderOf: () => null, readBrief: () => ({ goal: null, done: null, found: false }) });
+FLEET.restore();
+const OVERVIEW = [200, { project: SHOWN, agentsUnreadable: false }];
+test('#7405 CONTROL: the fixture is in the shape the route sends, with display names that differ from the sessionNames', () => {
+  assert.deepEqual(SHOWN.members.map((m) => [m.name, m.sessionName]),
+    [['Sally Sales', 'sally-sales'], ['Ada', 'ada'], ['Twin', 'twin-1'], ['twin', 'twin-2']]);
+});
 const NO_PROJECT = [404, { error: 'there is no project by that name' }];
-const GONE = [200, { project: { id: 'launch', name: 'Launch' }, told: { state: 'told' }, said: null }];
-const COULD_NOT = [200, { project: { id: 'launch', name: 'Launch' }, told: { state: 'could_not', because: 'it keeps its instructions somewhere we cannot safely change' }, said: null }];
+const GONE = [200, { project: SHOWN, told: { state: 'told' }, said: null }];
+const COULD_NOT = [200, { project: SHOWN, told: { state: 'could_not', because: 'it keeps its instructions somewhere we cannot safely change' }, said: null }];
+const UNREAD = [200, { project: null, told: { state: 'told' }, said: null }];
 const VALVE = [429, { error: 'agents have changed project members 60 times in the last hour, so Kosmos is pausing agent-made changes for 12 minutes', retry_after_secs: 700 }];
 
 /* A stub board: the overview and the member route answer from `overview` and `done`; every request is recorded. */
@@ -43,6 +62,7 @@ function withStub(overview, done, fn) {
   const server = http.createServer((req, res) => {
     if (req.url.startsWith('/api/project/')) {
       seen.push({ method: req.method, url: req.url, headers: req.headers });
+      if (req.method === 'DELETE' && done === 'drop') { req.socket.destroy(); return; }   // the connection breaks after the request left
       const [status, json] = req.method === 'DELETE' ? done : overview;
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(json));
@@ -203,4 +223,25 @@ test('#7405 Windows: no --yes and no terminal, an option-shaped word, or an extr
   assert.equal((await winRun(port, ['project', 'remove-member', 'launch', '--foo', '--yes'])).code, 2);
   assert.equal((await winRun(port, ['project', 'remove-member', 'launch', 'Ada', 'extra', '--yes'])).code, 2);
   assert.equal(seen.length, 0, 'a refused run still reached the board');
+}));
+
+/* ── kosmos#7405 review 1: the change landed but its answer did not, on both ───────────── */
+
+test('#7405 Mac and Windows: a 200 with no project read back says the member is most likely off, exit 3', () => withStub(OVERVIEW, UNREAD, async (port) => {
+  const m = await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
+  assert.equal(m.code, 3, m.out);
+  assert.match(m.out, /Kosmos made the change but could not read the project back\. Ada is most likely off Launch/);
+  const w = await winRun(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
+  assert.equal(w.code, 3, w.err);
+  assert.match(w.err, /Kosmos made the change but could not read the project back\. Ada is most likely off Launch/);
+}));
+
+test('#7405 Mac and Windows: the connection breaking after the DELETE left says "may be off", exit 3', () => withStub(OVERVIEW, 'drop', async (port, seen) => {
+  const m = await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
+  assert.equal(m.code, 3, m.out);
+  assert.match(m.out, /Ada may be off Launch; look at the project on the board before trying again/);
+  const w = await winRun(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
+  assert.equal(w.code, 3, w.err);
+  assert.match(w.err, /Ada may be off Launch; look at the project on the board before trying again/);
+  assert.equal(deletes(seen).length, 2, 'CONTROL: the DELETE was not sent, so nothing broke after it');
 }));

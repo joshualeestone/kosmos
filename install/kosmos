@@ -6575,12 +6575,14 @@ cmd_project() {
           let j; try { j = JSON.parse(s); } catch { process.exit(1); }
           if (!j || typeof j !== "object") process.exit(1);
           if (j.error) { console.log(["error", "", "", "", one(j.error)].join("\t")); return; }
+          const p = j.project;   // the route answers { project: <overview>, agentsUnreadable }
+          if (!p || typeof p !== "object") process.exit(1);
           const want = process.env.KOSMOS_RMM_WHO;
-          const ms = Array.isArray(j.members) ? j.members.filter((m) => m && typeof m.sessionName === "string") : null;
+          const ms = Array.isArray(p.members) ? p.members.filter((m) => m && typeof m.sessionName === "string") : null;
           if (!ms) process.exit(1);
           let hit = ms.filter((m) => m.sessionName === want);
           if (!hit.length) hit = ms.filter((m) => typeof m.name === "string" && m.name.toLowerCase() === want.toLowerCase());
-          const pj = one(j.name || j.id);
+          const pj = one(p.name || p.id);
           if (!hit.length) { console.log(["none", "", "", pj].join("\t")); return; }
           if (hit.length > 1) { console.log(["many", "", "", pj, hit.map((m) => one(m.sessionName)).join(", ")].join("\t")); return; }
           console.log(["ok", one(hit[0].sessionName), one(hit[0].name || hit[0].sessionName), pj].join("\t"));
@@ -6597,6 +6599,8 @@ cmd_project() {
           say "Kosmos could not read $1: ${mm_why:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when asked about $1."; exit 1 ;;
       esac
+      # A path step is no member name: encoded, "." and ".." would still be resolved away (another route).
+      case "$mm_sess" in .|..) say "There is no member called $mm_sess."; exit 1 ;; esac
       # The screen's confirm (openMemModal), word for word apart from where the + is.
       say "$mm_who comes off this project's list and stops getting its posts. Nothing else changes; you can put $mm_who back on the board, with the + at the top of the project."
       if [ -z "$KOSMOS_RMM_YES" ]; then
@@ -6610,7 +6614,7 @@ cmd_project() {
       # rides too, so the board can tell an agent's change from the person's.
       _mbt="$(board_token || true)"
       rc=0
-      body=$(kosmos_curl "$_mbt" "$_mtok" -sS -m 30 -X DELETE "$URL/api/project/$1/agent/$mm_path" 2>/dev/null) || rc=$?
+      body=$(kosmos_curl "$_mbt" "$_mtok" -sS -m 120 -X DELETE "$URL/api/project/$1/agent/$mm_path" 2>/dev/null) || rc=$?
       # 28 is curl's timeout; 18, 52 and 56 also mean the request left before the connection broke.
       case "$rc" in
         0) ;;
@@ -6624,7 +6628,8 @@ cmd_project() {
           let j; try { j = JSON.parse(s); } catch { process.exit(1); }
           if (!j || typeof j !== "object") process.exit(1);
           if (j.error) { console.log(["error", one(j.error)].join("\t")); return; }
-          if (!j.project) process.exit(1);
+          // A 200 with no project read back: the change landed, the read after it did not (server.js).
+          if (!j.project) { console.log("unread"); return; }
           if (j.told && j.told.state === "could_not") { console.log(["could_not", one(j.told.because)].join("\t")); return; }
           console.log("ok");
         });') || { say "Kosmos gave an answer we could not read when taking $mm_who off $mm_pj. Look at the project on the board: $URL/"; exit 1; }
@@ -6633,6 +6638,7 @@ cmd_project() {
       case "$mm_why" in *[?!]|*\)) mm_end="" ;; *) mm_end="." ;; esac
       case "$mm_state" in
         ok) say "$mm_who is off $mm_pj and still on your computer." ;;
+        unread) say "Kosmos made the change but could not read the project back. $mm_who is most likely off $mm_pj; look at the project on the board: $URL/"; exit 3 ;;
         # The screen's could-not sentence (Mona Lisa's ruling on #130): the frame names no noun the reason carries.
         could_not) say "$mm_who is off $mm_pj. We could not update them, so this project may still be named in what they were told. $(printf '%s' "${mm_why:0:1}" | tr '[:lower:]' '[:upper:]')${mm_why:1}${mm_end}" ;;
         *) say "Kosmos did not take $mm_who off $mm_pj: ${mm_why:-it did not say why}${mm_end}"; exit 1 ;;

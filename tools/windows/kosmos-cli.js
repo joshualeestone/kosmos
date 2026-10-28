@@ -1848,8 +1848,8 @@ async function projectRemoveMember(ctx, args) {
   if (!yes && !ctx.canAsk()) { ctx.err('Nothing was changed: there is no terminal here to confirm on. To take ' + who + ' off without being asked, add --yes.'); return 2; }
   const o = await ctx.call('GET', '/api/project/' + slug + '/overview');
   if (!o.reached) return ctx.unreachable('read that project');
-  const ov = o.json;
-  if (ov && ov.error) { ctx.err('Kosmos could not read ' + project + ': ' + (clause(ov.error) || 'it did not say why') + '.'); return 1; }
+  if (o.json && o.json.error) { ctx.err('Kosmos could not read ' + project + ': ' + (clause(o.json.error) || 'it did not say why') + '.'); return 1; }
+  const ov = o.json && o.json.project;   // the route answers { project: <overview>, agentsUnreadable }
   const ms = ov && Array.isArray(ov.members) ? ov.members.filter((m) => m && typeof m.sessionName === 'string') : null;
   if (!ms) { ctx.err('Kosmos gave an answer we could not read when asked about ' + project + '.'); return 1; }
   let hit = ms.filter((m) => m.sessionName === who);
@@ -1858,6 +1858,8 @@ async function projectRemoveMember(ctx, args) {
   if (!hit.length) { ctx.err(who + ' is not on ' + pj + ', so nothing was changed.'); return 1; }
   if (hit.length > 1) { ctx.err('More than one member of ' + pj + ' is called ' + who + ', so nothing was changed. Use one of these names instead: ' + hit.map((m) => m.sessionName).join(', ') + '.'); return 1; }
   const member = hit[0];
+  // A path step is no member name: encoded, "." and ".." would still be resolved away by fetch (another route).
+  if (member.sessionName === '.' || member.sessionName === '..') { ctx.err('There is no member called ' + member.sessionName + '.'); return 1; }
   const label = member.name || member.sessionName;
   ctx.out(label + ' comes off this project\'s list and stops getting its posts. Nothing else changes; you can put ' + label + ' back on the board, with the + at the top of the project.');
   if (!yes) {
@@ -1869,7 +1871,8 @@ async function projectRemoveMember(ctx, args) {
   if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + label + ' may be off ' + pj + '; look at the project on the board before trying again.') : ctx.unreachable('take ' + label + ' off ' + pj);
   const j = r.json || {};
   if (j.error) { const why = clause(j.error); ctx.err('Kosmos did not take ' + label + ' off ' + pj + ': ' + (why || 'it did not say why') + (/[?!)]$/.test(why) ? '' : '.')); return 1; }
-  if (!j.project) { ctx.err('Kosmos gave an answer we could not read when taking ' + label + ' off ' + pj + '. Look at the project on the board.'); return 1; }
+  // A 200 with no project read back: the change landed, the read after it did not (server.js).
+  if (!j.project) return maybe(ctx.err, 'Kosmos made the change but could not read the project back. ' + label + ' is most likely off ' + pj + '; look at the project on the board.');
   if (j.told && j.told.state === 'could_not') {
     const why = clause(j.told.because || '');
     // The screen's could-not sentence (Mona Lisa's ruling on #130): the frame names no noun the reason carries.
