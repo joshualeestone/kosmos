@@ -78,3 +78,12 @@ Note tests 75/75.
   answer clears it. Test; mutation red. NOT tested: the 200 path's reset (it draws the whole page; reasoned, unchanged
   since round 3).
 Related tests 114/114 (asleepnote, offline-note, win32-board-copy, retry-feedback, plus-tab, rename-4421, cloudwords).
+
+### Round 5 (0 B, 1 W)
+- Confirmed: statusLimit's move changes nothing else (16 related files green); deviceOffline() in the catch adds no new
+  risk; the tick()-driven tests run the real tick() and each round 4 mutation reds them; overlapping polls can only drop
+  a time, never invent one; the cloud note matches main.
+- [WARNING] the 200 path's clear of the first miss had no test (deleting it left every test green), and without it one
+  dropped poll leaves a stale first miss that later passes the gap check. FIXED: statusHeard(now) sets LAST_STATUS_OK_AT
+  and clears STATUS_FIRST_MISS_AT; tick()'s success path calls it. Unit test of the helper, and a source pin that tick()
+  calls it (the 200 path draws the whole page). Both mutations red. Related tests 135/135.
