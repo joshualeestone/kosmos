@@ -116,7 +116,7 @@ test('kosmos#7414: an unconfirmed post names who is not confirmed and who was no
   assert.deepEqual(r.stdout.trim().split('\n').map((l) => l.trim()), [
     "Posted, but not everyone is confirmed.",
     "Kosmos may have typed it in, but could not confirm it, for: april, kit. It may well have arrived.",
-    "Not reached: leo. Kosmos could not type into their session.",
+    "Not reached: leo. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room proj).",
     "To reach one of them now, message them directly (it goes to them alone): kosmos msg leo \"...\"",
     "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice."
 ]);
@@ -134,6 +134,11 @@ test('kosmos#7414: only a post the room could not record is said to be missing f
   for (const outcomes of [null, {}]) {
     const r = await postAgainst({ state: 'unconfirmed', because: null, id: 'm1', outcomes, text: 'x' });
     assert.deepEqual(r.stdout.trim().split('\n').map((l) => l.trim()), ['Posted, but not everyone is confirmed.', "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice."], JSON.stringify(outcomes));
+  }
+  // The mark is read only in its place: a reason with the mark elsewhere is not read as unrecorded on the Mac.
+  {
+    const r = await postAgainst({ state: 'unconfirmed', because: 'x', id: 'm1', outcomes: {}, unrecorded: false, text: 'y' });
+    assert.equal(r.stdout.trim().split('\n').map((l) => l.trim()).at(-1), 'Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.');
   }
   // CONTROL: post text that spells the mark is never read as it (the board escapes the post's quotes).
   const spoof = await postAgainst({ state: 'unconfirmed', because: 'x', id: 'm1', outcomes: {}, text: '","unrecorded":true' });

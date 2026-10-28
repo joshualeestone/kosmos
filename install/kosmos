@@ -3438,14 +3438,12 @@ cmd_post() {
       _missed=$(printf '%s' "$_outs" | tr ',' '\n' | sed -n 's/^"\([^"]*\)":"could_not"$/\1/p' | paste -sd ',' - | sed 's/,/, /g') || true
       # Only a post the room could NOT record is missing from the room; the board marks it right after its reason, so a
       # post's own words can never be read as the mark. Any other reason (a folded retry, a paused room) is in the room.
-      case "$body" in
-        '{"delivery":{"state":"unconfirmed","because":"'*'","unrecorded":true'*) _unrec=1 ;;
-        *) _unrec= ;;
-      esac
+      # Exact adjacency (a reason holds no quote), the same prefix engine/messages.typingbroke-4926.test.js pins.
+      _unrec=$(printf '%s' "$body" | sed -n 's/^{"delivery":{"state":"unconfirmed","because":"[^"]*","unrecorded":true[,}].*/1/p') || true
       say "Posted, but not everyone is confirmed${because:+: $because}."
       if [ -n "$_unsure" ]; then say "Kosmos may have typed it in, but could not confirm it, for: $_unsure. It may well have arrived."; fi
       if [ -n "$_missed" ]; then
-        say "Not reached: $_missed. Kosmos could not type into their session."
+        say "Not reached: $_missed. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room $project)."
         _first=${_missed%%,*}
         say "To reach one of them now, message them directly (it goes to them alone): kosmos msg $_first \"...\""
       fi
