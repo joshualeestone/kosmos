@@ -208,7 +208,9 @@ const text = (pg, sel) => pg.evaluate((s) => { const el = document.querySelector
     // Show who while Restart all is running: ignored, so the running button keeps its progress words.
     const state = { line: JSON.parse(JSON.stringify(LINE)), refuse: [], notNow: 200 };
     const { pg, errs } = await open(b, { width: 1400, height: 800 }, state);
-    await pg.route(/\/api\/agent\/[^/]+\/restart$/, async (route) => { await new Promise((r) => setTimeout(r, 400)); await route.fallback(); });
+    await pg.route(/\/api\/agent\/[^/]+\/restart$/, async (route) => {
+      try { await new Promise((r) => setTimeout(r, 400)); await route.fallback(); } catch { /* the page closed at teardown (#6022) */ }
+    });
     await pg.click('#rline-slot [data-rl-all]');
     await pg.waitForTimeout(150);
     await pg.click('#rline-slot .uacts [data-rl-who]');
