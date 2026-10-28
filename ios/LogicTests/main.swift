@@ -2049,6 +2049,7 @@ section("native board loop: connecting")
     do {
         // #7034: a pull that read nothing leaves no re-sort behind, even when a read already in the air landed meanwhile.
         let (c, w, _, _) = make("kst1")
+        c.setAgentSort(.needs, projects: [:])   // kosmos#7421: the re-sort mechanics, under Needs you first
         w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"},{"sessionName":"wes","name":"Wes","state":"working"}]}"#)
         w.starsAnswer = (200, #"{"names":[],"ok":true}"#)
         c.start()
@@ -3196,6 +3197,8 @@ section("native board loop: connecting")
     section("native board loop: rows hold still until pull to refresh")
     do {
         let (c, w, _, _) = make("kst1")
+        check(c.agentSort == .talked, "kosmos#7421: a new phone starts on the desktop's default, Last talked to")
+        c.setAgentSort(.needs, projects: [:])   // kosmos#7421: the order these rows are held in, Needs you first
         w.statusDefault = (200, #"{"agents":[{"sessionName":"zed","name":"Zed","state":"working"},{"sessionName":"amy","name":"Amy","state":"idle"}]}"#)
         c.start()
         let ok40 = await settle { isLive(c) }
@@ -4095,7 +4098,24 @@ do {
         check(order(.project, projects: ["d": "Alpha", "a": "beta"]) == ["d", "a", "c", "b"], "By project: the first project A to Z, none last (by name)")
         check(order(.name, stars: ["d"]) == ["d", "a", "c", "b"] && order(.talked, stars: ["d", "c"]) == ["d", "c", "a", "b"], "starred agents first in every order, the order applied within each group (#6719)")
         check(Board.agentSort(saved: "board") == .needs && Board.agentSort(saved: "name") == .name && Board.agentSort(saved: "x") == .talked, "the phone's older saved choice still means Needs you first; anything unknown is the desktop's default")
-        check(Board.sortModel(["earlierModelName": "Opus 4.5"]) == "Claude Opus 4.5" && Board.sortModel(["modelName": "Claude Sonnet 5", "plannedModelName": "x"]) == "Claude Sonnet 5" && Board.sortModel(["runner": "claude"]) == nil && Board.sortModel(["runner": "codex"]) == "codex", "the model the order reads: live, then planned, then the earlier session's")
+        check(Board.sortModel(["earlierModelName": "Opus 4.5"]) == "Claude Opus 4.5" && Board.sortModel(["modelName": "Claude Sonnet 5", "plannedModelName": "x"]) == "Claude Sonnet 5" && Board.sortModel(["runner": "claude"]) == nil && Board.sortModel(["runner": "codex"]) == "OpenAI Codex", "the model the order reads: live, then planned, then the earlier session's")
+        check(Board.sortModel(["runner": "codex", "modelName": "o3"]) == "OpenAI o3" && Board.sortModel(["runner": "codex", "modelName": "GPT 5.6"]) == "GPT 5.6"
+              && Board.sortModel(["runner": "codex", "account": ["provider": "alibaba"], "modelName": "3 Max"]) == "Qwen 3 Max"
+              && Board.sortModel(["runner": "antigravity"]) == "Gemini (Google subscription)" && Board.sortModel(["runner": "muse"]) == "Meta Muse"
+              && Board.sortModel(["runner": "gemini", "modelName": "Gemini 3.8 Flash", "settingModelName": "Gemini 3 Pro"]) == "Gemini 3.8 Flash (set to Gemini 3 Pro)"
+              && Board.sortModel(["state": "stopped", "modelName": "Haiku 4.5", "plannedModelName": "Opus 5"]) == "Claude Opus 5"
+              && Board.sortModel(["state": "working", "modelName": "Haiku 4.5", "plannedModelName": "Opus 5"]) == "Claude Haiku 4.5",
+              "review 1: By model reads the desktop's own model line (modelLine), provider words and a stopped agent's planned model included")
+        let row = #"{"agents":[{"sessionName":"eli","name":"Eli","state":"idle","lastTalkedAt":"2026-10-27T20:00:00Z","lastActiveAt":"2026-10-27T21:00:00Z","createdAt":"2026-10-01T09:00:00Z","modelName":"Opus 5","role":"writes copy","profile":{"role":"Designer"},"deliveryStall":{"since":"2026-10-27T20:00:00Z"}}]}"#
+        let parsedRow = Board.parseAgents(Data(row.utf8))?.first
+        check(parsedRow?.lastTalkedAt == Board.isoDate("2026-10-27T20:00:00Z") && parsedRow?.lastActiveAt == Board.isoDate("2026-10-27T21:00:00Z")
+              && parsedRow?.createdAt == Board.isoDate("2026-10-01T09:00:00Z") && parsedRow?.model == "Claude Opus 5"
+              && parsedRow?.profileRole == "Designer" && parsedRow?.deliveryStall == true && parsedRow?.lastTalkedAt != nil,
+              "review 1: the status row's times, model, picked role and stuck messages are read")
+        var picked = ag("e", "Eve", role: "zz parsed"); picked.profileRole = "Aa picked"
+        check(Board.agentOrder([crew[0], picked], sort: .role).map(\.session) == ["e", "b"], "review 1: By role reads the role picked on the profile before the parsed line (the desktop's roleLine)")
+        var stuck = ag("f", "Fay", state: "idle"); stuck.deliveryStall = true
+        check(Board.agentOrder([crew[0], stuck], sort: .needs).map(\.session) == ["f", "b"], "review 1: stuck messages rank with needs you (the desktop's agentNeedsAttention)")
     }
 }
 
