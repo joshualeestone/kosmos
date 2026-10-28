@@ -111,6 +111,15 @@ struct AgentsView: View {
         }
     }
 
+    // kosmos#7034: the row's star control, for the swipe and the long press.
+    private func starButton(_ agent: Board.Agent) -> some View {
+        let on = client.isStarred(agent.session)
+        return Button { Task { await client.toggleStar(agent.session) } } label: {
+            Label(on ? "Unstar" : "Star", systemImage: on ? "star.slash" : "star.fill")
+        }
+        .tint(Palette.starGold)
+    }
+
     // kosmos#7421: each agent's first project name, for By project. A read that fails keeps the last answer (agents with no
     // known project sort last, after the rest, as on the desktop).
     private func readProjectNames() async {
@@ -193,6 +202,18 @@ struct AgentsView: View {
                         .listRowBackground(Color.clear)
                 }
             }
+            // kosmos#7034: a star that did not save says why, in the board's words, until the next press or a tap here.
+            if let note = client.starNote {
+                Section {
+                    Button { client.clearStarNote() } label: {
+                        Text(note).font(.footnote).foregroundColor(Palette.primary).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Dismisses this message")
+                    .listRowBackground(Palette.banner)
+                    .onAppear { UIAccessibility.post(notification: .announcement, argument: note) }
+                }
+            }
             Section(footer: footer) {
                 ForEach(client.agents) { agent in   // in the chosen order (BoardClient.setAgentSort, kosmos#7421)
                     // kosmos#7008: the agent's chat, native; anything it does not draw opens the board's (openChat).
@@ -200,9 +221,14 @@ struct AgentsView: View {
                         openAgent = agent
                     } label: {
                         // A picture the agent no longer has is not shown, whatever was fetched before.
-                        AgentRow(agent: agent, picture: agent.hasAvatar ? client.pictures[agent.session].flatMap(UIImage.init(data:)) : nil, stale: stale)
+                        AgentRow(agent: agent, picture: agent.hasAvatar ? client.pictures[agent.session].flatMap(UIImage.init(data:)) : nil, stale: stale,
+                                 starred: client.isStarred(agent.session))
                     }
                     .buttonStyle(.plain)
+                    // kosmos#7034: star or unstar from the row: a swipe to the right, or a long press, and VoiceOver's actions.
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent) }
+                    .contextMenu { starButton(agent) }
+                    .accessibilityAction(named: client.isStarred(agent.session) ? "Unstar" : "Star") { Task { await client.toggleStar(agent.session) } }
                     .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
                     .listRowBackground(Palette.card)
                     .listRowSeparatorTint(Palette.separator)
@@ -367,6 +393,8 @@ struct AgentRow: View {
     let picture: UIImage?
     // Not updating: every dot quiet and every word secondary, so nothing old reads as live or urgent.
     let stale: Bool
+    // kosmos#7034: starred on this computer (the board's star), shown as a small filled star after the name.
+    var starred = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var word: String { Board.statusWord(agent) }
@@ -388,7 +416,7 @@ struct AgentRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         // A list shown as not current says so to VoiceOver too, not only by colour.
-        .accessibilityLabel(([agent.name, agent.role, word, stale ? nil : Board.presenceWords(Board.presence(agent), word: word),
+        .accessibilityLabel(([agent.name, starred ? "starred" : nil, agent.role, word, stale ? nil : Board.presenceWords(Board.presence(agent), word: word),
                               stale ? nil : Board.noticeWords(Board.noticeCount(agent)),
                               Board.memoryWords(agent.contextPercent, full: agent.contextFull)]
                              + (stale ? ["not updating"] : [])).compactMap { $0 }.joined(separator: ", "))
@@ -404,7 +432,10 @@ struct AgentRow: View {
     }
 
     private var name: some View {
-        Text(agent.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(large ? nil : 1)
+        HStack(spacing: 4) {
+            Text(agent.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(large ? nil : 1)
+            if starred { Image(systemName: "star.fill").font(.caption2).foregroundColor(Palette.starGold).accessibilityHidden(true) }
+        }
     }
 
     @ViewBuilder private var role: some View {
@@ -545,6 +576,9 @@ enum Palette {
         switch band { case .ok: return ringOk; case .warn: return ringWarn; case .high: return ringHigh }
     }
     static let banner = pair(0xf3efe6, 0x1c1f23)
+    // kosmos#7034: the board's star (.astar.on): its deep gold in light (#9c741b, which holds 3:1 on the card where the
+    // bright gold does not), its bright gold in dark (--gold-bright).
+    static let starGold = pair(0x9c741b, 0xe3b341)
     static let askedWord = pair(0x7a5200, 0xffca55)
     static let dangerWord = pair(0xb3261e, 0xff6b5e)
     // kosmos#7030: the board's built colour (--pj-mention), the dot before a ready-to-check card's "Marked built" line.
