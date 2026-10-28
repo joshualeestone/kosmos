@@ -91025,11 +91025,13 @@ setInterval(ageCheckedStamp, 1000);
     if (!btn) return;
     // #7448: a demo or test install marked never to send: off, no button, and why.
     if (st && st.noPush) {
-      btn.disabled = true; btn.textContent = 'Turn on';
+      // Mona Lisa (#7448): no button at all here, not a greyed one; it comes back on the next render once the mark goes.
+      btn.hidden = true;
       if (step) step.hidden = true;
-      setMsg('Off. This computer is set never to send phone notices (a demo or test install).');
+      setMsg('Off. This computer was set up as a demo or test install, so it never sends phone notices.');
       return;
     }
+    btn.hidden = false;   // #7448: shown again whenever the computer is not marked
     if (!st || !st.connected) {
       // Still on but no longer connected: nothing is sent, and it can be turned off.
       var onButIdle = !!(st && st.on);
