@@ -31,6 +31,19 @@ struct AgentsView: View {
     // kosmos#7421: By project's key, each agent's first project name, read when that order is chosen or the list shows.
     @State private var projectNames: [String: String] = [:]
     private var sortChoice: Board.AgentSort { Board.agentSort(saved: agentSort) }
+    #if DEBUG
+    static func pressSortControl() {
+        func find(_ v: UIView) -> UIControl? {
+            if let c = v as? UIControl, (c.accessibilityLabel ?? "").hasPrefix("Sort:") { return c }
+            for s in v.subviews { if let c = find(s) { return c } }
+            return nil
+        }
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        guard let control = windows.lazy.compactMap({ find($0) }).first else { print("KOSMOS_SAMPLE_SORTMENU: no Sort control found"); return }
+        if #available(iOS 17.4, *) { control.performPrimaryAction() } else { control.sendActions(for: .touchUpInside) }
+        print("KOSMOS_SAMPLE_SORTMENU: pressed \(type(of: control))")
+    }
+    #endif
     private var agentSortMenu: some View {
         Menu {
             Picker("Sort agents", selection: Binding(get: { sortChoice.rawValue }, set: { agentSort = $0 })) {
@@ -99,6 +112,11 @@ struct AgentsView: View {
             if !Self.sampleOpened, let open = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OPEN"], !open.isEmpty {
                 Self.sampleOpened = true
                 openAgent = Board.Agent(session: open, name: open.prefix(1).uppercased() + open.dropFirst(), role: nil, state: "idle", task: nil, needsYou: false)
+            }
+            // KOSMOS_SAMPLE_SORTMENU=1 (Mona Lisa's #7421 shot): the sort menu opens by itself, since a simulator run
+            // cannot tap. It presses the bar's control whose spoken label starts "Sort:".
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SORTMENU"] == "1" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { Self.pressSortControl() }
             }
             #endif
         }

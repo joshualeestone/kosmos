@@ -313,8 +313,15 @@ let composerLogicSrc = (try? String(contentsOf: repo.appendingPathComponent("ios
 check(!composerLogicSrc.isEmpty && Board.quickReactions.allSatisfy { composerLogicSrc.contains("\"\($0)\"") }, "kosmos#7419: each quick reaction is one of the board's 80 (More offers the same list)")
 let sheetChat = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
 // kosmos#7034 build 11 (Mona Lisa): a visible star in the chat header, outline or gold, the same save as the row swipe.
-check(sheetChat.contains("Image(systemName: starred ? \"star.fill\" : \"star\")") && sheetChat.contains("Button { Task { await client.toggleStar(agent.session) } }") && sheetChat.contains("starred ? \"Unstar \\(shown.name)\" : \"Star \\(shown.name)\""),
+check(sheetChat.contains("Image(systemName: starred ? \"star.fill\" : \"star\")") && sheetChat.contains("await client.toggleStar(agent.session)") && sheetChat.contains("await client.readStarsIfUnknown()") && sheetChat.contains("starred ? \"Unstar \\(shown.name)\" : \"Star \\(shown.name)\""),
       "kosmos#7034: the chat header has a star, gold when starred, saved as the row swipe saves it")
+// kosmos#7419 build 11 (Mona Lisa): the pressed message stays lit above the chat's own dim (the system's is off at the
+// small height), cut out on the bubble's own shape in every bubble kind; nothing (no ring) is drawn on the bubble.
+let litSrcs = ["ChatView.swift", "ChatFiles.swift", "ChatChoices.swift", "RoomView.swift"].map { (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/" + $0), encoding: .utf8)) ?? "" }
+check(litSrcs.allSatisfy { $0.contains(".overlay(PressedBubbleMark())") }, "kosmos#7419: every bubble kind marks where it is for the lit dim")
+check(sheetSrc.contains("presentationBackgroundInteraction(.enabled(upThrough: small))") && sheetSrc.contains("FillStyle(eoFill: true)") && sheetSrc.contains("close: { target = nil }"),
+      "kosmos#7419: at the small height the chat draws its own dim with the pressed bubble cut out, and a tap on it closes the sheet")
+check(!sheetSrc.contains("PressedRing") && litSrcs.allSatisfy { !$0.contains("PressedRing") }, "kosmos#7419: no ring is drawn on the pressed message (gold is only a reaction already the person's)")
 let sheetRoom = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
 let sheetSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ComposerExtras.swift"), encoding: .utf8)) ?? ""
 check(sheetChat.components(separatedBy: ".messageActions(").count - 1 == 2 && sheetRoom.components(separatedBy: ".messageActions(").count - 1 == 1,

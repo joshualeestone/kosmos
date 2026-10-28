@@ -1315,7 +1315,7 @@ struct RoomBubble: View {
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(mine ? Palette.personBubble : Palette.agentBubble))
         // kosmos#7101: the board's .msg-flash, a gold-deep outline on the post a reply's header went to, fading out.
         // A 2 pt ring 2 pt out, as the board's outline-offset, its corners kept parallel to the bubble's (review 5).
-        .overlay(PressedRing())   // kosmos#7419 build 11: the bubble whose sheet is up
+        .overlay(PressedBubbleMark())   // kosmos#7419 build 11: where the lit bubble is, when its sheet is up
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Self.flashGold, lineWidth: 2).padding(-4)
             .opacity(flashing ? 1 : 0).animation(reduceMotionHere ? nil : .easeOut(duration: 0.3), value: flashing))
         // kosmos#7419: the long-press sheet, as in a direct message (Reply and reactions only on a post of this room).

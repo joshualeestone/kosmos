@@ -420,9 +420,9 @@ struct MessageActionTarget: Identifiable {
 
 private struct MessageActionsOpenKey: EnvironmentKey { static let defaultValue: ((MessageActionTarget) -> Void)? = nil }
 // kosmos#7419 build 11: which sheet is up (its target's id), so the message it is for can mark itself; and, inside a
-// message, whether its sheet is the one up (read by PressedRing on the bubble's own shape).
+// message, whether its sheet is the one up (read by PressedBubbleMark on the bubble's own shape).
 private struct MessageActionsShownKey: EnvironmentKey { static let defaultValue: UUID? = nil }
-private struct MessageRingedKey: EnvironmentKey { static let defaultValue = false }
+private struct MessagePressedKey: EnvironmentKey { static let defaultValue = false }
 extension EnvironmentValues {
     var openMessageActions: ((MessageActionTarget) -> Void)? {
         get { self[MessageActionsOpenKey.self] }
@@ -432,35 +432,60 @@ extension EnvironmentValues {
         get { self[MessageActionsShownKey.self] }
         set { self[MessageActionsShownKey.self] = newValue }
     }
-    var messageRinged: Bool {
-        get { self[MessageRingedKey.self] }
-        set { self[MessageRingedKey.self] = newValue }
+    var messagePressed: Bool {
+        get { self[MessagePressedKey.self] }
+        set { self[MessagePressedKey.self] = newValue }
     }
 }
 
-// kosmos#7419 build 11 (Mona Lisa: "the person cannot see which message the sheet is for"): a system sheet dims
-// everything behind it and nothing in the chat can be drawn above that dim, so the message the sheet is for is ringed in
-// gold, as a reply's jump marks its post (#7101), strong enough to read through the dim. Each bubble draws it on its own
-// 18 pt shape, before its width frame (review 1: drawn outside, it went round the frame's empty side).
-struct PressedRing: View {
-    @Environment(\.messageRinged) private var ringed
+// kosmos#7419 build 11 (Mona Lisa's design: "the message stays lit above a dim"): the bubble whose sheet is up says
+// where it is, on its own 18 pt shape and before its width frame (review 1: outside it, the frame's empty side counted).
+// The host draws the dim with that bubble cut out, so it stays at full brightness. Nothing is drawn on the bubble.
+struct PressedBubbleKey: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>? = nil
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = value ?? nextValue() }
+}
+struct PressedBubbleMark: View {
+    @Environment(\.messagePressed) private var pressed
     var body: some View {
-        RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Palette.starGold, lineWidth: 2.5)
-            .padding(-4).opacity(ringed ? 1 : 0).allowsHitTesting(false).accessibilityHidden(true)
+        Color.clear.allowsHitTesting(false).accessibilityHidden(true)
+            .anchorPreference(key: PressedBubbleKey.self, value: .bounds) { pressed ? $0 : nil }
+    }
+}
+
+// The chat's own dim at the sheet's small height (the system's is turned off there, SheetGround): everything but the
+// pressed bubble. A tap on it closes the sheet, as a tap on the system's dim does. At full height (More) the system's dim
+// is back, so this one goes.
+private struct LitDim: View {
+    let bubble: CGRect?
+    let close: () -> Void
+    var body: some View {
+        GeometryReader { g in
+            let shape = Path { p in
+                p.addRect(CGRect(origin: .zero, size: g.size).insetBy(dx: -400, dy: -400))
+                if let bubble { p.addRoundedRect(in: bubble, cornerSize: CGSize(width: 18, height: 18), style: .continuous) }
+            }
+            shape.fill(Color.black.opacity(0.4), style: FillStyle(eoFill: true))
+                .contentShape(shape, eoFill: true)
+                .onTapGesture(perform: close)
+        }
+        .ignoresSafeArea()
+        .accessibilityHidden(true)
+        .transition(.opacity)
     }
 }
 
 // The marking half, shared by the long press and the VoiceOver action: remembers which sheet this message opened, tells
 // what is inside it while that sheet is up, and hands what is inside (a file card's own "Message actions") an opener
-// that marks it too. The ring goes when that sheet goes (the host's id changes), and with the row if it is redrawn.
-private struct MessageRingMark: ViewModifier {
+// that marks it too. The mark goes when that sheet goes (the host's id changes), and with the row if it is redrawn.
+private struct MessagePressMark: ViewModifier {
     @Binding var opened: UUID?
     @Environment(\.openMessageActions) private var open
     @Environment(\.shownMessageActions) private var shown
-    @Environment(\.messageRinged) private var outer
+    @Environment(\.messagePressed) private var outer
     func body(content: Content) -> some View {
         content
-            .environment(\.messageRinged, outer || (opened != nil && opened == shown))
+            .environment(\.messagePressed, outer || (opened != nil && opened == shown))
             .environment(\.openMessageActions) { t in opened = t.id; open?(t) }
     }
 }
@@ -590,9 +615,14 @@ struct MessageActionsSheet: View {
 
 // kosmos#7419 build 11: where the system offers it (iOS 16.4+), the sheet's own surface is ground too, so nothing of
 // its default grey shows at any height, including during a drag between the two heights.
+// kosmos#7419 build 11: also, at the small height, no system dim (the chat draws its own, LitDim, with the pressed
+// message lit). Before iOS 16.4 the system's dim stays and nothing is lit.
 private struct SheetGround: ViewModifier {
+    let small: PresentationDetent
     func body(content: Content) -> some View {
-        if #available(iOS 16.4, *) { content.presentationBackground(Palette.ground) } else { content }
+        if #available(iOS 16.4, *) {
+            content.presentationBackground(Palette.ground).presentationBackgroundInteraction(.enabled(upThrough: small))
+        } else { content }
     }
 }
 
@@ -612,8 +642,20 @@ struct MessageActionsHost: ViewModifier {
         return .height(32 + (t.react != nil ? 56 : 0) + (t.reply != nil ? rowH + 12 : 0) + (t.text.isEmpty ? 0 : rowH) + 24)
     }
 
+    // kosmos#7419 build 11: our dim stands in for the system's only where the system's is off (16.4+, small height).
+    private var litDim: Bool {
+        guard target != nil, detent != .large else { return false }
+        if #available(iOS 16.4, *) { return true } else { return false }
+    }
+
     func body(content: Content) -> some View {
         content
+            .overlayPreferenceValue(PressedBubbleKey.self) { anchor in
+                GeometryReader { g in
+                    if litDim { LitDim(bubble: anchor.map { g[$0] }, close: { target = nil }) }
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: litDim)
             .environment(\.shownMessageActions, target?.id)
             .environment(\.openMessageActions) { t in
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -629,7 +671,7 @@ struct MessageActionsHost: ViewModifier {
                     .onReceive(NotificationCenter.default.publisher(for: .sampleSheetMore)) { _ in detent = .large }
                     #endif
                     .background(Palette.ground.ignoresSafeArea())
-                    .modifier(SheetGround())
+                    .modifier(SheetGround(small: small(t)))
             }
     }
 }
@@ -640,7 +682,7 @@ struct MessageActionsHost: ViewModifier {
 struct MessageActions: ViewModifier {
     let target: () -> MessageActionTarget
     @Environment(\.openMessageActions) private var open
-    @State private var opened: UUID?   // kosmos#7419 build 11: the sheet this message opened (MessageRingMark)
+    @State private var opened: UUID?   // kosmos#7419 build 11: the sheet this message opened (MessagePressMark)
 
     private func show() {
         let t = target()
@@ -650,7 +692,7 @@ struct MessageActions: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .modifier(MessageRingMark(opened: $opened))
+            .modifier(MessagePressMark(opened: $opened))
             .highPriorityGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in show() })
             // Review 2: VoiceOver reaches the sheet (Copy text, More) as an action, since a long press is not one.
             .accessibilityAction(named: "Message actions") { show() }
@@ -658,8 +700,12 @@ struct MessageActions: ViewModifier {
             // Design shots only: KOSMOS_SAMPLE_SHEET=1 (or =more) opens the sheet on the first message that takes reactions.
             .onAppear {
                 let t = target()
-                if let want = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SHEET"], t.react != nil, !MessageActionsHost.sampleOpened {
+                if let want = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SHEET"], var t = Optional(t), t.react != nil, !MessageActionsHost.sampleOpened {
                     MessageActionsHost.sampleOpened = true
+                    // KOSMOS_SAMPLE_MINE=<emoji> (Mona Lisa's #7419 shot): that quick reaction shows as already the person's.
+                    if let mine = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_MINE"], !mine.isEmpty {
+                        t = MessageActionTarget(mine: t.mine.union([mine]), react: t.react, reply: t.reply, text: t.text)
+                    }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { opened = t.id; open?(t) }
                     if want == "more" { DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { NotificationCenter.default.post(name: .sampleSheetMore, object: nil) } }
                 }
@@ -677,9 +723,9 @@ extension Notification.Name { static let sampleSheetMore = Notification.Name("ko
 struct MessageActionsAccessibility: ViewModifier {
     let target: () -> MessageActionTarget
     @Environment(\.openMessageActions) private var open
-    @State private var opened: UUID?   // build 11 review 1: a sheet opened from VoiceOver rings its message too
+    @State private var opened: UUID?   // build 11 review 1: a sheet opened from VoiceOver marks (lights) its message too
     func body(content: Content) -> some View {
-        content.modifier(MessageRingMark(opened: $opened))
+        content.modifier(MessagePressMark(opened: $opened))
             .accessibilityAction(named: "Message actions") { let t = target(); opened = t.id; open?(t) }
     }
 }
