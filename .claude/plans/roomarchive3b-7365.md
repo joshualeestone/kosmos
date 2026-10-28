@@ -182,3 +182,21 @@ map. Fixed by moving the return to just before the rows are written.
    - NIT 2, answered: Escape on the focused choice cancels the confirm, which is the expected way out of a dialog; an
      open native popup takes its own Escape first.
    - NIT 3, left: the project-switch path reads the count a second time; cosmetic.
+8. Review 7 (general-purpose, 19:4x CDT) 0 BLOCKERs, 4 WARNINGs, 4 NITs; all applied or answered.
+   - (W) my round-6 fix left the room blank until loadRoom painted, and a failed read then said "What is shown may be
+     behind" over nothing. Replaced, not patched: Archive answers with the time the server used, and pjArchAfter drops
+     every row older than it from the held body and pages (pjRoomDropArchived, the server's own split by `at`) and paints
+     at once, then loadRoom paints the fresh read. Never blank, nothing archived shown as live (vm tests for both paths,
+     archive open and closed; mutations: no filter, or the requested time instead of the server's, each red).
+   - (W) the call-site change was unpinned (the harness stub ignored arguments): the stub records pjArchAfter's time and
+     both paths (the confirm, the project switch) are asserted. A browser arm that archives NEW rows from inside the
+     archive is not possible on this board: the server keeps the last day live and every older seeded row is already
+     archived by then; the vm arms carry it.
+   - (W) the header followed the poll while the rows did not: the header describes the archive page under it, and a
+     poll that sees the archive's count or marker change reads the archive again (pjArchOpen(true), keeping the
+     reader's place). Source pin, mutation reds it.
+   - (W) the off-screen close relied on a keypress: the answer checks whether the confirm is on screen when it lands
+     (vm test, both outcomes; mutation reds it).
+   - NIT 5: a re-read keeps the header and archive look while it reads; a failed open restores the reader's place.
+   - NIT 6: answered by the header change (the page's own count).
+   - NITs 7 and 8: no longer apply (nothing clears the body now, and nothing is marked seen over a blank room).

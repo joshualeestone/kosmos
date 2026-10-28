@@ -249,6 +249,7 @@ function askPage({ answers, current = 'p1', projects = { p1: { id: 'p1', name: '
     document: doc, Date, Number, JSON, Promise,
     PJ_CURRENT: current, PJ_ARCH: { on: false }, pjById: (id) => projects[id] || null,
     msgToast: (t) => toasts.push(t), pjRoomAnnounce: () => {}, pjArchReset: () => calls.push('reset'), pjArchClose: () => calls.push('close'),
+    pjArchAfter: (before) => { calls.push(['after', before]); loads.push(ctx.PJ_CURRENT); },
     pjWinReset: () => calls.push('winreset'), loadRoom: () => loads.push(ctx.PJ_CURRENT),
     fetch: async (url, opt) => { const a = answers.shift(); calls.push((opt && opt.method) || 'GET'); return typeof a === 'function' ? a(url, opt) : a; },
   });
@@ -284,13 +285,40 @@ test('#7365 3b review 5: opening another project closes the confirm without movi
   assert.deepEqual(h.loads, [], 'the room on screen is another one, so nothing reloads');
 });
 
-test('#7365 3b review 5: Archive pressed from inside the archive view closes it through pjArchClose (which repaints), not a bare reset', async () => {
+test('#7365 3b reviews 5-7: a successful Archive hands the server\'s own cutoff to pjArchAfter, on the confirm and on the project-switch path', async () => {
   const h = askPage({ answers: [count(0), marked, count(260)] });
-  h.ctx.PJ_ARCH.on = true;
   h.ctx.ask();
   await h.el('pjarch-go').onclick();
-  assert.ok(h.calls.includes('close') && !h.calls.includes('reset'), JSON.stringify(h.calls));
-  assert.deepEqual(h.loads, ['p1']);
+  const after = h.calls.find((c) => Array.isArray(c) && c[0] === 'after');
+  assert.ok(after, JSON.stringify(h.calls));
+  assert.equal(after[1], new Date(2026, 9, 20, 18, 0).toISOString(), 'the time the server answered with, not the one asked');
+  // The project-switch path, with the room back on screen when the answer lands.
+  let answer;
+  const k = askPage({ answers: [count(0), () => new Promise((r) => { answer = r; }), count(260)] });
+  k.ctx.ask();
+  const press = k.el('pjarch-go').onclick();
+  await new Promise((r) => setImmediate(r));
+  k.ctx.closeFromProject();
+  answer(marked);
+  await press;
+  assert.ok(k.calls.some((c) => Array.isArray(c) && c[0] === 'after' && c[1] === new Date(2026, 9, 20, 18, 0).toISOString()), JSON.stringify(k.calls));
+});
+
+test('#7365 3b review 7: after Archive, rows older than the cutoff leave the live room at once, whether or not the archive was open', () => {
+  for (const open of [true, false]) {
+    const painted = [];
+    const box = { __lastBody: { ok: true, rows: [{ id: 'old', at: '2026-10-01T00:00:00.000Z' }, { id: 'new', at: '2026-10-27T00:00:00.000Z' }, { id: 'undated' }] }, classList: { remove() {}, add() {} } };
+    const ctx = vm.createContext({ Date, Number, Array, Object, JSON,
+      document: { getElementById: (id) => (id === 'pj-room' ? box : null) },
+      PJ_ARCH: { on: open }, PJ_CURRENT: 'p1',
+      pjArchClose: (q, f, s2, before) => { ctx.pjRoomDropArchived(box, before); painted.push(box.__lastBody.rows.map((r) => r.id)); },
+      pjArchReset: () => {}, paintRoom: (b) => painted.push(b.rows.map((r) => r.id)), pjWinReset: () => {}, loadRoom: () => painted.push('load') });
+    vm.runInContext(liftConst(SCRIPT, 'PJ_WIN') + '\n' + liftAll(SCRIPT, ['pjRoomDropArchived', 'pjArchAfter']) + '\nthis.PJ_WIN = PJ_WIN; this.pjRoomDropArchived = pjRoomDropArchived; this.after = pjArchAfter;', ctx);
+    Object.assign(ctx.PJ_WIN, { older: [{ id: 'o-old', at: '2026-09-01T00:00:00.000Z' }, { id: 'o-new', at: '2026-10-27T01:00:00.000Z' }], newest: [] });
+    ctx.after('2026-10-20T00:00:00.000Z');
+    assert.deepEqual(painted, [['new', 'undated'], 'load'], (open ? 'archive open: ' : 'archive closed: ') + JSON.stringify(painted));
+    assert.deepEqual(ctx.PJ_WIN.older.map((r) => r.id), ['o-new']);
+  }
 });
 
 test('#7365 3b review 5: Back marks the room seen before painting it, and a search closing the archive does not', async () => {
@@ -333,15 +361,16 @@ test('#7365 3b review 6: Undo landing while a reopened archive is still reading 
   assert.doesNotMatch(h.el('pj-room').innerHTML, /before undo/);
 });
 
-test('#7365 3b review 6: closing the archive for a fresh read paints nothing from the old body and restores no anchor', async () => {
+test('#7365 3b review 7: closing the archive after Archive paints the live room without the rows just archived, never blank', async () => {
   const h = archPage({ reads: [page1] });
+  h.ctx.pjRoomDropArchived = (box, before) => { const cut = Date.parse(before); box.__lastBody = Object.assign({}, box.__lastBody, { rows: box.__lastBody.rows.filter((r) => !(Date.parse(r.at) < cut)) }); };
   Object.assign(h.ctx.PJ_WIN, { pid: 'p1' });
+  h.el('pj-room').__lastBody = { rows: [{ text: 'gone', at: '2026-10-01T00:00:00.000Z' }, { text: 'kept', at: '2026-10-27T00:00:00.000Z' }] };
   await h.ctx.pjArchOpen();
-  h.ctx.pjArchClose(true, false, false, true);
-  assert.equal(h.painted.length, 0, 'nothing painted from the stale body');
-  assert.equal(h.el('pj-room').innerHTML, '');
-  assert.equal(h.el('pj-room').__lastBody, undefined);
-  assert.deepEqual(h.restored, []);
+  h.ctx.pjArchClose(true, false, false, '2026-10-20T00:00:00.000Z');
+  assert.equal(h.painted.length, 1);
+  assert.deepEqual(h.painted[0].rows.map((r) => r.text), ['kept']);
+  assert.equal(h.restored.length, 1, 'the reader\'s place is restored too');
 });
 
 test('#7365 3b review 6: the confirm closing because its box left the screen still says the outcome', async () => {
@@ -358,15 +387,34 @@ test('#7365 3b review 6: the confirm closing because its box left the screen sti
   assert.match(h.toasts.join('|'), /^In Alpha: Messages before .+ are archived\./);
 });
 
-test('#7365 3b review 6: the archive header follows the poll (a count or Undo changed elsewhere)', async () => {
+test('#7365 3b review 7: the archive header describes the rows under it; an archive changed elsewhere reads the archive again', async () => {
   const h = archPage({ reads: [page1] });
-  Object.assign(h.ctx.PJ_WIN, { pid: 'p1', archiveMarker: { before: 'x' } });
+  Object.assign(h.ctx.PJ_WIN, { pid: 'p1', archiveMarker: { before: 'x' }, newest: [], archivedCount: 2 });
   await h.ctx.pjArchOpen();
-  assert.equal(h.el('pj-arch-count').textContent, '6 messages');
-  Object.assign(h.ctx.PJ_WIN, { newest: [], archivedCount: 2, archiveMarker: null });   // a later poll's read
-  vm.runInContext('pjArchHead()', h.ctx);
-  assert.equal(h.el('pj-arch-count').textContent, '2 messages');
-  assert.equal(h.el('pj-arch-undo').hidden, true);
+  assert.equal(h.el('pj-arch-count').textContent, '6 messages', 'the page\'s own count, not an older live read');
   const src = liftAll(SCRIPT, ['loadRoom']);
-  assert.ok(src.indexOf('pjArchHead()') > src.indexOf('PJ_WIN.archiveMarker = body.archiveMarker'), 'loadRoom refreshes the header after storing the read');
+  const was = src.indexOf('const archWas = ');
+  const read = src.indexOf('body = await pjWinRead(PJ_CURRENT, PJ_WIN_PAGE, null);');
+  const again = src.indexOf('pjArchOpen(true)');
+  assert.ok(was > 0 && was < read, 'the archive is noted before the read');
+  assert.ok(again > src.indexOf('PJ_WIN.archiveMarker = body.archiveMarker'), 'and compared after the read is stored, reading the archive again');
+  assert.equal(src.indexOf('pjArchHead()'), -1, 'the header alone is never changed by the poll');
+});
+
+test('#7365 3b review 7: an answer that lands after the confirm left the screen, with no key pressed, is said rather than written into it', async () => {
+  for (const ok of [true, false]) {
+    let answer;
+    const h = askPage({ answers: [count(0), () => new Promise((r) => { answer = r; }), count(260)] });
+    h.ctx.ask();
+    const press = h.el('pjarch-go').onclick();
+    await new Promise((r) => setImmediate(r));
+    h.el('pjarch-modal').getClientRects = () => [];   // hidden by something other than openProject, no keydown since
+    const other = { id: 'elsewhere' }; h.doc.activeElement = other;
+    answer(ok ? marked : { ok: false, json: async () => ({ ok: false }) });
+    await press;
+    assert.equal(h.el('pjarch-modal').hidden, true);
+    assert.equal(h.el('pjarch-msg').textContent, 'Working…', 'nothing written into a confirm nobody can see');
+    assert.equal(h.doc.activeElement, other, 'focus left where it was');
+    assert.match(h.toasts.join('|'), ok ? /^In Alpha: / : /^We could not archive Alpha just now; nothing changed\.$/);
+  }
 });
