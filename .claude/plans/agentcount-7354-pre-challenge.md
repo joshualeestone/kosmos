@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: agentcount-7354
-diff_hash: 6e6c9749901e9da6849d27c59cf1d7e7a9b6c81b9ac6967a16ced716506c7d17
+diff_hash: b312c3f0d408df249e2a36666807a1acfbe31139759df54d7938ab7179cc75d8
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-28T00:40:42Z
@@ -63,3 +63,9 @@ skipped on the matching clean entry. Shots: ~/work/design-shots/kosmos-7354-buil
 - Each avatar's count is the Mac's own waiting total agent by agent, from fields /api/status already sends (iterations 1, 2)
 - Opening the chat moves the board's own read cursor, so the count clears everywhere (iterations 1, 2)
 - The seen request is refused for a name the board would refuse, with a control (iterations 1, 2)
+
+## Rebase note (00:19 CDT 10-28)
+Rebased onto main after PR #7439 (build 9) merged; one conflict in ios/Kosmos/ChatView.swift, two independent additions at
+the same place, both kept. After the rebase: iOS 16 typecheck clean; all nine ios/LogicTests scripts pass (main 1474,
+room 449); server.ios-routes-6838 5/5. The full suite of record ran on the pre-rebase head; CI on this PR runs on the
+merge ref.
