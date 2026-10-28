@@ -1416,6 +1416,35 @@ do {
     check(b["provider"] as? String == "antigravity" && b["account"] == nil, "no account is sent for a provider that has none")
     b = [:]; P.addChoice(to: &b, provider: .openai, account: "/h/.claude", swarm: true)
     check(b["provider"] as? String == "anthropic", "a swarm travels as Claude")
+
+    // The single create's body, with the choice (slice 2), and the team's specs read.
+    if let naCat {
+        func json(_ r: URLRequest?) -> [String: Any]? { r?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } }
+        var d = NewAgent.Draft(); d.roleKey = "pm"; d.name = "Ada"; d.label = "Project Manager"; d.model = "sonnet"
+        let claudeBody = json(P.createRequest(mac: npMac, draft: d, catalogue: naCat, provider: .anthropic, account: "", model: "sonnet"))
+        check(claudeBody?["model"] as? String == "sonnet" && claudeBody?["provider"] == nil && claudeBody?["account"] == nil, "Claude on its default: the model only")
+        let oaBody = json(P.createRequest(mac: npMac, draft: d, catalogue: naCat, provider: .openai, account: "/h/.codex", model: ""))
+        check(oaBody?["provider"] as? String == "openai" && oaBody?["account"] as? String == "/h/.codex" && oaBody?["model"] == nil,
+              "OpenAI, Let OpenAI choose: no model, never the Claude one the draft still holds")
+        let grokBody = json(P.createRequest(mac: npMac, draft: d, catalogue: naCat, provider: .xai, account: "/h/.grok", model: "sonnet"))
+        check(grokBody?["provider"] as? String == "xai" && grokBody?["model"] == nil, "a vendor that picks its own gets no model")
+        var sw = d; sw.kind = .swarm
+        let swBody = json(P.createRequest(mac: npMac, draft: sw, catalogue: naCat, provider: .openai, account: "/h/.claude", model: "sonnet"))
+        check(swBody?["provider"] as? String == "anthropic" && swBody?["model"] as? String == "sonnet", "a swarm is Claude with Claude's model")
+        var nobody = d; nobody.name = ""
+        check(P.createRequest(mac: npMac, draft: nobody, catalogue: naCat, provider: .openai, account: "", model: "") == nil, "nothing is sent without a name")
+    }
+    let spec = P.specsRequest(mac: npMac, key: "launch", names: ["lead": "Ada"], project: nil, provider: .openai, account: "/h/.codex", model: "gpt-5", check: true)
+    let specBody = spec?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(spec?.url?.path == "/api/teams/seeded/launch/specs" && spec?.httpMethod == "POST", "the team's specs route, as the desktop's tcSpecs")
+    check(specBody?["provider"] as? String == "openai" && specBody?["account"] as? String == "/h/.codex" && specBody?["model"] as? String == "gpt-5"
+          && specBody?["check"] as? Bool == true && specBody?["project"] == nil, "the team's choice travels with its specs")
+    let claudeSpec = P.specsRequest(mac: npMac, key: "launch", names: [:], project: "p1", provider: .anthropic, account: "", model: "", check: false)
+        .flatMap { $0.httpBody }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(claudeSpec?["provider"] as? String == "anthropic" && claudeSpec?["account"] == nil && claudeSpec?["model"] == nil && claudeSpec?["project"] as? String == "p1",
+          "the provider always (the desktop's menu is never empty); no account or model when there is none")
+    check(P.specsRequest(mac: npMac, key: "Bad Key", names: [:], project: nil, provider: .anthropic, account: "", model: "", check: true) == nil, "a key the route refuses is not sent")
+    check(boardPage.contains("...(provider ? { provider } : {}), ...(account ? { account } : {}), ...(model ? { model } : {})"), "the desktop's tcModel still sends the three this way")
 }
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }

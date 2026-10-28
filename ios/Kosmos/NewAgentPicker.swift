@@ -412,6 +412,24 @@ enum NewAgentPicker {
         return r
     }
 
+    // The team step's specs read with the choice (the desktop's tcSpecs and tcModel): the provider always, as its menu's
+    // value is never empty; the account and the model only when there is one. NewTeam.specsRequest's body otherwise.
+    static func specsRequest(mac: URL, key: String, names: [String: String], project: String?, provider p: Provider,
+                             account: String, model: String, check: Bool) -> URLRequest? {
+        guard NewTeam.isKey(key) else { return nil }
+        var b: [String: Any] = ["names": names, "check": check, "provider": p.rawValue]
+        if let project { b["project"] = project }
+        if !account.isEmpty && !p.hasNoAccount { b["account"] = account }
+        if !p.picksOwnModel && !model.isEmpty { b["model"] = model }
+        guard let data = try? JSONSerialization.data(withJSONObject: b) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/teams/seeded/\(key)/specs", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = data
+        return r
+    }
+
     // create-go: the provider only when it is not Claude, the account only when one is chosen; a swarm is Claude.
     static func addChoice(to b: inout [String: Any], provider p: Provider, account: String, swarm: Bool) {
         if swarm { b["provider"] = Provider.anthropic.rawValue } else if p != .anthropic { b["provider"] = p.rawValue }

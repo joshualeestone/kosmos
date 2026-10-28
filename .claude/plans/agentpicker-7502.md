@@ -30,6 +30,12 @@
   Same Windows caveat as Qwen (the engine refuses, the phone shows the sentence).
 - The account row shows only at two or more usable accounts (Josh's #2097 ruling, quoted in web/index.html).
 
+- The team step sends the provider always (the desktop's tcModel: its menu's value is never empty), the account and
+  model only when there are some, and takes the choice once when making starts (the desktop's TC.model). Create waits
+  while an OpenAI account's list is loading (tcIsModelLoading). The single create sends the provider only when it is
+  not Claude, as create-go.
+- The single and team screens share one choice on the phone (the desktop's team step copies the form's).
+
 ## Not verified
 
-- Slice 1 is logic only: nothing on screen yet.
+- Not run on a device or against a real board; no screenshots yet (they wait for the 0.7.73 cut to free the machine).

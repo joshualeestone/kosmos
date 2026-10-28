@@ -324,16 +324,9 @@ struct NewAgentView: View {
                     .labelsHidden()
                     .disabled(teamLocked || madeProject != nil)   // a made project is the team's; it is not left empty
                 }
-                if let models = catalogue?.models, !models.isEmpty {
-                    Section {
-                        Picker(NewAgent.Words.model, selection: $draft.model) {
-                            ForEach(models) { m in Text(m.label).tag(m.key) }
-                        }
-                        .labelsHidden()   // Mona Lisa: the heading says Model; the row shows only the choice
-                        .disabled(teamLocked)
-                    } header: { Text(NewAgent.Words.model + " " + NewTeam.Words.modelSoft) }
+                // kosmos#7502: the same choice for the whole team (the desktop's tc-provider, tc-account, tc-model).
+                modelChoice(soft: NewTeam.Words.modelSoft, locked: teamLocked)
                     .id("teamModel")
-                }
                 if catalogue == nil { Section { loadingRow } }   // the models come with the roles: Try again is here too
             } else if teamKey != nil {
                 Section {
@@ -361,11 +354,12 @@ struct NewAgentView: View {
         .safeAreaInset(edge: .bottom) {
             let n = detail?.members.count ?? 0
             let named = detail.map { $0.key == teamKey && $0.members.allSatisfy { !NewProject.trimmed(names[$0.slot] ?? "").isEmpty } } ?? false
-            pinned(n > 0 ? NewTeam.Words.create(n) : NewAgent.Words.create, enabled: !teamRunning && !teamBusy && n > 0 && named,
+            pinned(n > 0 ? NewTeam.Words.create(n) : NewAgent.Words.create, enabled: !teamRunning && !teamBusy && n > 0 && named && !modelLoading,
                    busy: teamRunning || teamBusy) {
                 runTeam()
             }
         }
+        .task { await loadPicker() }   // kosmos#7502: the team's provider and account menus read as the create form's
     }
 
     private func loadTeams() async {
@@ -441,11 +435,14 @@ struct NewAgentView: View {
         teamMessage = nil
         let epoch = client.chatEpoch
         let typed = names.mapValues { NewProject.trimmed($0) }
-        let model = draft.model
+        // kosmos#7502: the choice as it stands when making starts; every member is made on it (the desktop's TC.model).
+        let model = chosenModel
+        let teamProvider = provider
+        let teamAccount = NewAgentPicker.accounts(for: provider, pickAccounts).choices.contains { $0.value == account } ? account : ""
         // 1. The names, checked against this computer, before anything is made. Only before: on Try again the members
         // already made hold their own names, which the check would refuse (the desktop's tcRunOnce reads without it).
         if !teamStarted {
-            let check = await client.throughMac { NewTeam.specsRequest(mac: $0, key: d.key, names: typed, project: nil, model: model, check: true) }
+            let check = await client.throughMac { NewAgentPicker.specsRequest(mac: $0, key: d.key, names: typed, project: nil, provider: teamProvider, account: teamAccount, model: model, check: true) }
             guard epoch == client.chatEpoch else { return }
             switch NewTeam.specsAnswer(status: check?.1.statusCode ?? 0, body: check?.0) {
             case .refused(let why): say(why); return
@@ -492,7 +489,7 @@ struct NewAgentView: View {
         }
         if projectChoice == .new { project = madeProject }
         // 3. The members, with the project, the lead first; the rest only once it is made.
-        let read = await client.throughMac { NewTeam.specsRequest(mac: $0, key: d.key, names: typed, project: project, model: model, check: false) }
+        let read = await client.throughMac { NewAgentPicker.specsRequest(mac: $0, key: d.key, names: typed, project: project, provider: teamProvider, account: teamAccount, model: model, check: false) }
         guard epoch == client.chatEpoch else { return }
         let specs: [NewTeam.Spec]
         switch NewTeam.specsAnswer(status: read?.1.statusCode ?? 0, body: read?.0) {
@@ -737,7 +734,13 @@ struct NewAgentView: View {
     }
 
     // kosmos#7502: the desktop's Model group (provider, account at two or more, the model row and its note).
-    private var modelChoice: some View {
+    private var modelChoice: some View { modelChoice(soft: NewAgent.Words.modelSoft, locked: false) }
+    // What the model row has to send now: Claude's pick, the OpenAI account's, or none where the vendor picks.
+    private var chosenModel: String { provider == .openai ? openaiModel : provider == .anthropic ? draft.model : "" }
+    // The desktop's tcIsModelLoading: an OpenAI account's list still on its way holds Create, or the team would be made
+    // on OpenAI's default without anyone choosing it.
+    private var modelLoading: Bool { provider == .openai && !account.isEmpty && openaiModels == nil }
+    private func modelChoice(soft: String, locked: Bool) -> some View {
         let swarm = draft.kind == .swarm
         let options = NewAgentPicker.providers(pickAccounts, pickReady, swarm: swarm)
         let accts = NewAgentPicker.accounts(for: swarm ? .anthropic : provider, pickAccounts)
@@ -759,26 +762,29 @@ struct NewAgentView: View {
                 }
                 .frame(minHeight: 44).contentShape(Rectangle())
             }
+            .disabled(locked)
             .accessibilityLabel(NewAgentPicker.Words.provider)
             .accessibilityValue((swarm ? .anthropic : provider).label)
             if accts.show {
                 Picker(NewAgentPicker.Words.account, selection: $account) {
                     ForEach(accts.choices) { a in Text(a.label).tag(a.value) }
                 }
+                .disabled(locked)
             }
             if row.shown && !row.choices.isEmpty {
                 if provider == .openai && !swarm {
                     Picker(NewAgent.Words.model, selection: $openaiModel) {
                         ForEach(row.choices) { m in Text(m.label).tag(m.value) }
                     }
-                    .disabled(!row.enabled)
+                    .disabled(!row.enabled || locked)
                 } else {
                     Picker(NewAgent.Words.model, selection: $draft.model) {
                         ForEach(row.choices) { m in Text(m.label).tag(m.value) }
                     }
+                    .disabled(locked)
                 }
             }
-        } header: { Text(NewAgent.Words.model + " " + NewAgent.Words.modelSoft) } footer: {
+        } header: { Text(NewAgent.Words.model + " " + soft) } footer: {
             if let why = pickGoneWhy ?? row.note { Text(why) }
         }
         .onChange(of: account) { _ in if provider == .openai { Task { await readOpenaiModels() } } }
