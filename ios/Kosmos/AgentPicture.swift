@@ -77,6 +77,7 @@ enum AgentPicture {
             let format = UIGraphicsImageRendererFormat()
             format.scale = 1
             format.opaque = true
+            format.preferredRange = .standard
             let drawn = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { r in
                 UIColor.white.setFill()
                 r.fill(CGRect(x: 0, y: 0, width: side, height: side))
@@ -89,8 +90,9 @@ enum AgentPicture {
         return nil
     }
 
-    // A catalogue portrait: a still PNG that fits the desktop's bytes and sides (16 to 2048) is kept as it came, as the
-    // desktop's fitPicture keeps those; anything else, an animated PNG included, is redrawn.
+    // A catalogue portrait: a still PNG within the board's bytes and the desktop's 16 to 2048 sides is kept as it came.
+    // Anything else, an animated PNG included, is redrawn the phone's way (fit: a centred square, JPEG on white), where
+    // the desktop keeps the shape and any transparency; the plan names that difference.
     static let maxSide = 2048
     static func portrait(_ data: Data, type: String) -> (Data, String)? {
         if type == "image/png", data.count <= maxBytes, data.starts(with: [0x89, 0x50, 0x4E, 0x47]),
