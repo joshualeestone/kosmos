@@ -445,15 +445,20 @@ function askText(item) {
 /* #5382: the open parts held by an agent in `ripe` (rate-limited for FAILOVER_MS), in live projects, that the failover
    may move: never a part on hold, in a paused project, of a built or closed task, or of a webhook task (a person gives
    those out, #1307). `runnerOf` maps session -> provider. */
+/* #7407 review 2: the task-level reasons failover never moves a part of `t`, in one place, so stalledParts and the
+   unhold answer's failover caveat read the same set. */
+function stallable(t, now = Date.now()) {
+  if (!t || typeof t.number !== 'number' || tasks.isOnHold(t) || t.builtAt || t.addedVia === 'webhook') return false;
+  if (require('./taskrepeat').waitingForNextRun(t, now)) return false;   // #4787: between runs a repeating task holds no work
+  return !tasks.progressOf(t).closed;
+}
 function stalledParts(projects, ripe, runnerOf, now = Date.now(), limitedSince = new Map()) {
   const out = [];
   for (const p of projects) {
     if (require('./projects').isPaused(p)) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
-      if (typeof t.number !== 'number' || tasks.isOnHold(t) || t.builtAt || t.addedVia === 'webhook') continue;
-      if (require('./taskrepeat').waitingForNextRun(t, now)) continue;   // #4787: between runs a repeating task holds no work
+      if (!stallable(t, now)) continue;
       const prog = tasks.progressOf(t);
-      if (prog.closed) continue;
       for (const x of prog.parts) {
         if (x.closedAt || !ripe.has(x.who)) continue;
         /* Review 13: a part a PERSON gave this agent while it was already limited stays (they may be queueing work for
@@ -743,4 +748,4 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
-  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, handOutable, whoMayGet, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };
+  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, handOutable, whoMayGet, stallable, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };

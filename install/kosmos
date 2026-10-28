@@ -6122,7 +6122,7 @@ cmd_task() {
             # kosmos#7407: who has it now, as the board says (it carries no double quote); none from an older board.
             local _next; _next=$(printf '%s' "$body" | sed -n 's/.*"next":"\([^"]*\)".*/\1/p')
             [ -z "$_next" ] || say "$_next"
-            case "$_next" in *"assign it now.") say "  kosmos task assign ${project:-<project-id>} $num <agent>" ;; esac
+            case "$_next" in *"assign it now.") say "kosmos task assign ${project:-<project-id>} $num <agent>" ;; esac   # say indents it, as Windows prints it
           fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
