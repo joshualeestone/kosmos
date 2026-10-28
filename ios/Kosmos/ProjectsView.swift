@@ -224,6 +224,9 @@ final class RoomStore: ObservableObject {
         roomLanded[project] = read
         // Review 5: only the newest read started counts a move; an older one landing late must not read as an undo.
         let newest = read == roomReads[project]
+        // Review 7: a read a newer one has overtaken, at another count than the rows shown, writes nothing (its rows and
+        // its cursor are of another archive); the newer read will say.
+        if !newest, let was = archivedCount[project], was != page.archivedCount { return true }
         let fresh = (newest ? Board.archiveMoved(rows[project], older: older[project], was: archivedCount[project], page: page) : nil)
             ?? Board.refreshRoom(rows[project], older: older[project], page: page)
         // Stamped before the rows are replaced: `before` must be what the room held until this read. The phone's clock,
@@ -315,23 +318,29 @@ final class RoomStore: ObservableObject {
     }
 
     // The page before the oldest one shown, by the computer's own cursor.
-    func loadOlder(_ project: String) async {
+    func loadOlder(_ project: String, retried: Bool = false) async {
         guard let cursor = older[project]?.cursor, !loadingOlder.contains(project) else { return }
         loadingOlder.insert(project)
         olderFailed.remove(project)
         defer { loadingOlder.remove(project) }
         let epoch = client.chatEpoch
-        let landedBefore = roomLanded[project]
         let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, cursor: cursor) }
         guard same(epoch), older[project]?.cursor == cursor else { return }   // a re-read replaced the room meanwhile
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
             olderFailed.insert(project); return
         }
+        // Review 7: a page read at another archived count than the rows shown were is not merged: the archive moved
+        // between the two reads, and only the newest page can say where the live part now starts. That read reconciles
+        // (Board.archiveMoved, on the cursor kept), then this read is tried once more on whatever cursor it left.
+        if page.archivedCount != (archivedCount[project] ?? page.archivedCount) {
+            loadingOlder.remove(project)
+            await loadRoom(project)
+            if !retried, same(epoch) { await loadOlder(project, retried: true) }
+            return
+        }
         rows[project] = Board.mergeRoom(page.rows, with: rows[project] ?? [])
         older[project] = (page.olderCount, page.olderCursor)
-        // Review 4: this page was read at its own archived count, and every row shown now comes after its first row, so
-        // that count is the one the rows shown match. Kept stale, the next poll would read the difference as rows to drop.
-        if roomLanded[project] == landedBefore { archivedCount[project] = page.archivedCount }   // review 6: not over a newer read's
+        archivedCount[project] = page.archivedCount
     }
 
     // Posts the words. Kept: the room is re-read, then the bubble goes (so the post never blinks out). Otherwise, as the

@@ -62,6 +62,12 @@
    earlier pages unread, kept older.count as it was, so the next move was measured wrong; every move now keeps it in
    step (two-read tests). MINORs: a read older than one already applied is dropped; an earlier-page read stores its
    count only if no newer live read landed while it was out. 7 of 7 mutations red.
+7. opus: 1 MAJOR, 1 MINOR, fixed. MAJOR (probed against a model of the server): an earlier live page read at another
+   archived count than the rows shown was merged, and its count stored or skipped by "did a read land meanwhile",
+   which is not "was a read taken later"; archived rows stayed, or a live row was dropped. Now such a page is not
+   merged: the newest read reconciles (archiveMoved on the cursor kept), then the earlier-page read is tried once
+   more. MINOR: an overtaken poll at another count writes nothing. NOT unit-tested: these are in RoomStore, which needs
+   a client; the room runner tests Board.archiveMoved only. Round 7's probe replayed the steps by hand.
 
 ## Not verified
 
