@@ -91023,6 +91023,13 @@ setInterval(ageCheckedStamp, 1000);
     var btn = el('phone-notify-toggle');
     var step = el('phone-notify-step');
     if (!btn) return;
+    // #7448: a demo or test install marked never to send: off, no button, and why.
+    if (st && st.noPush) {
+      btn.disabled = true; btn.textContent = 'Turn on';
+      if (step) step.hidden = true;
+      setMsg('Off. This computer is set never to send phone notices (a demo or test install).');
+      return;
+    }
     if (!st || !st.connected) {
       // Still on but no longer connected: nothing is sent, and it can be turned off.
       var onButIdle = !!(st && st.on);
