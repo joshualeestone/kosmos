@@ -52,19 +52,19 @@ test('#7445: the warning between two non-Claude runners: the conversation does n
   assert.equal(s, 'Helper keeps its name, its face, its instructions and its files, and restarts. '
     + 'Its conversation does not come across: Gemini cannot read OpenAI’s history. '
     + 'Any notes in its folder stay there; anything it only remembers from talking is lost. '   // round 2: no "for it to read"
-    + 'Any notes OpenAI saved for it stay behind with OpenAI. ');   // round 4: the runner's own notes, "any"
+    + 'Any notes OpenAI saved for it stay behind there. ');   // round 4: the runner's own notes, "any"; round 5: named once
   for (const [from, to] of [['google', 'xai'], ['xai', 'meta'], ['alibaba', 'antigravity'], ['antigravity', 'openai']]) {
     const w = fns.switchFamilyNote(from, to, SHOWN, WORD[from], WORD[to]);
     const esc = (s) => s.replace(/[()]/g, '\\$&');
     assert.match(w, new RegExp('Its conversation does not come across: ' + esc(WORD[to]) + ' cannot read '), from + ' -> ' + to);
-    assert.match(w, new RegExp('Any notes ' + esc(WORD[from]) + ' saved for it stay behind with ' + esc(WORD[from]) + '\\. $'), from + ' -> ' + to);
+    assert.match(w, new RegExp('Any notes ' + esc(WORD[from]) + ' saved for it stay behind there\\. $'), from + ' -> ' + to);
     assert.doesNotMatch(w, /are copied|everything it has done|past stays readable/);
     assert.doesNotMatch(w, /—/, 'an em dash');
   }
 });
 
 test('#7445 round 4: leaving a runner that is not Claude Code for Claude says its own notes stay behind; leaving Claude does not', () => {
-  assert.match(fns.switchFamilyNote('google', 'anthropic', SHOWN, 'Gemini', 'Claude'), /Any notes Gemini saved for it stay behind with Gemini\. $/);
+  assert.match(fns.switchFamilyNote('google', 'anthropic', SHOWN, 'Gemini', 'Claude'), /Any notes Gemini saved for it stay behind there\. $/);
   assert.doesNotMatch(fns.switchFamilyNote('anthropic', 'google', SHOWN, 'Claude', 'Gemini'), /saved for it stay behind/, 'CONTROL: leaving Claude');
   assert.doesNotMatch(fns.switchFamilyNote('anthropic', 'deepseek', SHOWN, 'Claude', 'DeepSeek'), /saved for it stay behind/, 'CONTROL: Claude <-> DeepSeek');
 });
@@ -79,7 +79,7 @@ test('#7445 round 4: the dialog and the result sentence say the same about the r
       const toClaude = to === 'anthropic';
       const r = { from, toClaude, rootChange: false, notes: toClaude ? 'none' : 'none-kept-by-runner', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false, ...(toClaude ? {} : { between: true }) };
       const result = create.switchCarryWords('X', r, WORD[from]);
-      const line = 'Any notes ' + WORD[from] + ' saved for it stay behind with ' + WORD[from] + '.';
+      const line = 'Any notes ' + WORD[from] + ' saved for it stay behind there.';
       assert.ok(dialog.includes(line) && result.includes(line), from + ' -> ' + to);
     }
   }

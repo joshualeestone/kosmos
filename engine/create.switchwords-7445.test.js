@@ -103,7 +103,7 @@ test('#7445: Codex -> Gemini copies nothing and returns its own state; the sente
   assert.equal(w, 'Gemini it is. It keeps its name, its instructions and its files, but its conversation does not come across: '
     + 'Gemini cannot read what it said on OpenAI. Anything it only remembered from talking is lost. '
     // Round 4: Codex has its own memories feature, so whatever it kept stays with it; "any", it may have none.
-    + 'Any notes OpenAI saved for it stay behind with OpenAI. ');
+    + 'Any notes OpenAI saved for it stay behind there. ');
   assert.doesNotMatch(w, /Everything it knows|Claude|copied/);
   assert.doesNotMatch(w, /—/, 'an em dash');
 });
@@ -115,10 +115,11 @@ test('#7445 round 4: every switch leaving a runner that is not Claude Code says 
   assert.equal(create.switchCarryWords('Claude', back, 'Gemini'),
     'Claude it is. It keeps its name, its instructions and its files, but its conversation does not come across: '
     + 'Claude cannot read what it said on Gemini. Anything it only remembered from talking is lost. '
-    + 'Any notes Gemini saved for it stay behind with Gemini. ');
+    + 'Any notes Gemini saved for it stay behind there. ');
   for (const [fr, fp, word] of [['grok', 'xai', 'Grok'], ['antigravity', 'antigravity', 'Gemini (Google subscription)'], ['muse', 'meta', 'Meta Muse']]) {
     const r = create.carryClaudeNotes(born('sw7445-l-' + fr), { runner: fr }, 'codex', null, fp, 'openai');
-    assert.match(create.switchCarryWords('OpenAI', r, word), new RegExp('Any notes ' + word.replace(/[()]/g, '\\$&') + ' saved for it stay behind with '), fr);
+    assert.match(create.switchCarryWords('OpenAI', r, word), new RegExp('Any notes ' + word.replace(/[()]/g, '\\$&') + ' saved for it stay behind there\\. $'), fr);   // round 5: named once
+    assert.equal(create.switchCarryWords('OpenAI', r, word).split(word).length - 1, 2, fr + ': named in the conversation clause and once in the notes line');
   }
   // Controls: leaving Claude never says it (Claude's own notes have their #7410 sentences), and neither does a keep.
   const off = create.carryClaudeNotes(born('sw7445-c2o'), { runner: 'claude' }, 'codex', null, 'anthropic', 'openai');
@@ -143,7 +144,7 @@ test('#7445: notes an earlier switch left in its folder stay pointed at, and are
   assert.equal(g.pointed, true, 'the notes in its folder lost their pointer');
   assert.equal(fs.readFileSync(brief, 'utf8').split(pj.CARRIED_NOTES_START).length - 1, 1, 'the pointer is there once');
   assert.match(create.switchCarryWords('Grok', g, 'OpenAI'),
-    /Grok cannot read what it said on OpenAI\. The notes in its folder stay there for it to read, and anything it only remembered from talking is lost\. Any notes OpenAI saved for it stay behind with OpenAI\. $/);
+    /Grok cannot read what it said on OpenAI\. The notes in its folder stay there for it to read, and anything it only remembered from talking is lost\. Any notes OpenAI saved for it stay behind there\. $/);
   assert.equal(fs.readFileSync(nodePath.join(notesDir(name), 'MEMORY.md'), 'utf8'), 'kept from Claude days\n', 'a note was changed');
 
   // Nothing real behind the pointer: it is taken out, and the sentence does not mention notes.

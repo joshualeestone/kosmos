@@ -2262,7 +2262,9 @@ function setProvider(name, provider, opts) {
   /* #7445 round 4: the provider it is leaving, read ONCE, here, before anything is written, and held. Every later
      question in this switch (the vendor and Qwen record below, the notes carry, its fallback) uses this one value: a
      second read after the switch is recorded could disagree, or throw, and the result would then say everything stays.
-     `job` is non-null here (the no-job refusal is above), and jobProvider always answers a provider for it. */
+     `job` is non-null here (the no-job refusal is above). jobProvider can throw (it reads the account folder:
+     qwenaccounts.isQwenHome, anthropiccompat.vendorOfName); a throw HERE refuses the switch before anything is
+     written, so there is never a switch whose provider it left is unknown. */
   const leaving = jobProvider(job);
   if (leaving === provider) {
     /* The vendor word a person reads, from the shared providerLabel map. */
@@ -2898,7 +2900,7 @@ const CARRIED_NOTE_MAX_BYTES = 1024 * 1024;   // review 1: a note over 1 MB is n
    would write into its CODEX_HOME (orgchartcodex.js switches it off for its own reads only). Kosmos copies none of
    them, and for Grok, Antigravity and Muse the code here does not say. So switchCarryWords (and the dialog's twin,
    switchFamilyNote) say, on every switch leaving a runner that is not Claude Code, that any notes that runner saved
-   for it stay behind with it: "any", because whether it saved any is not known here. */
+   for it stay behind there: "any", because whether it saved any is not known here. */
 function lostConversationCarried(fromRunner, toRunner, from) {
   const toClaude = claudeRunner(toRunner);
   const between = !claudeRunner(fromRunner) && !toClaude;
@@ -3066,7 +3068,7 @@ function switchCarryWords(label, carried, fromLabel) {
       /* Round 4: it is leaving a runner that is not Claude Code, and that runner may have kept notes of its own (Gemini's
          save_memory, Codex's memories: see lostConversationCarried). Kosmos copies none of them. "Any": whether it saved
          any is not known here. The dialog's twin is web/index.html switchFamilyNote. */
-      + `Any notes ${from} saved for it stay behind with ${from}. `;
+      + `Any notes ${from} saved for it stay behind there. `;   // round 5: the provider named once
   } else if (carried.notes === 'copied') {
     notes = 'Its saved notes are copied into its folder'
       + (carried.kept ? ` (${carried.kept === 1 ? 'one was' : `${carried.kept} were`} already there from an earlier switch and kept, not replaced)` : '')
