@@ -138,7 +138,7 @@ const BUNDLE = {
 function withWatchdogState(state, watchdog) {
   const s = scheduler(state);
   const base = s;
-  const fn = (args) => {
+  const fn = (args, opt) => {
     if (args[0] === '/Query' && args[2] === 'Kosmos\\board-watchdog') {
       base.calls.push(args.join(' '));
       if (fn.onWatchdogQuery) fn.onWatchdogQuery();
@@ -156,6 +156,7 @@ function withWatchdogState(state, watchdog) {
     }
     if (args[0] === '/Create' && args[3] === 'Kosmos\\board-watchdog') {
       base.calls.push(args.join(' '));
+      fn.createTimeoutMs = opt && opt.timeoutMs;   // review 3: the /Create's own timeout
       fn.xml = fs.readFileSync(args[5]).toString('utf16le');
       return { ok: true, out: 'SUCCESS' };
     }
@@ -226,11 +227,11 @@ test('#7498: switching it OFF never touches the watchdog (turning it off is not 
   assert.equal('watchdog' in r, false);
 });
 
-test('#7498 review 2: a German error with the watchdog in the task list is "could not tell", never a second one', () => {
+test('#7498 review 3: a German error with the watchdog in the task list is present, never a second one', () => {
   const s = withWatchdogState({ registered: true, enabled: false }, 'german-listed');
   const r = board.setStartAtSignIn(true, BUNDLE);
   assert.ok(!createdWatchdog(s.calls), s.calls.join(' | '));
-  assert.match(r.watchdog.because, /could not tell whether the job that restarts Kosmos if it stops is there/, JSON.stringify(r));
+  assert.deepEqual(r.watchdog, { ok: true, action: 'present', task: 'Kosmos\\board-watchdog' }, JSON.stringify(r));
 });
 
 test('#7498 review 2: no node.exe at the anchor yet means no registration, and the reason says when it will be', () => {
@@ -246,5 +247,38 @@ test('#7498 review 2: a Task Scheduler too slow for the budget registers nothing
   s.onWatchdogQuery = () => { t += 19500; };   // the watchdog's own query is the slow one
   const r = board.setStartAtSignIn(true, { ...BUNDLE, now: () => t });
   assert.ok(!createdWatchdog(s.calls), s.calls.join(' | '));
+  assert.match(r.watchdog.because, /no time left/, JSON.stringify(r));
+});
+
+test('#7498 review 3: the task-list read spends the same budget (German, slow watchdog query): no list read, no /Create', () => {
+  const s = withWatchdogState({ registered: true, enabled: false }, 'german');
+  let t = 1000;
+  s.onWatchdogQuery = () => { t += 19500; };
+  const r = board.setStartAtSignIn(true, { ...BUNDLE, now: () => t });
+  assert.ok(!s.calls.some((c) => c.startsWith('/Query /FO')), 'the list was read with no time left: ' + s.calls.join(' | '));
+  assert.ok(!createdWatchdog(s.calls), s.calls.join(' | '));
+  assert.match(r.watchdog.because, /no time left/, JSON.stringify(r));
+});
+
+test('#7498 review 3: the /Create gets only what is left of the budget', () => {
+  const s = withWatchdogState({ registered: true, enabled: false }, 'missing');
+  let t = 1000;
+  s.onWatchdogQuery = () => { t += 15000; };
+  const r = board.setStartAtSignIn(true, { ...BUNDLE, now: () => t });
+  assert.equal(r.watchdog && r.watchdog.action, 'registered', JSON.stringify(r));
+  assert.ok(s.createTimeoutMs <= 5000, 'the /Create was given ' + s.createTimeoutMs + ' ms after a 15 s query');
+  assert.ok(s.createTimeoutMs >= 1000, 'the /Create was given ' + s.createTimeoutMs + ' ms');
+});
+
+test('#7498 review 3: a request that already spent its two timeouts on the board task leaves the watchdog for the next boot', () => {
+  const s = withWatchdogState({ registered: true, enabled: false }, 'missing');
+  let t = 1000;
+  const inner = board.setRunner;   // the board task's /Change is the slow call here
+  const fn = (args, opt) => { if (args[0] === '/Change') t += 39500; return s(args, opt); };
+  fn.calls = s.calls;
+  inner(fn);
+  const r = board.setStartAtSignIn(true, { ...BUNDLE, now: () => t });
+  assert.equal(r.on, true, JSON.stringify(r));
+  assert.ok(!s.calls.some((c) => c.includes('board-watchdog')), 'the watchdog was asked about past the deadline: ' + s.calls.join(' | '));
   assert.match(r.watchdog.because, /no time left/, JSON.stringify(r));
 });
