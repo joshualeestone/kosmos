@@ -17,6 +17,7 @@
  *                  agents comes back on this board, so the honest result is "Say hello to ... to wake them", said on
  *                  the line and, once the line has gone, in a note with a close button
  *   busy        -> Show who pressed while Restart all runs does nothing (the running button keeps its progress words)
+ *   gone        -> a refused agent that also left the board's list is still named in the note left in the line's place
  *   not now     -> POSTs this version and empties the slot; a refusal keeps the line and says why
  *   tones       -> neutral (--label-2) in light and dark
  *   phone       -> at 390px the line fits the screen (no sideways scroll) and the list opens
@@ -57,7 +58,7 @@ async function open(b, viewport, state) {
     const name = decodeURIComponent(route.request().url().split('/api/agent/')[1].split('/')[0]);
     posts.push('restart ' + name);
     const refused = state.refuse.includes(name);
-    if (!refused && state.line) {
+    if ((!refused || state.dropRefused) && state.line) {
       const left = state.line.agents.filter((a) => a.name !== name);
       state.line = left.length ? { ...state.line, agents: left } : null;
     }
@@ -114,18 +115,20 @@ const text = (pg, sel) => pg.evaluate((s) => { const el = document.querySelector
 
     posts.length = 0;
     await pg.click('#rline-slot [data-rl-all]');
-    await pg.waitForFunction(() => /did not restart/.test((document.querySelector('#rline-slot') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+    // The loop has ended and the re-check has repainted: the button is free again and names the one agent left.
+    await pg.waitForFunction(() => !RLINE.busy && ((document.querySelector('#rline-slot [data-rl-all]') || {}).textContent || '') === 'Restart Lee', null, { timeout: 8000 }).catch(() => {});
     say(posts.join(',') === 'restart ada,restart lee,restart mo,restart ty', 'all: Restart all posts each agent\'s restart, in order', JSON.stringify(posts));
     const left = await text(pg, '#rline-slot .utxt b');
     say(left === 'Lee needs a restart to get: Hooks fix.', 'all: only the refused agent is left on the line', JSON.stringify(left));
-    const why = await text(pg, '#rline-slot .rerr');
-    say(why === 'Lee did not restart: Kosmos could not find its window.', 'all: the refused agent is named with the engine\'s reason', JSON.stringify(why));
+    await pg.waitForFunction(() => /did not restart/.test((document.querySelector('#rline-slot .rlwoke') || {}).textContent || ''), null, { timeout: 4000 }).catch(() => {});
+    const why = await text(pg, '#rline-slot .rlwoke');
+    say(/Lee did not restart: Kosmos could not find its window\./.test(why || ''), 'all: the refused agent is named with the engine\'s reason', JSON.stringify(why));
     say(await text(pg, '#rline-slot [data-rl-all]') === 'Restart Lee', 'one left: its button is named for it');
     // Each agent's report arrives when its own wait ends: wait for the last, not the first.
     await pg.waitForFunction(() => ['Ada', 'Mo', 'Ty'].every((n) => ((document.querySelector('#rline-slot .rlwoke') || {}).textContent || '').includes(n)), null, { timeout: 8000 }).catch(() => {});
     const woke = await text(pg, '#rline-slot .rlwoke');
     // The reports arrive in the order the waits end, so the names are checked as a set. Lee was refused: never woken.
-    const named = (/^Say hello to (.+) to wake them\.$/.exec(woke || '') || [, ''])[1].split(/, | and /);
+    const named = (/^Say hello to (.+?) to wake them\./.exec(woke || '') || [, ''])[1].split(/, | and /);
     say(['Ada', 'Mo', 'Ty'].every((n) => named.includes(n)) && !named.includes('Lee'), 'wake: the line says who still needs a hello after Restart all, not the refused agent', JSON.stringify(woke));
     say(errs.length === 0, 'restart: no page errors', errs.join(' | '));
     await pg.close();
@@ -144,6 +147,20 @@ const text = (pg, sel) => pg.evaluate((s) => { const el = document.querySelector
     await pg.waitForTimeout(200);
     say(await pg.evaluate(() => document.getElementById('rline-slot').innerHTML.trim() === ''), 'wake: the close button empties the slot');
     say(errs.length === 0, 'wake: no page errors', errs.join(' | '));
+    await pg.close();
+  }
+
+  {
+    // A refused agent that is no longer running drops off the re-check, and it was the last one: the line goes, and the
+    // failure is still said, in the note left in its place. The page throws nothing and is not left busy.
+    const state = { line: JSON.parse(JSON.stringify({ ...LINE, agents: AGENTS.slice(0, 1) })), refuse: ['ada'], dropRefused: true, notNow: 200 };
+    const { pg, errs } = await open(b, { width: 1400, height: 800 }, state);
+    await pg.click('#rline-slot [data-rl-all]');
+    await pg.waitForFunction(() => document.querySelector('#rline-slot .rldone'), null, { timeout: 8000 }).catch(() => {});
+    const gone = await text(pg, '#rline-slot .rldone .utxt b');
+    say(gone === 'Ada did not restart: Kosmos could not find its window.', 'gone: a refused agent that left the line is still named, with the reason', JSON.stringify(gone));
+    say(await pg.evaluate(() => RLINE.busy === false && RLINE.progress === null), 'gone: the line is not left busy');
+    say(errs.length === 0, 'gone: no page errors', errs.join(' | '));
     await pg.close();
   }
 
