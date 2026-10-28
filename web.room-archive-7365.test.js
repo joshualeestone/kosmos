@@ -155,6 +155,8 @@ test('#7365 3b review 2: opening the archive paints its page, moves focus to Bac
   await h.ctx.pjArchOpen();
   assert.equal(h.ctx.PJ_ARCH.on, true);
   assert.match(h.el('pj-room').innerHTML, /archived one/);
+  // Mona Lisa: the archive's thread has no Archive older messages (everything in it is archived already).
+  assert.doesNotMatch(h.el('pj-room').innerHTML, /data-arch-ask|Archive older messages/, 'the archive view offers to archive what is already archived');
   assert.equal(h.el('pj-arch-head').hidden, false);
   assert.equal(h.el('pj-arch-undo').hidden, false);
   assert.equal(h.doc.activeElement && h.doc.activeElement.id, 'pj-arch-back');

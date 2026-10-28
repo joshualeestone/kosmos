@@ -358,6 +358,12 @@ function findUnder(dir, name) {
       'at 390px, scrolled to the end, the thread\'s last row is Archive older messages, on screen, a 44 px target', JSON.stringify(narrow));
     // And the archive view at 390px: its header above the thread must not push the newest archived post under the composer.
     await archiveWith('day', /are archived/);   // the search was cleared before the resize, so nothing to fill here (review 4)
+    /* Review (3b final): Archive was pressed from the thread's last row, which the repaints replace (pjArchAfter's own, then
+       the read loadRoom starts). Once that read has landed, focus is on the link on screen or the composer, not the page. */
+    await p.waitForTimeout(1500);
+    const afterFocus = await p.evaluate(() => { const a = document.activeElement; return { id: a ? a.id : null, tag: a ? a.tagName : null,
+      ask: !!(a && a.closest && a.closest('#pj-room [data-arch-ask]') && a.getClientRects().length), post: !!(a && a.id === 'pj-post') }; });
+    chk(afterFocus.ask || afterFocus.post, 'at 390px, after Archive from the thread\'s last row and the room\'s fresh read, focus is on the link on screen or the composer', JSON.stringify(afterFocus));
     await scrollToStart();
     await needViewArchive('at 390px');
     await p.click('#pj-arch-open');
@@ -371,7 +377,13 @@ function findUnder(dir, name) {
     await p.screenshot({ path: path.join(OUT, 'phone-archive.png') });
     chk(fit.lastBottom !== null && fit.composerTop !== null && fit.roomBottom <= fit.composerTop + 1 && fit.lastBottom <= fit.composerTop + 1,
       'at 390px the archive\'s thread, and its newest post, end above the composer', JSON.stringify(fit));
+    // Mona Lisa: the archive's own thread offers no Archive older messages (everything there is archived already).
+    const archAsk = await p.evaluate(() => document.querySelectorAll('#pj-room [data-arch-ask]').length);
+    chk(archAsk === 0, 'at 390px the archive view has no Archive older messages in its thread', String(archAsk));
     // Archive pressed from inside the archive view: the archive closes and the live room is painted, never left unlabelled.
+    // A computer's header link, since a phone offers none inside the archive.
+    await p.setViewportSize({ width: 1280, height: 800 });
+    await p.waitForTimeout(400);
     const insideSaid = await archiveWith('week', /^Nothing more in this room was old enough to archive/);
     // The archive closes after the count is read, a moment after the toast: wait for it rather than racing it.
     await p.waitForFunction(() => document.getElementById('pj-arch-head').hidden, null, { timeout: 5000 }).catch(() => null);

@@ -76102,9 +76102,9 @@ function paintArch() {
   PJ_ARCH.posts = new Map(PJ_ARCH.rows.filter((r) => r && r.kind === 'post' && typeof r.id === 'string').map((r) => [r.id, r]));
   const body = PJ_ARCH.rows.map((m) => pjRoomRow(m, p, false)).join('');
   const start = PJ_ARCH.olderCount === 0 ? '<div class="pj-arch-edge">This is the start of the room.</div>' : '';
-  // kosmos#7365 3b (phone): the archive view offers Archive older messages too (the header's is hidden on a phone, and
-  // the desktop offers it here), as its last row like the live room's.
-  box.innerHTML = start + (body || '<p class="fhint" style="margin:0;">Nothing in this room is archived now.</p>') + pjRoomEndAsk(false, Boolean(body), true);
+  // kosmos#7365 3b (Mona Lisa): no Archive older messages in the archive's own thread. Everything there is already
+  // archived, so the link would read as "archive what?".
+  box.innerHTML = start + (body || '<p class="fhint" style="margin:0;">Nothing in this room is archived now.</p>');
   // The header above the thread moves its top, so the phone's fit (#7196) is measured again (review 3).
   if (typeof pjFitRoomPhone === 'function') pjFitRoomPhone();
 }
@@ -78718,7 +78718,15 @@ function paintRoom(body) {
       && !document.getElementById('pj-one-view').hidden) pjMarkSeen(PJ_CURRENT);
     box.__lastRoom = shape;
     box.__lastRoomQuery = PJ_ROOM_QUERY;
+    // kosmos#7365 3b (review): the thread's own Archive older messages is rebuilt with the rows, so its focus is noted first.
+    const askFocused = !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#pj-room [data-arch-ask]'));
     paintThreadInto(box, html, rows !== '', queryChanged, filtering);
+    /* kosmos#7365 3b (review): a poll, or the read loadRoom starts after Archive, replaced the link that had focus. Focus
+       goes to the link on screen, else the composer (the room may be one page now), only if it fell to the page. */
+    if (askFocused && typeof pjArchAskShown === 'function' && (!document.activeElement || document.activeElement === document.body)) {
+      const t = pjArchAskShown();
+      if (t && typeof t.focus === 'function') t.focus({ preventScroll: true });
+    }
     /* #3745: a repaint rebuilds every row without its measured .rxn-left, and a still mouse sends no new
        mouseover; so the row under the pointer, and the one holding focus, are measured again here. */
     if (PJ_RXN_HOVER_POST) {
