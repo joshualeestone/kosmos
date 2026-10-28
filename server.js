@@ -6580,13 +6580,16 @@ function unholdNext(projectId, t, rosterOf) {
     // Review 7: anyone besides `except` who takes work here and this board runs (switched on, reachable).
     const takersBesides = (except) => (Array.isArray(p.agents) ? p.agents : []).some((n) => !except.includes(n) && !projects.isSwarmOff(p, n) && reachable(n));
     const held = asg.treeHeldBy(p, inP);
-    if (held.holders.length) {
+    // Review 8: a holder this board does not run is never given it, so the tree waits on nobody we can name.
+    if (held.holders.length && held.holders.some(reachable)) {
       // Review 5: name where the work is (its own subtasks when it is the root), and say a pause.
       const where = held.root === inP.number ? 'on its subtasks' : 'on task ' + held.root + "'s tree";
       return 'Nobody is on it.' + (paused ? ' The project is paused.' : '') + ' It is part of work ' + held.holders.map(plain).join(', ')
         + (held.holders.length > 1 ? ' are' : ' is') + ' doing ' + where + ' (one builder per task tree), so '
         // Review 7: "until they are done" implies a hand-out after; only true when someone else here could be given it.
-        + (takersBesides(held.holders) ? 'Kosmos will not give it out until they are done there.' : 'only they can be given it, when they are free.') + assign;
+        + (takersBesides(held.holders) ? 'Kosmos will not give it out until they are done there' : 'only they can be given it, when they are free')
+        // Review 8: a root that also waits on its other open subtasks says so.
+        + (held.root === inP.number && asg.subtasksFirst(p, inP) ? ', and after its open subtasks are done.' : '.') + assign;
     }
     const may = asg.whoMayGet(paused ? { ...p, paused: false } : p, inP).filter(reachable);
     const lead = paused ? 'Nobody is on it. The project is paused; when it is resumed, Kosmos will give it to ' : 'Nobody is on it, so Kosmos will give it to ';
@@ -6601,7 +6604,7 @@ function unholdNext(projectId, t, rosterOf) {
     }
     const all = (Array.isArray(p.agents) ? p.agents : []).length;
     if (may.length === 1) return lead + plain(may[0]) + ' when they are free,' + turn + '.' + assign;   // review 4: free, as commitments count too
-    if (may.length === all) return lead + 'an idle agent on the project' + turn + '.' + assign;
+    if (may.length === all) return lead + 'a free agent on the project' + turn + '.' + assign;   // review 8: free, as the others
     return lead + 'whichever of ' + may.map(plain).join(', ') + ' is free first,' + turn + '.' + assign;
   } catch {
     return '';

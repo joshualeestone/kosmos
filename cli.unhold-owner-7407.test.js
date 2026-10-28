@@ -108,7 +108,7 @@ test('#7407: a task nobody is on says the next idle agent will get it, and how t
     const n = make('nobody ' + label);
     const r = await holdThenUnhold(run, n);
     assert.equal(r.code, 0, label + ': ' + r.text);
-    assert.match(r.text, /^\s*Nobody is on it, so Kosmos will give it to an idle agent on the project in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/m, label + ': ' + r.text);
+    assert.match(r.text, /^\s*Nobody is on it, so Kosmos will give it to a free agent on the project in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/m, label + ': ' + r.text);
     assert.match(r.text, new RegExp('^\\s*kosmos task assign ' + projectId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' ' + n + ' <agent>$', 'm'), label + ': ' + r.text);
     // Review 1: CONTROL against the Assigner itself, not the function the sentence reads: pick gives it out.
     const p = projects.readAll().find((x) => x.id === projectId);
@@ -187,7 +187,7 @@ test('#7407 review 1: no agent that takes work here, a paused project, or a pare
   try {
     if (projects.isPaused(projectNow())) {
       const next = await unholdNext(paused);
-      assert.match(next, /^Nobody is on it\. The project is paused; when it is resumed, Kosmos will give it to an idle agent on the project in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/, next);
+      assert.match(next, /^Nobody is on it\. The project is paused; when it is resumed, Kosmos will give it to a free agent on the project in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/, next);
     } else {
       assert.fail('setup: could not pause the project with paused: true; find the field projects.isPaused reads');
     }

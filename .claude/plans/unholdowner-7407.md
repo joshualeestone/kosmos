@@ -60,3 +60,7 @@ The Assigner-role ask is #7429.
 - Round 6: two snapshots per unhold; subtasks-first said as waiting for a person. Fixed (one lazy read; its own words).
 - Round 7: BLOCKER, my export line swallowed two existing exports (server.task-roomrun-6894 failed). Fixed and run.
   Subtasks-first and a held tree promised a hand-out with nobody else to take it. Fixed.
+- Round 8: CONVERGED, no blocker or warning (exports checked exactly against the merge base). Nits taken: a tree holder
+  this board does not run is not named; a root also waiting on other subtasks says so; "a free agent", as the others.
+  Left: the assign command echoes the number as typed (cosmetic); no route-level test of the shared roster read (the
+  unit test covers unholdNext's reads). Loop ends here (8-round cap).
