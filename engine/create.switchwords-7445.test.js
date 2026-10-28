@@ -135,7 +135,12 @@ test('#7445: notes an earlier switch left in its folder stay pointed at, and are
   const pj = require('./projects');
   const brief = nodePath.join(dir, 'AGENTS.md');
   fs.renameSync(nodePath.join(dir, 'CLAUDE.md'), brief);
-  store.writeProfile(name, { provider: 'openai' });
+  /* As setProvider leaves it before the carry: the new job and profile are written first. The instructions writer reads
+     the job's runner before the profile (instructions.fileFor via recordedRunner), so a job still saying claude would
+     send the pointer to CLAUDE.md on a Mac (the Windows box falls back to the profile). */
+  fs.writeFileSync(create.plistPath(name), create.plistFor(name, CODEX_BIN, TMUX_BIN, null, null, 'grok'), 'utf8');
+  store.writeProfile(name, { provider: 'xai' });
+  assert.equal(require('./instructions').fileFor(name), brief, 'fixture: the instructions writer resolves the AGENTS.md brief');
   // A real-length brief: the instructions writer refuses one under 20 characters.
   fs.writeFileSync(brief, pj.spliceBlock('# brief for this agent, long enough to keep\n', 'pointer', pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END), 'utf8');
   const g = create.carryClaudeNotes(name, { runner: 'codex' }, 'grok', brief, 'openai', 'xai');
