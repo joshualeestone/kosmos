@@ -22,8 +22,8 @@ const BROTLI_QUALITY = 9;
 const GZIP_LEVEL = 6;
 
 /** The encoding to send for an Accept-Encoding header: 'br', 'gzip', or null (send it as it is).
-    Brotli is preferred when both are accepted; a q=0 entry refuses that encoding, `*` stands for any
-    encoding not named. */
+    Brotli is preferred whenever it is accepted at all, whatever the q values rank (the server may choose);
+    q only refuses (q=0 or a q that does not parse to a number above 0). `*` stands for any encoding not named. */
 function pickEncoding(acceptEncoding) {
   if (typeof acceptEncoding !== 'string' || !acceptEncoding.trim()) return null;
   const q = new Map();
@@ -32,8 +32,9 @@ function pickEncoding(acceptEncoding) {
     if (!name) continue;
     let weight = 1;
     for (const p of params) {
-      const m = /^\s*q\s*=\s*([0-9.]+)\s*$/.exec(p);
-      if (m) weight = Number(m[1]);
+      const [key, value = ''] = p.split('=');
+      if (key.trim() !== 'q') continue;
+      weight = /^\s*[0-9.]+\s*$/.test(value) ? Number(value) : 0;
     }
     q.set(name.trim(), Number.isFinite(weight) ? weight : 0);
   }
@@ -89,7 +90,7 @@ function sendPage(req, res, headers, buf, compressed) {
   compressed(encoding, buf).then((out) => {
     res.writeHead(200, { ...headers, vary: 'accept-encoding', 'content-encoding': encoding, 'content-length': out.length });
     res.end(head ? undefined : out);
-  }, plain);
+  }, plain).catch(() => { res.destroy(); });   // a throw while answering ends this one answer, never the board
 }
 
 module.exports = { pickEncoding, makePageCompressor, sendPage, BROTLI_QUALITY, GZIP_LEVEL };

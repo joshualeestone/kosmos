@@ -79,11 +79,17 @@ test('the page is sent gzip to a browser that accepts gzip and not brotli', asyn
   assert.ok(zlib.gunzipSync(r.body).equals(plain));
 });
 
-test('HEAD says the compressed length and sends no body', async () => {
+test('HEAD says the length GET would send, and sends no body', async () => {
+  const br = await get('/', { 'accept-encoding': 'br' });
   const r = await get('/', { 'accept-encoding': 'br' }, 'HEAD');
   assert.equal(r.headers['content-encoding'], 'br');
-  assert.ok(Number(r.headers['content-length']) > 0);
+  assert.equal(Number(r.headers['content-length']), br.body.length);
   assert.equal(r.body.length, 0);
+  const plain = await get('/', {});
+  const h = await get('/', {}, 'HEAD');
+  assert.equal(h.headers['content-encoding'], undefined);
+  assert.equal(Number(h.headers['content-length']), plain.body.length);
+  assert.equal(h.body.length, 0);
 });
 
 test('API answers stay uncompressed, however the request asks (BREACH: caller text beside secrets)', async () => {
@@ -103,6 +109,38 @@ test('pickEncoding: brotli first, gzip next, q=0 refuses, * stands for the rest'
   assert.equal(pickEncoding(''), null);
   assert.equal(pickEncoding(undefined), null);
   assert.equal(pickEncoding('deflate'), null);
+  assert.equal(pickEncoding('gzip;q=1, br;q=0.1'), 'br', 'brotli whenever accepted, whatever the ranking');
+  assert.equal(pickEncoding('br;q=abc, gzip'), 'gzip', 'a q that does not parse refuses');
+  assert.equal(pickEncoding('br;q=, gzip;q=.'), null);
+});
+
+test('a compression that fails sends the page as it is', async () => {
+  const { sendPage } = require('./engine/pagecompress');
+  const plain = Buffer.from('<html>plain</html>');
+  let head = null; let body = null;
+  const res = { writeHead: (s, h) => { head = { s, h }; }, end: (b) => { body = b; }, destroy: () => { head = 'destroyed'; } };
+  sendPage({ method: 'GET', headers: { 'accept-encoding': 'br' } }, res, { 'content-type': 'text/html' }, plain, () => Promise.reject(new Error('no memory')));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(head.s, 200);
+  assert.equal(head.h['content-encoding'], undefined);
+  assert.equal(head.h.vary, 'accept-encoding');
+  assert.equal(body, plain);
+});
+
+test('a failed compression is tried again on the next request', async () => {
+  const zlib = require('node:zlib');
+  const real = zlib.brotliCompress;
+  let calls = 0;
+  zlib.brotliCompress = (buf, opts, done) => { calls += 1; if (calls === 1) { done(new Error('once')); return; } real(buf, opts, done); };
+  try {
+    const compressed = makePageCompressor();
+    const page = Buffer.from('<html>' + 'c'.repeat(3000) + '</html>');
+    await assert.rejects(compressed('br', page));
+    await new Promise((r) => setImmediate(r));
+    const out = await compressed('br', page);
+    assert.ok(zlib.brotliDecompressSync(out).equals(page));
+    assert.equal(calls, 2);
+  } finally { zlib.brotliCompress = real; }
 });
 
 test('the compressor makes each form once per page, and again for a changed page', async () => {
