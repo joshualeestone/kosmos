@@ -80,6 +80,9 @@
    once a member exists (made, or a create with no answer); the saved choice is reused only once a member exists.
    MINOR decided: the single and team screens share one choice, so after a part-made team a change on Set up your agent
    shows on the team step's locked menus while Try again sends the saved choice (the team's members are made on it).
+8. sonnet: 0 BLOCKER/MAJOR, 2 MINOR, applied AFTER the last round (not reviewed): the picker stops settling only on
+   the team step once a member exists, so a late account read during a run with no member yet still settles the menus
+   a refused lead reopens, and the single screen never waits on a team's state. Loop stopped at the 8-round cap.
 
 ## Not verified
 

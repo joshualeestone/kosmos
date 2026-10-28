@@ -82,7 +82,8 @@ struct NewAgentView: View {
     @State private var openaiRead = 0                 // the newest models read: an older one landing late is dropped
     @State private var openaiReading: String?         // review 3: the account whose list is being read now
     @State private var pickGoneWhy: String?           // a pick the menu no longer allows, put back and said
-    @State private var accountsSettled = false        // review 1: /api/accounts answered or failed, or 5 s went by
+    @State private var accountsSettled = false
+    @State private var pickerOnTeam = false            // review 8: which screen's .task last read the picker        // review 1: /api/accounts answered or failed, or 5 s went by
     // Review 1: the team's choice as its first run made members on it (the desktop's TC.model); Try again uses it.
     @State private var teamChoice: (provider: NewAgentPicker.Provider, account: String, model: String)?
 
@@ -366,7 +367,7 @@ struct NewAgentView: View {
                 runTeam()
             }
         }
-        .task { await loadPicker() }   // kosmos#7502: the team's provider and account menus read as the create form's
+        .task { await loadPicker(team: true) }   // kosmos#7502: the team's provider and account menus read as the create form's
     }
 
     private func loadTeams() async {
@@ -846,7 +847,10 @@ struct NewAgentView: View {
     // The menus follow what has answered: a pick no longer offered is put back and said; an untouched one follows the
     // default. Never while a team is being made: its choice is fixed (the desktop's tcChoiceFixed).
     private func settlePicker() {
-        guard !teamChoiceFixed else { return }
+        // Review 8: held only on the team step, once a member exists. A run with no member yet took its choice at the
+        // press, so a late account read may still settle the menus a refused lead reopens; the single screen never waits
+        // on a team's state.
+        guard !(pickerOnTeam && teamMemberExists) else { return }
         // Review 3: the agent's default settles on a swarm too (onProvider shows Claude there), so going back to Agent
         // opens on it, as the desktop's resetCreateProvider does from the list it holds. Only a touched pick's undoing
         // (and its sentence) waits for the agent's own screen.
@@ -859,7 +863,8 @@ struct NewAgentView: View {
     }
     // Review 1: each read applies as it lands (the desktop's painters do), and a failed read keeps the last good answer:
     // never a confident "not here" from a read that did not answer (museCreateAsk, agyAsk).
-    private func loadPicker() async {
+    private func loadPicker(team: Bool = false) async {
+        pickerOnTeam = team
         let epoch = client.chatEpoch
         pickGoneWhy = nil   // review 5: an undone pick is said on the screen it happened on, not carried to the next
         let ok = { (x: (Data, HTTPURLResponse)?) -> Data? in x.flatMap { (200...299).contains($0.1.statusCode) ? $0.0 : nil } }
