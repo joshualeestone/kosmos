@@ -7,7 +7,7 @@
  *  - taking off hold a task nobody is on shows the route's own `next` sentence (srv.unholdNext, read after the click,
  *    so the screen and the CLIs say the same words), with the route's last ask turned into a Choose who button,
  *  - Choose who opens the picker on that task's part nobody is on (the Who is on it control), and choosing Ada stores her,
- *  - the control: a task Ada is on says "It stays with ada." and shows no Choose who,
+ *  - the control: a task Ada is on says "It stays with Ada." (her name, as Who is on it says it) and shows no Choose who,
  *  - putting a task ON hold says nothing about who is next (the route sends no `next` then),
  *  - the line survives the five-second repaint,
  *  - light 1400 and dark 390, with no sideways scroll and no page errors.
@@ -110,8 +110,8 @@ function chk(ok, label, extra) {
       await settle(page);
       await page.waitForFunction(() => document.getElementById('tk-hold-msg').textContent !== '', null, { timeout: 6000 }).catch(() => {});
       const want2 = routeSays(p.id, 2);
-      chk(want2 === 'It stays with ada.' && await text(page, '#tk-hold-msg') === want2 && !(await page.$('#tk-hold-choose')),
-        `${tag} a task Ada is on: "It stays with ada.", no Choose who`, JSON.stringify([want2, await text(page, '#tk-hold-msg')]));
+      chk(want2 === 'It stays with Ada.' && await text(page, '#tk-hold-msg') === want2 && !(await page.$('#tk-hold-choose')),
+        `${tag} a task Ada is on: "It stays with Ada." (her name, as Who is on it says it), no Choose who`, JSON.stringify([want2, await text(page, '#tk-hold-msg')]));
 
       // Putting a task ON hold says nothing about who is next.
       await openTask(page, p.id, 3);

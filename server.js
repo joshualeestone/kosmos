@@ -6548,12 +6548,16 @@ function unholdNext(projectId, t, rosterOf) {
       return runningSet;
     };
     const reachable = (n) => !running() || running().has(n);
+    /* kosmos#7430: a person reads this sentence beside Who is on it, which names each agent by its card's name, so this
+       does too: readIdentity, the card name's own source (files, not a pane snapshot, so review 6 still holds), else
+       the machine name. */
+    const nameOf = (n) => { let id = null; try { id = readIdentity(n); } catch { id = null; } return plain(id && id.displayName ? id.displayName : n); };
     // Review 5: whose part failover can take is limitedCard's test (ours, limited), with no swarm condition.
     const ours = () => { const r = roster(); return Array.isArray(r) && r.length ? new Set(r.filter((c) => c && c.isNamedOurs === true).map((c) => c.sessionName)) : null; };
     // Review 1: only who is on an OPEN part has it; someone who finished a part does not.
     const holders = [...new Set(prog.parts.filter((x) => x.who && !x.closedAt).map((x) => x.who))];
     if (holders.length) {
-      const names = holders.map(plain).join(', ');
+      const names = holders.map(nameOf).join(', ');
       const many = holders.length > 1;
       // Review 2: a part nobody is on, beside a holder's, is never handed out (handOutable), so it is said.
       const looseN = prog.parts.filter((x) => !x.who && !x.closedAt).length;
@@ -6604,9 +6608,9 @@ function unholdNext(projectId, t, rosterOf) {
         + ' agent on the project can be given it now (no running agent here takes work).' + assign;
     }
     const all = (Array.isArray(p.agents) ? p.agents : []).length;
-    if (may.length === 1) return lead + plain(may[0]) + ' when they are free,' + turn + '.' + assign;   // review 4: free, as commitments count too
+    if (may.length === 1) return lead + nameOf(may[0]) + ' when they are free,' + turn + '.' + assign;   // review 4: free, as commitments count too
     if (may.length === all) return lead + 'a free agent on the project' + turn + '.' + assign;   // review 8: free, as the others
-    return lead + 'whichever of ' + may.map(plain).join(', ') + ' is free first,' + turn + '.' + assign;
+    return lead + 'whichever of ' + may.map(nameOf).join(', ') + ' is free first,' + turn + '.' + assign;
   } catch {
     return '';
   }
