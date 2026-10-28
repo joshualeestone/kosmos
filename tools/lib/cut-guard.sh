@@ -624,6 +624,8 @@ kosmos_refuse_if_suite_live() {
 # Prints what it waits for on stdout and returns 0 while busy; returns 1 when the box is quiet. Anything it cannot read
 # counts as busy, the safe side. The same five things as the wrapper's copy, in its order: a relay pre-push build, a
 # suite, stray shell-shard workers (a #7100 shard can outlive its leader), an install harness, a browser-checks run.
+# (Review 5: except the pre-push check, which reads a lockf failure as no build, as kosmos_prepush_build_live says; the
+# wrapper's copy did the same.)
 # KNOWN RESIDUAL: a suite started with the suite check off (KOSMOS_TESTS_IGNORE_SUITE=1, or inside a test) waits
 # without a marker, so it still reads as busy; its wait gives up at its own bound (KOSMOS_WAIT_MAX_S, 20 minutes).
 # 🔑 SAFE ONLY WHILE THE CALLER HOLDS THE MACHINE CLAIM AND RENEWS IT (review 3). Skipping a waiting suite is safe
@@ -782,7 +784,10 @@ _kosmos_drop_claim_bound_suite_waiters() {
     [ -n "$line" ] || continue
     pid="${line%% *}"
     if w="$(_kosmos_suite_waiter_of "$pid")"; then
-      [ "$(sed -n '7p' "$(_kosmos_suite_waiter_file "$w")" 2>/dev/null)" = ignores-claim ] || continue
+      # Review 5: one read of the whole marker. A waiter can unmark between the liveness check above and this read
+      # (its wait passed); an empty or unreadable marker then keeps the line (busy), never reads as claim-bound.
+      local m=""; m="$(cat "$(_kosmos_suite_waiter_file "$w")" 2>/dev/null)" || m=""
+      { [ -n "$m" ] && [ "$(printf '%s\n' "$m" | sed -n '7p')" != ignores-claim ]; } && continue
     fi
     _kosmos_pid_gone "$pid" && continue
     printf '%s\n' "$line"

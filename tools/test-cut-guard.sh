@@ -776,6 +776,29 @@ chain="$(tr '\n' ' ' < "$W/chain" 2>/dev/null)"
   && pass "#7512 a queued wait that ignores the machine claim is marked so, and holds the cut while it waits" \
   || fail "#7512 a claim-ignoring queued wait read as not running (rc=$rc, chain: $chain)"
 rm -f "$W/chain"
+# #7512 review 5: the waiter unmarks (its wait passed) between being confirmed and its marker being read: busy, never
+# read as claim-bound. The liveness check is stubbed to confirm and then remove the marker, as the waiter's unmark would.
+mv "$W/held" "$W/markers/suitewait.$wp"
+out="$( _kosmos_suite_waiter_live() { [ "$1" = "$wp" ] || return 1; rm -f "$W/markers/suitewait.$wp"; return 0; }
+        cutbusy "$T/sprobe-waiter" 2>&1 )"; rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "suite $wp" ] && pass "#7512 a waiter that unmarks between its check and its marker's read holds the cut" \
+  || fail "#7512 a waiter unmarking mid-read let the cut go (rc=$rc, $out)"
+[ -e "$W/markers/suitewait.$wp" ] || printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
+mv "$W/markers/suitewait.$wp" "$W/held"
+# #7512 review 5: a process DESCENDED from a waiter (its $( ) subshells carry the suite's command line) is the waiter's,
+# so it does not hold the cut; the same child with its parent unmarked does.
+bash -c 'sleep 60 & wait' </dev/null >/dev/null 2>&1 & wpar=$!
+q_ready "$wpar" 'bash -c*'
+wchild=""; for _i in 1 2 3 4 5 6 7 8 9 10; do wchild="$(pgrep -P "$wpar" sleep 2>/dev/null | head -1)"; [ -n "$wchild" ] && break; sleep 0.2; done
+printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$wchild" > "$T/sprobe-child"; chmod +x "$T/sprobe-child"
+out="$(cutbusy "$T/sprobe-child" 2>&1)"; rc=$?
+{ [ -n "$wchild" ] && [ "$rc" -eq 0 ] && [ "$out" = "suite $wchild" ]; } && pass "#7512 CONTROL: a child of an unmarked parent holds the cut" \
+  || fail "#7512 CONTROL: a child of an unmarked parent did not hold the cut (child=$wchild rc=$rc, $out)"
+printf '100 %s\n%s\n%s\n%s\n' "$wpar" "$(ps -ww -o command= -p "$wpar")" "$(_kosmos_pid_started_local "$wpar")" "$(_kosmos_pid_started "$wpar")" > "$W/markers/suitewait.$wpar"
+out="$(cutbusy "$T/sprobe-child" 2>&1)"; rc=$?
+{ [ -n "$wchild" ] && [ "$rc" -eq 1 ] && [ -z "$out" ]; } && pass "#7512 a child of a waiting suite does not hold the cut (the ancestor walk)" \
+  || fail "#7512 a waiter's child held the cut (child=$wchild rc=$rc, $out)"
+rm -f "$W/markers/suitewait.$wpar"; kill "$wchild" "$wpar" 2>/dev/null; wait "$wpar" 2>/dev/null
 # And the wiring the chain leans on: run-tests.sh asks about the claim inside the box check, and waits for that check in
 # the suite queue (which is what writes the marker).
 _wired "$RT" '^_rt_box_clear() {' && grep -A1 '^_rt_box_clear() {' "$RT" | grep -q 'kosmos_refuse_if_machine_claimed "this test run" || return 1' \

@@ -11,7 +11,9 @@ suite and the suite waited on the cut, for about 20 minutes, until someone stopp
 - `tools/lib/cut-guard.sh`: `kosmos_cut_quiet_box_busy`, the wrapper's `running()` as one committed function, in the
   same order: relay pre-push build, suite, stray shell-shard workers, install harness, browser-checks. The suite arm
   drops the caller's own subtree and any suite holding a verified waiting marker, or descended from one
-  (`_kosmos_drop_suite_waiters`, the rule kosmos_refuse_if_suite_live already uses). Anything unreadable is busy.
+  (`_kosmos_drop_claim_bound_suite_waiters` since review 4; the waiter rule kosmos_refuse_if_suite_live uses).
+  Anything unreadable is busy, except the pre-push check (a lockf failure reads as no build, as before). Review 5: the
+  waiter's marker is read once, and an empty or unreadable one keeps the suite (busy).
   The shard check is `_kosmos_shell_shards_live`, so a test can stub it.
 - Review 4: a waiting suite with KOSMOS_IGNORE_MACHINE_CLAIM set can leave its wait while the cut's claim stands, so it
   is NOT skipped: kosmos_mark_suite_waiting writes line 7 `ignores-claim` for such a run (older readers read lines 1
