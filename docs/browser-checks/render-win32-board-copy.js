@@ -401,13 +401,13 @@ async function readLinux(browser, platform) {
             document.head.appendChild(s);
           }
           const d = document.createElement('div');
-          d.id = 'thumbprobe';
+          window.__thumbProbe = d;   // a reference, not an id: #758 requires every id a check asks for to exist in the page
           d.style.cssText = 'position:fixed;left:0;top:0;width:200px;height:600px;overflow-y:scroll;background:#fff;z-index:2147483647;';
           const inner = document.createElement('div'); inner.style.height = '46000px'; d.appendChild(inner);
           document.body.appendChild(d);
         }, floorOff);
         await page.waitForTimeout(200);
-        const sw = await page.evaluate(() => { const d = document.getElementById('thumbprobe'); return d.offsetWidth - d.clientWidth; });
+        const sw = await page.evaluate(() => { const d = window.__thumbProbe; return d.offsetWidth - d.clientWidth; });
         const col = await page.screenshot({ clip: { x: 200 - Math.max(1, Math.round(sw / 2)), y: 0, width: 1, height: 600 } });
         await page.close();
         /* A 1px-wide PNG: each row is a filter byte then one pixel. With no left neighbour, Sub is raw,
