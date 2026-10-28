@@ -1317,10 +1317,12 @@ struct RoomBubble: View {
         // A 2 pt ring 2 pt out, as the board's outline-offset, its corners kept parallel to the bubble's (review 5).
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Self.flashGold, lineWidth: 2).padding(-4)
             .opacity(flashing ? 1 : 0).animation(reduceMotionHere ? nil : .easeOut(duration: 0.3), value: flashing))
-        .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
         // kosmos#7419: the long-press sheet, as in a direct message (Reply and reactions only on a post of this room).
+        // Build 11: on the bubble itself, inside the width frame, so the ring that marks it while its sheet is up goes
+        // round the bubble, not round the empty side of the frame.
         .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: answerable ? react : nil,
                         reply: answerable ? reply : nil, text: Board.roomWords(row))   // review 2: the words shown
+        .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
     }
 
     var mentionNames: [String] = []

@@ -419,10 +419,16 @@ struct MessageActionTarget: Identifiable {
 }
 
 private struct MessageActionsOpenKey: EnvironmentKey { static let defaultValue: ((MessageActionTarget) -> Void)? = nil }
+// kosmos#7419 build 11: which sheet is up (its target's id), so the message it is for can mark itself.
+private struct MessageActionsShownKey: EnvironmentKey { static let defaultValue: UUID? = nil }
 extension EnvironmentValues {
     var openMessageActions: ((MessageActionTarget) -> Void)? {
         get { self[MessageActionsOpenKey.self] }
         set { self[MessageActionsOpenKey.self] = newValue }
+    }
+    var shownMessageActions: UUID? {
+        get { self[MessageActionsShownKey.self] }
+        set { self[MessageActionsShownKey.self] = newValue }
     }
 }
 
@@ -510,7 +516,9 @@ struct MessageActionsSheet: View {
             }
         }
         .padding(.horizontal, 16).padding(.top, 20).padding(.bottom, 12)
-        .frame(maxWidth: .infinity, alignment: .top)
+        // kosmos#7419 build 11 (Mona Lisa): fill the sheet to its bottom edge, so the sheet's own background (ground)
+        // reaches it and no strip of the system's sheet grey shows under Copy text.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private func row(_ title: String, _ symbol: String, _ run: @escaping () -> Void) -> some View {
@@ -547,6 +555,14 @@ struct MessageActionsSheet: View {
     }
 }
 
+// kosmos#7419 build 11: where the system offers it (iOS 16.4+), the sheet's own surface is ground too, so nothing of
+// its default grey shows at any height, including during a drag between the two heights.
+private struct SheetGround: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.4, *) { content.presentationBackground(Palette.ground) } else { content }
+    }
+}
+
 // The one sheet of a chat or a room: rows ask for it with .messageActions; Reply runs once it has gone.
 struct MessageActionsHost: ViewModifier {
     @State private var target: MessageActionTarget?
@@ -565,6 +581,7 @@ struct MessageActionsHost: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .environment(\.shownMessageActions, target?.id)
             .environment(\.openMessageActions) { t in
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 detent = small(t)
@@ -579,6 +596,7 @@ struct MessageActionsHost: ViewModifier {
                     .onReceive(NotificationCenter.default.publisher(for: .sampleSheetMore)) { _ in detent = .large }
                     #endif
                     .background(Palette.ground.ignoresSafeArea())
+                    .modifier(SheetGround())
             }
     }
 }
@@ -589,19 +607,33 @@ struct MessageActionsHost: ViewModifier {
 struct MessageActions: ViewModifier {
     let target: () -> MessageActionTarget
     @Environment(\.openMessageActions) private var open
+    @Environment(\.shownMessageActions) private var shown
+    // kosmos#7419 build 11 (Mona Lisa: "the person cannot see which message the sheet is for"): the sheet this message
+    // opened. A system sheet dims everything behind it and nothing in the chat can be drawn above that dim, so instead
+    // the message is ringed in gold, as a reply's jump marks its post (#7101), strong enough to read through the dim.
+    // The ring goes when that sheet goes (the host's id changes), and with the row if the row is redrawn.
+    @State private var opened: UUID?
+
+    private func show() {
+        let t = target()
+        opened = t.id
+        open?(t)
+    }
 
     func body(content: Content) -> some View {
         content
-            .highPriorityGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in open?(target()) })
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Palette.starGold, lineWidth: 2.5)
+                .padding(-4).opacity(opened != nil && opened == shown ? 1 : 0).allowsHitTesting(false).accessibilityHidden(true))
+            .highPriorityGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in show() })
             // Review 2: VoiceOver reaches the sheet (Copy text, More) as an action, since a long press is not one.
-            .accessibilityAction(named: "Message actions") { open?(target()) }
+            .accessibilityAction(named: "Message actions") { show() }
             #if DEBUG
             // Design shots only: KOSMOS_SAMPLE_SHEET=1 (or =more) opens the sheet on the first message that takes reactions.
             .onAppear {
                 let t = target()
                 if let want = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SHEET"], t.react != nil, !MessageActionsHost.sampleOpened {
                     MessageActionsHost.sampleOpened = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { open?(t) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { opened = t.id; open?(t) }
                     if want == "more" { DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { NotificationCenter.default.post(name: .sampleSheetMore, object: nil) } }
                 }
             }
