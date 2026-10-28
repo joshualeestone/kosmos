@@ -854,7 +854,11 @@ struct ChatView: View {
                                 thumbnails: client.thumbnails, states: fileStates, widthShare: widthShare, open: openFile, mine: mine,
                                 faded: false,
                                 spoken: filesSpoken(row, head: head, mine: mine),
-                                actions: row.answerable(by: agent.session) ? replyActionList(row) : [])
+                                actions: row.answerable(by: agent.session) ? replyActionList(row) : [],
+                                sheet: MessageActionTarget(mine: Set(row.reactions.filter(\.mine).map(\.emoji)),
+                                                           react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
+                                                           reply: row.answerable(by: agent.session) ? { startReply(row) } : nil,
+                                                           text: Board.wordsShown(row.text, files: row.attachments)))
                         // kosmos#7083: Reply and the reactions on an agent's message with files too, from its bubble; kosmos#7419:
                         // through the long-press sheet, with Copy text for any message.
                         .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)),
