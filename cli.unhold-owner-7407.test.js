@@ -393,3 +393,23 @@ test('#7407 review 7: subtasks-first and a held tree promise nothing when nobody
   // CONTROL: otto switched on again, the held tree says it waits until mara is done there.
   assert.match(await unholdNext(tc), /so Kosmos will not give it out until they are done there\./);
 });
+
+test('#7430: the unhold sentence names an agent by its name, as Who is on it does, and still reads no roster for a kept task', () => {
+  const { unholdNext } = require('./server');
+  const dir = path.join(fleet.workersRoot(), 'otto');
+  const file = path.join(dir, 'CLAUDE.md');
+  const had = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  let reads = 0;
+  const rosterOf = () => { reads += 1; return []; };
+  const k = make('kept, named', 'otto');
+  // CONTROL: with no identity, the machine name (the fallback, and what every other test here reads).
+  assert.equal(unholdNext(projectId, taskOf(k), rosterOf), 'It stays with otto.');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(file, 'You are **Otto Brandt**, a builder.\n');
+  try {
+    assert.equal(unholdNext(projectId, taskOf(k), rosterOf), 'It stays with Otto Brandt.');
+    assert.equal(reads, 0, 'naming reads the identity file, never the roster (review 6)');
+  } finally {
+    if (had === null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, had);
+  }
+});
