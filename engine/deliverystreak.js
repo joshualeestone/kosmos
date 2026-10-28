@@ -152,6 +152,9 @@ const WHY_WORDS = {
   unconfirmed: 'Kosmos typed its messages but did not see them sent',
   refused: 'Kosmos could not type into it',
   unknown: 'Kosmos could not tell why',
+  /* #7212 slice 3: not a delivery verdict; engine/stallsignin.js sets it when a live check found the account signed out. */
+  signedout: 'Its Claude account is signed out',
+  keyrefused: 'Its Claude key no longer works',   // review 1: an api-key account is not signed in to; its key was refused
   /* kosmos#7368: the short reason for this case; the agent page words it on its own (the messages did arrive, they wait
      behind one step). */
   turn: 'It has been on one step for over an hour, and the messages wait behind it',
@@ -163,6 +166,8 @@ const NEXT_WORDS = {
   signin: 'Reconnect its account in Settings, AI Models',
   limit: 'Kosmos sends them once its usage resets',
   quota: 'Kosmos sends them once the shared quota resets',
+  signedout: 'Sign in again in Settings, AI Models',   // #7212 slice 3
+  keyrefused: 'Replace its key in Settings, AI Models',
   /* kosmos#7368: a restart ends the process, and what it had queued goes with it, so they must be sent again
      (turnNext words it for one message). */
   turn: turnNextWords(2),

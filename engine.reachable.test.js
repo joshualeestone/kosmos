@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  setDepsForTests: 'test seam (#7212 slice 3): engine/stallsignin.js\'s account list and live check, so engine/stallsignin-7212.test.js can match real rows and answer without asking Anthropic. Production uses accounts.list and accounts.checkRowLive.',
   setTableForTests: 'test seam (#7232): engine/windrives.js answers from this drive table (or as unknown) instead of the one it learns from Windows, so engine/replyfile.win32-7221.test.js can stand a dead mapped drive Z: in without mapping one. It throws outside a test process (store.isTestProcess). Production learns the table at board start.',
   setLearnForTests: 'test seam (#7232 review 1): engine/windrives.js reads this clock and this learner instead of Date.now and the PowerShell call, so engine/replyfile.win32-7221.test.js can show a table whose refreshes keep failing is dropped after two refreshes, and that unlisted letters cost one re-learn, without waiting minutes or breaking PowerShell. It throws outside a test process. Production uses the real clock and call.',
   scriptForTests: 'test seam (#7232 review 1): engine/windrives.js\'s PowerShell script, so engine/replyfile.win32-7221.test.js can run it with one line of its own appended and show an accented share name prints as UTF-8. Production runs it inside learnSync and learnSoon.',

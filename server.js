@@ -2542,6 +2542,47 @@ function whoamiProjectsClause(projectNames) {
  * per poll for the whole fleet; a per-agent call would stat the same handful of
  * directories thirteen times a tick to answer the same question.
  */
+/* The AI Models badge's evidence for each Claude account folder: the freshest real request any agent on it made
+   (anthropic observations only, #2413) and a Check now on the folder itself (#3136), freshest of the two. One
+   definition for the accounts route's badge and #7212 slice 3's stuck card (review 5: the card had its own copy, read
+   only the stuck agent's requests, and disagreed with the badge both ways). Returns dir -> { obs, checkObs }: `obs` the
+   one that decides ({ outcome, at } or null), `checkObs` the Check now record it was chosen against (so a caller can tell
+   which decided by identity, as the badge's observedFrom does). */
+function claudeObservationsFor(knownAccts) {
+  const obsByDir = new Map();
+  for (const o of observed.all()) {
+    // #2413: the Claude overlay reads ONLY anthropic observations. An OpenAI
+    // observation resolved against the CLAUDE account list would green a Claude
+    // account it has nothing to do with (a codex agent on the default home maps to
+    // the default Claude account -- status.js's own note, true when written).
+    // #2811 gated that dir-less match, so it now maps to NOTHING; this filter
+    // is kept as defence in depth rather than removed. The provider is in the
+    // observation key precisely so this join stays on one provider's rows.
+    if (o.provider !== observed.PROVIDER.ANTHROPIC) continue;
+    const acct = accountForAgent(o.agent, knownAccts);
+    if (!acct || !acct.dir) continue;
+    const prev = obsByDir.get(acct.dir);
+    if (!prev || o.at > prev.at) obsByDir.set(acct.dir, { outcome: o.outcome, at: o.at });
+  }
+  return (dir) => {
+    if (!dir) return { obs: null, checkObs: null };
+    const agentObs = obsByDir.get(dir) || null;
+    const checkObs = observed.readDir(observed.PROVIDER.ANTHROPIC, dir);
+    return { obs: (agentObs && checkObs) ? (checkObs.at >= agentObs.at ? checkObs : agentObs) : (agentObs || checkObs), checkObs };
+  };
+}
+
+/* #7212 slice 3: the status route's step, on its cards in place: a stuck Claude card whose own account the AI Models
+   badge would call signed out says so (engine/stallsignin.js). Only when a card is stuck (rare), and the badge's join
+   is built on the first card that asks (a stuck Claude card with an account record), never for a stuck Codex card
+   alone, once per call (review 6). Exported for its test (review 7). */
+function overlayStuckCards(agents, claudeKnown, now = Date.now()) {
+  if (!Array.isArray(agents) || !agents.some((c) => c && c.deliveryStall)) return;
+  let join = null;
+  const obsFor = (dir) => { if (!join) join = claudeObservationsFor(claudeKnown || []); return join(dir); };
+  for (let i = 0; i < agents.length; i += 1) agents[i] = require('./engine/stallsignin').overlay(agents[i], now, { obsFor });
+}
+
 function accountForAgent(name, known) {
   const job = create.readJob(name);
   if (!job) return null;
@@ -7205,6 +7246,9 @@ const server = http.createServer(async (req, res) => {
           : { state: 'unknown', editable: false, version: null, startedAt: null, because: 'we cannot tie this pane to an agent by name' },
       }));
       attachPluginReach(agents); // #5309 slice 2: per-agent plugin-reach notice signal (see the function)
+      /* #7212 slice 3: a stuck Claude agent whose own account was last seen signed out says so. The tick only reads what
+         engine/stallsignin.js learned; its one live check per account and hour runs in the background. */
+      overlayStuckCards(agents, claudeKnown);
       // ⚠️ THE COUNTS DESCRIBE THE CARDS THAT ARE LEFT. Computed over the
       // unfiltered snapshot they put "12 agents" above 11 cards, and can put
       // "1 needs you" on screen with no card anywhere to click. Recomputed with
@@ -12766,21 +12810,7 @@ const server = http.createServer(async (req, res) => {
         // dir-less match is provider-gated), which the `!acct.dir` continue below
         // already skips: the same outcome this join wanted, now for an honest
         // reason rather than because the wrong row happened to carry a dir.
-        const obsByDir = new Map();
-        for (const o of observed.all()) {
-          // #2413: the Claude overlay reads ONLY anthropic observations. An OpenAI
-          // observation resolved against the CLAUDE account list would green a Claude
-          // account it has nothing to do with (a codex agent on the default home maps to
-          // the default Claude account -- status.js's own note, true when written).
-          // #2811 gated that dir-less match, so it now maps to NOTHING; this filter
-          // is kept as defence in depth rather than removed. The provider is in the
-          // observation key precisely so this join stays on one provider's rows.
-          if (o.provider !== observed.PROVIDER.ANTHROPIC) continue;
-          const acct = accountForAgent(o.agent, knownAccts);
-          if (!acct || !acct.dir) continue;
-          const prev = obsByDir.get(acct.dir);
-          if (!prev || o.at > prev.at) obsByDir.set(acct.dir, { outcome: o.outcome, at: o.at });
-        }
+        const obsOf = claudeObservationsFor(knownAccts);   // review 5 (#7212 slice 3): one definition with the stuck card
         /* #3997 (ruling C): each Claude sign-in's login date, waited on briefly (claudeloginlive); a slow read shows
            on the next poll rather than holding this one. */
         // Only a signed-in row can show its login as good, so only those are read (review iteration 4).
@@ -12794,17 +12824,13 @@ const server = http.createServer(async (req, res) => {
         if (wantAgents) { try { claudeAgents = claudeAgentsByAccount(); } catch { claudeAgents = null; } }
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
-             observation (obsByDir, filled by the ~60s sweep) and a
+             observation (claudeObservationsFor, filled by the ~60s sweep) and a
              USER-INITIATED "Check now" recorded against this account's own dir
              (observed.readDir). A manual check is just another observed outcome,
              so it flows through the SAME verdict + freshness gating below — no
              second badge path. This is what lets an agent-less but live account
              go green on demand rather than sitting at signed_in_unverified. */
-          const agentObs = a.dir ? obsByDir.get(a.dir) : null;
-          const checkObs = a.dir ? observed.readDir(observed.PROVIDER.ANTHROPIC, a.dir) : null;
-          const obs = (agentObs && checkObs)
-            ? (checkObs.at >= agentObs.at ? checkObs : agentObs)
-            : (agentObs || checkObs);
+          const { obs, checkObs } = obsOf(a.dir);
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs && obs.outcome,
@@ -26206,6 +26232,7 @@ function start(port = PORT) {
           const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
           /* Only agents whose card carries the stall, so the log and the card say the same thing (round 1 W3). */
           const shown = names.filter((n) => { const c = byName.get(n); return !!(c && c.deliveryStall); });
+          require('./engine/stallsignin').sweep();   // #7212 slice 3: accounts no stuck card read for an hour are forgotten
           /* kosmos#7368: each stuck step is said once (deliverystreak.turnsToSay); the streak lines keep their own rule. */
           const isTurn = (n) => byName.get(n).deliveryStall.lastWhy === 'turn';
           for (const line of ds.turnsToSay(r, turnSaid)) process.stdout.write(line);
@@ -27792,6 +27819,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
+  claudeObservationsFor, overlayStuckCards, // #7212 slice 3 reviews 6-7: the badge's evidence and the route's step, for their test
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
