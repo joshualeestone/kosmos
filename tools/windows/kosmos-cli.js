@@ -830,22 +830,27 @@ async function verbPost(ctx, args) {
        anything. Only a post the room could not record (`unrecorded`) is missing from the room. */
     const outcomes = d.outcomes && typeof d.outcomes === 'object' ? d.outcomes : {};
     const whose = (state) => Object.keys(outcomes).filter((n) => outcomes[n] === state);
-    const code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '.');
-    if (whose('unconfirmed').length) ctx.err('Kosmos may have typed it in, but could not confirm it, for: ' + whose('unconfirmed').join(', ') + '. It may well have arrived.');
-    if (whose('could_not').length) {
-      // Round 3: not typed AND not recorded, so they have no copy anywhere.
-      if (d.unrecorded === true) {
-        ctx.err('Not reached: ' + whose('could_not').join(', ') + '. Kosmos could not type into their session and the room could not record it, so they do not have it.');
-        ctx.err('Message them directly (it goes to them alone): kosmos msg ' + whose('could_not')[0] + ' "..."');
-        ctx.err('If that fails too, they are not running: start them, then message them.');
-      } else {
+    const fail = 'If that fails too, its answer says why; if they are not running, ask the person to start them.';
+    let code;
+    if (d.unrecorded === true) {
+      // Round 5: in no one's room view, so ONE plain block naming every member not placed for sure (parity with install/kosmos).
+      const notSure = Object.keys(outcomes).filter((n) => outcomes[n] !== 'placed');
+      code = maybe(ctx.err, 'Posted, but the room could not record it, so it is not in the room.');
+      if (notSure.length) {
+        ctx.err('Not surely reached: ' + notSure.join(', ') + '. They may have no copy anywhere.');
+        ctx.err('Do not re-post: the members it reached would get it twice. Message them directly instead (it goes to each alone): kosmos msg ' + notSure[0] + ' "..."');
+        ctx.err(fail);
+      } else ctx.err('Every member has it. Do not re-post: they would get it twice.');
+    } else {
+      code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '.');
+      if (whose('unconfirmed').length) ctx.err('Kosmos may have typed it in, but could not confirm it, for: ' + whose('unconfirmed').join(', ') + '. It may well have arrived.');
+      if (whose('could_not').length) {
         ctx.err('Not reached: ' + whose('could_not').join(', ') + '. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room ' + project + ').');
-        ctx.err('To reach one of them sooner, message them directly (it goes to them alone): kosmos msg ' + whose('could_not')[0] + ' "..."');
-        ctx.err('If that fails too, they are not running: start them, then message them.');
+        ctx.err('To reach them sooner, message them directly (it goes to each alone): kosmos msg ' + whose('could_not')[0] + ' "..."');
+        ctx.err(fail);
       }
+      ctx.err('Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.');
     }
-    ctx.err(d.unrecorded === true ? 'It is not in the room: the room could not record it. Do not re-post: anyone it reached could get it twice.'
-      : 'Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.');
     // #6925 parity with install/kosmos: an unconfirmed summary still used this member's one.
     if (d.closing === true) ctx.err('This went through as your one summary while the room is held; anything more is not posted until the hold lifts.');
     if (ambig) ctx.err(ambig);
