@@ -63,6 +63,7 @@ function withStub(overview, done, fn) {
     if (req.url.startsWith('/api/project/')) {
       seen.push({ method: req.method, url: req.url, headers: req.headers });
       if (req.method === 'DELETE' && done === 'drop') { req.socket.destroy(); return; }   // the connection breaks after the request left
+      if (req.method === 'DELETE' && done === 'html') { res.writeHead(502, { 'content-type': 'text/html' }); res.end('<html>Bad gateway</html>'); return; }
       const [status, json] = req.method === 'DELETE' ? done : overview;
       res.writeHead(status, { 'content-type': 'application/json' });
       res.end(JSON.stringify(json));
@@ -244,4 +245,38 @@ test('#7405 Mac and Windows: the connection breaking after the DELETE left says 
   assert.equal(w.code, 3, w.err);
   assert.match(w.err, /Ada may be off Launch; look at the project on the board before trying again/);
   assert.equal(deletes(seen).length, 2, 'CONTROL: the DELETE was not sent, so nothing broke after it');
+}));
+
+test('#7405 review 2: an answer that is not JSON after the DELETE left says "may be off", exit 3, on both', () => withStub(OVERVIEW, 'html', async (port, seen) => {
+  const m = await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
+  assert.equal(m.code, 3, m.out);
+  assert.match(m.out, /Kosmos gave an answer we could not read after it was asked\. Ada may be off Launch; look at the project on the board before trying again/);
+  const w = await winRun(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
+  assert.equal(w.code, 3, w.err);
+  assert.match(w.err, /Kosmos gave an answer we could not read after it was asked\. Ada may be off Launch; look at the project on the board before trying again/);
+  assert.equal(deletes(seen).length, 2, 'CONTROL: the DELETE was not sent');
+}));
+
+/* The Mac's y/N prompt at a real terminal: macOS script(1) gives the command a pty. The answer is typed only once the
+   prompt has been printed, so no fixed sleep decides it. */
+function cliAtTerminal(port, args, answer) {
+  // script(1) cannot read a terminal's settings from node's stdio (sockets), so /bin/sh feeds it through a real pipe and
+  // types the answer once the prompt is in the output file.
+  const out = path.join(HOME, 'tty-' + process.pid + '-' + Date.now() + '.out');
+  const q = (v) => "'" + String(v).replace(/'/g, "'\\''") + "'";
+  const sh = '{ i=0; while ! grep -q "\\[y/N\\]" ' + q(out) + ' 2>/dev/null && [ $i -lt 150 ]; do sleep 0.1; i=$((i+1)); done; printf ' + q(answer + '\n')
+    + '; sleep 1; } | /usr/bin/script -q /dev/null ' + [CLI, ...args].map(q).join(' ') + ' > ' + q(out) + ' 2>&1';
+  const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME, KOSMOS_HOME: HOME, KOSMOS_PORT: String(port), TMPDIR: os.tmpdir(),
+    AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'), KOSMOS_AGENT_TOKEN: 'abc123' };
+  return run('/bin/sh', ['-c', sh], { env, timeout: 30000 }).catch(() => null)
+    .then(() => { let t = ''; try { t = fs.readFileSync(out, 'utf8'); } catch { /* none */ } return { out: t.replace(/\r/g, '') }; });
+}
+test('#7405 review 2 Mac: at a terminal, y takes the member off and n cancels with nothing sent (control: y sends)', { skip: process.platform !== 'darwin' }, () => withStub(OVERVIEW, GONE, async (port, seen) => {
+  const no = await cliAtTerminal(port, ['project', 'remove-member', 'launch', 'Ada'], 'n');
+  assert.match(no.out, /Remove Ada from Launch\? \[y\/N\]/, 'the prompt was not shown: ' + no.out);
+  assert.match(no.out, /Cancelled\. Nothing was changed\./);
+  assert.equal(deletes(seen).length, 0, 'a cancelled run still sent the change');
+  const yes = await cliAtTerminal(port, ['project', 'remove-member', 'launch', 'Ada'], 'y');
+  assert.match(yes.out, /Ada is off Launch and still on your computer\./, yes.out);
+  assert.equal(deletes(seen).length, 1, 'CONTROL: y did not send');
 }));

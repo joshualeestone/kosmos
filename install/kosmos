@@ -6602,7 +6602,7 @@ cmd_project() {
       # A path step is no member name: encoded, "." and ".." would still be resolved away (another route).
       case "$mm_sess" in .|..) say "There is no member called $mm_sess."; exit 1 ;; esac
       # The screen's confirm (openMemModal), word for word apart from where the + is.
-      say "$mm_who comes off this project's list and stops getting its posts. Nothing else changes; you can put $mm_who back on the board, with the + at the top of the project."
+      say "$mm_who comes off this project's list and stops getting its posts. Nothing else changes; you can put $mm_who back with the + at the top of the project."
       if [ -z "$KOSMOS_RMM_YES" ]; then
         mm_answer=""
         printf '%sRemove %s from %s? [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "$mm_who" "$mm_pj" >&2
@@ -6632,7 +6632,7 @@ cmd_project() {
           if (!j.project) { console.log("unread"); return; }
           if (j.told && j.told.state === "could_not") { console.log(["could_not", one(j.told.because)].join("\t")); return; }
           console.log("ok");
-        });') || { say "Kosmos gave an answer we could not read when taking $mm_who off $mm_pj. Look at the project on the board: $URL/"; exit 1; }
+        });') || { say "Kosmos gave an answer we could not read after it was asked. $mm_who may be off $mm_pj; look at the project on the board before trying again: $URL/"; exit 3; }
       mm_state=$(printf '%s\n' "$mm_out" | cut -f1); mm_why=$(printf '%s\n' "$mm_out" | cut -f2)
       while [[ "$mm_why" == *[.[:space:]] ]]; do mm_why="${mm_why%?}"; done
       case "$mm_why" in *[?!]|*\)) mm_end="" ;; *) mm_end="." ;; esac

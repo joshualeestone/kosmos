@@ -1861,7 +1861,7 @@ async function projectRemoveMember(ctx, args) {
   // A path step is no member name: encoded, "." and ".." would still be resolved away by fetch (another route).
   if (member.sessionName === '.' || member.sessionName === '..') { ctx.err('There is no member called ' + member.sessionName + '.'); return 1; }
   const label = member.name || member.sessionName;
-  ctx.out(label + ' comes off this project\'s list and stops getting its posts. Nothing else changes; you can put ' + label + ' back on the board, with the + at the top of the project.');
+  ctx.out(label + ' comes off this project\'s list and stops getting its posts. Nothing else changes; you can put ' + label + ' back with the + at the top of the project.');
   if (!yes) {
     const answer = await ctx.ask('Remove ' + label + ' from ' + pj + '? [y/N] ');
     if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was changed.'); return 1; }
@@ -1869,7 +1869,9 @@ async function projectRemoveMember(ctx, args) {
   // The board token opens the route, as for pause; the agent's own token rides too.
   const r = await ctx.call('DELETE', '/api/project/' + slug + '/agent/' + encodeURIComponent(member.sessionName), undefined, { person: true, timeoutMs: POST_TIMEOUT_MS });
   if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + label + ' may be off ' + pj + '; look at the project on the board before trying again.') : ctx.unreachable('take ' + label + ' off ' + pj);
-  const j = r.json || {};
+  // An answer that is not JSON (a proxy's page) after the request left: it may have happened, as on the Mac.
+  if (!r.json || typeof r.json !== 'object') return maybe(ctx.err, 'Kosmos gave an answer we could not read after it was asked. ' + label + ' may be off ' + pj + '; look at the project on the board before trying again.');
+  const j = r.json;
   if (j.error) { const why = clause(j.error); ctx.err('Kosmos did not take ' + label + ' off ' + pj + ': ' + (why || 'it did not say why') + (/[?!)]$/.test(why) ? '' : '.')); return 1; }
   // A 200 with no project read back: the change landed, the read after it did not (server.js).
   if (!j.project) return maybe(ctx.err, 'Kosmos made the change but could not read the project back. ' + label + ' is most likely off ' + pj + '; look at the project on the board.');

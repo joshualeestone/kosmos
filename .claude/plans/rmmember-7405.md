@@ -11,17 +11,20 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
 
 ## Change
 - `install/kosmos` cmd_project and `tools/windows/kosmos-cli.js` projectRemoveMember:
-  - GET /api/project/<id>/overview first (the route answers { project: <overview>, agentsUnreadable }). The typed name matches a member's sessionName exactly, else its display name
-    ignoring case; none or more than one sends nothing and says which.
-  - The screen's confirm line (openMemModal), then "Remove <who> from <project>? [y/N]" at a terminal; --yes skips it,
+  - GET /api/project/<id>/overview first (the route answers { project: <overview>, agentsUnreadable }). The typed
+    name matches a member's sessionName exactly, else its display name ignoring case; none or more than one sends
+    nothing and says which.
+  - The screen's confirm line (openMemModal, with a straight apostrophe as all the command's text has), then "Remove <who> from <project>? [y/N]" at a terminal; --yes skips it,
     and no terminal without --yes refuses before anything is sent (as kosmos agent remove, #7362).
   - DELETE /api/project/<id>/agent/<sessionName> (what the screen's Remove sends), with the board token and the agent's
     own token, as pause does.
   - The answer in the screen's words (dropMember): "<who> is off <project> and still on your computer.", or its
     could-not sentence with the board's reason; a refusal (the members valve, 429) in the board's own words, exit 1; a
     timeout or a dropped connection after sending, "may be off", exit 3; a 200 with no project read back (the change
-    landed, the read after it did not), "most likely off", exit 3. The DELETE waits 120 s on both, as agent remove.
-  - A member stored as "." or ".." is refused, as agent remove refuses those names.
+    landed, the read after it did not), "most likely off", exit 3; an answer that is not JSON after the DELETE left,
+    "may be off", exit 3. The DELETE waits 120 s on both, as agent remove.
+  - A member stored as "." or ".." is refused, as agent remove refuses those names, but with exit 1 after the
+    overview read: here it is the board's data, not a typed argument.
 - `cli.project-remove-member-7405.test.js`: both commands against a stub board whose overview is the board's own
   (fleet cards through projects.describe and projectview.overviewOf, wrapped as the route wraps it), never hand-built.
   The first version's hand-built top-level shape passed every test while both commands failed on a real board.
@@ -35,14 +38,18 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
   so only an exact sessionName or a whole display name matches, and a shared display name asks for the sessionName.
 - Weakest premise: that the person or agent knows the member's display name or sessionName. `kosmos project show`
   lists both.
-
 - Kept as agent remove has them: the Mac's "may be off" names the board's address and Windows' does not, and the Mac
-  strips every space from the y/N answer. The Mac's y/N prompt is not tested (the test runs it with no terminal); the
-  Windows one is.
+  strips every space from the y/N answer.
+- Not checked: that the member is gone from the project a 200 returns. After a 200 the board's removeAgent has run,
+  and a member who left between the overview read and the DELETE is off, which is what the command says.
+- The Mac's y/N prompt is tested at a real terminal (macOS script(1), driven from /bin/sh through a pipe, since it
+  cannot use node's sockets); the answer is typed only once the prompt is printed.
 
 ## Mutation checks (run by hand, code restored after each)
 - The overview read at the top level again: 9 Mac and 6 Windows cases go red.
 - A 200 with no project treated as unreadable: the "most likely off" case goes red.
+- The Mac refusing every answer: the terminal case goes red.
+- An unreadable answer after the DELETE back to exit 1: the not-JSON case goes red.
 - The Mac's not-a-member arm sending anyway: the not-a-member case goes red.
 - The Windows not-a-member check removed: the Windows not-a-member case goes red.
 - The Mac's no-terminal guard removed: the no-terminal case goes red.
