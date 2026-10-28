@@ -16280,7 +16280,8 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'say whether Kosmos should start when you sign in (on: true or false)' }); return; }
         const r = require('./engine/win32board').setStartAtSignIn(body.on);
-        if (r.ok) { sendJson(res, 200, { ok: true, on: r.on }); return; }
+        // #7498: and, when it turned on, what happened to the job that restarts Kosmos if it stops (registered, already there, or why not).
+        if (r.ok) { sendJson(res, 200, { ok: true, on: r.on, ...(r.watchdog ? { watchdog: r.watchdog } : {}) }); return; }
         sendJson(res, 409, { error: r.because });
       })
       .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
