@@ -4,14 +4,13 @@ import SwiftUI
 // What would you like to create? -> What should this agent do? -> Set up your agent -> Making it -> Say hello. Cancel is
 // top left on the first screen, Back on the others, and each screen's one action is a full-width button pinned at the
 // bottom. The lists come from the board (NewAgent.rolesRequest); the request is the desktop's (NewAgent.createRequest).
-// Team opens the board's own Team screen until its native slice (the card's slice 2).
+// Team is native too (NewTeam): a ready-made team, its project and model, then each member made, the lead first.
 struct NewAgentView: View {
     @ObservedObject var client: BoardClient
-    let opened: (_ session: String, _ shownAs: String) -> Void   // Say hello: the new agent's chat
-    let openTeam: () -> Void
+    let opened: (_ session: String, _ shownAs: String) -> Void   // Say hello: the new agent's chat (a team's lead)
     @Environment(\.dismiss) private var dismiss
 
-    enum Step: Hashable { case role, otherRoles, setup, made }
+    enum Step: Hashable { case role, otherRoles, setup, made, team, teamMade }
     @State private var path: [Step] = []
     @State private var draft = NewAgent.Draft()
     @State private var catalogue: NewAgent.Catalogue?
@@ -22,6 +21,20 @@ struct NewAgentView: View {
     @State private var made: (session: String, shownAs: String)?
     @State private var seen = false
     @State private var lastLabel = ""     // the role title the Role field was last filled with (still untouched if equal)
+    // The Team path (NewTeam).
+    @State private var teams: [NewTeam.Team]?
+    @State private var teamsFailed = false
+    @State private var teamKey: String?
+    @State private var detail: NewTeam.Detail?
+    @State private var detailFailed = false
+    @State private var names: [String: String] = [:]
+    @State private var projects: [Board.ProjectRow] = []
+    @State private var projectChoice: NewTeam.ProjectChoice = .new
+    @State private var newProjectName = ""
+    @State private var madeProject: String?      // the project this team's run made, kept for a Try again
+    @State private var states: [String: NewTeam.State] = [:]
+    @State private var teamRunning = false
+    @State private var teamMessage: String?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -35,10 +48,12 @@ struct NewAgentView: View {
                     case .otherRoles: otherRolesScreen
                     case .setup: setupScreen
                     case .made: madeScreen
+                    case .team: teamScreen
+                    case .teamMade: teamMadeScreen
                     }
                 }
         }
-        .interactiveDismissDisabled(sending || (made != nil && !seen))
+        .interactiveDismissDisabled(sending || (made != nil && !seen) || teamRunning)
         .task {
             #if DEBUG
             if showSample() { return }
@@ -48,7 +63,7 @@ struct NewAgentView: View {
     }
 
     #if DEBUG
-    // Design shots only: KOSMOS_SAMPLE_NEWAGENT=kind|role|own|setup|swarm|made opens that screen on a sample catalogue,
+    // Design shots only: KOSMOS_SAMPLE_NEWAGENT=kind|role|own|setup|swarm|made|team|teammade opens that screen on a sample catalogue,
     // since a simulator run has no board to read the roles from.
     private func showSample() -> Bool {
         guard let at = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWAGENT"], !at.isEmpty else { return false }
@@ -69,6 +84,16 @@ struct NewAgentView: View {
         case "setup": draft.roleKey = "pm"; draft.name = "Ada"; draft.label = "Project Manager"; lastLabel = draft.label; path = [.role, .setup]
         case "swarm": draft.kind = .swarm; draft.roleKey = "researcher"; draft.name = "Hive"; draft.label = "Researcher"; lastLabel = draft.label; path = [.role, .setup]
         case "made": draft.name = "Ada"; made = ("ada", "Ada"); seen = true; path = [.role, .setup, .made]
+        case "team", "teammade":
+            teams = NewTeam.parseTeams(Data(#"{"teams":[{"key":"marketing","label":"Marketing","blurb":"Plans and runs your campaigns","count":3},{"key":"support","label":"Customer Support","blurb":"Answers your customers","count":3}]}"#.utf8))
+            detail = NewTeam.parseDetail(Data(#"{"team":{"key":"marketing","label":"Marketing","purpose":"A lead who plans the campaigns, and two who make them.","project":{"name":"Marketing"}},"members":[{"slot":"head","title":"Head of Marketing","name":"Maya","reportsTo":null},{"slot":"writer","title":"Copywriter","name":"Wes","reportsTo":"lead"},{"slot":"social","title":"Social Media Manager","name":"Sol","reportsTo":"lead"}]}"#.utf8))
+            teamKey = "marketing"
+            names = ["head": "Maya", "writer": "Wes", "social": "Sol"]
+            newProjectName = "Marketing"
+            if at == "teammade" {
+                states = ["head": .made(session: "maya", shownAs: "Maya"), "writer": .making, "social": .waiting]
+                path = [.team, .teamMade]
+            } else { path = [.team] }
         default: break
         }
         return true
@@ -95,7 +120,11 @@ struct NewAgentView: View {
     }
 
     private func choose(_ kind: NewAgent.Kind) {
-        if kind == .team { dismiss(); openTeam(); return }
+        if kind == .team {
+            path = [.team]
+            if teams == nil { Task { await loadTeams() } }
+            return
+        }
         if draft.kind != kind {
             draft.kind = kind
             // Josh: a recommended Project Manager makes no sense for a swarm, so a swarm starts with nothing picked.
@@ -181,6 +210,214 @@ struct NewAgentView: View {
         }
         .navigationTitle(NewAgent.Words.pickAnother)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: 2b. Create a Team of Agents
+
+    private var teamScreen: some View {
+        Form {
+            Section {
+                Text(NewTeam.Words.hint).font(.subheadline).foregroundColor(Palette.secondary)
+                    .listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 4, trailing: 4))
+            }
+            Section(NewTeam.Words.pick) {
+                if let teams {
+                    if teams.isEmpty { Text(NewTeam.Words.none).foregroundColor(Palette.secondary) }
+                    ForEach(teams) { t in
+                        pickRow(title: t.label, line: t.blurb.isEmpty ? nil : t.blurb, picked: teamKey == t.key) {
+                            guard !teamRunning, teamKey != t.key else { return }
+                            teamKey = t.key
+                            Task { await loadDetail(t.key) }
+                        }
+                    }
+                } else if teamsFailed {
+                    HStack { Text(NewTeam.Words.teamsUnread).foregroundColor(Palette.secondary); Spacer()
+                        Button(NewTeam.Words.tryAgain) { Task { await loadTeams() } } }
+                } else {
+                    ProgressView()
+                }
+            }
+            if let detail, detail.key == teamKey {
+                Section {
+                    if !detail.purpose.isEmpty { Text(detail.purpose).font(.footnote).foregroundColor(Palette.secondary) }
+                    if let caution = detail.caution { Text(caution).font(.footnote).foregroundColor(Palette.askedWord) }
+                    ForEach(detail.members) { m in
+                        VStack(alignment: .leading, spacing: 4) {
+                            TextField(m.title, text: Binding(get: { names[m.slot] ?? "" }, set: { names[m.slot] = $0 }))
+                                .textInputAutocapitalization(.words)
+                                .accessibilityLabel(m.title + ", " + NewAgent.Words.name)
+                            Text(m.title + " · " + NewAgent.Words.reportsTo + " " + (m.isLead ? NewAgent.Words.you : (detail.members.first?.title ?? "")))
+                                .font(.footnote).foregroundColor(Palette.secondary)
+                        }
+                    }
+                } header: { Text(detail.label) }
+                Section(NewTeam.Words.project) {
+                    Picker(NewTeam.Words.project, selection: $projectChoice) {
+                        Text(NewTeam.Words.newProject(newProjectName)).tag(NewTeam.ProjectChoice.new)
+                        Text(NewTeam.Words.noProject).tag(NewTeam.ProjectChoice.none)
+                        ForEach(projects.filter { !$0.archived }) { p in Text(p.name).tag(NewTeam.ProjectChoice.existing(p.id)) }
+                    }
+                    .labelsHidden()
+                }
+                if let models = catalogue?.models, !models.isEmpty {
+                    Section {
+                        Picker(NewAgent.Words.model, selection: $draft.model) {
+                            ForEach(models) { m in Text(m.label).tag(m.key) }
+                        }
+                    } header: { Text(NewAgent.Words.model + " " + NewTeam.Words.modelSoft) }
+                }
+            } else if teamKey != nil {
+                Section {
+                    if detailFailed {
+                        HStack { Text(NewTeam.Words.teamsUnread).foregroundColor(Palette.secondary); Spacer()
+                            Button(NewTeam.Words.tryAgain) { if let k = teamKey { Task { await loadDetail(k) } } } }
+                    } else { ProgressView() }
+                }
+            }
+            if let teamMessage {
+                Section { Text(teamMessage).foregroundColor(Palette.dangerWord) }
+            }
+        }
+        .navigationTitle(NewTeam.Words.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(teamRunning)
+        .safeAreaInset(edge: .bottom) {
+            let n = detail?.members.count ?? 0
+            pinned(NewTeam.Words.create(max(n, 1)), enabled: !teamRunning && detail?.key == teamKey && n > 0
+                   && detail!.members.allSatisfy { !NewProject.trimmed(names[$0.slot] ?? "").isEmpty }, busy: teamRunning) {
+                Task { await makeTeam() }
+            }
+        }
+    }
+
+    private func loadTeams() async {
+        teamsFailed = false
+        let got = await client.throughMac { NewTeam.teamsRequest(mac: $0) }
+        if let got, (200...299).contains(got.1.statusCode), let list = NewTeam.parseTeams(got.0) { teams = list } else { teamsFailed = true }
+        // The project menu's existing projects, and the names a new one must not take.
+        let pj = await client.throughMac { Board.projectsRequest(mac: $0) }
+        if let pj, (200...299).contains(pj.1.statusCode), let list = Board.parseProjects(pj.0) { projects = list.projects }
+    }
+
+    private func loadDetail(_ key: String) async {
+        detailFailed = false
+        detail = nil
+        teamMessage = nil
+        let got = await client.throughMac { NewTeam.detailRequest(mac: $0, key: key) }
+        guard teamKey == key else { return }   // another team picked meanwhile
+        if let got, (200...299).contains(got.1.statusCode), let d = NewTeam.parseDetail(got.0) {
+            detail = d
+            names = Dictionary(uniqueKeysWithValues: d.members.map { ($0.slot, $0.name) })
+            newProjectName = NewTeam.newProjectName(d, taken: projects.map(\.name))
+            projectChoice = .new
+            madeProject = nil
+            states = [:]
+        } else {
+            detailFailed = true
+        }
+    }
+
+    // The desktop's tcMake: names checked with nothing made, then the project, then the members, the lead first.
+    private func makeTeam() async {
+        guard !teamRunning, let d = detail else { return }
+        teamRunning = true
+        teamMessage = nil
+        defer { teamRunning = false }
+        let epoch = client.chatEpoch
+        let typed = names.mapValues { NewProject.trimmed($0) }
+        let model = draft.model
+        // 1. The names, checked against this computer, before anything is made.
+        let check = await client.throughMac { NewTeam.specsRequest(mac: $0, key: d.key, names: typed, project: nil, model: model, check: true) }
+        guard epoch == client.chatEpoch else { return }
+        switch NewTeam.specsAnswer(status: check?.1.statusCode ?? 0, body: check?.0) {
+        case .refused(let why): say(why); return
+        case .unknown: say(NewAgent.unsureWords); return
+        case .specs: break
+        }
+        // 2. The project.
+        var project: String?
+        switch projectChoice {
+        case .none: project = nil
+        case .existing(let id): project = id
+        case .new:
+            if let made = madeProject { project = made; break }
+            let draftProject = NewProject.Draft(name: newProjectName, description: d.projectGoal ?? "")
+            var built = false
+            let got = await client.throughMac { mac -> URLRequest? in let r = NewProject.request(mac: mac, draft: draftProject); built = r != nil; return r }
+            guard epoch == client.chatEpoch else { return }
+            switch NewProject.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
+            case .made(let id): project = id; madeProject = id
+            case .refused(let why): say(NewTeam.sentence(why)); return
+            case .unknown: say(NewProject.unsureWords); return
+            }
+        }
+        // 3. The members, with the project, the lead first; the rest only once it is made.
+        let read = await client.throughMac { NewTeam.specsRequest(mac: $0, key: d.key, names: typed, project: project, model: model, check: false) }
+        guard epoch == client.chatEpoch else { return }
+        guard case .specs(let specs) = NewTeam.specsAnswer(status: read?.1.statusCode ?? 0, body: read?.0) else {
+            say(NewAgent.unsureWords); return
+        }
+        for s in specs where states[s.slot].map({ if case .made = $0 { return false } else { return true } }) ?? true { states[s.slot] = .waiting }
+        if path.last != .teamMade { path.append(.teamMade) }
+        let lead = d.members.first?.slot
+        for s in specs {
+            if case .made = states[s.slot] { continue }
+            if s.slot != lead, let lead, !isMade(lead) { states[s.slot] = .afterLead; continue }
+            states[s.slot] = .making
+            let got = await client.throughMac { NewTeam.memberRequest(mac: $0, spec: s) }
+            guard epoch == client.chatEpoch else { return }
+            switch NewAgent.result(sent: true, status: got?.1.statusCode ?? 0, body: got?.0) {
+            case .made(let session, let shown): states[s.slot] = .made(session: session, shownAs: shown)
+            case .refused(let why): states[s.slot] = .failed(NewTeam.sentence(why))
+            case .unknown: states[s.slot] = .failed(NewAgent.unsureWords)
+            }
+        }
+    }
+
+    private func isMade(_ slot: String) -> Bool { if case .made = states[slot] { return true }; return false }
+
+    private func say(_ why: String) {
+        teamMessage = why
+        UIAccessibility.post(notification: .announcement, argument: why)
+    }
+
+    // The members as they are made; Try again makes the ones not made yet; the lead's chat once it is made.
+    private var teamMadeScreen: some View {
+        let members = detail?.members ?? []
+        let allMade = !members.isEmpty && members.allSatisfy { isMade($0.slot) }
+        return List {
+            Section {
+                ForEach(members) { m in
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(NewProject.trimmed(names[m.slot] ?? m.name)).foregroundColor(Palette.primary)
+                            Text(m.title).font(.footnote).foregroundColor(Palette.secondary)
+                            if case .failed(let why) = states[m.slot] { Text(why).font(.footnote).foregroundColor(Palette.dangerWord) }
+                            if states[m.slot] == .afterLead { Text(NewTeam.Words.afterLead).font(.footnote).foregroundColor(Palette.secondary) }
+                        }
+                        Spacer(minLength: 8)
+                        switch states[m.slot] ?? .waiting {
+                        case .making: ProgressView().accessibilityLabel(NewTeam.Words.making)
+                        case .made: Image(systemName: "checkmark").foregroundColor(Palette.ringOk).accessibilityLabel(NewTeam.Words.made)
+                        case .failed: Image(systemName: "exclamationmark.circle").foregroundColor(Palette.dangerWord).accessibilityHidden(true)
+                        default: Text(NewTeam.Words.waiting).font(.footnote).foregroundColor(Palette.secondary)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            } header: { Text(detail.map { NewAgent.Words.makingNamed($0.label) } ?? NewAgent.Words.making) }
+            if let teamMessage { Section { Text(teamMessage).foregroundColor(Palette.dangerWord) } }
+        }
+        .navigationTitle(NewTeam.Words.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .safeAreaInset(edge: .bottom) {
+            if allMade, let lead = members.first, case .made(let session, let shown) = states[lead.slot] {
+                pinned(NewTeam.Words.goTo(members.count), enabled: true) { dismiss(); opened(session, shown) }
+            } else if !teamRunning {
+                pinned(NewTeam.Words.tryAgain, enabled: true) { Task { await makeTeam() } }
+            }
+        }
     }
 
     // MARK: 3. Set up your agent

@@ -409,9 +409,6 @@ struct ContentView: View {
                 NewAgentView(client: board, opened: { session, shown in
                     // Say hello: the new agent's chat, natively, as a notification's agent opens (kosmos#7418).
                     if let host = board.macURL?.host { agentRequest = PushBridge.AgentTarget(host: host, session: session, name: shown) }
-                }, openTeam: {
-                    // Until the native Team slice: the board's own New Agent, where Team is the second card.
-                    openCreate(.agent)
                 })
             }
         } else if which == .projects {

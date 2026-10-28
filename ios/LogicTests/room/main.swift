@@ -1152,6 +1152,40 @@ check(NewAgent.result(sent: true, status: 0, body: nil) == .unknown && NewAgent.
 check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"created","name":"../x"}"#.utf8)) == .unknown, "a made answer with no usable session is unknown, never guessed")
 check(NewAgent.result(sent: false, status: 0, body: nil) == .refused(NewAgent.fallback), "nothing sent is certainly not made")
 
+// kosmos#7488 slice 2: Team. The desktop's words, its project naming, its specs request and its member order.
+for w in [NewTeam.Words.title, NewTeam.Words.hint, NewTeam.Words.pick, NewTeam.Words.project, NewTeam.Words.noProject, NewTeam.Words.modelSoft] {
+    check(boardPage.contains(w), "the desktop says it too: \(w)")
+}
+check(boardPage.contains("'A new project called ' + wanted") && NewTeam.Words.newProject("Marketing") == "A new project called Marketing", "the new project's line, as the desktop's")
+check(boardPage.contains("'Create ' + n + (n === 1 ? ' agent' : ' agents')") && NewTeam.Words.create(5) == "Create 5 agents" && NewTeam.Words.create(1) == "Create 1 agent", "Create N agents, as the desktop's button")
+check(boardPage.contains("n === 1 ? 'Go to your agent' : 'Go to your team'") && NewTeam.Words.goTo(3) == "Go to your team", "Go to your team, as the desktop's")
+let ntTeams = NewTeam.parseTeams(Data(#"{"teams":[{"key":"marketing","label":"Marketing","blurb":"Gets the word out","count":4},{"key":"Bad Key","label":"x"},{"key":"ops","label":" "}]}"#.utf8))
+check(ntTeams?.map(\.key) == ["marketing"], "teams as served; a bad key or a blank label dropped")
+let ntDetailJSON = #"{"team":{"key":"marketing","label":"Marketing","purpose":"Plans and runs campaigns.","caution":null,"project":{"name":"Marketing","goal":"Grow sign-ups"},"lead":"head"},"members":[{"slot":"head","title":"Head of Marketing","name":"Maya","reportsTo":null},{"slot":"writer","title":"Copywriter","name":"Wes","reportsTo":"lead"}]}"#
+let ntDetail = NewTeam.parseDetail(Data(ntDetailJSON.utf8))
+check(ntDetail?.members.map(\.slot) == ["head", "writer"] && ntDetail?.members.map(\.isLead) == [true, false] && ntDetail?.projectGoal == "Grow sign-ups" && ntDetail?.caution == nil,
+      "a team's members, lead first (reportsTo null), and its project")
+check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""reportsTo":"lead""#, with: #""reportsTo":null"#).utf8)) == nil, "two leads: refused, as the board refuses it")
+if let d = ntDetail {
+    check(NewTeam.newProjectName(d, taken: ["Website"]) == "Marketing" && NewTeam.newProjectName(d, taken: ["marketing", "Marketing 2"]) == "Marketing 3",
+          "the new project takes the first free name, as tcFillProjects")
+}
+let ntReq = NewTeam.specsRequest(mac: npMac, key: "marketing", names: ["head": "Maya", "writer": "Wes"], project: "mkt", model: "sonnet", check: true)
+let ntBody = ntReq?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+check(ntReq?.httpMethod == "POST" && ntReq?.url?.path == "/api/teams/seeded/marketing/specs" && (ntBody?["names"] as? [String: String]) == ["head": "Maya", "writer": "Wes"]
+      && ntBody?["project"] as? String == "mkt" && ntBody?["model"] as? String == "sonnet" && ntBody?["check"] as? Bool == true, "specs: names, project, model and check, as tcSpecs sends")
+check(NewTeam.specsRequest(mac: npMac, key: "../x", names: [:], project: nil, model: "", check: false) == nil && NewTeam.detailRequest(mac: npMac, key: "a/b") == nil, "a key the route would refuse is never sent")
+let ntSpecs = NewTeam.specsAnswer(status: 200, body: Data(#"{"team":"marketing","specs":[{"slot":"head","title":"Head","session":"maya","spec":{"name":"Maya","role":"pm","reportsTo":null}},{"slot":"writer","title":"Copywriter","session":"wes","spec":{"name":"Wes","role":"writer","reportsTo":"maya"}}]}"#.utf8))
+if case .specs(let list) = ntSpecs {
+    check(list.map(\.slot) == ["head", "writer"], "the specs in the board's order, the lead first")
+    let sent = try? JSONSerialization.jsonObject(with: NewTeam.memberRequest(mac: npMac, spec: list[1]).httpBody ?? Data()) as? [String: Any]
+    check(sent?["reportsTo"] as? String == "maya" && sent?["role"] as? String == "writer" && sent?["notifyCreated"] as? Bool == true
+          && NewTeam.memberRequest(mac: npMac, spec: list[1]).url?.path == "/api/agents", "each member is the board's own spec, through POST /api/agents")
+} else { check(false, "the specs parse") }
+check(NewTeam.specsAnswer(status: 400, body: Data(#"{"error":"give the Copywriter a name"}"#.utf8)) == .refused("Give the Copywriter a name."), "a refusal reads as a sentence, as tcSay")
+check(NewTeam.specsAnswer(status: 0, body: nil) == .unknown && NewTeam.specsAnswer(status: 200, body: Data(#"{"specs":[{"slot":"a","session":"../x","spec":{"name":"A"}}]}"#.utf8)) == .unknown,
+      "no answer, or a spec with no usable session, is unknown")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
