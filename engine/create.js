@@ -722,6 +722,15 @@ function usableRecordedDir(dir) {
   if (!st.isDirectory()) return null;
   return dir;
 }
+/* #7232: the recorded folder as WRITTEN, read from the profile only: no lstat, so a connected agent's folder on a
+   share or a mapped drive whose server is down is never touched by asking where it is. Not validated: a caller uses
+   it only to decide whether that folder is on another computer (engine/replyfile.js keptRoots), and goes through
+   workerDir, which validates, for anything else. */
+function recordedDirSpelling(name) {
+  let dir;
+  try { dir = store.readProfile(name).dir; } catch { return null; }
+  return typeof dir === 'string' && dir && path.isAbsolute(dir) ? dir : null;
+}
 
 /**
  * 🛑 THE DERIVED PATH IS BUILT FROM A SANITISED NAME, AND THAT IS LOAD-BEARING
@@ -6994,6 +7003,7 @@ module.exports = {
   workerDir,
   workersDir,   // #4896: discover's one-folder rule asks whether a folder is a created agent's default home
   usableRecordedDir,
+  recordedDirSpelling,   // #7232: replyfile keptRoots, no lstat
   /* #923: the ONE home resolver (AGENT_WORKFORCE_HOME || os.homedir(), #1780),
      exported so server.js's startup chdir reuses it rather than deriving
      os.homedir() a second time (server.js:477-486 names that anti-pattern), and

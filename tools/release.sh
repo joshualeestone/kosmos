@@ -908,6 +908,27 @@ release_linux_decide "$SITE" "$CUT_CHANNEL" || exit 1
 # 0.7.71 cut, 2026-10-27: the decision is CUT_LINUX from here on. Exported, the variable reached step 3's suite, and
 # every test that runs a nested release.sh tried to cut the Linux family there and stopped at 1d-linux (9 reds).
 unset KOSMOS_CUT_LINUX
+# kosmos#7363 cut_suite helpers START (lifted verbatim between these markers by tools/test-cut-suite-env-7363.sh and
+# tools/test-cut-parallel-region.sh, whose step-3 region calls them)
+# Step 3's suite runs with EVERY KOSMOS_CUT_* removed, not one variable at a time per incident. They are this cut's own
+# overrides (KOSMOS_CUT_CHANNEL at 0.7.25 and KOSMOS_CUT_LINUX at 0.7.71 each reached the suite, where tests that run a
+# nested release.sh obeyed them and the cut aborted); the suite must test the tree, not this cut's settings. Every
+# exported name with the prefix, so one added later is covered too. NOT covered: overrides without the prefix
+# (KOSMOS_ALLOW_VERSION_JUMP is unset above; KOSMOS_ALLOW_STALE_TUNNEL, KOSMOS_SETUP_FLOOR_TEST, KOSMOS_TUNNEL_BIN and
+# others still reach the suite, and the tests that run a nested release.sh drop them by name). ${a[@]+...}: bash 3.2.
+cut_suite_env() {
+  local v strip=()
+  for v in $(compgen -e); do case "$v" in KOSMOS_CUT_*) strip+=(-u "$v") ;; esac; done
+  env ${strip[@]+"${strip[@]}"} "$@"
+}
+# The same, for a subshell that runs shell functions rather than one command (step 3's isolation rerun, #2006, which
+# decides whether a red suite stops the cut): unsets them in THAT subshell only; the cut's own shell keeps them. For an
+# ordinary exported name: a readonly one, or one no shell can name, survives `unset` (env -u above has no such limit).
+cut_suite_unset() {
+  local v
+  for v in $(compgen -e); do case "$v" in KOSMOS_CUT_*) unset "$v" ;; esac; done
+}
+# kosmos#7363 cut_suite helpers END
 LINUX_TUNNEL_BIN="${KOSMOS_TUNNEL_LINUX_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel-linux-x86_64}"
 LINUX_CONNECTOR_COMMIT=""
 if [ "$CUT_LINUX" = yes ]; then
@@ -1131,6 +1152,7 @@ kosmos_gate_or_abort "the gated steps (the suite and the headless page layer)" |
 # its guarantee (contention makes false reds, never false greens) holds exactly as
 # in serial mode.
 # >>> #2760-P1 gated-steps region START (extracted verbatim by tools/test-cut-parallel-region.sh, which drives it under stubs to prove a red suite or red page still aborts in BOTH modes) >>>
+# (kosmos#7363: it calls cut_suite_env and cut_suite_unset, defined above between the cut_suite helpers markers.)
 _cut_parallel=0
 if kosmos_cut_parallel_ok; then _cut_parallel=1; fi
 if [ "$_cut_parallel" = 1 ]; then
@@ -1144,7 +1166,7 @@ if [ "$_cut_parallel" = 1 ]; then
   # never trips errexit; its exit is reaped by `wait` below. nice -n 19 means the
   # foreground render checks always win the scheduler, so their timing -- and thus
   # their flake-rate -- stays near-serial.
-  ( cd "$REPO" && nice -n 19 yarn test >"$_suite_log" 2>&1 ) &
+  ( cd "$REPO" && cut_suite_env nice -n 19 yarn test >"$_suite_log" 2>&1 ) &   # #7363
   _suite_bg_pid=$!
   # The render checks, foreground at NORMAL priority: the SAME command, env
   # exclusion (#2724) and strict version pin (#1708) as the serial step 3b below.
@@ -1174,7 +1196,7 @@ step "== 3. the whole suite, on the tree that ships =="
 # summary lines, and names the log a red run's detail lives in.
 _suite_log="$(mktemp)"
 _suite_exit=0
-( cd "$REPO" && yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?
+( cd "$REPO" && cut_suite_env yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?   # #7363
 fi
 grep -E '^ℹ (tests|pass|fail)' "$_suite_log" || true
 # 📌 AN AUDIT TRAIL, NOT A GUARD (Splinter, 2026-08-25 05:30; the guard reading
@@ -1215,7 +1237,7 @@ if [ "$_suite_exit" -ne 0 ]; then
   # `if VAR=$(...)` captures the verdict's exit WITHOUT tripping errexit and
   # WITHOUT a pipe -- a pipe would let a downstream exit mask the verdict's.
   echo "--- #2006: re-running the failing file(s) / the whole gate in isolation before deciding ---"
-  if _rr_out="$(kosmos_isolation_rerun_verdict "$_suite_log" "$REPO" 2>&1)"; then _rr_rc=0; else _rr_rc=$?; fi
+  if _rr_out="$(cut_suite_unset; kosmos_isolation_rerun_verdict "$_suite_log" "$REPO" 2>&1)"; then _rr_rc=0; else _rr_rc=$?; fi   # #7363
   printf '%s\n' "$_rr_out"
   if [ "$_rr_rc" -eq 0 ]; then _rr_word=contention_dismissed; else _rr_word=real_red; fi
   {

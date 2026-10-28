@@ -168,3 +168,79 @@ test('#4903 seam H: the page\'s own "this computer" sentences on the agent, its 
     assert.ok(!PAGE.includes(old), 'still fixed: ' + old);
   }
 });
+
+test('#4903 seam H, engine half: an engine sentence says "your cloud machine" at display on a cloud machine, and only there', () => {
+  const said = (cloud) => run(['cloudWords', 'asSentence', 'pjSentence', 'restartFailureLine'], `return [
+    pjSentence('we cannot see an agent by exactly this name on this computer right now'),
+    asSentence('it has no folder of its own on this computer yet'),
+    cloudWords("This computer's tmux server belongs to a different version"),
+    restartFailureLine({ because: 'we could not find Claude Code on this computer', steps: [{ ok: false, label: 'started it on this computer' }] }),
+    cloudWords('a computer named this computerlike'),
+    [cloudWords(undefined), cloudWords(null), cloudWords(7)],
+  ];`, machine(cloud, 'linux'));
+  assert.deepEqual(said(true), [
+    'We cannot see an agent by exactly this name on your cloud machine right now.',
+    'It has no folder of its own on your cloud machine yet.',
+    "Your cloud machine's tmux server belongs to a different version",
+    'we could not find Claude Code on your cloud machine What failed: started it on your cloud machine.',
+    'a computer named this computerlike',
+    [undefined, null, 7],
+  ]);
+  // CONTROL: the same sentences on a board that is not a cloud machine are the engine's own words.
+  assert.deepEqual(said(false), [
+    'We cannot see an agent by exactly this name on this computer right now.',
+    'It has no folder of its own on this computer yet.',
+    "This computer's tmux server belongs to a different version",
+    'we could not find Claude Code on this computer What failed: started it on this computer.',
+    'a computer named this computerlike',
+    [undefined, null, 7],
+  ]);
+});
+
+test('#4903 seam H, engine half: a made-agent warning line is said through cloudWords', () => {
+  assert.ok(PAGE.includes("p.className = 'tc-why'; p.textContent = " + "(typeof cloudWords === 'function' ? cloudWords : (x) => x)(" + 'w);'));
+});
+
+test('#4903 seam H, engine half: the create and remove flows say engine sentences through cloudWords', () => {
+  // Each sink paints an engine sentence on the finish-line path (a create refusal, a name refusal, a partial create, an
+  // import row, a create step, the Remove dialog). The words themselves are proven by the lifted arms above.
+  // Guarded as the page guards thisMachine, so a test that lifts one of these functions alone still runs.
+  const CW = "(typeof cloudWords === 'function' ? cloudWords : (x) => x)(";
+  for (const sink of [
+    'fail(' + CW + 'out.because || out.error ||',
+    'msg.textContent = ' + CW + "result.because || 'that name will not work');",
+    'msg.textContent = ' + CW + '(result && (result.error || result.because))',
+    'const becauseSentence = ' + CW + "result.because || '')",
+    "return tickLine('working', " + CW + 's.label));',
+    "tickLine(s.ok ? 'done' : 'fail', " + CW + 's.label));',
+    'hint.textContent = ' + CW + "ask.hint || '');",
+    'li.textContent = ' + CW + "t); ul.appendChild(li); }\n  };\n  fill('rm-loses'",
+    'if (err) err.textContent = ' + CW + 'reason);',
+  ]) assert.ok(PAGE.includes(sink), 'not said through cloudWords: ' + sink.slice(0, 60));
+});
+
+test('#4903 seam H, engine half: a field refusal (the create name among them) says the engine sentence through cloudWords', () => {
+  const said = (cloud) => {
+    const els = { 'create-name': { classList: { add() {} }, setAttribute() {}, focus() {} }, 'create-name-err': { textContent: '' } };
+    const document = { getElementById: (id) => els[id] || null };
+    run(['cloudWords', 'pjFieldBad'], "pjFieldBad('create-name', 'create-name-err', 'that name is already used on this computer');",
+      { ...machine(cloud, 'linux'), document });
+    return els['create-name-err'].textContent;
+  };
+  assert.equal(said(true), 'that name is already used on your cloud machine');
+  assert.equal(said(false), 'that name is already used on this computer', 'CONTROL: not a cloud machine');
+});
+
+test('#4903 seam H, engine half: the Remove, Delete and restore functions paint no engine sentence raw', () => {
+  // By function, not by line: a raw sink added to one of these later fails here rather than waiting for a reviewer.
+  const names = ['loadRemoval', 'loadLeftover', 'closeDeleteModal', 'reportDiscarded', 'setForceOffered', 'paintDiscoveryTrigger', 'refreshYou', 'closeHistModal'];
+  const raw = [];
+  for (const name of names) {
+    const src = page.liftAll(SCRIPT, [name]);
+    assert.ok(src.includes('function ' + name), 'could not lift ' + name);
+    for (const line of src.split('\n')) {
+      if (/textContent = /.test(line) && /\.(because|error|hint)\b/.test(line) && !/cloudWords/.test(line)) raw.push(name + ': ' + line.trim());
+    }
+  }
+  assert.deepEqual(raw, []);
+});

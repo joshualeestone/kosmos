@@ -17456,6 +17456,9 @@ window.kosmosMeasureScrollbarWidth();
            never render as sent. -->
       <p class="vh" id="pj-fed-own-said" role="status" aria-live="polite"></p><!-- kosmos#4658: what a press did, heard once -->
       <p class="ownseal-phone" id="pj-fed-own-phone" hidden>This room is sealed on this computer. The code to compare is under Members.</p>
+      <!-- kosmos#7365: the room's earlier pages load as the reader scrolls back, as a Direct conversation's do (#6086):
+           this line floats over the top while one loads, and a failed load takes a row of its own with Try again. -->
+      <div class="dm-earlier-wrap"><p class="dm-earlier" id="pj-room-older" role="status" aria-live="polite" hidden><span id="pj-room-older-text"></span> <button type="button" class="btn-quiet" id="pj-room-older-show" hidden>Try again</button></p></div>
       <div class="thread" id="pj-room"></div>
       <!-- ⚠️ THE ROOM'S HALF OF THE SAME SIGNAL (#176), mounted where the agent
            page mounts its own: between the thread and the composer, so it sits
@@ -20902,6 +20905,13 @@ function hostMachineCap(platform) {   // the same words opening a sentence
    is a browser, "this computer" is the laptop in front of them, so there it is "your cloud machine". */
 function thisMachine() { return (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'your cloud machine' : 'this computer'; }
 function ThisMachine() { return (typeof onCloudMachine === 'function' && onCloudMachine()) ? 'Your cloud machine' : 'This computer'; }
+/* kosmos#4903 seam H, the engine's half: the engine runs on the cloud machine, so "this computer" in a sentence it sends
+   (a presence reason, a Files or made-agent step, a refusal) always means that machine. Said as "your cloud machine" at
+   display, never in the engine, whose sentences are also matching keys (projects.js groupBecause, the page's regexes). */
+function cloudWords(s) {
+  if (typeof s !== 'string' || !(typeof onCloudMachine === 'function' && onCloudMachine())) return s;
+  return s.replace(/\bthis computer\b/g, 'your cloud machine').replace(/\bThis computer\b/g, 'Your cloud machine');
+}
 /* The restart and Start at login notices are hidden on a cloud machine: there is no login there for the person to start
    anything at. Right only while the box brings every agent back by itself after a restart (Baron confirms on a test
    box, #4903 seam H); if it does not, set this false and the notices come back. */
@@ -22482,7 +22492,7 @@ function saidLine(a) {
  * is the wrong way round: the better answer looked worse.
  */
 function asSentence(s) {
-  const t = typeof s === 'string' ? s.trim() : '';
+  const t = typeof s === 'string' ? (typeof cloudWords === 'function' ? cloudWords : (x) => x)(s).trim() : '';
   if (!t) return '';
   return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
 }
@@ -49007,13 +49017,13 @@ async function loadRemoval(sessionName, { fromPoll = false } = {}) {
     // to write its own version, which is the drift the block below forbids --
     // and it said an agent with no startup job would be "stopped from starting
     // again", describing work that does not happen.
-    hint.textContent = ask.hint || '';
+    hint.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(ask.hint || '');
     document.getElementById('d-remove-start').hidden = false;
     setForceOffered(false);   // #2651: a tied agent removes normally; no override
   } else {
     // Says WHY rather than simply not being there. Somebody looking for this
     // deserves an answer.
-    hint.textContent = (ask && ask.because) || 'We cannot remove this agent right now.';
+    hint.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((ask && ask.because) || 'We cannot remove this agent right now.');
     document.getElementById('d-remove-start').hidden = true;
     /* #2651: ONLY the untied refusal (Kosmos cannot tie the running session to
        this card) is overridable, and only to CLEAR THE CARD off the board -- the
@@ -49201,7 +49211,7 @@ document.getElementById('you-file').addEventListener('change', async (e) => {
       method: 'PUT', headers: { 'content-type': file.type || 'application/octet-stream' }, body: file,
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { msg.textContent = (out && out.error) || 'we could not save that picture'; return; }
+    if (!res.ok) { msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((out && out.error) || 'we could not save that picture'); return; }
     YOU_PIC = true;
     YOU_PIC_V += 1;
     msg.textContent = 'Saved.';
@@ -49288,7 +49298,7 @@ document.getElementById('hist-del').addEventListener('click', async () => {
       body: JSON.stringify({ confirm: 'delete' }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) { msg.textContent = (out && out.error) || 'we could not delete it'; btn.disabled = false; return; }
+    if (!res.ok) { msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((out && out.error) || 'we could not delete it'); btn.disabled = false; return; }
     closeHistModal();
     await refreshHistory();
     /* ⚠️ THE OPEN CONVERSATION SURFACES ARE NOW SHOWING SOMETHING THAT NO
@@ -49336,7 +49346,7 @@ function openRemoveModal(name, ask) {
   const cols = document.getElementById('rm-cols');
   const fill = (id, items) => {
     const ul = document.getElementById(id); ul.innerHTML = '';
-    for (const t of (items || [])) { const li = document.createElement('li'); li.textContent = t; ul.appendChild(li); }
+    for (const t of (items || [])) { const li = document.createElement('li'); li.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(t); ul.appendChild(li); }
   };
   fill('rm-loses', ask.loses); fill('rm-keeps', ask.keeps);
   cols.hidden = !((ask.loses || []).length && (ask.keeps || []).length);
@@ -49420,7 +49430,7 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
        nothing happened. */
     if (!res.ok || !done || done.outcome === 'refused') {
       if (onPanel()) {
-        msg.textContent = (done && (done.because || done.error)) || 'We could not clear that card just now. Try again in a moment.';
+        msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((done && (done.because || done.error)) || 'We could not clear that card just now. Try again in a moment.');
         btn.disabled = false;
       }
       return;
@@ -49434,14 +49444,14 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
        (rm-go), which re-enables its button on a partial for the same reason. */
     if (done.outcome === 'partial') {
       if (onPanel()) {
-        msg.textContent = done.because || 'We could not clear that card just now. Try again in a moment.';
+        msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || 'We could not clear that card just now. Try again in a moment.');
         btn.disabled = false;
       }
       return;
     }
     // REMOVED: the card is off the board. Do not re-enable a button that is now
     // gone; the message says what happened (including the session left running).
-    if (onPanel()) msg.textContent = done.because || 'Cleared from your board.';
+    if (onPanel()) msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || 'Cleared from your board.');
     /* ⚠️ REPAINT NOW, don't wait for the 5s poll. Same as the normal-remove
        handler (rm-go): a person who just cleared a card should see it leave the
        Agents roster and appear on the Removed list immediately, not sit there
@@ -49484,7 +49494,7 @@ async function loadLeftover(sessionName) {
      Remove section above already says what state the agent is in. */
   if (!plan || !plan.ok) { box.hidden = true; DEL_PLAN = null; return; }
   DEL_PLAN = plan;
-  document.getElementById('d-delete-hint').textContent = plan.hint || '';
+  document.getElementById('d-delete-hint').textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(plan.hint || '');
   box.hidden = false;
 }
 function openDeleteModal(plan) {
@@ -49543,7 +49553,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
     body = await res.json().catch(() => null);
   } catch { res = null; }
   if (!res || !body || (!res.ok && body.outcome !== 'partial')) {
-    msg.textContent = (body && (body.because || body.error)) || 'We could not reach the board just now. Nothing was deleted.';
+    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((body && (body.because || body.error)) || 'We could not reach the board just now. Nothing was deleted.');
     go.disabled = false;
     return;
   }
@@ -49570,7 +49580,7 @@ document.addEventListener('click', async (e) => {
   btn.disabled = false;
   const rmsg = document.getElementById('removed-msg');
   if (!plan) { if (rmsg) rmsg.textContent = 'We could not reach the board just now.'; return; }
-  if (!plan.ok) { if (rmsg) rmsg.textContent = plan.because || 'We cannot delete that right now.'; return; }
+  if (!plan.ok) { if (rmsg) rmsg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(plan.because || 'We cannot delete that right now.'); return; }
   openDeleteModal(plan);
 });
 
@@ -49658,8 +49668,8 @@ document.getElementById('rm-go').addEventListener('click', async () => {
        * where the agent may be half-removed. `loadRemoval` gets this right for
        * its own 5xx; this handler did not.
        */
-      msg.textContent = (done && (done.because || done.error))
-        || 'we could not remove it, and we cannot tell you why';
+      msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((done && (done.because || done.error))
+        || 'we could not remove it, and we cannot tell you why');
       go.disabled = false;
       return;
     }
@@ -49672,7 +49682,7 @@ document.getElementById('rm-go').addEventListener('click', async () => {
      * agent gone from it while the agent is still working.
      */
     if (done.outcome === 'partial') {
-      msg.textContent = done.because;
+      msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because);
       // ⚠️ Re-enabled. Some partials are a tmux or launchd call that failed
       // once; leaving the only button dead forces a dismiss-and-reopen to
       // retry, and the dismiss is the answer that keeps the agent.
@@ -49751,14 +49761,14 @@ function reportDiscarded(done, forAgent) {
     // Not scoped to CURRENT: the panel it was about is gone, and this is the
     // one surface still on screen.
     if (done.outcome === 'partial' || done.outcome === 'refused' || done.outcome === 'removed') {
-      back.textContent = done.because || done.error || '';
+      back.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || done.error || '');
     }
     return;
   }
   // Same reason as the handler above: a thrown removal answers with `error`,
   // not `because`, and it is the message that says the agent may be half gone.
   if (done.error && !done.because) { 
-    if (CURRENT && CURRENT.sessionName === forAgent) back.textContent = done.error;
+    if (CURRENT && CURRENT.sessionName === forAgent) back.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.error);
     return;
   }
   /**
@@ -49769,9 +49779,9 @@ function reportDiscarded(done, forAgent) {
    */
   if (!CURRENT || CURRENT.sessionName !== forAgent) return;
   if (done.outcome === 'partial' || done.outcome === 'refused') {
-    back.textContent = done.because || 'The removal did not finish.';
+    back.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || 'The removal did not finish.');
   } else if (done.outcome === 'removed') {
-    back.textContent = done.because || '';
+    back.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(done.because || '');
   }
 }
 
@@ -50937,7 +50947,7 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
        * mattering, which is better than getting the distinction right.
        */
       const say = document.getElementById('removed-msg');
-      if (say) say.textContent = back.because || 'The restore did not finish.';
+      if (say) say.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(back.because || 'The restore did not finish.');
       /**
        * ⚠️ THE CACHE IS LEFT ALONE, AND `tick()` IS NOT CALLED. The first
        * version of this branch did both, and between them they erased the note
@@ -51255,9 +51265,9 @@ function restartFailureLine(out) {
      while the restart did not take is a different machine problem from its
      having failed, and the person reporting it cannot tell us which unless the
      screen says. */
-  return said
+  return (typeof cloudWords === 'function' ? cloudWords : (x) => x)(said
     + (failed.length ? ' What failed: ' + failed.join(', ') + '.' : '')
-    + (done.length ? ' What worked: ' + done.join(', ') + '.' : '');
+    + (done.length ? ' What worked: ' + done.join(', ') + '.' : ''));
 }
 
 /* #3410: the "Start this agent" click. It reuses the proven restart plumbing
@@ -61000,7 +61010,7 @@ function tcPaint() {
     if (m.state === 'failed' && m.why) { const why = document.createElement('p'); why.className = 'tc-why'; why.textContent = pjSentence(m.why); row.append(why); }   // Mona's review: shown as a sentence
     /* Round 3: what create reported as not done (its non-fatal steps, a project it could not add) is said
        on the row, as the single create says it, never folded into "Running". */
-    for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = w; row.append(p); }
+    for (const w of (m.warn || [])) { const p = document.createElement('p'); p.className = 'tc-why'; p.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(w); row.append(p); }
     if (m.state === 'made' && m.seen === 'unseen' && m.made) {   // every member has a picture to set (review 27)
       const p = document.createElement('p'); p.className = 'tc-why';
       p.textContent = 'Its picture and project are set once it is seen running. Open this team again to check.';
@@ -64534,7 +64544,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      from the cross-site guard, a 5xx), none of which carry outcome==='refused'. A partial
      is "not made", so it re-enables and shows its reason like any other failure; this
      one-click add has no made-screen to advance a partial to. */
-  if (!res.ok || out.outcome !== 'created') { fail(out.because || out.error || 'We could not make it, and we cannot tell you why.', out.field === 'name'); return; }
+  if (!res.ok || out.outcome !== 'created') { fail((typeof cloudWords === 'function' ? cloudWords : (x) => x)(out.because || out.error || 'We could not make it, and we cannot tell you why.'), out.field === 'name'); return; }
 
   /* ⚠️ THE BUTTON BECOMES THE RECEIPT rather than vanishing -- the same pattern the
      found/scan Add rows keep, on a screen where a person is about to press several
@@ -64694,10 +64704,10 @@ function paintMade(steps, watching, projectOutcomes, revealed) {
      its turn comes; nothing is smoothed over on the way past. */
   const show = typeof revealed === 'number' ? revealed : (steps || []).length;
   const lines = (steps || []).map((s, i) => {
-    if (i >= show) return tickLine('working', s.label);
+    if (i >= show) return tickLine('working', (typeof cloudWords === 'function' ? cloudWords : (x) => x)(s.label));
     return s.undone
-      ? tickLine('undone', s.label + ' (undone)')
-      : tickLine(s.ok ? 'done' : 'fail', s.label);
+      ? tickLine('undone', (typeof cloudWords === 'function' ? cloudWords : (x) => x)(s.label) + ' (undone)')
+      : tickLine(s.ok ? 'done' : 'fail', (typeof cloudWords === 'function' ? cloudWords : (x) => x)(s.label));
   });
   /* 🛑 THE PROJECT ROWS AND THE BOARD-WATCH ROW ARE NOT DRAWN (Josh,
      2026-08-22): "I don't want to have the other steps that were put in there,
@@ -65442,7 +65452,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
     if (result.field === 'name') {
       pjFieldBad('create-name', 'create-name-err', result.because || 'that name will not work');
     } else {
-      msg.textContent = result.because || 'that name will not work';
+      msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(result.because || 'that name will not work');
     }
     return;
   }
@@ -65463,8 +65473,8 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // beside the field, not on the progress screen we advanced to on click.
     dropMyLoader();
     cstep('name');
-    msg.textContent = (result && (result.error || result.because))
-      || 'we could not make it, and we cannot tell you why';
+    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((result && (result.error || result.because))
+      || 'we could not make it, and we cannot tell you why');
     // The own gate's sentence is about the Role label at the top of a
     // scrolled form; put the person where the fix is (the live region has
     // already announced the words).
@@ -65518,7 +65528,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
        the CLASS at the render site rather than one string: capitalize the first
        letter only for this screen. Idempotent -- a `because` that already starts
        with a capital (a proper noun) is unchanged. */
-    const becauseSentence = (result.because || '').replace(/^([a-z])/, (c) => c.toUpperCase());
+    const becauseSentence = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(result.because || '').replace(/^([a-z])/, (c) => c.toUpperCase());
     // ⚠️ SAY IT OUT LOUD. `paintMade` only writes the live region when there is
     // a line being watched, and a partial has none -- so the single outcome
     // this screen exists to communicate was the only one that announced
@@ -72242,7 +72252,7 @@ function pjDescTooLong(text) { return Array.from(String(text || '')).length > PJ
 function pjFieldBad(inputId, errId, reason) {
   const input = document.getElementById(inputId);
   const err = document.getElementById(errId);
-  if (err) err.textContent = reason;
+  if (err) err.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(reason);   // kosmos#4903: a field refusal is often the engine's sentence
   if (input) {
     input.classList.add('bad');
     input.setAttribute('aria-invalid', 'true');
@@ -74435,6 +74445,7 @@ async function rxnToggle(forProject, box, emoji) {
     if (PJ_CURRENT !== forProject || !res.ok) return;
     const body = await res.json();
     repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : [], body.claim);
+    pjWinNoteReactions(forProject, postId, body.reactions, body.claim);   // kosmos#7365: an earlier page's row too
   } catch { /* a failed toggle leaves the row; the next poll reconciles */ }
 }
 /* #6949: Free for another agent, beside a claimed post's 🙋 pill. It frees the claim of the agent the pill names (the
@@ -74469,6 +74480,7 @@ async function rxnFreeClaim(forProject, box, btn) {
   };
   if (res && res.ok && body && body.ok) {
     if (box) repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : [], body.claim);
+    pjWinNoteReactions(forProject, postId, body.reactions, body.claim);   // kosmos#7365
     refocus();
     pjRoomAnnounce(body.op !== 'freed' ? 'Nobody holds this post now, so there was nothing to free.'
       : 'Freed. ' + nameOf(by) + ' no longer holds this post' + (now ? ', and ' + now + ' holds it now.' : ', and another agent can claim it.'));
@@ -74476,6 +74488,7 @@ async function rxnFreeClaim(forProject, box, btn) {
   }
   if (box && body && Array.isArray(body.reactions)) { repaintReactions(box, body.reactions, body.claim); refocus(); }
   else btn.disabled = false;
+  if (body && Array.isArray(body.reactions)) pjWinNoteReactions(forProject, postId, body.reactions, body.claim);   // kosmos#7365
   // A claim that changed hands is said with the names the page uses; any other refusal in the board's own words.
   msgToast(body && body.claimedBy ? 'We could not free that post: ' + nameOf(by) + ' no longer holds it'
     + (now ? ', ' + now + ' does.' : '.') : body && (body.because || body.error) ? 'We could not free that post: ' + (body.because || body.error) + '.'
@@ -75300,6 +75313,7 @@ function openProject(id) {
     PJ_ROOM_QUERY = '';
     PJ_SEARCH_WAS_EMPTY = false;
     document.getElementById('pj-room-search').value = '';
+    pjWinReset(id);   // kosmos#7365: the earlier pages belong to the room they were read from
     /* The scroll query too: left standing, a quick A-to-B-to-A (B's fetch
        failed or still in flight) re-enters A with the query already equal, reads
        as no view change, and lands the reader on the OLDEST post. Undefined makes
@@ -75523,6 +75537,159 @@ function pjReplyMention(p, m, previous) {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 let PJ_ROOM_GEN = 0;
+/* kosmos#7365: a room draws only its newest page (PJ_WIN_PAGE rows, read with the paged room read of #7032) and the
+   earlier pages the reader has scrolled back to. A 5,500-post room fetched and rebuilt whole froze the page for about
+   2 s of every 5 s poll. Reaching the top of what is loaded asks for the page before it (no button: Josh 10-13, #6086,
+   as Direct conversations do). Per project: opening a project resets it. `older` holds the earlier pages' rows,
+   oldest first; `cursor` and `olderCount` name what is still before them; `boundary` is how many rows sat before the
+   newest page when the first earlier page was read, so a poll whose newest page starts later than that has a gap,
+   which is read before painting so nothing falls between. While the room search box has text, the room is read
+   whole and filtered as before, so search still finds every message. */
+const PJ_WIN_PAGE = 200;
+const PJ_WIN_HOLD_MAX = 1000;   // rows held because new posts ARRIVED, at most (reviews 6, 7); the live count Mona's design keeps
+const PJ_WIN = { pid: null, older: [], byReader: false, paintedAt: 0, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: 0 };
+function pjWinReset(pid) { Object.assign(PJ_WIN, { pid, older: [], byReader: false, letGo: 0, selfReads: 0, arrived: 0, stamp: '', newest: null, newestOlder: 0, newestCursor: null, cursor: null, olderCount: 0, boundary: null, loading: false, because: null, gen: PJ_WIN.gen + 1 }); pjWinOlderLine(); }
+/* The line over the room's top: "Loading earlier messages..." while a page is read; after a failed read, why, with Try
+   again, which stays until the person presses it (a scroll event must not turn one failure into a stream of requests,
+   as the Direct conversation's line learned, #6086). Nothing at all otherwise. */
+function pjWinOlderLine() {
+  if (typeof document === 'undefined') return;
+  const line = document.getElementById('pj-room-older');
+  const textEl = document.getElementById('pj-room-older-text');
+  const retry = document.getElementById('pj-room-older-show');
+  if (!line || !textEl || !retry) return;
+  const mine = PJ_WIN.pid === PJ_CURRENT && PJ_ROOM_QUERY.trim() === '';   // a search reads the whole room: no line then
+  const failed = mine && Boolean(PJ_WIN.because) && !PJ_WIN.loading;
+  const text = !mine ? '' : failed ? PJ_WIN.because : PJ_WIN.loading ? 'Loading earlier messages\u2026' : '';
+  if (textEl.textContent !== text) textEl.textContent = text;
+  retry.hidden = !failed;
+  if (line.parentNode) line.parentNode.classList.toggle('dm-earlier-failed', failed);
+  line.hidden = !text;
+}
+/* Rows from the earlier pages, then the newest page; a row on both (the room changed between reads) is kept once,
+   from the newer read. Rows carry `key`, their exact place in the room ("<at>|<k>"), on every paged read. */
+function pjWinMerge(older, page) {
+  const seen = new Set(page.map((r) => r && r.key).filter(Boolean));
+  return older.filter((r) => !(r && r.key && seen.has(r.key))).concat(page);
+}
+/* One earlier page, read when the reader reaches the top of what is loaded, then painted in front. The room's paint
+   keeps a scrolled-up reader at their pixel offset, which a page landing ABOVE them would turn into a different message,
+   so the message they are on is anchored here and put back where it was (the thread's #1926 anchor, by data-mid). */
+async function pjWinEarlier(byReader) {
+  const box = document.getElementById('pj-room');
+  if (PJ_WIN.loading || PJ_WIN.because || PJ_ROOM_QUERY.trim() !== '' || !PJ_CURRENT || PJ_WIN.pid !== PJ_CURRENT) return;
+  if (!PJ_WIN.cursor || !(PJ_WIN.olderCount > 0) || !Array.isArray(PJ_WIN.newest) || !box || !box.__lastBody) return;
+  const pid = PJ_CURRENT, win = PJ_WIN.gen;
+  /* Where the newest page started WHEN this read was asked for. A poll that answers while it is in flight moves
+     newestOlder on, and taking the boundary from that later value would claim the rows between as held when no read
+     ever brought them (review 1: 30 rows lost for good). */
+  const at = PJ_WIN.newestOlder;
+  const asked = PJ_WIN.cursor;   // a poll may trim the held front meanwhile and move the cursor on (review 6)
+  PJ_WIN.loading = true;
+  pjWinOlderLine();
+  let page;
+  try { page = await pjWinRead(pid, PJ_WIN_PAGE, PJ_WIN.cursor); }
+  catch { page = null; }
+  if (win !== PJ_WIN.gen) return;   // another room, or this one opened again: its own line is already drawn
+  PJ_WIN.loading = false;
+  /* A failed read (the board unreachable, or a place in the room it no longer has) stops here until Try again: the
+     reader stays where they are and is told, instead of each scroll asking again. */
+  if (!page) PJ_WIN.because = 'We could not read the earlier messages.';
+  pjWinOlderLine();
+  if (!page || pid !== PJ_CURRENT || PJ_ROOM_QUERY.trim() !== '') return;
+  /* The held front moved while this page was read (a poll trimmed it): the page ends before rows no longer held, so
+     joining it would leave a hole nothing reads again (review 6). It is dropped; reaching the top again reads the page
+     before the new front. */
+  if (PJ_WIN.cursor !== asked) return;
+  if (PJ_WIN.boundary === null) PJ_WIN.boundary = at;
+  PJ_WIN.older = pjWinMerge(page.rows, PJ_WIN.older);
+  if (byReader) PJ_WIN.byReader = true;   // the reader scrolled back for these: reaching the newest row may let them go
+  PJ_WIN.cursor = page.olderCursor || null;
+  PJ_WIN.olderCount = Number(page.olderCount) || 0;
+  const body = Object.assign({}, box.__lastBody, { rows: pjWinMerge(PJ_WIN.older, PJ_WIN.newest), __whole: false });
+  convPause();   // old rows are not news to read aloud (as a Direct conversation's earlier page does)
+  const anchor = threadAnchor(box);
+  box.__lastBody = body;
+  paintRoom(body);
+  if (anchor) restoreThreadAnchor(box, anchor);
+  PJ_WIN.paintedAt = Date.now();
+  // The newest page moved while this page was read: read the rows between now, not at the next poll.
+  if (at !== PJ_WIN.newestOlder) loadRoom();
+  else pjWinNearTop();   // still too short to scroll: the page before that one too
+}
+document.getElementById('pj-room-older-show').addEventListener('click', (e) => {
+  if (PJ_WIN.pid !== PJ_CURRENT || PJ_WIN.loading) return;
+  /* The button hides as the read starts, so keyboard focus would fall to the page: it moves to the room's message box,
+     still inside the room, as the Direct conversation's Try again does (review 3). */
+  if (document.activeElement === e.currentTarget) { const box = document.getElementById('pj-post'); if (box) box.focus({ preventScroll: true }); }
+  PJ_WIN.because = null;
+  pjWinEarlier(true);   // Try again: asked for by the person
+});
+const PJ_WIN_NEAR_TOP = 300;   // px from the top of the loaded rows that asks for the page before
+/* Asked after every paint too, not only on scroll: a room too short to scroll (a folded run of refusals, a page of short
+   lines) never fires a scroll event, so it reads its earlier page itself, as a Direct conversation's thread does
+   (review 3). A hidden box (no height) asks nothing. */
+function pjWinNearTop() {
+  if (typeof document === 'undefined') return;
+  const box = document.getElementById('pj-room');
+  /* At most PJ_WIN_SELF_READS pages in a row this way after one paint, so a room of folded lines reads two pages per poll
+     rather than its whole history at once (review 5). A throttle, not a bound: each paint allows two more until the room
+     can scroll (review 6). */
+  if (box && box.clientHeight > 0 && box.scrollTop <= PJ_WIN_NEAR_TOP && (PJ_WIN.selfReads || 0) < PJ_WIN_SELF_READS) {
+    PJ_WIN.selfReads = (PJ_WIN.selfReads || 0) + 1;
+    pjWinEarlier(false);
+  }
+}
+const PJ_WIN_SELF_READS = 2;
+/* A reader back on the newest message no longer needs the earlier pages: they are let go, so a poll paints only the
+   newest page again (holding thousands of rows made every poll repaint them all; review 3). Scrolling back reads them
+   again. Not while a page is being read, or with a search on (a search's body is the whole room). */
+/* Only pages the READER scrolled back to are let go: pages a short room read for itself (pjWinNearTop) are kept, or
+   the two would undo each other every poll on a room the newest page alone cannot fill (review 4, measured). The
+   window is drawn again at once, so what is on screen and what is held never disagree before the next poll. */
+function pjWinLetGoOfEarlier() {
+  if (!PJ_WIN.older.length || !PJ_WIN.byReader || PJ_WIN.loading || PJ_ROOM_QUERY.trim() !== '' || PJ_WIN.pid !== PJ_CURRENT) return;
+  const wasFull = PJ_WIN.arrived >= PJ_WIN_HOLD_MAX;
+  Object.assign(PJ_WIN, { older: [], byReader: false, arrived: 0, stamp: '', boundary: null, cursor: PJ_WIN.newestCursor, olderCount: PJ_WIN.newestOlder, because: null, letGo: PJ_WIN.letGo + 1 });
+  if (wasFull) { loadRoom(); return; }   // polls stopped folding posts in while they read: catch up now
+  const box = typeof document !== 'undefined' ? document.getElementById('pj-room') : null;
+  if (box && box.__lastBody && Array.isArray(PJ_WIN.newest)) {
+    box.__lastBody = Object.assign({}, box.__lastBody, { rows: PJ_WIN.newest, __whole: false });
+    paintRoom(box.__lastBody);
+    PJ_WIN.paintedAt = Date.now();
+  }
+}
+document.getElementById('pj-room').addEventListener('scroll', (e) => {
+  const box = e.currentTarget;
+  if (box.scrollTop <= PJ_WIN_NEAR_TOP) { PJ_WIN.selfReads = 0; pjWinEarlier(true); }
+  // A scroll the page's own paint caused (a page landing, an anchor put back) is not the reader reaching the bottom.
+  else if (Date.now() - (PJ_WIN.paintedAt || 0) > 500 && box.clientHeight > 0 && (box.scrollHeight - box.scrollTop - box.clientHeight) <= THREAD_BOTTOM_SLACK) pjWinLetGoOfEarlier();
+}, { passive: true });
+/* A reaction or a freed claim made HERE on a post in an earlier page: those pages are a snapshot (only the newest page
+   is read again each poll), so the route's answer is written into the held row, or the next rebuild would draw the post
+   as it was before the press (review 1). Reactions or claims made elsewhere on an earlier page show once the room is
+   opened again, as a Direct conversation's earlier pages do. */
+function pjWinNoteReactions(project, postId, list, claim) {
+  if (PJ_WIN.pid !== project || !postId || !Array.isArray(list)) return;
+  const fix = (r) => {
+    if (!r || r.kind !== 'post' || r.id !== postId) return r;
+    const next = Object.assign({}, r);
+    if (list.length) next.reactions = list; else delete next.reactions;
+    if (claim) next.claim = claim; else delete next.claim;
+    return next;
+  };
+  PJ_WIN.older = PJ_WIN.older.map(fix);
+  // The newest page too: an earlier page's paint, a search's end or a gap read builds from it before the next poll.
+  if (Array.isArray(PJ_WIN.newest)) PJ_WIN.newest = PJ_WIN.newest.map(fix);
+}
+async function pjWinRead(pid, n, cursor) {
+  const q = 'n=' + n + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+  // The '?' inside the literal, so web.api-routes-3957 can read the route this fetches.
+  const res = await fetch('/api/project/' + encodeURIComponent(pid) + '/room?' + q);
+  const body = await res.json();
+  if (!res.ok || !body || !Array.isArray(body.rows)) throw new Error((body && body.error) || 'we could not read the room');
+  return body;
+}
 let PJ_POSTING = false;
 let PJ_REPLY_SENDING = null;   // #3745: { project, id } of the reply on its way, so x knows whether THIS reply already left
 
@@ -77376,6 +77543,10 @@ function pjRoomRow(m, p, hideHeader) {
       : orig
       ? '<button type="button" class="msg-replyto" data-jump="' + esc(m.replyTo) + '" aria-label="' + esc(pjReplyWho(p, orig) + ': ' + pjReplyGist(orig, pjReplyWho(p, orig)) + ', the message this answers. Go to it') + '">'
         + '<b>' + esc(pjReplyWho(p, orig)) + ':</b> ' + esc(pjReplyGist(orig, pjReplyWho(p, orig))) + '</button>'
+      /* kosmos#7365: the room draws its newest page and the earlier pages read so far, so an original not among them is
+         FURTHER BACK while earlier rows are still unread (as a Direct conversation says, #5841), never "unavailable". */
+      : typeof PJ_WIN !== 'undefined' && PJ_WIN.pid === PJ_CURRENT && PJ_WIN.olderCount > 0 && PJ_ROOM_QUERY.trim() === ''
+      ? '<span class="msg-replyto gone">Original message is further back</span>'
       : '<span class="msg-replyto gone">Original message unavailable</span>';
   }
   const timeEl = whenStr ? '<span class="msg-t">' + whenStr + '</span>' : '';
@@ -77615,7 +77786,14 @@ function paintRoom(body) {
      it slices this block out and drives it alone. A harness that reads a
      fragment cannot see what the fragment's control flow does to its function. */
   const seededRoom = PJ_CURRENT ? ROOM_SPOKE_SEEDED.has(PJ_CURRENT) : false;
+  /* kosmos#7365: rows from an earlier page the reader scrolled back to are history, never somebody speaking now, so they
+     are not stamped (an agent whose last post was only in that page read as having just spoken; review 1). */
+  // typeof: tests lift this block on its own, without the window's state (the room-scroll harness's posture).
+  // By time, not key: a search's whole-room rows carry no key and are just as old (review 5).
+  const newestFrom = typeof PJ_WIN !== 'undefined' && PJ_WIN.pid === PJ_CURRENT && Array.isArray(PJ_WIN.newest) && PJ_WIN.newest[0]
+    ? Date.parse(PJ_WIN.newest[0].at) : NaN;
   for (const m of PJ_CURRENT ? allRows : []) {
+    if (Number.isFinite(newestFrom) && m && Date.parse(m.at) < newestFrom) continue;
     const who = m && m.from;
     if (!who || !m.at) continue;
     /* #1397: a row Kosmos REFUSED is not the agent speaking. See
@@ -77894,13 +78072,49 @@ document.addEventListener('focusin', (e) => {
   if (!(row && e.target === row && row.querySelector('.rxns[data-post="' + CSS.escape(PJ_JUMP_FOCUS) + '"]'))) PJ_JUMP_FOCUS = null;
 });
 document.addEventListener('pointerdown', () => { PJ_JUMP_FOCUS = null; }, true);
-document.getElementById('pj-room-search').addEventListener('input', () => {
+/* kosmos#7365: a search's whole-room read. TICKET only ever grows, so a read that answers late can never match a newer
+   one (review 2: a counter reset to 0 handed the same number out twice); PENDING is the ticket of the read in flight,
+   0 when none. */
+let PJ_SEARCH_TICKET = 0;
+let PJ_SEARCH_PENDING = 0;
+document.getElementById('pj-room-search').addEventListener('input', async () => {
+  const wasSearching = PJ_ROOM_QUERY.trim() !== '';
   PJ_ROOM_QUERY = document.getElementById('pj-room-search').value;
+  const nowSearching = PJ_ROOM_QUERY.trim() !== '';
+  if (wasSearching !== nowSearching) pjWinOlderLine();   // kosmos#7365: the earlier-pages line is not shown while searching
   const said = document.getElementById('pj-room-msg');   // #3745: "hidden by your search" is stale once the search changes
   if (said && said.textContent === PJ_HIDDEN_BY_SEARCH) said.textContent = '';
   const box = document.getElementById('pj-room');
-  if (!box.__lastBody) return;
-  paintRoom(box.__lastBody);
+  if (!box.__lastBody && !(!wasSearching && nowSearching)) return;   // a search started before the first read still reads
+  /* kosmos#7365: a search reads the whole room; the plain view holds only its newest page and the earlier pages read.
+     STARTING a search paints nothing from those and says nothing until the whole read lands (the window is not the
+     room, so "nothing matches" from it can be false; review 1), and neither does a keystroke typed while it reads.
+     ENDING a search paints the window, not the whole room the search read (that paint is the freeze this card
+     removes), and reads the newest page again. */
+  if (!wasSearching && nowSearching) {
+    const mine = ++PJ_SEARCH_TICKET;
+    PJ_SEARCH_PENDING = mine;
+    const painted = await loadRoom();
+    if (PJ_SEARCH_PENDING !== mine) return;   // cleared, or started again, while it read
+    PJ_SEARCH_PENDING = 0;
+    /* Only a read that PAINTED the whole room can say "nothing matches". One a poll took over (the poll paints the
+       whole room itself, as a search is on) or one that failed (loadRoom says so beside the room) says nothing here
+       (review 2: it announced a no-match from the window). */
+    if (!painted) return;
+  } else if (wasSearching && !nowSearching) {
+    PJ_SEARCH_PENDING = 0;
+    if (PJ_WIN.pid === PJ_CURRENT && Array.isArray(PJ_WIN.newest)) {
+      box.__lastBody = Object.assign({}, box.__lastBody, { rows: pjWinMerge(PJ_WIN.older, PJ_WIN.newest), __whole: false });
+    }
+    paintRoom(box.__lastBody);
+    loadRoom();
+    PJ_SEARCH_WAS_EMPTY = false;
+    return;
+  } else if (PJ_SEARCH_PENDING || !box.__lastBody.__whole) {
+    return;   // the whole read is still in flight (or a poll took it over and has not painted the whole room yet): its handler paints and speaks for the query as it is when it lands
+  } else {
+    paintRoom(box.__lastBody);
+  }
   /* The no-match state is announced ON THE TRANSITION only: a filtered
      room repaints silently for a screen-reader user, and per-keystroke
      announcements would be noise. Same helper the say-box uses. */
@@ -77924,11 +78138,108 @@ async function loadRoom() {
   if (!p) return;
   const mine = ++PJ_ROOM_GEN;
   let body;
+  let gapFilled = false;
   try {
-    const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/room');
-    body = await res.json();
-    if (mine !== PJ_ROOM_GEN) return;
-    if (!res.ok) throw new Error(body.error || 'we could not read the room');
+    if (PJ_ROOM_QUERY.trim() !== '') {   // kosmos#7365: a search reads the whole room, so it finds every message
+      const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/room');
+      body = await res.json();
+      if (mine !== PJ_ROOM_GEN) return;
+      if (!res.ok) throw new Error(body.error || 'we could not read the room');
+      body.__whole = true;   // a keystroke paints from this body only (review 7)
+    } else {
+      if (PJ_WIN.pid !== PJ_CURRENT) pjWinReset(PJ_CURRENT);
+      const win = PJ_WIN.gen;
+      body = await pjWinRead(PJ_CURRENT, PJ_WIN_PAGE, null);
+      if (mine !== PJ_ROOM_GEN || win !== PJ_WIN.gen) return;
+      /* The read worked: a "could not read" line from an earlier poll goes now, before the returns below that paint
+         nothing (no change, or a reader past the cap), or it would stay up on a quiet room (review 8). */
+      const failMsg = document.getElementById('pj-room-msg');
+      if (failMsg && failMsg.textContent === 'We cannot read this room right now. What is shown may be behind.') failMsg.textContent = '';
+      const box0 = document.getElementById('pj-room');
+      // A hidden box (no height) counts as off the newest row: nothing is let go or folded while the room is not shown.
+      const offFloorNow = () => !!box0 && (box0.clientHeight <= 0 || (box0.scrollHeight - box0.scrollTop - box0.clientHeight) > THREAD_BOTTOM_SLACK);
+      const offFloor = offFloorNow();
+      /* A reader off the newest row who already holds PJ_WIN_HOLD_MAX rows that new posts pushed in: this poll folds in
+         nothing more and paints nothing, so they stay on their message (review 7: a reset threw them to the newest
+         rows); reaching the newest row lets go and reads the room at once (pjWinLetGoOfEarlier). */
+      if (offFloor && PJ_WIN.arrived >= PJ_WIN_HOLD_MAX) return;
+      const grew = Number(body.olderCount) - PJ_WIN.newestOlder;
+      if (!PJ_WIN.older.length && offFloor && box0 && box0.clientHeight > 0 && Array.isArray(PJ_WIN.newest) && PJ_WIN.newest.length && grew > 0) {
+        /* A reader scrolled up inside the newest page: the rows the new posts push out of it stay, held as if they had
+           scrolled back to them, so what they are reading never leaves the screen and the window only grows while they
+           read (review 5: a pixel offset slid them one message forward per new post). Held for the reader, so reaching
+           the newest row lets them go. More than a page of new posts at once: the window starts again. */
+        const keep = new Set(body.rows.map((r) => r && r.key).filter(Boolean));
+        const leaving = PJ_WIN.newest.filter((r) => r && r.key && !keep.has(r.key));
+        if (leaving.length === grew) {
+          PJ_WIN.older = leaving;
+          PJ_WIN.arrived += leaving.length;
+          PJ_WIN.byReader = true;
+          PJ_WIN.boundary = Number(body.olderCount);   // cursor and olderCount still name what is before them
+        } else {
+          PJ_WIN.cursor = body.olderCursor || null;
+          PJ_WIN.olderCount = Number(body.olderCount) || 0;
+        }
+      } else if (!PJ_WIN.older.length) {
+        PJ_WIN.cursor = body.olderCursor || null;
+        PJ_WIN.olderCount = Number(body.olderCount) || 0;
+      } else if (PJ_WIN.boundary !== null && Number(body.olderCount) > PJ_WIN.boundary) {
+        /* More rows arrived than one page holds since the earlier pages were read: read the ones between, by the
+           newest page's own cursor, before painting. More than a page between drops the earlier pages instead (the
+           reader is then on the newest page, and scrolling back reads them again). */
+        const gap = Number(body.olderCount) - PJ_WIN.boundary;
+        if (gap + 1 <= PJ_WIN_PAGE && body.olderCursor) {
+          const letGo = PJ_WIN.letGo;
+          /* One row more than the counted gap, which must be the last row held: the count assumes the room only grew at
+             its end, and a row removed before the newest page would otherwise leave a row between that nothing reads
+             (review 7). No overlap: the window starts again on the newest page. */
+          const between = await pjWinRead(PJ_CURRENT, gap + 1, body.olderCursor);
+          if (mine !== PJ_ROOM_GEN || win !== PJ_WIN.gen) return;
+          const lastHeld = PJ_WIN.older.length ? PJ_WIN.older[PJ_WIN.older.length - 1] : null;
+          const joins = !!(lastHeld && between.rows[0] && between.rows[0].key === lastHeld.key);
+          if (!joins && letGo === PJ_WIN.letGo) {
+            pjWinReset(PJ_CURRENT);
+            PJ_WIN.cursor = body.olderCursor || null;
+            PJ_WIN.olderCount = Number(body.olderCount) || 0;
+          } else if (letGo === PJ_WIN.letGo) {   // let go while it read (review 5): nothing to join
+            PJ_WIN.older = pjWinMerge(PJ_WIN.older, between.rows.slice(1));
+            if (PJ_WIN.byReader) PJ_WIN.arrived += Math.max(0, between.rows.length - 1);
+            PJ_WIN.boundary = Number(body.olderCount);
+            gapFilled = true;   // rows landed above the newest page: anchor the reader (below)
+            /* Pages a room read for itself (not scrolled back to) keep their size: as many rows leave their front as
+               the gap added, or they would grow by every new post for the whole visit (review 5). */
+            const added = Math.max(0, between.rows.length - 1);
+            if (!PJ_WIN.byReader && added && PJ_WIN.older.length > added) {
+              const cut = Math.min(added, PJ_WIN.older.length - added);
+              PJ_WIN.older = PJ_WIN.older.slice(cut);
+              PJ_WIN.olderCount += cut;
+              PJ_WIN.cursor = (PJ_WIN.older[0] && PJ_WIN.older[0].key) || PJ_WIN.cursor;
+            }
+          }
+        } else {
+          pjWinReset(PJ_CURRENT);
+          PJ_WIN.cursor = body.olderCursor || null;
+          PJ_WIN.olderCount = Number(body.olderCount) || 0;
+        }
+      }
+      PJ_WIN.newest = body.rows;
+      PJ_WIN.newestOlder = Number(body.olderCount) || 0;
+      PJ_WIN.newestCursor = body.olderCursor || null;
+      /* A reader on the newest row lets the pages they scrolled back to go BEFORE the merge, so the return never paints
+         the whole held body first (review 6). */
+      if (!offFloorNow() && PJ_WIN.byReader && PJ_WIN.older.length) {   // measured again: a gap read may have awaited
+        Object.assign(PJ_WIN, { older: [], byReader: false, arrived: 0, boundary: null, cursor: PJ_WIN.newestCursor, olderCount: PJ_WIN.newestOlder, because: null, letGo: PJ_WIN.letGo + 1 });
+      }
+      /* Nothing changed since the last paint (same newest page, same held rows) and the reader holds pages: no repaint,
+         so a reader deep in history does not rebuild every held row each poll (review 7). A room holding only its
+         newest page paints as before (its times and working line refresh with it). */
+      const stamp = JSON.stringify(body.rows) + '|' + JSON.stringify(body.unanswered || null) + '|' + JSON.stringify(body.held || null)
+        + '|' + PJ_WIN.older.length + '|' + ((PJ_WIN.older[0] && PJ_WIN.older[0].key) || '');
+      const same = stamp === PJ_WIN.stamp;
+      PJ_WIN.stamp = stamp;
+      if (same && !gapFilled && PJ_WIN.older.length >= PJ_WIN_PAGE) return true;
+      body = Object.assign({}, body, { rows: pjWinMerge(PJ_WIN.older, body.rows) });
+    }
   } catch {
     if (mine !== PJ_ROOM_GEN) return;
     /* The painted thread stays exactly as it was ("could not look" must
@@ -77939,8 +78250,26 @@ async function loadRoom() {
   }
   const msg = document.getElementById('pj-room-msg');
   if (msg.textContent === 'We cannot read this room right now. What is shown may be behind.') msg.textContent = '';
-  document.getElementById('pj-room').__lastBody = body;
+  const roomEl = document.getElementById('pj-room');
+  /* kosmos#7365: rows read into the gap land above the newest page, so a reader scrolled up into it keeps their message
+     (a reader following the newest message is pinned to it by the paint, so nothing is restored for them). */
+  /* Measured NOW, not read from the last repaint (__roomHeldAtBottom), which in a quiet room can be minutes old
+     (review 1): a reader on the floor is pinned by the paint, and anchoring them would pull them off it. */
+  const onFloorNow = roomEl.clientHeight > 0 && (roomEl.scrollHeight - roomEl.scrollTop - roomEl.clientHeight) <= THREAD_BOTTOM_SLACK;
+  // Every paint, not only a gap's: the window itself moves under a scrolled-up reader as new posts arrive (review 5).
+  const anchor = !onFloorNow ? threadAnchor(roomEl) : null;
+  roomEl.__lastBody = body;
   paintRoom(body);
+  if (anchor) restoreThreadAnchor(roomEl, anchor);
+  PJ_WIN.paintedAt = Date.now();   // after the paint: a slow paint must not use up the window (review 5)
+  if (PJ_ROOM_QUERY.trim() === '') {
+    /* A reader on the newest row lets go here too, not only on a scroll event: one already sitting there fires none
+       (review 5: about one return in ten kept every page for the visit). */
+    if (onFloorNow) pjWinLetGoOfEarlier();
+    PJ_WIN.selfReads = 0;
+    pjWinNearTop();   // a room too short to scroll reads its earlier page itself
+  }
+  return true;   // kosmos#7365: painted (every early return above answers undefined): a search's no-match reads this
 }
 
 /* #4653: the ambiguous-mention note last shown under the composer, so the next edit can take away that note
@@ -79279,7 +79608,7 @@ function pjMsg(m, name, session) {
  * of use, and leave the engine's strings alone so they still compose elsewhere.
  */
 function pjSentence(because) {
-  const said = String(because || '').trim();
+  const said = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(String(because || '')).trim();
   if (!said) return '';
   return said.charAt(0).toUpperCase() + said.slice(1) + (/[.!?]$/.test(said) ? '' : '.');
 }

@@ -5223,16 +5223,28 @@ function classify(pane, paneText) {
       return { state: STATE.AUTH_FAILED, confidence: CONFIDENCE.SCRAPED, because: 'its Claude sign-in is not working', evidence: line, underlying, authSince: authTok[1], authKey };
     }
     /* The two tokens are win32streamstate's, the one vocabulary win32capture holds by too (#5949). */
-    const { BUSY: WIN32_BUSY, IDLE: WIN32_IDLE } = require('./win32streamstate');
+    const { BUSY: WIN32_BUSY, IDLE: WIN32_IDLE, isStreamIdleToken, streamIdleSince } = require('./win32streamstate');
+    /* 🛑 #7361: AN IDLE FROM THE AGENT'S OWN STREAM IS PROOF ITS TURN ENDED, for a Windows Claude agent as for a per-turn
+       runner: its supervisor writes it on the turn's `result` (win32capture asks stateFor for it as `stream-idle
+       <since>`). Before this a Windows Claude idle never carried liveToken, on the reading that it came from
+       `claude agents --json` (which also reads idle while a session waits); but every agent Kosmos starts is a
+       streaming session, whose idle comes from the stream. So a first turn whose Stop hook's idle never landed left
+       the card on "working" for the five minutes the automatic report took to decay (the 0.7.71 V2 run). `liveIdleSince`
+       is when the file recorded the idle: reconcileReport lets it end only an automatic "working" written BEFORE it. */
+    if (isStreamIdleToken(paneText)) {
+      const since = streamIdleSince(paneText);
+      return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it is idle at its prompt', liveToken: true, ...(since ? { liveIdleSince: since } : {}) };
+    }
     if (paneText === WIN32_BUSY) {
       return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is working' };
     }
     if (paneText === WIN32_IDLE) {
       /* #5949: `liveToken` marks this idle as the state file a per-turn runner's supervisor (Codex, Gemini, Grok,
          Antigravity) writes when a turn ends: there is no turn running, so it is not a guess. reconcileReport lets it
-         end a stale automatic "working" (see there). NOT for a Windows Claude agent, whose idle comes from
-         `claude agents --json`, which also reads idle while the session waits on something (measured, #570). Set only
-         here, so no Mac pane ever carries it. */
+         end a stale automatic "working" (see there). NOT for a Windows Claude agent's plain `idle`, which comes from
+         `claude agents --json` (an interactive session), and that also reads idle while the session waits on something
+         (measured, #570). A stream-file idle arrives as `stream-idle` instead (#7361, just above), so a per-turn runner
+         reaches here only if a reader hands over the plain token. Set only in this arm, so no Mac pane ever carries it. */
       const perTurn = require('./win32codexlive').PER_TURN.has(pane.runner);
       return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it is idle at its prompt', ...(perTurn ? { liveToken: true } : {}) };
     }
@@ -8431,6 +8443,20 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
   if (reported.state === 'working') {
     const at = Date.parse(reported.at || '');
     const stale = !Number.isFinite(at) || (nowMs - at) > REPORT_WORKING_DECAY_MS;
+    /* 🛑 #7361: A FRESH AUTOMATIC "WORKING" FROM A TURN THAT HAS SINCE ENDED IS IDLE. The hook's `working --auto` at a
+       turn's start normally meets the Stop hook's `idle --auto` at its end; when that idle never lands (a new Windows
+       agent's first turn, 0.7.71 V2: the agent answered, the card said "working" for five minutes), the stream's own
+       idle is the record that the turn ended. Only when the idle was recorded AFTER the report (`liveIdleSince`, the
+       stream file's time, on this box's one clock): an automatic "working" written later is a new turn the capture has
+       not seen yet (the 1.5 s memo), or a background agent's heartbeat after the turn's result (#1889), and stands. Only
+       an automatic report (the agent's own words outrank the screen, rule 6), and only a liveToken idle read this tick
+       (a held one is stripped in snapshot). With no time on the idle, the fresh report stands, as before. */
+    const liveIdleAt = scraped && scraped.state === STATE.IDLE && scraped.liveToken === true && typeof scraped.liveIdleSince === 'string'
+      ? Date.parse(scraped.liveIdleSince) : NaN;
+    if (!stale && reported.by === 'auto' && Number.isFinite(liveIdleAt) && at < liveIdleAt) {
+      const { liveToken: _liveToken, liveIdleSince: _liveIdleSince, ...screen } = scraped;
+      return { ...screen, reported: false, conflict: null };
+    }
     if (!stale) {
       /* 🛑 CARRY `backgroundWait` THROUGH. This branch builds a FRESH object rather
          than spreading `scraped`, so every scraped-only field is dropped -- and the
@@ -8545,11 +8571,11 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        Antigravity agent on Windows fell here five minutes after each turn: its last report was the automatic
        "working" from the turn's start, and its supervisor wrote idle to its state file when the turn ended, which the
        board read (scraped IDLE) and then ignored for "we could not check". That idle is the supervisor's own record
-       that no turn is running (`liveToken`, set only by classify's win32 arm for a per-turn runner), so it decides
-       once the working report has gone stale. A Mac screen, or a Windows Claude agent, that merely reads idle still
-       falls through to the honest unknown below. */
+       that no turn is running (`liveToken`, set only by classify's win32 arm for a per-turn runner or, #7361, any
+       stream-file idle), so it decides once the working report has gone stale. A Mac screen, or a Windows Claude
+       agent's `agents --json` idle, that merely reads idle still falls through to the honest unknown below. */
     if (scraped.state === STATE.IDLE && scraped.liveToken === true) {
-      const { liveToken: _liveToken, ...screen } = scraped;
+      const { liveToken: _liveToken, liveIdleSince: _liveIdleSince, ...screen } = scraped;
       return { ...screen, reported: false, conflict: null };
     }
     return {
@@ -9120,8 +9146,9 @@ function snapshot() {
     let scrapedStatus = classify(pane, retireResetLimits(text, Date.now(), (row) => limitRetireFromOf(pane.name, row)));   // #5031; kosmos#7264: a late row too
     /* #5949: a HELD idle is a memory of an earlier look, not the per-turn supervisor's state file read this tick, so it
        never carries classify's `liveToken` (which lets an idle end a stale automatic "working" in reconcileReport). */
+    /* #7361: and the stream idle's time with it, so a held reading can end no report, fresh or stale. */
     if (!scrapedNow && scrapedStatus.liveToken === true) {
-      const { liveToken: _heldLiveToken, ...heldScrape } = scrapedStatus;
+      const { liveToken: _heldLiveToken, liveIdleSince: _heldLiveIdleSince, ...heldScrape } = scrapedStatus;
       scrapedStatus = heldScrape;
     }
     /* The agent's own account outranks the scrape when fresh (#188); only a

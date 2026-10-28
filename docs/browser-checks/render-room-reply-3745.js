@@ -521,7 +521,8 @@ function chk(ok, label, extra) {
     await p.evaluate(() => { document.getElementById('pj-room-msg').textContent = ''; });
 
     // A jump to a post the search is hiding says so on screen, not only to a screen reader.
-    await p.fill('#pj-room-search', 'Friday works');
+    // Starting a search reads the whole room and paints when that read lands (kosmos#7365), so wait for the read.
+    await Promise.all([p.waitForResponse((r) => /\/api\/project\/[^/]+\/room$/.test(r.url()) && r.request().method() === 'GET'), p.fill('#pj-room-search', 'Friday works')]);
     await p.waitForFunction(() => !document.querySelector('#pj-room').textContent.includes('The launch moves to Friday.\n') && document.querySelector('#pj-room .msg-replyto[data-jump]'), null, { timeout: 15000 }).catch(() => {});
     const hiddenJump = await p.evaluate(() => {
       const origShown = [...document.querySelectorAll('#pj-room .msg')].some((r) => !r.querySelector('.msg-replyto') && r.textContent.includes('The launch moves to Friday.'));
@@ -543,7 +544,12 @@ function chk(ok, label, extra) {
       const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!(h && (h === b || b.contains(h))); });
       return { inside: Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)], hits };
     });
-    await p.fill('#pj-room-search', '');   // an earlier arm leaves a search in the box
+    // An earlier arm leaves a search in the box. Ending a search re-reads the room's newest page (kosmos#7365), and that
+    // read would paint over the row added below, so wait for it to land first.
+    if (await p.inputValue('#pj-room-search')) {
+      await Promise.all([p.waitForResponse((r) => /\/api\/project\/[^/]+\/room\?/.test(r.url())), p.fill('#pj-room-search', '')]);
+      await p.waitForTimeout(100);
+    }
     await p.evaluate(() => {
       const box = document.getElementById('pj-room');
       box.__lastBody.rows.push({ kind: 'post', id: 'm999900', from: 'roomer', to: [], text: 'ok', at: new Date().toISOString(), outcomes: {} });

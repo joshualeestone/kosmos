@@ -69,7 +69,10 @@ const GOOD = new Set([win32streamstate.BUSY, win32streamstate.IDLE]);
    restart (failed(), below): a limit carried across a restart is from before it, so it says nothing about now. */
 /* #7369: and the signed-out one (`auth ...`, read by classify as auth_failed), on the limit's terms: carried, never read
    back after a restart. */
-const isGood = (token) => GOOD.has(token) || win32streamstate.isLimitToken(token) || win32streamstate.isAuthToken(token);
+/* #7361: and the stream's own idle (`stream-idle <since>`), which is a plain state like the two (read back after a
+   restart too, where it is held, so status strips the liveToken it would carry). */
+const isPlain = (token) => GOOD.has(token) || win32streamstate.isStreamIdleToken(token);
+const isGood = (token) => isPlain(token) || win32streamstate.isLimitToken(token) || win32streamstate.isAuthToken(token);
 /* #5949: a card shows "Can't tell" only after this many failed looks in a row AND this long
    since its last good one. Both, so neither a burst of quick looks nor one slow one is enough
    on its own: about 15 s at the board's 5 s poll. The time is the roster's own hold, one fact,
@@ -221,7 +224,13 @@ function make(opts) {
     try { lastState.write(c); } catch { /* never fatal */ }
   };
   /* Under the same never-throw contract as run() and record.read(). */
-  const readStreamState = (name, hit) => { try { return streamState(name, hit); } catch { return null; } };
+  /* #7361: asked for the stream's own idle token (stateFor's streamIdle), and a plain `idle` from an injected reader is
+     taken as one too: it came from the file, never from `agents --json`, so it is the proof a turn ended. */
+  const readStreamState = (name, hit) => {
+    let t;
+    try { t = streamState(name, hit, undefined, { streamIdle: true }); } catch { return null; }
+    return t === win32streamstate.IDLE ? win32streamstate.STREAM_IDLE : t;
+  };
 
   // Cache one { at, ok, byName } per TTL window so a whole snapshot's per-pane
   // calls share a single read. `ok` records whether the live read SUCCEEDED, kept
@@ -281,7 +290,8 @@ function make(opts) {
           /* 🔑 TWO SOURCES, ONE TOKEN (7c-5). An interactive session reports its own
              status. A STREAMING one -- every agent Kosmos has started since 7c-2 --
              lists none, so its state comes from the file its supervisor keeps from
-             the agent's event stream, accepted only for this exact session and pid. */
+             the agent's event stream, accepted only for this exact session and pid.
+             #7361: the two are told apart from here on: a stream idle is `stream-idle <since>` (readStreamState). */
           const listed = typeof hit.status === 'string' && hit.status ? hit.status : null;
           const token = listed || readStreamState(name, hit);
           byName.set(name, token);
@@ -391,7 +401,7 @@ function make(opts) {
          session, and its predecessor's state says nothing about it. An entry with no session (or a look with none)
          is not used. */
       const sameSession = Boolean(c && typeof c.sid === 'string' && c.sid && typeof sid === 'string' && sid === c.sid);
-      const usable = Boolean(sameSession && GOOD.has(c.token) && Number.isFinite(cAt) && Number.isFinite(t) && t - cAt >= 0 && t - cAt < CARRY_MAX_MS);
+      const usable = Boolean(sameSession && isPlain(c.token) && Number.isFinite(cAt) && Number.isFinite(t) && t - cAt >= 0 && t - cAt < CARRY_MAX_MS);
       m = { token: usable ? c.token : null, at: t, fails: 0, cause, phase: 'ok', said: false, carried: usable, sid: (typeof sid === 'string' && sid) || null };
       memory.set(name, m);
     }

@@ -96,6 +96,7 @@ const PROJECT = 'henderson-lease';
 test.beforeEach(() => {
   chat.resetForTests();
   messages.resetForTests();
+  require('./roomloop').resetForTests();   // kosmos#7246 slice 2: the per-project agent-wake cap starts empty each test
   for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
 });
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -109,12 +110,14 @@ test('#4624: a working member is not typed a colleague\'s un-addressed post; a n
     // april has never reported: a runner the board cannot read is typed as before (the H7 follow-up holds for idle too).
     armSender('leo-discord');
     const tmux = arm();
-    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'thinking out loud about the lease' }, board.agents, MEMBERS);
+    // kosmos#7246 slice 2: the post @-names april so the control arm is still typed; unaddressed, she would be quiet.
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@april thinking out loud about the lease' }, board.agents, MEMBERS);
     assert.equal(sent.state, chat.DELIVERY.PLACED, 'a held post must read as placed to the sender, or it re-posts: ' + (sent.because || ''));
-    assert.equal(sent.outcomes.mara, roomhold.HELD);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now (not typed, not held), so the hold for a working member no longer arises from an agent's post.
+    assert.equal(sent.outcomes.mara, roomhold.QUIET);
     assert.deepEqual(typedTo(tmux, sessionOf(board, 'mara')), [], 'the working member was typed a post not addressed to it');
     assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'CONTROL: a never-reported member must still be typed the post');
-    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id]);
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
     const row = messages.record().rows.find((m) => m.id === sent.id);
     assert.ok(row.to.includes('mara'), 'a held member is still one the post went to (it is told about it)');
   });
@@ -125,15 +128,17 @@ test('#4624 with #4580: the same post sent again while it is held is folded into
     report('mara', 'working');
     armSender('leo-discord');
     const tmux = arm();
-    const post = { fromPane: '%7', project: PROJECT, text: 'thinking out loud about the lease' };
+    // kosmos#7246 slice 2: the post @-names april, so she is typed (the fold is counted on her pane).
+    const post = { fromPane: '%7', project: PROJECT, text: '@april thinking out loud about the lease' };
     const first = messages.sendPost(post, board.agents, MEMBERS);
-    assert.equal(first.outcomes.mara, roomhold.HELD, 'the precondition: the first copy was held for the working member');
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: the first copy is quiet for mara, not held.
+    assert.equal(first.outcomes.mara, roomhold.QUIET, 'the precondition: the first copy was quiet for the unaddressed member');
     const again = messages.sendPost(post, board.agents, MEMBERS);
     assert.equal(again.duplicate, true, 'the precondition: the second copy was folded into the first');
     assert.equal(again.id, first.id);
-    assert.equal(again.state, chat.DELIVERY.PLACED, 'a folded retry of a held post read as not placed, so the sender would post it a third time');
+    assert.equal(again.state, chat.DELIVERY.PLACED, 'a folded retry of a quiet post read as not placed, so the sender would post it a third time');
     assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'the never-reported member was typed the post twice');
-    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [first.id], 'the working member holds it once');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [], 'a quiet member holds nothing');
   });
 });
 
@@ -144,16 +149,19 @@ test('#4624 follow-up (0.7.15 diagnostic H7): an IDLE member is not typed a coll
     report('april', 'needs_you');
     armSender('leo-discord');
     let tmux = arm();
-    const a = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'empty queue, nothing to pick up' }, board.agents, MEMBERS);
-    assert.equal(a.outcomes.mara, roomhold.HELD, 'an idle member was woken by a post that asks nothing of it');
+    // kosmos#7246 slice 2: the post @-names april, so the needs_you control is still typed.
+    const a = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@april empty queue, nothing to pick up' }, board.agents, MEMBERS);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: the idle member is not woken, and not held either.
+    assert.equal(a.outcomes.mara, roomhold.QUIET, 'an idle member was woken by a post that asks nothing of it');
     assert.deepEqual(typedTo(tmux, sessionOf(board, 'mara')), []);
-    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [a.id]);
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
     // CONTROL: a member whose report is neither working nor idle (here needs_you) is typed as before.
     assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'CONTROL: a needs_you member is not held');
     // Review 1: an idle the agent wrote itself (not its hook) proves nothing about turn ends, so it is typed as before.
     report('april', 'idle');
     tmux = arm();
-    const self = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'one more thought' }, board.agents, MEMBERS);
+    // kosmos#7246 slice 2: @-named, since an unaddressed april would be quiet whatever her report says.
+    const self = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@april one more thought' }, board.agents, MEMBERS);
     assert.notEqual(self.outcomes.april, roomhold.HELD, 'an agent-written idle held a post');
     assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1);
     roomhold.take('mara', PROJECT);   // reset mara's list to the two posts the rest of this arm counts
@@ -161,7 +169,11 @@ test('#4624 follow-up (0.7.15 diagnostic H7): an IDLE member is not typed a coll
     // An idle report of any age holds (the turn ended; nothing decays it), unlike a stale working one.
     report('mara', 'idle', new Date(Date.now() - 24 * 3600 * 1000).toISOString());
     const b = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'still thinking' }, board.agents, MEMBERS);
-    assert.equal(b.outcomes.mara, roomhold.HELD, 'an old idle report let a background post wake the member');
+    // kosmos#7246 slice 2: an unaddressed member is quiet now (it was held): an old idle report still does not let the post wake her.
+    assert.equal(b.outcomes.mara, roomhold.QUIET, 'an old idle report let a background post wake the member');
+    assert.deepEqual(typedTo(tmux, sessionOf(board, 'mara')), [], 'the quiet member was typed to');
+    // The held line below is what a post held BEFORE the upgrade still rides on (the plan keeps old holds): hold b too.
+    roomhold.hold('mara', PROJECT, b.id);
     // The person's post, or one that names the member, still wakes it, carrying the held line once.
     tmux = arm();
     messages.sendPost({ operator: true, project: PROJECT, text: 'Mara, please pick up the lease' }, board.agents, MEMBERS);
@@ -192,8 +204,12 @@ test('#4624: a working report older than the board\'s decay window is not truste
     report('mara', 'working', new Date(Date.now() - status.REPORT_WORKING_DECAY_MS - 60000).toISOString());
     armSender('leo-discord');
     const tmux = arm();
-    messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'a note for the room' }, board.agents, MEMBERS);
-    assert.equal(typedTo(tmux, sessionOf(board, 'mara')).length, 1, 'a stale working report held a post');
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'a note for the room' }, board.agents, MEMBERS);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: an agent's post that does not address mara is never typed to her (nor held),
+    // whatever her report says, so the hold-for-unaddressed path this test guarded no longer exists for agent posts.
+    assert.equal(sent.outcomes.mara, roomhold.QUIET, 'an unaddressed member was not quiet');
+    assert.equal(typedTo(tmux, sessionOf(board, 'mara')).length, 0, 'a quiet member was typed to');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [], 'a stale working report held a post');
   });
 });
 
@@ -204,7 +220,14 @@ test('#4624: the brake types every post as before', () => {
     try {
       armSender('leo-discord');
       const tmux = arm();
-      messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'a note for the room' }, board.agents, MEMBERS);
+      const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'a note for the room' }, board.agents, MEMBERS);
+      // kosmos#7246 slice 2: an unaddressed member is quiet now: the brake turns off the hold, not who an agent's post addresses, so an
+      // unaddressed mara stays quiet with it on (the hold for an unaddressed member no longer arises from agent posts).
+      assert.equal(sent.outcomes.mara, roomhold.QUIET);
+      assert.equal(typedTo(tmux, sessionOf(board, 'mara')).length, 0);
+      // CONTROL: the person's post is typed to the working member with the brake on.
+      const op = messages.sendPost({ operator: true, project: PROJECT, text: 'a note for the room' }, board.agents, MEMBERS);
+      assert.equal(op.state, chat.DELIVERY.PLACED, op.because || '');
       assert.equal(typedTo(tmux, sessionOf(board, 'mara')).length, 1);
     } finally { delete process.env.AGENT_WORKFORCE_ROOM_HOLD_OFF; }
   });
@@ -217,6 +240,12 @@ test('#4624: held posts ride on the member\'s next typed room arrival as one lin
     arm();
     const a = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'first thought' }, board.agents, MEMBERS);
     const b = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'second thought' }, board.agents, MEMBERS);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now, not held: these two are held here as posts held before the upgrade (the plan
+    // keeps old holds), which is what the held line still rides on.
+    assert.equal(a.outcomes.mara, roomhold.QUIET);
+    assert.equal(b.outcomes.mara, roomhold.QUIET);
+    roomhold.hold('mara', PROJECT, a.id);
+    roomhold.hold('mara', PROJECT, b.id);
     report('mara', 'idle');
     const tmux = arm();
     // Addressed, so it is typed whatever mara's state: the arrival the held line rides on.
@@ -239,6 +268,9 @@ test('#4624: an arrival that could not be typed keeps the held posts for the nex
     armSender('leo-discord');
     arm();
     const a = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'first thought' }, board.agents, MEMBERS);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now, not held: a is held here as a post held before the upgrade (the plan keeps old holds).
+    assert.equal(a.outcomes.mara, roomhold.QUIET);
+    roomhold.hold('mara', PROJECT, a.id);
     report('mara', 'idle');
     // Every tmux call for mara's pane fails, so nothing is typed to her.
     const tmux = fakeTmux([]);
@@ -292,7 +324,8 @@ test('#4624 round 1: a working member with no pane to type into is refused as be
     armSender('leo-discord');
     arm();
     const noMara = board.agents.filter((a) => a.sessionName !== 'mara');
-    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'a note for the room' }, noMara, MEMBERS);
+    // kosmos#7246 slice 2: the post @-names mara, so delivery is tried (unaddressed, she would be quiet).
+    const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara a note for the room' }, noMara, MEMBERS);
     assert.equal(sent.outcomes.mara, chat.DELIVERY.COULD_NOT, 'a member nobody can type to was held: ' + JSON.stringify(sent.outcomes));
     assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
   });
@@ -302,14 +335,17 @@ test('#4624 round 1: a reply to the member\'s own post is typed even while it wo
   withFleet(room3(), (board) => {
     armSender('mara-discord');
     arm();
-    const ask = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'does clause 4 renew monthly?' }, board.agents, MEMBERS);
+    // kosmos#7246 slice 2: the question asks leo, so a reply to it wakes its author (a post that asked no one would not).
+    const ask = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@leo does clause 4 renew monthly?' }, board.agents, MEMBERS);
     report('mara', 'working');
     report('april', 'working');
     armSender('leo-discord');
     const tmux = arm();
     const ans = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'yes, monthly', replyTo: ask.id }, board.agents, MEMBERS);
     assert.equal(typedTo(tmux, 'mara').length, 1, 'the answer to her own question was held: ' + JSON.stringify(ans.outcomes));
-    assert.equal(ans.outcomes.april, roomhold.HELD, 'CONTROL: a working bystander must still be held');
+    // kosmos#7246 slice 2: an unaddressed member is quiet now (a working bystander was held): not typed, not held.
+    assert.equal(ans.outcomes.april, roomhold.QUIET, 'CONTROL: a working bystander must not be woken');
+    assert.equal(typedTo(tmux, 'april').length, 0, 'CONTROL: a working bystander must not be typed to');
   });
 });
 
@@ -340,4 +376,26 @@ test('#4624 round 1: removal forgets what was held; a "__proto__" project id is 
   assert.deepEqual(roomhold.heldIn('mara', '__proto__'), ['m5']);
   assert.equal(roomhold.forget('mara'), true);
   assert.deepEqual(roomhold.heldProjects('mara'), []);
+});
+
+test('kosmos#7246 slice 2 (round 7): an @all and a header name are typed at once to a hook-idle member and a working one', () => {
+  withFleet(room3(), (board) => {
+    // The turn-end hook's idle (auto), as the Claude Stop hook writes it: an un-addressed post is held for this member,
+    // and a held plain id waits for a turn end that an idle agent never has.
+    assert.equal(selfreport.record('mara', { state: 'idle', because: 'turn ended', auto: true }).recorded, true);
+    report('april', 'working');
+    armSender('leo-discord');
+    let tmux = arm();
+    const all = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@all please stop deploying now, reply when stopped' }, board.agents, MEMBERS);
+    assert.equal(typedTo(tmux, sessionOf(board, 'mara')).length, 1, 'an @all was held for a hook-idle member (it would never be told)');
+    assert.equal(typedTo(tmux, sessionOf(board, 'april')).length, 1, 'an @all was held for a working member');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
+    assert.equal(all.outcomes.mara, 'placed');
+    tmux = arm();
+    messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'Leo -> Mara: can you check clause 4' }, board.agents, MEMBERS);
+    assert.equal(typedTo(tmux, sessionOf(board, 'mara')).length, 1, 'a header name is a request, typed at once');
+    tmux = arm();
+    const fyi = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@april the lease draft is green' }, board.agents, MEMBERS);
+    assert.equal(fyi.outcomes.mara, roomhold.QUIET, 'CONTROL: a post not addressed to her is quiet, never typed');
+  });
 });

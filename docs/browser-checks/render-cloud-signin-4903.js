@@ -108,6 +108,9 @@ async function hideArm(browser, cloud) {
         const d = document.createElement('div'); d.innerHTML = boardEmpty(); return d.textContent;
       })(),
       hint: hint ? hint.textContent : 'NO HINT',
+      // Seam H, the engine's half: an engine reason as the page says it (the presence line's funnel, and a restart failure).
+      reason: typeof pjSentence === 'function' ? pjSentence('we cannot see an agent by exactly this name on this computer right now') : 'NO pjSentence',
+      restart: typeof restartFailureLine === 'function' ? restartFailureLine({ because: 'we could not find Claude Code on this computer' }) : 'NO restartFailureLine',
     };
   }, cloud);
   got.errors = errors;
@@ -154,6 +157,8 @@ async function hideArm(browser, cloud) {
     check('CONTROL mac: the age line names the under-18 choice', hm.ages.length === 1 && /choose OpenAI or Grok/.test(hm.ages[0]), JSON.stringify(hm.ages));
     check('cloud: the hidden providers\' status boxes are hidden too', hc.msgs.every((v) => !v), JSON.stringify(hc.msgs));
     check('CONTROL mac: their status boxes are not hidden', hm.msgs.every((v) => v), JSON.stringify(hm.msgs));
+    check('cloud: an engine reason says your cloud machine', /on your cloud machine right now\.$/.test(hc.reason) && /on your cloud machine$/.test(hc.restart), `${hc.reason} / ${hc.restart}`);
+    check('CONTROL mac: the engine reason keeps "this computer"', /on this computer right now\.$/.test(hm.reason) && /on this computer$/.test(hm.restart), `${hm.reason} / ${hm.restart}`);
     check('seam G/H: no page errors', hc.errors.length === 0 && hm.errors.length === 0, hc.errors.concat(hm.errors).join(' | '));
   }
   await browser.close();

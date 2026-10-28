@@ -80,7 +80,8 @@ test('#7368: the step names the shell command in quotes, or the tool and what it
   assert.equal(stepVia('mcp__s__' + 'github_' + 'pat_AAAAAAAAAA__BBBBBBBBBBBBBBBBBBBB', {}), 'using \u2022\u2022\u2022\u2022', 'and one that spans the split');
   assert.equal(stepVia('mcp__claude_ai___t', {}), 'using t', 'a server emptied by its prefix shows the tool alone');
   assert.equal(stepVia('mcp__srv__do-' + LIVE, {}), 'using \u2022\u2022\u2022\u2022', 'and one inside the tool part');
-  const longName = stepVia('mcp__' + 'a'.repeat(240) + '__get_' + LIVE, {});
+  // The cut (STEP_MAX * 3) lands 9 characters into the key, too few for the mask: reordered, they would show.
+  const longName = stepVia('mcp__' + 'a'.repeat(212) + '__get_' + LIVE, {});
   assert.ok(longName.startsWith('using mcp__aaa') && !longName.includes('live'), 'a name too long to show whole is not reordered: ' + longName);
   assert.equal(stepVia('mcp__onlyserver', {}), 'using mcp__onlyserver', 'CONTROL: not MCP-shaped, shown as it is');
   assert.equal(stepVia('my_tool', {}), 'using my_tool', 'CONTROL: another name keeps its underscores');

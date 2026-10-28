@@ -48,6 +48,7 @@ async function withRoom(fn) {
     board.restore();
     chat.resetForTests();
     if (typeof messages.resetForTests === 'function') messages.resetForTests();
+    require('./roomloop').resetForTests();   // kosmos#7246 slice 2: the per-project agent-wake cap starts empty each test
   }
 }
 
@@ -75,7 +76,8 @@ for (const how of ['reject', 'throw']) {
       const calls = arm();
       const restore = breakOne(roster, 'cy', how);
       try {
-        const d = await agentPost(roster, 'the build is green', false);
+        // kosmos#7246 slice 2: the post says @all so every member is tried (an agent's unaddressed post is quiet for all).
+        const d = await agentPost(roster, '@all the build is green', false);
         assert.ok(!d.because || d.state !== chat.DELIVERY.COULD_NOT, 'refused: ' + d.because);
         assert.equal(d.state, chat.DELIVERY.UNCONFIRMED, 'a post that reached two of three members was answered ' + d.state);
         assert.equal(d.outcomes.cy, chat.DELIVERY.UNCONFIRMED);
@@ -83,7 +85,7 @@ for (const how of ['reject', 'throw']) {
         const first = enters(calls).length;
         assert.equal(first, 2, 'fixture: bix and dee were not both typed into');
         // The sender, told "unconfirmed, do not re-post", posts it again anyway: the twin folds, nobody is typed into twice.
-        const again = await agentPost(roster, 'the build is green', false);
+        const again = await agentPost(roster, '@all the build is green', false);
         assert.equal(again.duplicate, true, 'the retry was posted a second time');
         assert.equal(enters(calls).length, first, 'a member was typed into twice');
         assert.equal(rows().length, 1, 'the retry was recorded as a second post');
@@ -98,7 +100,8 @@ test('#4926: the synchronous path (outbox drain) records a post whose one member
     chat.setPauser(() => {});
     const restore = breakOne(roster, 'cy', 'throw');
     try {
-      const d = await agentPost(roster, 'sync post', true);
+      // kosmos#7246 slice 2: the post says @all so every member is tried (an agent's unaddressed post is quiet for all).
+      const d = await agentPost(roster, '@all sync post', true);
       assert.equal(d.state, chat.DELIVERY.UNCONFIRMED, 'answered ' + d.state + (d.because ? ': ' + d.because : ''));
       assert.equal(rows().length, 1, 'the post was not recorded');
     } finally { restore(); }
@@ -110,7 +113,8 @@ test('#4926: a post where EVERY member\'s typing threw is recorded unconfirmed t
     arm();
     const restores = ['bix', 'cy', 'dee'].map((n) => breakOne(roster, n, 'throw'));
     try {
-      const d = await agentPost(roster, 'nobody', false);
+      // kosmos#7246 slice 2: the post says @all so every member is tried (an agent's unaddressed post is quiet for all).
+      const d = await agentPost(roster, '@all nobody', false);
       // Each member's throw is "may have reached", so the post is recorded unconfirmed and the sender told not to re-post.
       assert.equal(d.state, chat.DELIVERY.UNCONFIRMED);
       assert.equal(rows().length, 1);
@@ -126,7 +130,8 @@ test('#4926 review 1 (Opus): an answer to the member\'s OWN post held on the quo
   await withRoom(async (roster) => {
     arm();
     roomhold.forget('bix');
-    const mine = await postAs(roster, 'bix', 'which branch should I use?');
+    // kosmos#7246 slice 2: bix's question asks cy, so a reply to it wakes bix (a post that asked no one would not).
+    const mine = await postAs(roster, 'bix', '@cy which branch should I use?');
     assert.ok(mine.id, 'fixture: bix\'s question was not posted');
     // bix is now held on the shared quota: its automatic deliveries answer held.
     const restore = withDeliverAuto((real) => (n, ...rest) => (n === 'bix' ? Promise.resolve({ state: chat.DELIVERY.COULD_NOT, held: true }) : real(n, ...rest)));
@@ -135,8 +140,11 @@ test('#4926 review 1 (Opus): an answer to the member\'s OWN post held on the quo
       assert.equal(ans.outcomes && ans.outcomes.bix, roomhold.HELD, 'fixture: the answer was not held for bix');
       assert.deepEqual(roomhold.heldIn('bix', 'room4926'), [roomhold.addressedId(ans.id)], 'the answer to bix\'s own question was held unmarked');
       // CONTROL: a plain post (no answer, no @) held on the quota is kept unmarked.
+      // kosmos#7246 slice 2: an unaddressed member is quiet now: a plain post never reaches bix's quota hold, so it is
+      // quiet and nothing is held for it, marked or not.
       const plain = await postAs(roster, 'cy', 'unrelated note');
-      assert.ok(roomhold.heldIn('bix', 'room4926').includes(plain.id), 'control: a plain held post was marked');
+      assert.equal(plain.outcomes && plain.outcomes.bix, roomhold.QUIET, 'control: a plain post was not quiet for bix');
+      assert.ok(!roomhold.heldIn('bix', 'room4926').some((h) => h === plain.id || h === roomhold.addressedId(plain.id)), 'control: a quiet post was held');
     } finally { restore(); roomhold.forget('bix'); }
   });
 });
@@ -198,12 +206,13 @@ test('#4926 review 2 (Sonnet): a throw BEFORE the typing path (nothing typed) is
     let broken = ['cy'];
     roomhold.shouldHold = (o) => { if (broken.includes(o.name)) throw new Error('lookup broke'); return real(o); };
     try {
-      const d = await agentPost(roster, 'one member unreachable', false);
+      // kosmos#7246 slice 2: the post says @all so every member is tried (an agent's unaddressed post is quiet for all).
+      const d = await agentPost(roster, '@all one member unreachable', false);
       assert.equal(d.outcomes.cy, chat.DELIVERY.COULD_NOT, 'a member nothing was typed into was recorded as maybe reached');
       assert.equal(enters(calls).length, 2, 'fixture: the other two were not typed into');
       assert.equal(rows().length, 1);
       broken = ['bix', 'cy', 'dee'];
-      const none = await agentPost(roster, 'nobody reachable', false);
+      const none = await agentPost(roster, '@all nobody reachable', false);
       assert.equal(none.state, chat.DELIVERY.COULD_NOT, 'a post typed to nobody was not refused: ' + none.state);
       assert.equal(rows().filter((r) => r.text && r.text.includes('nobody reachable')).length, 0, 'a post typed to nobody was recorded');
     } finally { roomhold.shouldHold = real; }
@@ -267,19 +276,20 @@ test('#4926 review 3 (Opus): an unrecorded post\'s twin is forgotten once the ro
   await withRoom(async (roster) => {
     const calls = arm();
     let restore = failLogOnce();
-    try { await agentPost(roster, 'said once', false); } finally { restore(); }
+    // kosmos#7246 slice 2: the post says @all so every member is tried (an agent's unaddressed post is quiet for all).
+    try { await agentPost(roster, '@all said once', false); } finally { restore(); }
     await postAs(roster, 'cy', 'someone else spoke');   // recorded
     const before = enters(calls).length;
-    const again = await agentPost(roster, 'said once', false);
+    const again = await agentPost(roster, '@all said once', false);
     assert.ok(!again.duplicate, 'a repeat after the room spoke was folded');
     assert.ok(enters(calls).length > before, 'the repeat was not typed');
     // The window: past SEND_DEDUP_WINDOW_MS the twin is gone.
     restore = failLogOnce();
-    try { await agentPost(roster, 'said twice', false); } finally { restore(); }
+    try { await agentPost(roster, '@all said twice', false); } finally { restore(); }
     const realNow = Date.now;
     Date.now = () => realNow() + messages.SEND_DEDUP_WINDOW_MS + 1000;
     let late;
-    try { late = await agentPost(roster, 'said twice', false); } finally { Date.now = realNow; }
+    try { late = await agentPost(roster, '@all said twice', false); } finally { Date.now = realNow; }
     assert.ok(!late.duplicate, 'a twin outlived the dedup window');
   });
 });
@@ -297,7 +307,8 @@ test('#6065 review 1: a member whose spill cannot be written is not reached, kee
     assert.ok(roomhold.hold('cy', 'room4926', 'p-held-before'), 'premise: a held post for cy');
     let d;
     try {
-      try { d = await agentPost(roster, 'long '.repeat(2200), false); } finally { roomhold.withoutStale = realStale; }
+      // kosmos#7246 slice 2: the post says @all so every member is tried (an agent's unaddressed post is quiet for all).
+      try { d = await agentPost(roster, '@all ' + 'long '.repeat(2200), false); } finally { roomhold.withoutStale = realStale; }
       assert.equal(d.outcomes.cy, chat.DELIVERY.COULD_NOT, JSON.stringify(d.outcomes));
       assert.deepEqual(roomhold.heldIn('cy', 'room4926'), ['p-held-before'], 'cy\'s held post was lost when its spill failed');
       const bixInbox = path.join(process.env.AGENT_WORKFORCE_WORKERS, 'bix', 'Inbox');
@@ -317,7 +328,8 @@ test('#4926 review 4 (Sonnet): a post that began while the unrecorded one was st
     const t0 = Date.now();
     let restore = failLogOnce();
     let d;
-    try { d = await agentPost(roster, 'slow one', false); } finally { restore(); }
+    // kosmos#7246 slice 2: the post says @all so every member is tried (an agent's unaddressed post is quiet for all).
+    try { d = await agentPost(roster, '@all slow one', false); } finally { restore(); }
     const tEnd = Date.now();
     assert.ok(tEnd - t0 >= 60, 'fixture: the post was not slow enough to start something during it');
     // Review 7: timed from OUR clock (t0), not from d.at, so a wrong d.at (the send's end) cannot move the row with it.
@@ -326,7 +338,7 @@ test('#4926 review 4 (Sonnet): a post that began while the unrecorded one was st
     assert.ok(messages.list().some((r) => r.id === 'm77'), 'fixture: the record reader dropped the meanwhile row');
     assert.ok(Date.parse(d.at) <= t0 + 30, 'the unrecorded post\'s own time is not its start');
     chat.setPauser(() => Promise.resolve());
-    const again = await agentPost(roster, 'slow one', false);
+    const again = await agentPost(roster, '@all slow one', false);
     assert.ok(!again.duplicate, 'a repeat after a post that began meanwhile was folded');
   });
 });
@@ -378,10 +390,11 @@ test('#4926 review 7 (Opus): with the record failing THROUGHOUT, a post in betwe
       const real = fs.appendFileSync;
       fs.appendFileSync = (f, ...rest) => { if (f === messages.LOG) throw new Error('ENOSPC'); return real(f, ...rest); };
       try {
-        await agentPost(roster, 'yes', false);
+        // kosmos#7246 slice 2: the post says @all so every member is tried (an agent's unaddressed post is quiet for all).
+        await agentPost(roster, '@all yes', false);
         if (who === 'person') await opPost(roster, 'ava, please say that again?'); else await postAs(roster, 'cy', 'say that again?');
         const before = enters(calls).length;
-        const again = await agentPost(roster, 'yes', false);
+        const again = await agentPost(roster, '@all yes', false);
         assert.ok(!again.duplicate, who + ': a real repeat after another post was swallowed');
         assert.ok(enters(calls).length > before, who + ': the repeat was not typed');
       } finally { fs.appendFileSync = real; }
@@ -419,7 +432,8 @@ test('#6065 review 1: the held-posts line counts toward the limit, so a post tha
     // bix's held-posts line is 5000 characters: the post fits alone (by thousands), but not with it.
     roomhold.clauseFor = (p, shown, ids) => (ids.includes('p-bix-held') ? '[' + 'h'.repeat(4998) + ']' : realClause(p, shown, ids));
     assert.ok(roomhold.hold('bix', 'room4926', 'p-bix-held'));
-    const text = 'x'.repeat(messages.spillLimit() - 4000);
+    // kosmos#7246 slice 2: the post says @all so every member is tried (an agent's unaddressed post is quiet for all).
+    const text = '@all ' + 'x'.repeat(messages.spillLimit() - 4000);
     let d;
     try { d = await agentPost(roster, text, false); } finally { roomhold.withoutStale = realStale; roomhold.clauseFor = realClause; roomhold.forgetProject('bix', 'room4926'); }
     assert.notEqual(d.outcomes.bix, chat.DELIVERY.COULD_NOT, 'chat refused a line the held-posts line pushed past its limit: ' + JSON.stringify(d.outcomes));

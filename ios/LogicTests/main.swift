@@ -3693,6 +3693,41 @@ do {
     check(SignIn.startBody(email: "a@b.co", deviceID: key.id, deviceName: "n").count == 3, "start sends the email, the id and the name only")
 }
 
+section("sign-in: the App Store review door (kosmos#7357)")
+do {
+    check(SignIn.reviewDoorOpen(status: 405) == true, "open: the door takes POST only, so a GET answers 405 (kosmos-relay review.rs)")
+    check(SignIn.reviewDoorOpen(status: 404) == false, "closed: it answers like a path that does not exist")
+    check(SignIn.reviewDoorOpen(status: 200) == nil && SignIn.reviewDoorOpen(status: 429) == nil && SignIn.reviewDoorOpen(status: 503) == nil,
+          "CONTROL: any other answer is not read as open (no password sign-in on a guess)")
+    let body = SignIn.reviewBody(email: "review@example.com", password: "p", deviceName: "iPhone")
+    check(body.count == 3 && body["email"] as? String == "review@example.com" && body["password"] as? String == "p"
+          && body["device_name"] as? String == "iPhone", "the review sign-in sends the email, the password and the name only")
+    check(body["device_id"] == nil, "and no device id: the server makes its own review device")
+    check(SignIn.reviewPath == "/v1/signin/review", "the door's path")
+    // Its answer is verify's: a session that waits for the computer's Allow, and the server's device id is ignored.
+    let admitted = SignIn.answer(status: 200, json: ["token": "t", "device_status": "pending", "match_code": "K7Q2",
+                                                     "addresses": ["a"], "device_id": "review-1"] as [String: Any])
+    check(admitted == .signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "K7Q2", hasComputer: true)),
+          "an admitted review sign-in waits for the review computer's Allow, as any sign-in does")
+    // Review 1: a refusal stays on the password step (never the code step: no code was sent), a 404 is the door closed.
+    // The server's real bodies (kosmos-relay review.rs REFUSED, ratelimit::code_sends_refused).
+    check(SignIn.reviewAnswer(status: 401, json: ["error": "that email and password do not match"]) == .refused("That email and password do not match."),
+          "a wrong password stays on the password step, in Kosmos+'s words as a sentence")
+    check(SignIn.reviewAnswer(status: 429, json: ["error": "too many codes asked for from this network; wait a moment and try again", "retry_after_secs": 20] as [String: Any]) == .refused(SignIn.reviewTooMany),
+          "review 3: the door's rate limit says wait, never the code limiter's words about codes")
+    check(SignIn.reviewAnswer(status: 401, json: ["error": "this account is being deleted"]) == .refused("This account is being deleted."),
+          "CONTROL: a 401 that is not about the password keeps its own sentence")
+    check(SignIn.sentence("Done already.") == "Done already." && SignIn.sentence("") == "", "a sentence that already ends is left as it is")
+    check(SignIn.reviewAnswer(status: 403, json: ["error": "this account signs in through its company"]) == .refused("This account signs in through its company."),
+          "and so does any other refusal")
+    check(SignIn.reviewAnswer(status: 503, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer) && SignIn.reviewAnswer(status: 400, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer),
+          "and a server error or a bad request says try again")
+    check(SignIn.reviewAnswer(status: 401, json: [:] as [String: Any]) == .refused(SignIn.reviewRefused), "with no sentence from Kosmos+, the phone's own")
+    check(SignIn.reviewAnswer(status: 404, json: nil) == .closed, "a 404 is the door closed since the link showed")
+    check(SignIn.reviewAnswer(status: 200, json: ["token": "t", "device_status": "pending"] as [String: Any]) == .answered(.signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: nil, hasComputer: false))),
+          "an admitted sign-in goes on to the Allow")
+}
+
 section("sign-in: what was typed")
 for (e, ok) in [("ada@example.com", true), ("  ada@example.com ", true), ("ada@example", false), ("ada example.com", false), ("@example.com", false), ("ada@@example.com", false), ("ada@.com", false), ("ada@example.", false), ("", false)] {
     check(SignIn.looksLikeEmail(e) == ok, "\(e.isEmpty ? "(empty)" : e): \(ok ? "an email" : "not an email")")

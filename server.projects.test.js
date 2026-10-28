@@ -3339,6 +3339,32 @@ test('#1895: the room text view renders a broadcast as "the room" in the operato
   });
 });
 
+test('kosmos#7246 slice 2 (round 5): the room text view names the members a post woke, not the ones it left quiet', async () => {
+  reset();
+  const fsx = require('node:fs');
+  const messages = require('./engine/messages');
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    try {
+      const projectsEngine = require('./engine/projects');
+      projectsEngine.writeAll(projectsEngine.readAll().map((q) => (q.id === project.id ? { ...q, createdAt: '2026-09-01T00:00:00.000Z' } : q)));
+      const at = '2026-09-02T19:50:17.326Z';
+      const row = (id, text, outcomes) => fsx.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id, from: 'splinter2', to: ['mara', 'april'], operator: false, text, at, project: project.id, outcomes }) + '\n');
+      row('m7246a', 'one asked', { mara: 'placed', april: 'quiet' });
+      row('m7246b', 'an fyi', { mara: 'quiet', april: 'quiet' });
+      row('m7246c', 'from before', {});
+      row('m7246d', 'one failed', { mara: 'placed', april: 'could_not' });   // round 7
+      const lines = (await req(`/api/project/${project.id}/room?as=text`)).body.split('\n');
+      assert.match(lines.find((l) => l.includes('one asked')) || '', /splinter2 -> mara: one asked$/);
+      assert.match(lines.find((l) => l.includes('an fyi')) || '', /splinter2 -> the room: an fyi$/, 'a post that woke no one named its quiet members');
+      assert.match(lines.find((l) => l.includes('one failed')) || '', /splinter2 -> mara: one failed$/, 'a member it could not reach was listed');
+      assert.match(lines.find((l) => l.includes('from before')) || '', /splinter2 -> mara, april: from before$/, 'CONTROL: a row with no quiet outcome names everyone it went to');
+    } finally {
+      try { fsx.rmSync(messages.LOG, { force: true }); } catch { /* fine */ }
+    }
+  });
+});
+
 test('#563: the text view carries the unanswered line the page shows, from the same computation, under the post it is about', async () => {
   reset();
   const messages = require('./engine/messages');

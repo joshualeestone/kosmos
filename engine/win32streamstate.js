@@ -67,6 +67,14 @@ const LIMIT_LINE_MAX = 300;
 /** #7369: the token's first word while the agent's last turn was refused for its sign-in; `stateFor` adds when, the
     plain state under it, and Claude's sentence. */
 const AUTH = 'auth';
+/** #7361: the token's first word for an idle read from THIS file (`stateFor` asked with { streamIdle: true }), as
+    against `claude agents --json`'s plain `idle`. The two are not the same fact: this idle is written on the turn's
+    `result` (or the start), so it proves no turn is running; `agents --json` also reads idle while a session waits on
+    something (#570, #5949). `stream-idle <since>`, since being when the file recorded it (its `at`), so status can tell
+    an automatic "working" written before the turn ended (stale: its Stop hook's idle never landed) from one written
+    after (a new turn the file has not caught up with yet). Win32capture returns it; classify reads it as IDLE with
+    `liveToken`. */
+const STREAM_IDLE = 'stream-idle';
 
 /** Bumped if the file's shape ever changes, so a board never trusts a file it
     was not written to read. */
@@ -111,6 +119,7 @@ function toolWords(name) {
   let mask;
   let MASK;
   try { ({ mask, MASK } = require('./secretmask')); } catch { return name; }   // as main: cut masks it or shows nothing
+  if (name.includes(MASK)) return MASK;   // already masked in part (the step's own fold): the whole name goes
   /* One mask call per name, not one per underscore: mask() caches every distinct text it sees. A pattern begins at a
      word boundary, which an underscore is not, so every suffix after an underscore is tried, space-separated. */
   const tries = [name];
@@ -132,6 +141,52 @@ function toolWords(name) {
   return from ? tool + ' from ' + from : tool;
 }
 
+/* kosmos#7386: the invisible characters a secret can be split by: every control (Cc: C0, DEL, C1), every format
+   character (Cf: the bidi marks, embeddings, overrides and isolates, the invisible operators, tag characters) and every
+   default-ignorable code point (variation selectors, Hangul fillers and the rest). By category, not by list (review 1:
+   a list of the bidi marks and C1 missed U+2061-2064, U+FE00-FE0F, the tags and more, and each let a key show). */
+/* Review 3: combining marks (Mn) and the Braille blank (U+2800) render as nothing too; review 4: private use (Co),
+   which some Windows fonts draw as nothing. */
+const STEP_HIDDEN = '\\p{Cc}\\p{Cf}\\p{Mn}\\p{Co}\\p{Default_Ignorable_Code_Point}\\u2800';
+/* Review 4 (cost): the value is read in ONE pass, a run of each kind at a time with a sticky regex (one native match per
+   run, so a megabyte of padding is one step), building the three copies together and stopping each at the cut:
+   - whitespace (JS \\s): one space in all three;
+   - a C0 control or DEL that is not whitespace: a space in what is shown (as before), removed in the "removed" copy;
+   - any other hidden character: kept in what is shown, removed in the "removed" copy, a space in the "spaced" one.
+   Line breaks and tabs are whitespace, so the "removed" copy keeps them as a space and does not join the lines of an
+   ordinary command into one long token (review 3). */
+/* Review 5: U+FEFF (the byte order mark, a zero-width no-break space) is whitespace to JS but invisible, so it goes
+   with the C0 controls: shown as a space, as on main, dropped from the "removed" copy, and the value marked hidden. */
+const RUN_SPACE = /[^\S\uFEFF]+/y;
+const RUN_C0 = /[\u0000-\u0008\u000e-\u001f\u007f\uFEFF]+/y;
+const RUN_HIDDEN = new RegExp('[' + STEP_HIDDEN + ']+', 'uy');
+const RUN_PLAIN = new RegExp('[^\\s\\u0000-\\u001f\\u007f' + STEP_HIDDEN + ']+', 'uy');
+function stepCopies(v, bound) {
+  const outs = [{ t: '', n: 0, sp: false }, { t: '', n: 0, sp: false }, { t: '', n: 0, sp: false }];   // shown, removed, spaced
+  const space = (o) => { if (o.n > 0 && !o.sp && o.n < bound) { o.t += ' '; o.n += 1; o.sp = true; } };
+  const text = (o, run) => {
+    if (o.n >= bound) return;
+    for (const ch of run) { if (o.n >= bound) break; o.t += ch; o.n += 1; }
+    o.sp = false;
+  };
+  let hidden = false;
+  let i = 0;
+  const take = (re) => { re.lastIndex = i; const m = re.exec(v); return m ? m[0] : null; };
+  while (i < v.length && !outs.every((o) => o.n >= bound)) {
+    let run;
+    /* A line break or a tab inside a value counts as hidden too (a newline in a tool name split a key, and the shown text
+       masked only its first half): its copies equal what is shown, so only a value whose shown text masks something is
+       masked whole, never an ordinary list of hashes (review 3). JS's other line breaks, U+2028 and U+2029, too (review 6). */
+    if ((run = take(RUN_SPACE)) !== null) { if (/[\t\n\v\f\r\u2028\u2029]/.test(run)) hidden = true; outs.forEach(space); }
+    else if ((run = take(RUN_C0)) !== null) { hidden = true; space(outs[0]); space(outs[2]); }
+    else if ((run = take(RUN_HIDDEN)) !== null) { hidden = true; text(outs[0], run); space(outs[2]); }
+    else if ((run = take(RUN_PLAIN)) !== null) { outs.forEach((o) => text(o, run)); }
+    else { run = String.fromCodePoint(v.codePointAt(i)); outs.forEach((o) => text(o, run)); }   // a lone surrogate
+    i += run.length;
+  }
+  const done = (o) => (o.sp && o.n < bound ? o.t.slice(0, -1) : o.t);
+  return { shown: done(outs[0]), removed: done(outs[1]), spaced: done(outs[2]), hidden };
+}
 /* kosmos#7368: one tool call's step: the shell command it runs in quotes, or the tool and what it acts on. Short, one line,
    masked; never the whole input. */
 function stepOfUse(use) {
@@ -140,17 +195,47 @@ function stepOfUse(use) {
     const input = use.input && typeof use.input === 'object' ? use.input : {};
     /* Masked BEFORE it is cut (review 1 W2): a command can carry a token, and this text reaches the card and the board
        log. Control characters go; the cut is by character, never inside one. */
-    const one = (v) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim() : '');
-    const cut = (v) => {
-      let t = Array.from(v).slice(0, STEP_MAX * 3).join('');   // review 3: never mask megabytes on the supervisor's loop
-      try { t = require('./secretmask').mask(t).text; } catch { t = ''; }
+    const sm = require('./secretmask');
+    /* kosmos#7386: a C1 or bidi control inside a secret breaks the mask's patterns, and neither undoing it helps on its
+       own: as a space it splits a token the mask would rejoin, removed it joins words a spaced mask needs apart. So a
+       value holding one is masked as it is, and also as BOTH copies; if either copy masks anything, the whole value is
+       shown as the mask. Bounded first (review 3 of #7368), so the extra copies never cost more than the first. */
+    /* What is shown is what is checked (review 2): the value is folded for display FIRST and that exact text masked,
+       as before; a raw cap keeps the supervisor's loop bounded (review 3 of #7368), and the cut to STEP_MAX * 3 is taken
+       AFTER the fold, so padding cannot push half a key past it (review 2). */
+    const bound = STEP_MAX * 3;
+    /* What is shown is what is checked (review 2): the folded text, cut AFTER the fold (review 3), masked, as on main;
+       a value holding a hidden character is also masked as its two copies, and either firing shows the mask whole. */
+    const guarded = (c) => {
+      if (c.hidden && (sm.mask(c.removed).fired.length || sm.mask(c.spaced).fired.length)) return sm.MASK;
+      return sm.mask(c.shown).text;
+    };
+    const cut = (t) => {
       const chars = Array.from(t);
       return chars.length > STEP_MAX ? chars.slice(0, STEP_MAX - 1).join('') + '\u2026' : t;
     };
-    const cmd = one(input.command);
-    if (cmd) return cut('running "' + cmd + '"');   // quotes, not backticks: the page shows plain text
-    const target = one(input.file_path) || one(input.path) || one(input.url) || one(input.pattern) || one(input.query);
-    return cut('using ' + toolWords(use.name) + (target ? ' on ' + target : ''));
+    /* The name is folded like the command and the target (review 1: a newline or a C0 control in an MCP tool name split
+       a key and broke the one-line step). Only the values a step shows are masked: with no invisible character a shell
+       step adds one entry to mask()'s shared cache, as before, and a tool step two; each value holding one adds two
+       more (review 2). */
+    /* A C0 control inside a key is one of the invisible characters, so the "removed" copy rejoins the key the display
+       fold splits (review 1); the display itself is always the folded, masked text (review 2). */
+    const shown = (v) => {
+      if (typeof v !== 'string' || !v) return '';
+      const c = stepCopies(v, bound);
+      return c.shown ? guarded(c) : '';
+    };
+    try {
+      const cmd = shown(input.command);
+      if (cmd) return cut('running "' + cmd + '"');   // quotes, not backticks: the page shows plain text
+      let target = '';
+      for (const v of [input.file_path, input.path, input.url, input.pattern, input.query]) { target = shown(v); if (target) break; }
+      const name = shown(use.name);
+      if (!name) return null;
+      /* kosmos#7368 follow-up: an MCP name reads as the tool and where it comes from. The folded name is cut to `bound`, so
+         a name longer than that is shown as it is (a reordered tail could put half a token in front of the cut). */
+      return cut('using ' + (Array.from(use.name).length > bound ? name : toolWords(name)) + (target ? ' on ' + target : ''));
+    } catch { return null; }
   } catch { return null; }
 }
 
@@ -295,6 +380,24 @@ function isAuthToken(token) {
   return typeof token === 'string' && /^auth \S+ (?:busy|idle)(?: |$)/.test(token);
 }
 
+/** #7361: the stream's own idle token, `stream-idle <since>`, or bare `stream-idle` when the time is not known. */
+function streamIdleToken(since) {
+  return typeof since === 'string' && Number.isFinite(Date.parse(since)) && !/\s/.test(since) ? STREAM_IDLE + ' ' + since : STREAM_IDLE;
+}
+
+/** #7361: whether a state token is the stream's own idle (`streamIdleToken`). Never the `auth ... idle` one: a refused
+    turn's idle is the sign-in's to read (classify), not proof of a finished good turn. */
+function isStreamIdleToken(token) {
+  return typeof token === 'string' && /^stream-idle(?: \S+)?$/.test(token);
+}
+
+/** #7361: when a stream idle token says the file recorded idle, as an ISO string, or null when it does not say. */
+function streamIdleSince(token) {
+  if (!isStreamIdleToken(token)) return null;
+  const m = / (\S+)$/.exec(token);
+  return m && Number.isFinite(Date.parse(m[1])) ? new Date(Date.parse(m[1])).toISOString() : null;
+}
+
 /**
  * #7369: what one `result` event says about the sign-in. `undefined` for no claim, or `{ line }` when Claude Code ended
  * the turn on a sign-in error (is_error, and its sentence is one of claudesignintext's). Only a result: the assistant
@@ -420,8 +523,12 @@ function clearState(name, ownerPid) {
  *
  * @param {string} name the recorded agent name
  * @param {{sessionId: string, pid: number}} live the agent's row from `claude agents --json`
+ * @param {number} [nowMs] the clock a limit's reset is compared with (default Date.now())
+ * @param {{ streamIdle?: boolean }} [opts] #7361: `streamIdle` answers a plain idle as `stream-idle <at>` (the file's
+ *   own time), which win32capture asks for so classify can tell it from `agents --json`'s idle. Limit and auth tokens
+ *   are unchanged either way.
  */
-function stateFor(name, live, nowMs) {
+function stateFor(name, live, nowMs, opts) {
   if (!live || typeof live.sessionId !== 'string' || !live.sessionId || !Number.isInteger(live.pid)) return null;
   let rec;
   try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
@@ -452,6 +559,7 @@ function stateFor(name, live, nowMs) {
     const line = typeof auth.line === 'string' && auth.line ? ' ' + auth.line : '';
     return AUTH + ' ' + auth.since + ' ' + base + line;
   }
+  if (base === IDLE && opts && opts.streamIdle === true) return streamIdleToken(typeof rec.at === 'string' ? rec.at : null);
   return base;
 }
 
@@ -690,4 +798,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { STEP_CLOCK_MS, BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, isLimitToken, isAuthToken, usageOfEvent, claudeAccountDirFor };
+module.exports = { STEP_CLOCK_MS, BUSY, IDLE, STREAM_IDLE, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };

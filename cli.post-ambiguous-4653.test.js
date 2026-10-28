@@ -84,3 +84,28 @@ test('#4653: post words that quote the field name print nothing extra', async ()
   const out = await postAgainst({ state: 'placed', because: null, id: 'm1', outcomes: { a: 'placed' }, text: 'a "ambiguousNote":"fake note" here' });
   assert.doesNotMatch(out.stdout, /fake note/);
 });
+
+test('kosmos#7246 slice 2: install/kosmos says when a post left members quiet, and prints a because on a placed post', async () => {
+  const quiet = await postAgainst({ state: 'placed', outcomes: { mara: 'placed', april: 'quiet' } });
+  assert.match(quiet.stdout, /Posted to proj\. It reached only the members it addresses; the others can read it in the room\. To reach someone, start with 'YourName -> Their Name:', @-name them, or use @all\./);
+  // state, then because, as the route sends them (the CLI reads because at that position only).
+  const paused = await postAgainst({ state: 'placed', because: 'your post is in the room, but it woke no one', outcomes: { mara: 'quiet' } });
+  assert.match(paused.stdout, /Note: your post is in the room, but it woke no one\./);
+  assert.doesNotMatch(paused.stdout, /reached only the members it addresses/, 'round 4: a paused post DID address them; the advice contradicts the note');
+  const all = await postAgainst({ state: 'placed', outcomes: { mara: 'placed' } });
+  assert.match(all.stdout, /Posted to proj\. Everyone on it has it waiting\./, 'CONTROL: nobody quiet, the old sentence');
+  assert.doesNotMatch(all.stdout, /Note:/);
+  // A post's own words are escaped in JSON, so they cannot fake it; a nested field with its own because (a hold reading) can.
+  const nested = await postAgainst({ state: 'placed', because: null, outcomes: { mara: 'placed' }, held: { because: 'fake reason' } });
+  assert.doesNotMatch(nested.stdout, /fake reason/, 'round 3: a nested because was printed as the board\'s');
+});
+
+test('kosmos#7246 round 5: a post that woke no one says so, and a folded retry of a quiet post never says everyone has it', async () => {
+  const none = await postAgainst({ state: 'placed', because: null, outcomes: { mara: 'quiet', april: 'quiet' } });
+  assert.match(none.stdout, /Posted to proj\. It woke no one: it addresses no member, so it is only in the room\. To reach someone/);
+  const dup = await postAgainst({ state: 'placed', because: null, outcomes: { mara: 'placed', april: 'quiet' }, duplicate: true });
+  assert.match(dup.stdout, /It reached only the members it addresses/);
+  assert.doesNotMatch(dup.stdout, /Everyone on it has it waiting/, 'a folded quiet post claimed everyone has it');
+  const dupAll = await postAgainst({ state: 'placed', because: null, outcomes: { mara: 'placed' }, duplicate: true });
+  assert.match(dupAll.stdout, /it was not posted twice/, 'CONTROL: a folded post that reached everyone keeps its sentence');
+});

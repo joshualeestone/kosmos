@@ -107,7 +107,8 @@ function wipeLog() {
   try { fs.rmSync(messages.LOG, { force: true }); } catch { /* fresh */ }
 }
 
-test.beforeEach(() => { chat.resetForTests(); messages.resetForTests(); wipeLog(); });
+// kosmos#7246 slice 2: roomloop.resetForTests, so the per-project agent-wake cap never quiets a later test's post.
+test.beforeEach(() => { chat.resetForTests(); messages.resetForTests(); require('./roomloop').resetForTests(); wipeLog(); });
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 /* ── who is sending ──────────────────────────────────────────────────────── */
@@ -525,22 +526,25 @@ test('#6065 N1: a room post still shortened carries the request to each member i
     assert.ok(q && q.id, JSON.stringify(q));
     const two = tmux.pastedMessages().filter((l) => l.includes('Briefing two'));
     const of = (who, set) => set.find((l) => l.includes(path.join(require('./dmfiles').ownDir(who, 'Inbox'))));
-    assert.ok(of('leo', two) && of('april', two), 'CONTROL: shortened for both: ' + two.map((l) => l.slice(0, 80)).join(' | '));
+    assert.ok(of('leo', two), 'CONTROL: shortened for leo: ' + two.map((l) => l.slice(0, 80)).join(' | '));
     assert.ok(of('leo', two).includes('A question in it: "Did everyone get the notes?"'), of('leo', two).slice(-300));
-    assert.match(of('april', two), /not addressed to you/, 'CONTROL: april is a background member');
-    assert.doesNotMatch(of('april', two), /Where it names you:|A question in it:/, of('april', two).slice(-300));
+    // kosmos#7246 slice 2: an unaddressed member is quiet now (april was the background member): nothing typed to her.
+    assert.equal(q.outcomes.april, require('./roomhold').QUIET, 'april is not addressed, so she is quiet');
+    assert.equal(of('april', two), undefined, 'a quiet member was typed to');
     // A reply to leo's own post, not naming him (review 11): leo is its author, so the question is quoted for him;
-    // april stays a background member.
+    // april stays unaddressed. kosmos#7246 slice 2: leo's post asks mara, so a reply to it wakes its author (B).
     armSender('leo-discord');
-    const own = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'Leo here: the dates are drafted.' }, board.agents, MEMBERS);
+    const own = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@mara Leo here: the dates are drafted.' }, board.agents, MEMBERS);
     assert.ok(own && own.id, JSON.stringify(own));
     armSender('mara-discord');
     const rep = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'Briefing reply. ' + long + 'Are the dates final? The end.', replyTo: own.id }, board.agents, MEMBERS);
     assert.ok(rep && rep.id, JSON.stringify(rep));
     const r3 = tmux.pastedMessages().filter((l) => l.includes('Briefing reply'));
-    assert.ok(of('leo', r3) && of('april', r3), 'CONTROL: shortened for both: ' + r3.map((l) => l.slice(0, 80)).join(' | '));
+    assert.ok(of('leo', r3), 'CONTROL: shortened for leo: ' + r3.map((l) => l.slice(0, 80)).join(' | '));
     assert.ok(of('leo', r3).includes('A question in it: "Are the dates final?"'), of('leo', r3).slice(-300));
-    assert.doesNotMatch(of('april', r3), /A question in it:/, of('april', r3).slice(-300));
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: april is not typed the reply at all.
+    assert.equal(rep.outcomes.april, require('./roomhold').QUIET, 'april is not addressed, so she is quiet');
+    assert.equal(of('april', r3), undefined, 'a quiet member was typed to');
     // An operator post is for the whole room (review 10): every member gets its question, named or not.
     const w = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'Briefing three. ' + long + 'Can everyone confirm delivery? The end.' }, board.agents, MEMBERS);
     assert.ok(w && w.id, JSON.stringify(w));
@@ -965,7 +969,7 @@ test('#460: quotes stay inside the room: the same words in another project are n
   });
 });
 
-test('a post fans out to every member, mentioned as a request and the rest MARKED background, one log row', () => {
+test('kosmos#7246 slice 2: an agent post reaches its @-named member as a request and leaves the rest quiet, one log row', () => {
   withFleet(room3(), (board) => {
     armSender('leo-discord');
     const tmux = arm([]);
@@ -974,20 +978,18 @@ test('a post fans out to every member, mentioned as a request and the rest MARKE
     // deliver types two send-keys per recipient (the text, then the
     // submit); the envelopes are the ones carrying the bracket line.
     const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.startsWith('['));
-    assert.equal(typed.length, 2, 'a room of three fans out to the two others');
-    // Selected on the MARKER, which is the property under test -- the
-    // body text rides in both envelopes, so it selects nothing.
+    // kosmos#7246 slice 2: an agent's post is typed only to the member it addresses; the unmentioned one is quiet.
+    assert.equal(typed.length, 1, 'only the addressed member is typed to');
     const toMara = typed.find((t) => t.startsWith('[message from your colleague'));
-    const toApril = typed.find((t) => t.startsWith('[background from your colleague'));
     assert.match(toMara, /^\[message from your colleague leo · m\d+ · project henderson-lease · to answer, run: kosmos post --in-reply-to m\d+ henderson-lease\] /,
       'the mentioned member did not receive the addressed marker');
-    assert.match(toApril, /^\[background from your colleague leo · m\d+ · project henderson-lease · not addressed to you\] /,
-      'the unmentioned member arrived without the background marking -- the one thing that must not happen');
+    assert.equal(typed.find((t) => t.startsWith('[background from your colleague')), undefined,
+      'kosmos#7246 slice 2: an unaddressed member is quiet now, never typed a background envelope');
     const rows = messages.record().rows.filter((m) => m.kind === 'post');
     assert.equal(rows.length, 1, 'a post the person made once must appear once');
     assert.equal(rows[0].project, 'henderson-lease');
     assert.deepEqual(rows[0].to.sort(), ['april', 'mara']);
-    assert.deepEqual(rows[0].outcomes, { mara: 'placed', april: 'placed' });
+    assert.deepEqual(rows[0].outcomes, { mara: 'placed', april: 'quiet' });
   });
 });
 
@@ -1055,10 +1057,12 @@ test('#2908: a background (unmentioned) recipient is unaffected by reply_expecte
   withFleet(room3(), (board) => {
     armSender('leo-discord');
     const tmux = arm([]);
-    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks @mara', replyExpected: false }, board.agents, MEMBERS);
-    const toApril = addressedTo(tmux, '[background from your colleague');
-    assert.match(toApril, / · not addressed to you\] /, 'the background marker must be unchanged');
-    assert.ok(!/no reply requested|to answer, run/.test(toApril), 'a background arrival carries neither an answer clause nor a no-reply note');
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks @mara', replyExpected: false }, board.agents, MEMBERS);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: april gets no arrival at all, so neither an answer
+    // clause nor a no-reply note can reach her.
+    assert.equal(sent.outcomes.april, 'quiet', 'the unmentioned recipient is quiet');
+    assert.equal(addressedTo(tmux, '[background from your colleague'), undefined, 'a quiet member was typed a background arrival');
+    assert.ok(!tmux.pastedSends().some((s) => String(s.target || '').startsWith('=april-discord:')), 'a quiet member was typed to');
   });
 });
 
@@ -1145,17 +1149,16 @@ test('#2442: an unreadable removed list REFUSES the post (fail-closed, the actin
   });
 });
 
-test('a post with no @ still produces an arrival in every member pane (the falsifiable claim)', () => {
+test('kosmos#7246 slice 2: an agent post with no @ is in the room and typed into no member pane', () => {
   withFleet(room3(), (board) => {
     armSender('leo-discord');
     const tmux = arm([]);
     const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'status: the draft is ready' }, board.agents, MEMBERS);
+    // kosmos#7246 slice 2: an agent's post that addresses no one is recorded and placed, and typed to no one.
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
-    const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.startsWith('['));
-    assert.equal(typed.length, 2);
-    for (const t of typed) {
-      assert.match(t, /^\[background from your colleague leo/, 'an unaddressed arrival lost its marking');
-    }
+    assert.deepEqual(sent.outcomes, { mara: 'quiet', april: 'quiet' });
+    assert.equal(tmux.pastedMessages().length, 0, 'an unaddressed agent post was typed into a pane');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post').length, 1, 'the post is in the room');
   });
 });
 
@@ -1163,7 +1166,8 @@ test('partial delivery holds per-recipient outcomes and never renders as sent', 
   withFleet(room3(), (board) => {
     armSender('leo-discord');
     arm([]);
-    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'checking in' },
+    // kosmos#7246 slice 2: the post addresses both, so each is tried (an unaddressed member would be quiet).
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@mara @ghost checking in' },
       board.agents, ['leo', 'mara', 'ghost']);
     assert.equal(sent.state, chat.DELIVERY.UNCONFIRMED, 'a post that reached one of two must not claim placed');
     assert.equal(sent.outcomes.mara, 'placed');
@@ -1177,7 +1181,8 @@ test('a post reaching nobody refuses, logs no post row, and logs the refusal', (
   withFleet(room3(), (board) => {
     armSender('leo-discord');
     arm([]);
-    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'hello' },
+    // kosmos#7246 slice 2: the post addresses both, so each is tried (an unaddressed member would be quiet).
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@ghost1 @ghost2 hello' },
       board.agents, ['leo', 'ghost1', 'ghost2']);
     assert.equal(sent.state, chat.DELIVERY.COULD_NOT);
     assert.equal(sent.outcomes.ghost1, 'could_not');
@@ -1222,6 +1227,7 @@ test('a sender who is not on the project cannot post into its room, and a sole m
 });
 
 test('the room valve closes across the whole thread regardless of sender, once, with the everyone sentence', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     const now = Date.now();
     fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
@@ -1236,7 +1242,7 @@ test('the room valve closes across the whole thread regardless of sender, once, 
     }
     armSender('leo-discord');
     const tmux = arm([]);
-    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all one more' }, board.agents, MEMBERS);
     assert.equal(sent.state, chat.DELIVERY.COULD_NOT);
     assert.match(sent.because, /asked everyone to bring you in/,
       'the room valve does not carry the ruled sentence');
@@ -1246,7 +1252,7 @@ test('the room valve closes across the whole thread regardless of sender, once, 
     assert.equal(tmux.sends().length, 0);
     const valves = messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease');
     assert.equal(valves.length, 1, 'the room valve closing was not logged (or logged per retry)');
-    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'again' }, board.agents, MEMBERS);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all again' }, board.agents, MEMBERS);
     assert.equal(messages.record().rows.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 1,
       'a retry grew the record while the valve was the thing refusing it');
 
@@ -1263,12 +1269,12 @@ test('the room valve closes across the whole thread regardless of sender, once, 
     chat.resetForTests();
     armSender('leo-discord');
     arm([]);
-    const fresh = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'new thread' }, board.agents, MEMBERS);
+    const fresh = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all new thread' }, board.agents, MEMBERS);
     assert.equal(fresh.state, chat.DELIVERY.PLACED, 'an old thread still counts against the room valve');
     chat.resetForTests();
     armSender('leo-discord');
     arm([]);
-    const other = messages.sendPost({ fromPane: '%7', project: 'quarter-close', text: 'unrelated room' }, board.agents, MEMBERS);
+    const other = messages.sendPost({ fromPane: '%7', project: 'quarter-close', text: '@all unrelated room' }, board.agents, MEMBERS);
     assert.equal(other.state, chat.DELIVERY.PLACED, 'one room’s valve closed a different room');
   });
 });
@@ -1614,6 +1620,7 @@ test('#4934/#5967: after an ack-only refusal a content post from the same agent 
 });
 
 test('#6920: a held room lets each member land ONE long post that is not agreement, and still holds acks, short posts and a second long one', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     const now = Date.now();
     // A room over its volume budget: real content, alternating senders, so only the volume valve fires.
@@ -1627,7 +1634,7 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     assert.ok(summary.length >= 400, 'the fixture summary is shorter than the closing-post minimum: ' + summary.length);
     const posted = (session, text) => {
       armSender(session); arm([]);
-      return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text }, board.agents, MEMBERS);
+      return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all ' + text }, board.agents, MEMBERS);
     };
     const closingRows = () => messages.record().rows.filter((m) => m.kind === 'post' && m.closing === true);
 
@@ -1646,7 +1653,7 @@ test('#6920: a held room lets each member land ONE long post that is not agreeme
     const short = posted('leo-discord', 'one more thing about the parser');
     assert.equal(short.code, 'room_held', 'a short content post got through a held room');
     // One character under the minimum is held (the line is where the constant says).
-    const under = posted('leo-discord', summary.slice(0, 399));
+    const under = posted('leo-discord', summary.slice(0, 399 - '@all '.length));   // kosmos#7246 slice 2: 399 with posted()'s @all
     assert.equal(under.code, 'room_held', 'a 399-character post got through as a closing post');
 
     // The summary lands, delivered, and is stored as this member's closing post.
@@ -1727,6 +1734,7 @@ test('#6920: with the limit Off nothing is held, so a long post is an ordinary p
 });
 
 test('#4934/#5967: in a room OVER the volume budget, an ack run yields the honest room_held, not ack_only (the "goes through straight away" promise must hold)', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     const now = Date.now();
     // Fill the room to its arrival budget with real content (alternating senders so no PAIR
@@ -1744,14 +1752,14 @@ test('#4934/#5967: in a room OVER the volume budget, an ack run yields the hones
     posts.push({ from: 'april', text: 'confirmed' });
     seedPosts(now, posts);
     armSender('leo-discord'); arm([]);
-    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
+    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all thanks' }, board.agents, MEMBERS);
     assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'an over-budget room let the fourth ack through');
     assert.equal(out.code, 'room_held', 'an ack run in an over-budget room returned ack_only, whose "goes through straight away" copy is false when the room is actually volume-held');
     // CONTROL: the identical trailing ack run in an UNDER-budget room IS ack_only (proving the
     // room_held above is the over-budget behavior, not a blanket change).
     wipeLog(); chat.resetForTests(); armSender('leo-discord'); arm([]);
     seedPosts(now, [{ from: 'leo', text: 'agreed' }, { from: 'mara', text: 'ok' }, { from: 'april', text: 'confirmed' }]);
-    const under = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
+    const under = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all thanks' }, board.agents, MEMBERS);
     assert.equal(under.code, 'ack_only', 'an ack run in an under-budget room must still be ack_only');
   });
 });
@@ -1988,6 +1996,7 @@ test('#4934/#5967: the Windows CLI copy for ack_only matches, and never speaks o
 });
 
 test('#2710: reopening a held room clears the loop-guard budget so the next post lands', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     const now = Date.now();
     fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
@@ -2005,7 +2014,7 @@ test('#2710: reopening a held room clears the loop-guard budget so the next post
     arm([]);
     // BEFORE: the valve is holding the room (this is the control -- if this were
     // already PLACED, the test below would prove nothing about reopen).
-    const held = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'a substantive finding' }, board.agents, MEMBERS);
+    const held = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all a substantive finding' }, board.agents, MEMBERS);
     assert.equal(held.state, chat.DELIVERY.COULD_NOT, 'the room was not actually held, so reopen has nothing to clear');
 
     // REOPEN: an explicit release, writing a marker rather than a content post.
@@ -2019,7 +2028,7 @@ test('#2710: reopening a held room clears the loop-guard budget so the next post
     chat.resetForTests();
     armSender('leo-discord');
     arm([]);
-    const after = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'a substantive finding' }, board.agents, MEMBERS);
+    const after = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all a substantive finding' }, board.agents, MEMBERS);
     assert.equal(after.state, chat.DELIVERY.PLACED, 'reopen did not clear the loop-guard hold');
 
     // A reopen touches ONE room: a different room over budget is still held.
@@ -2035,7 +2044,7 @@ test('#2710: reopening a held room clears the loop-guard budget so the next post
     chat.resetForTests();
     armSender('leo-discord');
     arm([]);
-    const elsewhere = messages.sendPost({ fromPane: '%7', project: 'quarter-close', text: 'still looping' }, board.agents, MEMBERS);
+    const elsewhere = messages.sendPost({ fromPane: '%7', project: 'quarter-close', text: '@all still looping' }, board.agents, MEMBERS);
     assert.equal(elsewhere.state, chat.DELIVERY.COULD_NOT, 'reopening one room cleared a different room');
   });
 });
@@ -2064,6 +2073,7 @@ test('#2710: a reopen row survives the read, a malformed one is dropped, and nei
 });
 
 test('#2738: after a reopen, a re-loop within the same window logs a FRESH valve notice and refused row, not suppressed by the pre-reopen ones', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   /* The gap #2710 left: the arrival budget resets at a reopen (countFrom), but
      the two dedup baselines keyed off the RAW window, so a pre-reopen valve /
      refused row still in-window would swallow the re-loop's fresh signals. Both
@@ -2100,7 +2110,7 @@ test('#2738: after a reopen, a re-loop within the same window logs a FRESH valve
     // to the reopen mark past the pre-reopen rows.
     seedReloop(true);
     chat.resetForTests(); armSender('leo-discord'); arm([]);
-    const refusedA = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still looping after the reopen' }, board.agents, MEMBERS);
+    const refusedA = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all still looping after the reopen' }, board.agents, MEMBERS);
     assert.equal(refusedA.state, chat.DELIVERY.COULD_NOT, 'the re-loop was not refused, so the dedup arms below prove nothing');
     const rowsA = messages.record().rows;
     assert.equal(rowsA.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 2,
@@ -2115,7 +2125,7 @@ test('#2738: after a reopen, a re-loop within the same window logs a FRESH valve
     // doing, not a valve that always re-notifies.
     seedReloop(false);
     chat.resetForTests(); armSender('leo-discord'); arm([]);
-    const refusedB = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still looping, no reopen' }, board.agents, MEMBERS);
+    const refusedB = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all still looping, no reopen' }, board.agents, MEMBERS);
     assert.equal(refusedB.state, chat.DELIVERY.COULD_NOT, 'CONTROL: the room was not over budget, so suppression proves nothing');
     const rowsB = messages.record().rows;
     assert.equal(rowsB.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 1,
@@ -2256,8 +2266,10 @@ test('mention boundaries: trailing punctuation still addresses, an email-shaped 
     const background = typed.filter((s) => s.text.startsWith('[background from your colleague'));
     assert.equal(addressed.length, 1, 'sentence-final punctuation demoted an addressed mention');
     assert.ok(addressed[0].target.startsWith('=mara-discord:'), 'the addressed envelope went to the wrong member');
-    assert.equal(background.length, 1, 'an email-shaped string promoted a remark to a request');
-    assert.ok(background[0].target.startsWith('=april-discord:'), 'the background envelope went to the wrong member');
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: april (only email-shaped) is not typed at all.
+    assert.equal(background.length, 0, 'a quiet member was typed a background envelope');
+    assert.equal(typed.length, 1, 'an email-shaped string promoted a remark to a request');
+    assert.equal(sent.outcomes.april, 'quiet', 'an email-shaped string promoted a remark to a request');
   });
 });
 
@@ -2317,6 +2329,7 @@ test('an operator post fans to every member with the operator markers, flagged o
 });
 
 test('once the person has spoken, the room can answer them: the window starts again', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   /**
    * 🛑 THE FAILURE THIS IS FOR, AS JOSH MET IT ON 2026-08-22. The room valve had
    * closed. He posted "@Scarlett are you there?" -- an operator post, exempt,
@@ -2350,7 +2363,7 @@ test('once the person has spoken, the room can answer them: the window starts ag
     arm([]);
     // ⚠️ THE CONTROL, and without it this test passes against a valve that
     // never closes at all. The room must be shut BEFORE the person speaks.
-    const shut = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still going round' }, board.agents, MEMBERS);
+    const shut = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all still going round' }, board.agents, MEMBERS);
     assert.equal(shut.state, chat.DELIVERY.COULD_NOT,
       'CONTROL: the valve was not closed, so what follows proves nothing');
     assert.match(String(shut.because || ''), /bring you in/);
@@ -2365,7 +2378,7 @@ test('once the person has spoken, the room can answer them: the window starts ag
     chat.resetForTests();
     armSender('leo-discord');
     arm([]);
-    const answered = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'here, what do you need?' }, board.agents, MEMBERS);
+    const answered = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all here, what do you need?' }, board.agents, MEMBERS);
     assert.equal(answered.state, chat.DELIVERY.PLACED,
       'the person asked the room a question and the room was not allowed to answer them');
   });
@@ -2387,6 +2400,7 @@ test('an agent cannot smuggle operator authority: the operator markers are refus
 });
 
 test('the arrivals are charged up front: the refusal fires in the band where an uncharged count would allow', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     const now = Date.now();
     fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
@@ -2408,13 +2422,13 @@ test('the arrivals are charged up front: the refusal fires in the band where an 
     }
     armSender('leo-discord');
     arm([]);
-    const two = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'two arrivals' }, board.agents, MEMBERS);
+    const two = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all two arrivals' }, board.agents, MEMBERS);
     assert.equal(two.state, chat.DELIVERY.COULD_NOT,
       'a post whose own arrivals cross the budget was allowed (charged-up-front is not implemented)');
     chat.resetForTests();
     armSender('leo-discord');
     arm([]);
-    const one = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one arrival' }, board.agents, ['leo', 'mara']);
+    const one = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all one arrival' }, board.agents, ['leo', 'mara']);
     assert.equal(one.state, chat.DELIVERY.PLACED,
       'a post that exactly fills the budget was refused: ' + (one.because || ''));
   });
@@ -2459,6 +2473,7 @@ test('with the limit Off, crossing a budget tells once and the conversation cont
 });
 
 test('the dial moves both budgets: a lower tier refuses the pair sooner and the room at four times the tier', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     assert.equal(limits.write({ on: true, perHour: 10 }).ok, true);
     try {
@@ -2489,7 +2504,7 @@ test('the dial moves both budgets: a lower tier refuses the pair sooner and the 
       chat.resetForTests();
       armSender('leo-discord');
       arm([]);
-      const post = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+      const post = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all one more' }, board.agents, MEMBERS);
       assert.equal(post.state, chat.DELIVERY.COULD_NOT, 'the room did not follow the dial at four times the tier');
     } finally {
       fs.rmSync(limits.FILE, { force: true });
@@ -2498,6 +2513,7 @@ test('the dial moves both budgets: a lower tier refuses the pair sooner and the 
 });
 
 test('with the limit Off the room tells and continues, in the told-only grammar', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     assert.equal(limits.write({ on: false, perHour: 10 }).ok, true);
     try {
@@ -2512,7 +2528,7 @@ test('with the limit Off the room tells and continues, in the told-only grammar'
       }
       armSender('leo-discord');
       arm([]);
-      const post = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still talking' }, board.agents, MEMBERS);
+      const post = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all still talking' }, board.agents, MEMBERS);
       assert.equal(post.state, chat.DELIVERY.PLACED, post.because || '');
       const valve = messages.record().rows.find((m) => m.kind === 'valve' && m.project === 'henderson-lease');
       assert.ok(valve, 'the room tell never logged');
@@ -2580,8 +2596,9 @@ test('a member brought in later is told what the room said without them, and onl
     armSender('leo-discord');
     let tmux = arm([]);
     // Two posts while april is not yet on the project: they fan to mara only.
-    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'round one' }, board.agents, ['leo', 'mara']);
-    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'round two' }, board.agents, ['leo', 'mara']);
+    // kosmos#7246 slice 2: each addresses mara, so it is typed to her (unaddressed, she would be quiet).
+    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@mara round one' }, board.agents, ['leo', 'mara']);
+    messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@mara round two' }, board.agents, ['leo', 'mara']);
     // April joins and is mentioned: her wire carries the catch-up, with the
     // count and the read command; mara, background, carries none.
     tmux = arm([]);
@@ -2592,18 +2609,22 @@ test('a member brought in later is told what the room said without them, and onl
     const toMara = typed.find((t) => t.includes('background from your colleague'));
     assert.match(toApril, /This room has been talking without you: 2 earlier posts this hour did not reach you\. Read the room with: kosmos room saturday-plans\]$/,
       'the mentioned late arrival was not told what she missed');
-    assert.doesNotMatch(toMara, /talking without you/,
-      'a background recipient was stamped with a missed count');
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: mara (the background recipient) is typed nothing at
+    // all, so she can carry no missed count.
+    assert.equal(toMara, undefined, 'a quiet member was typed a background envelope');
+    assert.equal(sent.outcomes.mara, 'quiet', 'a background recipient was stamped with a missed count');
     /* Control both ways: a mentioned member who missed nothing carries no
        catch-up, so the line cannot become furniture. */
     const tmux3 = arm([]);
     messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@mara same question' }, board.agents, ['leo', 'mara', 'april']);
     const toMara3 = tmux3.pastedMessages().find((t) => typeof t === 'string' && t.startsWith('[message'));
-    assert.doesNotMatch(toMara3, /talking without you/, 'a member who missed nothing was told she missed something');
+    // kosmos#7246 slice 2: mara was quiet for "@april are you there?", so she did miss one post, and is told so.
+    assert.match(toMara3, /talking without you: 1 earlier post this hour did not reach you/, 'a quiet post was not counted as missed');
   });
 });
 
 test('a valve-blocked agent leaves a refused row the room can serve, stamped with its project, once (#315)', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     assert.equal(limits.write({ on: true, perHour: 10 }).ok, true);
     try {
@@ -2619,7 +2640,7 @@ test('a valve-blocked agent leaves a refused row the room can serve, stamped wit
       }
       armSender('mara-discord');
       arm([]);
-      const sent = messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'here, what do you need?' }, board.agents, ['leo', 'mara', 'april']);
+      const sent = messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@all here, what do you need?' }, board.agents, ['leo', 'mara', 'april']);
       assert.equal(sent.state, chat.DELIVERY.COULD_NOT, 'the control failed: the valve did not fire');
       const refused = messages.record().rows.filter((m) => m.kind === 'refused' && m.from === 'mara');
       assert.equal(refused.length, 1, 'the refusal left no row, so the blocked agent reads as unresponsive');
@@ -2628,7 +2649,7 @@ test('a valve-blocked agent leaves a refused row the room can serve, stamped wit
       // A second blocked try inside the window stays ONE row (the contract's
       // own dedup), so a five-agent room produces five lines, not fifty.
       arm([]);
-      messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'still here' }, board.agents, ['leo', 'mara', 'april']);
+      messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@all still here' }, board.agents, ['leo', 'mara', 'april']);
       assert.equal(messages.record().rows.filter((m) => m.kind === 'refused' && m.from === 'mara').length, 1,
         'a second refusal duplicated the row');
     } finally {
@@ -2638,6 +2659,7 @@ test('a valve-blocked agent leaves a refused row the room can serve, stamped wit
 });
 
 test('kosmos#5752 slice 3: an earlier refused task write does not swallow the agent\'s first held-room refusal (#315)', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     assert.equal(limits.write({ on: true, perHour: 10 }).ok, true);
     try {
@@ -2654,7 +2676,7 @@ test('kosmos#5752 slice 3: an earlier refused task write does not swallow the ag
       messages.logRoomRefusal({ from: 'mara', project: 'saturday-plans', because: 'that agent is not on this project, so it cannot change its tasks', doing: 'record a run of a task', addable: true });
       armSender('mara-discord');
       arm([]);
-      const sent = messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: 'here now' }, board.agents, ['leo', 'mara', 'april']);
+      const sent = messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@all here now' }, board.agents, ['leo', 'mara', 'april']);
       assert.equal(sent.state, chat.DELIVERY.COULD_NOT, 'precondition: the valve fired');
       const held = messages.record().rows.filter((m) => m.kind === 'refused' && m.from === 'mara' && /holding it for the person/.test(m.because));
       assert.equal(held.length, 1, 'her held-room refusal has its own row');
@@ -3112,6 +3134,7 @@ test('#670: unread is every post after the person last opened the room, agent ch
 });
 
 test('#3564: the room valve charges only the members a post is sent to: an Off swarm is charged when @-named, not otherwise', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   const projects = require('./projects');
   const made = projects.create({ name: 'Swarm Valve Room' });
   const pid = made.id || (made.project && made.project.id);
@@ -3130,16 +3153,16 @@ test('#3564: the room valve charges only the members a post is sent to: an Off s
     withFleet(room3(), (board) => {
       seed();
       armSender('leo-discord'); arm([]);
-      const off = messages.sendPost({ fromPane: '%7', project: pid, text: 'one more' }, board.agents, MEMBERS);
+      const off = messages.sendPost({ fromPane: '%7', project: pid, text: '@all one more' }, board.agents, MEMBERS);
       assert.notEqual(off.state, chat.DELIVERY.COULD_NOT, 'the valve charged an Off swarm that is never sent the post: ' + (off.because || ''));
       seed();
       armSender('leo-discord'); arm([]);
-      const named = messages.sendPost({ fromPane: '%7', project: pid, text: '@april one more' }, board.agents, MEMBERS);
+      const named = messages.sendPost({ fromPane: '%7', project: pid, text: '@all @april one more' }, board.agents, MEMBERS);
       assert.equal(named.state, chat.DELIVERY.COULD_NOT, 'an Off swarm @-named into the post is sent it, so the valve must charge it');
       projects.setSwarmOn(pid, 'april', true);
       seed();
       armSender('leo-discord'); arm([]);
-      const on = messages.sendPost({ fromPane: '%7', project: pid, text: 'one more' }, board.agents, MEMBERS);
+      const on = messages.sendPost({ fromPane: '%7', project: pid, text: '@all one more' }, board.agents, MEMBERS);
       assert.equal(on.state, chat.DELIVERY.COULD_NOT, 'CONTROL: the same post with april on should trip the valve');
     });
   } finally { projects.setSwarmOn(pid, 'april', true); }
@@ -3322,11 +3345,15 @@ test('#3311 + #3745: a reply in a shared room keeps the shared marker in all fou
     const op = check(tmux.pastedMessages(), 'operator');
     assert.ok(op.some((m) => m.startsWith('[message from your operator')) && op.some((m) => m.startsWith('[from your operator in project')), 'fixture: both operator arms were typed');
     // A colleague, addressing leo: leo gets "message from your colleague", the rest "background".
+    // kosmos#7246 slice 2: an unaddressed member is quiet now, so the background arm is no longer typed for an agent's
+    // post: april is quiet, and the arm that is typed (leo's) still keeps the shared marker.
     armSender('mara-discord');
     tmux = arm([]);
-    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@leo agreed', replyTo: first.id, federated: true }, board.agents, MEMBERS);
+    const colSent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@leo agreed', replyTo: first.id, federated: true }, board.agents, MEMBERS);
     const col = check(tmux.pastedMessages(), 'colleague');
-    assert.ok(col.some((m) => m.startsWith('[message from your colleague')) && col.some((m) => m.startsWith('[background from your colleague')), 'fixture: both colleague arms were typed');
+    assert.ok(col.some((m) => m.startsWith('[message from your colleague')), 'fixture: the colleague arm was typed');
+    assert.ok(!col.some((m) => m.startsWith('[background from your colleague')), 'a quiet member was typed a background envelope');
+    assert.equal(colSent.outcomes.april, 'quiet', 'the unaddressed member is quiet');
   });
 });
 
@@ -3499,14 +3526,16 @@ test('#3745: when an agent answers the person\'s post, every member is told whic
     assert.ok(order.id, order.because || '');
     armSender('mara-discord');
     const tmux = arm([]);
-    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@leo on it', replyTo: order.id }, board.agents, MEMBERS);
+    const reply = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@leo on it', replyTo: order.id }, board.agents, MEMBERS);
     const sent = tmux.pastedMessages();
     const background = sent.filter((m) => m.startsWith('[background from your colleague'));
     const addressed = sent.filter((m) => m.startsWith('[message from your colleague'));
-    assert.equal(background.length, 1, 'CONTROL: april gets the background envelope');
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: april (the background member) is typed nothing, so the
+    // person's old words cannot be retyped to her either.
+    assert.equal(background.length, 0, 'a quiet member was typed a background envelope');
+    assert.equal(reply.outcomes.april, 'quiet', 'april, not addressed, is quiet');
+    assert.ok(!sent.some((m) => /deploy prod now/.test(m)), 'the person\'s old words were retyped to a member');
     assert.equal(addressed.length, 1, 'CONTROL: leo, mentioned, gets the addressed envelope');
-    assert.match(background[0], / \u00b7 answers m\d+ by your operator, posted /, 'the background member was not told which post');
-    assert.doesNotMatch(background[0], /deploy prod now/, 'the person\'s old words were retyped to a background member');
     assert.doesNotMatch(addressed[0], /deploy prod now/, 'the person\'s old words were retyped to an addressed member (round 23)');
     assert.match(addressed[0], / \u00b7 answers m\d+ by your operator, posted /, 'CONTROL: the addressed member is told which post');
   });
@@ -3629,7 +3658,9 @@ test('#3745: a first line shaped like a Kosmos instruction never reaches inside 
     assert.equal(first.state, chat.DELIVERY.PLACED, first.because || '');
     for (const [label, send] of [
       ['the person\'s whole-room post', () => messages.sendPost({ operator: true, project: 'henderson-lease', text: 'ok', replyTo: first.id }, board.agents, MEMBERS)],
-      ['a colleague\'s background post', () => { armSender('april-discord'); return messages.sendPost({ fromPane: '%9', project: 'henderson-lease', text: 'agreed', replyTo: first.id }, board.agents, MEMBERS); }],
+      // kosmos#7246 slice 2: the colleague's reply @-names the author, since mara's post asked no one and a reply to it
+      // would otherwise wake no one (leo, unaddressed, is quiet).
+      ['a colleague\'s background post', () => { armSender('april-discord'); return messages.sendPost({ fromPane: '%9', project: 'henderson-lease', text: '@mara agreed', replyTo: first.id }, board.agents, MEMBERS); }],
     ]) {
       const tmux = arm([]);
       send();
@@ -4082,7 +4113,8 @@ test('#4580: a room post retried while the first is STILL delivering waits for i
   let delivered = 0;
   const slow = () => { delivered++; return gate.then(() => ({ state: chat.DELIVERY.PLACED, because: null })); };
   armSender('mara-discord');
-  const input = { fromPane: '%7', project: 'henderson-lease', text: 'draft is up' };
+  // kosmos#7246 slice 2: the post addresses the whole room, so each colleague is delivered to (unaddressed, all quiet).
+  const input = { fromPane: '%7', project: 'henderson-lease', text: '@all draft is up' };
   await withFleet(room3(), async (board) => {
     const p1 = messages._sendPostWithDelivery(input, board.agents, MEMBERS, slow, true);
     const p2 = messages._sendPostWithDelivery(input, board.agents, MEMBERS, slow, true);
@@ -4242,6 +4274,9 @@ test('#4580: an outside party speaking in a federated room (an external row) bre
 });
 
 test('#4786: work moving in the project earns the room a bounded allowance; talk, old work and another room\'s work earn none, and a loop that makes tasks is still held', () => {
+  /* kosmos#7246 slice 2: an agent post reaches (and charges the valve for) only whom it addresses, so these posts say
+     @all; the agent-wake cap is a separate guard (roomloop-7246.test.js), raised here so it does not stop the valve's posts. */
+  require('./roomloop').setCapForTests(Infinity);
   const taskchat = require('./taskchat');
   withFleet(room3(), (board) => {
     try {
@@ -4257,7 +4292,7 @@ test('#4786: work moving in the project earns the room a bounded allowance; talk
       }
       let seq = 0;   // each post its own words: the same words again within minutes are one post, not a new arrival
       const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([]); seq += 1;
-        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next step ' + seq }, board.agents, MEMBERS); };
+        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all next step ' + seq }, board.agents, MEMBERS); };
       /* Posts until the room is held; how many got through. Each post costs 2 arrivals (3 members). */
       const through = () => { let n = 0; while (n < 200 && post().state === chat.DELIVERY.PLACED) n += 1; return n; };
       // CONTROL: over its budget with no work moving, the room is held (the loop the valve exists for).
@@ -4299,6 +4334,7 @@ test('#4786: work moving in the project earns the room a bounded allowance; talk
 });
 
 test('#4786: work done BEFORE the person last spoke earns nothing after it; the same work after does', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   const taskchat = require('./taskchat');
   const run = (stepMinutesAgo) => withFleet(room3(), (board) => {
     try {
@@ -4317,7 +4353,7 @@ test('#4786: work done BEFORE the person last spoke earns nothing after it; the 
           from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]), text: 'on it ' + i, at: ago(1), outcomes: {} }) + '\n');
       }
       chat.resetForTests(); armSender('leo-discord'); arm([]);
-      return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next' }, board.agents, MEMBERS).state;
+      return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all next' }, board.agents, MEMBERS).state;
     } finally {
       fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
     }
@@ -4340,6 +4376,9 @@ function agedProject(name) {
 }
 
 test('#5260: a file changed in the project folder earns the room the same bounded allowance as a task step; old files, dot-files and rewrites earn nothing more, and a loop that writes files is still held', () => {
+  /* kosmos#7246 slice 2: an agent post reaches (and charges the valve for) only whom it addresses, so these posts say
+     @all; the agent-wake cap is a separate guard (roomloop-7246.test.js), raised here so it does not stop the valve's posts. */
+  require('./roomloop').setCapForTests(Infinity);
   const taskchat = require('./taskchat');
   const { pid, folder, longAgo } = agedProject('Fact Check Room');
   assert.ok(folder && fs.existsSync(folder), 'the project has no folder, so nothing below proves anything');
@@ -4358,7 +4397,7 @@ test('#5260: a file changed in the project folder earns the room the same bounde
       }
       let seq = 0;
       const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([]); seq += 1;
-        return messages.sendPost({ fromPane: '%7', project: pid, text: 'corrections applied ' + seq }, board.agents, MEMBERS); };
+        return messages.sendPost({ fromPane: '%7', project: pid, text: '@all corrections applied ' + seq }, board.agents, MEMBERS); };
       const through = () => { let n = 0; while (n < 200 && post().state === chat.DELIVERY.PLACED) n += 1; return n; };
       const held = () => messages.record().rows.filter((m) => m.kind === 'post' && !m.operator
         && m.project === pid).reduce((n, m) => n + m.to.length, 0);
@@ -4442,6 +4481,7 @@ test('#5260: changedFileTimes: nothing for an unknown project, the files a new p
 });
 
 test('#4786: with the limit Off, work moving changes nothing: the room still gets its told-only notice at the cap', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   const taskchat = require('./taskchat');
   withFleet(room3(), (board) => {
     assert.equal(limits.write({ on: false, perHour: 10 }).ok, true);
@@ -4460,7 +4500,7 @@ test('#4786: with the limit Off, work moving changes nothing: the room still get
       assert.equal(taskchat.record('henderson-lease', 1, { kind: 'closed' }), true);
       armSender('leo-discord');
       arm([]);
-      const post = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still talking' }, board.agents, MEMBERS);
+      const post = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all still talking' }, board.agents, MEMBERS);
       assert.equal(post.state, chat.DELIVERY.PLACED, post.because || '');
       const valve = messages.record().rows.find((m) => m.kind === 'valve' && m.project === 'henderson-lease');
       assert.ok(valve, 'the told-only notice was suppressed by work moving, which only the limit-on valve should weigh');
@@ -4682,6 +4722,7 @@ test('#5732: a project id that is not a plain id is never typed into a pane', ()
 /* #6420: a held room says WHEN its limit lifts, and it is the SAME time the room's own "should lift by" gives
    (roomHeld().until): one reading, not a second copy. The oldest posts are 50 minutes old, so about ten minutes. */
 test('#6420: a held room\'s refusal carries when it clears, the same time the room itself says', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     const now = Date.now();
     fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
@@ -4696,7 +4737,7 @@ test('#6420: a held room\'s refusal carries when it clears, the same time the ro
     }
     armSender('leo-discord');
     arm([]);
-    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all one more' }, board.agents, MEMBERS);
     assert.equal(sent.code, 'room_held', 'CONTROL: the room is held');
     const held = messages.roomHeld('henderson-lease', Date.now());
     assert.ok(held && held.until, 'CONTROL: the room itself says when it lifts');
@@ -4710,6 +4751,7 @@ test('#6420: a held room\'s refusal carries when it clears, the same time the ro
    the refused post two. Read for one arrival, the room is not held at all (79 + 1 fits 80); read for this post's two,
    it is held until the oldest post leaves the hour. */
 test('#6420: the clear time is read for the refused post\'s own size, not the latest post\'s', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     const now = Date.now();
     fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
@@ -4723,7 +4765,7 @@ test('#6420: the clear time is read for the refused post\'s own size, not the la
     for (const r of rows) fs.appendFileSync(messages.LOG, JSON.stringify(r) + '\n');
     armSender('leo-discord');
     arm([]);
-    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all one more' }, board.agents, MEMBERS);
     assert.equal(sent.code, 'room_held', 'CONTROL: 79 counted plus this post\'s two is over 80');
     assert.equal(messages.roomHeld('henderson-lease', Date.now()), null, 'CONTROL: read for the latest post\'s one arrival, the room fits');
     assert.equal(Date.parse(sent.clearsAt), oldest + 60 * 60000, 'the clear time was read for the latest post\'s size, not this one\'s');
@@ -4734,6 +4776,7 @@ test('#6420: the clear time is read for the refused post\'s own size, not the la
    post can exceed it, so the case left is a row dated after now: the valve counts it, roomHeldRead does not, so there
    is no reading and the refusal carries no clearsAt or clearsInMinutes (the CLI then keeps its old words). */
 test('#6420: a hold that only future-dated rows explain is refused with no clear time', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     const now = Date.now();
     fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
@@ -4745,7 +4788,7 @@ test('#6420: a hold that only future-dated rows explain is refused with no clear
     }
     armSender('leo-discord');
     arm([]);
-    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all one more' }, board.agents, MEMBERS);
     assert.equal(sent.code, 'room_held', 'CONTROL: the valve counts the future-dated rows and holds');
     assert.equal('clearsAt' in sent, false, 'a time was given that the room\'s own reading does not have');
     assert.equal('clearsInMinutes' in sent, false, 'minutes were given that the room\'s own reading does not have');
@@ -4754,6 +4797,7 @@ test('#6420: a hold that only future-dated rows explain is refused with no clear
 
 /* #6420: under a minute left still reads as one minute, never zero. */
 test('#6420: a hold lifting in seconds says one minute', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room3(), (board) => {
     const now = Date.now();
     fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
@@ -4765,7 +4809,7 @@ test('#6420: a hold lifting in seconds says one minute', () => {
     }
     armSender('leo-discord');
     arm([]);
-    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all one more' }, board.agents, MEMBERS);
     assert.equal(sent.code, 'room_held', 'CONTROL: held');
     assert.equal(sent.clearsInMinutes, 1, 'twenty seconds left read as ' + sent.clearsInMinutes + ' minutes');
   });
@@ -4815,6 +4859,9 @@ test('#6420: a six-member room is not held at the post count a three-member room
    the dial's; a 5-arrival post lands on 200 and goes through; the next one is held. Under the dial's budget every step
    here would be held, so this tells the scaled budget from the old one at its exact edge. */
 test('#6420: a six-member room is held exactly at its scaled budget, and roomHeld reads it at the room\'s size', () => {
+  /* kosmos#7246 slice 2: an agent post reaches (and charges the valve for) only whom it addresses, so these posts say
+     @all; the agent-wake cap is a separate guard (roomloop-7246.test.js), raised here so it does not stop the valve's posts. */
+  require('./roomloop').setCapForTests(Infinity);
   withFleet(room6(), (board) => {
     const now = Date.now();
     fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
@@ -4827,10 +4874,10 @@ test('#6420: a six-member room is held exactly at its scaled budget, and roomHel
     assert.ok(messages.roomHeld('henderson-lease', now + 1, 1), 'CONTROL: at the dial\'s budget (80) the same room reads held');
     armSender('leo-discord');
     arm([ok(), ok(), ok(), ok(), ok()]);
-    const fits = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'the last one that fits' }, board.agents, MEMBERS6);
+    const fits = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all the last one that fits' }, board.agents, MEMBERS6);
     assert.notEqual(fits.code, 'room_held', 'a post landing exactly on the budget (200) was held');
     arm([]);
-    const over = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one past the budget' }, board.agents, MEMBERS6);
+    const over = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all one past the budget' }, board.agents, MEMBERS6);
     assert.equal(over.code, 'room_held', 'the scaled budget did not hold at 205 arrivals');
     assert.ok(messages.roomHeld('henderson-lease', Date.now() + 2, 5), 'the page does not read the room held past its own budget');
   });
@@ -4868,6 +4915,7 @@ test('#6420: the own-computer nudge reads a six-member room at its own budget, a
 /* #6420: past the ceiling a single post can still be bigger than the whole budget, and then no time is given. At the
    lowest dial (10 an hour) the ceiling is 4 x 40 = 160 arrivals, so one post to 161 others is over it. */
 test('#6420: past the ceiling, a post bigger than the whole budget is refused with no clear time', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   const names = Array.from({ length: 162 }, (_, i) => 'm' + i);
   limits.write({ on: true, perHour: 10 });
   try {
@@ -4875,7 +4923,7 @@ test('#6420: past the ceiling, a post bigger than the whole budget is refused wi
     withFleet(names.map((n) => fleet.agent(n, { state: 'idle' })), (board) => {
       armSender('m0-discord');
       arm([]);
-      const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'to everyone' }, board.agents, names);
+      const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all to everyone' }, board.agents, names);
       assert.equal(sent.code, 'room_held', 'CONTROL: one post to 161 others is over the ceiling and held');
       assert.equal('clearsAt' in sent, false, 'a time was given that no wait honours');
       assert.equal('clearsInMinutes' in sent, false, 'minutes were given that no wait honours');
@@ -4886,6 +4934,9 @@ test('#6420: past the ceiling, a post bigger than the whole budget is refused wi
 /* #6420: the progress allowance and the clear time follow the room's scaled budget too. A six-member room's budget is
    200; one step of work earns a quarter of THAT (50), not of the dial's (20). Each post costs 5 arrivals. */
 test('#6420: in a six-member room one step of work earns a quarter of the scaled budget', () => {
+  /* kosmos#7246 slice 2: an agent post reaches (and charges the valve for) only whom it addresses, so these posts say
+     @all; the agent-wake cap is a separate guard (roomloop-7246.test.js), raised here so it does not stop the valve's posts. */
+  require('./roomloop').setCapForTests(Infinity);
   const taskchat = require('./taskchat');
   withFleet(room6(), (board) => {
     try {
@@ -4899,7 +4950,7 @@ test('#6420: in a six-member room one step of work earns a quarter of the scaled
       }
       let seq = 0;
       const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([ok(), ok(), ok(), ok(), ok()]); seq += 1;
-        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next step ' + seq }, board.agents, MEMBERS6); };
+        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all next step ' + seq }, board.agents, MEMBERS6); };
       const through = () => { let n = 0; while (n < 200 && post().state !== chat.DELIVERY.COULD_NOT) n += 1; return n; };
       assert.equal(post().code, 'room_held', 'CONTROL: at its scaled budget with no work moving, the room is held');
       assert.equal(taskchat.record('henderson-lease', 2, { kind: 'closed' }), true);
@@ -4916,6 +4967,7 @@ test('#6420: in a six-member room one step of work earns a quarter of the scaled
 });
 
 test('#6420: in a six-member room the clear time is read at the scaled budget', () => {
+  // kosmos#7246 slice 2 (round 3): these posts say @all so the valve charges them; an unaddressed agent post wakes no one and costs nothing.
   withFleet(room6(), (board) => {
     const now = Date.now();
     fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
@@ -4927,7 +4979,7 @@ test('#6420: in a six-member room the clear time is read at the scaled budget', 
     }
     armSender('leo-discord');
     arm([]);
-    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS6);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: '@all one more' }, board.agents, MEMBERS6);
     assert.equal(sent.code, 'room_held', 'CONTROL: held at the scaled budget');
     // At 200 the oldest post leaving frees 5, enough for this one: about 10 minutes away. At the dial's 80 it would
     // take 25 posts leaving, the last of them 5 minutes old: 55 minutes away instead of 10.

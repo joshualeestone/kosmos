@@ -1388,6 +1388,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
   setTimer: createdbeacon.underTest() ? () => null : setTimeout,
 });
 const heartbeat = require('./engine/heartbeat');
+const roomarchive = require('./engine/roomarchive'); // kosmos#7365 slice 3: which part of a room is archived
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
 const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
 /* kosmos#6894: when each task last put a run in its project room, so a task that changes every run says so at most hourly. */
@@ -2542,6 +2543,47 @@ function whoamiProjectsClause(projectNames) {
  * per poll for the whole fleet; a per-agent call would stat the same handful of
  * directories thirteen times a tick to answer the same question.
  */
+/* The AI Models badge's evidence for each Claude account folder: the freshest real request any agent on it made
+   (anthropic observations only, #2413) and a Check now on the folder itself (#3136), freshest of the two. One
+   definition for the accounts route's badge and #7212 slice 3's stuck card (review 5: the card had its own copy, read
+   only the stuck agent's requests, and disagreed with the badge both ways). Returns dir -> { obs, checkObs }: `obs` the
+   one that decides ({ outcome, at } or null), `checkObs` the Check now record it was chosen against (so a caller can tell
+   which decided by identity, as the badge's observedFrom does). */
+function claudeObservationsFor(knownAccts) {
+  const obsByDir = new Map();
+  for (const o of observed.all()) {
+    // #2413: the Claude overlay reads ONLY anthropic observations. An OpenAI
+    // observation resolved against the CLAUDE account list would green a Claude
+    // account it has nothing to do with (a codex agent on the default home maps to
+    // the default Claude account -- status.js's own note, true when written).
+    // #2811 gated that dir-less match, so it now maps to NOTHING; this filter
+    // is kept as defence in depth rather than removed. The provider is in the
+    // observation key precisely so this join stays on one provider's rows.
+    if (o.provider !== observed.PROVIDER.ANTHROPIC) continue;
+    const acct = accountForAgent(o.agent, knownAccts);
+    if (!acct || !acct.dir) continue;
+    const prev = obsByDir.get(acct.dir);
+    if (!prev || o.at > prev.at) obsByDir.set(acct.dir, { outcome: o.outcome, at: o.at });
+  }
+  return (dir) => {
+    if (!dir) return { obs: null, checkObs: null };
+    const agentObs = obsByDir.get(dir) || null;
+    const checkObs = observed.readDir(observed.PROVIDER.ANTHROPIC, dir);
+    return { obs: (agentObs && checkObs) ? (checkObs.at >= agentObs.at ? checkObs : agentObs) : (agentObs || checkObs), checkObs };
+  };
+}
+
+/* #7212 slice 3: the status route's step, on its cards in place: a stuck Claude card whose own account the AI Models
+   badge would call signed out says so (engine/stallsignin.js). Only when a card is stuck (rare), and the badge's join
+   is built on the first card that asks (a stuck Claude card with an account record), never for a stuck Codex card
+   alone, once per call (review 6). Exported for its test (review 7). */
+function overlayStuckCards(agents, claudeKnown, now = Date.now()) {
+  if (!Array.isArray(agents) || !agents.some((c) => c && c.deliveryStall)) return;
+  let join = null;
+  const obsFor = (dir) => { if (!join) join = claudeObservationsFor(claudeKnown || []); return join(dir); };
+  for (let i = 0; i < agents.length; i += 1) agents[i] = require('./engine/stallsignin').overlay(agents[i], now, { obsFor });
+}
+
 function accountForAgent(name, known) {
   const job = create.readJob(name);
   if (!job) return null;
@@ -7205,6 +7247,9 @@ const server = http.createServer(async (req, res) => {
           : { state: 'unknown', editable: false, version: null, startedAt: null, because: 'we cannot tie this pane to an agent by name' },
       }));
       attachPluginReach(agents); // #5309 slice 2: per-agent plugin-reach notice signal (see the function)
+      /* #7212 slice 3: a stuck Claude agent whose own account was last seen signed out says so. The tick only reads what
+         engine/stallsignin.js learned; its one live check per account and hour runs in the background. */
+      overlayStuckCards(agents, claudeKnown);
       // ⚠️ THE COUNTS DESCRIBE THE CARDS THAT ARE LEFT. Computed over the
       // unfiltered snapshot they put "12 agents" above 11 cards, and can put
       // "1 needs you" on screen with no card anywhere to click. Recomputed with
@@ -12766,21 +12811,7 @@ const server = http.createServer(async (req, res) => {
         // dir-less match is provider-gated), which the `!acct.dir` continue below
         // already skips: the same outcome this join wanted, now for an honest
         // reason rather than because the wrong row happened to carry a dir.
-        const obsByDir = new Map();
-        for (const o of observed.all()) {
-          // #2413: the Claude overlay reads ONLY anthropic observations. An OpenAI
-          // observation resolved against the CLAUDE account list would green a Claude
-          // account it has nothing to do with (a codex agent on the default home maps to
-          // the default Claude account -- status.js's own note, true when written).
-          // #2811 gated that dir-less match, so it now maps to NOTHING; this filter
-          // is kept as defence in depth rather than removed. The provider is in the
-          // observation key precisely so this join stays on one provider's rows.
-          if (o.provider !== observed.PROVIDER.ANTHROPIC) continue;
-          const acct = accountForAgent(o.agent, knownAccts);
-          if (!acct || !acct.dir) continue;
-          const prev = obsByDir.get(acct.dir);
-          if (!prev || o.at > prev.at) obsByDir.set(acct.dir, { outcome: o.outcome, at: o.at });
-        }
+        const obsOf = claudeObservationsFor(knownAccts);   // review 5 (#7212 slice 3): one definition with the stuck card
         /* #3997 (ruling C): each Claude sign-in's login date, waited on briefly (claudeloginlive); a slow read shows
            on the next poll rather than holding this one. */
         // Only a signed-in row can show its login as good, so only those are read (review iteration 4).
@@ -12794,17 +12825,13 @@ const server = http.createServer(async (req, res) => {
         if (wantAgents) { try { claudeAgents = claudeAgentsByAccount(); } catch { claudeAgents = null; } }
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
-             observation (obsByDir, filled by the ~60s sweep) and a
+             observation (claudeObservationsFor, filled by the ~60s sweep) and a
              USER-INITIATED "Check now" recorded against this account's own dir
              (observed.readDir). A manual check is just another observed outcome,
              so it flows through the SAME verdict + freshness gating below — no
              second badge path. This is what lets an agent-less but live account
              go green on demand rather than sitting at signed_in_unverified. */
-          const agentObs = a.dir ? obsByDir.get(a.dir) : null;
-          const checkObs = a.dir ? observed.readDir(observed.PROVIDER.ANTHROPIC, a.dir) : null;
-          const obs = (agentObs && checkObs)
-            ? (checkObs.at >= agentObs.at ? checkObs : agentObs)
-            : (agentObs || checkObs);
+          const { obs, checkObs } = obsOf(a.dir);
           const v = observed.verdict({
             checkLiveState: a.connection && a.connection.state,
             observedOutcome: obs && obs.outcome,
@@ -21899,6 +21926,8 @@ const server = http.createServer(async (req, res) => {
       try { fedseal.forgetRoom(id); } catch { /* create clears it too */ }
       // #4649: and its outside invites, so a later project of the same id lists none of them.
       try { fedmembers.forget(id); } catch { /* create clears it too */ }
+      // kosmos#7365: and its archive marker, so a later project of the same id archives only by the automatic rule.
+      try { roomarchive.clearMarker(id); } catch { /* an unreadable marker file keeps it; the read side then ignores the file */ }
     } catch (err) {
       // #1994: honour an explicit status (remove now throws a 409 when the
       // project still has sub-projects -- it exists, so a 404 would be wrong).
@@ -22065,12 +22094,18 @@ const server = http.createServer(async (req, res) => {
        during its delivery, which is why the phone re-reads the newest page and merges. */
     let jsonRows = null;
     let jsonCursor = null;   // the raw ?cursor=, checked against the rows below
+    /* kosmos#7365 slice 3: with ?n, ?archive=0 pages the room's live part and ?archive=1 its archive (the same cursors).
+       Without it a page is drawn from the whole room as before, so a board page or an iPhone build from before the
+       archive, which has no way to open it, still reaches every message by scrolling back. */
+    let archiveView = null;   // null (the whole room), 'live' or 'archive'
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
       const n = q.get('n');
       if (n !== null && /^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200) { textRows = Number(n); jsonRows = Number(n); }
       if (jsonRows !== null) jsonCursor = q.get('cursor') || null;   // an empty cursor is no cursor (the newest page)
+      const av = jsonRows !== null ? q.get('archive') : null;
+      archiveView = av === '1' ? 'archive' : av === '0' ? 'live' : null;  // the text view ignores it: agents read the live part only
     } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
@@ -22149,19 +22184,29 @@ const server = http.createServer(async (req, res) => {
          stalled a busy room). The text view never shows them, so it does not read them. */
       const labelOf = asText ? new Map() : fedmembers.labelsFor(id);
       /* #3769: the setup guide's room posts stored before the write-side filter are masked as read. */
-      const rows = guideMaskedRows(rec.rows, null)
+      /* kosmos#7365 slice 3: the room's rows before the audience filter, the set the archive rule counts, so both arms
+         agree on where the archive ends. */
+      const roomRows = guideMaskedRows(rec.rows, null)
         /* Refused rows too (#315): the valve notice is deduped per room, so
            without these every agent blocked after the first vanishes silently
            and reads as unresponsive. The refusal contract already records
            who and why, once per sender-reason-window; the room just shows it. */
         .filter((m) => m && ((m.kind === 'post' || m.kind === 'valve' || m.kind === 'note' || m.kind === 'external') ? m.project === id
-          : (m.kind === 'refused' && m.project === id)))
+          : (m.kind === 'refused' && m.project === id)));
+      /* kosmos#7365 slice 3: the archived stretch is the first roomarchive.archivedCount rows in the room's order. Best-effort: an unreadable marker reads as none, so more stays live, never less. */
+      let archiveMarker = null;
+      try { archiveMarker = roomarchive.markerFor(id); } catch { archiveMarker = null; }
+      // Sorted in place with the comparator `rows` uses below, so that later sort finds them already in order.
+      roomRows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
+      const archivedSrc = new Set(roomRows.slice(0, roomarchive.archivedCount(roomRows, archiveMarker, Date.now())));
+      const kept = roomRows
         /* A note written for the agents (the "no brief yet" coordination note) is theirs to
            read through `kosmos room` (the text arm below keeps it), not the first thing a
            person sees in a new room: the JSON arm is the person's view, and leaving it out
            lets the page say its own "Nothing here yet". Notes written before notes carried
            an audience are matched by their frozen exact text. */
-        .filter((m) => asText || !(m.kind === 'note' && (m.audience === messages.NOTE_AUDIENCE_AGENTS || projects.BRIEF_PENDING_NOTES_BEFORE_AUDIENCE.includes(m.text))))
+        .filter((m) => asText || !(m.kind === 'note' && (m.audience === messages.NOTE_AUDIENCE_AGENTS || projects.BRIEF_PENDING_NOTES_BEFORE_AUDIENCE.includes(m.text))));
+      const rows = kept
         .map((m) => (m.kind === 'refused'
           /* kosmos#5752 slice 3: what the agent tried, and whether adding it would end the refusal (the add button). */
           ? Object.assign({ kind: 'refused', from: m.from, because: m.because || null, at: m.at },
@@ -22224,7 +22269,15 @@ const server = http.createServer(async (req, res) => {
                 })()) };
             })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
+      /* kosmos#7365 slice 3: every row is a fresh object from the map above, so marking it touches no stored row. The map
+         is one row out per row in, so rows[i] is kept[i]'s; a filter or flatMap added to that chain breaks this. */
+      kept.forEach((m, i) => { if (archivedSrc.has(m)) rows[i].archived = true; });
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
+      // The archived rows are the start of `rows` (kept is roomRows in order, less some rows; the sort is stable).
+      /* How many of THIS view's rows are archived. The boundary is the same in both views; the number is not, because
+         the JSON view leaves out agent-only notes. */
+      let archivedCount = 0;
+      while (archivedCount < rows.length && rows[archivedCount].archived === true) archivedCount += 1;
       /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
          stock bash 3.2 with no JSON parser, so the server does the shaping.
          The tail only (the last messages.ROOM_READ_ROWS, or the last `n` the CLI asks for, #4891), oldest first, one line per row, and the
@@ -22263,7 +22316,8 @@ const server = http.createServer(async (req, res) => {
         /* At least one, so `-n 1` on a room whose newest row came from outside shows that row rather than an older
            local one, or "nothing has been said" in a room where something was (#4891 review 1). */
         const outsideCap = Math.max(1, Math.floor(textRows / 2));
-        for (let i = rows.length - 1; i >= 0 && tail.length < textRows; i--) {
+        // kosmos#7365 slice 3: agents read the live room only, so the walk stops at the archive.
+        for (let i = rows.length - 1; i >= archivedCount && tail.length < textRows; i--) {
           if (rows[i] && rows[i].kind === 'external') { if (outside >= outsideCap) continue; outside += 1; }
           tail.unshift(rows[i]);
         }
@@ -22281,6 +22335,10 @@ const server = http.createServer(async (req, res) => {
             const reader = senderFromAgentToken(req, null, safeRoster());
             const who = reader && reader.ok && reader.card && typeof reader.card.sessionName === 'string' ? reader.card.sessionName : null;
             const shownIds = tail.filter((m) => m && m.kind === 'post' && typeof m.id === 'string').map((m) => m.id);
+            /* kosmos#7365 slice 3: a held post that is now archived is never shown here again, so it stops being held
+               too, or its idle reminder would point at a post this view no longer has. That includes one that asked
+               this agent something: archived messages leave what agents read here (the design's confirm copy). */
+            for (let i = 0; i < archivedCount; i++) if (rows[i] && rows[i].kind === 'post' && typeof rows[i].id === 'string') shownIds.push(rows[i].id);
             if (who && shownIds.length) roomhold.dropShown(who, id, shownIds);
           } catch { /* the posts stay held */ }
         }
@@ -22329,7 +22387,11 @@ const server = http.createServer(async (req, res) => {
           const answering = typeof m.replyTo === 'string' && /^m\d+$/.test(m.replyTo) ? ' (answering [' + m.replyTo + '])' : '';
           // #6925: a post that went through a held room as its agent's one summary says so, as the page labels it.
           const closingNote = m.closing === true ? ' (its one summary while the room was held)' : '';
-          const line = when + '  [' + m.id + '] ' + who + closingNote + answering + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + flatText;
+          /* kosmos#7246 slice 2 (round 5): the members it reached or will reach (a held one is told later), not every member
+             it was in the room for: a quiet member was never typed to, and listing it made an FYI read as if it had asked
+             everyone. Round 7: nor one it could not reach. Reached no one: the room. */
+          const woke = Array.isArray(m.to) ? m.to.filter((n) => !(m.outcomes && (m.outcomes[n] === 'quiet' || m.outcomes[n] === 'could_not'))) : [];
+          const line = when + '  [' + m.id + '] ' + who + closingNote + answering + ' -> ' + (woke.length ? woke.join(', ') : 'the room') + ': ' + flatText;
           /* The same sentence the page shows, one per silent name, right
              under the post it is about (#563). */
           const owed = Array.isArray(silent[m.id]) ? silent[m.id] : [];
@@ -22368,7 +22430,10 @@ const server = http.createServer(async (req, res) => {
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
-          : (lines.length ? '' : 'Nothing has been said in this room yet.\n');
+          : (lines.length ? ''
+            // kosmos#7365 slice 3: a room whose every message is archived is not an empty room.
+            : archivedCount > 0 ? 'Everything said in this room so far is archived; nothing has been said since.\n'
+            : 'Nothing has been said in this room yet.\n');
         /* #3311: agents read this view before they post. In a shared project every
            post here leaves this computer, so it says so first, every time. */
         let shared = '';
@@ -22424,25 +22489,31 @@ const server = http.createServer(async (req, res) => {
           }
           pool = rows.slice(0, at);
         }
+        /* kosmos#7365 slice 3: the live part is everything after the archive, the archive everything before it. A cursor
+           on the other side of the boundary leaves an empty page with nothing older (the reader has crossed it). */
+        if (archiveView === 'archive') pool = pool.slice(0, Math.min(pool.length, archivedCount));
+        else if (archiveView === 'live') pool = pool.slice(Math.min(pool.length, archivedCount));
         // Each row on a page carries `key`, its exact place ("<at>|<k>", the cursor's own form), so the phone can merge
         // a re-read page row by row, Kosmos lines (which carry no id) included.
         const firstOfTime = new Map();
         rows.forEach((r, i) => { if (r && typeof r.at === 'string' && !firstOfTime.has(r.at)) firstOfTime.set(r.at, i); });
+        const poolStart = archiveView === 'live' ? Math.min(archivedCount, rows.length) : 0;   // where pool starts within rows
         const page = pool.slice(-jsonRows).map((r, j) => {
-          const i = pool.length - Math.min(jsonRows, pool.length) + j;
+          const i = poolStart + pool.length - Math.min(jsonRows, pool.length) + j;
           return r && typeof r.at === 'string' && firstOfTime.has(r.at) ? { ...r, key: r.at + '|' + (i - firstOfTime.get(r.at)) } : r;
         });
         const olderCount = pool.length - page.length;
         // The next older page's cursor: the first row's time and how many rows of that time sit ahead of it.
         const olderCursor = olderCount > 0 && page[0] && typeof page[0].key === 'string' ? page[0].key : null;
-        sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(page), unanswered: silent, olderCount, olderCursor },
-          held ? { held } : {}));
+        sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(page), unanswered: silent, olderCount, olderCursor,
+          archivedCount, archiveMarker }, held ? { held } : {}));
         return;
       }
       /* #185: which addressed agents have not answered which posts, from
          the record alone; the page renders the small line from this and
          never re-derives it. Best-effort like the room itself. */
-      sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(rows), unanswered: silent }, held ? { held } : {}));
+      sendJson(res, 200, Object.assign({ ok: rec.ok, rows: withPreviews(rows), unanswered: silent, archivedCount, archiveMarker },
+        held ? { held } : {}));
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the room') });
     }
@@ -22589,6 +22660,35 @@ const server = http.createServer(async (req, res) => {
     if (!found) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
     const out = messages.reopenRoom(found.id);
     sendJson(res, out.ok ? 200 : 400, out);
+    return;
+  }
+
+  /* kosmos#7365 slice 3: the person's "Archive older messages" (POST {before: an ISO time}) and its Undo (POST .../undo).
+     An operator write like Reopen above: agent tokens reach only AGENT_TOKEN_ROUTES, and this is not one. The marker
+     moves nothing; the room read splits at it (engine/roomarchive.js). */
+  const roomArchive = pathname.match(/^\/api\/project\/([^/]+)\/room\/archive(\/undo)?$/);
+  if (roomArchive && req.method === 'POST') {
+    const id = decodeSegment(roomArchive[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let found = null;
+    try { found = projects.get(id, safeRoster() || []); } catch { found = null; }
+    if (!found) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
+    if (roomArchive[2]) {
+      try { sendJson(res, 200, roomarchive.clearMarker(found.id)); }
+      catch { sendJson(res, 503, { ok: false, because: 'we could not undo the archive just now; nothing changed' }); }
+      return;
+    }
+    readBody(req, 4096)
+      .then((buf) => {
+        let body = null;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { ok: false, because: 'that request is not something we can read' }); return; }
+        let out;
+        try { out = roomarchive.setMarker(found.id, body.before); }
+        catch { sendJson(res, 503, { ok: false, because: 'we could not archive just now; nothing changed' }); return; }
+        sendJson(res, out.ok ? 200 : 400, out);
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400, { ok: false, because: String((err && err.message) || 'that request could not be read') }));
     return;
   }
 
@@ -26014,6 +26114,10 @@ function start(port = PORT) {
   try { attachments.sweepOrphans(); } catch { /* best effort */ }
   setInterval(() => { try { attachments.sweepOrphans(); } catch { /* best effort */ } }, 60 * 60 * 1000).unref();
   require('./engine/agentnames').setFleetSource(() => nameCheckFleet());   // #5957: one display name per agent
+  /* #7232: the drive table a reply attach reads (which letters are network drives, and their shares), learned in the
+     background now and every minute, so an attach rarely waits on it. Windows only; a no-op elsewhere. There is no
+     projects-change hook here: an attach meeting a letter the table does not list learns it again once. */
+  try { require('./engine/windrives').startRefreshing(); } catch { /* unknown table: attach behaves as before */ }
   /* #5535 E0.6 slice (d): the company backup tick, hourly and only while orgenroll.mayReport (enrolled here AND the
      company's words accepted here). The first run is an hour after start, never at boot. Kosmos+ answers backup_off
      while company backup is off, and the tick then asks again a day later (engine/backuptick.js). Best effort: never a
@@ -26198,6 +26302,7 @@ function start(port = PORT) {
           const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
           /* Only agents whose card carries the stall, so the log and the card say the same thing (round 1 W3). */
           const shown = names.filter((n) => { const c = byName.get(n); return !!(c && c.deliveryStall); });
+          require('./engine/stallsignin').sweep();   // #7212 slice 3: accounts no stuck card read for an hour are forgotten
           /* kosmos#7368: each stuck step is said once (deliverystreak.turnsToSay); the streak lines keep their own rule. */
           const isTurn = (n) => byName.get(n).deliveryStall.lastWhy === 'turn';
           for (const line of ds.turnsToSay(r, turnSaid)) process.stdout.write(line);
@@ -27784,6 +27889,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
+  claudeObservationsFor, overlayStuckCards, // #7212 slice 3 reviews 6-7: the badge's evidence and the route's step, for their test
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour

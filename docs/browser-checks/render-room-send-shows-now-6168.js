@@ -60,6 +60,11 @@ function initStub() {
       window.__kept = false;
       return enc({ ok: true, delivery: { state: 'placed', outcomes: { Mara: 'placed' } } });
     }
+    /* kosmos#7365 slice 2: the room reads its newest page (room?n=200&archive=0) as well as the whole room (a search):
+       both are answered, the paged one with each row's key and nothing older. */
+    const paged = (rows) => ({ ok: true, rows: rows.map((r, i) => Object.assign({ key: r.at + '|' + i }, r)), olderCount: 0, olderCursor: null });
+    if (/\/api\/project\/p1\/room\?/.test(u) && method === 'GET') return enc(paged(window.__rows.slice()));
+    if (/\/api\/project\/p2\/room\?/.test(u) && method === 'GET') return enc(paged([]));
     if (/\/api\/project\/p1\/room$/.test(u)) return enc({ ok: true, rows: window.__rows.slice() });
     if (/\/api\/project\/p2\/room$/.test(u)) return enc({ ok: true, rows: [] });
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc({ ok: true, projects: [window.__project, window.__p2] });

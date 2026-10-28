@@ -42,3 +42,21 @@ test('#4653 control: no note, or an empty or non-string one, prints only the ver
     assert.deepEqual(r.out, ['Posted to proj. Everyone on it has it waiting.'], JSON.stringify(extra));
   }
 });
+
+test('kosmos#7246 slice 2: a post that left members quiet says so and how to address one; a because is printed', async () => {
+  const r = await post({ state: 'placed', outcomes: { mara: 'placed', april: 'quiet' } });
+  assert.equal(r.out[0], 'Posted to proj. It reached only the members it addresses; the others can read it in the room. To reach someone, start with \'YourName -> Their Name:\', @-name them, or use @all.');
+  const paused = await post({ state: 'placed', outcomes: { mara: 'quiet' }, because: 'your post is in the room, but it woke no one' });
+  assert.deepEqual(paused.out, ['Posted to proj.', 'Note: your post is in the room, but it woke no one.'], 'round 4: a paused post DID address them; no advice to address');
+  const all = await post({ state: 'placed', outcomes: { mara: 'placed', april: 'placed' } });
+  assert.deepEqual(all.out, ['Posted to proj. Everyone on it has it waiting.'], 'CONTROL: nobody quiet, the old sentence');
+});
+
+test('kosmos#7246 round 5: a post that woke no one says so, and a folded retry of a quiet post never says everyone has it', async () => {
+  const none = await post({ state: 'placed', outcomes: { mara: 'quiet', april: 'quiet' } });
+  assert.equal(none.out[0], 'Posted to proj. It woke no one: it addresses no member, so it is only in the room. To reach someone, start with \'YourName -> Their Name:\', @-name them, or use @all.');
+  const dup = await post({ state: 'placed', outcomes: { mara: 'placed', april: 'quiet' }, duplicate: true });
+  assert.match(dup.out[0], /It reached only the members it addresses/);
+  const dupAll = await post({ state: 'placed', outcomes: { mara: 'placed' }, duplicate: true });
+  assert.match(dupAll.out[0], /it was not posted twice/, 'CONTROL: a folded post that reached everyone keeps its sentence');
+});

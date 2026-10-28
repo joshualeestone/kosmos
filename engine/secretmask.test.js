@@ -2097,3 +2097,33 @@ test('#5558 review 7: letter case, each part of a date and time, and the archite
     assert.equal(isPlainPath(t), true, 'CONTROL: ' + t);
   }
 });
+
+test('#7395: a key glued to an identifier after an underscore is masked (mcp__AKIA..., MY_xoxb-...)', () => {
+  const KEYS = {
+    aws: 'AKIA' + 'IOSFODNN7EXAMPLQ', asia: 'ASIA' + 'IOSFODNN7EXAMPLQ', xai: 'xai-' + 'Ab3dEf6hIj9kLm2nOp5q',
+    slack: 'xoxb-' + '1234567890-abcdefghij', stripe: 'sk_live_' + 'Ab3dEf6hIj9kLm2nOp', gitlab: 'glpat-' + 'Ab3dEf6hIj9kLm2nOp5q',
+    jwt: 'eyJ' + 'hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.Ab3dEf6hIj9kLm2nOp5q', github: 'ghp_' + 'Ab3dEf6hIj9kLm2nOp5qRs8t',
+    anthropic: 'sk-ant-' + 'api03-Ab3dEf6hIj9kLm2nOp5qRs8t',
+    // Review 2: a plain sk- key and a Google key, so each changed pattern has an arm of its own.
+    openai: 'sk-' + 'Ab3dEf6hIj9kLm2nOp5q', openaiProj: 'sk-proj-' + 'Ab3dEf6hIj9kLm2nOp5q', google: 'AIza' + 'SyAb3dEf6hIj9kLm2nOp5qRs8tUv1wXy4',
+  };
+  for (const [kind, key] of Object.entries(KEYS)) {
+    for (const before of ['mcp__', 'MY_', '_', 'x-']) {
+      const out = mask(before + key).text;
+      assert.ok(!out.includes(key.slice(-8)), kind + ' after "' + before + '" showed: ' + out);
+    }
+    // Control: the same key on its own, as before.
+    assert.ok(!mask('x ' + key).text.includes(key.slice(-8)), kind + ' on its own showed');
+  }
+  // The AWS id ends where a letter or digit does not follow, so a key followed by _suffix is masked too.
+  assert.ok(!mask('AKIA' + 'IOSFODNN7EXAMPLQ_prod').text.includes('IOSFODNN7EXAMPLQ'));
+});
+
+test('#7395: CONTROL: a letter before a prefix still keeps an ordinary word from being taken for a key', () => {
+  // Each is long enough that its key shape WOULD match with no boundary at all (review 1: shorter words could not fail).
+  for (const word of ['risk-ant-colonynest', 'deskxoxb-board-cleanup', 'maxai-settings-panel-v2', 'xghp_' + 'Ab3dEf6hIj9kLm2nOp5qRs8t']) {
+    assert.ok(mask('see ' + word).text.endsWith(word.slice(-6)), word + ' was masked: ' + mask('see ' + word).text);
+  }
+  // A 20-character run that only looks like an AWS id inside a longer word is left alone.
+  assert.equal(mask('xAKIAIOSFODNN7EXAMPLQ').text.includes('AKIAIOSFODNN7EXAMPLQ'), true);
+});
