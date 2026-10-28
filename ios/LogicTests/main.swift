@@ -3591,6 +3591,25 @@ check(PhoneNotice.words(status: 200, contentType: json, data: answer, userInfo: 
 check(PhoneNotice.words(status: 200, contentType: json, data: Data(#"{"kind":"report","session":"irma","agent":"Irma","text":"  ","picture":null}"#.utf8), userInfo: pushed) == nil, "blank words: nothing")
 check(PhoneNotice.words(status: 200, contentType: json, data: Data(repeating: 0x20, count: PhoneNotice.maxAnswerBytes + 1), userInfo: pushed) == nil, "an oversized answer is not read")
 
+section("no banner for the conversation on screen (kosmos#7420)")
+// Josh 10-27: a banner for the chat he had open dropped over it. The relay's push shape (kind, session, address).
+let openDana = PushBridge.OpenChat(host: "M-ABC123.kosmosplus.com", session: "dana")
+let danaReplied: [AnyHashable: Any] = ["kind": "replied", "id": "reply:x:dana", "address": "m-abc123.kosmosplus.com", "session": "dana"]
+check(!PushBridge.showsBanner(danaReplied, openChat: openDana), "an answer from the chat on screen: no banner (address without case)")
+var danaAsks = danaReplied; danaAsks["kind"] = "needs_you"
+check(!PushBridge.showsBanner(danaAsks, openChat: openDana), "a question from the chat on screen: no banner")
+check(PushBridge.showsBanner(danaReplied, openChat: nil), "CONTROL: no chat open: the banner shows")
+var eliReplied = danaReplied; eliReplied["session"] = "eli"
+check(PushBridge.showsBanner(eliReplied, openChat: openDana), "another agent: the banner shows")
+var danaElsewhere = danaReplied; danaElsewhere["address"] = "m-zzz999.kosmosplus.com"
+check(PushBridge.showsBanner(danaElsewhere, openChat: openDana), "the same name on another computer: the banner shows")
+for kind in ["posted", "ready"] {
+    var k = danaReplied; k["kind"] = kind
+    check(PushBridge.showsBanner(k, openChat: openDana), "a \(kind) notice from that agent is not the conversation itself: the banner shows")
+}
+var noKind = danaReplied; noKind["kind"] = nil
+check(PushBridge.showsBanner(noKind, openChat: openDana), "a notice with no kind shows, as before")
+
 section("phone notice: a room post names its room (kosmos#7032)")
 // The push exactly as the relay sends it (kosmos-relay coordinator/src/apns.rs payload): no project in it.
 let postPush: [AnyHashable: Any] = ["aps": ["alert": ["title": "Dana posted"], "mutable-content": 1], "kind": "posted", "id": "post:m901", "address": "m-abc123.kosmosplus.com", "session": "dana"]
@@ -4010,7 +4029,6 @@ do {
                    Board.Agent(session: "c", name: "al", role: nil, state: "idle", task: nil, needsYou: false)]
         check(Board.agentOrder(ord, byName: false).map(\.session) == ["b", "a", "c"], "kosmos#7343: Needs you first keeps the computer's order")
         check(Board.agentOrder(ord, byName: true).map(\.session) == ["a", "c", "b"], "Name sorts without case, ties in the computer's order")
-        check(abs(Board.sweepOpacity(0.24) - 1) < 0.001 && abs(Board.sweepOpacity(1.0) - 0.25) < 0.001, "the Sweep peaks at 20% of 1.2 s and rests after 70%")
     }
 }
 

@@ -6,6 +6,9 @@ import UserNotifications
 // handling. Kept separate from AppDelegate so the behavior is testable and the
 // delegate stays a thin forwarder.
 final class PushNotificationManager: NSObject, ObservableObject {
+    // kosmos#7420: the conversation on screen, set and cleared by ChatView (main thread), read when a notice arrives in
+    // the foreground so the open chat gets no banner of its own.
+    static var chatOnScreen: PushBridge.OpenChat?
 
     // One tap's request to open a board. Each tap gets its own id, so a second tap
     // on the same Mac is a new request rather than an unchanged value.
@@ -22,6 +25,9 @@ final class PushNotificationManager: NSObject, ObservableObject {
     // kosmos#7032: a room a tapped notification asked to open in the native Projects tab (ContentView decides whether it
     // can, else it opens the board's room page through boardToOpen).
     @Published var roomToOpen: PushBridge.RoomTarget?
+    // kosmos#7418: an agent a tapped notification asked to open in the native Agents tab (ContentView decides whether it
+    // can, else it opens the board's page for that agent through boardToOpen).
+    @Published var agentToOpen: PushBridge.AgentTarget?
 
     // kosmos#7008: bumped by a sign-out or a sign-in as someone else, so the Agents tab drops its chats at once. A
     // Keychain read that briefly finds no session is not one of these and keeps them.
@@ -224,7 +230,12 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound, .badge])
+        // kosmos#7420: nothing for the conversation the person has open (PushBridge.showsBanner). Read on the main thread,
+        // where ChatView sets it: this call need not arrive there.
+        let userInfo = notification.request.content.userInfo
+        DispatchQueue.main.async {
+            completionHandler(PushBridge.showsBanner(userInfo, openChat: Self.chatOnScreen) ? [.banner, .sound, .badge] : [])
+        }
     }
 
     // Handle a response to a notification: the plain tap, Reply, and Allow and Deny (#7017), the only actions any category registers.
@@ -241,6 +252,13 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
                                                 coordinator: KosmosConfig.coordinatorOrigin) {
                 NSLog("[Push] tapped room notification opens a room on \(room.host)")
                 DispatchQueue.main.async { self.roomToOpen = room }
+                break
+            }
+            // kosmos#7418: every other notification names an agent; its chat opens natively, as from the Agents list.
+            if let agent = PushBridge.agentToOpen(fromNotification: response.notification.request.content.userInfo,
+                                                  coordinator: KosmosConfig.coordinatorOrigin) {
+                NSLog("[Push] tapped agent notification opens a chat on \(agent.host)")
+                DispatchQueue.main.async { self.agentToOpen = agent }
                 break
             }
             // Only the coordinator's `address` field decides where a tap goes, and

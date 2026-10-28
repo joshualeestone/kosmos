@@ -341,15 +341,6 @@ enum Board {
         }
     }
 
-    // kosmos#7342: the Working pill's Sweep, the phone's own three-dot take on the board's sweepLite: over 1.2 s, up to
-    // full at 20%, back to a quarter by 70%, resting there after.
-    static func sweepOpacity(_ t: Double) -> Double {
-        let f = (t.truncatingRemainder(dividingBy: 1.2) + 1.2).truncatingRemainder(dividingBy: 1.2) / 1.2
-        if f < 0.2 { return 0.25 + 0.75 * f / 0.2 }
-        if f < 0.7 { return 1 - 0.75 * (f - 0.2) / 0.5 }
-        return 0.25
-    }
-
     // kosmos#7343: the Agents list's order: the list's own (starred agents, then needs you first, Board.sorted), or by name.
     enum AgentSort: String, CaseIterable { case board, name }
     static func agentSortLabel(_ s: AgentSort) -> String { s == .board ? "Needs you first" : "Name" }

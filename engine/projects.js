@@ -260,6 +260,9 @@ const LANGUAGE_END = '<!-- kosmos:language:end -->';
 // (Josh: never written raw in place of them). Defined beside the others for the same reason.
 const TEAM_START = '<!-- kosmos:team:start -->';
 const TEAM_END = '<!-- kosmos:team:end -->';
+/* #7410: after a switch off Claude, one line pointing the agent at the notes copied into its folder (engine/create.js carryClaudeNotes). */
+const CARRIED_NOTES_START = '<!-- kosmos:carried-notes:start -->';
+const CARRIED_NOTES_END = '<!-- kosmos:carried-notes:end -->';
 /** #4557: 'none', 'whole' (one start, then one end) or 'broken' (anything else: a lone marker, two, out of order). */
 function teamBlockState(text) {
   const t = String(text || '');
@@ -294,7 +297,7 @@ function teamBlockState(text) {
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, CARRIED_NOTES_START, CARRIED_NOTES_END, mm.START, mm.END];
 }
 
 /**
@@ -681,11 +684,26 @@ function profileRole(card) {
   return Object.prototype.hasOwnProperty.call(profile, 'role') ? profile.role : null;
 }
 
-/* #5300: the role a member set for this project, or null. Display only: `role` (who a room opens on, a
-   person-saved role) never reads it. */
+/* #5300: the role a member set for this project, or null. `role` (who a room opens on, a person-saved role) never
+   reads it; the Assigner reads it only through reviewOnlyHere (#7429). */
 function roleHereOf(p, key) {
   const r = p && p.rolesHere && typeof p.rolesHere === 'object' && Object.prototype.hasOwnProperty.call(p.rolesHere, key) ? p.rolesHere[key] : null;
   return typeof r === 'string' && r.trim() ? r : null;
+}
+
+/* #7429: does this member's role here say it only reviews? Only an explicit form counts, because a wrong yes costs
+   more than a wrong no: a yes takes the agent out of the Assigner's hand-outs in this project (a person can still give
+   it any task), a no keeps today's behaviour. So the WHOLE role must be one of these forms: a review word ("reviewer",
+   "code reviewer", "QA", "reviews"), the same with "only" after it ("review only", "QA-only"), or "only" before it
+   ("only reviews"). Anything more ("reviews the builders' work", "builds, QA only on mobile", "not QA only") is not
+   review only. The project instructions name these forms, and `kosmos project role` says when a role is read this
+   way (reviews 1 and 2). */
+const REVIEW_ONLY = /^(?:(?:code )?(?:reviews?|reviewer|reviewing|qa)(?: only)?|only (?:reviews?|reviewing|qa))$/i;
+function reviewOnlyHere(p, key) {
+  const r = roleHereOf(p, key);
+  if (r === null) return false;
+  const words = r.trim().replace(/[.!]+$/, '').replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+  return REVIEW_ONLY.test(words);
 }
 
 /* #4557: the profile's reportsTo, read like profileRole (the profile is a bag; an absent key means none). */
@@ -3866,6 +3884,9 @@ function blockRules(sessionName, cliShown) {
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
       `\`${cliShown} project role <project-id> "what you do here"\` (an empty "" clears it).`,
+      /* #7429: say what the role changes, in the forms reviewOnlyHere matches. */
+      'If you only review on a project, make that the whole role: "reviewer", "code reviewer", "QA", "review only" or',
+      '"QA only", nothing more. Then the automatic Assigner hands you none of that project\'s tasks; your person still can.',
     ],
   };
 }
@@ -4256,8 +4277,8 @@ module.exports = { exactPathStat, windowsProjectFolderOk, exactOpenedStat, exact
   changedFileTimes,
   offWriteIsQuiet, WROTE_WHY,
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
-  file, readAll, writeAll, idFor, folderState, describe, needsYouReason, needsYouReasonPastUsage, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, CARRIED_NOTES_START, CARRIED_NOTES_END, teamBlockState, ALL_MARKERS, neutralise,
+  file, readAll, writeAll, idFor, folderState, describe, needsYouReason, needsYouReasonPastUsage, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX, roleHereOf, reviewOnlyHere,
   list, get, projectsFor, namesFor, create, edit, moveFolder, rename, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,

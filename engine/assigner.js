@@ -8,7 +8,8 @@
  * open part of any task assigned to it.
  *
  * WHAT IT DELIBERATELY DOES NOT DO. It never creates a project or a task, never adds an agent to
- * a project, never touches a task somebody is already on (one exception, #5382's failover, off by
+ * a project, never hands a task to an agent whose role on that project is review only (#7429), never touches a task
+ * somebody is already on (one exception, #5382's failover, off by
  * default: an agent rate-limited for FAILOVER_MS), and never assigns in an archived
  * project. An agent whose last stated list named work (fresh or stale), or whose record cannot be
  * read or is dated in the future, is left alone.
@@ -161,11 +162,16 @@ function hasOpenWork(session, projects) {
 
 /* #5678 review 2: does `who` holding an open part of `t` keep it busy, by hasOpenWork's own rules (on hold, between
    runs, built and freed: not busy)? A tree is locked only by holds like that, so a parked hold never locks a tree for
-   good. One more than hasOpenWork (review 5: so the two do not fully agree): a holder switched off in this project
-   holds nothing here, because the person turned its swarm work off; its tree is free to the others. Its callers have
+   good. Two more than hasOpenWork (review 5: so the two do not fully agree): a holder switched off in this project
+   holds nothing here, because the person turned its swarm work off; and a review-only holder (#7429) holds nothing
+   here either; in both cases its tree is free to the others. Its callers have
    already left out closed tasks and paused projects, hasOpenWork's other two checks (review 7). */
 function busyHold(p, t, who) {
   if (tasks.isOnHold(t) || require('./taskrepeat').waitingForNextRun(t)) return false;
+  /* #7429 review 1: a review-only member holding ANY part (usually a review subtask; a build task a person gave it by
+     hand counts the same) never takes the tree's other tasks, so it does not lock the tree away from builders, as a
+     member switched off does not. The cost, accepted: a builder can then be on a tree beside it. */
+  if (require('./projects').reviewOnlyHere(p, who)) return false;
   if (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(who)))) return false;
   return !isSwarmOff(p, who);
 }
@@ -226,6 +232,52 @@ function blocksGoalAsk(t) {
   return !(t && t.addedVia === 'webhook' && !tasks.whoOf(t).length);
 }
 
+/* #7407: one task's candidacy for one agent in one project, the loop body of pick (moved here unchanged so the unhold
+   answer, whoMayGet, asks the very rules pick uses). null, or the candidate pick sorts. */
+function candidateIn(p, tree, holdersOf, t, session, taken) {
+  if (!handOutable(t)) return null;   // the task's own filters, shared with willMove (#5678 review 5)
+  if (taken.has(p.id + '#' + t.number)) return null;
+  const prog = tasks.progressOf(t);
+  /* #5678 (user feedback 10-09): never a second builder on one tree. Its holder may take more of it when free
+     (review 1: the owner was shut out of its own subtasks); anyone else is not given it. */
+  /* #5678 review 3: a parent whose subtasks are still open is not handed out: given first (it is the oldest), its
+     holder would sit busy on the umbrella while the tree stays locked to everyone else. The subtasks go first. */
+  /* Review 4: only a subtask that will move holds it back: one pick could hand out, or one a project agent holds busy.
+     A webhook, repeating, on-hold or built subtask, or one held by an agent who left or parked it, never moves on
+     its own, and would keep the parent waiting for good. */
+  const above = upChain(tree, t);
+  if (tree.under(t.number).some((c) => !tasks.progressOf(c).closed && !above.has(c.number) && willMove(p, c))) return null;
+  const root = tasks.rootIn(tree, t);
+  if (treeIsOthers(p, tree, holdersOf, root, session, taken, null)) return null;
+  const part = prog.parts.find((x) => !x.closedAt);
+  if (!part) return null;
+  return { projectId: p.id, n: t.number, partId: part.id, due: dueKey(t), age: ageKey(t), treeKey: p.id + '#tree#' + root + '#' + session };
+}
+/* #7407: the project's agents pick could give task `t` to right now, by pick's own rules (archived, paused, swarm off,
+   the task's filters, its open subtasks, another builder's tree), whether or not they are idle. Empty: nobody will be
+   given it without a person. `t` is the task object inside `p`. */
+/* #7407 review 4: who holds `t`'s task tree busy now (pick's holdersOf at its root), and the root's number. Such a
+   tree is one builder's: pick gives `t` only to that holder, who is busy by definition, and to anyone once they are
+   done there, so the unhold answer says that rather than naming them. */
+/* #7407 review 6: does `t` wait on its own open subtasks (candidateIn's check: one that will move holds it back)? */
+function subtasksFirst(p, t) {
+  const tree = tasks.treeOf(p);
+  const above = upChain(tree, t);
+  return tree.under(t.number).some((c) => !tasks.progressOf(c).closed && !above.has(c.number) && willMove(p, c));
+}
+function treeHeldBy(p, t) {
+  const tree = tasks.treeOf(p);
+  const holdersOf = tasks.treeHolders(p, tree, (x, who) => busyHold(p, x, who));
+  const root = tasks.rootIn(tree, t);
+  return { root, holders: [...(holdersOf.get(root) || [])] };
+}
+function whoMayGet(p, t) {
+  if (!p || p.archived === true || require('./projects').isPaused(p)) return [];
+  const tree = tasks.treeOf(p);
+  const holdersOf = tasks.treeHolders(p, tree, (x, who) => busyHold(p, x, who));
+  return (Array.isArray(p.agents) ? p.agents : []).filter((s) => !isSwarmOff(p, s) && candidateIn(p, tree, holdersOf, t, s, new Set()) !== null);
+}
+
 /* The next task nobody is on, in a live project this agent belongs to, and the part to give:
    the first open one. `taken` holds "project#number" already chosen this step. */
 function pick(session, projects, taken) {
@@ -233,29 +285,16 @@ function pick(session, projects, taken) {
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
     if (require('./projects').isPaused(p)) continue;   // #4771: nothing in a paused project is handed out
+    // #7429: an agent whose role here is review only is not handed this project's tasks (a person still can).
+    if (require('./projects').reviewOnlyHere(p, session)) continue;
     /* #5678: a task tree (a parent and everything under it) is one builder's work: its holders' (the project's agents on
        an open part of an open task in it), or, this pass, the agent it was just given to (`taken` carries
        "<project>#tree#<root>#<agent>", review 1: a parent and its subtask given to two idle agents in one tick). */
     const tree = tasks.treeOf(p);
     const holdersOf = tasks.treeHolders(p, tree, (t, who) => busyHold(p, t, who));
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
-      if (!handOutable(t)) continue;   // the task's own filters, shared with willMove (#5678 review 5)
-      if (taken.has(p.id + '#' + t.number)) continue;
-      const prog = tasks.progressOf(t);
-      /* #5678 (user feedback 10-09): never a second builder on one tree. Its holder may take more of it when free
-         (review 1: the owner was shut out of its own subtasks); anyone else is not given it. */
-      /* #5678 review 3: a parent whose subtasks are still open is not handed out: given first (it is the oldest), its
-         holder would sit busy on the umbrella while the tree stays locked to everyone else. The subtasks go first. */
-      /* Review 4: only a subtask that will move holds it back: one pick could hand out, or one a project agent holds busy.
-         A webhook, repeating, on-hold or built subtask, or one held by an agent who left or parked it, never moves on
-         its own, and would keep the parent waiting for good. */
-      const above = upChain(tree, t);
-      if (tree.under(t.number).some((c) => !tasks.progressOf(c).closed && !above.has(c.number) && willMove(p, c))) continue;
-      const root = tasks.rootIn(tree, t);
-      if (treeIsOthers(p, tree, holdersOf, root, session, taken, null)) continue;
-      const part = prog.parts.find((x) => !x.closedAt);
-      if (!part) continue;
-      candidates.push({ projectId: p.id, n: t.number, partId: part.id, due: dueKey(t), age: ageKey(t), treeKey: p.id + '#tree#' + root + '#' + session });
+      const c = candidateIn(p, tree, holdersOf, t, session, taken);
+      if (c) candidates.push(c);
     }
   }
   candidates.sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : a.age - b.age));
@@ -387,6 +426,9 @@ function saveMemory(mem, last) {
 function goalProject(session, projects, goals, asked, now, askedSig) {
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session) || aloneOnItsOwn(p, session)) continue;
+    /* #7429 review 1: a review-only member is not asked to draft tasks: it would never be handed them, and it would
+       use up the project's one ask for the day before a builder is asked. */
+    if (require('./projects').reviewOnlyHere(p, session)) continue;
     /* #4771: a paused project is not asked about. (A task on hold still counts as open work here: the project is
        not empty, the person parked it, so its goal is not put to an agent.) */
     if (require('./projects').isPaused(p)) continue;
@@ -429,17 +471,24 @@ function askText(item) {
 /* #5382: the open parts held by an agent in `ripe` (rate-limited for FAILOVER_MS), in live projects, that the failover
    may move: never a part on hold, in a paused project, of a built or closed task, or of a webhook task (a person gives
    those out, #1307). `runnerOf` maps session -> provider. */
+/* #7407 review 2: the task-level reasons failover never moves a part of `t`, in one place, so stalledParts and the
+   unhold answer's failover caveat read the same set. */
+function stallable(t, now = Date.now()) {
+  if (!t || typeof t.number !== 'number' || tasks.isOnHold(t) || t.builtAt || t.addedVia === 'webhook') return false;
+  if (require('./taskrepeat').waitingForNextRun(t, now)) return false;   // #4787: between runs a repeating task holds no work
+  return !tasks.progressOf(t).closed;
+}
 function stalledParts(projects, ripe, runnerOf, now = Date.now(), limitedSince = new Map()) {
   const out = [];
   for (const p of projects) {
     if (require('./projects').isPaused(p)) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
-      if (typeof t.number !== 'number' || tasks.isOnHold(t) || t.builtAt || t.addedVia === 'webhook') continue;
-      if (require('./taskrepeat').waitingForNextRun(t, now)) continue;   // #4787: between runs a repeating task holds no work
+      if (!stallable(t, now)) continue;
       const prog = tasks.progressOf(t);
-      if (prog.closed) continue;
       for (const x of prog.parts) {
         if (x.closedAt || !ripe.has(x.who)) continue;
+        // #7429 final review: a review-only member's part is its review; moving it to another agent is not failover.
+        if (require('./projects').reviewOnlyHere(p, x.who)) continue;
         /* Review 13: a part a PERSON gave this agent while it was already limited stays (they may be queueing work for
            after its reset); only work it held before its limit began moves. */
         const since = limitedSince instanceof Map ? limitedSince.get(x.who) : undefined;
@@ -470,6 +519,7 @@ function failoverPick(session, runner, stalled, projects, movedParts, taken = ne
     if (!s.fromRunner || !runner || s.fromRunner === runner || movedParts.has(s.projectId + '#' + s.n + '#' + s.partId)) continue;
     const p = projects.find((q) => q.id === s.projectId);
     if (!p || !(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
+    if (require('./projects').reviewOnlyHere(p, session)) continue;   // #7429: nor is a stalled part moved to one
     /* #5678 review 2: a moved part must not make a second builder on its tree: the tree's other busy holders (leaving
        out the stalled one, whose part this is) must be none or this agent, and no one else got the tree this pass. */
     const tree = tasks.treeOf(p);
@@ -727,4 +777,4 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
-  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };
+  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, handOutable, whoMayGet, treeHeldBy, subtasksFirst, stallable, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };

@@ -29,6 +29,8 @@ struct ContentView: View {
     // kosmos#7032: a room the Projects tab should open (a tapped room notification), cleared once it is open. Outside the
     // screenshot switch: both builds read it.
     @State private var roomRequest: PushBridge.RoomTarget?
+    // kosmos#7418: an agent's chat a tapped notification asked for, handed to the Agents tab to open.
+    @State private var agentRequest: PushBridge.AgentTarget?
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
     // The App Store screenshot build
     // (ios/store/shoot-app.sh) photographs board screens in the web view, opened by address, so it lights the tab
@@ -179,9 +181,13 @@ struct ContentView: View {
         // kosmos#7032: a room notification from the computer this app keeps opens the room natively; from any other
         // computer it opens the board's room page under Today, as a tap always did.
         .onChange(of: pushManager.roomToOpen) { target in if let target { openRoom(target) } }
+        // kosmos#7418: an agent's notification opens its chat natively, as from the Agents list.
+        .onChange(of: pushManager.agentToOpen) { target in if let target { openAgentChat(target) } }
         // kosmos#7008: a sign-out or another account drops the chats now, not at the next visit to the tab.
         .onChange(of: pushManager.accountChanges) { _ in
             board.accountChanged(); web.sessionChanged()
+            // kosmos#7418 review 1: a chat or room a notice asked for belonged to the account that was signed in.
+            agentRequest = nil; roomRequest = nil
             // kosmos#7042 review round 5: signed out later in the launch (on the account page, a session that ended),
             // the next sign-in is the native one too, or the web page's own device key would make this iPhone a second
             // device on the Mac. Recorded gap: the Mac's "fresh sign-in" link then lands here, not on the page.
@@ -240,6 +246,7 @@ struct ContentView: View {
             // A notification tapped on a cold launch can set boardToOpen before the first draw, which onChange misses.
             if pushManager.boardToOpen != nil { showBoardPage() }
             if let target = pushManager.roomToOpen { openRoom(target) }
+            if let target = pushManager.agentToOpen { openAgentChat(target) }
             // Cold launch: onChange does not fire for scenePhase's initial value,
             // so prompt here when we start locked.
             if !isUnlocked { unlock() }
@@ -312,6 +319,20 @@ struct ContentView: View {
         pushManager.roomToOpen = nil
     }
 
+    // kosmos#7418: the chat in the Agents tab when the notice came from the computer the app shows, else the board's page
+    // for that agent, as a tap always did. As for a room, the native open ends a board press still waiting.
+    private func openAgentChat(_ target: PushBridge.AgentTarget) {
+        // Review 1: on a cold launch nothing is shown yet (the client starts with the first tab, and the Face ID lock
+        // draws no tab), so the computer this app keeps decides then, as for a room.
+        let kept = Board.usableSaved(SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin)
+        switch PushBridge.agentOpening(target, shownAddress: board.switcherShown ?? kept?.address, coordinator: KosmosConfig.coordinatorOrigin) {
+        case .native(let t)?: agentRequest = t; tab = .agents; todayBoard = false; web.press(.agents)
+        case .board(let url)?: pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+        case nil: break
+        }
+        pushManager.agentToOpen = nil
+    }
+
     private func showBoardToday() {
         showBoardPage()
         web.pressBoardSection(.today)
@@ -361,7 +382,7 @@ struct ContentView: View {
         // kosmos#7266: Today is removed from the bar (Josh, 10-26: "kill the today section altogether"); TodayView stays
         // in the target unused until the project file drops it.
         if which == .agents {
-            AgentsView(client: board, push: pushManager, openChat: { url in
+            AgentsView(client: board, push: pushManager, agentRequest: $agentRequest, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoard: { showBoardToday() }, create: { openCreate(.agent) })
         } else if which == .projects {

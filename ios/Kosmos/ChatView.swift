@@ -146,8 +146,8 @@ struct ChatView: View {
                 // Not over a search: new messages are not followed then (follow), so it would offer a jump in a filtered list.
                 if unseenNew && !searching { newMessagesCapsule }
             }
-            // kosmos#7346 (Josh 10-27, Mona Lisa's design): the message box floats over the conversation, which runs
-            // behind it; the inset keeps the newest message above the box.
+            // kosmos#7346 (Josh 10-27, Mona Lisa's design): the message box sits on a solid strip down to the home indicator,
+            // with messages fading into it; the inset keeps the newest message above the box.
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     if let line = composerNote ?? attachLine ?? pressLine ?? (sentWhileSearching ? Board.chatSentWhileSearching : nil) {
@@ -155,11 +155,20 @@ struct ChatView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             // Mona Lisa's spec: 16 pt side margins, 6 pt above the composer.
                             .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 6)
-                            .background(Palette.ground.opacity(0.94))
+                            .background(Palette.ground)
                             .onAppear { UIAccessibility.post(notification: .announcement, argument: line) }
                             .onChange(of: line) { now in UIAccessibility.post(notification: .announcement, argument: now) }
                     }
                     composer
+                }
+                // kosmos#7346 (Josh 10-27 19:59): solid behind and below the box, down to the home indicator, as Discord: no
+                // message shows through or under it. The inset already ends the list above this strip.
+                .background(Palette.ground.ignoresSafeArea(edges: .bottom))
+                // Josh 10-27: "with a slide fade into it so it looks smooth": messages fade into the strip over fadeHeight above it,
+                // never a hard edge. Drawn over the list, so it takes no room and no touches.
+                .overlay(alignment: .top) {
+                    LinearGradient(colors: [Palette.ground.opacity(0), Palette.ground], startPoint: .top, endPoint: .bottom)
+                        .frame(height: ChatView.fadeHeight).offset(y: -ChatView.fadeHeight).allowsHitTesting(false).accessibilityHidden(true)
                 }
             }
         }
@@ -172,8 +181,14 @@ struct ChatView: View {
             if let was = openedFile, was != now { client.closed(was); openedFile = now }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .kosmosSolidTopBar(fade: false)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
         .toolbar {
-            ToolbarItem(placement: .principal) { title }
+            // kosmos#7424 (Josh 10-27 20:49): the name and status open the same page as the info button.
+            ToolbarItem(placement: .principal) {
+                // Review 3: the whole title is the tap target, at least 44 pt tall, gaps included.
+                Button { infoOpen = true } label: { title.frame(minHeight: 44).contentShape(Rectangle()) }.buttonStyle(.plain)
+                    .accessibilityHint("Opens \(shown.name)\u{2019}s profile and AI settings")
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     // With the row already open it only puts the cursor back in the field.
@@ -216,6 +231,8 @@ struct ChatView: View {
         .onAppear {
             visible = true
             epoch = client.chatEpoch
+            // kosmos#7420: this conversation gets no banner while it shows.
+            if let host = client.switcherShown { PushNotificationManager.chatOnScreen = PushBridge.OpenChat(host: host, session: agent.session) }
             lastPendingCount = pending.count
             // Only into an empty box: if SwiftUI shows the chat again without having hidden it, the words being typed stay.
             if draftText.isEmpty { draftText = client.drafts[agent.session] ?? "" }
@@ -223,6 +240,7 @@ struct ChatView: View {
         }
         .onDisappear {
             visible = false
+            if PushNotificationManager.chatOnScreen?.session == agent.session { PushNotificationManager.chatOnScreen = nil }   // review 3: by session on purpose: a computer switch while open must never leave a stale value hiding banners; the cost is an extra banner
             armed = nil
             // A reading posture, not the chat's state: coming back shows the whole conversation (the board clears its
             // search on opening another agent). What the search changed goes with it here, not in onChange(of: query),
@@ -383,7 +401,7 @@ struct ChatView: View {
                         chatRows(items)
                         pendingBubbles
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
-                        Color.clear.frame(height: 1).id("end")
+                        Color.clear.frame(height: ChatView.fadeHeight + 8).id("end")   // the fade plus 8 pt (kosmos#7346): at the end, the newest message sits clear of it
                             .onAppear {
                                 Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
                                 endVisible = true
@@ -414,6 +432,7 @@ struct ChatView: View {
                 })
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
+                .kosmosTopFade()   // kosmos#7346: rows fade under the solid top bar; the banner and search above stay clear
                 .overlay(alignment: .top) { earlierLoadingLine }
                 .onAppear {
                     // kosmos#7265: the eager stack starts at this row for as long as the chat stays open.
@@ -574,6 +593,10 @@ struct ChatView: View {
         return true
         #endif
     }()
+
+    // kosmos#7346: how far above the solid strip messages fade into it. The end marker and the New messages button
+    // are both set from it, so changing it can never hide the newest message under the fade.
+    static let fadeHeight: CGFloat = 18
 
     // kosmos#7265: iOS 18 reports the scroll phase, which tells the person's scroll from rows moving under them.
     static var followsScrollPhase: Bool { if #available(iOS 18.0, *) { return true } else { return false } }
@@ -1055,16 +1078,16 @@ struct ChatView: View {
                 .background(Capsule().fill(Palette.card).shadow(color: .black.opacity(0.15), radius: 6, y: 2))
         }
         .buttonStyle(.plain)
-        .padding(.bottom, 8)
+        .padding(.bottom, 8 + ChatView.fadeHeight)   // above the fade (kosmos#7346)
     }
 
     // MARK: - Sending
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // kosmos#7346 review: over the conversation running behind, the strips get the page's ground, edge to edge.
-            if let replying { replyStrip(replying).background(Palette.ground.opacity(0.94).padding(.horizontal, -12)) }
-            if !attachedHere.isEmpty || uploadingHere > 0 { chips.background(Palette.ground.opacity(0.94).padding(.horizontal, -12)) }
+            // kosmos#7346: the strips above the box are the page's solid ground, edge to edge (nothing shows through).
+            if let replying { replyStrip(replying).background(Palette.ground.padding(.horizontal, -12)) }
+            if !attachedHere.isEmpty || uploadingHere > 0 { chips.background(Palette.ground.padding(.horizontal, -12)) }
             // kosmos#7346: one floating box, + then the text then emoji and mic; no send arrow (the keyboard's Send sends).
             // Radius 24, at least 48 pt, the card colour with a soft shadow and a hairline edge (Mona Lisa's spec).
             HStack(alignment: .bottom, spacing: 0) {
@@ -1078,7 +1101,7 @@ struct ChatView: View {
             if let line = ComposerExtras.micLine(dictation.state) {
                 Text(line).font(.footnote).foregroundColor(Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
-                    .background(Palette.ground.opacity(0.94).padding(.horizontal, -12))
+                    .background(Palette.ground.padding(.horizontal, -12))
             }
             // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it. The tab bar is
             // already hidden in a conversation, so nothing sits under the panel.
@@ -1094,6 +1117,13 @@ struct ChatView: View {
         #if DEBUG
         // KOSMOS_SAMPLE_EMOJI=open (with the agent samples): the panel open, for the design shots.
         .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
+        // kosmos#7420: KOSMOS_SAMPLE_FOCUS=<seconds> taps the box that long after opening (the keyboard rises), as a person
+        // would (nothing in the simulator can tap here).
+        .onAppear {
+            if let s = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUS"].flatMap(Double.init), s > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + s) { composerFocused = true }
+            }
+        }
         #endif
         // Leaving the conversation lets go of the microphone and closes the panel (the board's: the panel belongs to the
         // composer being left).
@@ -1827,25 +1857,23 @@ struct BubbleTail: Shape {
     }
 }
 
-// "··· <name> is working": the dots pulse gently, and stay still with Reduce Motion on; VoiceOver hears the words only.
+// "<dots> <name> is working": the board's wave (WaveDots, kosmos#7427); VoiceOver hears the words only.
 struct WorkingLine: View {
     let name: String
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var bright = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text("\u{00B7}\u{00B7}\u{00B7}")
-                .opacity(reduceMotion ? 1 : (bright ? 1 : 0.35))
-                .accessibilityHidden(true)
+        // kosmos#7427: the board's wave (WaveDots), not three dots pulsing together.
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            #if DEBUG
+            // kosmos#7427 review 2 debug: KOSMOS_SAMPLE_CLOCKDOTS=1 draws the clock-drawn dots here, as the control.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_CLOCKDOTS"] == "1" { WorkingDots() } else { WaveDots() }
+            #else
+            WaveDots()   // review 2: inside the thread, never the clock-drawn WorkingDots
+            #endif
             Text("\(name) is working")
         }
         .font(.footnote)
         .foregroundColor(Palette.secondary)
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { bright = true }
-        }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name) is working")
     }

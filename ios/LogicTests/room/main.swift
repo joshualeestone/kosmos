@@ -292,6 +292,51 @@ check(PushBridge.roomOpening(studio, keptAddress: "home.kosmosplus.com") == .boa
 check(PushBridge.roomOpening(studio, keptAddress: nil) == .board(URL(string: "https://studio.kosmosplus.com/?tab=projects&project=springcatalogue")!), "no kept computer: the board's room page")
 check(content.contains("PushBridge.roomOpening(target, keptAddress:"), "ContentView decides through roomOpening")
 
+section("an agent's notification opens its chat natively (kosmos#7418)")
+// Josh 10-27: a message notification opened the board's old agent page. Every kind the board sends that names an agent
+// (engine/phonenotify.js KINDS: needs_you, replied, ready, and a posted one the extension could not place in a room).
+for kind in ["needs_you", "replied", "ready", "posted"] {
+    let push: [AnyHashable: Any] = ["kind": kind, "address": "Studio.KosmosPlus.com", "session": "eli", "agent": "Eli", "id": "x"]
+    check(PushBridge.agentToOpen(fromNotification: push, coordinator: coordinator) == PushBridge.AgentTarget(host: "studio.kosmosplus.com", session: "eli", name: "Eli"), "a \(kind) push names its computer and agent")
+}
+var nameless: [AnyHashable: Any] = ["kind": "replied", "address": "studio.kosmosplus.com", "session": "eli-2", "agent": "An agent"]
+check(PushBridge.agentToOpen(fromNotification: nameless, coordinator: coordinator)?.name == "Eli-2", "the board's \"An agent\" stand-in reads as the session instead")
+nameless["agent"] = nil
+check(PushBridge.agentToOpen(fromNotification: nameless, coordinator: coordinator)?.name == "Eli-2", "no name at all: the session")
+var badAgent = roomPush; badAgent["kind"] = "replied"; badAgent["session"] = "../eli"
+check(PushBridge.agentToOpen(fromNotification: badAgent, coordinator: coordinator) == nil, "a session the board cannot have opens nothing natively")
+var farAgent = roomPush; farAgent["kind"] = "replied"; farAgent["address"] = "evil.example.com"
+check(PushBridge.agentToOpen(fromNotification: farAgent, coordinator: coordinator) == nil, "an address outside Kosmos+ opens nothing")
+let eli = PushBridge.AgentTarget(host: "studio.kosmosplus.com", session: "eli", name: "Eli")
+check(PushBridge.agentOpening(eli, shownAddress: "Studio.KosmosPlus.com", coordinator: coordinator) == .native(eli), "the computer the app shows: the native chat (address without case)")
+check(PushBridge.agentOpening(eli, shownAddress: "home.kosmosplus.com", coordinator: coordinator) == .board(URL(string: "https://studio.kosmosplus.com/?tab=detail&agent=eli")!), "CONTROL: another computer: that computer's board page for the agent, as before")
+check(PushBridge.agentOpening(eli, shownAddress: nil, coordinator: coordinator) == .board(URL(string: "https://studio.kosmosplus.com/?tab=detail&agent=eli")!), "no computer shown yet: the board page")
+if let r = manager.range(of: "PushBridge.roomToOpen("), let a = manager.range(of: "PushBridge.agentToOpen("), let b = manager.range(of: "PushBridge.boardURL(") {
+    check(r.lowerBound < a.lowerBound && a.lowerBound < b.lowerBound, "the tap asks about the room, then the agent's chat, and only then the board page")
+} else { check(false, "the tap handler asks about the room, the agent and the board") }
+check(content.contains("PushBridge.agentOpening(target, shownAddress: board.switcherShown"), "ContentView decides through agentOpening, against the computer the app shows")
+let agentsSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentsView.swift"), encoding: .utf8)) ?? ""
+check(agentsSource.contains(".onChange(of: agentRequest) { _ in openRequested() }") && agentsSource.contains("openRequested()   // kosmos#7418"), "the Agents tab opens a request when it arrives and when the tab first shows (a cold launch)")
+// Josh 20:43: a Splinter notice must never open Shredder (neighbours by name): the session is matched whole.
+let splinterPush: [AnyHashable: Any] = ["kind": "replied", "address": "studio.kosmosplus.com", "session": "claudebot", "agent": "Splinter"]
+check(PushBridge.agentToOpen(fromNotification: splinterPush, coordinator: coordinator)?.session == "claudebot", "a notice opens exactly the agent that sent it (its session, whole)")
+check(agentsSource.contains("client.agents.first(where: { $0.session == target.session })"), "the Agents tab finds the notice's agent by its whole session, never a position or a prefix")
+// Review 2: the agentToOpen and agentOpening checks above test behaviour; the source checks below are wiring guards
+// only (that the view code still calls the tested logic the way it did), not proof of what the screen does.
+var unknownKind = roomPush; unknownKind["kind"] = "someday"; unknownKind["projectId"] = nil
+check(PushBridge.agentToOpen(fromNotification: unknownKind, coordinator: coordinator) == nil, "review 1: a kind the board does not send yet opens as before, never a chat by accident")
+check(content.contains("shownAddress: board.switcherShown ?? kept?.address"), "review 1: on a cold launch (nothing shown yet, or the Face ID lock up) the kept computer decides, so the tap still opens the chat")
+let chatSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
+check(chatSource.contains("Button { infoOpen = true } label: { title"), "kosmos#7424: the DM header's name and status open the info page, as the (i) button does")
+let roomSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
+check(roomSource.contains("let low = reduceMotion ? 0.35 : 0.45, half = (reduceMotion ? 1.6 : 1.1) / 2") && roomSource.contains(".delay(Double(i) * 0.16), value: up)") && roomSource.contains(".offset(y: up && !reduceMotion ? -4 : 0)"), "kosmos#7427: the chat's dots (WaveDots) are the board's wave (1.1 s, 0.16 s apart, 4 pt rise; Reduce Motion 1.6 s, no rise)")
+check(roomSource.contains("withTransaction(t) { up = false }"), "kosmos#7427 review 3: the wave restarts when the line scrolls back into view")
+check(chatSource.contains("#else\n            WaveDots()") && !chatSource.contains("repeatForever(autoreverses: true)) { bright = true }") && agentsSource.contains("WorkingDots(color: Palette.pillWord(pill))"), "kosmos#7427: the chat's working line and the Agents pill use the wave, not a pulse in unison")
+check(agentsSource.contains(".id(agent.session)"), "review 1: a notice for another agent while a chat is open starts that chat afresh, not the old one renamed")
+if let a = content.range(of: ".onChange(of: pushManager.accountChanges)"), let c = content.range(of: "agentRequest = nil; roomRequest = nil") {
+    check(a.lowerBound < c.lowerBound && content.distance(from: a.lowerBound, to: c.lowerBound) < 400, "review 1: a sign-out drops a chat or room a notice asked for")
+} else { check(false, "review 1: the account-change handler drops pending notice requests") }
+
 section("files on a room post (kosmos#7062)")
 // room-files.json is the REAL route's answer too, captured from a sandboxed board: one post with a text file and a PDF,
 // then one posted with no words, which the board stores with the file's name as its text.
