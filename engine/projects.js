@@ -681,11 +681,23 @@ function profileRole(card) {
   return Object.prototype.hasOwnProperty.call(profile, 'role') ? profile.role : null;
 }
 
-/* #5300: the role a member set for this project, or null. Display only: `role` (who a room opens on, a
-   person-saved role) never reads it. */
+/* #5300: the role a member set for this project, or null. `role` (who a room opens on, a person-saved role) never
+   reads it; the Assigner reads it only through reviewOnlyHere (#7429). */
 function roleHereOf(p, key) {
   const r = p && p.rolesHere && typeof p.rolesHere === 'object' && Object.prototype.hasOwnProperty.call(p.rolesHere, key) ? p.rolesHere[key] : null;
   return typeof r === 'string' && r.trim() ? r : null;
+}
+
+/* #7429: does this member's role here say it only reviews? A review word and no word for making something. The
+   Assigner reads it so an agent that set "reviews the builders' work" is not handed build tasks nobody gave it; a
+   person can still give it any task by hand. The role is free text, so the rule is words: "builds and reviews" and
+   "builder and reviewer" are builders; "code reviewer" stays a reviewer (code is not a making word here), and so does
+   "reviews the builders' work" (a PLURAL noun names other people, so builders and developers do not count). */
+const REVIEW_WORD = /\b(?:review(?:s|er|ers|ing)?|qa)\b/i;
+const MAKE_WORD = /\b(?:build(?:s|er|ing)?|implement(?:s|er|ing)?|develop(?:s|er|ing)?|fix(?:es|ing)?|writ(?:e|es|er|ing))\b/i;
+function reviewOnlyHere(p, key) {
+  const r = roleHereOf(p, key);
+  return r !== null && REVIEW_WORD.test(r) && !MAKE_WORD.test(r);
 }
 
 /* #4557: the profile's reportsTo, read like profileRole (the profile is a bag; an absent key means none). */
@@ -3866,6 +3878,9 @@ function blockRules(sessionName, cliShown) {
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
       `\`${cliShown} project role <project-id> "what you do here"\` (an empty "" clears it).`,
+      /* #7429: say what the role changes, in the words reviewOnlyHere matches. */
+      'A role here that names reviewing (or QA) and none of build, implement, develop, fix or write tells the automatic',
+      'Assigner you only review: it then hands you none of this project\'s tasks; your person still can.',
     ],
   };
 }
@@ -4257,7 +4272,7 @@ module.exports = { exactPathStat, windowsProjectFolderOk, exactOpenedStat, exact
   offWriteIsQuiet, WROTE_WHY,
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
-  file, readAll, writeAll, idFor, folderState, describe, needsYouReason, needsYouReasonPastUsage, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX,
+  file, readAll, writeAll, idFor, folderState, describe, needsYouReason, needsYouReasonPastUsage, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX, roleHereOf, reviewOnlyHere,
   list, get, projectsFor, namesFor, create, edit, moveFolder, rename, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,

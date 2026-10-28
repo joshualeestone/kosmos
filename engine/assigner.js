@@ -8,7 +8,8 @@
  * open part of any task assigned to it.
  *
  * WHAT IT DELIBERATELY DOES NOT DO. It never creates a project or a task, never adds an agent to
- * a project, never touches a task somebody is already on (one exception, #5382's failover, off by
+ * a project, never hands a task to an agent whose role on that project is review only (#7429), never touches a task
+ * somebody is already on (one exception, #5382's failover, off by
  * default: an agent rate-limited for FAILOVER_MS), and never assigns in an archived
  * project. An agent whose last stated list named work (fresh or stale), or whose record cannot be
  * read or is dated in the future, is left alone.
@@ -233,6 +234,8 @@ function pick(session, projects, taken) {
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
     if (require('./projects').isPaused(p)) continue;   // #4771: nothing in a paused project is handed out
+    // #7429: an agent whose role here is review only is not handed this project's tasks (a person still can).
+    if (require('./projects').reviewOnlyHere(p, session)) continue;
     /* #5678: a task tree (a parent and everything under it) is one builder's work: its holders' (the project's agents on
        an open part of an open task in it), or, this pass, the agent it was just given to (`taken` carries
        "<project>#tree#<root>#<agent>", review 1: a parent and its subtask given to two idle agents in one tick). */
@@ -470,6 +473,7 @@ function failoverPick(session, runner, stalled, projects, movedParts, taken = ne
     if (!s.fromRunner || !runner || s.fromRunner === runner || movedParts.has(s.projectId + '#' + s.n + '#' + s.partId)) continue;
     const p = projects.find((q) => q.id === s.projectId);
     if (!p || !(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session)) continue;
+    if (require('./projects').reviewOnlyHere(p, session)) continue;   // #7429: nor is a stalled part moved to one
     /* #5678 review 2: a moved part must not make a second builder on its tree: the tree's other busy holders (leaving
        out the stalled one, whose part this is) must be none or this agent, and no one else got the tree this pass. */
     const tree = tasks.treeOf(p);
