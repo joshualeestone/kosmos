@@ -59,6 +59,7 @@ enum NewAgent {
         static let markLabel = "Generated mark for this agent"
         static let chosenPicture = "Chosen picture"
         static let readingPicture = "Reading the picture"
+        static let pictureKept = "That picture could not be used. The one you chose before is kept."
         static let pictureTooBig = "That picture could not be used. Choose another."
         static let labelMissing = "Say what this agent does. One or two words."
         static func running(_ shown: String) -> String { shown + " is running" }
