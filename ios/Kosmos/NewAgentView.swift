@@ -57,8 +57,10 @@ struct NewAgentView: View {
     @State private var markImage: UIImage?           // the mark for markName, drawn once per name, not per redraw
     @State private var markName = ""
     @State private var photoLoad = 0                 // the newest pick: an older one finishing late is not used
-    @State private var photoImage: UIImage?
-    @State private var sampleBottom = false   // DEBUG shots: the team screen scrolled to its foot          // the chosen picture, decoded once
+    @State private var photoImage: UIImage?          // the chosen picture, decoded once
+    #if DEBUG
+    @State private var sampleBottom = false          // design shots: the team screen scrolled to its foot
+    #endif
     @State private var projectUnsure = false         // a new project's create got no answer: look before making another
     @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
     @State private var checkedNames: [String: String] = [:]   // the names the board checked free, by slot
@@ -836,11 +838,15 @@ struct NewAgentView: View {
     }
 
     // The mark follows the name as it is typed, drawn once per change rather than on every redraw.
+    // Drawn off the main thread so typing never waits for it; a name changed meanwhile wins.
     private func redrawMark() {
         let name = NewProject.trimmed(draft.name)
         guard name != markName, draft.photo == nil else { return }   // no mark drawn that a chosen photo hides
         markName = name
-        markImage = AgentPicture.mark(name)
+        Task {
+            let image = await Task.detached(operation: { AgentPicture.mark(name) }).value
+            if markName == name { markImage = image }
+        }
     }
 
     // MARK: pieces

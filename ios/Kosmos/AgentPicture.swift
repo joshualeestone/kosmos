@@ -44,6 +44,7 @@ enum AgentPicture {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = false
+        format.preferredRange = .standard   // 8-bit, so the PNG stays small on a wide-colour phone
         return UIGraphicsImageRenderer(size: CGSize(width: markSide, height: markSide), format: format).image { r in
             let k = markSide / CGFloat(AgentMark.side)
             for d in dots {
@@ -88,10 +89,15 @@ enum AgentPicture {
         return nil
     }
 
-    // A catalogue portrait: a still PNG that fits is kept as it came (the desktop's fitPicture keeps those); anything else
-    // is redrawn, as the desktop redraws every WebP and JPEG.
+    // A catalogue portrait: a still PNG that fits the desktop's bytes and sides (16 to 2048) is kept as it came, as the
+    // desktop's fitPicture keeps those; anything else, an animated PNG included, is redrawn.
+    static let maxSide = 2048
     static func portrait(_ data: Data, type: String) -> (Data, String)? {
-        if type == "image/png", data.count <= maxBytes, data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return (data, type) }
+        if type == "image/png", data.count <= maxBytes, data.starts(with: [0x89, 0x50, 0x4E, 0x47]),
+           let src = CGImageSourceCreateWithData(data as CFData, nil), CGImageSourceGetCount(src) == 1,
+           let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+           let w = props[kCGImagePropertyPixelWidth] as? Int, let h = props[kCGImagePropertyPixelHeight] as? Int,
+           min(w, h) >= minSide, max(w, h) <= maxSide { return (data, type) }
         return fit(data: data).map { ($0, "image/jpeg") }
     }
 }

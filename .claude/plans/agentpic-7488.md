@@ -18,3 +18,4 @@
 ## Not verified
 
 - Not run on a device and not sent against a real board; shown through simulator shots.
+- The drawing half (the letter's mask, its orientation and centring, the photo fitting) has no unit test: the scatter is tested against the desktop's code, and the letter was checked by eye in the shots ("Finch": an upright, centred F).

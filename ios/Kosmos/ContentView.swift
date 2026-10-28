@@ -395,7 +395,8 @@ struct ContentView: View {
     }
 
     // kosmos#7488 build 14: the desktop's order (uploadPendingAvatar, tcPortrait): the chosen photo, else a team member's
-    // catalogue portrait, else the mark from the name; each sent twice at most, two seconds apart.
+    // catalogue portrait, else the mark from the name; each sent twice at most, two seconds apart. Unlike the desktop, a
+    // portrait that will not go falls back to the mark too, so a member is never left with no picture.
     private func setPicture(_ session: String, _ picture: AgentPicture.Pending) async {
         func put(_ data: Data, _ type: String) async -> Bool {
             for i in 0..<2 {
