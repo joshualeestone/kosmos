@@ -32,6 +32,9 @@ struct ContentView: View {
     // kosmos#7489: the native New project form (+ on Projects), in place of the board's slow web page.
     @State private var newProjectOpen = false
     @State private var newAgentOpen = false   // kosmos#7488
+    // kosmos#7488: new agents' projects to tell once the board's list shows them (the desktop's tell after create), kept
+    // here so closing New Agent early drops none.
+    @State private var pendingTells: [String: [String]] = [:]
     // kosmos#7418: an agent's chat a tapped notification asked for, handed to the Agents tab to open.
     @State private var agentRequest: PushBridge.AgentTarget?
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
@@ -247,6 +250,9 @@ struct ContentView: View {
         // kosmos#7032: with Projects native, no tab hosts the board page until Tasks is earned, so the bar also learns
         // it from the native status poll (the engine's flag; once shown it stays, so this only ever adds the tab).
         .onChange(of: board.tasksTab) { earned in if earned == true { web.earnTasks() } }
+        // A sheet shown from a tab goes with it; a tab change must not leave it set to come back by itself.
+        .onChange(of: tab) { _ in newAgentOpen = false; newProjectOpen = false }
+        .onChange(of: board.agents) { rows in sendTells(rows) }
         .onChange(of: web.tasksTab) { shown in
             let kept = AppTabs.keep(tab, tasksTab: shown)
             guard kept != tab else { return }
@@ -351,6 +357,15 @@ struct ContentView: View {
     }
 
     // kosmos#7266: a + button: the board's own create form, over the tabs, opened through the board's door.
+    // Fire-and-forget, as the desktop: a failed tell is recoverable from the project's own screen.
+    private func sendTells(_ rows: [Board.Agent]) {
+        let on = Set(rows.map(\.session))
+        for (session, ids) in pendingTells where on.contains(session) {
+            pendingTells[session] = nil
+            for id in ids { Task { _ = await board.throughMac { NewAgent.tellRequest(mac: $0, project: id, session: session) } } }
+        }
+    }
+
     private func openCreate(_ what: AppTabs.Create) {
         showBoardPage()
         // Review 3: on the computer the switcher shows, loading its board first when the page is elsewhere. Review 4:
@@ -409,6 +424,9 @@ struct ContentView: View {
                 NewAgentView(client: board, opened: { session, shown in
                     // Say hello: the new agent's chat, natively, as a notification's agent opens (kosmos#7418).
                     if let host = board.macURL?.host { agentRequest = PushBridge.AgentTarget(host: host, session: session, name: shown) }
+                }, tell: { session, projects in
+                    pendingTells[session] = projects
+                    sendTells(board.agents)
                 })
             }
         } else if which == .projects {
