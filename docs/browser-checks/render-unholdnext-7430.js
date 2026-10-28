@@ -73,10 +73,14 @@ function chk(ok, label, extra) {
       tasks.create(p.id, { sentence: 'Pack the boxes', who: 'ada' });      // 3: open, put on hold here
       tasks.create(p.id, { sentence: 'Label the crates' });                 // 4: nobody on it, held, Choose who on a stale page
       tasks.create(p.id, { sentence: 'Weigh the crates' });                 // 5: nobody on it, held, then given to Ada elsewhere
+      tasks.create(p.id, { sentence: 'Seal the crates' });                  // 6: nobody on it, held, closed while the line shows
+      tasks.create(p.id, { sentence: 'Ship the crates' });                  // 7: nobody on it, held, given out before the page reloads
       tasks.setOnHold(p.id, 1, true, { viaScreen: true });
       tasks.setOnHold(p.id, 2, true, { viaScreen: true });
       tasks.setOnHold(p.id, 4, true, { viaScreen: true });
       tasks.setOnHold(p.id, 5, true, { viaScreen: true });
+      tasks.setOnHold(p.id, 6, true, { viaScreen: true });
+      tasks.setOnHold(p.id, 7, true, { viaScreen: true });
       const phone = width < 600;   // the phone pass is a touch screen, where the page's tap targets grow to 44 px
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, hasTouch: phone, isMobile: phone });
       const errs = [];
@@ -127,7 +131,8 @@ function chk(ok, label, extra) {
       await settle(page);
       await page.waitForSelector('#tk-hold-choose-row:not([hidden])', { timeout: 6000 }).catch(() => {});
       chk(await rowShown(), `${tag} task 4 shows Choose who after its unhold (the premise)`, await text(page, '#tk-hold-msg'));
-      // Review 2: Choose who pressed when no open part is free (a page that has not repainted yet): the stale row goes.
+      // Review 2: Choose who pressed when no open part is free. The page cannot be caught between a hand-out and its
+      // repaint on demand, so this removes the free-part marker by hand to reach the branch; the row must go.
       await page.evaluate(() => { for (const b of document.querySelectorAll('#tk-who [data-pick-nobody]')) b.removeAttribute('data-pick-nobody'); });
       await page.click('#tk-hold-choose');
       chk(!(await rowShown()) && await text(page, '#tk-hold-msg') === '' && !(await page.$('#tk-who .tkwho-sel')),
@@ -141,6 +146,28 @@ function chk(ok, label, extra) {
       tasks.assignPart(p.id, 5, 1, 'ada');
       await page.waitForFunction(() => document.getElementById('tk-hold-msg').textContent === '' && document.getElementById('tk-hold-choose-row').hidden, null, { timeout: 7000 }).catch(() => {});
       chk(await text(page, '#tk-hold-msg') === '' && !(await rowShown()), `${tag} once the task is given out elsewhere, the line and Choose who go within a repaint`, JSON.stringify([await text(page, '#tk-hold-msg'), await rowShown()]));
+
+      // Review 3: the task is closed while its unhold line shows: the line and Choose who go within a repaint.
+      await openTask(page, p.id, 6);
+      await page.click('#tk-hold');
+      await settle(page);
+      await page.waitForSelector('#tk-hold-choose-row:not([hidden])', { timeout: 6000 }).catch(() => {});
+      chk(await rowShown(), `${tag} task 6 shows Choose who after its unhold (the premise)`, await text(page, '#tk-hold-msg'));
+      const closedSt = await fetch(URL + '/api/project/' + encodeURIComponent(p.id) + '/task/6/close', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then((r) => r.status);
+      await page.waitForFunction(() => document.getElementById('tk-hold-msg').textContent === '' && document.getElementById('tk-hold-choose-row').hidden, null, { timeout: 7000 }).catch(() => {});
+      chk(closedSt === 200 && await text(page, '#tk-hold-msg') === '' && !(await rowShown()), `${tag} once the task is closed, the line and Choose who go within a repaint`, JSON.stringify([closedSt, await text(page, '#tk-hold-msg'), await rowShown()]));
+
+      // Review 3: a hand-out that lands after the route answered but before the page reloads: the line still goes.
+      await openTask(page, p.id, 7);
+      await page.route('**/task/7/hold', async (route) => {   // #6022: inside a try, so teardown cannot crash the check
+        try { const r = await route.fetch(); tasks.assignPart(p.id, 7, 1, 'ada'); await route.fulfill({ response: r }); } catch { await route.abort().catch(() => {}); }
+      });
+      await page.click('#tk-hold');
+      await settle(page);
+      await page.unroute('**/task/7/hold');
+      chk(tasks.whoOf(stored(p.id, 7)).includes('ada'), `${tag} Ada was put on task 7 between the answer and the reload (the premise)`);
+      await page.waitForFunction(() => document.getElementById('tk-hold-msg').textContent === '' && document.getElementById('tk-hold-choose-row').hidden, null, { timeout: 7000 }).catch(() => {});
+      chk(await text(page, '#tk-hold-msg') === '' && !(await rowShown()), `${tag} a hand-out before the reload still takes the line down within a repaint`, JSON.stringify([await text(page, '#tk-hold-msg'), await rowShown()]));
 
       // The control: Ada is on task 2, so it stays with her and nothing asks for a choice.
       await openTask(page, p.id, 2);
