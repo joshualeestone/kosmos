@@ -174,6 +174,39 @@ test('#7445 round 1: a carry that throws still says the conversation does not co
     + 'We could not check its saved notes; any it had are still where Claude keeps them, and anything it only remembered from talking is lost. ');
 });
 
+test('#7445 round 3: reading the provider it leaves can throw, and the result still says the conversation does not come across', (t) => {
+  const name = born('sw7445-from-throws');
+  // A named OpenAI account, so the job carries an account folder and jobProvider asks qwenaccounts.isQwenHome about it.
+  const work = nodePath.join(HOME, '.codex-work7445');
+  fs.mkdirSync(work, { recursive: true });
+  fs.writeFileSync(nodePath.join(work, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttest7446' }), 'utf8');
+  const first = create.setProvider(name, 'openai', { ...OPTS, accountDir: work });
+  assert.equal(first.outcome, create.OUTCOME.CREATED, first.because);
+  assert.ok(create.readJob(name, undefined, 'darwin').configDir, 'CONTROL: the job names its account folder, so isQwenHome is asked');
+
+  // The seam that already exists: jobProvider reads isQwenHome off the module at call time. It throws only once the
+  // switch has recorded the new provider, so the earlier checks in setProvider pass and the carry's read is the one hit.
+  const qa = require('./qwenaccounts');
+  const real = qa.isQwenHome;
+  let threw = 0;
+  qa.isQwenHome = (dir) => {
+    if ((store.readProfile(name) || {}).provider === 'google') { threw += 1; throw new Error('stubbed for #7445 round 3'); }
+    return real(dir);
+  };
+  t.after(() => { qa.isQwenHome = real; });
+  const GEMINI_BIN = nodePath.join(BIN, 'gemini' + EXT);
+  fs.writeFileSync(GEMINI_BIN, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const sw = create.setProvider(name, 'google', { ...OPTS, geminiBin: GEMINI_BIN });
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
+  assert.ok(threw > 0, 'CONTROL: the stub was never reached, so this proves nothing');
+  assert.ok(sw.carried, 'a throw reading the provider it left came back as a switch that keeps its conversation');
+  assert.equal(sw.carried.between, true);
+  assert.equal(sw.carried.from, 'openai', 'the floor is its runner\'s own provider');
+  const w = create.switchCarryWords('Gemini', sw.carried, 'OpenAI');
+  assert.match(w, /its conversation does not come across: Gemini cannot read what it said on OpenAI\./);
+  assert.doesNotMatch(w, /Everything it knows/);
+});
+
 test('#7445: end to end, Claude -> OpenAI -> Gemini says the conversation does not come across on the second switch too', () => {
   const name = born('sw7445-e2e');
   const first = create.setProvider(name, 'openai', OPTS);

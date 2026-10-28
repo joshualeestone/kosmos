@@ -20,6 +20,10 @@ Evidence, measured from the code:
   rollouts from the same private home (status.js ~6706, codexlimits.js:10). So the Qwen account's CODEX_HOME at
   create.js ~2671 (the job's account dir) differs from the OpenAI one, but the home Codex actually runs in and keeps
   its history in is the same folder before and after the switch.
+- Round 3, said plainly: the Mac supervisor never resumes a Codex session, on any restart (there is no resume in
+  bin/*.sh or in engine/codex*.js). Every restart of a Codex agent, a switch or not, starts a new Codex conversation.
+  So OpenAI <-> Qwen keeping the old sentence rests on the shared private home (its past history stays in the one
+  folder the board reads, exactly as after any restart), not on Codex resuming anything.
 - So OpenAI <-> Qwen is the same as any restart on Codex: its past stays readable in the same place. The old sentence
   is true for it. switchLosesConversation returns false for it, carried stays null, and the old words stay.
 
@@ -59,9 +63,10 @@ checks they agree on every provider pair the menu offers.
 
 ## Tests (controls)
 
-- engine/create.switchwords-7445.test.js (8): 5 fail on the pre-change code 958acd2421 (every non-Claude runner pair,
+- engine/create.switchwords-7445.test.js (9): 6 fail on the pre-change code 958acd2421 (every non-Claude runner pair,
   Codex -> Gemini state and sentence, pointer kept/taken out, end to end Claude -> OpenAI -> Gemini through setProvider,
-  and the carry-throws test, which also fails on 85337e54ef since round 2 asserts its whole sentence).
+  the carry-throws test, which also fails on 85337e54ef since round 2 asserts its whole sentence, and the round 3
+  provider-read-throws test, which also fails on b62e51d47b).
   3 pass on it by design: they are the keep-today's-wording controls (OpenAI <-> Qwen and the #7410 rule, the old
   sentence for carried null, the Claude cases' exact shape).
 - web.switchwords-7445.test.js (4): 2 fail on the pre-change page (every non-Claude pair warns, the new note's words).
@@ -75,3 +80,4 @@ checks they agree on every provider pair the menu offers.
 - Round 0 (build): rule, carried state, sentence and dialog built; tests above; policy tests run (see commit).
 - Round 1: no blockers. [WARNING] dialog said "Notes in its folder stay" to an agent with none while the result named none --> FIXED ("Any notes", between and to-Claude; #7410 test updated deliberately); [NIT] OpenAI <-> Qwen reasoning is Mac-only (Windows CODEX_HOME is the account folder) --> FIXED (comments at REFUSE_QWEN_WIN32 and both twins, weakest point rewritten); [NIT] forAgent(x) === forAgent(x) proved nothing --> FIXED (dropped, supervisor lines cited); [NIT] web test restated the alibaba fold --> FIXED (reads engine providerRunner); [NIT] missing space in `?'The notes` --> FIXED; [NIT] person-like fixture name in the new web test --> FIXED ('Helper'); [NIT] a carry that throws said everything stays --> FIXED (setProvider falls back to lostConversationCarried, the one base shape carryClaudeNotes also starts from; new test stubs backupsessions.ownedClaudeMemory to throw, red on the round 0 commit). An off-Claude throw reads "It had no saved notes to copy", which may be untrue; the conversation wording is right, the notes clause is the residual.
 - Round 2: no blockers. [WARNING] a carry that threw on a switch off Claude said "It had no saved notes to copy", maybe untrue (review 3 rule) --> FIXED (notes 'unchecked-error', its own sentence; the whole sentence asserted, red on 85337e54ef); [NIT] dialog "stay there for it to read" promised a pointer that can fail --> FIXED ("Any notes in its folder stay there", between and to-Claude; both tests updated); [NIT] plan counts and quoted dialog words stale --> FIXED.
+- Round 3: no blockers. [WARNING] the throw fallback read jobProvider again, so a throw in it (isQwenHome / vendorOfName) left carried null and "Everything it knows ... stays" --> FIXED (the provider it leaves is read once, floored at its runner's provider, and passed to both; new test stubs qwenaccounts.isQwenHome, red on b62e51d47b); [NIT] unchecked-error sentence true only because every copy step catches --> FIXED (comment); [NIT] plan did not say Codex is never resumed --> FIXED (evidence point); [NIT] source-regex check in the new web test --> FIXED (dropped; #7410 file has the behavioural test). server.js "could not start it again" branch left for the coordinator's own card.

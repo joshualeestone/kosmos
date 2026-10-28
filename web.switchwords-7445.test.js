@@ -66,9 +66,5 @@ test('#7445: a switch that keeps the conversation keeps today\'s dialog (no note
   // The #7410 cases keep their words.
   assert.match(fns.switchFamilyNote('anthropic', 'openai', SHOWN, 'Claude', 'OpenAI'), /Its saved notes are copied into its folder/);
   assert.match(fns.switchFamilyNote('anthropic', 'deepseek', SHOWN, 'Claude', 'DeepSeek'), /stay behind with Claude/);
-  // The handler shows the old sentence and no second button exactly when the note is empty (#7410 wiring).
-  const at = SCRIPT.indexOf("document.getElementById('d-provider-go').addEventListener('click'");
-  const handler = SCRIPT.slice(at, SCRIPT.indexOf('\n});', at));
-  assert.match(handler, /small: \(familyNote \|\| \(agentShown\(\) \+ ' keeps its name, its face, its instructions, its files, and everything it has done/);
-  assert.match(handler, /alt: familyNote \? \{\s*label: 'Write handoff, then switch'/);
+  // Round 3: how the handler uses an empty note (old sentence, no second button) is web.switch-family-7410.test.js's.
 });

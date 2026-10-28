@@ -2723,13 +2723,17 @@ function setProvider(name, provider, opts) {
      (carryClaudeNotes). After the profile write, so the instructions writer resolves the new runner's file. Best-effort
      like the rename: the job is already written, and a copy that fails only means fewer notes, which the result says. */
   let carried = null;
-  try { carried = carryClaudeNotes(clean, job, runner, newBrief, jobProvider(job), provider); }
+  /* #7445 round 3: the provider it is leaving, read ONCE and never allowed to throw: jobProvider reads the account folder
+     (qwenaccounts.isQwenHome, anthropiccompat.vendorOfName), and a throw there used to reach the fallback below too,
+     leaving carried null and the result saying everything stays. Its runner's own provider is the floor. */
+  let from;
+  try { from = jobProvider(job); } catch { from = runnerProvider(job && job.runner); }
+  try { carried = carryClaudeNotes(clean, job, runner, newBrief, from, provider); }
   catch {
     /* #7445 round 1: a carry that threw still lost the conversation, so the result must not say everything stays: it
        says the conversation does not come across, with nothing copied and nothing pointed. */
     carried = null;
     try {
-      const from = jobProvider(job);
       if (switchLosesConversation(job && job.runner, runner, from, provider)) {
         carried = lostConversationCarried(job && job.runner, runner, from);
         /* Round 2: off Claude the carry is what looks at its notes, so a throw means nobody looked: never "it had no
@@ -3067,6 +3071,9 @@ function switchCarryWords(label, carried, fromLabel) {
       + 'They are still where Claude keeps them. ' + lost;
   } else if (carried.notes === 'unchecked-error') {
     // #7445 round 2: the carry failed before it looked at its notes (setProvider's fallback), so say only what is true.
+    // Round 3: true only because every step from the copy on (the mkdir, each copy, the pointer write) catches its own
+    // errors in carryClaudeNotes, so a throw that escapes it comes before anything was copied. Add a copy step that can
+    // throw out of it and this sentence can be false (notes copied, then "we could not check" them).
     notes = 'We could not check its saved notes; any it had are still where Claude keeps them, and anything it only remembered from talking is lost. ';
   } else if (notCopied[carried.notes]) {
     notes = `Its saved notes were not copied: ${notCopied[carried.notes]}. ${lost}`;
