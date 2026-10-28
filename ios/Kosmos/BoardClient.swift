@@ -193,7 +193,8 @@ final class BoardClient: ObservableObject {
     // listed computer has): the later of Kosmos+'s last_seen and this app's own last good read of it (Board.lastHeard).
     func lastHeard(address: String?, name: String?) -> Double? {
         let a = address ?? Board.listedMac(macs, address: nil, name: name)?.address
-        return Board.lastHeard(listed: Board.lastSeen(macs, address: a, name: name), heard: a.flatMap { heardFrom[$0.lowercased()] })
+        return Board.lastHeard(listed: Board.lastSeen(macs, address: a, name: name), heard: a.flatMap { heardFrom[$0.lowercased()] },
+                               now: env.now())
     }
     // The Mac the .unreachable phase is about, by address (review 1: the phase carries only a name, and two Macs can
     // share one, so the time is looked up by this, never by the shown Mac's name).
@@ -1387,11 +1388,15 @@ final class BoardClient: ObservableObject {
         }
         // Review 1: a list that lands after a sign-out or another start is not this run's to show.
         guard gen == generation else { return nil }
-        self.macs = Board.reachableMacs(macs, coordinator: coordinator)
-        macsLanded = max(macsLanded, ticket)
+        // kosmos#7416 review 5: shown only when no newer list landed first; the pick uses this run's own answer either way.
+        let reachable = Board.reachableMacs(macs, coordinator: coordinator)
+        if ticket > macsLanded {
+            self.macs = reachable
+            macsLanded = ticket
+            lastSeenReadAt = env.now()
+        }
         macsReadGen = gen
-        lastSeenReadAt = env.now()   // kosmos#7416
-        guard let mac = Board.pickMac(self.macs, remembered: env.defaults.string(forKey: Board.rememberedMacKey),
+        guard let mac = Board.pickMac(reachable, remembered: env.defaults.string(forKey: Board.rememberedMacKey),
                                       chosen: chosenMac) else {
             set(.noMac, gen); return nil
         }

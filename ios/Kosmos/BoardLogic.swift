@@ -191,7 +191,7 @@ enum Board {
                 let read = heard[mac.address.lowercased()]
                 let online = mac.connected || (read.map { now.timeIntervalSince($0) < 15 } ?? false)
                 return SwitcherRow(name: mac.name, address: mac.address, online: online, shown: mac.address == shown,
-                                   seen: online ? nil : Shell.heardWhen(lastHeard(listed: mac.lastSeen, heard: read),
+                                   seen: online ? nil : Shell.heardWhen(lastHeard(listed: mac.lastSeen, heard: read, now: now),
                                                                         now: now, calendar: calendar, locale: locale))
             }
     }
@@ -2369,8 +2369,11 @@ extension Board {
     // Review 1: the list's last_seen is as of the list's last read (once a launch, a switch or a Try again), so a Mac
     // this app read every 5 s all day would say "at 7:58 AM" at night. The later of the two, as the board says the time
     // of its own last good status read. nil when neither has a time (0 is "never").
-    static func lastHeard(listed: Double?, heard: Date?) -> Double? {
-        let t = max(listed ?? 0, heard?.timeIntervalSince1970 ?? 0)
+    // Review 5: last_seen is Kosmos+'s clock; one more than a minute ahead of this phone's (a phone set behind) is not
+    // taken, or it would win and then be refused as a future time, losing a good read of the phone's own.
+    static func lastHeard(listed: Double?, heard: Date?, now: Date = Date()) -> Double? {
+        let l = (listed ?? 0) <= now.timeIntervalSince1970 + 60 ? (listed ?? 0) : 0
+        let t = max(l, heard?.timeIntervalSince1970 ?? 0)
         return t > 0 ? t : nil
     }
 }

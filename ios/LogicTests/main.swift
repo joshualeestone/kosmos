@@ -291,6 +291,10 @@ do {
           "the later of the list's last_seen and the app's own last good read")
     check(Board.lastHeard(listed: 0, heard: nil) == nil && Board.lastHeard(listed: nil, heard: nil) == nil && Board.lastHeard(listed: nil, heard: Date(timeIntervalSince1970: 7)) == 7,
           "neither: no time; only the app's read: that one")
+    check(Board.lastHeard(listed: 9_000, heard: Date(timeIntervalSince1970: 500), now: Date(timeIntervalSince1970: 1_000)) == 500,
+          "review 5: a last_seen ahead of this phone's clock (a phone set behind) does not hide the phone's own read")
+    check(Board.lastHeard(listed: 1_050, heard: Date(timeIntervalSince1970: 500), now: Date(timeIntervalSince1970: 1_000)) == 1_050,
+          "CONTROL: a last_seen within the minute's allowance is still taken")
     check(heard(nil, now) == nil && Shell.lastHeardSentence(0, now: now, calendar: cal, locale: en) == nil, "no time (none, or 0: never seen): no sentence")
     check(heard(now.addingTimeInterval(2 * 3600), now) == nil, "a time ahead of now says nothing")
     check(heard(now.addingTimeInterval(30), now) == "We last heard from it at 10:00 PM.", "CONTROL: a clock a few seconds ahead is still now")
