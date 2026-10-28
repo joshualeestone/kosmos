@@ -171,9 +171,32 @@ check(Board.mentionRanges("@eli.x", "eli").isEmpty, "CONTROL: a dot inside a lon
 section("the request: the newest page, or the page before the computer's cursor")
 let mac = URL(string: "https://studio.kosmosplus.com")!
 let r1 = Board.roomRequest(mac: mac, project: "spring-catalogue", n: 50)
-check(r1?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50", "the newest page: \(r1?.url?.absoluteString ?? "nil")")
+check(r1?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50&archive=0", "the newest page of the live part: \(r1?.url?.absoluteString ?? "nil")")
 let r2 = Board.roomRequest(mac: mac, project: "spring-catalogue", n: 50, cursor: "2026-10-22T15:00:00.000Z|0")
-check(r2?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50&cursor=2026-10-22T15:00:00.000Z%7C0", "the cursor, escaped: \(r2?.url?.absoluteString ?? "nil")")
+check(r2?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50&archive=0&cursor=2026-10-22T15:00:00.000Z%7C0", "the cursor, escaped: \(r2?.url?.absoluteString ?? "nil")")
+// kosmos#7365 slice 3c: the archive view reads the archive, with the same cursors.
+let r3 = Board.roomRequest(mac: mac, project: "spring-catalogue", n: 50, cursor: "2026-10-01T09:00:00.000Z|2", part: .archive)
+check(r3?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50&archive=1&cursor=2026-10-01T09:00:00.000Z%7C2", "the archive's page: \(r3?.url?.absoluteString ?? "nil")")
+check(boardPage.contains("const q = 'n=' + n + '&archive=' + (archive ? '1' : '0')"), "the board's window reads send archive=0 and 1, as the phone does")
+section("the archive (kosmos#7365 slice 3c)")
+let archPage = Board.parseRoom(Data(#"{"rows":[{"kind":"post","id":"m9","text":"x","at":"2026-10-22T15:03:00.000Z"}],"olderCount":0,"olderCursor":null,"archivedCount":1234}"#.utf8))
+check(archPage?.archivedCount == 1234 && archPage?.olderCursor == nil, "a page says how many messages are archived")
+check(Board.parseRoom(Data(#"{"rows":[],"olderCount":0}"#.utf8))?.archivedCount == 0 && Board.parseRoom(Data(#"{"rows":[],"archivedCount":-3}"#.utf8))?.archivedCount == 0,
+      "a computer that does not say has nothing archived")
+check(Board.Archive.boundaryShown(olderCursor: nil, archivedCount: 3, searching: false), "the boundary row: at the start of the live part, with messages archived")
+check(!Board.Archive.boundaryShown(olderCursor: "c", archivedCount: 3, searching: false), "not while there is an earlier live page to read")
+check(!Board.Archive.boundaryShown(olderCursor: nil, archivedCount: 0, searching: false), "not when nothing is archived")
+check(!Board.Archive.boundaryShown(olderCursor: nil, archivedCount: 3, searching: true), "not while searching, as the board's pjRoomTopEdge")
+check(Board.Archive.count(1) == "1 message" && Board.Archive.count(5500) == "5,500 messages", "the count, as the board's toLocaleString")
+check(Board.Archive.showing(2) == "Showing the archive, 2 messages.", "the archive is announced as the board announces it")
+check(boardPage.contains("<span>" + Board.Archive.boundary + "</span> <button type=\"button\" class=\"linkish pj-arch-ctl\" id=\"pj-arch-open\">" + Board.Archive.view + "</button>"),
+      "the boundary row's words are the board's")
+check(boardPage.contains("'<div class=\"pj-arch-edge\">" + Board.Archive.start + "</div>'"), "the start of the room, as the board")
+for w in [Board.Archive.back, Board.Archive.couldNotOpen, Board.Archive.couldNotReadEarlier, "'" + Board.Archive.backAnnouncement + "'",
+          "<b>" + Board.Archive.title + "</b>"] {
+    check(boardPage.contains(w), "the board's words: " + w)
+}
+check(boardPage.contains("'Opening the archive\\u2026'") && Board.Archive.opening == "Opening the archive\u{2026}", "opening, with the board's ellipsis")
 check(Board.roomRequest(mac: mac, project: "../x", n: 50) == nil && Board.roomRequest(mac: mac, project: "Spring", n: 50) == nil, "a project id the board cannot have is refused")
 check(Board.roomRequest(mac: mac, project: "p", n: 0) == nil && Board.roomRequest(mac: mac, project: "p", n: 201) == nil, "n outside 1 to 200 is refused")
 

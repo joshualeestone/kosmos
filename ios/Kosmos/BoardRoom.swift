@@ -76,6 +76,9 @@ extension Board {
         // The computer's cursor for the page before this one; nil at the start of the room.
         let olderCursor: String?
         let held: Bool
+        // kosmos#7365 slice 3c: how many of the room's messages are archived (the route's archivedCount; 0 when the
+        // computer did not say, so an older computer draws no boundary row).
+        var archivedCount = 0
         // kosmos#7072: when the hold should lift on its own (the route's held.until), nil when it did not say.
         var heldUntil: Date? = nil
         // The route's `unanswered` for the WHOLE room (messages.unanswered is not filtered by page), names shown; nil
@@ -88,11 +91,15 @@ extension Board {
         var unread = false
     }
 
+    // kosmos#7365 slice 3c: which part of the room a page is drawn from. The phone reads the live part, as agents do
+    // (the board's pjWinRead sends archive=0); the archive view reads the archive (archive=1). The cursors are shared.
+    enum RoomPart: String { case live = "0", archive = "1" }
+
     // The newest page (no cursor) or the page before a cursor the computer gave.
-    static func roomRequest(mac: URL, project: String, n: Int, cursor: String? = nil) -> URLRequest? {
+    static func roomRequest(mac: URL, project: String, n: Int, cursor: String? = nil, part: RoomPart = .live) -> URLRequest? {
         guard isProjectId(project), (1...200).contains(n) else { return nil }
         var parts = URLComponents(url: URL(string: "/api/project/\(project)/room", relativeTo: mac)!.absoluteURL, resolvingAgainstBaseURL: true)
-        var items = [URLQueryItem(name: "n", value: String(n))]
+        var items = [URLQueryItem(name: "n", value: String(n)), URLQueryItem(name: "archive", value: part.rawValue)]
         if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
         parts?.queryItems = items
         guard let url = parts?.url else { return nil }
@@ -100,6 +107,29 @@ extension Board {
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
+    }
+
+    // kosmos#7365 slice 3c: the archive, in the board's words (web/index.html, slice 3b). The boundary row shows only
+    // once the reader has reached the start of the live part (no earlier page to read) and something is archived, as
+    // the board's paintRoom draws it; never while searching, which shortens the room.
+    enum Archive {
+        static let boundary = "Older messages are archived."
+        static let view = "View archive"
+        static let title = "Archive"
+        static let back = "Back to the room"
+        static let start = "This is the start of the room."
+        static let opening = "Opening the archive\u{2026}"
+        static let couldNotOpen = "We could not open the archive just now."
+        static let couldNotReadEarlier = "We could not read the earlier archived messages."
+        static let backAnnouncement = "Back in the room."
+        static func count(_ n: Int) -> String {
+            let f = NumberFormatter(); f.numberStyle = .decimal; f.locale = Locale(identifier: "en_US")
+            return (f.string(from: NSNumber(value: n)) ?? String(n)) + (n == 1 ? " message" : " messages")
+        }
+        static func showing(_ n: Int) -> String { "Showing the archive, " + count(n) + "." }
+        static func boundaryShown(olderCursor: String?, archivedCount: Int, searching: Bool) -> Bool {
+            olderCursor == nil && archivedCount > 0 && !searching
+        }
     }
 
     // kosmos#7072: a held room (#5800), as the board says it above its composer (web/index.html pjHeldNotice), word for
@@ -300,6 +330,7 @@ extension Board {
         var page = RoomPage(rows: rows, olderCount: max(0, integer(obj["olderCount"]) ?? 0), olderCursor: cursor,
                             held: obj["held"] is [String: Any])
         page.heldUntil = isoDate((obj["held"] as? [String: Any])?["until"] as? String)
+        page.archivedCount = max(0, integer(obj["archivedCount"]) ?? 0)
         if obj["unanswered"] is [String: Any] { page.silent = silent.mapValues { $0.map(shown) } }
         page.unread = (obj["ok"] as? Bool) == false
         return page

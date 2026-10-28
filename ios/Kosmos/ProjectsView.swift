@@ -40,6 +40,25 @@ final class RoomStore: ObservableObject {
     @Published private(set) var loadingOlder: Set<String> = []
     // Rooms whose last older-page read failed: the top of the room offers it again rather than spinning.
     @Published private(set) var olderFailed: Set<String> = []
+    // kosmos#7365 slice 3c: how many of each room's messages are archived, from its latest live read.
+    @Published private(set) var archivedCount: [String: Int] = [:]
+    // The archive view, by project, its own state as the board's PJ_ARCH: its rows (newest at the bottom), its earlier
+    // pages' cursor and count, whether its first page is on its way, and whether an earlier page failed. While a room
+    // shows its archive, the live reads go on (the working line, the unread counts) and the live rows stay as they were.
+    struct ArchiveView: Equatable {
+        var rows: [Board.RoomRow] = []
+        var older: (count: Int, cursor: String?) = (0, nil)
+        var opening = true
+        var loading = false
+        var olderFailed = false
+        static func == (l: ArchiveView, r: ArchiveView) -> Bool {
+            l.rows == r.rows && l.older.count == r.older.count && l.older.cursor == r.older.cursor && l.opening == r.opening
+                && l.loading == r.loading && l.olderFailed == r.olderFailed
+        }
+    }
+    @Published private(set) var archive: [String: ArchiveView] = [:]
+    // Said once when opening the archive did not work (the board's toast), cleared by the room as it shows it.
+    @Published var archiveNote: [String: String] = [:]
     // A post in the air or one that did not go, by project: its words, the line under it once answered, and the ids of
     // the person's posts already in the room when Post was pressed (so an earlier post with the same words never
     // settles it).
@@ -72,6 +91,10 @@ final class RoomStore: ObservableObject {
     private var ownAsk: [String: Board.OwnAsk] = [:]
     static let ownEvery: TimeInterval = 10
     static let pageSize = 50
+    #if DEBUG
+    // kosmos#7365 slice 3c: the sample room's archive (KOSMOS_SAMPLE_ARCHIVE=1), a Debug build only.
+    static let sampleArchive = #"{"rows":[{"kind":"post","id":"a1","text":"Kickoff: the spring catalogue goes to print on 3 March.","from":null,"at":"2026-08-20T15:00:00.000Z"},{"kind":"post","id":"a2","text":"Noted. I will draft the page plan this week.","from":"cleo","at":"2026-08-20T15:04:00.000Z"},{"kind":"post","id":"a3","text":"The page plan is in the project folder: 48 pages, 6 sections.","from":"cleo","at":"2026-08-22T10:12:00.000Z"},{"kind":"post","id":"a4","text":"Looks right. Go ahead with the copy for section one.","from":null,"at":"2026-08-22T10:30:00.000Z"}],"olderCount":0,"olderCursor":null,"archivedCount":1240}"#
+    #endif
 
     private let client: BoardClient
     init(client: BoardClient) { self.client = client }
@@ -81,6 +104,7 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
+        archivedCount = [:]; archive = [:]; archiveNote = [:]; archiveOpens = [:]   // kosmos#7365 slice 3c
         returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAsk = [:]
         held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
@@ -160,7 +184,10 @@ final class RoomStore: ObservableObject {
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HELD"] == "1", !Self.sampleReopened.contains(project) {
                 held[project] = .some(Self.sampleHeldUntil)
             }
-            older[project] = (0, nil); return true
+            older[project] = (0, nil)
+            // kosmos#7365 slice 3c: KOSMOS_SAMPLE_ARCHIVE=1 gives the sample room an archive, for its screenshots.
+            archivedCount[project] = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ARCHIVE"] == "1" ? 1240 : 0
+            return true
         }
         #endif
         Task { await self.loadOwnCompare(project) }   // kosmos#7137: with each room read, landed or not (at most every 10 s)
@@ -184,8 +211,55 @@ final class RoomStore: ObservableObject {
         if stamped.baselined { spokeBaseline.insert(project) }
         rows[project] = fresh.rows
         older[project] = fresh.older
+        archivedCount[project] = page.archivedCount
         settle(project)
         return true
+    }
+
+    // kosmos#7365 slice 3c: the archive view, as the board's View archive: its newest page first, the room's live rows
+    // left as they are. A failed first read leaves the room as it was and says so once. Each open is numbered, so a
+    // read from an archive closed (or opened again) meanwhile is dropped.
+    private var archiveOpens: [String: Int] = [:]
+    func openArchive(_ project: String) async {
+        archiveOpens[project, default: 0] += 1
+        let open = archiveOpens[project]!
+        archive[project] = ArchiveView()
+        #if DEBUG
+        if Self.sample {
+            archive[project] = ArchiveView(rows: Board.parseRoom(Data(Self.sampleArchive.utf8), names: names)?.rows ?? [], older: (0, nil), opening: false)
+            return
+        }
+        #endif
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, part: .archive) }
+        guard same(epoch), archiveOpens[project] == open, archive[project] != nil else { return }
+        guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
+            archive[project] = nil; archiveNote[project] = Board.Archive.couldNotOpen; return
+        }
+        archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false)
+        archivedCount[project] = page.archivedCount
+    }
+    // Back to the room: the archive's rows go, and a read still on its way for it is dropped.
+    func closeArchive(_ project: String) {
+        archiveOpens[project, default: 0] += 1
+        archive[project] = nil
+    }
+    // The archive's page before the oldest one shown.
+    func loadArchiveOlder(_ project: String) async {
+        guard var view = archive[project], !view.opening, !view.loading, let cursor = view.older.cursor else { return }
+        let open = archiveOpens[project]
+        view.loading = true; view.olderFailed = false
+        archive[project] = view
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, cursor: cursor, part: .archive) }
+        guard same(epoch), archiveOpens[project] == open, var now = archive[project], now.older.cursor == cursor else { return }
+        now.loading = false
+        guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
+            now.olderFailed = true; archive[project] = now; return
+        }
+        now.rows = Board.mergeRoom(page.rows, with: now.rows)
+        now.older = (page.olderCount, page.olderCursor)
+        archive[project] = now
     }
 
     // The page before the oldest one shown, by the computer's own cursor.
