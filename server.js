@@ -2713,22 +2713,64 @@ function setTaskMsgCapForTests(n) {
 }
 const TASK_MSG_WINDOW_MS = AGENT_RUNAWAY_WINDOW_MS; // the breaker's own window
 let taskMessageSends = [];
+let taskMessageOnly = [];   // #7408 review 7: one per message (taskMessageSends also holds one per agent `to` added), for the words
 /* null to allow, or { because, retryAfterSecs }. The sentence names the limit, that it is shared
    by all agents, and when it lifts; a cap of 0 says the messages are switched off instead. */
-function taskMessageRefusal(now = Date.now()) {
+function taskMessageRefusal(now = Date.now(), extra = 0, hasTo = extra > 0) {
   taskMessageSends = taskMessageSends.filter((t) => t >= now - TASK_MSG_WINDOW_MS);
+  taskMessageOnly = taskMessageOnly.filter((t) => t >= now - TASK_MSG_WINDOW_MS);
   if (TASK_MSG_CAP_PER_HOUR === 0) {
     // No retry time: waiting does not help while the cap is 0, so none is offered. It stays a 429,
     // not a 403, on purpose: both kosmos CLIs print the error text either way, and a 403 reads as
     // "your token was refused", which would send the agent to fix its sign-in instead.
-    return { because: 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: null };
+    // #7408 review 6/7: a message that names agents is told the screen cannot do that either (it names nobody).
+    return { because: hasTo
+      ? 'task messages that name agents are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can send it from the screen to the task\'s assignees (assign the task first)'
+      : 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: null };
   }
-  const r = runawayRefusal(taskMessageSends, { noun: 'task messages', did: 'sent',
-    pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: TASK_MSG_CAP_PER_HOUR });
-  return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
+  const cap = TASK_MSG_CAP_PER_HOUR;
+  const sent = taskMessageSends.length;
+  /* #7408 review 7: what the count holds, said truly: messages alone when no message named agents, otherwise both. */
+  const counted = sent === taskMessageOnly.length ? null
+    : sent + ' counted in the last hour (' + taskMessageOnly.length + (taskMessageOnly.length === 1 ? ' message' : ' messages') + ', and ' + (sent - taskMessageOnly.length) + ' for the agents they named)';
+  /* #7408 review 4-7: a message that adds agents with `to` costs 1 + extra, all counted before it is sent, so one
+     message cannot pass the limit by its own list. Said in its own words, whether or not the limit is already reached,
+     so a wait it is given is the wait for ITS cost (never one slot's, then a second refusal), and a list bigger than the
+     whole limit is told it can never fit rather than to wait. Rounded as runawayRefusal rounds: up, at most the hour.
+     The limit is shared by all agents, and it says so, as every runaway refusal must (engine/runaway.js). */
+  if (extra > 0) {
+    const cost = 1 + extra;
+    const costs = 'that message and the ' + extra + (extra === 1 ? ' agent' : ' agents') + ' it adds to tell count ' + cost
+      + ' toward the limit of ' + cap + ' task messages an hour, shared by all agents together (one per message, and one per agent a message names)';
+    if (cost > cap) {
+      return { because: costs + ', so it can never fit; ' + (cap - 1 > 0 ? 'name at most ' + (cap - 1) + (cap - 1 === 1 ? ' agent' : ' agents') : 'send it without --to'), retryAfterSecs: null };
+    }
+    if (sent + cost <= cap) return null;
+    const oldest = taskMessageSends.slice().sort((a, b) => a - b);
+    const freeAt = oldest[sent + cost - cap - 1] + TASK_MSG_WINDOW_MS;
+    const secs = Math.min(TASK_MSG_WINDOW_MS / 1000, Math.max(1, Math.ceil((freeAt - now) / 1000)));
+    const mins = Math.max(1, Math.ceil(secs / 60));
+    return { because: costs + ', and ' + (counted || (sent + (sent === 1 ? ' task message was' : ' task messages were') + ' sent in the last hour'))
+      // Review 8: naming fewer helps only while the message itself still fits; at the limit only waiting does.
+      + ', so it would pass the limit; ' + (sent < cap ? (cap - sent - 1 > 0 ? 'name at most ' + (cap - sent - 1) + (cap - sent - 1 === 1 ? ' agent' : ' agents') : 'send it without --to') + ', or send it again' : 'send it again')
+      + ' in about ' + mins + (mins === 1 ? ' minute' : ' minutes'), retryAfterSecs: secs };
+  }
+  const plain = runawayRefusal(taskMessageSends, counted
+    ? { noun: 'of the hourly task-message count (one per message, and one per agent a message named with --to)', did: 'used',
+      pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }
+    : { noun: 'task messages', did: 'sent', pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: cap });
+  if (!plain) return null;
+  // Review 7: a message that names agents was not sent from the screen, and the screen names nobody: no screen tail.
+  const because = hasTo ? plain.because.replace(/; the person can still send them from the screen$/, '') : plain.because;
+  return { because, retryAfterSecs: plain.retryAfterSecs };
 }
-function taskMessageValveRecord() {
-  taskMessageSends.push(Date.now());
+/* #7408 review 3: `count` is how many agents the message reaches beyond its assignees plus one, so a message naming
+   agents with `to` spends the limit per agent it adds (a looping sender reaches no more agents through `to` than the
+   limit allows). Checked before sending with every name in `to` counted (taskMessageRefusal's `extra`, review 4). */
+function taskMessageValveRecord(count = 1) {
+  const now = Date.now();
+  taskMessageOnly.push(now);
+  for (let i = 0; i < count; i += 1) taskMessageSends.push(now);
 }
 
 /* #3951 (review round 5): the built route's own breaker, the same runaway breaker as task messages and parts (#4019,
@@ -6040,6 +6082,7 @@ function taskFinalWordHint(t, senderName, projectId, byKey) {
   return `If that is your final word on it, kosmos task built ${pid} ${t.number} 'what you decided' marks it done, so nothing waits on it.`;
 }
 
+const TASK_MESSAGE_TO_MAX = 10;   // #7408: how many agents one task message may name with --to
 /* #6359: `kind` 'built' is a built mark's answer (`kosmos task built`): a kept line there is the built notice, not a
    message the marker sent. The same mark again tells nobody, and a new note replaces the kept notice, so the marker is
    not told not to send it again. */
@@ -24593,11 +24636,60 @@ const server = http.createServer(async (req, res) => {
             return;
           }
         }
+        /* #7408: `to` names agents to tell besides the assignees (a ruling on a task nobody holds reached nobody). Checked
+           whole before anything is recorded: a list of 1 to 10 names, each an agent on this project (its reply into the
+           task would be refused otherwise). Matched exactly, else by store key when exactly one agent on it has that key
+           (an agent stored under its key, as `task assign` names one; review 2). Any sender may use it, the person at a
+           terminal included (no token, no pane the board knows: the card's own case, review 3); what bounds a looping
+           sender is the limit below, which counts every agent `to` adds (taskMessageValveRecord). */
+        let toNames = [];
+        if (body.to !== undefined) {
+          /* Review 8: the screen names nobody (it tells the task's assignees), so a screen claim carrying `to` is not the
+             screen: refused, rather than "The person said" typed to agents the person never chose. */
+          if (viaScreen) { sendJson(res, 400, { error: 'the screen tells the task\'s assignees and names no other agents, so that message was not recorded. To name agents, use kosmos task message --to' }); return; }
+          const list = body.to;
+          if (!Array.isArray(list) || list.length < 1 || list.length > TASK_MESSAGE_TO_MAX
+            || list.some((n) => typeof n !== 'string' || !n.trim() || n.length > 64)) {
+            sendJson(res, 400, { error: 'to has to be a list of 1 to ' + TASK_MESSAGE_TO_MAX + ' agent names of up to 64 characters each, so that message was not recorded' });
+            return;
+          }
+          if (unreadable) { sendJson(res, 503, { error: 'we could not read the projects, so that message was not recorded' }); return; }
+          // Review 3: no project record, so no name can be checked: refused, never dropped in silence.
+          if (!memberRecord) { sendJson(res, 404, { error: 'there is no project by that name, so that message was not recorded' }); return; }
+          const agentsOn = Array.isArray(memberRecord.agents) ? memberRecord.agents : [];
+          const notOn = [];
+          const twoWays = [];
+          for (const n of list) {
+            const keyed = agentsOn.filter((a) => sameAgentName(a, n.trim(), true));
+            const hit = agentsOn.find((a) => sameAgentName(a, n.trim(), false)) || (keyed.length === 1 ? keyed[0] : null);
+            if (!hit) (keyed.length > 1 ? twoWays : notOn).push(n.trim());
+            else if (!toNames.includes(hit)) toNames.push(hit);
+          }
+          const plainName = (x) => String(x).replace(/[\u0000-\u001f\u007f-\u009f"\\]/g, ' ');   // review 6: C1 too
+          // Review 3 and 6: a name two agents share by key, and a name not on the project, said together in one answer.
+          const why = [];
+          if (twoWays.length) why.push(twoWays.map(plainName).join(', ') + ' could be more than one agent on this project (use the exact name)');
+          if (notOn.length) why.push(notOn.map(plainName).join(', ') + (notOn.length > 1 ? ' are' : ' is') + ' not on this project (name agents on it, or add them first)');
+          if (why.length) {
+            sendJson(res, 400, { error: why.join('; ') + ', so that message was not recorded' });
+            return;
+          }
+        }
         /* The valve, before the record+deliver: a looping agent must not be able to
            spam a task's people. Counted for PROCESS senders only; the operator is
            never valved (the person driving is the remedy, not the hazard -- the same
            posture as the task-creation and room valves). */
-        const msgRefusal = viaScreen ? null : taskMessageRefusal();
+        /* #7408 review 4: a message that names agents with `to` is valved even when it claims the screen (the screen sends
+           no `to`, and a screen claim is advisory), each name it adds counted before it is sent; the sender naming
+           itself adds nobody. */
+        /* Review 5: the same count before sending and after, so it is worked out once, from the task as it stands (its
+           assignees are told anyway, so naming one adds nobody). */
+        let preAssignees = [];
+        try { const pre = memberRecord ? tasks.byNumber(memberRecord, Number(taskSay[2])) : null; preAssignees = pre ? tasks.whoOf(pre) : []; }
+        catch { preAssignees = []; }   // unknown: every name counts, the safe direction
+        const toExtra = toNames.filter((n) => !(senderCard && sameAgentName(n, senderCard.sessionName, byKey))
+          && !preAssignees.some((a) => sameAgentName(a, n, false))).length;
+        const msgRefusal = viaScreen && body.to === undefined ? null : taskMessageRefusal(Date.now(), toExtra, body.to !== undefined);
         if (msgRefusal) {
           if (msgRefusal.retryAfterSecs !== null) {
             res.setHeader('retry-after', String(msgRefusal.retryAfterSecs));
@@ -24613,6 +24705,9 @@ const server = http.createServer(async (req, res) => {
            claims the screen, which is taken as the person whoever sent it (isViaScreen). */
         const saidText = !viaScreen && senderCard ? guideMasked(senderCard.sessionName, body.text) : body.text;
         const t = tasks.say(id, taskSay[2], saidText);
+        /* #7408 review 5: counted as soon as it is recorded, before any delivery is awaited, so sends that arrive
+           together cannot all pass the check before any of them is counted: one, plus each agent `to` adds. */
+        if (!viaScreen || body.to !== undefined) taskMessageValveRecord(1 + toExtra);
         /* Deliver to the agents ASSIGNED to the task (Josh, 2026-09-12: "only to
            the agents assigned to the task"), never the whole project. The full
            message lives in the task record (say, above); what an assignee receives
@@ -24621,7 +24716,8 @@ const server = http.createServer(async (req, res) => {
            line never bumps chat's length cap. chat.deliver carries the rails
            (addressable, the trust-dialog guard, body validation); every task route
            that notifies people goes through the same roster. */
-        const named = tasks.whoOf(t);
+        const assignees = tasks.whoOf(t);
+        const named = assignees.concat(toNames.filter((n) => !assignees.some((m) => sameAgentName(m, n, false))));   // #7408
         const chat = require('./engine/chat');
         const proj = memberRecord;   // read once above; never re-read after the message is recorded (a failed read here would answer 400 for a recorded message)
         /* Strip the framing double-quote (and newlines defensively) from anything
@@ -24690,9 +24786,10 @@ const server = http.createServer(async (req, res) => {
             ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}),
             ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) });
         }
-        if (!viaScreen) taskMessageValveRecord();
         const finalWord = !viaScreen && senderCard ? taskFinalWordHint(t, senderCard.sessionName, id, byKey) : '';   // #6066
-        sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) + (finalWord ? ' ' + finalWord : '') });
+        sendJson(res, 200, { ok: true, delivered, ...(body.to !== undefined ? { to: toNames } : {}),
+          // #7408 review 1: a sender that named only itself on a task nobody holds hears "Nobody is assigned", not "Nobody else".
+          summary: taskMessageSummary(delivered, assignees.length || others.length ? named.length : 0) + (finalWord ? ' ' + finalWord : '') });
       } catch (err) {
         const msg = String((err && err.message) || '');
         // A failed append is a server-side (disk/IO) condition, not a bad request,
@@ -27910,6 +28007,15 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
   taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
+  taskMessageSendCountForTests: () => taskMessageSends.filter((t) => t >= Date.now() - TASK_MSG_WINDOW_MS).length,   // #7408 review 3
+  taskMessageRefusal,   // #7408 review 5: so a test can reach the never-fits words (a list bigger than the limit)
+  /* #7408 review 7: replace the counted times (entries, and one per message) for a test that pins the wait; returns a
+     function that puts the real ones back. */
+  seedTaskMessageSendsForTests: (entries, messages) => {
+    const was = [taskMessageSends, taskMessageOnly];
+    taskMessageSends = entries.slice(); taskMessageOnly = messages.slice();
+    return () => { [taskMessageSends, taskMessageOnly] = was; };
+  },
   setBuiltTellWaitForTests, // #6330: how long one built line may hold the answer (test seam)
   get taskMessageSendCount() { return taskMessageSends.length; }, // #6330: lines on the task-message valve (tests read the change)
   resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests
