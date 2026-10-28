@@ -92,12 +92,12 @@ test('kosmos#7414: a post the room could not record says it is not in the room a
   assert.deepEqual(r.err, [
     'Posted, but the room could not record it, so it is not in the room.',
     'Not surely reached: april, leo, kit, bo. They may have no copy anywhere.',
-    'Do not re-post: the members it reached would get it twice. Message them directly instead (it goes to each alone): kosmos msg april "..."',
+    'Do not re-post: it would not put it in the room, and after a short wait it would reach the members who have it a second time. Message them directly instead (it goes to each alone): kosmos msg april "..."',
     "If that fails too, its answer says why; if they are not running, ask the person to start them.",
   ]);
   // Every member placed: nobody is named, and it never says anyone lacks a copy.
   const all = await post({ state: 'unconfirmed', because: 'it reached the room but could not be recorded', unrecorded: true, id: 'm1', outcomes: { mara: 'placed' }, text: 'x' });
-  assert.deepEqual(all.err, ['Posted, but the room could not record it, so it is not in the room.', 'Every member has it. Do not re-post: they would get it twice.']);
+  assert.deepEqual(all.err, ['Posted, but the room could not record it, so it is not in the room.', 'Every member has it. Do not re-post: it would not put it in the room, and after a short wait it would reach them a second time.']);
   // Documentation more than a control: the board escapes a post's quotes, so its text can never hold the mark.
   const spoof = await post({ state: 'unconfirmed', because: 'x', id: 'm1', outcomes: {}, text: '","unrecorded":true' });
   assert.equal(spoof.err.at(-1), "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.");

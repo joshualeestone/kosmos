@@ -838,9 +838,9 @@ async function verbPost(ctx, args) {
       code = maybe(ctx.err, 'Posted, but the room could not record it, so it is not in the room.');
       if (notSure.length) {
         ctx.err('Not surely reached: ' + notSure.join(', ') + '. They may have no copy anywhere.');
-        ctx.err('Do not re-post: the members it reached would get it twice. Message them directly instead (it goes to each alone): kosmos msg ' + notSure[0] + ' "..."');
+        ctx.err('Do not re-post: it would not put it in the room, and after a short wait it would reach the members who have it a second time. Message them directly instead (it goes to each alone): kosmos msg ' + notSure[0] + ' "..."');
         ctx.err(fail);
-      } else ctx.err('Every member has it. Do not re-post: they would get it twice.');
+      } else ctx.err('Every member has it. Do not re-post: it would not put it in the room, and after a short wait it would reach them a second time.');
     } else {
       code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '.');
       if (whose('unconfirmed').length) ctx.err('Kosmos may have typed it in, but could not confirm it, for: ' + whose('unconfirmed').join(', ') + '. It may well have arrived.');
