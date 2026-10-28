@@ -592,6 +592,39 @@ async function permCardGo(page, data, press) {
   }
 }
 
+/* kosmos#7430: the two unhold screens share one body: a task nobody is on (the line ends in Choose who), or one the chat
+   agent is on (it stays with them). */
+function unholdNext7430(withAgent) {
+  return { go: async (page, data) => {
+    const post = (path, body) => page.evaluate(([pth, b]) => fetch(pth, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) })
+      .then(async (r) => ({ status: r.status, json: await r.json().catch(() => ({})) })), [path, body]);
+    const base = '/api/project/' + encodeURIComponent(data.projectId);
+    const made = await post(base + '/tasks', withAgent ? { sentence: 'Book the courier for Friday', who: data.chatAgent } : { sentence: 'Order the parts for the spring batch' });
+    const n = made.status === 200 ? ((made.json.task && made.json.task.number) || made.json.number) : null;
+    if (typeof n !== 'number') throw new Error('could not add the task (' + made.status + ')');
+    data.unholdTask = n;
+    const held = await post(base + '/task/' + n + '/hold', { onHold: true });
+    if (held.status !== 200) throw new Error('could not hold the task (' + held.status + ')');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+    await page.evaluate(async (num) => { await pjReload(); openTaskPage(num); }, n);
+    await page.waitForSelector('#tk-hold', { state: 'visible', timeout: 8000 });
+    await page.click('#tk-hold');
+    await page.waitForFunction(() => ((document.getElementById('tk-hold-msg') || {}).textContent || '').length > 0, null, { timeout: 8000 });
+    await page.evaluate(() => document.getElementById('tk-hold-row').scrollIntoView({ block: 'center' }));
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => (document.getElementById('tk-hold-msg') || {}).textContent || '');
+    const choose = await page.$('#tk-hold-choose');
+    if (withAgent ? (!/^It stays with /.test(t) || choose) : (!/^Nobody is on it/.test(t) || !choose)) throw new Error('the hold line says: ' + JSON.stringify(t));
+  }, after: async (page, data) => {
+    if (typeof data.unholdTask !== 'number') return;
+    const st = await page.evaluate(([id, num]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + num + '/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((r) => r.status), [data.projectId, data.unholdTask]);
+    if (st !== 200) throw new Error('could not close the task after the shot (' + st + ')');
+    data.unholdTask = null;
+  } };
+}
+
 /* #6923: the three replaced-by screens share one body (see their entries in SCREENS). */
 function replaced6923(which) {
   return { go: async (page, data) => {
@@ -2154,6 +2187,10 @@ const SCREENS = [
     if (st !== 200) throw new Error('could not close the task after the shot (' + st + ')');
     data.toldTask = null;
   } },
+  /* kosmos#7430: a held task taken off hold on its page, and the hold line saying who gets it next. Each screen adds its
+     own task (nobody on it, or the chat agent on it), holds it, presses Take off hold, and closes the task after. */
+  { name: 'task-unholdnext-7430', owner: 'Baron Draxum', ...unholdNext7430(false) },
+  { name: 'task-unholdkeep-7430', owner: 'Baron Draxum', ...unholdNext7430(true) },
   /* #6923: a task closed as replaced by a later one, and the later one's page. Each screen adds its own pair of tasks,
      closes the first as replaced by the second, opens one of them, and closes both plainly after the shot. */
   { name: 'task-replaced-6923', owner: 'Angel', ...replaced6923('replaced') },
