@@ -32,4 +32,9 @@
 
 ## Reviews
 
-(filled in by the challenge loop)
+Eighteen rounds, alternating Sonnet and Opus; converged at 18 (its three warnings were all decisions recorded above). The largest catches:
+- Round 2: Team Try again could never work (it re-checked names the team had already taken).
+- Round 7: "seen" meant listed, not running (the board lists a just-made agent with no session); hello, the project tell and adoption now use the desktop's boardCanSeeIt.
+- Round 11: New Agent could stay over the Face ID lock once moved above the tabs; it closes on lock, account and computer change.
+- Round 15: the sheet lost the app's ink tint above the tabs (system blue, under AA).
+- Others: project tells (the desktop's, kept by the app), role cautions, the desktop's "has not come up", folder_taken retries, lost creates never re-sent or adopted under another name, VoiceOver for every state.
