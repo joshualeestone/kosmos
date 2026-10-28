@@ -6158,6 +6158,7 @@ cmd_task() {
         [ -z "$_bad" ] || say "Could not close: $_bad."
         if [ -n "$_lost" ]; then
           say_unreached "close task $_lost" "$_lostrc" write
+          say "Task $_lost may have closed anyway: check kosmos task list ${project:-<project-id>} before closing it again."
           [ -z "$_left" ] || say "Not tried, so still open: $_left."
           exit 1
         fi
