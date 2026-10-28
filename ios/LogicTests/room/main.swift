@@ -292,6 +292,10 @@ check(PushBridge.roomOpening(studio, keptAddress: "home.kosmosplus.com") == .boa
 check(PushBridge.roomOpening(studio, keptAddress: nil) == .board(URL(string: "https://studio.kosmosplus.com/?tab=projects&project=springcatalogue")!), "no kept computer: the board's room page")
 check(content.contains("PushBridge.roomOpening(target, keptAddress:"), "ContentView decides through roomOpening")
 
+section("By project's key (kosmos#7421)")
+let firsts = Board.firstProjects(Board.parseProjects(Data(#"{"projects":[{"id":"z","name":"Zeta","agents":[{"sessionName":"a"}]},{"id":"b","name":"beta","agents":[{"sessionName":"a"},{"sessionName":"c"}]}]}"#.utf8)))
+check(firsts["a"] == "beta" && firsts["c"] == "beta" && firsts["z"] == nil, "an agent's first project is its project names A to Z, without case")
+
 section("an agent's notification opens its chat natively (kosmos#7418)")
 // Josh 10-27: a message notification opened the board's old agent page. Every kind the board sends that names an agent
 // (engine/phonenotify.js KINDS: needs_you, replied, ready, and a posted one the extension could not place in a room).

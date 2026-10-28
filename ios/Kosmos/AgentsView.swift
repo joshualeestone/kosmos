@@ -27,14 +27,17 @@ struct AgentsView: View {
 
     // kosmos#7343: the order the list is in, kept on this phone: as the computer orders them (who needs you first), or by
     // name.
-    @AppStorage("kosmos.agentSort") private var agentSort = Board.AgentSort.board.rawValue
+    @AppStorage("kosmos.agentSort") private var agentSort = Board.agentSortDefault.rawValue
+    // kosmos#7421: By project's key, each agent's first project name, read when that order is chosen or the list shows.
+    @State private var projectNames: [String: String] = [:]
+    private var sortChoice: Board.AgentSort { Board.agentSort(saved: agentSort) }
     private var agentSortMenu: some View {
         Menu {
-            Picker("Order", selection: $agentSort) {
+            Picker("Sort agents", selection: Binding(get: { sortChoice.rawValue }, set: { agentSort = $0 })) {
                 ForEach(Board.AgentSort.allCases, id: \.rawValue) { s in Text(Board.agentSortLabel(s)).tag(s.rawValue) }
             }
         } label: { Image(systemName: "arrow.up.arrow.down") }
-        .accessibilityLabel("Order: \(Board.agentSortLabel(Board.AgentSort(rawValue: agentSort) ?? .board))")
+        .accessibilityLabel("Sort agents: \(Board.agentSortLabel(sortChoice))")
     }
 
     var body: some View {
@@ -75,6 +78,8 @@ struct AgentsView: View {
         // Signed out, another account or another Mac: the open chat was the previous one's, so it closes.
         .onChange(of: client.chatEpoch) { _ in openAgent = nil }
         .onChange(of: agentRequest) { _ in openRequested() }
+        // kosmos#7421: By project needs the projects list; read when that order is picked, and again on each visit.
+        .task(id: sortChoice) { if sortChoice == .project { await readProjectNames() } }
         .onAppear {
             visible = true
             client.show(BoardClient.agentsViewer)   // kosmos#7030: Today reads the same list
@@ -97,6 +102,13 @@ struct AgentsView: View {
             if phase == .background { wasBackground = true; client.stop() }
             else if phase == .active && wasBackground { wasBackground = false; client.start(); push.refreshPermission(registerIfAllowed: true) }
         }
+    }
+
+    // kosmos#7421: each agent's first project name, for By project. A read that fails keeps the last answer (agents with no
+    // known project sort last, after the rest, as on the desktop).
+    private func readProjectNames() async {
+        let answer = await client.throughMac { Board.projectsRequest(mac: $0) }
+        if let answer, answer.1.statusCode == 200, let list = Board.parseProjects(answer.0) { projectNames = Board.firstProjects(list) }
     }
 
     // kosmos#7418: a notification's agent opens as a tap on its row would: the list's own entry when it has it (its
@@ -172,7 +184,7 @@ struct AgentsView: View {
                 }
             }
             Section(footer: footer) {
-                ForEach(Board.agentOrder(client.agents, byName: agentSort == Board.AgentSort.name.rawValue)) { agent in
+                ForEach(Board.agentOrder(client.agents, sort: sortChoice, projects: projectNames)) { agent in
                     // kosmos#7008: the agent's chat, native; anything it does not draw opens the board's (openChat).
                     Button {
                         openAgent = agent
