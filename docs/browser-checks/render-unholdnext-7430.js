@@ -169,8 +169,8 @@ function chk(ok, label, extra) {
       await settle(page);
       await page.unroute('**/task/7/hold');
       chk(tasks.whoOf(stored(p.id, 7)).includes('ada'), `${tag} Ada was put on task 7 between the answer and the reload (the premise)`);
-      await page.waitForFunction(() => document.getElementById('tk-hold-msg').textContent === '' && document.getElementById('tk-hold-choose-row').hidden, null, { timeout: 7000 }).catch(() => {});
-      chk(await text(page, '#tk-hold-msg') === '' && !(await rowShown()), `${tag} a hand-out before the reload still takes the line down within a repaint`, JSON.stringify([await text(page, '#tk-hold-msg'), await rowShown()]));
+      // Review 5: read at once, before any repaint: the stale sentence is never shown, not shown then taken down.
+      chk(await text(page, '#tk-hold-msg') === '' && !(await rowShown()), `${tag} a hand-out before the reload: the stale line is never shown`, JSON.stringify([await text(page, '#tk-hold-msg'), await rowShown()]));
 
       // Review 4: a two-part task (Ada on one part, nobody on the other): the route's raw task and the board's copy of it
       // must read the same, so the line survives a repaint when nothing changed.

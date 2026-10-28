@@ -71023,6 +71023,10 @@ function tkHoldChooseShow(on) {
 function tkHoldSayNext(key, next, t) {
   const msg = document.getElementById('tk-hold-msg');
   if (!msg || msg.dataset.task !== key || PJ_CURRENT + '#' + TK_OPEN !== key) return;
+  // Review 5: the page has already reloaded; if the task changed since the route answered, the sentence is stale now.
+  const p = pjById(PJ_CURRENT);
+  const shown = p && (p.tasks || []).find((x) => String(x.number) === String(TK_OPEN));
+  if (shown && tkHoldNextSig(shown) !== tkHoldNextSig(t)) return;
   const ask = next.endsWith(TK_HOLD_ASSIGN);
   msg.textContent = ask ? next.slice(0, -TK_HOLD_ASSIGN.length) : next;
   msg.dataset.nextSig = tkHoldNextSig(t);
