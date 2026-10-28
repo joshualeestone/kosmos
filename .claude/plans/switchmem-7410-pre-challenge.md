@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: switchmem-7410
-diff_hash: d10035e68cba328cb3d9067ccb8f067d26303d0f10a05a2641743f4d70f33f06
-validation: switchmem 31/31, switch-family 6/6, policy tests green on Windows; setProvider's own tests need schtasks, CI is the real check
+diff_hash: d2d0c1c345eb7c8c9123b7572b9f7e0740042d29af0b0848671125374f1575b1
+validation: switchmem 31/31, switch-family 6/6, policy tests green on Windows; CI fixes: spoken-name class guard, change-dialog 3/3, block-delivery 14 of 14; setProvider's own tests need schtasks, CI is the real check
 subdir_audit: passed
-timestamp: 2026-10-28T03:52:45Z
+timestamp: 2026-10-28T04:29:05Z
 iterations: 8
 converged: true
 ---
