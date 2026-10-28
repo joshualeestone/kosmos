@@ -10,6 +10,8 @@ Follow-up from #7492's review round 4 (Baron). Not a defect today: all 71 consta
 - The scan runs over a copy with string and char contents blanked and comments dropped (blankCSharpLiterals, a small
   tokenizer; a regex over the whole file cannot, as a '"' char literal or a quote in a comment opens a false string), so
   a ; or comma inside a value cannot hide a later name, and a declaration in a comment is not counted.
+- The value pattern reads the source with comments dropped (strings kept), so a commented-out old value cannot stand
+  in for a live declaration of the same name.
 - Controls: each unreadable form planted in a copy of the source is named exactly (verbatim, interpolated, reference,
   spacing, String, System.String, a second name, a second name after a ; in a value); a readable value holding a ; and
   a comma is read, not flagged; a declaration in a comment is not flagged.
@@ -18,8 +20,10 @@ Follow-up from #7492's review round 4 (Baron). Not a defect today: all 71 consta
 - Teaching the value pattern those forms now: nothing uses them, and the card asks only that they not be skipped.
 
 ## Weakest premise
-blankCSharpLiterals models only the literal and comment forms named above, not C# 11 raw string literals (three or more
-quotes). One of those in the launcher could desynchronise the scan and hide a later declaration from the count.
+blankCSharpLiterals models only the literal and comment forms named above: not C# 11 raw string literals (three or more
+quotes), and not quotes inside an interpolation hole ($"{(f ? "a" : "b")}"; an odd number there desynchronises). Review
+3 added the guard for that: the real file must declare as many names as the value pattern reads, so a scan that loses
+part of the file goes red rather than passing.
 
 ## Proof
 - tools.win-launcher-native.test.js: the planted forms are named; mutation (uncollected always empty) reds it, naming
