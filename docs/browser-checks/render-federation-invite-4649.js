@@ -285,6 +285,8 @@ function initStub(cfg) {
     if (/\/api\/you(\?|$)/.test(u) && window.__you) return enc(200, Object.assign({ ok: true, agents: window.__agents }, window.__fed, { you: window.__you }));
     if (u.includes('/api/remote/computers') && window.__computers) return enc(200, window.__computers);   // C2's planted address
     if (/\/api\/projects(\?|$)/.test(u) && method === 'GET') return enc(200, { ok: true, projects: [window.__project] });
+    // kosmos#7365 slice 2: the room's read is answered as a room (no rows), so the room does not say it could not be read.
+    if (/\/api\/project\/[^/]+\/room(\?|$)/.test(u) && method === 'GET') return enc(200, { ok: true, rows: [], olderCount: 0, olderCursor: null });
     return enc(200, Object.assign({ ok: true, agents: window.__agents }, window.__fed));
   };
   try {
