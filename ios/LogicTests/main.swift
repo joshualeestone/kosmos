@@ -4548,8 +4548,12 @@ do {
         check(Board.pill(q(a("needs_you")) { $0.awaitingApproval = true }) == .asks, "a permission waiting is blue")
         check(Board.pill(a("needs_you")) == .problem, "CONTROL: a plain needs_you (the board's Issue) is a real problem, red")
         check(Board.pill(a("idle", running: false, trust: true)) == .asks, "a trust prompt is the person's to answer: blue")
-        check(Board.pill(a("rate_limited")) == .held && Board.pill(a("blocked")) == .held && Board.pill(a("restarting", running: false)) == .held,
-              "rate limited, waiting and restarting are amber: held by something outside the agent")
+        check(Board.pill(a("rate_limited")) == .held && Board.pill(a("restarting", running: false)) == .held,
+              "rate limited and restarting are amber: held by something outside the agent")
+        // kosmos#7342 (Josh 10-28 09:34): "Waiting" told him nothing: a blocked agent shows no pill, as an idle one does,
+        // unless it needs him (then the red pill, from needsYou).
+        check(Board.pill(a("blocked")) == nil, "a blocked agent shows no Waiting pill")
+        check(Board.pill(Board.Agent(session: "x", name: "x", role: nil, state: "blocked", task: nil, needsYou: true)) == .problem, "CONTROL: a blocked agent that needs him still shows the red pill")
         check(Board.pill(a("idle", running: false)) == .problem && Board.pill(a("stopped")) == .problem, "not running is red")
         check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true }) == .cantTell, "a job Kosmos cannot see is grey, not red")
         check(Board.pill(q(a("working")) { $0.crashLooping = true }) == .problem, "a crash loop is red")
@@ -4568,7 +4572,18 @@ do {
                   "a field reads as the Mac's Boolean() reads it")
             check(Board.noticeCount(Board.Agent(session: "x", name: "x", role: nil, state: "idle", task: nil, needsYou: false)) == 0,
                   "CONTROL: an agent with nothing waiting shows no count")
-            check(Board.noticeWords(3) == "3 waiting" && Board.noticeWords(0) == nil, "VoiceOver hears the count, never a zero")
+            check(Board.noticeWords(3) == "3 notifications" && Board.noticeWords(1) == "1 notification" && Board.noticeWords(0) == nil,
+                  "VoiceOver hears the count as notifications (Mona Lisa, #7342), never a zero")
+            // kosmos#7342 (Mona Lisa): the bubble's number in full to 99, then 99+; nothing at 0.
+            check(Board.noticeBubbleText(0) == nil && Board.noticeBubbleText(7) == "7" && Board.noticeBubbleText(99) == "99" && Board.noticeBubbleText(100) == "99+",
+                  "the bubble shows 1 to 99 in full, then 99+ (never 9+)")
+            // kosmos#7342: the Agents tab is the rows' bubbles added up, so the rows always explain it; off is none.
+            let rowsA = [Board.Agent(session: "a", name: "A", role: nil, state: "idle", task: nil, needsYou: true),
+                         Board.Agent(session: "b", name: "B", role: nil, state: "idle", task: nil, needsYou: false)]
+            let sum = rowsA.reduce(0) { $0 + Board.noticeCount($1) }
+            check(Board.agentsTabBadge(waiting: 292, agents: rowsA) == sum && sum == 1,
+                  "the Agents tab is the sum of its rows' counts, not the Mac's total (292 was all project-room posts)")
+            check(Board.agentsTabBadge(waiting: nil, agents: rowsA) == 0, "with the count switched off, no Agents badge")
             let seen = Board.dmSeenRequest(mac: URL(string: "https://studio.kosmosplus.com")!, session: "dana")
             check(seen?.httpMethod == "POST" && seen?.url?.path == "/api/agent/dana/seen", "opening the chat moves the board's read cursor (server.js dmSeen)")
             check(Board.dmSeenRequest(mac: URL(string: "https://studio.kosmosplus.com")!, session: "../x") == nil, "CONTROL: a name the board would refuse is never sent")

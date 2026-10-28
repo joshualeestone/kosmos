@@ -60,9 +60,16 @@ struct SettingsView: View {
                 // near-white on a white knob in dark. The system green is what the 19 Oct design drew (p6-settings).
                 .tint(Color(UIColor.systemGreen))
                 .background(Palette.ground.ignoresSafeArea())
-                .navigationTitle("Settings")
-                .navigationBarTitleDisplayMode(.inline)   // kosmos#7343: no big title (the tab bar names the screen)
-                .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
+                // kosmos#7487 (Josh 10-28 09:36): no "Settings" title at all (only the Settings tab leads here), so no bar;
+                // the profile picture is the first thing, at the top of the safe area. kosmos#7346 still holds: a solid
+                // strip of ground behind the status bar, so no row shows through it, and the same soft fade below it.
+                .toolbar(.hidden, for: .navigationBar)
+                .overlay(alignment: .top) {
+                    Color.clear.frame(height: 0)
+                        .background(Palette.ground.ignoresSafeArea(edges: .top))
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
+                .kosmosTopFade()
                 .refreshable { await read() }
                 .onAppear {
                     #if DEBUG
