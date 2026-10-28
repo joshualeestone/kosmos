@@ -2727,8 +2727,12 @@ function taskMessageRefusal(now = Date.now()) {
     pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: TASK_MSG_CAP_PER_HOUR });
   return r && { because: r.because, retryAfterSecs: r.retryAfterSecs };
 }
-function taskMessageValveRecord() {
-  taskMessageSends.push(Date.now());
+/* #7408 review 3: `count` is how many agents the message reaches beyond its assignees plus one, so a message naming
+   agents with `to` spends the limit per agent it adds (a looping sender reaches no more agents through `to` than the
+   limit allows). It is checked before sending as one, so one message may pass the limit by at most its own `to` list. */
+function taskMessageValveRecord(count = 1) {
+  const now = Date.now();
+  for (let i = 0; i < count; i += 1) taskMessageSends.push(now);
 }
 
 /* #3951 (review round 5): the built route's own breaker, the same runaway breaker as task messages and parts (#4019,
@@ -24597,15 +24601,11 @@ const server = http.createServer(async (req, res) => {
         /* #7408: `to` names agents to tell besides the assignees (a ruling on a task nobody holds reached nobody). Checked
            whole before anything is recorded: a list of 1 to 10 names, each an agent on this project (its reply into the
            task would be refused otherwise). Matched exactly, else by store key when exactly one agent on it has that key
-           (an agent stored under its key, as `task assign` names one; review 2). A sender the board cannot name (no
-           token, no pane it knows) may not use it: that would widen an unnamed sender from the assignees to the whole
-           project (review 2). */
+           (an agent stored under its key, as `task assign` names one; review 2). Any sender may use it, the person at a
+           terminal included (no token, no pane the board knows: the card's own case, review 3); what bounds a looping
+           sender is the limit below, which counts every agent `to` adds (taskMessageValveRecord). */
         let toNames = [];
         if (body.to !== undefined) {
-          if (!viaScreen && !senderCard) {
-            sendJson(res, 403, { error: 'Kosmos could not tell which agent is sending, so it cannot tell others for it; that message was not recorded. Send it from an agent with its own Kosmos token' });
-            return;
-          }
           const list = body.to;
           if (!Array.isArray(list) || list.length < 1 || list.length > TASK_MESSAGE_TO_MAX
             || list.some((n) => typeof n !== 'string' || !n.trim() || n.length > 64)) {
@@ -24613,16 +24613,23 @@ const server = http.createServer(async (req, res) => {
             return;
           }
           if (unreadable) { sendJson(res, 503, { error: 'we could not read the projects, so that message was not recorded' }); return; }
-          const agentsOn = (memberRecord && Array.isArray(memberRecord.agents)) ? memberRecord.agents : [];
+          // Review 3: no project record, so no name can be checked: refused, never dropped in silence.
+          if (!memberRecord) { sendJson(res, 404, { error: 'there is no project by that name, so that message was not recorded' }); return; }
+          const agentsOn = Array.isArray(memberRecord.agents) ? memberRecord.agents : [];
           const notOn = [];
+          const twoWays = [];
           for (const n of list) {
             const keyed = agentsOn.filter((a) => sameAgentName(a, n.trim(), true));
             const hit = agentsOn.find((a) => sameAgentName(a, n.trim(), false)) || (keyed.length === 1 ? keyed[0] : null);
-            if (!hit) notOn.push(n.trim());
+            if (!hit) (keyed.length > 1 ? twoWays : notOn).push(n.trim());
             else if (!toNames.includes(hit)) toNames.push(hit);
           }
-          if (notOn.length && memberRecord) {
-            const plainName = (x) => String(x).replace(/[\u0000-\u001f\u007f"\\]/g, ' ');
+          const plainName = (x) => String(x).replace(/[\u0000-\u001f\u007f"\\]/g, ' ');
+          if (twoWays.length) {   // review 3: two agents on it share that name's key, so say which is meant
+            sendJson(res, 400, { error: twoWays.map(plainName).join(', ') + ' could be more than one agent on this project, so that message was not recorded. Use the exact name' });
+            return;
+          }
+          if (notOn.length) {
             sendJson(res, 400, { error: notOn.map(plainName).join(', ') + (notOn.length > 1 ? ' are' : ' is') + ' not on this project, so that message was not recorded. Name agents on the project, or add them to it first' });
             return;
           }
@@ -24725,7 +24732,7 @@ const server = http.createServer(async (req, res) => {
             ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}),
             ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) });
         }
-        if (!viaScreen) taskMessageValveRecord();
+        if (!viaScreen) taskMessageValveRecord(1 + (named.length - assignees.length));   // #7408 review 3: per agent `to` adds
         const finalWord = !viaScreen && senderCard ? taskFinalWordHint(t, senderCard.sessionName, id, byKey) : '';   // #6066
         sendJson(res, 200, { ok: true, delivered, ...(body.to !== undefined ? { to: toNames } : {}),
           // #7408 review 1: a sender that named only itself on a task nobody holds hears "Nobody is assigned", not "Nobody else".
@@ -27947,6 +27954,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
   taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
+  taskMessageSendCountForTests: () => taskMessageSends.filter((t) => t >= Date.now() - TASK_MSG_WINDOW_MS).length,   // #7408 review 3
   setBuiltTellWaitForTests, // #6330: how long one built line may hold the answer (test seam)
   get taskMessageSendCount() { return taskMessageSends.length; }, // #6330: lines on the task-message valve (tests read the change)
   resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests

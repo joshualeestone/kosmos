@@ -243,10 +243,36 @@ test('#7408 review 2: an agent stored under its key is found by its name, and a 
   } finally {
     projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'icecreamkitty') }));
   }
+});
+
+test('#7408 review 3: a sender the board cannot name (the person at a terminal) may use to, and each agent it adds spends the limit', async () => {
+  const { taskMessageSendCountForTests } = require('./server');
   const m = make('unnamed');
-  const before = said(m).length;
-  const u = await post(m, { text: 'from nobody', to: ['otto'] }, null);
-  assert.equal(u.status, 403, 'an unnamed sender may not name agents');
-  assert.match((await u.json()).error, /could not tell which agent is sending/);
-  assert.equal(said(m).length, before, 'nothing recorded');
+  const c0 = taskMessageSendCountForTests();
+  const u = await post(m, { text: 'from the terminal', to: ['otto'] }, null);
+  const j = await u.json();
+  assert.equal(u.status, 200, JSON.stringify(j));
+  assert.deepEqual(j.delivered.map((x) => x.agent), ['otto'], 'otto reached');
+  assert.equal(taskMessageSendCountForTests() - c0, 2, 'the message, plus otto whom to added');
+  // CONTROL: the same message to an assignee through to adds nobody, so it counts once.
+  const a = make('assigned-to', 'otto');
+  const c1 = taskMessageSendCountForTests();
+  assert.equal((await post(a, { text: 'already his', to: ['otto'] })).status, 200);
+  assert.equal(taskMessageSendCountForTests() - c1, 1, 'an assignee named again costs nothing more');
+});
+
+test('#7408 review 3: a name that could be two agents is refused as such; a project that does not exist is refused, never dropped', async () => {
+  projects.mutate(projectId, (p) => ({ ...p, agents: [...p.agents, 'Ice Cream', 'icecream'] }));
+  try {
+    const n = make('twoways');
+    const before = said(n).length;
+    const r = await post(n, { text: 'which', to: ['ICECREAM'] });
+    assert.equal(r.status, 400);
+    assert.match((await r.json()).error, /could be more than one agent on this project/);
+    assert.equal(said(n).length, before, 'nothing recorded');
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'Ice Cream' && a !== 'icecream') }));
+  }
+  const gone = await fetch(`${base}/api/project/no-such-project-7408/task/1/message`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': token('mara') }, body: JSON.stringify({ text: 'x', to: ['otto'] }) });
+  assert.equal(gone.status, 404);
 });
