@@ -399,6 +399,7 @@ test('#7430: the unhold sentence names an agent by its name, as Who is on it doe
   const dir = path.join(fleet.workersRoot(), 'otto');
   const file = path.join(dir, 'CLAUDE.md');
   const had = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  const madeDir = !fs.existsSync(dir);
   let reads = 0;
   const rosterOf = () => { reads += 1; return []; };
   const k = make('kept, named', 'otto');
@@ -420,6 +421,7 @@ test('#7430: the unhold sentence names an agent by its name, as Who is on it doe
     assert.match(unholdNext(projectId, taskOf(root), () => null), /^Nobody is on it\. It is part of work Otto Brandt is doing on its subtasks/);
   } finally {
     if (had === null) fs.rmSync(file, { force: true }); else fs.writeFileSync(file, had);
+    if (madeDir) fs.rmSync(dir, { recursive: true, force: true });   // review 7: leave no folder behind
   }
 });
 

@@ -77,6 +77,8 @@ function chk(ok, label, extra) {
       tasks.create(p.id, { sentence: 'Ship the crates' });                  // 7: nobody on it, held, given out before the page reloads
       tasks.create(p.id, { sentence: 'Load the van', who: 'ada' });        // 8: two parts, Ada on one, nobody on the other, held
       tasks.addPart(p.id, 8, { sentence: 'the second trip' });
+      tasks.create(p.id, { sentence: 'Book the forklift' });               // 9: nobody on it, held, the project paused under it
+      tasks.create(p.id, { sentence: 'Return the pallets' });              // 10: nobody on it, held, the page left and reopened
       tasks.setOnHold(p.id, 1, true, { viaScreen: true });
       tasks.setOnHold(p.id, 2, true, { viaScreen: true });
       tasks.setOnHold(p.id, 4, true, { viaScreen: true });
@@ -84,6 +86,8 @@ function chk(ok, label, extra) {
       tasks.setOnHold(p.id, 6, true, { viaScreen: true });
       tasks.setOnHold(p.id, 7, true, { viaScreen: true });
       tasks.setOnHold(p.id, 8, true, { viaScreen: true });
+      tasks.setOnHold(p.id, 9, true, { viaScreen: true });
+      tasks.setOnHold(p.id, 10, true, { viaScreen: true });
       const phone = width < 600;   // the phone pass is a touch screen, where the page's tap targets grow to 44 px
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, hasTouch: phone, isMobile: phone });
       const errs = [];
@@ -183,6 +187,34 @@ function chk(ok, label, extra) {
         `${tag} a two-part task says the route's sentence (the premise)`, JSON.stringify([want8, await text(page, '#tk-hold-msg')]));
       await page.waitForTimeout(5600);   // one five-second repaint
       chk(await text(page, '#tk-hold-msg') === want8, `${tag} the two-part task's line survives the repaint`, await text(page, '#tk-hold-msg'));
+      // Review 7: that sentence asks a person to assign the free part, so it offers Choose who too, on that part.
+      chk(await rowShown(), `${tag} a free part beside a held one offers Choose who`, await text(page, '#tk-hold-msg'));
+      await page.click('#tk-hold-choose');
+      const sel8 = await page.waitForSelector('#tk-who .tkwho-sel', { timeout: 4000 }).catch(() => null);
+      const onFree = sel8 && await page.evaluate(() => { const row = document.querySelector('#tk-who .tkwho-sel').closest('.tkpart'); return row && row.dataset.part; });
+      chk(!!sel8 && onFree === String(tasks.partsOf(stored(p.id, 8)).find((x) => !x.who).id), `${tag} Choose who opens the picker on the free part, not Ada's`, JSON.stringify(onFree));
+      await page.keyboard.press('Escape');
+
+      // Review 7: the project is paused under a line that promises a hand-out: the line goes within a repaint.
+      await openTask(page, p.id, 9);
+      await page.click('#tk-hold');
+      await settle(page);
+      await page.waitForSelector('#tk-hold-choose-row:not([hidden])', { timeout: 6000 }).catch(() => {});
+      chk(/^Nobody is on it, so Kosmos will give it to Ada/.test(await text(page, '#tk-hold-msg')), `${tag} task 9 promises a hand-out (the premise)`, await text(page, '#tk-hold-msg'));
+      projects.mutate(p.id, (q) => ({ ...q, paused: true }));
+      await page.waitForFunction(() => document.getElementById('tk-hold-msg').textContent === '' && document.getElementById('tk-hold-choose-row').hidden, null, { timeout: 7000 }).catch(() => {});
+      chk(await text(page, '#tk-hold-msg') === '' && !(await rowShown()), `${tag} pausing the project takes the promise down within a repaint`, JSON.stringify([await text(page, '#tk-hold-msg'), await rowShown()]));
+      projects.mutate(p.id, (q) => { const r = { ...q }; delete r.paused; return r; });
+
+      // Review 7: leaving the task page ends the line; coming back shows no line.
+      await openTask(page, p.id, 10);
+      await page.click('#tk-hold');
+      await settle(page);
+      await page.waitForSelector('#tk-hold-choose-row:not([hidden])', { timeout: 6000 }).catch(() => {});
+      chk(await rowShown(), `${tag} task 10 shows its unhold line (the premise)`, await text(page, '#tk-hold-msg'));
+      await page.evaluate(() => leaveTaskPage());
+      await openTask(page, p.id, 10);
+      chk(await text(page, '#tk-hold-msg') === '' && !(await rowShown()), `${tag} after leaving the task page, coming back shows no unhold line`, JSON.stringify([await text(page, '#tk-hold-msg'), await rowShown()]));
 
       // The control: Ada is on task 2, so it stays with her and nothing asks for a choice.
       await openTask(page, p.id, 2);

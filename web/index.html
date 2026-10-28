@@ -69735,7 +69735,7 @@ function paintTaskPage() {
   { const hm = document.getElementById('tk-hold-msg');
     if (hm && hm.dataset.task !== p.id + '#' + t.number) { hm.textContent = ''; delete hm.dataset.nextSig; tkHoldChooseShow(false); }
     // kosmos#7430: the unhold line goes when tkHoldNextSig no longer matches the one recorded with it.
-    else if (hm && hm.dataset.nextSig && hm.dataset.nextSig !== tkHoldNextSig(t)) { hm.textContent = ''; delete hm.dataset.nextSig; tkHoldChooseShow(false); } }
+    else if (hm && hm.dataset.nextSig && hm.dataset.nextSig !== tkHoldNextSig(t, p)) { hm.textContent = ''; delete hm.dataset.nextSig; tkHoldChooseShow(false); } }
   const hold = document.getElementById('tk-hold');
   if (hold) hold.textContent = t.onHold === true ? 'Take off hold' : 'Put on hold';
   // A finished task has nothing to hold: no control, no hint.
@@ -70467,6 +70467,7 @@ window.addEventListener('focus', tkTabReturn);
 function leaveTaskPage() {
   const was = TK_OPEN;
   TK_OPEN = null;
+  tkHoldLineClear();   // kosmos#7430 review 7: an unhold line lives only while its task page is open
   pjView('one');
   // Back to the card that opened it; after a done/reopen repaint the card may
   // have left the column, and then New task is the stable landing.
@@ -71006,19 +71007,29 @@ function tkHoldSay(key, words) {
   const msg = document.getElementById('tk-hold-msg');
   if (msg && msg.dataset.task === key && PJ_CURRENT + '#' + TK_OPEN === key) { msg.textContent = words; delete msg.dataset.nextSig; tkHoldChooseShow(false); }
 }
-/* kosmos#7430: the unhold route's `next` sentence (#7407), shown where the hold words appear. When it ends by asking a
-   person to choose (TK_HOLD_ASSIGN, the route's own words), that ask becomes the Choose who row under it, which opens
-   the picker on the task's open part nobody is on. The repaint takes the line down when tkHoldNextSig differs from the
-   one recorded when it was shown. */
+/* kosmos#7430: the unhold route's `next` sentence (#7407), shown where the hold words appear, with a Choose who row under
+   it when a person is asked to pick (the route's closing ask, or a free part beside a held one: review 7). Choose who
+   opens the picker on the task's open part nobody is on. The repaint takes the line down when tkHoldNextSig differs
+   from the one recorded when it was shown, and leaving the task page takes it down too (review 7). */
 const TK_HOLD_ASSIGN = ' To choose who, assign it now.';
-function tkHoldNextSig(t) {
-  const parts = Array.isArray(t.parts) && t.parts.length ? t.parts : [{ who: t.who || null, closedAt: t.closedAt || null }];
+function tkHoldParts(t) {
+  return Array.isArray(t.parts) && t.parts.length ? t.parts : [{ who: t.who || null, closedAt: t.closedAt || null }];
+}
+function tkHoldNextSig(t, p) {
+  const parts = tkHoldParts(t);
   const closed = t.progress ? t.progress.closed === true : Boolean(t.closedAt);   // review 3: a task closed under the line
-  return (closed ? 'closed' : t.onHold === true ? 'held' : 'open') + '|' + parts.filter((x) => !x.closedAt).map((x) => x.who || '').join(',');
+  // Review 7: the sentence promises what the project will do, so its pause and its members are part of what it read.
+  const proj = p ? (p.paused === true ? 'paused' : 'live') + ':' + (p.agents || []).map((a) => (a && a.sessionName) || a).join(',') : '';
+  return (closed ? 'closed' : t.onHold === true ? 'held' : 'open') + '|' + parts.filter((x) => !x.closedAt).map((x) => x.who || '').join(',') + '|' + proj;
 }
 function tkHoldChooseShow(on) {
   const row = document.getElementById('tk-hold-choose-row');
   if (row) row.hidden = !on;
+}
+function tkHoldLineClear() {
+  const msg = document.getElementById('tk-hold-msg');
+  if (msg && msg.dataset.nextSig) { msg.textContent = ''; delete msg.dataset.nextSig; }
+  tkHoldChooseShow(false);
 }
 function tkHoldSayNext(key, next, t) {
   const msg = document.getElementById('tk-hold-msg');
@@ -71026,11 +71037,13 @@ function tkHoldSayNext(key, next, t) {
   // Review 5: the page has already reloaded; if the task changed since the route answered, the sentence is stale now.
   const p = pjById(PJ_CURRENT);
   const shown = p && (p.tasks || []).find((x) => String(x.number) === String(TK_OPEN));
-  if (shown && tkHoldNextSig(shown) !== tkHoldNextSig(t)) return;
+  if (shown && tkHoldNextSig(shown, p) !== tkHoldNextSig(t, p)) return;
   const ask = next.endsWith(TK_HOLD_ASSIGN);
+  const open = tkHoldParts(t).filter((x) => !x.closedAt);
+  const looseBesideHeld = open.some((x) => x.who) && open.some((x) => !x.who);   // review 7: "waits for a person to assign it"
   msg.textContent = ask ? next.slice(0, -TK_HOLD_ASSIGN.length) : next;
-  msg.dataset.nextSig = tkHoldNextSig(t);
-  tkHoldChooseShow(ask);
+  msg.dataset.nextSig = tkHoldNextSig(t, p);
+  tkHoldChooseShow(ask || looseBesideHeld);
 }
 document.getElementById('tk-hold-choose').addEventListener('click', () => {
   // Review 6: with nobody on the project the picker has no one to offer; say where people come from, here in the line.
@@ -71043,7 +71056,7 @@ document.getElementById('tk-hold-choose').addEventListener('click', () => {
   }
   const pick = document.querySelector('#tk-who .tkpart:not(.done) [data-pick-nobody]');
   if (pick) { pick.click(); return; }
-  // Review 2: no open part is free any more, so the line is stale: take it down rather than leave a button that does nothing.
+  // Review 2: no free part's button was found; take the line down rather than leave a button that does nothing.
   const msg = document.getElementById('tk-hold-msg');
   if (msg) { msg.textContent = ''; delete msg.dataset.nextSig; }
   tkHoldChooseShow(false);
