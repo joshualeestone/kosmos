@@ -93,7 +93,7 @@ test('#2988 its host gone, through the REAL exitWhenParentGone (the watch it rep
   assert.match(lines(dir)[1], /board exited pid=111 code=0: its host process \(pid 222\) was gone$/);
 });
 
-for (const sig of watch.SIGNALS) {
+for (const sig of ['SIGHUP', 'SIGINT', 'SIGBREAK', 'SIGTERM']) {
   test('#2988 a console signal (' + sig + ') is recorded and exits with the conventional code', () => {
     const dir = scratch('sig');
     const p = fakeProc(111, 222);
@@ -262,8 +262,7 @@ test('#2988 every gate open: it /Runs the board task once, after a second look a
   assert.equal(r.action, 'started', JSON.stringify(r));
   assert.equal(d.ran, 1);
   assert.deepEqual(looks, [9, 9], 'two looks at this account\'s port');
-  assert.deepEqual(d.slept, [watch.SECOND_LOOK_AFTER_MS]);
-  assert.ok(watch.SECOND_LOOK_AFTER_MS >= 2000 && watch.SECOND_LOOK_AFTER_MS <= 10000, 'a few seconds');
+  assert.deepEqual(d.slept, [5000], 'a few seconds between the two looks');
   assert.deepEqual(lines(dir), ['2026-10-28T12:05:00.000Z board was not answering; started it. No exit was recorded, so it was killed or crashed hard']);
 });
 
@@ -368,11 +367,11 @@ test('#2988 an exit line rotated aside (board.log.1) is still found', async () =
   assert.match(lines(dir)[0], /The last exit recorded: exited pid=11 code=130: a console signal \(SIGINT\)/);
 });
 
-test('#2988 lines that are not the board\'s own (an agent sharing the name) are never taken for an exit', () => {
+test('#2988 lines that are not the board\'s own (an agent sharing the name) are never taken for an exit', async () => {
   const dir = scratch('foreign');
-  const file = path.join(dir, 'board.log');
-  fs.writeFileSync(file, '2026-10-28T11:00:00.000Z board started pid=11 parent=21\nturn-failed: board exited pid=4 code=1\n');
-  assert.equal(watch.lastExitSinceStart(file), null);
+  fs.writeFileSync(path.join(dir, 'board.log'), '2026-10-28T11:00:00.000Z board started pid=11 parent=21\nturn-failed: board exited pid=4 code=1\n');
+  await runWith(dir, deps());
+  assert.match(lines(dir)[2], /started it\. No exit was recorded, so it was killed or crashed hard$/);
 });
 
 // ── the crash-loop guard (round 1) ──────────────────────────────────────────
@@ -435,11 +434,13 @@ test('#2988 round 1: a torn guard file starts fresh rather than holding a back-o
 
 // ── the port the watchdog asks ──────────────────────────────────────────────
 
-test('#2988 the port is the launcher\'s: PORT when usable, the default otherwise', () => {
-  assert.equal(watch.boardPortFrom({}), 16180);
-  assert.equal(watch.boardPortFrom({ PORT: '17001' }), 17001);
-  assert.equal(watch.boardPortFrom({ PORT: 'nope' }), 16180);
-  assert.equal(watch.boardPortFrom({ PORT: '70000' }), 16180);
+test('#2988 the port is the launcher\'s: PORT when usable, the default otherwise', async () => {
+  for (const [env, want] of [[{}, 16180], [{ PORT: '17001' }, 17001], [{ PORT: 'nope' }, 16180], [{ PORT: '70000' }, 16180]]) {
+    const asked = [];
+    const d = deps({ look: async (port) => { asked.push(port); return { silent: false }; } });
+    await watch.watchdogRun({ logDir: scratch('port'), env, deps: d });
+    assert.deepEqual(asked, [want], JSON.stringify(env));
+  }
 });
 
 // ── 3. "no update in flight", through the updater's own readers ─────────────
@@ -470,15 +471,17 @@ function rewrite(c, change) {
   fs.writeFileSync(c.journal, JSON.stringify({ ...j, ...change }, null, 2));
 }
 /* The watchdog with every other gate open, and the REAL update check for this install. */
-function realUpdateDeps(c) {
-  return deps({ updateInFlight: () => watch.updateInFlight({ anchorDir: c.anchor, root: c.root, lockHooks: { processImage: null } }) });
+function realUpdateDeps() {
+  const d = deps();
+  delete d.updateInFlight;   // the watchdog's own default: win32apply.readJournal and win32update.lockHeldNow
+  return d;
 }
+const realRun = (c, d) => runWith(scratch('log'), d, { anchorDir: c.anchor, root: c.root });
 
 test('#2988 no journal and no lock: no update in flight, so a silent board is started', async () => {
   const c = install();
-  assert.deepEqual(watch.updateInFlight({ anchorDir: c.anchor, root: c.root }), { inFlight: false });
   const d = realUpdateDeps(c);
-  assert.equal((await runWith(scratch('log'), d)).action, 'started');
+  assert.equal((await realRun(c, d)).action, 'started');
   assert.equal(d.ran, 1);
 });
 
@@ -489,7 +492,7 @@ for (const phase of win32apply.PHASES) {
     rewrite(c, { phase });
     assert.equal(win32apply.readJournal(c.journal).state, 'unfinished', 'the journal is one the updater itself reads as unfinished');
     const d = realUpdateDeps(c);
-    const r = await runWith(scratch('log'), d);
+    const r = await realRun(c, d);
     assert.equal(r.action, 'left');
     assert.match(r.why, /an update has not finished/);
     assert.equal(d.ran, 0);
@@ -501,14 +504,14 @@ test('#2988 a finished journal is no update in flight', async () => {
   stage(c);
   rewrite(c, { phase: 'confirmed', finished: true, outcome: 'updated' });
   const d = realUpdateDeps(c);
-  assert.equal((await runWith(scratch('log'), d)).action, 'started');
+  assert.equal((await realRun(c, d)).action, 'started');
 });
 
 test('#2988 a journal that cannot be read is a doubt, and a doubt starts nothing', async () => {
   const c = install();
   fs.writeFileSync(c.journal, '{ torn');
   const d = realUpdateDeps(c);
-  const r = await runWith(scratch('log'), d);
+  const r = await realRun(c, d);
   assert.equal(r.action, 'left');
   assert.equal(d.ran, 0);
 });
@@ -519,7 +522,7 @@ test('#2988 the update lock held by a LIVE owner (the updater\'s own takeLock) s
   const text = win32update.takeLock(c.lock, () => {}, { processImage: null });
   try {
     const d = realUpdateDeps(c);
-    const r = await runWith(scratch('log'), d);
+    const r = await realRun(c, d);
     assert.equal(r.action, 'left');
     assert.match(r.why, /the update lock is held/);
     assert.equal(d.ran, 0);
@@ -530,7 +533,7 @@ test('#2988 the update lock held by a LIVE owner (the updater\'s own takeLock) s
   const gone = cp.spawnSync(process.execPath, ['-e', '0']).pid;
   fs.writeFileSync(c.lock, JSON.stringify({ pid: gone, at: Date.now(), token: 'x' }));
   const d2 = realUpdateDeps(c);
-  assert.equal((await runWith(scratch('log'), d2)).action, 'started');
+  assert.equal((await realRun(c, d2)).action, 'started');
 });
 
 test('#2988 a lock left beside a FINISHED journal is still the updater\'s, and still holds', async () => {
@@ -540,7 +543,7 @@ test('#2988 a lock left beside a FINISHED journal is still the updater\'s, and s
   const text = win32update.takeLock(c.lock, () => {}, { processImage: null });
   try {
     const d = realUpdateDeps(c);
-    assert.equal((await runWith(scratch('log'), d)).action, 'left');
+    assert.equal((await realRun(c, d)).action, 'left');
     assert.equal(d.ran, 0);
   } finally {
     win32update.releaseLock(c.lock, text, () => {});
@@ -549,6 +552,8 @@ test('#2988 a lock left beside a FINISHED journal is still the updater\'s, and s
 
 // ── 4. the shim the watchdog task runs ──────────────────────────────────────
 
+/* The engine file the shim loads: this module's own name, which the shim must spell the same. */
+const ENGINE_FILE = 'win32boardwatch.js';
 /* An anchor folder with the real shim, a pointer, and an engine whose watchdog records that it ran. */
 function shimSetup() {
   const dir = scratch('shim');
@@ -557,7 +562,7 @@ function shimSetup() {
   fs.mkdirSync(anchor, { recursive: true });
   fs.mkdirSync(engine, { recursive: true });
   const marker = path.join(dir, 'ran.json');
-  fs.writeFileSync(path.join(engine, board.WATCH_ENGINE_FILE),
+  fs.writeFileSync(path.join(engine, ENGINE_FILE),
     'exports.watchdogMain = async (o) => { require("node:fs").writeFileSync(' + JSON.stringify(marker) + ', JSON.stringify(o)); };\n');
   fs.writeFileSync(path.join(anchor, win32anchor.POINTER_NAME), engine + '\r\n');
   fs.writeFileSync(path.join(anchor, board.WATCH_NAME), board.WATCH_JS);
@@ -588,7 +593,7 @@ test('#2988 the shim does not even LOAD the engine while an update is unfinished
 
 test('#2988 the shim with no pointer, or a pointer to an engine without the watchdog, does nothing and exits 0', () => {
   const s = shimSetup();
-  fs.rmSync(path.join(s.engine, board.WATCH_ENGINE_FILE));
+  fs.rmSync(path.join(s.engine, ENGINE_FILE));
   assert.equal(s.runShim().status, 0);
   fs.rmSync(path.join(s.anchor, win32anchor.POINTER_NAME));
   assert.equal(s.runShim().status, 0);
@@ -596,9 +601,123 @@ test('#2988 the shim with no pointer, or a pointer to an engine without the watc
 });
 
 test('#2988 the engine file the shim names is this module, and it exports the entry the shim calls', () => {
-  assert.equal(path.basename(require.resolve('./win32boardwatch')), board.WATCH_ENGINE_FILE);
+  assert.equal(path.basename(require.resolve('./win32boardwatch')), ENGINE_FILE);
+  assert.ok(board.WATCH_JS.includes(JSON.stringify(ENGINE_FILE)), 'the shim names this module');
   assert.equal(typeof watch.watchdogMain, 'function');
   assert.ok(!board.WATCH_JS.includes(board.MARKER_ENV), 'the watchdog is not the board: it must never stamp the board-task marker');
+});
+
+// ── round 2: the board hold (a move, or a hand-off serving in a window) ─────
+
+test('#2988 round 2: a live hold stops the watchdog; an expired hold, a dead owner\'s hold and a released hold do not', async () => {
+  const anchor = scratch('hold');
+  const tick = async (extra) => { const d = deps(); delete d.held; const r = await runWith(scratch('log'), d, { anchorDir: anchor, ...(extra || {}) }); return { r, ran: d.ran }; };
+  const h = watch.holdBoard(anchor, 'Kosmos is being moved to C:\\Kosmos', { ttlMs: 60000 });
+  assert.equal(h.held, true);
+  let t = await tick();
+  assert.equal(t.ran, 0, 'held');
+  assert.match(t.r.why, /the board was stopped on purpose \(Kosmos is being moved to C:\\Kosmos\)/);
+  h.release();
+  assert.equal(fs.existsSync(path.join(anchor, 'board-hold.json')), false, 'released');
+  assert.equal((await tick()).ran, 1, 'released: no hold');
+
+  watch.holdBoard(anchor, 'old', { ttlMs: 1000, now: () => Date.now() - 5000 });
+  assert.equal((await tick()).ran, 1, 'an expired hold does not block');
+
+  const gone = cp.spawnSync(process.execPath, ['-e', '0']).pid;
+  watch.holdBoard(anchor, 'crashed', { pid: gone });
+  assert.equal((await tick()).ran, 1, 'a dead owner\'s hold does not block');
+
+  fs.writeFileSync(path.join(anchor, 'board-hold.json'), JSON.stringify({ pid: process.pid, until: Date.now() + 24 * 3600 * 1000 }));
+  assert.equal((await tick()).ran, 1, 'a hold claiming more than five minutes is not honoured');
+});
+
+test('#2988 round 2: a hold taken after the first look (between the two looks) still stops the /Run', async () => {
+  const anchor = scratch('holdlate');
+  const d = deps();
+  delete d.held;
+  d.sleep = async () => { watch.holdBoard(anchor, 'late'); };
+  const r = await runWith(scratch('log'), d, { anchorDir: anchor });
+  assert.equal(r.action, 'left');
+  assert.match(r.why, /the board was stopped on purpose \(late\)/, 'held by the hold, not by a failure');
+  assert.equal(d.ran, 0);
+});
+
+test('#2988 round 2: the shim leaves a live hold alone without loading the engine, and ignores an expired or dead one', () => {
+  const s = shimSetup();
+  const h = watch.holdBoard(s.anchor, 'moving');
+  assert.equal(s.runShim().status, 0);
+  assert.equal(fs.existsSync(s.marker), false, 'loaded the engine under a live hold');
+  h.release();
+  const gone = cp.spawnSync(process.execPath, ['-e', '0']).pid;
+  watch.holdBoard(s.anchor, 'crashed', { pid: gone });
+  assert.equal(s.runShim().status, 0);
+  assert.equal(fs.existsSync(s.marker), true, 'a dead owner\'s hold must not stop the shim');
+  fs.rmSync(s.marker);
+  watch.holdBoard(s.anchor, 'old', { ttlMs: 1000, now: () => Date.now() - 5000 });
+  s.runShim();
+  assert.equal(fs.existsSync(s.marker), true, 'an expired hold must not stop the shim');
+});
+
+test('#2988 round 2: the move holds the board from before its /End until it returns, and a tick during the copy does not /Run', async () => {
+  const relocator = require('./win32relocate');
+  for (const fail of [false, true]) {
+    const base = scratch('move');
+    const from = path.join(base, 'Downloads', 'Kosmos');
+    const to = path.join(base, 'Programs', 'Kosmos');
+    const holdDir = path.join(base, 'anchor');
+    fs.mkdirSync(from, { recursive: true });
+    fs.writeFileSync(path.join(from, 'manifest.json'), JSON.stringify({ product: 'kosmos', platform: 'win32', version: '0.6.61' }));
+    for (const e of ['app', 'runtime']) { fs.mkdirSync(path.join(from, e), { recursive: true }); fs.writeFileSync(path.join(from, e, 'x'), 'x'); }
+    let stopped = false;
+    const seen = {};
+    const r = await relocator.relocate({
+      from, to, port: 9, holdDir, entries: ['manifest.json', 'app', 'runtime'], liveExecutionAllowed: () => true,
+      probe: async () => (stopped ? { answering: false, outcome: 'refused' } : { answering: true, identity: 'x', startedByTask: true }),
+      readPointer: () => path.join(from, 'app', 'engine'), endBoardServingHere: true, sleep: async () => {},
+      endBoard: () => { seen.atEnd = fs.existsSync(path.join(holdDir, 'board-hold.json')); stopped = true; return { ok: true }; },
+      copy: (src, dst) => {
+        seen.atCopy = watch.boardHeld(holdDir).held;
+        if (fail) throw new Error('disk full');
+        fs.cpSync(src, dst, { recursive: true });
+      },
+      anchor: () => ({ ok: true }), pidState: () => 'gone',
+    });
+    assert.equal(r.ok, !fail, JSON.stringify(r));
+    assert.equal(seen.atEnd, true, 'the hold is written BEFORE the /End');
+    assert.equal(seen.atCopy, true, 'a watchdog tick during the copy sees the hold');
+    assert.equal(fs.existsSync(path.join(holdDir, 'board-hold.json')), false, 'released when the move returns, ' + (fail ? 'on failure too' : 'after success'));
+  }
+});
+
+test('#2988 round 2: the hand-off that serves in a window holds the board before its /End and leaves the release to the board once it listens', async () => {
+  const handoff = require('./win32handoff');
+  const holdDir = scratch('handoffhold');
+  const seen = {};
+  let ended = false;
+  const fakeBoard = {
+    startedByTask: () => false, bundleRoot: () => 'C:\\Kosmos', status: () => ({ known: true, registered: true, enabled: true, running: null }),
+    runNow: () => ({ ok: true }),
+    end: () => { seen.atEnd = watch.boardHeld(holdDir).held; ended = true; return { ok: true }; },
+  };
+  let t = 0;
+  const r = await handoff.handOffToTask({
+    platform: 'win32', env: {}, byTask: false, bundle: true, live: true, ensured: { ok: true, action: 'refreshed' },
+    port: 9, identity: 'me', startedAt: 0, now: () => t, sleep: async (ms) => { t += ms; },
+    probe: async () => ({ answering: false, outcome: 'refused' }), board: fakeBoard, holdDir, signalEnv: {},
+    worlds: { worldenv: { bootedBaseDir: () => null, bootedWorld: () => null }, guard: { retractAttempt: () => false, recordAttempt: () => {} } },
+  });
+  assert.equal(r.serve, true, JSON.stringify(r));
+  assert.equal(ended, true, 'the not-confirmed path ends the task: ' + r.because);
+  assert.equal(seen.atEnd, true, 'held before the /End');
+  assert.equal(watch.boardHeld(holdDir).held, true, 'still held while this board boots');
+  r.releaseHold();
+  assert.equal(watch.boardHeld(holdDir).held, false, 'released once the board listens (server.js calls releaseHold)');
+});
+
+test('#2988 round 2: server.js releases the hand-off\'s hold once the board is listening', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /start\(\)\.then\(\(\) => \{[\s\S]{0,400}handOff\.releaseHold\(\)/);
 });
 
 // ── 5. the watchdog task: its definition, its registration, its removal ─────
@@ -607,7 +726,7 @@ test('#2988 the watchdog task XML: a TimeTrigger from a fixed past start, every 
   const env = { USERNAME: 'someone', USERDOMAIN: 'BOX', SystemRoot: 'C:\\Windows' };
   const xml = board.watchdogTaskXml({ node: 'C:\\K\\node.exe', watch: 'C:\\K\\board-watchdog.js', workingDir: 'C:\\Kosmos' }, env);
   assert.match(xml, /<Triggers><TimeTrigger><Repetition><Interval>PT1M<\/Interval><StopAtDurationEnd>false<\/StopAtDurationEnd><\/Repetition><StartBoundary>2020-01-01T00:00:00<\/StartBoundary><Enabled>true<\/Enabled><\/TimeTrigger><\/Triggers>/);
-  assert.ok(Date.parse(board.WATCHDOG_START_BOUNDARY) < Date.now(), 'the start is in the past, so it fires from the next minute on');
+  assert.ok(Date.parse(xml.match(/<StartBoundary>([^<]+)</)[1]) < Date.now(), 'the start is in the past, so it fires from the next minute on');
   assert.ok(!/<Duration>/.test(xml), 'no duration: the repetition never ends');
   assert.ok(!/LogonTrigger/.test(xml), 'a logon trigger does not fire before the next logon (measured)');
   assert.match(xml, /<MultipleInstancesPolicy>IgnoreNew<\/MultipleInstancesPolicy>/);
@@ -616,7 +735,8 @@ test('#2988 the watchdog task XML: a TimeTrigger from a fixed past start, every 
   assert.match(xml, /<LogonType>InteractiveToken<\/LogonType><RunLevel>LeastPrivilege<\/RunLevel>/);
   assert.match(xml, /<UserId>BOX\\someone<\/UserId>/);
   assert.match(xml, /<Command>C:\\Windows\\System32\\conhost\.exe<\/Command><Arguments>--headless &quot;C:\\K\\node\.exe&quot; &quot;C:\\K\\board-watchdog\.js&quot;<\/Arguments><WorkingDirectory>C:\\Kosmos<\/WorkingDirectory>/);
-  assert.ok(xml.includes(board.WATCHDOG_REMOVE_HINT.replace(/"/g, '&quot;')), 'it says how to remove it');
+  assert.ok(xml.includes('Remove with: schtasks /Delete /F /TN &quot;Kosmos\\board-watchdog&quot;'), 'it says how to remove it');
+  assert.match(xml, /that is its only off switch: switching this check off is undone the next time Kosmos starts/);
   assert.equal(board.WATCHDOG_TASK_NAME, 'Kosmos\\board-watchdog');
   assert.ok(!board.WATCHDOG_TASK_NAME.startsWith(require('./win32job').TASK_PREFIX), 'never mistaken for an agent');
 });

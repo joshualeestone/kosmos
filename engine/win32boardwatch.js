@@ -20,7 +20,8 @@
  *       a. this computer may start a board at all: a computer set to connect to Kosmos on another
  *          computer runs none on purpose (#4382; win32apply.boardMayStart, the updater's own rule);
  *       b. no update is in flight: its journal is not unfinished (nor unreadable), and its lock is
- *          not held (win32apply.readJournal and win32update.lockHeldNow, the updater's own readers);
+ *          not held (win32apply.readJournal and win32update.lockHeldNow, the updater's own readers),
+ *          and no board hold is in force (holdBoard below: a move or a hand-off that stopped it);
  *       c. nothing answers on this account's board port (the uninstall's look on every address,
  *          and win32handoff.boardMayBeOpen: only a refused connection means no board);
  *       d. the board task exists and is switched on (switched off is a deliberate stop: the
@@ -245,6 +246,7 @@ function defaultDeps(o) {
     board: require('./win32board'),
     mayStartBoard: () => require('./win32apply').boardMayStart(env, home),
     updateInFlight: () => updateInFlight({ anchorDir: o.anchorDir, root: o.root || path.resolve(__dirname, '..', '..') }),
+    held: () => boardHeld(o.anchorDir),
     look: async (port) => {
       const h = handoff();
       const answer = await h.probeBoardOnEveryAddress(port, env);
@@ -253,6 +255,67 @@ function defaultDeps(o) {
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     now: Date.now,
   };
+}
+
+/**
+ * #2988 round 2: THE BOARD HOLD. Two deliberate stops end the task's board WITHOUT switching its task
+ * off and without the update journal or lock: the move from Downloads to the install folder
+ * (engine/win32relocate.js, which then copies the bundle before re-pointing) and the hand-off that
+ * could not confirm its background board (engine/win32handoff.js, which then serves in a window). A
+ * watchdog tick inside either would start the board again behind them. So each writes this file in
+ * the anchor folder before its /End, and clears it when it is done; the watchdog (gate b) and its
+ * shim (before it loads the engine) leave the board alone while it holds.
+ *
+ * `{ pid, at, until, why }`. It holds only while `until` has not passed, is no more than HOLD_MAX_MS
+ * away, and its owner process is still running, so a hold left by a crash keeps the board down for
+ * at most a few minutes, and none at all once its owner is gone.
+ */
+const HOLD_NAME = 'board-hold.json';
+const HOLD_MAX_MS = 5 * 60 * 1000;
+
+/**
+ * Write the hold. `o`: { pid, now, ttlMs }. Returns `{ release() }`; release removes the file only if
+ * it is still this hold (a later hold by someone else is left). Never throws: a hold that could not
+ * be written is reported in `held: false` and its release does nothing.
+ */
+function holdBoard(anchorDir, why, opts) {
+  const o = opts || {};
+  const now = o.now || Date.now;
+  const none = { held: false, release() {} };
+  if (!anchorDir) return none;
+  const at = now();
+  const ttl = Math.min(HOLD_MAX_MS, Number.isFinite(o.ttlMs) && o.ttlMs > 0 ? o.ttlMs : HOLD_MAX_MS);
+  const text = JSON.stringify({ pid: Number.isInteger(o.pid) ? o.pid : process.pid, at, until: at + ttl, why: oneLine(why) });
+  const file = path.join(anchorDir, HOLD_NAME);
+  const tmp = file + '.' + process.pid + '.tmp';
+  try {
+    fs.mkdirSync(anchorDir, { recursive: true });
+    fs.writeFileSync(tmp, text);
+    fs.renameSync(tmp, file);
+  } catch {
+    try { fs.unlinkSync(tmp); } catch { /* best effort */ }
+    return none;
+  }
+  return {
+    held: true,
+    release() {
+      try { if (fs.readFileSync(file, 'utf8') === text) fs.unlinkSync(file); } catch { /* gone already, or another's */ }
+    },
+  };
+}
+
+/** Does a hold stop the watchdog now? `{ held: false }` or `{ held: true, why }`. Never throws. */
+function boardHeld(anchorDir, opts) {
+  const o = opts || {};
+  if (!anchorDir) return { held: false };
+  let h;
+  try { h = JSON.parse(fs.readFileSync(path.join(anchorDir, HOLD_NAME), 'utf8')); } catch { return { held: false }; }
+  const t = (o.now || Date.now)();
+  if (!h || !Number.isFinite(h.until) || t >= h.until || h.until - t > HOLD_MAX_MS) return { held: false };
+  if (!Number.isInteger(h.pid) || h.pid <= 0) return { held: false };
+  const alive = o.pidAlive || ((pid) => require('./win32orphan').pidAlive(pid));
+  if (!alive(h.pid)) return { held: false };
+  return { held: true, why: 'the board was stopped on purpose (' + (h.why || 'no reason given') + ')' };
 }
 
 /* The crash-loop guard's state, a small file beside the log so a rotation cannot lose it:
@@ -317,6 +380,8 @@ async function watchdogRun(opts) {
     if (!d.mayStartBoard()) return left('this computer does not run its own board');
     const upd = d.updateInFlight();
     if (!upd || upd.inFlight !== false) return left((upd && upd.why) || 'the update state is not known');
+    const hold = d.held();
+    if (!hold || hold.held !== false) return left((hold && hold.why) || 'a hold could not be read');
     const now = d.now || Date.now;
     const log = boardLogger(o);
     const loopAt = loopStatePath(log.file);
@@ -337,6 +402,8 @@ async function watchdogRun(opts) {
     if (!second || !second.silent) return left('a board answers');
     const again = d.updateInFlight();
     if (!again || again.inFlight !== false) return left((again && again.why) || 'the update state is not known');
+    const holdAgain = d.held();
+    if (!holdAgain || holdAgain.held !== false) return left((holdAgain && holdAgain.why) || 'a hold could not be read');
 
     /* Read BEFORE the /Run, so the start line of the board it starts can never hide the exit. */
     let last = null;
@@ -393,7 +460,7 @@ function watchdogMain(opts) {
   });
 }
 
-module.exports = {
-  recordBoardExits, watchdogMain, watchdogRun, updateInFlight, lastExitSinceStart, boardLogDir, boardPortFrom,
-  SIGNALS, SECOND_LOOK_AFTER_MS, LOOP_STARTS, LOOP_WINDOW_MS, BACKOFF_MS, HEALTHY_CLEAR_MS,
-};
+/* recordBoardExits (server.js), watchdogMain (the shim), holdBoard (win32relocate, win32handoff) and
+   boardHeld are production entries. watchdogRun is the one test seam: watchdogMain's run with its
+   dependencies injectable, the shape of win32board.restartHelperMain(argv, deps). */
+module.exports = { recordBoardExits, watchdogMain, watchdogRun, holdBoard, boardHeld };

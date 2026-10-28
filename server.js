@@ -28098,6 +28098,9 @@ if (require.main === module) {
       process.stderr.write(`Kosmos could not move to the background (${handOff.because}), so it is running from this window instead. Keep this window open while you use Kosmos.\n`);
     }
     start().then(() => {
+      /* #2988 round 2: this board now answers on the port, so the hold the hand-off took against the
+         board's watchdog (engine/win32handoff.js) is no longer needed. */
+      if (typeof handOff.releaseHold === 'function') { try { handOff.releaseHold(); } catch { /* it expires on its own */ } }
       // Report the port actually bound, not the one requested, or a `PORT=0` run
       // would announce itself on port 0.
       process.stdout.write(`Kosmos on http://127.0.0.1:${server.address().port}\n`);

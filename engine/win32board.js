@@ -273,6 +273,11 @@ const WATCH_NAME = 'board-watchdog.js';
 /* The engine file the shim loads, through the same pointer BOOT_JS reads. */
 const WATCH_ENGINE_FILE = 'win32boardwatch.js';
 const WATCHDOG_START_BOUNDARY = '2020-01-01T00:00:00';
+/* engine/win32boardwatch.js's hold file and its longest life, which the shim reads before it loads
+   the engine. Spelled here because the shim is written from this file; a test pins the shim against
+   a hold holdBoard really wrote (engine/win32boardwatch.test.js). */
+const WATCH_HOLD_NAME = 'board-hold.json';
+const WATCH_HOLD_MAX_MS = 5 * 60 * 1000;
 const WATCHDOG_INTERVAL = 'PT1M';
 
 /**
@@ -298,6 +303,17 @@ const WATCH_JS = [
   'try {',
   "  if (fs.existsSync(journal) && JSON.parse(fs.readFileSync(journal, 'utf8')).finished !== true) process.exit(0);",
   '} catch { process.exit(0); }',
+  '/* #2988 round 2: a deliberate stop that is not an update (a move, a hand-off serving in a window)',
+  '   holds the board for a few minutes while its owner runs (engine/win32boardwatch.js holdBoard). */',
+  'try {',
+  "  const hold = JSON.parse(fs.readFileSync(path.join(__dirname, " + JSON.stringify(WATCH_HOLD_NAME) + "), 'utf8'));",
+  '  const left = hold && Number.isFinite(hold.until) ? hold.until - Date.now() : 0;',
+  '  if (left > 0 && left <= ' + WATCH_HOLD_MAX_MS + ' && Number.isInteger(hold.pid) && hold.pid > 0) {',
+  '    let alive = true;',
+  "    try { process.kill(hold.pid, 0); } catch (e) { alive = !(e && e.code === 'ESRCH'); }",
+  '    if (alive) process.exit(0);',
+  '  }',
+  '} catch { /* no hold */ }',
   "let engine = '';",
   'try { engine = String(fs.readFileSync(path.join(__dirname, ' + JSON.stringify(win32anchor.POINTER_NAME) + "), 'utf8')).trim(); } catch {}",
   'const watch = engine ? path.join(engine, ' + JSON.stringify(WATCH_ENGINE_FILE) + ') : \'\';',
@@ -407,7 +423,8 @@ function watchdogTaskXml(spec, env) {
   return '<?xml version="1.0" encoding="UTF-16"?>\n'
     + '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
     + '  <RegistrationInfo><Description>Kosmos board check: once a minute, starts the Kosmos board again if it stopped by accident. '
-    + 'It does nothing while the board job (' + esc(TASK_NAME) + ') is switched off. Remove with: ' + esc(WATCHDOG_REMOVE_HINT) + '</Description></RegistrationInfo>\n'
+    + 'It does nothing while the board job (' + esc(TASK_NAME) + ') is switched off, and that is its only off switch: '
+    + 'switching this check off is undone the next time Kosmos starts. Remove with: ' + esc(WATCHDOG_REMOVE_HINT) + '</Description></RegistrationInfo>\n'
     + '  <Triggers><TimeTrigger>'
     + '<Repetition><Interval>' + WATCHDOG_INTERVAL + '</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition>'
     + '<StartBoundary>' + WATCHDOG_START_BOUNDARY + '</StartBoundary>'
@@ -1201,8 +1218,10 @@ function describe(opts) {
 
 module.exports = {
   TASK_NAME, MARKER_ENV, BOOT_NAME, BOOT_JS, bootJsFor, CLAIM_NAME, REMOVE_HINT, HELPER_FLAG, SCHTASKS_TIMEOUT_MS,
-  WATCHDOG_TASK_NAME, WATCHDOG_REMOVE_HINT, WATCH_NAME, WATCH_JS, WATCH_ENGINE_FILE, WATCHDOG_START_BOUNDARY, WATCHDOG_INTERVAL,
-  taskExec, taskXml, watchdogTaskXml, bundleRoot, runningFromUpdateWork, anchorBundle, install, installWatchdog, ensureInstalled, status, describe,
+  /* #2988: WATCHDOG_TASK_NAME and removeWatchdog are the uninstall's; WATCH_NAME, WATCH_JS and
+     watchdogTaskXml mirror BOOT_NAME, BOOT_JS and taskXml (the definitions a suite runs and reads). */
+  WATCHDOG_TASK_NAME, WATCH_NAME, WATCH_JS,
+  taskExec, taskXml, watchdogTaskXml, bundleRoot, runningFromUpdateWork, anchorBundle, install, ensureInstalled, status, describe,
   disable, enable, setStartAtSignIn, end, runNow, remove, removeWatchdog, restart, startedByTask,
   claimed, claim, restartHelperMain, pidGone,
   setRunner, setAnchorer, setSpawner,

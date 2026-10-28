@@ -195,7 +195,38 @@ function anchorTo(o, to) {
  *                       copy(src, dst), entries, anchor(spec), pidState(pid), env, home
  * @returns {Promise<{ok: true, action: 'moved'|'already-there', target: string, anchored: boolean}|{ok: false, action: 'refused', because: string}>}
  */
+/**
+ * #2988 round 2: the board hold a move takes before it ends the board serving from the folder it
+ * moves (engine/win32boardwatch.js holdBoard), so the board's watchdog does not start that board
+ * again from the old folder while the copy runs. Released when the move returns, whatever it returns:
+ * by then the pointer names the folder the board should start from. `o.holdDir` names the folder the
+ * hold is written in (a test's sandbox); a test process with none takes no hold, so a suite never
+ * writes into the real %LOCALAPPDATA%\Kosmos.
+ */
+function boardHolder(o) {
+  let hold = null;
+  return {
+    take(why) {
+      let dir = o.holdDir || null;
+      if (!dir && !liveExec.inTestProcess()) {
+        try { dir = win32anchor.anchorDir(process.platform, o.home || os.homedir(), o.env || process.env); } catch { dir = null; }
+      }
+      hold = require('./win32boardwatch').holdBoard(dir, why);
+    },
+    release() { if (hold) { hold.release(); hold = null; } },
+  };
+}
+
 async function relocate(opts) {
+  const holder = boardHolder(opts || {});
+  try {
+    return await moveKosmos(opts, holder);
+  } finally {
+    holder.release();
+  }
+}
+
+async function moveKosmos(opts, holder) {
   const o = opts || {};
   const allowed = typeof o.liveExecutionAllowed === 'function' ? o.liveExecutionAllowed() : liveExec.liveExecutionAllowed();
   if (!allowed) return refused('Kosmos was not moved, because moving it was not confirmed. ' + KEEPS_WORKING);
@@ -276,6 +307,7 @@ async function relocate(opts) {
       if (answer.startedByTask !== true) {
         return refused('Kosmos is running from this folder right now, in a window of its own, so it was not moved. ' + KEEPS_WORKING);
       }
+      holder.take('Kosmos is being moved to ' + to);
       const ended = await endServingBoard(o, port, probe);
       if (!ended.ok) return refused('Kosmos is running from this folder right now and could not be stopped to move it (' + ended.because + '). ' + KEEPS_WORKING);
       boardEnded = true;

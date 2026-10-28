@@ -21,6 +21,10 @@ https://github.com/joshualeestone/kosmos/issues/2988#issuecomment-6468326726
      prepended signal handler, as `signal=SIG` when another handler such as engine/remote.js owns the exit, else
      `code=128+n`) | `an uncaught error (<Name>: <first line>)` (uncaughtExceptionMonitor, only when no uncaughtException
      handler will catch it) | `it exited by itself`.
+   - Behaviour change, stated: SIGHUP and SIGBREAK had no listener in the board before, so Windows ended it with
+     0xC000013A; a task-started board now exits 129 and 149 for them (SIGINT/SIGTERM still go through
+     engine/remote.js's re-raise). Nothing reads the board's exit code: Task Scheduler records it as Last Result and
+     the watchdog does not look at it.
 2. **Watchdog** `Kosmos\board-watchdog`: TimeTrigger, StartBoundary 2020-01-01T00:00:00, Repetition PT1M with
    StopAtDurationEnd false and no Duration, IgnoreNew, InteractiveToken, LeastPrivilege, PT0S, headless conhost, always
    enabled. It runs `board-watchdog.js` beside `board-boot.js` (pointer indirection like BOOT_JS; BOOT_JS untouched),
@@ -31,14 +35,40 @@ https://github.com/joshualeestone/kosmos/issues/2988#issuecomment-6468326726
    Gate order, cheapest first; every gate must hold, and only then `/Run`:
    a. `win32apply.boardMayStart` (a connect-only computer, #4382);
    b. no update in flight: `win32apply.readJournal` not unfinished nor unreadable, and `win32update.lockHeldNow` (a new
-      read-only export of takeLock's own `readLock` judgement) neither held nor broken;
+      read-only export of takeLock's own `readLock` judgement) neither held nor broken; and (round 2) no board hold
+      in force (below);
    c. the port is silent: `win32handoff.probeBoardOnEveryAddress` + `boardMayBeOpen` (only refused is silent);
    d. `win32board.status()`: known, registered, enabled, and not already shown running;
-   e. after 5 s, the port is still silent and (b) still holds;
+   e. after 5 s, the port is still silent and (b) still holds, the hold included;
    f. (round 1) not crash-looping: 3 starts in 15 minutes, then at most one every 15 minutes, until a board has
       answered for 10 minutes.
    On `/Run` it writes `<iso> board was not answering; started it. The last exit recorded: <exit line> (at <iso>)` or
    `... started it. No exit was recorded, so it was killed or crashed hard`. Every other run writes nothing.
+   The board task is the watchdog's only off switch: the task Description says so, and a person who switches the
+   watchdog task itself off has it switched back on (`/Create /F`) the next time Kosmos starts.
+3. **The board hold** (round 2). Two deliberate stops end the task's board without switching its task off and without
+   the update journal or lock, so the watchdog's other gates cannot see them. Each writes
+   `<anchor>\board-hold.json` = `{ pid, at, until, why }` (atomic: temp file then rename) BEFORE its `/End`
+   (`win32boardwatch.holdBoard`). The watchdog (gate b, and again before `/Run`) and its shim (before it loads the
+   engine) honour it only while `until` has not passed, `until` is at most 5 minutes away (HOLD_MAX_MS; a hold
+   claiming more is ignored), and the owner pid is alive. Release removes the file only if it is still that hold.
+   Every caller that ends the board task, and the decision:
+   - `win32relocate.relocate`, `endServingBoard` (the move from Downloads): **HOLD**, 5 minutes, taken just before the
+     `/End`, released in a `finally` when `relocate` returns, success or failure. By then the pointer names the folder
+     the board should start from (or, on failure, still the old one, which is right).
+   - `win32handoff.attemptHandOff`, the not-confirmed path that ends the task and serves in a window: **HOLD**,
+     2 minutes, owner is the board itself; server.js releases it once that board is listening. A board that dies
+     before it listens holds nothing (its pid is gone), and the hold expires anyway.
+   - `win32handoff.attemptHandOff`, replacing an older task board then `/Run`: no hold; it starts the task itself
+     straight after, so a watchdog `/Run` in the gap starts the same board, and IgnoreNew drops the second.
+   - `win32board.restartHelperMain` (End, wait, Run): no hold, for the same reason.
+   - `win32apply` `stopBoard` (an update): no hold; the journal and the lock already gate it.
+   - `win32uninstall`: no hold; it switches the board task off before its `/End` (gate d).
+   - KosmosLauncher.cs `StopBoardHere` (connect computer, Kosmos+ sign-in): no hold; it switches the task off first.
+   - KosmosLauncher.cs `ReplaceStuckBoard` (End, end the tree, Run): no hold; it runs the task itself, and while the
+     frozen board still holds the port the watchdog's look is not "refused", so it does not act.
+   Intended, and to say on the card: closing an in-window board (the hand-off-failed case) while the board task is on
+   brings the background board back within about a minute. The window was a fallback, not a stop.
 
 ## Rejected
 - A repetition on the board task itself: a LogonTrigger repetition does not fire before the next logon (measured), and
@@ -62,8 +92,16 @@ After a downgrade or a user rollback to a build that predates this change, `Kosm
 It keeps running its shim, which loads the pointer's engine; that engine has no `win32boardwatch.js`, so the shim
 exits 0 and does nothing (inert). That older build's uninstall classifies the task as unrecognised and names it
 instead of removing it (and so keeps the folders it keeps for any task left). The task's Description carries the
-remove hint (`schtasks /Delete /F /TN "Kosmos\board-watchdog"`), and the next boot of a build with this change
-refreshes or removes it as usual.
+remove hint (`schtasks /Delete /F /TN "Kosmos\board-watchdog"`). No boot removes it: only `win32board.remove()` and
+the uninstall of a build with this change do; a later boot of such a build refreshes it if the board task is
+registered and on. Likewise, with the board task switched off the watchdog stays registered and does nothing.
+
+## Exports (round 2)
+win32boardwatch exports only `recordBoardExits` (server.js), `watchdogMain` (the shim), `holdBoard` (relocate,
+hand-off), `boardHeld` and `watchdogRun` (the one test seam: watchdogMain with injectable deps, the shape of
+`win32board.restartHelperMain(argv, deps)`); the constants and helpers are tested through it. win32board exports
+`WATCHDOG_TASK_NAME` and `removeWatchdog` (the uninstall's), and `WATCH_NAME`, `WATCH_JS`, `watchdogTaskXml`, which
+mirror the house's `BOOT_NAME`, `BOOT_JS`, `taskXml` (the definitions a suite runs and reads).
 
 ## What would change my mind
 A box measurement that `/Run` during an update is harmless (the watchdog could drop gate b), or that the
@@ -79,3 +117,9 @@ Running-with-no-board state is common (then an `/End` path with a long grace is 
   (2) a crash-loop guard: 3 starts in 15 minutes, then at most one start every 15 minutes with one line quoting the
   first exit, cleared once a board has answered for 10 minutes (state in `board-watchdog.json` beside the log, so
   rotation cannot lose it); (3) the rollback residual above; (4) RestartOnFailure marked unmeasured.
+- Round 2: the generated XML registered and ticked on the box (result 0x0). Fixed: (1) the board hold for the two
+  deliberate stops the other gates cannot see (the move, the hand-off serving in a window), honoured by the watchdog
+  and its shim, every `/End` caller decided above; (2) the SIGHUP/SIGBREAK exit-code change stated; (3) the residual
+  corrected (no boot removes the watchdog); (4) the in-window close brings the background board back, intended;
+  (5) the task Description names the board task as the only off switch; (6) exports trimmed to production entries plus
+  one test seam.
