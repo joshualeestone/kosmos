@@ -1303,6 +1303,120 @@ check(NewAgent.pictureType(pngHead) == "image/png" && NewAgent.pictureType(Data(
 check(boardPage.contains("PICTURE_MIN_SIDE = 16") && boardPage.contains("PICTURE_MAX_SIDE = 2048"), "the sides are the desktop's")
 check(boardPage.contains("<h3 class=\"sform-h\">" + NewAgent.Words.identity + "</h3>") && boardPage.contains(">" + NewAgent.Words.changePicture + "</button>")
       && boardPage.contains("aria-label=\"" + NewAgent.Words.markLabel + "\""), "Identity, Change picture and the mark's label are the desktop's own markup")
+// kosmos#7502: the provider, account and model choice (NewAgentPicker), the desktop's rules and words.
+do {
+    typealias P = NewAgentPicker
+    // Every provider's label is the desktop menu's own text, and the order is the desktop's PROVIDER_ORDER.
+    for p in P.Provider.allCases where ![.meta, .deepseek].contains(p) {
+        check(boardPage.contains("<option value=\"\(p.rawValue)\"") && boardPage.contains(">" + p.label + "</option>"), "provider label as the desktop: " + p.label)
+    }
+    check(boardPage.contains("const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'antigravity', 'xai', 'meta', 'alibaba', 'deepseek',"),
+          "the desktop's provider order still starts as the phone's")
+    for w in [P.Words.checking, P.Words.couldNotCheck, P.Words.connect, P.Words.agyChecking, P.Words.museSignIn, P.Words.loadingModels,
+              P.Words.openaiPicks, P.Words.openaiChoose, P.Words.unknownLive, "The Qwen account names the model.", "The DeepSeek account names the model.",
+              "If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.",
+              "'Swarms run on Claude for now'", "Once this account is signed in, you can pick its model here. For now it will use OpenAI\\'s default."] {
+        check(boardPage.contains(w.replacingOccurrences(of: "'s ", with: "\\'s ").replacingOccurrences(of: "\\\\'", with: "\\'")) || boardPage.contains(w),
+              "the desktop's words: " + w)
+    }
+
+    let accountsJSON = #"""
+    {"accounts":[
+     {"dir":"/h/.claude","provider":"anthropic","email":"ada@x.io","isDefault":true,"memoryShared":true,"connection":{"badge":"connected","state":"connected"}},
+     {"dir":"/h/.claude-work","provider":"anthropic","email":"ada@x.io","label":"work","memoryShared":true,"connection":{"badge":"unchecked"}},
+     {"dir":"/h/.claude-old","provider":"anthropic","email":"old@x.io","memoryShared":true,"connection":{"badge":"rejected"}},
+     {"dir":"/h/.claude-solo","provider":"anthropic","email":"solo@x.io","memoryShared":false,"connection":{"badge":"connected"}},
+     {"dir":"/h/.codex","provider":"openai","keyTail":"abcd","isDefault":true,"connection":{"state":"connected"}},
+     {"dir":"/h/.gemini","provider":"google","name":" Home ","keyTail":"9z","connection":{"badge":"signed_out"}},
+     {"dir":"/h/.grok","provider":"xai","keyTail":"1111","connection":{"badge":"connected"}},
+     {"dir":"/h/.qwen","provider":"alibaba","local":true,"baseUrl":"http://127.0.0.1:11434/v1"},
+     {"dir":"","provider":"antigravity","authMode":"antigravity"}
+    ]}
+    """#
+    let rows = P.parseAccounts(Data(accountsJSON.utf8))
+    check(rows?.count == 9, "every account row is read")
+    check(P.parseAccounts(Data(#"{"x":1}"#.utf8)) == nil, "a reply without accounts is not a list (unknown, never empty)")
+    let acc = P.Accounts(rows: rows ?? [], known: true, failed: false)
+    check(rows?.map(\.provider) == [.anthropic, .anthropic, .anthropic, .anthropic, .openai, .google, .xai, .alibaba, .antigravity], "acctProvider for each row")
+    check(P.provider(of: ["provider": "meta"]) == .meta && P.provider(of: ["authMode": "muse"]) == .meta && P.provider(of: [:]) == .anthropic,
+          "Meta Muse by provider or authMode; no provider is Claude")
+
+    // Claude: the rejected one is out, the unknown one is in and labelled, only memory-sharing ones while any exist,
+    // two rows on one email told apart by "main" and their label.
+    let claude = P.accounts(for: .anthropic, acc)
+    check(claude.choices.map(\.value) == ["/h/.claude", "/h/.claude-work"], "Claude: rejected and non-moving accounts left out")
+    check(claude.choices.map(\.label) == ["ada@x.io (main)", "ada@x.io (work) (could not check just now)"], "Claude: same email told apart, unknown labelled")
+    check(claude.chosen == "/h/.claude" && claude.show, "Claude: the default chosen, the row shown at two")
+    // OpenAI: one account, row hidden, named by its key tail.
+    let oa = P.accounts(for: .openai, acc)
+    check(oa.choices.map(\.label) == ["API key ending abcd"] && oa.chosen == "/h/.codex" && !oa.show, "OpenAI: one account, by key tail, row hidden")
+    check(P.accounts(for: .openai, P.Accounts(rows: [], known: true)).choices == [P.AccountChoice(value: "", label: "The OpenAI sign-in on this computer")],
+          "OpenAI with no account: the computer's own sign-in, nothing sent")
+    check(P.accounts(for: .alibaba, acc).choices.map(\.label) == ["Qwen on this computer"], "Qwen named by where it runs")
+    check(P.accounts(for: .antigravity, acc) == ([], "", false), "Gemini by subscription: no account row, nothing sent")
+    check(P.accounts(for: .google, acc).choices.map(\.value) == [""], "a signed-out Gemini key is not offered")
+
+    // The provider menu.
+    let ready = P.Readiness(agy: (true, true), muse: (true, true, false), compat: false)
+    let menu = Dictionary(uniqueKeysWithValues: P.providers(acc, ready, swarm: false).map { ($0.provider, $0) })
+    check(menu[.anthropic]?.enabled == true && menu[.openai]?.enabled == true && menu[.xai]?.enabled == true && menu[.alibaba]?.enabled == true
+          && menu[.antigravity]?.enabled == true, "offered: Claude, OpenAI, Grok and Qwen (accounts), Gemini by subscription (installed)")
+    check(menu[.google]?.off == "Connect in AI Models", "Gemini with only a signed-out key: connect it")
+    check(menu[.meta]?.off == "Sign in to Meta Muse first" && menu[.deepseek]?.off == "Coming soon", "Meta needs its sign-in; DeepSeek is off here")
+    let early = Dictionary(uniqueKeysWithValues: P.providers(P.Accounts(), P.Readiness(), swarm: false).map { ($0.provider, $0) })
+    check(early[.xai]?.off == "Checking your accounts" && early[.antigravity]?.off == "Checking Antigravity" && early[.meta]?.off == "Coming soon",
+          "before the reads answer: checking, never a confident no")
+    check(P.providers(P.Accounts(rows: [], known: false, failed: true), P.Readiness(), swarm: false).first { $0.provider == .xai }?.off == "Could not check your accounts",
+          "a failed read says so")
+    check(P.providers(acc, ready, swarm: true).allSatisfy { $0.provider == .anthropic ? $0.enabled : (!$0.enabled && $0.off == "Swarms run on Claude for now") },
+          "a swarm: Claude only, the rest say why")
+
+    // The default provider, and a pick the menu no longer allows.
+    check(P.defaultProvider(acc, swarm: false) == .anthropic, "Claude when there is a Claude account")
+    let openaiOnly = P.Accounts(rows: (rows ?? []).filter { $0.provider == .openai }, known: true)
+    check(P.defaultProvider(openaiOnly, swarm: false) == .openai && P.defaultProvider(openaiOnly, swarm: true) == .anthropic,
+          "OpenAI only when it is the one there; a swarm is Claude")
+    check(P.pickGone(.xai, acc, ready, swarm: false) == nil, "a pick still allowed stands")
+    check(P.pickGone(.xai, openaiOnly, ready, swarm: false)?.back == .openai
+          && P.pickGone(.xai, openaiOnly, ready, swarm: false)?.why == "There is no Grok account connected, so this is back on OpenAI. Add one in Settings, AI Models.",
+          "a gone Grok pick goes back to the default and says why")
+    check(P.pickGone(.openai, acc, ready, swarm: true)?.why == nil, "a swarm's move to Claude is the form's and says nothing")
+    check(boardPage.contains("'There is no ' + gone + ' account connected, so this is back on ' + back + '. Add one in Settings, AI Models.'"), "the gone sentence is the desktop's")
+
+    // The model row.
+    let models = [NewAgent.Model(key: "opus", label: "Claude Opus", isDefault: false), NewAgent.Model(key: "sonnet", label: "Claude Sonnet", isDefault: true)]
+    check(P.modelRow(.anthropic, account: "/h/.claude", claude: models, lastClaude: "", openai: nil).chosen == "sonnet", "Claude: the default model")
+    check(P.modelRow(.anthropic, account: "/h/.claude", claude: models, lastClaude: "opus", openai: nil).chosen == "opus", "a Claude pick survives a round trip")
+    let xr = P.modelRow(.xai, account: "/h/.grok", claude: models, lastClaude: "", openai: nil)
+    check(!xr.shown && xr.chosen.isEmpty && xr.note == "Grok picks its own model.", "Grok: no model row, none sent, who picks said")
+    let loading = P.modelRow(.openai, account: "/h/.codex", claude: models, lastClaude: "", openai: nil)
+    check(loading.shown && !loading.enabled && loading.choices.map(\.label) == ["Loading this account's models…"], "OpenAI: loading, never a Claude model")
+    let listed = P.modelRow(.openai, account: "/h/.codex", claude: models, lastClaude: "",
+                            openai: P.parseOpenaiModels(Data(#"{"ok":true,"models":[{"key":"gpt-5","label":"GPT-5","default":true}]}"#.utf8)))
+    check(listed.enabled && listed.choices.map(\.value) == ["", "gpt-5"] && listed.chosen == "", "OpenAI listed: Let OpenAI choose first and chosen")
+    let chatgpt = P.modelRow(.openai, account: "/h/.codex", claude: models, lastClaude: "",
+                             openai: P.parseOpenaiModels(Data(#"{"ok":false,"because":"this sign-in is not an API key"}"#.utf8)))
+    check(!chatgpt.enabled && chatgpt.chosen.isEmpty && chatgpt.note?.hasPrefix("This account is signed in with ChatGPT") == true, "a ChatGPT sign-in: OpenAI picks, said why")
+    check(P.parseOpenaiModels(nil) == .notListed(because: nil) && P.parseOpenaiModels(Data(#"{"ok":true,"models":[]}"#.utf8)) == .notListed(because: nil),
+          "no answer, or an empty list, is not a list")
+    check(P.openaiNote("OpenAI rejected by OpenAI (401)").hasPrefix("OpenAI rejected this account's API key")
+          && P.openaiNote("key cannot list models, though the key itself works").contains("permissions reason")
+          && P.openaiNote("could not reach OpenAI").hasPrefix("We could not reach OpenAI"), "openaiNoModelsNote's order")
+    let mr = P.openaiModelsRequest(mac: npMac, dir: "/h/.codex a+b&c")
+    check(mr?.url?.absoluteString.hasSuffix("/api/accounts/openai/models?dir=/h/.codex%20a%2Bb%26c") == true, "the dir is encoded as encodeURIComponent would leave it readable: " + (mr?.url?.absoluteString ?? "nil"))
+    check(P.openaiModelsRequest(mac: npMac, dir: "") == nil, "no account, no request")
+
+    // The create body.
+    var b: [String: Any] = [:]
+    P.addChoice(to: &b, provider: .anthropic, account: "", swarm: false)
+    check(b.isEmpty, "Claude on the default account: nothing extra travels")
+    b = [:]; P.addChoice(to: &b, provider: .openai, account: "/h/.codex", swarm: false)
+    check(b["provider"] as? String == "openai" && b["account"] as? String == "/h/.codex", "OpenAI and its account travel")
+    b = [:]; P.addChoice(to: &b, provider: .antigravity, account: "/x", swarm: false)
+    check(b["provider"] as? String == "antigravity" && b["account"] == nil, "no account is sent for a provider that has none")
+    b = [:]; P.addChoice(to: &b, provider: .openai, account: "/h/.claude", swarm: true)
+    check(b["provider"] as? String == "anthropic", "a swarm travels as Claude")
+}
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
