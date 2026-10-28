@@ -24183,7 +24183,9 @@ function paintRebootNote(note) {
    kept until closed: the line itself usually goes once everyone has restarted, so this is where the person learns it. */
 /* `progress`: while restarts run, which button is running ('all' or an agent's name) and its words, drawn by
    paintRestartLine so a repaint in the middle (a wake result arriving) keeps them. */
-let RLINE = { line: null, open: false, busy: false, woke: { said: [], manual: [], held: [], missed: [] }, progress: null };
+/* `gen`: bumped by Not now and by each restart press, so a re-check that was already asking before it cannot answer
+   after it and bring back what the press changed. */
+let RLINE = { line: null, open: false, busy: false, woke: { said: [], manual: [], held: [], missed: [] }, progress: null, gen: 0 };
 /* "Ada", "Ada and Kai", "Ada, Kai and Lee" (escaped). */
 function rlineList(labels) {
   const n = labels.map((l) => esc(l));
@@ -24276,6 +24278,7 @@ async function rlineClick(e) {
   if (btn.hasAttribute('data-rl-who')) { RLINE.open = !RLINE.open; delete slot.dataset.v; paintRestartLine(); if (RLINE.open) { const f = slot.querySelector('[data-rl-one]'); if (f) f.focus(); } return; }
   if (btn.hasAttribute('data-rl-later')) {
     RLINE.busy = true;
+    RLINE.gen++;
     let ok = false, why = '';
     try {
       const r = await fetch('/api/restart-line/not-now', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: RLINE.line.version }) });
@@ -24293,8 +24296,16 @@ async function rlineClick(e) {
   const labels = new Map(RLINE.line.agents.map((a) => [a.name, a.label]));
   const names = one ? [one] : [...labels.keys()];
   const labelOf = (n) => labels.get(n) || n;
-  const batch = RLINE.woke = { said: [], manual: [], held: [], missed: [] };   // a late report lands in its own batch
+  // The results so far stay on screen (a wake report still to come lands here too); only the agents being restarted
+  // again lose their old result. A late report for one of them is dropped by autoHelloAfterRestart's own newer-restart check.
+  const batch = RLINE.woke;
+  const again = new Set(names.map(labelOf));
+  batch.said = batch.said.filter((l) => !again.has(l));
+  batch.manual = batch.manual.filter((l) => !again.has(l));
+  batch.held = batch.held.filter((h) => !again.has(h.label));
+  batch.missed = batch.missed.filter((m) => !again.has(m.label));
   RLINE.busy = true;
+  RLINE.gen++;
   try {
     for (let i = 0; i < names.length; i++) {
       RLINE.progress = { key: one || 'all', text: names.length > 1 ? 'Restarting ' + (i + 1) + ' of ' + names.length : 'Restarting ' + labelOf(names[i]) };
@@ -24319,10 +24330,12 @@ async function rlineClick(e) {
   paintRestartLine();   // a re-check that failed still shows the result
 }
 async function restartLineCheck() {
+  const gen = RLINE.gen;
   try {
     const res = await fetch('/api/restart-line', { cache: 'no-store' });
     const got = await res.json().catch(() => null);   // read the body either way (an unread one holds the connection open)
     if (!res.ok || !got) return;   // a failed re-check leaves what is on screen
+    if (gen !== RLINE.gen) return;   // asked before a press that changed the line: the press's own re-check answers
     RLINE.line = got.line && Array.isArray(got.line.agents) && got.line.agents.length && Array.isArray(got.line.notes) && got.line.notes.length ? got.line : null;
     if (!RLINE.line) RLINE.open = false;
     paintRestartLine();
@@ -47188,7 +47201,8 @@ whatsNewCheck();
 rebootNoteCheck();   // #5359
 damagedFilesCheck();   // kosmos#7248
 restartLineCheck();   // kosmos#7411
-setInterval(() => { if (!RLINE.busy) restartLineCheck(); }, 60 * 1000);
+setInterval(() => { if (!RLINE.busy && !document.hidden) restartLineCheck(); }, 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !RLINE.busy) restartLineCheck(); });
 document.addEventListener('click', (e) => { if (e.target && e.target.closest && e.target.closest('#rline-slot')) rlineClick(e); });
 /* Asked again every ten minutes, so its time words stay true across midnight ("at 11:30 PM" becomes "yesterday at"),
    and a note gone stale or dismissed elsewhere goes. */

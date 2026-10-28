@@ -20400,8 +20400,8 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const v = String(body.version || '');
-        if (!/^\d+\.\d+\.\d+$/.test(v)) { sendJson(res, 400, { error: 'that is not a version we can record' }); return; }
         const rl = require('./engine/restartline');
+        if (!rl.isVersion(v)) { sendJson(res, 400, { error: 'that is not a version we can record' }); return; }
         const now = rl.read();
         if (now && now.version !== v) { sendJson(res, 409, { error: 'Kosmos has been updated again since this page loaded. Reload to see what is new.' }); return; }
         let ok = false;

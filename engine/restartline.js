@@ -124,4 +124,7 @@ function notNow(version) {
   return write({ history: rec.history, notNow: rec.version });
 }
 
-module.exports = { atStart, lineFor, markedNotes, notNow, read };
+/** Whether `v` is a version as this record keeps them (x.y.z, up to six digits each). */
+const isVersion = (v) => VERSION.test(String(v || ''));
+
+module.exports = { atStart, lineFor, markedNotes, notNow, read, isVersion };
