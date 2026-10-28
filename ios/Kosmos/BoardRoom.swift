@@ -402,25 +402,35 @@ extension Board {
     // (it still points before the oldest row shown). When it shares no row with them and the computer says older rows
     // exist, more than a page arrived while the room was away: merging would hide a gap no cursor can reach, so the
     // page replaces what was shown and its own cursor takes over.
-    // kosmos#7365 slice 3c review 3: the newest live page when the archived count moved since the rows shown were read.
-    // nil (merge as usual) unless the rows reach the start of the live part: then k more archived drops the first k
-    // shown, and fewer archived takes the page and its cursor. The first read (was nil) never counts as a move.
+    // kosmos#7365 slice 3c (reviews 3 to 5): the newest live page when the archived count moved since the rows shown
+    // were read; nil means merge as usual. The first read (was nil) is never a move.
+    // - Fewer archived (an undo): at the live start the page and its cursor replace the rows, so the rows given back are
+    //   reachable above; with earlier pages still unread, the earlier-page read finds them.
+    // - More archived, and the page reaches the live start (olderCount 0): the page holds the whole live part, so every
+    //   row shown before its first row is archived, found by the row itself (its id), or by time when the phone does not
+    //   hold that row. The page's nil cursor is taken.
+    // - More archived, the live start off the page: the earlier rows still unread were archived first; only the rest of
+    //   the move (beyond older.count) reaches the rows shown, the first ones, and then nothing earlier is left to read.
     static func archiveMoved(_ shown: [RoomRow]?, older: (count: Int, cursor: String?)?, was: Int?, page: RoomPage)
         -> (rows: [RoomRow], older: (count: Int, cursor: String?))? {
-        guard let was, was != page.archivedCount, let shown, let older, older.cursor == nil else { return nil }
-        if page.archivedCount < was { return (page.rows, (page.olderCount, page.olderCursor)) }
-        // Review 4: when the page itself reaches the start of the live part, its first row is that start, so what goes
-        // is every row shown before it, by time (as the board's pjRoomDropArchived cuts by time); a row the phone does
-        // not draw cannot shift it. Otherwise the start is off the page, and the first k shown go.
+        guard let was, was != page.archivedCount, let shown, let older else { return nil }
+        let start = (count: 0, cursor: String?.none)
+        if page.archivedCount < was { return older.cursor == nil ? (page.rows, (page.olderCount, page.olderCursor)) : nil }
         let kept: [RoomRow]
-        if page.olderCount == 0, let cut = page.rows.first?.at {
-            kept = shown.filter { ($0.at ?? .distantFuture) >= cut }
+        if page.olderCount == 0 {
+            guard let first = page.rows.first else { return (page.rows, start) }
+            if let i = shown.firstIndex(where: { $0.id == first.id }) { kept = Array(shown[i...]) }
+            else if let cut = first.at { kept = shown.filter { ($0.at ?? .distantFuture) > cut } }
+            else { kept = [] }
         } else {
-            kept = Array(shown.dropFirst(page.archivedCount - was))
+            let unread = older.cursor == nil ? 0 : older.count
+            let k = page.archivedCount - was - unread
+            guard k > 0 else { return nil }
+            kept = Array(shown.dropFirst(k))
         }
         // Nothing shown is still live: the page and its own cursor, so the live rows before it stay reachable.
         if kept.isEmpty { return (page.rows, (page.olderCount, page.olderCursor)) }
-        return refreshRoom(kept, older: older, page: page)
+        return refreshRoom(kept, older: start, page: page)
     }
 
     static func refreshRoom(_ shown: [RoomRow]?, older: (count: Int, cursor: String?)?, page: RoomPage)

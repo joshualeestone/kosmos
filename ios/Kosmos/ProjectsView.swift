@@ -217,7 +217,9 @@ final class RoomStore: ObservableObject {
         // board's pjRoomDropArchived drops the leading run); fewer archived (an undo) takes the page and its cursor, so
         // the rows given back are reachable above. Otherwise the pages already read are kept, as the board's poll keeps
         // them (the automatic rule moves the count with every post in a room past 1,000).
-        let fresh = Board.archiveMoved(rows[project], older: older[project], was: archivedCount[project], page: page)
+        // Review 5: only the newest read started counts a move; an older one landing late must not read as an undo.
+        let newest = read == roomReads[project]
+        let fresh = (newest ? Board.archiveMoved(rows[project], older: older[project], was: archivedCount[project], page: page) : nil)
             ?? Board.refreshRoom(rows[project], older: older[project], page: page)
         // Stamped before the rows are replaced: `before` must be what the room held until this read. The phone's clock,
         // as BoardClient.updatedAt is (its env.now() is Date() outside the tests).
@@ -227,7 +229,7 @@ final class RoomStore: ObservableObject {
         if stamped.baselined { spokeBaseline.insert(project) }
         rows[project] = fresh.rows
         older[project] = fresh.older
-        archivedCount[project] = page.archivedCount
+        if newest { archivedCount[project] = page.archivedCount }
         // Review 1: an archive set or undone elsewhere while this one shows: read it again, as the board's poll does
         // when the count it sees changes.
         let failed = archiveRefreshFailed[project]

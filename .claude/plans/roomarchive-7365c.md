@@ -50,6 +50,14 @@
    stale, and the next poll dropped live rows; loadOlder now stores its page's count. MINORs: a cut by count assumed
    the phone draws every row the server counts, so when the page reaches the live start the cut is its first row's
    time; nothing shown still live takes the page and its cursor. 4 of 4 archiveMoved mutations red.
+5. opus: 1 MAJOR, 2 MINOR, all fixed. MAJOR (probed with the app's own code): the archive grew past the earlier live
+   rows still unread, so the new live start fell inside the rows shown while a cursor was set, and archived rows
+   stayed below the boundary. Rounds 3 to 5 each broke the count rule at a new edge, so it is rebuilt on one exact
+   fact: a page with olderCount 0 holds the whole live part, so every row shown before its first row is archived
+   (found by id; by time for a row the phone does not hold). Only when the live start is off the page does the count
+   decide, net of the earlier rows still unread (older.count). An undo with earlier pages unread is left to the
+   earlier-page read. MINORs: only the newest live read started counts a move (an older one landing late is not an
+   undo); equal times at the boundary are covered by the id cut. 6 of 6 mutations red.
 
 ## Not verified
 
