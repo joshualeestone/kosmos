@@ -1351,28 +1351,40 @@ async function taskClose(ctx, args) {
       if (w === '--replaced-by') { ctx.err('--replaced-by takes one task: close the others on their own.'); return 2; }
       if (!/^[0-9]+$/.test(w) && tooManyWords(ctx, 'task close', 2, TASK_CLOSE_USAGE, args)) return 2;   // not a number: as #4889 review 6
     }
+    /* The board's own limit for closing several at once (server.js BULK_CLOSE_MAX), refused before anything is sent. */
+    if (args.length - 1 > 200) { ctx.err('Close up to 200 tasks at a time: run it again with the rest.'); return 2; }
     if (args.length > 2) {
       const ok = [];
       const bad = [];
       const all = [...new Set(args.slice(1).map((x) => x.replace(/^0+(?=[0-9])/, '')))];   // a number given twice (013 is 13) is closed once
-      let lost = -1;
+      let stop = -1;
+      let lost = null;   // the call Kosmos did not answer
+      let wide = false;
       for (let i = 0; i < all.length; i++) {
         const n = all[i];
         const one = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + n + '/close');
-        // Unanswered: it may have closed (a timeout), so say it as a single close does, and send no more.
-        if (!one.reached) { lost = i; break; }
-        if (one.json && one.json.task) ok.push(n);
-        else bad.push(n + ' (' + (ctx.refusedBy(one) || 'an answer we could not read') + ')');
+        if (!one.reached) { stop = i; lost = one; break; }
+        if (one.json && one.json.task) { ok.push(n); continue; }
+        const why = ctx.refusedBy(one) || 'Kosmos gave an answer we could not read';
+        bad.push('Could not close task ' + n + ': ' + why + '.');   // one line each: a reason can hold a ; or a ,
+        /* Who is asking (401/403), a board that could not check (503), or no such project: every later close would be
+           refused the same way, so send no more. */
+        if ([401, 403, 503].includes(one.status) || (one.status === 404 && /no project by that name/.test(why))
+          || (one.status === 400 && /not a name we can read/.test(why))) { stop = i; wide = true; break; }
       }
       if (ok.length) ctx.out((ok.length > 1 ? 'Closed tasks ' : 'Closed task ') + ok.join(', ') + ' on ' + project + '.');
-      if (bad.length) ctx.err('Could not close: ' + bad.join('; ') + '.');
-      if (lost >= 0) {
-        const code = ctx.unreachable('close task ' + all[lost]);
-        ctx.err('Task ' + all[lost] + ' may have closed anyway: check kosmos task list ' + project + ' before closing it again.');
-        if (lost + 1 < all.length) ctx.err('Not tried, so still open: ' + all.slice(lost + 1).join(', ') + '.');
-        return code || 1;
-      }
-      return bad.length ? 1 : 0;
+      for (const line of bad) ctx.err(line);
+      /* As a single close's words (ctx.unreachable): only a timeout or a reset after the request went may have closed it;
+         a refused connection or a board not proven ours sent nothing, so that task is still open. */
+      const mayHaveClosed = lost && !lost.refused && !lost.notConnected && !lost.notProven;
+      let left = stop >= 0 ? all.slice(stop + 1) : [];
+      if (lost) {
+        ctx.unreachable('close task ' + all[stop]);
+        if (mayHaveClosed) ctx.err('Task ' + all[stop] + ' may have closed anyway: check kosmos task list ' + project + ' before closing it again.');
+        else left = all.slice(stop);
+      } else if (wide && left.length) ctx.err('That reason holds for every task on ' + project + ', so the rest were not sent.');
+      if (left.length) ctx.err('Not tried, so still open: ' + left.join(', ') + '.');
+      return bad.length || lost ? 1 : 0;
     }
   }
   const r = by

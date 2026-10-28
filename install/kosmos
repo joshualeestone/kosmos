@@ -5735,6 +5735,8 @@ cmd_task() {
             ''|*[!0-9]*) _no_more_words "task close" 2 "$_cusage" "$@" ;;   # a word that is not a number: as #4889 review 6
           esac
         done
+        # The board's own limit for closing several at once (server.js BULK_CLOSE_MAX), refused before anything is sent.
+        [ $(($# - 1)) -le 200 ] || { say "Close up to 200 tasks at a time: run it again with the rest."; exit 2; }
       fi ;;
     reopen)
       # #6157: put a done task back, keeping its number and history; the words after the number are why.
@@ -6127,44 +6129,56 @@ cmd_task() {
       local _ctok=""   # #4491 slice 5: the agent's own token too (plain hex only); the board closes only for an agent on the project
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _ctok="$KOSMOS_AGENT_TOKEN" ;; esac
       local _by=""; [ "${3:-}" = "--replaced-by" ] && _by="${4:-}"   # #6923: digits only, checked before the health check
+      # kosmos#7412: several numbers: close each as one close is (the board's own route, one request each), then say what
+      # happened to each. A refusal of one task does not stop the others. A refusal for the whole project (who is asking,
+      # or which project) stops there, as does a close Kosmos did not answer: the rest are named as not tried.
+      if [ -z "$_by" ] && [ -n "${3:-}" ]; then
+        local _n _ok="" _bad="" _b _r _code _why _seen=" " _stop="" _stoprc=0 _left="" _wide=0 _l
+        for _n in "$num" "${@:3}"; do
+          _n=$(printf '%s' "$_n" | sed 's/^0*\([0-9]\)/\1/')   # the board reads 013 as 13: one task, named as 13
+          case "$_seen" in *" $_n "*) continue ;; esac   # a number given twice is closed once
+          _seen="$_seen$_n "
+          if [ -n "$_stop" ]; then _left="${_left:+$_left, }$_n"; continue; fi
+          _r=0; _b=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -w $'\n%{http_code}' -X POST "$URL/api/project/$esc_project/task/$_n/close" 2>/dev/null) || _r=$?
+          if [ "$_r" -ne 0 ]; then
+            _stop="$_n"; _stoprc="$_r"
+            # Only an answer cut off after the request went (as say_unreached's write words) may have closed it. Any other
+            # failure (a refused connection, a board not proven ours, an interrupt) sent nothing, so it is still open.
+            case "$_r" in 18|28|52|56) ;; *) _left="$_n" ;; esac
+            continue
+          fi
+          _code="${_b##*$'\n'}"; _b="${_b%$'\n'*}"
+          case "$_b" in
+            '{"task":'*) _ok="${_ok:+$_ok, }$_n"; continue ;;
+            '{"error":'*) _why=$(printf '%s' "$_b" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'); _why="${_why:-it did not say why}" ;;
+            *) _why="Kosmos gave an answer we could not read" ;;
+          esac
+          _bad="${_bad}Could not close task $_n: $_why."$'\n'   # one line each: a reason can hold a ; or a ,
+          # Who is asking (401/403), a board that could not check (503), or no such project: every later close would be
+          # refused the same way, so send no more.
+          case "$_code:$_why" in
+            401:*|403:*|503:*|404:*"no project by that name"*|400:*"not a name we can read"*) _wide=1; _stop="$_n" ;;
+          esac
+        done
+        case "$_ok" in '') ;; *,*) say "Closed tasks $_ok on ${project:-the project}." ;; *) say "Closed task $_ok on ${project:-the project}." ;; esac
+        while IFS= read -r _l; do [ -z "$_l" ] || say "$_l"; done <<< "$_bad"
+        if [ "$_stoprc" -ne 0 ]; then
+          say_unreached "close task $_stop" "$_stoprc" write
+          case "$_stoprc" in 18|28|52|56) say "Task $_stop may have closed anyway: check kosmos task list ${project:-<project-id>} before closing it again." ;; esac
+        elif [ "$_wide" = 1 ] && [ -n "$_left" ]; then
+          say "That reason holds for every task on ${project:-the project}, so the rest were not sent."
+        fi
+        [ -z "$_left" ] || say "Not tried, so still open: $_left."
+        { [ -z "$_bad" ] && [ "$_stoprc" -eq 0 ]; } || exit 1
+        exit 0
+      fi
       if [ -n "$_by" ]; then
         body=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/close" \
           -H 'content-type: application/json' --data "{\"replacedBy\":\"$_by\"}" 2>/dev/null) || rc=$?
       else
         body=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/close" 2>/dev/null) || rc=$?
       fi
-      # kosmos#7412: with several numbers, a first close that went unanswered is one failure among them, said below.
-      { [ "$rc" -eq 0 ] || { [ -z "$_by" ] && [ -n "${3:-}" ]; }; } || { say_unreached "close that task" "$rc" write; exit 1; }
-      # kosmos#7412: more numbers after the first: close each the same way, one request each, then one summary. Each task
-      # is closed exactly as a single close is (the board's own route); a refusal of one does not stop the others.
-      if [ -z "$_by" ] && [ -n "${3:-}" ]; then
-        local _all=("$num" "${@:3}") _n _ok="" _bad="" _b _r _why _seen=" " _first=1 _lost="" _lostrc=0 _left=""
-        for _n in "${_all[@]}"; do
-          if [ -n "$_lost" ]; then _n=$(printf '%s' "$_n" | sed 's/^0*\([0-9]\)/\1/'); case "$_seen" in *" $_n "*) ;; *) _seen="$_seen$_n "; _left="${_left:+$_left, }$_n" ;; esac; continue; fi
-          _n=$(printf '%s' "$_n" | sed 's/^0*\([0-9]\)/\1/')   # the board reads 013 as 13: one task, named as 13
-          case "$_seen" in *" $_n "*) _first=0; continue ;; esac   # a number given twice is closed once
-          _seen="$_seen$_n "
-          if [ "$_first" = 1 ]; then _b="$body"; _r=$rc; _first=0
-          else _r=0; _b=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$_n/close" 2>/dev/null) || _r=$?; fi
-          # Unanswered: it may have closed (a timeout), so say it as a single close does, and send no more.
-          if [ "$_r" -ne 0 ]; then _lost="$_n"; _lostrc="$_r"; continue; fi
-          case "$_b" in
-            '{"task":'*) _ok="${_ok:+$_ok, }$_n" ;;
-            '{"error":'*) _why=$(printf '%s' "$_b" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'); _bad="${_bad:+$_bad; }$_n (${_why:-it did not say why})" ;;
-            *) _bad="${_bad:+$_bad; }$_n (an answer we could not read)" ;;
-          esac
-        done
-        case "$_ok" in '') ;; *,*) say "Closed tasks $_ok on ${project:-the project}." ;; *) say "Closed task $_ok on ${project:-the project}." ;; esac
-        [ -z "$_bad" ] || say "Could not close: $_bad."
-        if [ -n "$_lost" ]; then
-          say_unreached "close task $_lost" "$_lostrc" write
-          say "Task $_lost may have closed anyway: check kosmos task list ${project:-<project-id>} before closing it again."
-          [ -z "$_left" ] || say "Not tried, so still open: $_left."
-          exit 1
-        fi
-        [ -z "$_bad" ] || exit 1
-        exit 0
-      fi
+      [ "$rc" -eq 0 ] || { say_unreached "close that task" "$rc" write; exit 1; }
       # Success is the board's own {"task":...} shape (server.js), not merely the absence of an error.
       case "$body" in
         '{"task":'*) if [ -n "$_by" ]; then
