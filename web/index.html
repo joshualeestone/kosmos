@@ -24181,7 +24181,9 @@ function paintRebootNote(note) {
    The line goes by itself once nobody named is still on an old session (asked again each minute). */
 /* `woke`: after a restart, whether each agent was woken with the 'hello' every restart sends (#2686, autoHelloAfterRestart),
    kept until closed: the line itself usually goes once everyone has restarted, so this is where the person learns it. */
-let RLINE = { line: null, open: false, busy: false, woke: { said: [], manual: [] } };
+/* `progress`: while restarts run, which button is running ('all' or an agent's name) and its words, drawn by
+   paintRestartLine so a repaint in the middle (a wake result arriving) keeps them. */
+let RLINE = { line: null, open: false, busy: false, woke: { said: [], manual: [] }, progress: null };
 /* "Ada", "Ada and Kai", "Ada, Kai and Lee" (escaped). */
 function rlineList(labels) {
   const n = labels.map((l) => esc(l));
@@ -24228,11 +24230,11 @@ function paintRestartLine() {
     + '<small>Restarting stops what they are doing now.</small>'
     + (woke ? '<small class="rlwoke">' + woke + '</small>' : '') + '</div>'
     + '<div class="uacts">'
-    + '<button type="button" class="uprime" data-rl-all>' + (one ? 'Restart ' + esc(line.agents[0].label) : 'Restart all') + '</button>'
+    + '<button type="button" class="uprime" data-rl-all' + (RLINE.progress && RLINE.progress.key === 'all' ? ' aria-disabled="true">' + esc(RLINE.progress.text) : '>' + (one ? 'Restart ' + esc(line.agents[0].label) : 'Restart all')) + '</button>'
     + (one ? '' : '<button type="button" data-rl-who aria-expanded="' + (RLINE.open ? 'true' : 'false') + '" aria-controls="rl-who">' + (RLINE.open ? 'Hide who' : 'Show who') + '</button>')
     + '<button type="button" data-rl-later>Not now</button></div>'
     + (!one && RLINE.open ? '<ul class="rlwho" id="rl-who" aria-label="Agents that need a restart">' + line.agents.map((a) =>
-      '<li class="rlrow"><span>' + esc(a.label) + '</span><button type="button" data-rl-one="' + esc(a.name) + '" aria-label="Restart ' + esc(a.label) + '">Restart</button></li>').join('') + '</ul>' : '')
+      '<li class="rlrow"><span>' + esc(a.label) + '</span><button type="button" data-rl-one="' + esc(a.name) + '" aria-label="Restart ' + esc(a.label) + '"' + (RLINE.progress && RLINE.progress.key === a.name ? ' aria-disabled="true"' : '') + '>Restart</button></li>').join('') + '</ul>' : '')
     + '</div>';
   // The same words do not repaint, so the minute's re-check never takes focus off a button or drops a refusal.
   if (slot.dataset.v === html) return;
@@ -24284,11 +24286,10 @@ async function rlineClick(e) {
   const labelOf = (n) => { const a = RLINE.line.agents.find((x) => x.name === n); return a ? a.label : n; };
   RLINE.busy = true;
   RLINE.woke = { said: [], manual: [] };
-  btn.setAttribute('aria-disabled', 'true');
-  const wasText = btn.textContent;
   const misses = [];
   for (let i = 0; i < names.length; i++) {
-    if (!one && names.length > 1) btn.textContent = 'Restarting ' + (i + 1) + ' of ' + names.length;
+    RLINE.progress = { key: one || 'all', text: !one && names.length > 1 ? 'Restarting ' + (i + 1) + ' of ' + names.length : btn.textContent };
+    paintRestartLine();
     const why = await rlineRestartOne(names[i]);
     if (why) { misses.push({ name: names[i], why }); continue; }
     // Woken as every other restart wakes an agent; the result is said on the line, or in its place once it has gone.
@@ -24298,8 +24299,7 @@ async function rlineClick(e) {
       RLINE_SAID, 'manual');
   }
   RLINE.busy = false;
-  btn.textContent = wasText;
-  btn.removeAttribute('aria-disabled');
+  RLINE.progress = null;
   await restartLineCheck();   // whoever restarted drops off the line; the line goes when nobody is left
   if (!misses.length) return;
   // Each agent with its own reason: one reason under several names would read as covering them all.

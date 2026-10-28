@@ -74,6 +74,9 @@ test('#7411: atStart keeps the first start of a version and the version before i
   assert.equal(rl.read().notNow, true);
   assert.equal(rl.atStart('0.7.72', 12000).notNow, true, 'a restart on the same version brought a hidden line back');
   assert.deepEqual(rl.atStart('0.7.73', 20000), { version: '0.7.73', previous: '0.7.72', at: 20000, notNow: false }, 'the next update stayed hidden');
+  // A rollback is not an update: no previous, so no line; going up again counts from the version rolled back to.
+  assert.deepEqual(rl.atStart('0.7.72', 30000), { version: '0.7.72', previous: null, at: 30000, notNow: false }, 'a rollback counted as an update');
+  assert.deepEqual(rl.atStart('0.7.73', 40000), { version: '0.7.73', previous: '0.7.72', at: 40000, notNow: false });
   assert.equal(rl.atStart('not a version', 1), null);
   assert.equal(rl.read().version, '0.7.73', 'a bad version overwrote the record');
 });
