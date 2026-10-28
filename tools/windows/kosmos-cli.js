@@ -1379,9 +1379,11 @@ async function taskClose(ctx, args) {
       const mayHaveClosed = lost && !lost.refused && !lost.notConnected && !lost.notProven;
       let left = stop >= 0 ? all.slice(stop + 1) : [];
       if (lost) {
-        /* A reset or cut-off answer after the request went: install/kosmos's say_unreached write words for curl 52/56,
-           not ctx.unreachable's "is it running?", which says nothing happened. */
-        if (mayHaveClosed && !lost.timedOut) ctx.err('Kosmos is running but did not answer in time, so we could not close task ' + all[stop] + '. It may still have happened: check before doing it again. It does not need a restart.');
+        /* A timeout, reset or cut-off answer after the request went: install/kosmos's words for the same (say_unreached
+           write), not ctx.unreachable's "is it running?" or "too busy". A redirect is not the board (kosmos#6464): it did
+           not reach Kosmos, so it is named not tried, as install/kosmos names it. */
+        if (lost.redirected) ctx.err('Whatever answered tried to send the close of task ' + all[stop] + ' somewhere else, which Kosmos never does, so it did not reach Kosmos.');
+        else if (mayHaveClosed) ctx.err('Kosmos is running but did not answer in time, so we could not close task ' + all[stop] + '. It may still have happened: check before doing it again. It does not need a restart.');
         else ctx.unreachable('close task ' + all[stop]);
         if (mayHaveClosed) ctx.err('Task ' + all[stop] + ' may have closed anyway: check kosmos task list ' + project + ' before closing it again.');
         else left = all.slice(stop);
@@ -3024,7 +3026,7 @@ async function main(argv, io) {
       if (res.status >= 300 && res.status < 400) {
         try { if (res.body && typeof res.body.cancel === 'function') await res.body.cancel(); } catch { /* gone */ }
         lastNotProven = REDIRECT_REFUSED;
-        return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true };
+        return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true, redirected: true };
       }
       const text = await res.text();
       let json = null;
