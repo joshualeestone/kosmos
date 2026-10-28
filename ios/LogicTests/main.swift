@@ -283,6 +283,14 @@ do {
     check(heard(at(2026, 10, 20, 9, 5), now) == "We last heard from it on Oct 20.", "a week or more: the date, and no time")
     check(heard(at(2026, 10, 27, 23, 50), at(2026, 10, 28, 0, 10)) == "We last heard from it yesterday at 11:50 PM.", "twenty minutes over midnight is yesterday: calendar days, not hours")
     check(heard(at(2026, 11, 1, 0, 30), at(2026, 11, 2, 10, 0)) == "We last heard from it yesterday at 12:30 AM.", "the day the clocks went back is one calendar day, not two")
+    // Review 1: the fall-back day (25 h) rounds to one day even when counted in hours; the spring-forward day (23 h)
+    // is the case that tells calendar days from hours.
+    // (8 March is the 23 h day: midnight to midnight from the 8th to the 9th.)
+    check(heard(at(2026, 3, 8, 22, 0), at(2026, 3, 9, 10, 0)) == "We last heard from it yesterday at 10:00 PM.", "the evening of the day the clocks went forward is yesterday the next morning, not today")
+    check(Board.lastHeard(listed: 100, heard: Date(timeIntervalSince1970: 500)) == 500 && Board.lastHeard(listed: 900, heard: Date(timeIntervalSince1970: 500)) == 900,
+          "the later of the list's last_seen and the app's own last good read")
+    check(Board.lastHeard(listed: 0, heard: nil) == nil && Board.lastHeard(listed: nil, heard: nil) == nil && Board.lastHeard(listed: nil, heard: Date(timeIntervalSince1970: 7)) == 7,
+          "neither: no time; only the app's read: that one")
     check(heard(nil, now) == nil && Shell.lastHeardSentence(0, now: now, calendar: cal, locale: en) == nil, "no time (none, or 0: never seen): no sentence")
     check(heard(now.addingTimeInterval(2 * 3600), now) == nil, "a time ahead of now says nothing")
     check(heard(now.addingTimeInterval(30), now) == "We last heard from it at 10:00 PM.", "CONTROL: a clock a few seconds ahead is still now")
@@ -3434,6 +3442,11 @@ section("native board loop: connecting")
         w.statusDefault = nil
         let ok8 = await settle { c.phase == .unreachable(mac: "Studio") }
         check(ok8, "three refreshes with no answer say the Mac is not answering")
+        // kosmos#7416 review 1: the time is this app's own last good read (the fake clock, about 1,000,000), not the
+        // list's last_seen (100), which is as old as the list's one read.
+        let heard = c.lastHeard(address: c.failingAddress, name: "Studio") ?? 0
+        check(c.failingAddress == "studio.kosmosplus.com" && heard > 100 && heard <= w.clock.timeIntervalSince1970,
+              "kosmos#7416: the not-answering time is the app's last good read of that Mac, not the list's older last_seen")
         let lists = w.count("/v1/account/macs")
         w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
         c.retry()

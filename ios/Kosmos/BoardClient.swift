@@ -189,12 +189,17 @@ final class BoardClient: ObservableObject {
     // The Mac to name when the shown list or chat stops updating: the shown one first (the list and its chat are
     // its), the phase's only when no list was shown (Board.failingMacName).
     var failingMacName: String? { Board.failingMacName(shown: shownMacName, phase: phase.macName) }
-    // kosmos#7416 slice 2: when Kosmos+ last saw the computer named `name`, by the shown computer's address when that
-    // is the one named, else by name (Board.lastSeen).
-    func lastSeen(of name: String?) -> Double? {
-        let address = shownMac.flatMap { $0.name == name ? $0.address : nil }
-        return Board.lastSeen(macs, address: address, name: name)
+    // kosmos#7416 slice 2: when a computer was last heard from, by its address when known (else by a name only one
+    // listed computer has): the later of Kosmos+'s last_seen and this app's own last good read of it (Board.lastHeard).
+    func lastHeard(address: String?, name: String?) -> Double? {
+        let a = address ?? Board.listedMac(macs, address: nil, name: name)?.address
+        return Board.lastHeard(listed: Board.lastSeen(macs, address: a, name: name), heard: a.flatMap { heardFrom[$0.lowercased()] })
     }
+    // The Mac the .unreachable phase is about, by address (review 1: the phase carries only a name, and two Macs can
+    // share one, so the time is looked up by this, never by the shown Mac's name).
+    private(set) var failingAddress: String?
+    // This app's last good list read of each Mac, by lowercased address, kept for the run.
+    private var heardFrom: [String: Date] = [:]
 
     private let coordinator: URL
     private let sessionStore: SessionStore
@@ -1398,6 +1403,7 @@ final class BoardClient: ObservableObject {
                 // where ONE miss used to say it (Josh, 10-26 08:29, with that Mac answering minutes later).
                 misses += 1
                 if misses < 3 { await env.sleep(3); continue }
+                failingAddress = mac.address
                 set(.unreachable(mac: mac.name), gen); return false
             }
             let answer = Board.classifySession(status: status, body: result?.0, waiting: waiting)
@@ -1516,6 +1522,7 @@ final class BoardClient: ObservableObject {
             fedShown = Board.fedShown(fromStatus: data)   // kosmos#7137: the shared-room UI, as the board's fedShow()
             if sorting { resortNext = false; sortedTicket = ticket; sortEpoch += 1 }
             updatedAt = env.now()
+            heardFrom[mac.address.lowercased()] = updatedAt
             failedRefreshes = 0
             unauthorizedSince = nil
             // The first list in a run (re)keeps the Mac's session, so a kept record dropped while the Mac was away is
@@ -1578,6 +1585,7 @@ final class BoardClient: ObservableObject {
             if !listedThisRun { macStore.delete() }
             // Not answering, said once; the loop keeps reading, so the next good read clears it by itself (a Mac back
             // from sleep needs no Try again).
+            failingAddress = mac.address
             set(.unreachable(mac: mac.name), gen)
         }
         return true
