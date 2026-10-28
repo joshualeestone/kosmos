@@ -727,6 +727,7 @@ function remoteNote(platform, deviceIsOffline) {
     'paintOfflineNote(true, ' + (deviceIsOffline ? 'true' : 'false') + ')', {
       esc, location: { host: 'box.kosmosplus.com', hostname: 'box.kosmosplus.com' }, __byId: { 'uoffline-slot': slot },
       MAC_ASLEEP_SENTENCE: sentence(platform, 'MAC_ASLEEP_SENTENCE'),   // the page's constant, chosen for this platform
+      LAST_STATUS_OK_AT: Date.now() - 1000,   // kosmos#7416: the page heard from it a moment ago, so the splice runs on the real sentence
     });
   return slot.innerHTML;
 }
@@ -754,6 +755,9 @@ test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos",
   assert.match(sentence('win32', 'SIGNED_OUT_SENTENCE'), /Your PC and your agents are fine\./);
   // CONTROL: the same source on a Mac says "your Mac", as before.
   assert.ok(remoteNote('darwin', false).includes('<b>Your Mac isn\'t answering</b>'));
+  // kosmos#7416 review 1: the time goes after the real first sentence, on every platform's own words.
+  assert.match(remoteNote('darwin', false), /<small>It may be asleep, off or offline\. We last heard from it [^.]+\. Wake it/);
+  assert.match(remoteNote('linux', false), /<small>It may be turned off, or Kosmos may have stopped on it\. We last heard from it [^.]+\. Make sure it is on/);
   assert.ok(remoteNote('darwin', true).includes('so it cannot reach your Mac.</small>'));
   assert.match(sentence('darwin', 'MAC_ASLEEP_SENTENCE'), /^It may be asleep, off or offline\. Wake it/);   // kosmos#7416, Mona Lisa's words
   for (const name of ['SIGNED_OUT_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE']) {   // #6537: OFFLINE_SENTENCE names no machine
