@@ -51,13 +51,17 @@ final class RoomStore: ObservableObject {
         var opening = true
         var loading = false
         var olderFailed = false
+        // Review 1: the archive read's own count, which the header says (the board's PJ_ARCH.count), so a live poll
+        // cannot put a new count over the old rows.
+        var count = 0
         static func == (l: ArchiveView, r: ArchiveView) -> Bool {
             l.rows == r.rows && l.older.count == r.older.count && l.older.cursor == r.older.cursor && l.opening == r.opening
-                && l.loading == r.loading && l.olderFailed == r.olderFailed
+                && l.loading == r.loading && l.olderFailed == r.olderFailed && l.count == r.count
         }
     }
     @Published private(set) var archive: [String: ArchiveView] = [:]
-    // Said once when opening the archive did not work (the board's toast), cleared by the room as it shows it.
+    // Said once when opening the archive did not work (the board's toast): the room shows it for a few seconds and
+    // clears it (review 1), and the next open clears it too.
     @Published var archiveNote: [String: String] = [:]
     // A post in the air or one that did not go, by project: its words, the line under it once answered, and the ids of
     // the person's posts already in the room when Post was pressed (so an earlier post with the same words never
@@ -104,7 +108,7 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
-        archivedCount = [:]; archive = [:]; archiveNote = [:]; archiveOpens = [:]   // kosmos#7365 slice 3c
+        archivedCount = [:]; archive = [:]; archiveNote = [:]; archiveOpens = [:]; archiveRefreshing = []   // kosmos#7365 slice 3c
         returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAsk = [:]
         held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
@@ -212,6 +216,9 @@ final class RoomStore: ObservableObject {
         rows[project] = fresh.rows
         older[project] = fresh.older
         archivedCount[project] = page.archivedCount
+        // Review 1: an archive set or undone elsewhere while this one shows: read it again, as the board's poll does
+        // when the count it sees changes.
+        if let a = archive[project], !a.opening, a.count != page.archivedCount { Task { await self.refreshArchive(project) } }
         settle(project)
         return true
     }
@@ -223,10 +230,12 @@ final class RoomStore: ObservableObject {
     func openArchive(_ project: String) async {
         archiveOpens[project, default: 0] += 1
         let open = archiveOpens[project]!
+        archiveNote[project] = nil
         archive[project] = ArchiveView()
         #if DEBUG
         if Self.sample {
-            archive[project] = ArchiveView(rows: Board.parseRoom(Data(Self.sampleArchive.utf8), names: names)?.rows ?? [], older: (0, nil), opening: false)
+            archive[project] = ArchiveView(rows: Board.parseRoom(Data(Self.sampleArchive.utf8), names: names)?.rows ?? [], older: (0, nil), opening: false,
+                                           count: archivedCount[project] ?? 0)
             return
         }
         #endif
@@ -236,8 +245,22 @@ final class RoomStore: ObservableObject {
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
             archive[project] = nil; archiveNote[project] = Board.Archive.couldNotOpen; return
         }
-        archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false)
+        archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
         archivedCount[project] = page.archivedCount
+    }
+    // The archive's newest page again, in place of what it showed (its count changed under it). Kept as it was when the
+    // read fails; dropped when the archive was closed or opened again meanwhile.
+    private var archiveRefreshing: Set<String> = []
+    func refreshArchive(_ project: String) async {
+        guard archive[project] != nil, !archiveRefreshing.contains(project) else { return }
+        archiveRefreshing.insert(project)
+        defer { archiveRefreshing.remove(project) }
+        let open = archiveOpens[project]
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, part: .archive) }
+        guard same(epoch), archiveOpens[project] == open, archive[project] != nil,
+              let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else { return }
+        archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
     }
     // Back to the room: the archive's rows go, and a read still on its way for it is dropped.
     func closeArchive(_ project: String) {

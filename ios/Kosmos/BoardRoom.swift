@@ -122,6 +122,12 @@ extension Board {
         static let couldNotOpen = "We could not open the archive just now."
         static let couldNotReadEarlier = "We could not read the earlier archived messages."
         static let backAnnouncement = "Back in the room."
+        // Review 1: the composer's place while the archive shows ("You are reading the archive. Back to the room to write."),
+        // an empty archive, and a reply whose original is not in the live part once its start is reached.
+        static let readingFirst = "You are reading the archive."
+        static let readingLast = "to write."
+        static let nothing = "Nothing in this room is archived now."
+        static let originalMayBe = "Original message may be in the archive"
         static func count(_ n: Int) -> String {
             let f = NumberFormatter(); f.numberStyle = .decimal; f.locale = Locale(identifier: "en_US")
             return (f.string(from: NSNumber(value: n)) ?? String(n)) + (n == 1 ? " message" : " messages")

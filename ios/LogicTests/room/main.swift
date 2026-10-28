@@ -196,6 +196,10 @@ for w in [Board.Archive.back, Board.Archive.couldNotOpen, Board.Archive.couldNot
           "<b>" + Board.Archive.title + "</b>"] {
     check(boardPage.contains(w), "the board's words: " + w)
 }
+check(boardPage.contains(Board.Archive.readingFirst + " <button type=\"button\" class=\"linkish pj-arch-ctl\" id=\"pj-arch-note-back\">" + Board.Archive.back + "</button> " + Board.Archive.readingLast),
+      "the composer's place while the archive shows, as the board's pj-arch-note")
+check(boardPage.contains(">" + Board.Archive.nothing + "</p>"), "an empty archive, as the board")
+check(boardPage.contains("<span class=\"msg-replyto gone\">" + Board.Archive.originalMayBe + "</span>"), "a reply's original that may be archived, as the board")
 check(boardPage.contains("'Opening the archive\\u2026'") && Board.Archive.opening == "Opening the archive\u{2026}", "opening, with the board's ellipsis")
 check(Board.roomRequest(mac: mac, project: "../x", n: 50) == nil && Board.roomRequest(mac: mac, project: "Spring", n: 50) == nil, "a project id the board cannot have is refused")
 check(Board.roomRequest(mac: mac, project: "p", n: 0) == nil && Board.roomRequest(mac: mac, project: "p", n: 201) == nil, "n outside 1 to 200 is refused")
