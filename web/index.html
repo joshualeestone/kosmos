@@ -7318,7 +7318,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* The archive's controls are links, as the room's other secondary actions are (design shots, 10-27: as bordered buttons
    they outweighed the room). On a touch screen each still taps at 44px. The confirm keeps its choice and the "?" together. */
 .pj-arch-ctl { white-space: nowrap; }
-@media (hover: none) { .pj-arch-ctl { min-height: 44px; } }
+/* .linkish.pj-arch-ctl, not .pj-arch-ctl: the later .linkish rule (min-height 24px) has the same specificity and won,
+   so the first shots measured these at 24px on a phone. */
+@media (hover: none) { .linkish.pj-arch-ctl { min-height: 44px; } }
 .pjarch-pick { white-space: nowrap; }
 #pjarch-when { font: inherit; }
 .msg-archived { display: inline-block; margin-right: .5em; padding: 0 .4em; border: 1px solid var(--k-rule); border-radius: 4px; font-size: .7rem; }
