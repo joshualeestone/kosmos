@@ -156,13 +156,14 @@ function findUnder(dir, name) {
       && /^They leave this room and what agents read here\. You can still search and open them, and put them back from the archive\.$/.test(ask.small),
       'the confirm asks "Archive older messages?", with "Older than [this week]" and its three choices under it, and says what it does', JSON.stringify(ask));
     chk(ask.focus === 'pjarch-when', 'the confirm opens with the choice focused', String(ask.focus));
-    // It sits inside the room's section (no spare body row); position:fixed must still make it cover the whole page.
-    // The page's area, not innerWidth: with classic scrollbars (CI, the Windows app) the tab layout keeps a 15px
-    // gutter on <html> that no fixed layer covers, and #4506 dims it through the canvas (render-dialog-gutter-4506).
-    const cover = await p.evaluate(() => { const el = document.getElementById('pjarch-modal'); const r = el.getBoundingClientRect(); const root = document.documentElement; return { pos: getComputedStyle(el).position, x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), cw: root.clientWidth, ch: root.clientHeight, iw: innerWidth }; });
-    chk(cover.pos === 'fixed' && cover.x === 0 && cover.y === 0 && cover.w === cover.cw && cover.h === cover.ch, 'the confirm\'s backdrop covers the whole page, though it sits inside the room\'s section', JSON.stringify(cover));
-    const onTop = await p.evaluate(() => { const root = document.documentElement; return [[root.clientWidth / 2, root.clientHeight / 2], [4, 4], [root.clientWidth - 4, root.clientHeight - 4]].map(([x, y]) => { const e = document.elementFromPoint(x, y); return !!(e && e.closest('#pjarch-modal')); }); });
-    chk(onTop.every(Boolean), 'the confirm paints above everything: the middle and two corners of the page are the confirm', JSON.stringify(onTop));
+    // It sits inside the room's section (no spare body row); position:fixed must still make it cover everything a fixed
+    // layer can. Measured against a fixed inset:0 probe, not the window or clientWidth: with classic scrollbars (CI,
+    // the Windows app) the tab layout's scrollbar-gutter on <html> takes 15px from every fixed layer while
+    // clientWidth still reads the full width there, and #4506 dims that strip (render-dialog-gutter-4506).
+    const cover = await p.evaluate(() => { const el = document.getElementById('pjarch-modal'); const r = el.getBoundingClientRect(); const pr = document.createElement('div'); pr.style.cssText = 'position:fixed;inset:0;pointer-events:none;visibility:hidden'; document.body.appendChild(pr); const q = pr.getBoundingClientRect(); pr.remove(); const rd = (b) => [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)]; return { pos: getComputedStyle(el).position, box: rd(r), fixedArea: rd(q), iw: innerWidth, ih: innerHeight }; });
+    chk(cover.pos === 'fixed' && cover.box.join() === cover.fixedArea.join(), 'the confirm\'s backdrop covers everything a fixed layer can, though it sits inside the room\'s section', JSON.stringify(cover));
+    const onTop = await p.evaluate(([x0, y0, w, h]) => [[x0 + w / 2, y0 + h / 2], [x0 + 4, y0 + 4], [x0 + w - 4, y0 + h - 4]].map(([x, y]) => { const e = document.elementFromPoint(x, y); return !!(e && e.closest('#pjarch-modal')); }), cover.fixedArea);
+    chk(onTop.every(Boolean), 'the confirm paints above everything: the middle and two corners a fixed layer can reach are the confirm', JSON.stringify(onTop));
     await p.screenshot({ path: path.join(OUT, 'confirm.png') });
     await p.keyboard.press('Escape');
     await p.waitForTimeout(300);
