@@ -2849,7 +2849,7 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
   const dir = workerDir(clean);
   const memDir = path.join(dir, 'memory');
   const destDir = path.join(dir, CARRIED_NOTES_REL);
-  const out = { from: from || null, toClaude, rootChange, notes: rootChange ? 'stayed' : 'none', copied: 0, kept: 0, skipped: 0, failed: 0, pointed: false };
+  const out = { from: from || null, toClaude, rootChange, notes: rootChange ? 'stayed' : 'none', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false };
   if (!toClaude) {
     const root = agentClaudeRoot(job);
     const others = knownFolders();
@@ -2858,34 +2858,44 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
     if (mem.state !== 'owned') out.notes = mem.state;
     else {
       const notDir = (p) => { try { return !fs.lstatSync(p).isDirectory(); } catch { return false; } };   // there and not a real folder
+      // Review 4: a real folder, not a link or junction (lstat answers isSymbolicLink for a Windows junction too).
+      const realDir = (p) => { try { const s = fs.lstatSync(p); return s.isDirectory() && !s.isSymbolicLink(); } catch { return false; } };
       if (notDir(memDir) || notDir(destDir)) out.notes = 'blocked';   // a link or a file: never written through
       else {
         /* Review 3: every note is counted, never dropped: copied, kept (already there as a plain file), skipped (a link,
-           not a plain file, over 1 MB, or a non-file already in its place) or failed (gone meanwhile, or the copy itself
-           failed: EACCES, ENOSPC, a folder that could not be made). Nothing landed while notes existed is 'failed',
-           so the person is never told it had none. */
-        try { fs.mkdirSync(destDir, { recursive: true }); } catch { /* each copy below then fails, and is counted */ }
+           not a plain file, over 1 MB, or changed since the ownership check), occupied (review 4: something else is
+           already in its place) or failed (gone meanwhile, or the copy itself failed: EACCES, ENOSPC, a folder that
+           could not be made). Nothing landed while notes existed is 'failed', so the person is never told it had none. */
+        try { fs.mkdirSync(destDir, { recursive: true }); } catch { /* checked just below */ }
+        /* Review 4: checked AGAIN after the mkdir. A link or junction put at memory/ or memory/claude-notes/ between the
+           first check and the mkdir makes the recursive mkdir a no-op, and every copy would then write through it to
+           somewhere outside the agent's folder. Not a real folder now: blocked, and nothing is copied. */
+        if (!realDir(memDir) || !realDir(destDir)) out.notes = 'blocked';
+        else {
         for (const f of mem.files) {
           const src = path.join(mem.dir, f);
           let st = null;
           try { st = fs.lstatSync(src); } catch { out.failed += 1; continue; }   // checked right before the copy: a link is never followed
-          if (!st.isFile() || st.size > CARRIED_NOTE_MAX_BYTES) { out.skipped += 1; continue; }
+          // Review 4: and its time again, against the agent's newest transcript: a note changed since the ownership check
+          // may be another session's.
+          if (!st.isFile() || st.size > CARRIED_NOTE_MAX_BYTES || !(st.mtimeMs <= mem.newest)) { out.skipped += 1; continue; }
           const dest = path.join(destDir, f);
-          // Something already in its place: a plain file is a kept note; a link or a folder is not, and is skipped.
+          // Something already in its place: a plain file is a kept note; a link or a folder is not (occupied).
           // Looked at first, and again on EEXIST (it can appear in between), because Windows answers a copy onto a
           // folder with EPERM, not EEXIST.
           const already = () => { try { return fs.lstatSync(dest); } catch { return null; } };
           const there = already();
-          if (there) { if (there.isFile()) out.kept += 1; else out.skipped += 1; continue; }
+          if (there) { if (there.isFile()) out.kept += 1; else out.occupied += 1; continue; }
           try { fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL); out.copied += 1; }
           catch (e) {
             const now = e && e.code === 'EEXIST' ? already() : null;
-            if (now) { if (now.isFile()) out.kept += 1; else out.skipped += 1; }
+            if (now) { if (now.isFile()) out.kept += 1; else out.occupied += 1; }
             else out.failed += 1;
           }
         }
         if (out.copied || out.kept) out.notes = 'copied';
         else if (mem.files.length) out.notes = 'failed';
+        }
       }
     }
   }
@@ -2928,6 +2938,9 @@ function switchCarryWords(label, carried, fromLabel) {
   if (!carried) return `${label} it is. Everything it knows and everything it has done stays. `;
   const from = fromLabel || 'its previous provider';
   const lost = 'Anything it only remembered from talking is lost. ';
+  // Review 4: why a note is left out, and a note whose place in its folder holds something else, said apart.
+  const SKIP_WHY = 'not a plain file, over 1 MB, or changed since its own last conversation';
+  const OCCUPIED = (n) => `${n === 1 ? 'one was' : `${n} were`} not copied because something else is already in ${n === 1 ? 'its' : 'their'} place in memory/claude-notes/`;
   const notCopied = {
     shared: 'its Claude notes are kept together with another folder\'s, so we could not tell which are its own',
     unattributed: 'there is no conversation of its own beside them to show they are its own',
@@ -2945,7 +2958,8 @@ function switchCarryWords(label, carried, fromLabel) {
   } else if (carried.notes === 'copied') {
     notes = 'Its saved notes are copied into its folder'
       + (carried.kept ? ` (${carried.kept === 1 ? 'one was' : `${carried.kept} were`} already there from an earlier switch and kept, not replaced)` : '')
-      + (carried.skipped ? ` (${carried.skipped === 1 ? 'one was' : `${carried.skipped} were`} left out: not a plain file, or over 1 MB)` : '')
+      + (carried.skipped ? ` (${carried.skipped === 1 ? 'one was' : `${carried.skipped} were`} left out: ${SKIP_WHY})` : '')
+      + (carried.occupied ? ` (${OCCUPIED(carried.occupied)})` : '')   // review 4
       + (carried.failed ? ` (${carried.failed} could not be copied)` : '')   // review 3
       + ', and anything it only remembered from talking is lost. '
       // Review 2: copied but the brief could not be pointed at them (no brief we may write, or two pointer blocks).
@@ -2954,7 +2968,8 @@ function switchCarryWords(label, carried, fromLabel) {
     // Review 3: it had notes and none landed. Never "it had no saved notes".
     const parts = [];
     if (carried.failed) parts.push(`${carried.failed === 1 ? 'one' : carried.failed} could not be copied into its folder`);
-    if (carried.skipped) parts.push(`${carried.skipped === 1 ? 'one was' : `${carried.skipped} were`} left out (not a plain file, or over 1 MB)`);
+    if (carried.skipped) parts.push(`${carried.skipped === 1 ? 'one was' : `${carried.skipped} were`} left out (${SKIP_WHY})`);
+    if (carried.occupied) parts.push(OCCUPIED(carried.occupied));   // review 4
     notes = `It had saved notes, but none were copied: ${parts.join(', and ') || 'they could not be copied into its folder'}. `
       + 'They are still where Claude keeps them. ' + lost;
   } else if (notCopied[carried.notes]) {

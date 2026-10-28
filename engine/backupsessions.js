@@ -295,7 +295,8 @@ function ownedClaudeMemory(agentDir, claudeRoot, opts) {
       try { m = fs.statSync(path.join(memDir, f)).mtimeMs; } catch { m = Infinity; }
       if (!(m <= newest)) return { state: 'newer' };
     }
-    return files.length ? { state: 'owned', dir: memDir, files } : { state: 'none' };
+    // Review 4: `newest` rides along so the copy can recheck each note right before it copies it.
+    return files.length ? { state: 'owned', dir: memDir, files, newest } : { state: 'none' };
   }
   return { state: refused || 'none' };
 }

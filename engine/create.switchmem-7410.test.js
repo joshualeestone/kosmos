@@ -93,7 +93,7 @@ test('#7410: switching off Claude copies its own notes into memory/claude-notes/
 
   const sw = create.setProvider(name, 'openai', OPTS);
   assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
-  assert.deepEqual(sw.carried, { from: 'anthropic', toClaude: false, rootChange: false, notes: 'copied', copied: 2, kept: 0, skipped: 0, failed: 0, pointed: true });
+  assert.deepEqual(sw.carried, { from: 'anthropic', toClaude: false, rootChange: false, notes: 'copied', copied: 2, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: true });
   assert.equal(read(nodePath.join(notesDir(name), 'MEMORY.md')), '- [Topic](topic.md)\n');
   assert.equal(read(nodePath.join(notesDir(name), 'topic.md')), 'a thing I learned\n');
   assert.equal(read(nodePath.join(src, 'MEMORY.md')), '- [Topic](topic.md)\n', 'the original was changed');
@@ -248,7 +248,7 @@ test('#7410 review 3: notes that are all over 1 MB are "failed", never "it had n
   assert.deepEqual([r.notes, r.skipped], ['failed', 1]);
   const w = create.switchCarryWords('OpenAI', r, 'Claude');
   assert.doesNotMatch(w, /no saved notes/);
-  assert.match(w, /none were copied: one was left out \(not a plain file, or over 1 MB\)/);
+  assert.match(w, /none were copied: one was left out \(not a plain file, over 1 MB, or changed since its own last conversation\)/);
 });
 
 test('#7410 review 3: something other than a plain file already in a note\'s place is skipped, not kept', () => {
@@ -256,7 +256,51 @@ test('#7410 review 3: something other than a plain file already in a note\'s pla
   claudeProject(name, { 'MEMORY.md': 'a note\n' });
   fs.mkdirSync(nodePath.join(notesDir(name), 'MEMORY.md'), { recursive: true });   // a folder where the note would go
   const r = carryOff(name);
-  assert.deepEqual([r.kept, r.skipped], [0, 1], 'a folder in the note\'s place was counted as a kept note');
+  assert.deepEqual([r.kept, r.skipped, r.occupied], [0, 0, 1], 'a folder in the note\'s place was counted as kept, or as a left-out note');
+  // Review 4: said as what it is, not as "not a plain file, or over 1 MB".
+  assert.match(create.switchCarryWords('OpenAI', r, 'Claude'), /one was not copied because something else is already in its place in memory\/claude-notes\//);
+});
+
+test('#7410 review 4: a link or junction put at memory/claude-notes/ after the first check blocks the copy, nothing written through it', (t) => {
+  const name = born('sm7410-swap');
+  claudeProject(name, { 'MEMORY.md': 'must not leave the folder\n' });
+  fs.mkdirSync(nodePath.join(create.workerDir(name), 'memory'), { recursive: true });
+  const outside = nodePath.join(SANDBOX, 'outside-7410');
+  fs.mkdirSync(outside, { recursive: true });
+  const dest = notesDir(name);
+  // The seam: the mkdir leaves a link where the folder should be, as a swap between the check and the mkdir would.
+  const real = fs.mkdirSync;
+  let linked = null;
+  fs.mkdirSync = (p, o) => {
+    if (nodePath.resolve(String(p)) === nodePath.resolve(dest)) {
+      try { fs.symlinkSync(outside, dest, 'junction'); linked = true; } catch (e) { linked = e.code; }
+      return undefined;
+    }
+    return real(p, o);
+  };
+  let r;
+  try { r = carryOff(name); } finally { fs.mkdirSync = real; }
+  if (linked !== true) { t.skip('this computer will not make a link here (' + linked + ')'); return; }
+  assert.equal(r.notes, 'blocked', 'the copy went ahead into a link');
+  assert.deepEqual(fs.readdirSync(outside), [], 'a note was written through the link, outside the agent\'s folder');
+});
+
+test('#7410 review 4: a note changed after the ownership check (before its copy) is left out', () => {
+  const name = born('sm7410-raced');
+  const src = claudeProject(name, { 'MEMORY.md': 'stable\n', 'late.md': 'rewritten by another session\n' });
+  const bs = require('./backupsessions');
+  const realOwned = bs.ownedClaudeMemory;
+  // The seam: the note is rewritten right after ownership was decided, as a second session would.
+  bs.ownedClaudeMemory = (...a) => {
+    const m = realOwned(...a);
+    const later = new Date(Date.now() + 120000);
+    fs.utimesSync(nodePath.join(src, 'late.md'), later, later);
+    return m;
+  };
+  let r;
+  try { r = carryOff(name); } finally { bs.ownedClaudeMemory = realOwned; }
+  assert.deepEqual([r.notes, r.copied, r.skipped], ['copied', 1, 1]);
+  assert.equal(fs.existsSync(nodePath.join(notesDir(name), 'late.md')), false, 'a note changed since the check was copied');
 });
 
 test('#7410 review 3: the pointer counts only plain .md files, not a folder named like one', () => {
@@ -309,7 +353,7 @@ test('#7410: no Claude notes at all: nothing copied, no pointer, and the sentenc
   const name = born('sm7410-none');
   const sw = create.setProvider(name, 'openai', OPTS);
   assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
-  assert.deepEqual(sw.carried, { from: 'anthropic', toClaude: false, rootChange: false, notes: 'none', copied: 0, kept: 0, skipped: 0, failed: 0, pointed: false });
+  assert.deepEqual(sw.carried, { from: 'anthropic', toClaude: false, rootChange: false, notes: 'none', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false });
   assert.match(create.switchCarryWords('OpenAI', sw.carried, 'Claude'), /had no saved notes to copy/);
 });
 

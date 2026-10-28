@@ -167,3 +167,18 @@ One warning and two nits, all taken; every test below is red on 446b18da1b.
    pointer now counts only plain `.md` files. Tests: a folder named MEMORY.md, and a folder named looks-like.md.
 3. **The unparseable profile is now named** in a console.warn ("the switch copied no notes because the profile <file>
    could not be read"). The corrupt-profile test asserts it.
+
+## Review 4 (decided)
+One warning and two nits, all taken; each test below is red on 6bd0cfacdd.
+1. **A link or junction appearing at memory/claude-notes/ between the check and the mkdir** made the recursive mkdir a
+   no-op, and every copy would have written through it. memory/ and memory/claude-notes/ are now lstat-ed again after
+   the mkdir and must be real folders (not a link; Windows reports a junction as one); otherwise `blocked`, nothing
+   copied. Test: an mkdirSync seam that leaves a junction to a folder outside the agent's; asserts `blocked` and that
+   folder stays empty (on 6bd0cfacdd the note landed outside). Residual: a swap between this recheck and a copy is
+   still possible; closing that needs per-file handles opened relative to a held folder, which Node does not offer.
+2. **"Left out" also covered something else already in a note's place.** Counted separately now (`occupied`) and said
+   as "one was not copied because something else is already in its place in memory/claude-notes/".
+3. **Each note's time is rechecked right before its copy** against the agent's newest transcript (`ownedClaudeMemory`
+   now returns `newest`); one changed since is left out. The "left out" reason now reads "not a plain file, over 1 MB,
+   or changed since its own last conversation". Test: an ownedClaudeMemory seam that rewrites one note's time after the
+   ownership check; it is not copied, the other is.
