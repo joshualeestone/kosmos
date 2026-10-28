@@ -409,7 +409,17 @@ extension Board {
         -> (rows: [RoomRow], older: (count: Int, cursor: String?))? {
         guard let was, was != page.archivedCount, let shown, let older, older.cursor == nil else { return nil }
         if page.archivedCount < was { return (page.rows, (page.olderCount, page.olderCursor)) }
-        let kept = Array(shown.dropFirst(page.archivedCount - was))
+        // Review 4: when the page itself reaches the start of the live part, its first row is that start, so what goes
+        // is every row shown before it, by time (as the board's pjRoomDropArchived cuts by time); a row the phone does
+        // not draw cannot shift it. Otherwise the start is off the page, and the first k shown go.
+        let kept: [RoomRow]
+        if page.olderCount == 0, let cut = page.rows.first?.at {
+            kept = shown.filter { ($0.at ?? .distantFuture) >= cut }
+        } else {
+            kept = Array(shown.dropFirst(page.archivedCount - was))
+        }
+        // Nothing shown is still live: the page and its own cursor, so the live rows before it stay reachable.
+        if kept.isEmpty { return (page.rows, (page.olderCount, page.olderCursor)) }
         return refreshRoom(kept, older: older, page: page)
     }
 

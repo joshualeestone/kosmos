@@ -321,6 +321,9 @@ final class RoomStore: ObservableObject {
         }
         rows[project] = Board.mergeRoom(page.rows, with: rows[project] ?? [])
         older[project] = (page.olderCount, page.olderCursor)
+        // Review 4: this page was read at its own archived count, and every row shown now comes after its first row, so
+        // that count is the one the rows shown match. Kept stale, the next poll would read the difference as rows to drop.
+        archivedCount[project] = page.archivedCount
     }
 
     // Posts the words. Kept: the room is re-read, then the bubble goes (so the post never blinks out). Otherwise, as the

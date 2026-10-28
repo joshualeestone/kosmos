@@ -200,6 +200,19 @@ check(Board.archiveMoved(shownStart, older: (5, "c"), was: 10, page: archPg([3, 
       "earlier live pages still unread: nothing shown can be archived, the pages read are kept")
 let moved2 = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([3, 4, 5], archived: 12))
 check(moved2?.rows.map(\.id) == ["m3", "m4", "m5"], "two more archived: the first two shown go, the rest merge with the page: \(moved2?.rows.map(\.id) ?? [])")
+// Review 4: the page reaches the live start: the cut is its first row's time, whatever the phone did not draw.
+let byTime = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([2, 3, 4, 5], archived: 13))
+check(byTime?.rows.map(\.id) == ["m2", "m3", "m4", "m5"], "the cut is the page's first row when the page reaches the live start: \(byTime?.rows.map(\.id) ?? [])")
+// A row this phone does not draw was archived too (the count moved 1, two drawn rows went): the time cut is right where
+// a count would keep m2.
+let undrawn = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([3, 4, 5], archived: 11))
+check(undrawn?.rows.map(\.id) == ["m3", "m4", "m5"], "an undrawn archived row does not shift the cut: \(undrawn?.rows.map(\.id) ?? [])")
+let byCount = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([4, 5], archived: 12, older: 1, cursor: "z"))
+check(byCount?.rows.map(\.id) == ["m3", "m4", "m5"] && byCount?.older.cursor == nil,
+      "the live start off the page: the first k shown go, the rest merge: \(byCount?.rows.map(\.id) ?? [])")
+let allGone = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([7, 8], archived: 16, older: 3, cursor: "q"))
+check(allGone?.rows.map(\.id) == ["m7", "m8"] && allGone?.older.cursor == "q" && allGone?.older.count == 3,
+      "nothing shown still live: the page and its own cursor, so the earlier live rows stay reachable")
 let undone = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([1, 2, 3, 4, 5], archived: 4, older: 6, cursor: "k"))
 check(undone?.rows.map(\.id) == ["m1", "m2", "m3", "m4", "m5"] && undone?.older.cursor == "k" && undone?.older.count == 6,
       "fewer archived: the page and its cursor, so the rows given back are reachable above")

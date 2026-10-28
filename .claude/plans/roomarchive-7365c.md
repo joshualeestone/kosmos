@@ -46,6 +46,10 @@
    cursor; tested, and 2 of 2 mutations red. MINORs: the archive read no longer writes the live count; a failed
    refresh is asked again after 30 s; each note has its own view identity and timer; the new-row scroll compares the
    part it last saw instead of a flag set by another handler.
+4. sonnet: 1 MAJOR, 2 MINOR, all fixed. MAJOR: an earlier live page read after the count moved left the stored count
+   stale, and the next poll dropped live rows; loadOlder now stores its page's count. MINORs: a cut by count assumed
+   the phone draws every row the server counts, so when the page reaches the live start the cut is its first row's
+   time; nothing shown still live takes the page and its cursor. 4 of 4 archiveMoved mutations red.
 
 ## Not verified
 
