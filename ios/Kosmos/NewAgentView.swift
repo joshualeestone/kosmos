@@ -40,6 +40,7 @@ struct NewAgentView: View {
     @State private var teamMessage: String?
     @State private var maybeMade: [String: String] = [:]   // slot: the session a create with no answer may have made
     @State private var loadingTeams = false
+    @State private var teamTask: Task<Void, Never>?   // the run, ended if the sheet goes (a tab change can take it)
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -60,6 +61,7 @@ struct NewAgentView: View {
         }
         .interactiveDismissDisabled(sending || (made != nil && !seen && !timedOut) || teamRunning)
         .onChange(of: client.agents) { rows in agentsChanged(rows) }
+        .onDisappear { teamTask?.cancel() }
         .task {
             #if DEBUG
             if showSample() { return }
@@ -296,7 +298,7 @@ struct NewAgentView: View {
             let n = detail?.members.count ?? 0
             let named = detail.map { $0.key == teamKey && $0.members.allSatisfy { !NewProject.trimmed(names[$0.slot] ?? "").isEmpty } } ?? false
             pinned(NewTeam.Words.create(max(n, 1)), enabled: !teamRunning && n > 0 && named, busy: teamRunning) {
-                Task { await makeTeam() }
+                runTeam()
             }
         }
     }
@@ -406,6 +408,7 @@ struct NewAgentView: View {
         teamStarted = true
         let lead = d.members.first?.slot
         for s in specs {
+            if Task.isCancelled { return }   // the sheet went: nothing more is made that nobody can see
             if case .made = states[s.slot] { continue }
             if s.slot != lead, let lead, !isMade(lead) { states[s.slot] = .afterLead; continue }
             // The desktop's stale-spec guard: never make a member under a name that is not the one on its row.
@@ -450,6 +453,7 @@ struct NewAgentView: View {
             maybeMade[slot] = nil
         }
         if let made, !seen, on.contains(made.session) { seen = true }
+        if !draft.reportsTo.isEmpty, !on.contains(draft.reportsTo) { draft.reportsTo = "" }   // a manager no longer listed
     }
 
     // Fire-and-forget, as the desktop: a failed tell is recoverable from the project's own screen.
@@ -460,6 +464,11 @@ struct NewAgentView: View {
     }
 
     private func announce(_ words: String) { UIAccessibility.post(notification: .announcement, argument: words) }
+
+    private func runTeam() {
+        guard !teamRunning else { return }
+        teamTask = Task { await makeTeam() }
+    }
 
     private func isMade(_ slot: String) -> Bool { if case .made = states[slot] { return true }; return false }
 
@@ -477,7 +486,8 @@ struct NewAgentView: View {
                 ForEach(members) { m in
                     HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
-                            if case .failed = states[m.slot], !teamRunning {
+                            // Not a row whose create may have landed: a new name would make a second agent for it.
+                            if case .failed = states[m.slot], !teamRunning, maybeMade[m.slot] == nil {
                                 nameField(m)   // the desktop lets a failed row be renamed before Try again
                             } else {
                                 Text(NewProject.trimmed(names[m.slot] ?? m.name)).foregroundColor(Palette.primary)
@@ -506,7 +516,7 @@ struct NewAgentView: View {
             if allMade, let lead = members.first, case .made(let session, let shown) = states[lead.slot] {
                 pinned(NewTeam.Words.goTo(members.count), enabled: true) { dismiss(); opened(session, shown) }
             } else if !teamRunning {
-                pinned(NewTeam.Words.tryAgain, enabled: true) { Task { await makeTeam() } }
+                pinned(NewTeam.Words.tryAgain, enabled: true) { runTeam() }
             }
         }
     }
