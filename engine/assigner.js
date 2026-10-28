@@ -162,13 +162,15 @@ function hasOpenWork(session, projects) {
 
 /* #5678 review 2: does `who` holding an open part of `t` keep it busy, by hasOpenWork's own rules (on hold, between
    runs, built and freed: not busy)? A tree is locked only by holds like that, so a parked hold never locks a tree for
-   good. One more than hasOpenWork (review 5: so the two do not fully agree): a holder switched off in this project
-   holds nothing here, because the person turned its swarm work off; its tree is free to the others. Its callers have
+   good. Two more than hasOpenWork (review 5: so the two do not fully agree): a holder switched off in this project
+   holds nothing here, because the person turned its swarm work off; and a review-only holder (#7429) holds nothing
+   here either; in both cases its tree is free to the others. Its callers have
    already left out closed tasks and paused projects, hasOpenWork's other two checks (review 7). */
 function busyHold(p, t, who) {
   if (tasks.isOnHold(t) || require('./taskrepeat').waitingForNextRun(t)) return false;
-  /* #7429 review 1: a review-only member holding a part (a "review" subtask a person gave it) never takes the tree's
-     other tasks, so it does not lock the tree away from builders, as a member switched off does not. */
+  /* #7429 review 1: a review-only member holding ANY part (usually a review subtask; a build task a person gave it by
+     hand counts the same) never takes the tree's other tasks, so it does not lock the tree away from builders, as a
+     member switched off does not. The cost, accepted: a builder can then be on a tree beside it. */
   if (require('./projects').reviewOnlyHere(p, who)) return false;
   if (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(who)))) return false;
   return !isSwarmOff(p, who);
@@ -449,6 +451,8 @@ function stalledParts(projects, ripe, runnerOf, now = Date.now(), limitedSince =
       if (prog.closed) continue;
       for (const x of prog.parts) {
         if (x.closedAt || !ripe.has(x.who)) continue;
+        // #7429 final review: a review-only member's part is its review; moving it to another agent is not failover.
+        if (require('./projects').reviewOnlyHere(p, x.who)) continue;
         /* Review 13: a part a PERSON gave this agent while it was already limited stays (they may be queueing work for
            after its reset); only work it held before its limit began moves. */
         const since = limitedSince instanceof Map ? limitedSince.get(x.who) : undefined;

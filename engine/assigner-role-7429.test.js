@@ -129,6 +129,15 @@ test('review 1: a review-only member is not asked to draft tasks toward the goal
   assert.ok(asked && asked.projectId === 'pg', 'CONTROL: the builder is asked: ' + JSON.stringify(asked));
 });
 
+test('final review: a rate-limited reviewer\'s part is not offered for failover; a builder\'s is (control)', () => {
+  const proj = (role) => [{ id: 'ps', agents: ['lim', 'other'], rolesHere: role ? { lim: role } : {}, tasks: [
+    { number: 1, sentence: 'Review it', who: 'lim' },
+  ] }];
+  const runners = new Map([['lim', 'claude']]);
+  assert.deepEqual(a.stalledParts(proj('reviewer'), new Set(['lim']), runners, T0), [], 'a reviewer\'s review was moved');
+  assert.equal(a.stalledParts(proj(null), new Set(['lim']), runners, T0).length, 1, 'CONTROL: a builder\'s stalled part is offered');
+});
+
 test('failoverPick moves no stalled part to a reviewer; to a builder it does (control)', () => {
   // The shape engine/assigner.test.js's #5678 failover tests use.
   const stalled = [{ projectId: 'pf', n: 1, partId: 1, from: 'stuck', fromRunner: 'claude' }];
