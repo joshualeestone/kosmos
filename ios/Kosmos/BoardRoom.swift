@@ -1108,6 +1108,7 @@ enum NewProject {
         static let description = "Description"
         static let descriptionHint = "Up to 1000 characters."
         static let descriptionExample = "Renewing the Henderson lease before October."
-        static let create = "Create project"
+        // kosmos#7489 (Mona, 10-28): "Create", on every size, so the title fits beside Cancel on the smallest phone.
+        static let create = "Create"
     }
 }
