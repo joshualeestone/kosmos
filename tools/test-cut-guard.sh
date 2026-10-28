@@ -787,9 +787,9 @@ out="$( _kosmos_suite_waiter_live() { [ "$1" = "$wp" ] || return 1; rm -f "$W/ma
 mv "$W/markers/suitewait.$wp" "$W/held"
 # #7512 review 5: a process DESCENDED from a waiter (its $( ) subshells carry the suite's command line) is the waiter's,
 # so it does not hold the cut; the same child with its parent unmarked does.
-bash -c 'sleep 60 & wait' </dev/null >/dev/null 2>&1 & wpar=$!
+bash -c 'perl -e "select(undef, undef, undef, 60)" & wait' </dev/null >/dev/null 2>&1 & wpar=$!
 q_ready "$wpar" 'bash -c*'
-wchild=""; for _i in 1 2 3 4 5 6 7 8 9 10; do wchild="$(pgrep -P "$wpar" sleep 2>/dev/null | head -1)"; [ -n "$wchild" ] && break; sleep 0.2; done
+wchild=""; for _i in 1 2 3 4 5 6 7 8 9 10; do wchild="$(pgrep -P "$wpar" perl 2>/dev/null | head -1)"; [ -n "$wchild" ] && break; sleep 0.2; done
 printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$wchild" > "$T/sprobe-child"; chmod +x "$T/sprobe-child"
 out="$(cutbusy "$T/sprobe-child" 2>&1)"; rc=$?
 { [ -n "$wchild" ] && [ "$rc" -eq 0 ] && [ "$out" = "suite $wchild" ]; } && pass "#7512 CONTROL: a child of an unmarked parent holds the cut" \
