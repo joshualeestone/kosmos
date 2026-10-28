@@ -59684,8 +59684,9 @@ async function changeProviderNow(say, how) {
     // the hello does not land.
     const switchWaiting = 'Restarted on ' + provName + '. Waking them…';
     tell(restarted ? switchWaiting : (out.because || 'Switched.'), restarted, restarted);
-    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting, provName, 'Switched to ' + provName,
-      (how && how.viaAlt) ? () => deliverPickup(forAgent) : undefined);   // #7410: the handoff it just wrote
+    // #7410: after "Write handoff, then switch" the new session is pointed at the handoff it just wrote, not greeted.
+    const pickupDeliver = (how && how.viaAlt) ? () => deliverPickup(forAgent) : undefined;
+    if (restarted && say) autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual, switchWaiting, provName, 'Switched to ' + provName, pickupDeliver);
     /* #4008 (round 3): Runs on names the provider it moved to now, in modelLine's own words for a runner
        with no transcript yet (the same line the next open would draw once the runner is recorded). */
     const runsOnWord = { openai: 'OpenAI Codex', google: 'Gemini', xai: 'Grok', antigravity: 'Gemini (Google subscription)', anthropic: 'Claude', alibaba: 'Qwen', deepseek: 'DeepSeek' }[want];   // #5977, #7206

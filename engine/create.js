@@ -2885,7 +2885,7 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
         else if (!there(destDir)) {
           out.failed += mem.files.length;
           out.notes = 'failed';
-          try { console.warn(`create: the switch could not make ${CARRIED_NOTES_REL} for ${clean} (${(mkErr && mkErr.code) || 'it is not there'}), so no notes were copied`); } catch { /* never mask */ }
+          try { console.warn(`create: the switch could not make ${CARRIED_NOTES_REL} for ${spokenName(clean)} (${(mkErr && mkErr.code) || 'it is not there'}), so no notes were copied`); } catch { /* never mask */ }
         } else if (!realDir(memDir) || !realDir(destDir)) out.notes = 'blocked';
         else {
         for (const f of mem.files) {
@@ -2957,7 +2957,7 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
                 try { ins.write(clean, next, cur.version, undefined, { who: 'kosmos', because: CARRIED_NOTES_GONE_WHY }); }
                 catch (e) {
                   out.unpointFailed = true;
-                  try { console.warn(`create: the switch could not take the old notes pointer out of ${clean}'s instructions (${(e && (e.code || e.message)) || 'unknown'})`); } catch { /* never mask */ }
+                  try { console.warn(`create: the switch could not take the old notes pointer out of ${spokenName(clean)}'s instructions (${(e && (e.code || e.message)) || 'unknown'})`); } catch { /* never mask */ }
                 }
               }
             }
