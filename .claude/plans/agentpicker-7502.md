@@ -71,6 +71,9 @@
    pick's sentence is cleared when another screen loads; the ticked provider carries VoiceOver's selected trait.
    Decided: the fallback "The OpenAI sign-in on this computer" says "this computer" where the desktop says "your cloud
    machine" on a cloud computer (the phone does not know that yet). Slice 3c's branch was probed the same way: clean.
+6. sonnet: 0 BLOCKER/MAJOR, 2 MINOR. Fixed: a dir test with %, #, ? and a non-ASCII letter. Decided: the undone pick's
+   sentence is cleared when the screen loads again after another screen (the pick itself was already put back; only
+   an explanation the person saw goes).
 
 ## Not verified
 

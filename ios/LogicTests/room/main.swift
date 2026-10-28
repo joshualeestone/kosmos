@@ -1437,6 +1437,9 @@ do {
     let mr = P.openaiModelsRequest(mac: npMac, dir: "/h/.codex a+b&c")
     check(mr?.url?.absoluteString.hasSuffix("/api/accounts/openai/models?dir=%2Fh%2F.codex%20a%2Bb%26c") == true, "the dir is encoded as the desktop's encodeURIComponent: " + (mr?.url?.absoluteString ?? "nil"))
     check(P.openaiModelsRequest(mac: npMac, dir: "") == nil, "no account, no request")
+    // Review 6: the characters a folder name can hold that a URL treats specially, and a non-ASCII one, as encodeURIComponent.
+    let odd = P.openaiModelsRequest(mac: npMac, dir: "/h/ö %#?.codex")?.url?.absoluteString ?? ""
+    check(odd.hasSuffix("/api/accounts/openai/models?dir=%2Fh%2F%C3%B6%20%25%23%3F.codex"), "a dir with %, #, ? and a non-ASCII letter: " + odd)
 
     // The create body.
     var b: [String: Any] = [:]
