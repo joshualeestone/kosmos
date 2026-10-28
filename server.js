@@ -10643,7 +10643,7 @@ const server = http.createServer(async (req, res) => {
             provider: wrote.provider,
             restarted: ok,   // #5091: the page repaints Runs on from this, not from a sentence
             ...(pickedModel ? { model: pickedModel } : {}),   // #5429 review 2: the model was still written; say so
-            because: wrote.because + (pickedModel && pickedModel.label ? ' It runs on ' + pickedModel.label + '.' : '') + modelMissWords + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.`),
+            because: wrote.because + (pickedModel && pickedModel.label ? ' It runs on ' + pickedModel.label + '.' : '') + modelMissWords + ' ' + (ok ? 'It is starting again now.' : `It could not start again yet: ${back.because} It is still running as before until it restarts.` + create.switchLaterWords(wrote.losesConversation)),   // #7455
             steps: back.steps || [],
           });
           return;
@@ -10677,6 +10677,7 @@ const server = http.createServer(async (req, res) => {
                  paragraph, and this is the branch where something already went wrong,
                  which is where a confident-sounding sentence costs most. */
               + runsOn('When it restarts it will run on')
+              + create.switchLaterWords(wrote.losesConversation)   // #7455: what it will lose when it does start
               + signInNote,
           steps: back.steps || [],
         });
