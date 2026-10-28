@@ -212,5 +212,16 @@ kept="$(ls "$KOSMOS_RUN_MARKER_DIR/winanc/" 2>/dev/null | grep "^$SP\.")"
   || bad "spaced program name: kept [$kept], want start [$want], stat [$(cat "/proc/$SP/stat" 2>/dev/null)]"
 kill "$SP" 2>/dev/null; wait "$SP" 2>/dev/null
 
+# --- review 3 -------------------------------------------------------------------
+# A wedged PowerShell (WMI that never answers) is cut off at 10 s, and what it printed before is not used or kept: the
+# stand-in prints a node --test parent and then hangs for 30 s. The check returns inside the limit with no answer, so
+# the run counts as real.
+printf '#!/bin/bash\necho x >> "%s/fakeps/calls"\necho "node --test hung.test.js"\nexec perl -e "select(undef, undef, undef, 30)"\n' "$T" > "$T/fakeps/powershell.exe"
+rm -f "$T/fakeps/calls" "$KOSMOS_RUN_MARKER_DIR/winanc/"*
+t0=$(date +%s); got="$(anc "$$")"; took=$(( $(date +%s) - t0 ))
+kept="$(ls "$KOSMOS_RUN_MARKER_DIR/winanc/" 2>/dev/null)"
+[ "$took" -le 15 ] && [ -z "$got" ] && [ -z "$kept" ] && ok "a PowerShell that hangs is cut off (${took}s), its partial answer unused and not kept" \
+  || bad "hung PowerShell: took ${took}s (15 at most), answer [$got] (empty), kept [$kept] (none)"
+
 echo "test-win-proctable-7334: $FAILS failed"
 [ "$FAILS" = 0 ]

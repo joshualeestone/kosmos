@@ -250,7 +250,13 @@ if [ "$_KOSMOS_PROC_WIN" = 1 ]; then
       _KOSMOS_WIN_ANC_SEEN[$key]="$_KOSMOS_WIN_ANC"; _kosmos_win_anc_first "$n"; return 0
     fi
     _KOSMOS_WIN_ANC=""
-    out="$(MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -NonInteractive -Command "\$p = Get-CimInstance Win32_Process -Filter 'ProcessId=$wp'; for (\$i = 0; \$i -lt 10 -and \$p; \$i++) { \$q = Get-CimInstance Win32_Process -Filter ('ProcessId=' + \$p.ParentProcessId); if (\$i -eq 0 -and \$q) { [Console]::Out.WriteLine('?kosmos-parent-seen') }; if (-not \$q -or \$q.CreationDate -gt \$p.CreationDate) { break }; \$c = \$q.CommandLine; if (-not \$c) { \$c = \$q.Name }; [Console]::Out.WriteLine((\$c -replace '[\r\n]+', ' ')); \$p = \$q }" 2>/dev/null </dev/null)"; rc=$?
+    # Review 3: at most 10 s (measured: the walk takes 0.5 to 1 s), so a wedged WMI cannot hold every suite check, wait
+    # poll and run-start check. A call that times out (124) or fails in any way counts as no answer: nothing it printed
+    # is used and nothing is kept, so the run counts as real, the safe side. Without timeout(1) the call is unbounded,
+    # as before.
+    local tmo=""; command -v timeout >/dev/null 2>&1 && tmo="timeout -k 2 10"
+    out="$(MSYS_NO_PATHCONV=1 $tmo powershell.exe -NoProfile -NonInteractive -Command "\$p = Get-CimInstance Win32_Process -Filter 'ProcessId=$wp'; for (\$i = 0; \$i -lt 10 -and \$p; \$i++) { \$q = Get-CimInstance Win32_Process -Filter ('ProcessId=' + \$p.ParentProcessId); if (\$i -eq 0 -and \$q) { [Console]::Out.WriteLine('?kosmos-parent-seen') }; if (-not \$q -or \$q.CreationDate -gt \$p.CreationDate) { break }; \$c = \$q.CommandLine; if (-not \$c) { \$c = \$q.Name }; [Console]::Out.WriteLine((\$c -replace '[\r\n]+', ' ')); \$p = \$q }" 2>/dev/null </dev/null)"; rc=$?
+    [ "$rc" = 0 ] || out=""
     while IFS= read -r line; do
       line="${line%$'\r'}"
       line="${line#"${line%%[![:space:]]*}"}"

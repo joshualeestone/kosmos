@@ -137,6 +137,23 @@ real programs, so it is as before.
 
 All four testable arms fail with e6f24b7cfd's lib (5 reds) and pass with this one.
 
+## Review 3 (decided)
+1. The PowerShell walk runs under `timeout -k 2 10` (Git Bash's /usr/bin/timeout; a native powershell.exe is ended at
+   the limit, measured 2.2 s for a 2 s limit). A call that times out or fails in any other way counts as no answer:
+   what it printed is not used and nothing is kept, so the run counts as real. Without timeout(1) the call is unbounded
+   as before. New arm: a stand-in powershell.exe that prints a node --test parent and then hangs 30 s is cut off at
+   10 s, its partial answer unused and not kept (with 64d8283aca's lib it took 30 s, read the run as a fixture and
+   cached that). The arm costs 10 s of the test's run.
+2. Left as it is, with the side effect named here. An unreadable-but-present command line already makes
+   `ps -o command=` print nothing, and every caller reads only what ps printed, never its exit status: the run-marker
+   check (cut-guard.sh, _kosmos_marker_other_live), the suite-waiter check (_kosmos_suite_waiter_live), the light-side
+   intruder check, the ancestor walk here and run-tests.sh's watchdog. So returning 2 instead of 1 would change
+   nothing, and making those callers keep a marker on an empty read would change Mac-shared code. The side effect:
+   on Windows, a live run whose command line cannot be read (an elevated Git Bash, or the
+   KOSMOS_WIN_CMDLINE_UNREADABLE_PID seam) has its run marker or waiter marker removed as stale. Detection still holds
+   for the suite and harness checks, because pgrep -fa exits 2 for that process and the guards refuse "could not tell";
+   the cost is that such a waiter loses its queue place (it re-marks with its old queue time on its next pass).
+
 ## Not covered
 - A Mac or Linux run of the shell tests: not available from this box. The Mac path is unchanged by construction (see
   Design) and the new test file checks the gate.
