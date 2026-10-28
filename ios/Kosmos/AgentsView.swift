@@ -663,8 +663,6 @@ struct StatusPill: View {
     let word: String
     let pill: Board.Pill
     var wraps = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         HStack(spacing: 5) {
             if pill == .working { sweep }
@@ -678,25 +676,7 @@ struct StatusPill: View {
         .background(Capsule().fill(Palette.pillGround(pill)))
     }
 
-    @ViewBuilder private var sweep: some View {
-        if reduceMotion {
-            dots { i in i == 0 ? 1 : 0.25 }
-        } else {
-            // 30 frames a second is smooth for a 1.2 s fade and costs less than the display's own rate.
-            TimelineView(.periodic(from: .now, by: 1.0 / 30)) { context in
-                let t = context.date.timeIntervalSinceReferenceDate
-                dots { i in Board.sweepOpacity(t - Double(i) * 0.2) }
-            }
-        }
-    }
-
-    private func dots(_ opacity: @escaping (Int) -> Double) -> some View {
-        HStack(spacing: 2.5) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle().frame(width: 4, height: 4).opacity(opacity(i)).scaleEffect(0.7 + 0.4 * (opacity(i) - 0.25) / 0.75)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
+    // kosmos#7427 (Josh 10-27 20:56): the board's wave, as everywhere else on the phone (WorkingDots), in the pill's own
+    // word colour so it reads on the pill.
+    private var sweep: some View { WorkingDots(color: Palette.pillWord(pill)) }
 }
