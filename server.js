@@ -1430,7 +1430,8 @@ const autobalanceSweep = require('./engine/autobalance-sweep'); // kosmos#7152 s
 const AUTOBALANCE_RECORD = path.join(path.dirname(autobalanceSetting.FILE), autobalanceSweep.FILE);
 let autobalanceSweepRun = null;   // the sweep, once its record has been read at start (it is off otherwise)
 const keepAwakeSetting = require('./engine/keepawake-setting'); // kosmos#7416 slice 3
-const keepAwake = require('./engine/keepawake'); // kosmos#7416 slice 3: caffeinate -i while the switch is on and a card reads working
+const keepAwake = require('./engine/keepawake');
+const landedcheck = require('./engine/landedcheck'); // kosmos#7508 slice 2: is a closed code fix's commit still kept // kosmos#7416 slice 3: caffeinate -i while the switch is on and a card reads working
 const KEEP_AWAKE = keepAwake.createHolder(process.env.AGENT_WORKFORCE_DRY_RUN === '1' ? { spawn: keepAwake.dryRunSpawn } : undefined);
 /* kosmos#7416 slice 3: one pass of the sweep (engine/keepawake.js pass). */
 function keepAwakeTick() {
@@ -21582,6 +21583,7 @@ const server = http.createServer(async (req, res) => {
       if (!x || !x.id) continue;
       membersOf.set(x.id, [...new Set([...(membersOf.get(x.id) || []), ...(x.agents || [])])]);
     }
+    const landedBudget = { left: 20 };   // kosmos#7508: new git checks this request may run
     const rows = scoped.filter((t) => !t.projectArchived || t.projectId === withArchived).map((t) => {
       let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
       /* The same rule as the join: a claim is about the agent still holding open work (claimWho),
@@ -21609,6 +21611,9 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#4787: a repeating task's rule in words and its next run (this board's local time), worked out here so
            the page never computes the rule again. */
         ...repeatFields(t),   // review 1: only the added fields, never the task again over the computed ones
+        /* kosmos#7508: a closed code fix's commit, checked in its repository now ('kept' / 'missing' / 'unknown'); none
+           when it names no commit or this request's checks are spent (engine/landedcheck.js). */
+        ...(t.landedCommit && tasks.progressOf(t).closed ? (() => { const c = landedcheck.checkTask(t, { budget: landedBudget }); return c ? { landedCheck: c } : {}; })() : {}),
       });
     });
     /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not

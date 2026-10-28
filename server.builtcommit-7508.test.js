@@ -236,3 +236,26 @@ test('Windows `kosmos task built --commit`: the same commit, the same words, and
   assert.match(both.err, /takes no commit/);
   assert.equal(stored(k).builtAt, undefined, 'a refused --commit still marked the task');
 });
+
+test('slice 2 route: the Tasks view checks a closed task\'s commit now: kept while a branch has it, missing once none does', async () => {
+  const landedcheck = require('./engine/landedcheck');
+  landedcheck.resetForTests();
+  const r = makeRepo('route-check');
+  git(r.dir, 'checkout', '-q', '-b', 'fix');
+  fs.writeFileSync(path.join(r.dir, 'fix.txt'), 'fixed again\n');
+  git(r.dir, 'commit', '-q', '-am', 'the real fix');
+  const sha = git(r.dir, 'rev-parse', 'HEAD');
+  git(r.dir, 'checkout', '-q', 'main');
+  const n = newTask('Fix the search');
+  assert.equal(tasks.setBuilt(projectId, n, { by: 'mona', commit: { sha, repo: r.repo, onRemote: false } }).ok, true);
+  const rowOf = async () => {
+    const list = await (await fetch(base + '/api/tasks?view=tasks', { headers: { origin: base } })).json();
+    return (list.tasks || []).find((x) => x.projectId === projectId && x.number === n);
+  };
+  assert.equal((await rowOf()).landedCheck, undefined, 'an open task was checked');
+  tasks.close(projectId, n);
+  assert.equal((await rowOf()).landedCheck, 'kept', 'CONTROL: a commit on a branch did not read as kept');
+  git(r.dir, 'branch', '-q', '-D', 'fix');
+  landedcheck.resetForTests();
+  assert.equal((await rowOf()).landedCheck, 'missing', 'a commit no branch has read as kept on a closed task');
+});
