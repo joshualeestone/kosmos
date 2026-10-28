@@ -19,7 +19,8 @@ const SIGNED = 'content-length;content-md5;host;if-none-match;x-amz-object-lock-
 const amzDate = (ms) => new Date(ms).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 
 /* A bucket: PUT /bucket/<key> stores once (412 after), checks Content-MD5 against the body (400 BadDigest). `script`
-   (key -> [[status, body, delayMs], ...]) is answered first, one entry per PUT of that key. Counts every PUT. */
+   (key -> [[status, body, delayMs, location], ...]) is answered first, one entry per PUT of that key; a delayMs of
+   Infinity never answers that PUT (kosmos#7478). Counts every PUT. */
 async function bucket() {
   const stored = new Map();
   const script = new Map();
@@ -31,8 +32,8 @@ async function bucket() {
       const q = script.get(key);
       if (q && q.length) {
         const [status, body, delay, location] = q.shift();
-        // kosmos#7478: Infinity never answers (the client's own timeout is the only way out), so a "lost answer" arm
-        // does not race a held answer against the client's timer on a loaded machine. close() ends the connection.
+        // kosmos#7478: Infinity never answers, so the uploader's own timeout is the only way on and a "lost answer" arm
+        // does not race a held answer against that timer on a loaded machine.
         if (delay === Infinity) return undefined;
         return setTimeout(() => { res.statusCode = status; if (location) res.setHeader('location', location); res.end(body || ''); }, delay || 0);
       }
