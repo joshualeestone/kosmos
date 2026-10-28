@@ -177,3 +177,12 @@ test('#7411 review 3: no notes of its own is said, a missing notes file is a sen
   assert.equal(r.status, 2);
   assert.match(r.stderr, /--platform does not go with build/);
 });
+
+test('#7411 review 4: a notes file for another version than the installed app is refused, not shown', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-releasenotes-'));
+  fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ version: '0.7.73' }));
+  fs.writeFileSync(path.join(d, 'release-notes.json'), JSON.stringify({ version: '0.7.72', notes: [] }));
+  assert.match(rn.render(d, { since: null, json: false }).err, /release notes are for 0\.7\.72, but this install is 0\.7\.73/);
+  fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ version: '0.7.72' }));
+  assert.equal(rn.render(d, { since: null, json: false }).code, 0, 'CONTROL: matching versions read fine');
+});
