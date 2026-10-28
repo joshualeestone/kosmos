@@ -239,7 +239,8 @@ function boardHolder(o) {
 }
 
 async function relocate(opts) {
-  const holder = boardHolder(opts || {});
+  const o = opts || {};
+  const holder = boardHolder(o);
   try {
     const r = await moveKosmos(opts, holder);
     const notes = [...holder.notes];
@@ -247,6 +248,13 @@ async function relocate(opts) {
       const moved = r.ok && r.anchored === true;
       notes.push('A Kosmos board started from the old folder while Kosmos was being moved, and it could not be stopped: ' + holder.oldBoardLeft + '. '
         + (moved ? 'Restart your computer to start Kosmos from its new folder.' : 'It keeps running from the old folder.'));
+    }
+    /* Round 5: the launcher reads only the first line of the move's report and shows nothing else, and
+       the JSON on stdout goes nowhere a person looks. So each note also goes to the board's log
+       (win32-logs\board.log), where it can be found later. A test passes `o.logDir`. */
+    if (notes.length && (o.logDir || !liveExec.inTestProcess())) {
+      const boardwatch = require('./win32boardwatch');
+      for (const note of notes) boardwatch.boardLogNote(note, { logDir: o.logDir, env: o.env });
     }
     return notes.length ? { ...r, notes: [...(r.notes || []), ...notes] } : r;
   } finally {

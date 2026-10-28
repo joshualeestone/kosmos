@@ -367,9 +367,13 @@ test('#2988 an exit line rotated aside (board.log.1) is still found', async () =
   assert.match(lines(dir)[0], /The last exit recorded: exited pid=11 code=130: a console signal \(SIGINT\)/);
 });
 
-test('#2988 lines that are not the board\'s own (an agent sharing the name) are never taken for an exit', async () => {
+test('#2988 an agent named "board" shares board.log through its supervisor\'s own logger, and its lines are never taken for the board\'s exit', async () => {
   const dir = scratch('foreign');
-  fs.writeFileSync(path.join(dir, 'board.log'), '2026-10-28T11:00:00.000Z board started pid=11 parent=21\nturn-failed: board exited pid=4 code=1\n');
+  const p = fakeProc(11, 21);
+  watch.recordBoardExits({ proc: p, logDir: dir, watch: capturedWatch().arm });
+  /* What engine/win32supervisor.js writes for an agent named "board": the same logger, the same file. */
+  require('./win32supervisorlog').logger('board', { dir }).line('board exited pid=4 code=1: an agent line that happens to look like the board\'s');
+  assert.equal(lines(dir).length, 2, readLog(dir));
   await runWith(dir, deps());
   assert.match(lines(dir)[2], /started it\. No exit was recorded, so it was killed or crashed hard$/);
 });
@@ -536,6 +540,36 @@ test('#2988 the update lock held by a LIVE owner (the updater\'s own takeLock) s
   assert.equal((await realRun(c, d2)).action, 'started');
 });
 
+test('#2988 round 5: after a move, a lock held under the RUNNING engine\'s folder holds even though the finished journal names the old one', async () => {
+  const c = install();
+  stage(c);
+  rewrite(c, { phase: 'confirmed', finished: true, outcome: 'updated' });
+  /* The engine now runs from another folder (a move after that update), and its own updater holds the lock there. */
+  const now = path.join(c.dir, 'Moved', 'Kosmos');
+  const nowWork = path.join(now, win32update.WORK_DIRNAME);
+  fs.mkdirSync(nowWork, { recursive: true });
+  const lockAt = path.join(nowWork, win32update.LOCK_NAME);
+  const text = win32update.takeLock(lockAt, () => {}, { processImage: null });
+  try {
+    const d = realUpdateDeps();
+    const r = await runWith(scratch('log'), d, { anchorDir: c.anchor, root: now });
+    assert.equal(r.action, 'left', JSON.stringify(r));
+    assert.match(r.why, /the update lock is held/);
+    assert.equal(d.ran, 0);
+  } finally {
+    win32update.releaseLock(lockAt, text, () => {});
+  }
+});
+
+test('#2988 round 5: the holds are read once more immediately before the /Run', async () => {
+  let reads = 0;
+  const d = deps({ held: () => { reads += 1; return reads >= 3 ? { held: true, why: 'the board was stopped on purpose (late)' } : { held: false }; } });
+  const r = await runWith(scratch('lastread'), d);
+  assert.equal(r.action, 'left', 'a hold written after the second check, just before the /Run, is still seen');
+  assert.equal(d.ran, 0);
+  assert.equal(reads, 3);
+});
+
 test('#2988 a lock left beside a FINISHED journal is still the updater\'s, and still holds', async () => {
   const c = install();
   stage(c);
@@ -670,7 +704,7 @@ test('#2988 round 3: a hold that cannot be written says why', () => {
   fs.writeFileSync(blocker, 'x');
   const h = watch.holdBoard(path.join(blocker, 'anchor'), 'x');
   assert.equal(h.held, false);
-  assert.match(h.because, /its hold file could not be written/);
+  assert.match(h.because, /^Kosmos could not save a note it needed \(the system said \S+\)$/);
 });
 
 test('#2988 round 2: a hold taken after the first look (between the two looks) still stops the /Run', async () => {
@@ -804,7 +838,26 @@ test('#2988 round 3: a move whose hold cannot be written says so in its result (
     anchor: () => ({ ok: true }),
   });
   assert.equal(r.ok, true);
-  assert.ok((r.notes || []).some((n) => /^Kosmos could not keep its restart check from starting the board during the move, because its hold file could not be written: \S+\. The board may have started again from the old folder\.$/.test(n)), JSON.stringify(r.notes));
+  const note = /^Kosmos could not keep its restart check from starting the board during the move, because Kosmos could not save a note it needed \(the system said \S+\)\. The board may have started again from the old folder\.$/;
+  assert.ok((r.notes || []).some((n) => note.test(n)), JSON.stringify(r.notes));
+});
+
+test('#2988 round 5: the move\'s notes also land in board.log, the one place a person can find them later', async () => {
+  const relocator = require('./win32relocate');
+  const c = moveCase('notelog');
+  const logDir = path.join(c.holdDir + '-logs');
+  fs.writeFileSync(c.holdDir, 'a file where the anchor folder should be');
+  let stopped = false;
+  const r = await relocator.relocate({
+    ...c.base, logDir,
+    probe: async () => (stopped ? { answering: false, outcome: 'refused' } : { answering: true, identity: 'x', startedByTask: true }),
+    endBoard: () => { stopped = true; return { ok: true }; },
+    copy: (src, dst) => fs.cpSync(src, dst, { recursive: true }),
+    anchor: () => ({ ok: true }),
+  });
+  assert.ok((r.notes || []).length >= 1);
+  const logged = lines(logDir);
+  for (const n of r.notes) assert.ok(logged.some((l) => l.endsWith(' board note: ' + n)), 'not in board.log: ' + n + '\n' + logged.join('\n'));
 });
 
 test('#2988 round 4: a hold whose first write worked but whose refresh fails mid-copy is in the move\'s notes', async () => {
@@ -824,7 +877,7 @@ test('#2988 round 4: a hold whose first write worked but whose refresh fails mid
     anchor: () => ({ ok: true }),
   });
   assert.equal(r.ok, true);
-  const said = (r.notes || []).filter((n) => /^Kosmos could not keep its restart check from starting the board during the move, because its hold file could not be written/.test(n));
+  const said = (r.notes || []).filter((n) => /^Kosmos could not keep its restart check from starting the board during the move, because Kosmos could not save a note it needed/.test(n));
   assert.equal(said.length, 1, 'said once: ' + JSON.stringify(r.notes));
 });
 
@@ -918,6 +971,12 @@ test('#2988 round 2: the hand-off that serves in a window holds the board before
   assert.equal(await seen.atEnd, true, 'held before the /End');
   assert.equal(await heldAt(holdDir), true, 'still held while this board boots');
   assert.equal(r.holdProblem, undefined);
+  /* Round 5: server.js refreshes it every minute while the board starts; a refresh rewrites the hold. */
+  const file = path.join(holdDir, 'board-hold.' + process.pid + '.json');
+  const before = JSON.parse(fs.readFileSync(file, 'utf8')).at;
+  await new Promise((res) => setTimeout(res, 20));
+  assert.equal(r.refreshHold(), true);
+  assert.ok(JSON.parse(fs.readFileSync(file, 'utf8')).at > before, 'the refresh wrote it again');
   r.releaseHold();
   assert.equal(await heldAt(holdDir), false, 'released once the board listens (server.js calls releaseHold)');
 });
@@ -942,9 +1001,16 @@ test('#2988 round 3: a hand-off whose hold cannot be written says so (server.js 
   };
   const r = await handoff.handOffToTask(handOffOpts(fakeBoard, path.join(blocker, 'anchor')));
   assert.equal(r.serve, true);
-  assert.match(r.holdProblem || '', /its hold file could not be written/);
+  assert.match(r.holdProblem || '', /^Kosmos could not save a note it needed \(the system said \S+\)$/);
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /if \(handOff\.holdProblem\) \{[\s\S]{0,400}process\.stderr\.write\(holdNote[\s\S]{0,120}boardLogNote\(holdNote\)/, 'wiring check: server.js prints it and writes it to board.log');
+});
+
+test('#2988 round 5 (WIRING CHECK, a source match, not behaviour): server.js refreshes the hand-off\'s hold every minute, unref\'d, and stops when the board listens or fails', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /handOffHoldTimer = setInterval\(\(\) => \{ try \{ handOff\.refreshHold\(\); \}[\s\S]{0,120}60 \* 1000\);\s*if \(typeof handOffHoldTimer\.unref === 'function'\) handOffHoldTimer\.unref\(\);/);
+  assert.match(src, /start\(\)\.then\(\(\) => \{\s*stopHandOffHold\(\);/);
+  assert.match(src, /\}\)\.catch\(\(err\) => \{\s*stopHandOffHold\(\);/);
 });
 
 test('#2988 round 2 (WIRING CHECK, a source match, not behaviour): server.js releases the hand-off\'s hold once the board is listening', () => {

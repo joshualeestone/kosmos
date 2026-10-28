@@ -226,11 +226,16 @@ function updateInFlight(o) {
     const read = apply.readJournal(apply.journalPathFor(o.anchorDir));
     if (read.state === 'unfinished') return { inFlight: true, why: 'an update has not finished' };
     if (read.state === 'unreadable') return { inFlight: true, why: 'the record of an update cannot be read' };
-    const root = (read.state === 'finished' && read.journal && read.journal.root) || o.root;
-    if (!root) return { inFlight: true, why: 'the Kosmos folder is not known' };
-    const lock = update.lockHeldNow(path.join(root, update.WORK_DIRNAME, update.LOCK_NAME), o.lockHooks);
-    if (lock.held) return { inFlight: true, why: 'the update lock is held (' + lock.why + ')' };
-    if (lock.broken) return { inFlight: true, why: 'the update lock ' + lock.why };
+    /* Round 5: the lock under the running engine's own folder AND under a finished journal's folder (they
+       differ after a move); either one held is an update in flight. */
+    const roots = [o.root, read.state === 'finished' && read.journal ? read.journal.root : null]
+      .filter((r, i, all) => typeof r === 'string' && r && all.findIndex((x) => typeof x === 'string' && path.resolve(x).toLowerCase() === path.resolve(r).toLowerCase()) === i);
+    if (!roots.length) return { inFlight: true, why: 'the Kosmos folder is not known' };
+    for (const root of roots) {
+      const lock = update.lockHeldNow(path.join(root, update.WORK_DIRNAME, update.LOCK_NAME), o.lockHooks);
+      if (lock.held) return { inFlight: true, why: 'the update lock is held (' + lock.why + ')' };
+      if (lock.broken) return { inFlight: true, why: 'the update lock ' + lock.why };
+    }
     return { inFlight: false };
   } catch (e) {
     return { inFlight: true, why: 'the update state could not be read (' + oneLine(e && e.message) + ')' };
@@ -317,7 +322,7 @@ function holdBoard(anchorDir, why, opts) {
       return true;
     } catch (e) {
       try { fs.unlinkSync(tmp); } catch { /* best effort */ }
-      because = 'its hold file could not be written: ' + oneLine(e && (e.code || e.message));
+      because = 'Kosmos could not save a note it needed (the system said ' + oneLine(e && (e.code || e.message)) + ')';
       return false;
     }
   };
@@ -465,6 +470,12 @@ async function watchdogRun(opts) {
       return left('backing off: the board kept starting and stopping');
     }
 
+    /* Round 5: the holds are read once more as the very last thing before the /Run. What remains is the
+       instant between this read and Task Scheduler starting the task: a hold written inside it is not
+       seen. A move then meets that board at its second look and ends it; a hand-off's window board can
+       lose the port to it, and the hand-off's own stderr and board.log say why. */
+    const holdLast = d.held();
+    if (!holdLast || holdLast.held !== false) return left((holdLast && holdLast.why) || 'a hold could not be read');
     const ran = d.board.runNow();
     if (!ran || !ran.ok) {
       log.line(stamp(now) + ' board was not answering; could not start it (' + oneLine(ran && ran.because) + '). ' + said);

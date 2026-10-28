@@ -35,8 +35,9 @@ https://github.com/joshualeestone/kosmos/issues/2988#issuecomment-6468326726
    Gate order, cheapest first; every gate must hold, and only then `/Run`:
    a. `win32apply.boardMayStart` (a connect-only computer, #4382);
    b. no update in flight: `win32apply.readJournal` not unfinished nor unreadable, and `win32update.lockHeldNow` (a new
-      read-only export of takeLock's own `readLock` judgement) neither held nor broken; and (round 2) no board hold
-      in force (below);
+      read-only export of takeLock's own `readLock` judgement) neither held nor broken, under the running engine's
+      folder and under a finished journal's folder, either one held being in flight (round 5: they differ after a
+      move); and (round 2) no board hold in force (below);
    c. the port is silent: `win32handoff.probeBoardOnEveryAddress` + `boardMayBeOpen` (only refused is silent);
    d. `win32board.status()`: known, registered, enabled, and not already shown running;
    e. after 5 s, the port is still silent and (b) still holds, the hold included;
@@ -54,9 +55,18 @@ https://github.com/joshualeestone/kosmos/issues/2988#issuecomment-6468326726
    whose `until` has not passed, is at most 5 minutes away (HOLD_MAX_MS; a hold claiming more is ignored), and whose
    owner pid is alive. Release removes only the caller's own file, and only if it is still the hold it last wrote.
    Writing a hold removes other owners' dead or expired files. A hold that cannot be written is said: in the move's
-   result `notes` (the JSON the launcher's move prints) and in the hand-off's `holdProblem`. server.js writes that
-   one to stderr AND, round 4, as a `board note:` line in win32-logs\board.log: a double-clicked Kosmos.exe hides
-   its console, and the launcher has no channel that carries a note from the board to the screen.
+   result `notes` and in the hand-off's `holdProblem`. Corrected in round 5: the launcher does NOT print the move's
+   notes. It reads only the first line of the `--report` file (KosmosLauncher.cs, the move branch reads `report[0]`
+   for MOVED/SAME/REFUSED/UNANCHORED) and shows nothing else, and the JSON on the helper's stdout goes nowhere a
+   person looks. Extra NOTE lines in the report would need a launcher change to be shown, so none were added. So
+   every move note is also written to win32-logs\board.log as a `board note:` line (round 5), and server.js writes the
+   hand-off's to stderr and to board.log (round 4): a double-clicked Kosmos.exe hides its console. The hand-off's
+   2-minute hold is written again every minute while its board is still starting (round 5, an unref'd timer in
+   server.js, stopped once the board listens or fails to start).
+   The holds are read once more as the very last thing before the `/Run` (round 5). What remains is the instant between
+   that read and Task Scheduler starting the task: a hold written inside it is not seen. The move then meets that board
+   at its second look and ends it; a hand-off's window board can lose the port to it, and its stderr and board.log say
+   why.
    Every caller that ends the board task, and the decision:
    - `win32relocate.relocate`, `endServingBoard` (the move from Downloads): **HOLD**, 5 minutes, taken just before the
      `/End`, refreshed before each top-level entry is copied and once more after the copy (round 3: a copy can outlast
@@ -81,7 +91,16 @@ https://github.com/joshualeestone/kosmos/issues/2988#issuecomment-6468326726
    - KosmosLauncher.cs `ReplaceStuckBoard` (End, end the tree, Run): no hold; it runs the task itself, and while the
      frozen board still holds the port the watchdog's look is not "refused", so it does not act.
    Intended, and to say on the card: closing an in-window board (the hand-off-failed case) while the board task is on
-   brings the background board back within about a minute. The window was a fallback, not a stop.
+   brings the background board back within about a minute. The window was a fallback, not a stop. Round 5: the
+   launcher's box for that case still says "Click OK to stop Kosmos", which is no longer true. That text lives only in
+   tools/windows/KosmosLauncher.cs (`RunningHereMessage`, built into Kosmos.exe) and is pinned by
+   tools.win-launcher-native.test.js; no engine, server or page code supplies it, so it is a follow-up card for a
+   signed launcher rebuild, not this branch.
+4. **Settings' "Start Kosmos when I sign in to Windows" now also switches crash recovery off** (round 5, stated, no new
+   marker in this branch). That switch is `win32board.setStartAtSignIn`, which disables the board task, and a disabled
+   board task is the watchdog's off switch (gate d). So with it off, a board that is running and then crashes is not
+   started again until someone opens Kosmos. The switch's label in web/index.html is "Start Kosmos when I sign in to
+   Windows" (`startAtSignInLabel`); it is unchanged here.
 
 ## Rejected
 - A repetition on the board task itself: a LogonTrigger repetition does not fire before the next logon (measured), and
@@ -149,3 +168,11 @@ Running-with-no-board state is common (then an `/End` path with a long grace is 
   with no board at the start when the pointer still names the folder; (3) the per-entry refresh limit stated, with the
   second look as its backstop; (4) sentences: no nested parentheses, "Restart your computer" only when the pointer
   moved, and the hand-off's hold problem also written to board.log (new export `boardLogNote`, used by server.js).
+- Round 5: fixed (1) the move's notes reached nobody: each is now also a `board note:` line in board.log, and the plan
+  no longer claims the launcher prints them (it reads only the report's first line; no C# change); (2) "Click OK to
+  stop Kosmos" located (launcher source and exe only) and left for a launcher card; (3) Settings' sign-in switch also
+  turning crash recovery off stated, web/index.html untouched; (4) the update lock read under both the running
+  engine's folder and a finished journal's folder; (5) the holds read once more immediately before `/Run`, with the
+  remaining instant documented; (6) the hand-off's hold refreshed every minute while its board starts; (7) plain words
+  ("Kosmos could not save a note it needed (the system said X)", "this window's Kosmos may not be able to start"),
+  and the agent-named-board test now writes through the supervisor's real logger instead of restating the pattern.

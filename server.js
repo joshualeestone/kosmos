@@ -28100,12 +28100,21 @@ if (require.main === module) {
          double-clicked Kosmos.exe hides this console and the launcher has no channel for such a note, so
          it also goes to the board's own log (win32-logs\board.log), where it can be found later. */
       if (handOff.holdProblem) {
-        const holdNote = `Kosmos could not keep its restart check from starting the background board while this window started, because ${handOff.holdProblem}. The background board may start again, and then this window cannot use its port.`;
+        const holdNote = `Kosmos could not keep its restart check from starting the background board while this window started, because ${handOff.holdProblem}. The background board may start again, and then this window's Kosmos may not be able to start.`;
         process.stderr.write(holdNote + '\n');
         require('./engine/win32boardwatch').boardLogNote(holdNote);
       }
     }
+    /* #2988 round 5: while this board is still starting, the hand-off's hold is written again every
+       minute, so a slow start cannot outlive it; stopped once the board listens or fails to start. */
+    let handOffHoldTimer = null;
+    if (typeof handOff.refreshHold === 'function') {
+      handOffHoldTimer = setInterval(() => { try { handOff.refreshHold(); } catch { /* the next tick tries again */ } }, 60 * 1000);
+      if (typeof handOffHoldTimer.unref === 'function') handOffHoldTimer.unref();
+    }
+    const stopHandOffHold = () => { if (handOffHoldTimer) { clearInterval(handOffHoldTimer); handOffHoldTimer = null; } };
     start().then(() => {
+      stopHandOffHold();
       /* #2988 round 2: this board now answers on the port, so the hold the hand-off took against the
          board's watchdog (engine/win32handoff.js) is no longer needed. */
       if (typeof handOff.releaseHold === 'function') { try { handOff.releaseHold(); } catch { /* it expires on its own */ } }
@@ -28129,6 +28138,7 @@ if (require.main === module) {
          walks it. Not fatal: a reply that finds no ledger seeds it then. */
       try { require('./engine/replyfile').seed(); } catch { /* seeded on the first reply instead */ }
     }).catch((err) => {
+      stopHandOffHold();
       // Say what to do rather than name an exception. A raw EADDRINUSE stack is
       // exactly what start()'s promise exists to replace, and leaving this
       // uncaught made the comment above it a lie.

@@ -669,7 +669,12 @@ async function attemptHandOff(o, deps) {
   const hold = deps.hold ? deps.hold('Kosmos is starting in a window because its background board did not answer') : null;
   board.end();
   await waitUntil(gone, Math.max(left(), MIN_PORT_RELEASE_WAIT_MS));
-  const served = { ...serveHere('the background board did not answer in time'), releaseHold: () => { if (hold) hold.release(); } };
+  const served = {
+    ...serveHere('the background board did not answer in time'),
+    /* server.js refreshes the hold every minute while this board starts, and releases it once it listens. */
+    refreshHold: () => (hold ? hold.refresh() : false),
+    releaseHold: () => { if (hold) hold.release(); },
+  };
   /* #2988 round 3: a hold that could not be written is said, not swallowed (server.js prints it). */
   if (hold && !hold.held) served.holdProblem = hold.because || 'no detail';
   return served;
