@@ -133,6 +133,7 @@ struct RoomView: View {
         .background(Palette.ground.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .kosmosSolidTopBar(fade: false)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
+        .messageActionsHost()   // kosmos#7419: the one long-press sheet of this room (around its posts, not the composer)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {

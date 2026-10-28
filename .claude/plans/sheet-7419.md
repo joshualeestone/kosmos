@@ -24,3 +24,13 @@ mocks ~/work/design-shots/kosmos-7419/). Stacked on diag-7420.
 - iOS 16 typecheck (release and DEBUG); all nine LogicTests scripts (room: the seven, each in the board's 80, the
   three long-press sites, no reaction menu left, More's grid, Copy takes the row's words).
 - Simulator shots via KOSMOS_SAMPLE_SHEET=1 / =more (light and dark).
+
+## Review
+- Round 1 (opus): 1 probable blocker fixed: a simultaneous long press let the lifted finger also tap a file card, reply
+  header or link inside the bubble; now a high-priority half-second press (a short tap still reaches them, a scroll
+  still wins). Warnings fixed: one sheet per chat and per room (MessageActionsHost, through the environment) instead of
+  one per row; More resizes through a chosen detent on iOS 16; Done only closes; Reply runs from the sheet's onDismiss;
+  the reaction row shrinks to fit a 320 pt screen. Nits fixed: Copy text copies the words shown (none for a files-only
+  message, which hides it); icons hidden from VoiceOver; your own reactions carry the selected trait; More's grid is
+  bare emoji with your own in a gold-ringed rounded square, as the mock. Still owed on a device: a long press on a
+  file card, a link and a reply header (the gesture cannot be driven on the simulator).

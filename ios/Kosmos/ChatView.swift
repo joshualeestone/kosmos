@@ -191,6 +191,7 @@ struct ChatView: View {
         .background(Palette.ground.ignoresSafeArea())
         // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
         .toolbar(.hidden, for: .tabBar)
+        .messageActionsHost()   // kosmos#7419: the one long-press sheet of this chat
         .quickLookPreview($previewURL)
         // Closed: the file it showed is removed from the phone (#7016 review 1).
         .onChange(of: previewURL) { now in
@@ -858,7 +859,7 @@ struct ChatView: View {
                         // through the long-press sheet, with Copy text for any message.
                         .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)),
                                         react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
-                                        reply: row.answerable(by: agent.session) ? { startReply(row) } : nil, text: row.text)
+                                        reply: row.answerable(by: agent.session) ? { startReply(row) } : nil, text: Board.wordsShown(row.text, files: row.attachments))   // review 1: the words shown, none for files alone
                     if !row.reactions.isEmpty {
                         ReactionPills(pills: row.reactions, toggle: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil)
                     }

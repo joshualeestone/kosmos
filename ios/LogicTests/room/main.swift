@@ -314,9 +314,12 @@ let sheetSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/
 check(sheetChat.components(separatedBy: ".messageActions(").count - 1 == 2 && sheetRoom.components(separatedBy: ".messageActions(").count - 1 == 1,
       "kosmos#7419: the chat bubble, the files bubble and the room's post open the sheet on a long press")
 check(!sheetChat.contains("Button(\"React with \" + e)") && !sheetRoom.contains("Button { react(\"👍\") }"), "kosmos#7419: no reaction menu is left beside the sheet")
-check(sheetSrc.contains("ForEach(ComposerExtras.emoji, id: \\.self) { e in face(e, size: 38) }") && sheetSrc.contains("count: 8)")
-      && sheetSrc.contains("\"More reactions\"") && sheetSrc.contains("\"Copy text\"") && sheetSrc.contains("simultaneousGesture(LongPressGesture"),
-      "kosmos#7419: More shows the board's 80 eight to a row; Copy text; the long press leaves links and the scroll working")
+check(sheetSrc.contains("ForEach(ComposerExtras.emoji, id: \\.self) { e in cell(e) }") && sheetSrc.contains("count: 8)")
+      && sheetSrc.contains("\"More reactions\"") && sheetSrc.contains("\"Copy text\"") && sheetSrc.contains("highPriorityGesture(LongPressGesture(minimumDuration: 0.5)"),
+      "kosmos#7419: More shows the board's 80 eight to a row; Copy text; a half-second press that a lifted finger cannot turn into a tap")
+check(sheetChat.components(separatedBy: ".messageActionsHost()").count - 1 == 1 && sheetRoom.components(separatedBy: ".messageActionsHost()").count - 1 == 1
+      && sheetSrc.contains(".presentationDetents([small(t), .large], selection: $detent)") && sheetSrc.contains("onDismiss: { let run = afterClose"),
+      "review 1: one sheet per chat and per room; More resizes through a chosen detent; Reply runs once the sheet has gone")
 check(firsts["a"] == "beta" && firsts["c"] == "beta" && firsts["z"] == nil, "an agent's first project is its project names A to Z, without case")
 
 section("an agent's notification opens its chat natively (kosmos#7418)")
