@@ -1656,7 +1656,9 @@ struct ReactionPills: View {
     let pills: [Board.ChatReaction]
     let toggle: ((String) -> Void)?
     var body: some View {
-        HStack(spacing: 6) {
+        // kosmos#7420: wrapped onto more lines, never one row: a row of many reactions wider than the screen made the whole
+        // thread as wide (a lazy stack takes its widest row), which pushed every bubble off its margin.
+        FlowLayout(spacing: 6) {
             ForEach(pills, id: \.emoji) { p in
                 if toggle == nil {
                     // Not toggleable here (not this agent's own message): plain words, never a button that does nothing.

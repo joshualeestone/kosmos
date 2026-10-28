@@ -1359,7 +1359,8 @@ struct RoomBubble: View {
     }
 
     private var reactions: some View {
-        HStack(spacing: 6) {
+        // kosmos#7420: wrapped, never one row wider than the screen (it widened the whole room and shifted every post).
+        FlowLayout(spacing: 6) {
             ForEach(row.reactions, id: \.emoji) { r in
                 Button { react(r.emoji) } label: {
                     Text("\(r.emoji) \(r.count)").font(.footnote)

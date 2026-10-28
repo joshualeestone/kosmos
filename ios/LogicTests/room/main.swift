@@ -326,6 +326,12 @@ let filesSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/
 check(filesSrc.contains("if let sheet, let openSheet { Button(\"Message actions\") { openSheet(sheet) } }") && sheetChat.contains("sheet: MessageActionTarget("),
       "review 4: on a message with files, VoiceOver offers Message actions on each card (the container's own is never offered)")
 check(firsts["a"] == "beta" && firsts["c"] == "beta" && firsts["z"] == nil, "an agent's first project is its project names A to Z, without case")
+// kosmos#7420 (shift-left): reaction rows wrap (FlowLayout), never one HStack row that can be wider than the screen and
+// widen the whole thread, pushing every bubble off its margin. Wiring guards (source checks).
+func after(_ src: String, _ marker: String) -> String { src.range(of: marker).map { String(src[$0.upperBound...].prefix(400)) } ?? "" }
+let chatPills = after(sheetChat, "struct ReactionPills: View {"), roomPills = after(sheetRoom, "private var reactions: some View {")
+check(chatPills.contains("FlowLayout(spacing: 6)") && !chatPills.contains("HStack(spacing: 6)") && roomPills.contains("FlowLayout(spacing: 6)") && !roomPills.contains("HStack(spacing: 6)"),
+      "kosmos#7420: the chat's and the room's reactions wrap, never one row wider than the screen")
 
 section("an agent's notification opens its chat natively (kosmos#7418)")
 // Josh 10-27: a message notification opened the board's old agent page. Every kind the board sends that names an agent
