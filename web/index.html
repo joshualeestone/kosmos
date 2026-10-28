@@ -1377,7 +1377,9 @@ body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display:
 .utoast.rline .rlrow button { font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer;
   border-radius: 8px; padding: .4em .7em; border: 1px solid var(--separator); background: var(--bg-elevated); color: var(--label); }
 .utoast.rline .rlrow small.rerr { flex: 1 1 100%; }
-@media (pointer: coarse) { .utoast.rline .uacts button, .utoast.rline .rlrow button { min-height: 44px; } }
+@media (pointer: coarse) { .utoast.rline .uacts button, .utoast.rline .rlrow button { min-height: 44px; }
+  /* "3 more" is a link inside the sentence: its tap area grows to 44px and the margin gives the height back, so the line does not move. */
+  .utoast.rline .rlmore { padding: 14px 0; margin: -14px 0; } }
 /* #6160: the streak's daily note. A celebration, so its edge and dot are gold; restated in each theme block below. */
 .utoast.streak { --utone: var(--gold-edge); }
 .utoast.streak .utxt b { color: var(--label); }
