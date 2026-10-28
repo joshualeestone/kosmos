@@ -35,3 +35,4 @@ mocks ~/work/design-shots/kosmos-7419/). Stacked on diag-7420.
   bare emoji with your own in a gold-ringed rounded square, as the mock. Still owed on a device: a long press on a
   file card, a link and a reply header (the gesture cannot be driven on the simulator).
 - Round 2 (sonnet): no blocker; 2 warnings fixed: the room's Copy text copies the words shown (Board.roomWords), as the chat does; VoiceOver opens the sheet as a "Message actions" action (a long press is not one). Nit fixed: the host comment. Accepted: a Dynamic Type change while the sheet is open leaves its height until the next open.
+- Round 3 (sonnet): 1 warning fixed: in the chat the VoiceOver action was dropped by the bubble's children: .ignore; a second modifier now puts Message actions on the bubble's own element. Nit fixed: the room's VoiceOver Copy also copies the words shown. Round 4 owed.

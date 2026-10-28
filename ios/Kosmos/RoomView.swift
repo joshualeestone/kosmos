@@ -1227,7 +1227,7 @@ struct RoomBubble: View {
                 }
                 Button("Reply", action: reply)
             }
-            Button("Copy") { UIPasteboard.general.string = row.text }
+            Button("Copy") { UIPasteboard.general.string = Board.roomWords(row) }   // kosmos#7419 review 3: the words shown, as the sheet
             if replied != nil {
                 Button(Board.replyJumpAction, action: jump)
                 // The double-tap goes, as the label says (review 2); the agent's chat, which the avatar gave it, stays.
