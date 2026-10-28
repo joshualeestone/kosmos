@@ -469,12 +469,6 @@ struct ChatView: View {
                 })
                 // Review 1: driven by a tick bumped only when the last row leaves (row()), never by reading onScreen here,
                 // which would redraw the whole chat on every row that scrolls in or out. Checked at 0.5 s and again at 1.5 s.
-                // Review 4: the messages arriving start the never-drawn clock, and a check runs once it has passed.
-                .onChange(of: thread == nil) { none in
-                    guard !none else { return }
-                    diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { diagTick &+= 1 }
-                }
                 .onChange(of: diagTick) { _ in
                     for wait in [0.5, 1.5] { DispatchQueue.main.asyncAfter(deadline: .now() + wait) { diagCheck(proxy, count: items.count) } }
                 }
@@ -483,6 +477,12 @@ struct ChatView: View {
                 .onChange(of: diagWide) { wide in
                     guard wide else { return }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if diagWide { diagCapture(proxy, why: "a row wider than the screen", count: items.count, recover: false) } }
+                }
+                // Review 4 and 5: the list first existing (the messages arrived) starts the never-drawn clock, and a check runs
+                // once it has passed. Here, not an onChange inside this branch, which never sees its own creation.
+                .onAppear {
+                    diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { diagTick &+= 1 }
                 }
                 .onAppear {
                     // kosmos#7265: the eager stack starts at this row for as long as the chat stays open.
