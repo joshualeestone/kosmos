@@ -2104,6 +2104,8 @@ test('#7395: a key glued to an identifier after an underscore is masked (mcp__AK
     slack: 'xoxb-' + '1234567890-abcdefghij', stripe: 'sk_live_' + 'Ab3dEf6hIj9kLm2nOp', gitlab: 'glpat-' + 'Ab3dEf6hIj9kLm2nOp5q',
     jwt: 'eyJ' + 'hbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.Ab3dEf6hIj9kLm2nOp5q', github: 'ghp_' + 'Ab3dEf6hIj9kLm2nOp5qRs8t',
     anthropic: 'sk-ant-' + 'api03-Ab3dEf6hIj9kLm2nOp5qRs8t',
+    // Review 2: a plain sk- key and a Google key, so each changed pattern has an arm of its own.
+    openai: 'sk-' + 'Ab3dEf6hIj9kLm2nOp5q', openaiProj: 'sk-proj-' + 'Ab3dEf6hIj9kLm2nOp5q', google: 'AIza' + 'SyAb3dEf6hIj9kLm2nOp5qRs8tUv1wXy4',
   };
   for (const [kind, key] of Object.entries(KEYS)) {
     for (const before of ['mcp__', 'MY_', '_', 'x-']) {
