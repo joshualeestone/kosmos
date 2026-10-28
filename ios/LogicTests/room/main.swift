@@ -309,6 +309,9 @@ check(Board.quickReactions == ["👍", "❤️", "🔥", "😂", "👀", "✅", 
 let composerLogicSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ComposerLogic.swift"), encoding: .utf8)) ?? ""
 check(!composerLogicSrc.isEmpty && Board.quickReactions.allSatisfy { composerLogicSrc.contains("\"\($0)\"") }, "kosmos#7419: each quick reaction is one of the board's 80 (More offers the same list)")
 let sheetChat = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
+// kosmos#7034 build 11 (Mona Lisa): a visible star in the chat header, outline or gold, the same save as the row swipe.
+check(sheetChat.contains("Image(systemName: starred ? \"star.fill\" : \"star\")") && sheetChat.contains("Button { Task { await client.toggleStar(agent.session) } }") && sheetChat.contains("starred ? \"Unstar \\(shown.name)\" : \"Star \\(shown.name)\""),
+      "kosmos#7034: the chat header has a star, gold when starred, saved as the row swipe saves it")
 let sheetRoom = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
 let sheetSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ComposerExtras.swift"), encoding: .utf8)) ?? ""
 check(sheetChat.components(separatedBy: ".messageActions(").count - 1 == 2 && sheetRoom.components(separatedBy: ".messageActions(").count - 1 == 1,
