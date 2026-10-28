@@ -227,12 +227,12 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        // kosmos#7420: nothing for the conversation the person has open (PushBridge.showsBanner).
-        guard PushBridge.showsBanner(notification.request.content.userInfo, openChat: Self.chatOnScreen) else {
-            completionHandler([])
-            return
+        // kosmos#7420: nothing for the conversation the person has open (PushBridge.showsBanner). Read on the main thread,
+        // where ChatView sets it: this call need not arrive there.
+        let userInfo = notification.request.content.userInfo
+        DispatchQueue.main.async {
+            completionHandler(PushBridge.showsBanner(userInfo, openChat: Self.chatOnScreen) ? [.banner, .sound, .badge] : [])
         }
-        completionHandler([.banner, .sound, .badge])
     }
 
     // Handle a response to a notification: the plain tap, Reply, and Allow and Deny (#7017), the only actions any category registers.
