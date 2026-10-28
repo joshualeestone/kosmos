@@ -398,24 +398,29 @@ struct ContentView: View {
     // catalogue portrait, else the mark from the name; each sent twice at most, two seconds apart. Unlike the desktop, a
     // portrait that will not go falls back to the mark too, so a member is never left with no picture.
     private func setPicture(_ session: String, _ picture: AgentPicture.Pending) async {
+        // Every send goes only to the computer the agent was made on: a switch meanwhile ends it, never another Mac's
+        // agent of the same name.
+        let host = board.macURL?.host
         func put(_ data: Data, _ type: String) async -> Bool {
             for i in 0..<2 {
                 if i > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+                guard host != nil, board.macURL?.host == host else { return false }
                 if let got = await board.throughMac({ NewAgent.pictureRequest(mac: $0, session: session, data: data, type: type) }),
                    (200...299).contains(got.1.statusCode) { return true }
             }
             return false
         }
         if let photo = picture.photo, await put(photo, "image/jpeg") { return }
-        // A portrait is asked for only for a seat the catalogue has one for, and goes through the desktop's fitting
-        // (a still PNG that fits as it came, anything else redrawn), off the main thread.
+        // A portrait is asked for only for a seat the catalogue has one for; AgentPicture.portrait keeps or redraws it,
+        // off the main thread.
         if let team = picture.team, let slot = picture.slot,
            let got = await board.throughMac({ NewAgent.portraitRequest(mac: $0, team: team, slot: slot) }), got.1.statusCode == 200 {
             let type = got.1.value(forHTTPHeaderField: "Content-Type")?.split(separator: ";").first.map(String.init) ?? ""
             let raw = got.0
             if let (data, kind) = await Task.detached(operation: { AgentPicture.portrait(raw, type: type) }).value, await put(data, kind) { return }
         }
-        if let mark = AgentPicture.mark(picture.name)?.pngData() { _ = await put(mark, "image/png") }
+        let name = picture.name
+        if let mark = await Task.detached(operation: { AgentPicture.mark(name)?.pngData() }).value { _ = await put(mark, "image/png") }
     }
 
     // kosmos#7266: a + button: the board's own create form, over the tabs, opened through the board's door.

@@ -58,6 +58,9 @@ struct NewAgentView: View {
     @State private var markName = ""
     @State private var photoLoad = 0                 // the newest pick: an older one finishing late is not used
     @State private var photoImage: UIImage?          // the chosen picture, decoded once
+    @State private var photoLoading = false          // a pick still being fitted: Create waits, or it would go without it
+    @State private var photoMessage: String?         // why a pick could not be used, said beside the picture
+    @State private var markTask: Task<Void, Never>?
     #if DEBUG
     @State private var sampleBottom = false          // design shots: the team screen scrolled to its foot
     #endif
@@ -657,7 +660,9 @@ struct NewAgentView: View {
                     picturePreview.frame(width: 72, height: 72)
                     PhotosPicker(selection: $photoPick, matching: .images) { Text(NewAgent.Words.changePicture) }
                         .buttonStyle(.bordered)
+                    if photoLoading { ProgressView() }
                 }
+                if let photoMessage { Text(photoMessage).font(.footnote).foregroundColor(Palette.dangerWord) }
             }
             Section {
                 TextField(NewAgent.Words.name, text: $draft.name)
@@ -698,7 +703,7 @@ struct NewAgentView: View {
         .navigationBarBackButtonHidden(sending)
         .onAppear { if draft.model.isEmpty { draft.model = catalogue?.defaultModel?.key ?? "" } }
         .safeAreaInset(edge: .bottom) {
-            pinned(NewAgent.Words.create, enabled: !sending && NewProject.trimmed(draft.name) != unsureName
+            pinned(NewAgent.Words.create, enabled: !sending && !photoLoading && NewProject.trimmed(draft.name) != unsureName
                    && (catalogue.map { NewAgent.canCreate(draft, $0) } ?? false), busy: sending) {
                 Task { await create() }
             }
@@ -822,6 +827,8 @@ struct NewAgentView: View {
         guard let item else { return }
         photoLoad += 1
         let mine = photoLoad
+        photoLoading = true
+        defer { if mine == photoLoad { photoLoading = false } }
         photoPick = nil   // so choosing the same photo again is a new choice
         let data = try? await item.loadTransferable(type: Data.self)
         // Read, cut and shrunk off the main thread: a large photo would hold the sheet still.
@@ -830,9 +837,10 @@ struct NewAgentView: View {
         if let fitted {
             draft.photo = fitted
             photoImage = UIImage(data: fitted)
+            photoMessage = nil
             announce(NewAgent.Words.chosenPicture)
         } else {
-            message = NewAgent.Words.pictureTooBig
+            photoMessage = NewAgent.Words.pictureTooBig
             announce(NewAgent.Words.pictureTooBig)
         }
     }
@@ -843,9 +851,10 @@ struct NewAgentView: View {
         let name = NewProject.trimmed(draft.name)
         guard name != markName, draft.photo == nil else { return }   // no mark drawn that a chosen photo hides
         markName = name
-        Task {
+        markTask?.cancel()   // a draw for a name already typed past is not finished
+        markTask = Task {
             let image = await Task.detached(operation: { AgentPicture.mark(name) }).value
-            if markName == name { markImage = image }
+            if !Task.isCancelled, markName == name { markImage = image }
         }
     }
 
