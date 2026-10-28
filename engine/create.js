@@ -3122,7 +3122,7 @@ function switchCarryDetail(label, carried, fromLabel) {
 }
 
 /**
- * #7455: for a switch that is saved but could not restart, said after "It is still running as before until it restarts."
+ * #7455: for a switch that is saved but could not restart, said after "Start or restart it from its card to put the switch into effect." (#7470; left out when the restart marks cannotStart)
  * The future tense switchCarryWords' own sentence takes when it has already started: a switch that starts a new
  * conversation says what will be lost when it does; one that keeps its conversation says nothing more.
  */

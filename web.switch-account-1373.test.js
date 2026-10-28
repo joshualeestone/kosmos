@@ -515,7 +515,7 @@ test('#1373: the partial-restart answer names the account, in its own tense, on 
      ⇒ The PROPERTY is unchanged and is what is pinned now: the partial branch
      still uses the FUTURE tense, and picked-versus-default is still the two arms
      of one `acct.chosen` conditional rather than an unconditional claim. */
-  assert.match(SERVER, /runsOn\('When it restarts it will run on'\)/,
+  assert.match(SERVER, /runsOn\('Then it will run on'\)/,
     'the partial branch no longer names the account in the future tense');
   assert.match(SERVER, /runsOn\('It runs on'\)/,
     'the OK branch no longer names the account in the present tense');
