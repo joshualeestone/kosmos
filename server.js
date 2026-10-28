@@ -23944,21 +23944,30 @@ const server = http.createServer(async (req, res) => {
       const assign = ' To choose who, assign it now.';
       // Review 2: the Assigner gives out work in an order, so a promise is "in its turn", never "next".
       const turn = ' in its turn (soonest due first, then oldest)';
-      const setting = assignerSetting.read() || {};   // review 2: unread is not "off": the catch below says nothing
+      const setting = assignerSetting.read() || {};   // an unreadable setting reads as off, exactly as the Assigner reads it
       const p = projects.readAll().find((x) => x && x.id === projectId);
       if (!p) return '';
       const inP = (Array.isArray(p.tasks) ? p.tasks : []).find((x) => x && x.number === t.number);
       if (!inP) return '';
       const asg = require('./engine/assigner');
+      /* Review 2/3: the agents the Assigner can reach: run by this board (its roster) with their swarm not paused, as
+         idleCard requires. null when the roster cannot be read (then nobody is ruled out by it). */
+      const roster = safeRoster();
+      const running = Array.isArray(roster)
+        ? new Set(roster.filter((c) => c && c.isNamedOurs === true && !(c.swarm && c.swarm.active === false)).map((c) => c.sessionName)) : null;
+      const reachable = (n) => !running || running.has(n);
       // Review 1: only who is on an OPEN part has it; someone who finished a part does not.
       const holders = [...new Set(prog.parts.filter((x) => x.who && !x.closedAt).map((x) => x.who))];
       if (holders.length) {
         const names = holders.map(plain).join(', ');
         const many = holders.length > 1;
         // Review 2: a part nobody is on, beside a holder's, is never handed out (handOutable), so it is said.
-        const loose = prog.parts.some((x) => !x.who && !x.closedAt) ? ' Its part nobody is on waits for a person to assign it.' : '';
-        // Review 1/2: with failover on, a limited holder's part may move, unless failover never moves this task.
-        const may = setting.on === true && setting.failover === true && !projects.isPaused(p) && asg.stallable(inP)
+        const looseN = prog.parts.filter((x) => !x.who && !x.closedAt).length;
+        const loose = !looseN ? '' : looseN > 1 ? ' Its parts nobody is on wait for a person to assign them.' : ' Its part nobody is on waits for a person to assign it.';
+        /* Review 1-3: with failover on, a limited holder's part may move, but only where failover looks (a live, unpaused
+           project, a task it moves) and only if another agent here could take it (a reachable member not switched off). */
+        const someoneElse = (Array.isArray(p.agents) ? p.agents : []).some((n) => !holders.includes(n) && !projects.isSwarmOff(p, n) && reachable(n));
+        const may = setting.on === true && setting.failover === true && p.archived !== true && !projects.isPaused(p) && asg.stallable(inP) && someoneElse
           ? ' If ' + (many ? 'one of them hits' : 'they hit') + ' a usage limit, Kosmos may move ' + (many ? 'their part' : 'it') + ' to an idle agent.' : '';
         return 'It stays with ' + names + '.' + loose + may;
       }
@@ -23970,9 +23979,7 @@ const server = http.createServer(async (req, res) => {
          Assigner reads): a member that is not running here is never given work. A paused project is asked as if
          resumed, so the resume promise passes the same rules. */
       const paused = projects.isPaused(p);
-      const roster = safeRoster();
-      const running = Array.isArray(roster) ? new Set(roster.filter((c) => c && c.isNamedOurs === true).map((c) => c.sessionName)) : null;
-      const may = asg.whoMayGet(paused ? { ...p, paused: false } : p, inP).filter((n) => !running || running.has(n));
+      const may = asg.whoMayGet(paused ? { ...p, paused: false } : p, inP).filter(reachable);
       const lead = paused ? 'Nobody is on it. The project is paused; when it is resumed, Kosmos will give it to ' : 'Nobody is on it, so Kosmos will give it to ';
       if (!may.length) {
         return (paused ? 'Nobody is on it, and the project is paused. Even resumed, no' : 'Nobody is on it, and no')

@@ -254,3 +254,52 @@ test('#7407 review 2: one agent, a subset, archived, a paused project nobody cou
   tasks.addPart(projectId, m, { sentence: 'the rest' });
   assert.match(await unholdNext(m), /^It stays with otto\. Its part nobody is on waits for a person to assign it\.$/);
 });
+
+test('#7407 review 3: a subset, archived, a sole holder, and the nobody-can-take-it words through both commands', async () => {
+  // A subset: kai joins, otto is switched off, so mara and kai of the three can take it.
+  projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'otto', 'kai'], swarmOff: ['otto'] }));
+  try {
+    const n = make('subset');
+    assert.match(await unholdNext(n), /^Nobody is on it, so Kosmos will give it to an idle one of mara, kai in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/);
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'otto'], swarmOff: [] }));
+  }
+  // Failover on: an archived project, or a holder nobody else could relieve, gets no caveat; CONTROL: a live one does.
+  const was = assignerSetting.read();
+  assignerSetting.setFailover(true);
+  try {
+    const live = make('caveat-control', 'otto');
+    assert.match(await unholdNext(live), /If they hit a usage limit, Kosmos may move it/, 'CONTROL: mara could take it');
+    projects.mutate(projectId, (p) => ({ ...p, swarmOff: ['mara'] }));
+    try {
+      const sole = make('sole holder', 'otto');
+      assert.equal(await unholdNext(sole), 'It stays with otto.', 'nobody else here could take it');
+    } finally {
+      projects.mutate(projectId, (p) => ({ ...p, swarmOff: [] }));
+    }
+    const arch = make('archived', 'otto');
+    projects.mutate(projectId, (p) => ({ ...p, archived: true }));
+    try {
+      assert.equal(await unholdNext(arch), 'It stays with otto.', 'failover never looks at an archived project');
+      const none = make('archived nobody');
+      assert.match(await unholdNext(none), /^Nobody is on it, and the project is archived, so Kosmos will not give it to anyone\. To choose who, assign it now\.$/);
+    } finally {
+      projects.mutate(projectId, (p) => { const q = { ...p }; delete q.archived; return q; });
+    }
+  } finally {
+    assignerSetting.setFailover(was.failover === true);
+  }
+  // The nobody-can-take-it words (an apostrophe in them) arrive whole through both commands.
+  projects.mutate(projectId, (p) => ({ ...p, swarmOff: ['mara', 'otto'] }));
+  try {
+    for (const [label, run] of BOTH) {
+      const n = make('none ' + label);
+      const r = await holdThenUnhold(run, n);
+      assert.equal(r.code, 0, label + ': ' + r.text);
+      assert.match(r.text, /Nobody is on it, and no agent on the project can be given it now \(its subtasks go first, it belongs to another builder's work, or no running agent here takes work\)\. To choose who, assign it now\./, label + ': ' + r.text);
+      assert.match(r.text, /^\s*kosmos task assign /m, label);
+    }
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, swarmOff: [] }));
+  }
+});
