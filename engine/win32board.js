@@ -886,7 +886,42 @@ function setStartAtSignIn(on, opts) {
   if (after.enabled !== on) {
     return { ok: false, because: 'we asked Windows to turn it ' + (on ? 'on' : 'off') + ', but it still reads ' + (after.enabled ? 'on' : 'off') };
   }
+  /* #7498: the watchdog is otherwise registered only at a boot that registered or refreshed an enabled board task
+     (withWatchdog), so a switch turned on after a boot that left it off, or after one whose watchdog /Create did not
+     happen, left nothing to restart a board that stops until the next boot. */
+  if (on) {
+    const watchdog = ensureWatchdog(o);
+    if (watchdog) return { ok: true, on: after.enabled, watchdog };
+  }
   return { ok: true, on: after.enabled };
+}
+
+/**
+ * #7498: register the watchdog when it is missing, with the spec a boot uses (the anchor's node and shim folder, the
+ * bundle as working folder, the launch env). Left as it is when it is there. Null when there is nothing to do here
+ * (not a Windows build: a source checkout registers nothing, as ensureInstalled). A watchdog whose presence cannot be
+ * read is not created blind (#2973's rule for the board task): that is said instead. Never throws.
+ */
+function ensureWatchdog(opts) {
+  const o = opts || {};
+  try {
+    const root = bundleRoot(o);
+    if (!root) return null;
+    const q = run(['/Query', '/TN', WATCHDOG_TASK_NAME]);
+    if (q.ok) return { ok: true, action: 'present', task: WATCHDOG_TASK_NAME };
+    if (!/cannot find|does not exist/i.test(q.out || '')) {
+      return { ok: false, because: 'we could not tell whether the job that restarts Kosmos if it stops is there (' + (q.out || 'no detail').trim().split('\n')[0] + '), so we left it as it is' };
+    }
+    const env = machineEnv(o);
+    const anchor = anchorFor({ platform: o.platform, home: o.home, env, node: o.node, engineDir: o.engineDir });
+    if (!anchor.ok) return { ok: false, because: anchor.because };
+    /* #3016: an older copy than the one anchored registers nothing, as ensureInstalled. */
+    if (anchor.downgrade) return { ok: false, because: 'a newer copy of Kosmos is installed, so this older one did not register the job that restarts Kosmos if it stops' };
+    const w = installWatchdog({ node: anchor.node, dir: anchor.dir, workingDir: o.workingDir || root, env });
+    return w.ok ? { ok: true, action: 'registered', task: w.task } : { ok: false, because: w.because };
+  } catch (e) {
+    return { ok: false, because: 'we could not register the job that restarts Kosmos if it stops (' + ((e && e.message) || 'no detail') + ')' };
+  }
 }
 
 /** End the running board. This KILLS THE CALLER when the caller is that board. */
@@ -1228,7 +1263,7 @@ module.exports = {
      watchdogTaskXml mirror BOOT_NAME, BOOT_JS and taskXml (the definitions a suite runs and reads). */
   WATCHDOG_TASK_NAME, WATCH_NAME, WATCH_JS,
   taskExec, taskXml, watchdogTaskXml, bundleRoot, runningFromUpdateWork, anchorBundle, install, ensureInstalled, status, describe,
-  disable, enable, setStartAtSignIn, end, runNow, remove, removeWatchdog, restart, startedByTask,
+  disable, enable, setStartAtSignIn, ensureWatchdog, end, runNow, remove, removeWatchdog, restart, startedByTask,
   claimed, claim, restartHelperMain, pidGone,
   setRunner, setAnchorer, setSpawner,
 };

@@ -123,6 +123,68 @@ test('the route: POST only, a boolean only, and the answer is the engine\'s', ()
   assert.match(route, /req\.method === 'POST'/);
   assert.match(route, /typeof body\.on !== 'boolean'/, 'the route passes something other than a boolean to the engine');
   assert.match(route, /setStartAtSignIn\(body\.on\)/);
-  assert.match(route, /sendJson\(res, 200, \{ ok: true, on: r\.on \}\)/, 'the route answers with something other than the state the engine read back');
+  assert.match(route, /sendJson\(res, 200, \{ ok: true, on: r\.on, \.\.\.\(r\.watchdog \? \{ watchdog: r\.watchdog \} : \{\}\) \}\)/, 'the route answers with something other than the state the engine read back');
   assert.match(route, /sendJson\(res, 409, \{ error: r\.because \}\)/);
+});
+
+/* #7498: turning the switch on registers the crash-recovery watchdog when it is missing, with the spec a boot uses. */
+const os = require('node:os');
+const ANCHOR_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-7498-'));
+test.after(() => { fs.rmSync(ANCHOR_DIR, { recursive: true, force: true }); board.setAnchorer(null); });
+const BUNDLE = {
+  platform: 'win32', root: 'C:\\Kosmos\\v1', exists: () => true, home: ANCHOR_DIR,
+  env: { USERNAME: 'person', USERDOMAIN: 'PC', LOCALAPPDATA: ANCHOR_DIR },
+};
+function withWatchdogState(state, watchdog) {
+  const s = scheduler(state);
+  const base = s;
+  const fn = (args) => {
+    if (args[0] === '/Query' && args[2] === 'Kosmos\\board-watchdog') {
+      base.calls.push(args.join(' '));
+      if (watchdog === 'present') return { ok: true, out: 'TaskName: \\Kosmos\\board-watchdog' };
+      if (watchdog === 'unreadable') return { ok: false, out: 'ERROR: Access is denied.' };
+      return NOT_FOUND;
+    }
+    return base(args);
+  };
+  fn.calls = base.calls;
+  board.setRunner(fn);
+  board.setAnchorer(() => ({ ok: true, dir: ANCHOR_DIR, node: 'C:\\Kosmos\\v1\\runtime\\node.exe' }));
+  return fn;
+}
+const createdWatchdog = (calls) => calls.some((c) => c.startsWith('/Create /F /TN Kosmos\\board-watchdog'));
+
+test('#7498: switched on with no watchdog, the watchdog is registered, and the answer says so', () => {
+  const s = withWatchdogState({ registered: true, enabled: false }, 'missing');
+  const r = board.setStartAtSignIn(true, BUNDLE);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.on, true);
+  assert.ok(createdWatchdog(s.calls), 'no watchdog /Create: ' + s.calls.join(' | '));
+  assert.deepEqual(r.watchdog, { ok: true, action: 'registered', task: 'Kosmos\\board-watchdog' });
+  assert.ok(fs.existsSync(path.join(ANCHOR_DIR, board.WATCH_NAME)), 'the watchdog shim was not written beside the board one');
+});
+
+test('#7498 CONTROL: switched on with a watchdog already registered, it is left as it is', () => {
+  const s = withWatchdogState({ registered: true, enabled: false }, 'present');
+  const r = board.setStartAtSignIn(true, BUNDLE);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.ok(!createdWatchdog(s.calls), 'an existing watchdog was re-created: ' + s.calls.join(' | '));
+  assert.deepEqual(r.watchdog, { ok: true, action: 'present', task: 'Kosmos\\board-watchdog' });
+});
+
+test('#7498: a watchdog whose presence cannot be read is not created blind, and the reason is in the answer', () => {
+  const s = withWatchdogState({ registered: true, enabled: false }, 'unreadable');
+  const r = board.setStartAtSignIn(true, BUNDLE);
+  assert.equal(r.ok, true, 'the switch itself still turned on: ' + JSON.stringify(r));
+  assert.ok(!createdWatchdog(s.calls), s.calls.join(' | '));
+  assert.equal(r.watchdog.ok, false);
+  assert.match(r.watchdog.because, /could not tell whether the job that restarts Kosmos if it stops is there/);
+});
+
+test('#7498: switching it OFF never touches the watchdog (turning it off is not removing crash recovery here)', () => {
+  const s = withWatchdogState({ registered: true, enabled: true }, 'missing');
+  const r = board.setStartAtSignIn(false, BUNDLE);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.ok(!s.calls.some((c) => c.includes('board-watchdog')), s.calls.join(' | '));
+  assert.equal('watchdog' in r, false);
 });
