@@ -51,9 +51,22 @@ const AUTOSTART_ON = { key: 'autostart', state: 'ok', title: 'Kosmos starts itse
 
 test('a row the engine read as on draws the switch on, labelled, as a real switch', () => {
   const html = rows('win32', { checks: [AUTOSTART_ON] });
-  assert.match(html, /<button class="toggle on" type="button" role="switch" aria-checked="true" aria-label="Start Kosmos when I sign in to Windows" data-start-at-sign-in><i><\/i><\/button>/);
+  assert.match(html, /<button class="toggle on" type="button" role="switch" aria-checked="true" aria-label="Start Kosmos when I sign in to Windows" aria-describedby="start-at-sign-in-hint" data-start-at-sign-in><i><\/i><\/button>/);
   assert.match(html, /<b>Start Kosmos when I sign in to Windows<\/b>/);
   assert.ok(html.indexOf('data-start-at-sign-in') > html.indexOf('</details>'), 'the switch is not after the row\'s own words');
+});
+
+/* #7493: the switch is also the #2988 watchdog's off switch, so the row says so, on and off alike, and
+   the switch points at that sentence for a screen reader. */
+test('the switch row says it also restarts Kosmos, and the switch is described by that sentence (#7493)', () => {
+  const hint = 'When this is on, Kosmos also tries to start again if it closes unexpectedly. When it is off, Kosmos stays closed until you open it.';
+  for (const startAtSignIn of [true, false]) {
+    const html = rows('win32', { checks: [{ ...AUTOSTART_ON, startAtSignIn }] });
+    assert.ok(html.includes('<div class="dhint" id="start-at-sign-in-hint" style="margin:2px 0 0;">' + hint + '</div>'), 'no hint when ' + startAtSignIn);
+    assert.ok(html.includes('aria-describedby="start-at-sign-in-hint"'), 'switch not described when ' + startAtSignIn);
+  }
+  // CONTROL: no switch, no hint (it describes the switch, so it never stands alone).
+  assert.doesNotMatch(rows('win32', { checks: [{ ...AUTOSTART_ON, startAtSignIn: null }] }), /start-at-sign-in-hint/);
 });
 
 test('a row the engine read as off draws the switch off', () => {
