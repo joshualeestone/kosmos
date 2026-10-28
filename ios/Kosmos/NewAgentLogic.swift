@@ -58,6 +58,7 @@ enum NewAgent {
         static let changePicture = "Change picture"
         static let markLabel = "Generated mark for this agent"
         static let chosenPicture = "Chosen picture"
+        static let pictureChosen = "Picture chosen."
         static let readingPicture = "Reading the picture"
         static let pictureKept = "That picture could not be used. The one you chose before is kept."
         static let pictureUnusable = "That picture could not be used. Choose another."
@@ -222,8 +223,9 @@ enum NewAgent {
         data.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "image/png" : "image/jpeg"
     }
 
-    // Whether a catalogue portrait is sent as it came: a still PNG (one frame) with no eXIf chunk at all (the desktop
-    // redraws a turned one; the phone redraws any, the safe side), within the byte limit and 16 to 2048 px a side.
+    // Whether a catalogue portrait is sent as it came: a still PNG (one frame) in which the bytes "eXIf" appear nowhere
+    // (the desktop redraws a turned one; the phone redraws any that might be, the safe side), within the byte limit
+    // and 16 to 2048 px a side.
     static func keepsPortrait(type: String, bytes: Data, width: Int, height: Int, frames: Int) -> Bool {
         type == "image/png" && bytes.count <= pictureMaxBytes && bytes.starts(with: [0x89, 0x50, 0x4E, 0x47])
             && bytes.range(of: Data("eXIf".utf8)) == nil && frames == 1 && min(width, height) >= 16 && max(width, height) <= 2048

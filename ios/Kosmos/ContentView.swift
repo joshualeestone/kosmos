@@ -401,18 +401,27 @@ struct ContentView: View {
         // Every send goes only to the computer the agent was made on: a switch meanwhile ends it, never another Mac's
         // agent of the same name.
         let host = board.macURL?.host
-        func put(_ data: Data, _ type: String) async -> Bool {
+        // set: the board kept it; refused: it answered no, or it was never sent; unknown: sent and no answer came, so it
+        // may have been kept.
+        enum Put { case set, refused, unknown }
+        func put(_ data: Data, _ type: String) async -> Put {
             // One the board would refuse (too big, a type it does not keep) fails at once, without the retry's wait.
-            guard let url = board.macURL, NewAgent.pictureRequest(mac: url, session: session, data: data, type: type) != nil else { return false }
+            guard let url = board.macURL, NewAgent.pictureRequest(mac: url, session: session, data: data, type: type) != nil else { return .refused }
+            var last = Put.refused
             for i in 0..<2 {
                 if i > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
-                guard host != nil, board.macURL?.host == host else { return false }
-                if let got = await board.throughMac({ NewAgent.pictureRequest(mac: $0, session: session, data: data, type: type) }),
-                   (200...299).contains(got.1.statusCode) { return true }
+                guard host != nil, board.macURL?.host == host else { return .refused }
+                let got = await board.throughMac({ NewAgent.pictureRequest(mac: $0, session: session, data: data, type: type) })
+                if let got, (200...299).contains(got.1.statusCode) { return .set }
+                last = got == nil ? .unknown : .refused
             }
-            return false
+            return last
         }
-        if let photo = picture.photo, await put(photo, NewAgent.pictureType(photo)) { return }
+        if let photo = picture.photo {
+            // A photo whose answer was lost may already be the picture: the mark is not put over it (the board refused it,
+            // or it was never sent, and the mark is drawn instead).
+            if await put(photo, NewAgent.pictureType(photo)) != .refused { return }
+        }
         guard board.macURL?.host == host else { return }   // another computer now: nothing more is fetched or drawn
         // A portrait is asked for only for a seat the catalogue has one for; AgentPicture.portrait keeps or redraws it,
         // off the main thread.
@@ -420,7 +429,7 @@ struct ContentView: View {
            let got = await board.throughMac({ NewAgent.portraitRequest(mac: $0, team: team, slot: slot) }), got.1.statusCode == 200 {
             let type = got.1.value(forHTTPHeaderField: "Content-Type")?.split(separator: ";").first.map(String.init) ?? ""
             let raw = got.0
-            if let (data, kind) = await Task.detached(operation: { AgentPicture.portrait(raw, type: type) }).value, await put(data, kind) { return }
+            if let (data, kind) = await Task.detached(operation: { AgentPicture.portrait(raw, type: type) }).value, await put(data, kind) != .refused { return }
         }
         guard board.macURL?.host == host else { return }
         let name = picture.name

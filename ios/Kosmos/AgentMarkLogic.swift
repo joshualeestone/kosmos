@@ -74,7 +74,8 @@ enum AgentMark {
             var hit = false
             for ox in [-clear, 0, clear] where !hit {
                 for oy in [-clear, 0, clear] where !hit {
-                    // JavaScript's Math.round: halves go up, so -0.5 is 0.
+                    // JavaScript's Math.round as near as doubles allow: halves go up, so -0.5 is 0 (it differs only at the
+                    // double just below a half, which no dot reaches in practice).
                     let qx = Int((x + ox + 0.5).rounded(.down)), qy = Int((y + oy + 0.5).rounded(.down))
                     if qx >= 0 && qx < Int(side) && qy >= 0 && qy < Int(side) && ink(qx, qy) { hit = true }
                 }
