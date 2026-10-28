@@ -51,6 +51,8 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
   label (a disable too for one launchd does not hold disabled), so N removed agents cost N launchctl calls on every
   start. A launchctl that gives no answer (a timeout) stops the sweep, with the rest reported failed, so a launchd that
   is not answering costs one wait, not N. Not moved to the async driver.
+- bootout of a job launchd does not hold answers 3 ("No such process"), MEASURED 2026-10-27 on macOS 27.0.1; that is
+  the only code read as "not loaded", as MAC_STEPS.stopNow reads it.
 - One retry, 30 s after the first run, only when it was not clean; after that, nothing until the next board start.
 - On every board start, not only after a move, a removed agent whose job is still loaded is unloaded and its tied
   session ended. That finishes a half-done removal too (one whose bootout failed at the time), and switches off again an

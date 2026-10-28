@@ -159,7 +159,7 @@ test('#7409: a sandboxed board never schedules it; a real board does, logs the n
   assert.equal(remove.reapplyAtBoardStart({ enforcing: true, setTimer, ...sinks }), true);
   assert.equal(timers.length, 1, 'CONTROL: a real board did not schedule it');
   timers[0].fn();
-  assert.match(said.join(''), /removed agents switched off again .*: casey/, 'the board log did not name the agent: ' + said.join(''));
+  assert.match(said.join(''), /removed agents switched off again: casey/, 'the board log did not name the agent: ' + said.join(''));
   assert.equal(timers.length, 1, 'a clean run scheduled another');
   machine([], { refuse: { disable: 5 } });
   remove.reapplyAtBoardStart({ enforcing: true, setTimer, ...sinks });
@@ -263,4 +263,15 @@ test('#7409 review 5: a roster tmux cannot give is unsure, not "nothing running"
     assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: [], unsure: ['casey'] });
   } finally { status.paneRoster = real; }
   assert.ok(calls.indexOf('bootout gui/501/' + labelOf('casey')) >= 0, 'the job was not stopped before the roster read');
+});
+
+test('#7409 review 6: a session still there after kill-session is a failure, not a success', () => {
+  removedList([removedRow('casey')]);
+  roster([fleet.agent('casey', { state: 'working' })]);
+  remove.setRunner((file, args) => {
+    if (args[0] === 'print-disabled') return { ok: true, stdout: 'disabled services = {\n}\n' };
+    if (args[0] === 'has-session') return { ok: true, stdout: '' };   // still alive after the kill
+    return { ok: true, stdout: '' };
+  });
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: ['casey'], unsure: [] });
 });

@@ -559,8 +559,8 @@ function reapplyAtBoardStart({ enforcing, afterMs = 2000, retryMs = 30000, setTi
       let kept;
       try { kept = reapplyRemovedDisables(); } catch (e) { kept = { ok: false, reapplied: [], failed: [], unsure: [], because: String(e && e.message) }; }
       if (!kept.ok && again) { const t2 = setTimer(() => runOnce(false), retryMs); if (t2 && typeof t2.unref === 'function') t2.unref(); }
-      if (kept.reapplied.length) out(`Kosmos: removed agents switched off again (their startup job unloaded, and their session ended where it was running): ${kept.reapplied.join(', ')}\n`);
-      if (kept.failed.length) err(`Kosmos: could not stop every removed agent starting again: ${kept.failed.join(', ')}\n`);
+      if (kept.reapplied.length) out(`Kosmos: removed agents switched off again: ${kept.reapplied.join(', ')}\n`);
+      if (kept.failed.length) err(`Kosmos: could not switch off every removed agent: ${kept.failed.join(', ')}\n`);
       if (kept.unsure.length) err(`Kosmos: removed agents whose running session could not be tied to them, left alone: ${kept.unsure.join(', ')}\n`);
       if (kept.because) err(`Kosmos: could not check removed agents' startup jobs: ${kept.because}\n`);
     } catch (e) { err(`Kosmos: could not check removed agents' startup jobs: ${String(e && e.message)}\n`); }
