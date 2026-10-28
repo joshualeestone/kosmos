@@ -13,6 +13,10 @@
  *   show who    -> the list opens with one Restart per agent; "3 more" opens the same list
  *   one         -> an agent's Restart POSTs its restart; the re-check drops it from the line
  *   all         -> Restart all POSTs each agent's restart in order; one the engine refuses is named with its reason
+ *   wake        -> each restart that took is followed by the wake 'hello' every restart sends; none of these stand-in
+ *                  agents comes back on this board, so the honest result is "Say hello to ... to wake them", said on
+ *                  the line and, once the line has gone, in a note with a close button
+ *   busy        -> Show who pressed while Restart all runs does nothing (the running button keeps its progress words)
  *   not now     -> POSTs this version and empties the slot; a refusal keeps the line and says why
  *   tones       -> neutral (--label-2) in light and dark
  *   phone       -> at 390px the line fits the screen (no sideways scroll) and the list opens
@@ -63,6 +67,8 @@ async function open(b, viewport, state) {
   await pg.goto(URL, { waitUntil: 'networkidle' });
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
   const wasAsked = await asked;
+  // The readiness wait after a restart (30 s in the product), shortened so the wake result arrives within the check.
+  await pg.evaluate(() => { RESTART_READY_WINDOW_MS = 600; RESTART_READY_POLL_MS = 200; });
   await pg.waitForTimeout(300);
   return { pg, errs, posts, wasAsked };
 }
@@ -98,7 +104,7 @@ const text = (pg, sel) => pg.evaluate((s) => { const el = document.querySelector
     say(rows.length === 5 && rows[0] === 'Ada|Restart', 'show who: "3 more" opens the list, one Restart per agent', JSON.stringify(rows));
     const focus = await pg.evaluate(() => document.activeElement && document.activeElement.getAttribute('data-rl-one'));
     say(focus === 'ada', 'show who: focus goes to the first agent\'s Restart', JSON.stringify(focus));
-    say(await text(pg, '#rline-slot [aria-controls="rl-who"]') === 'Hide who', 'show who: the button now says Hide who');
+    say(await text(pg, '#rline-slot .uacts [data-rl-who]') === 'Hide who', 'show who: the button now says Hide who');
     await pg.screenshot({ path: path.join(OUT, 'rline-desktop-list.png') }).catch(() => {});
 
     await pg.click('#rline-slot [data-rl-one="kai"]');
@@ -115,7 +121,45 @@ const text = (pg, sel) => pg.evaluate((s) => { const el = document.querySelector
     const why = await text(pg, '#rline-slot .rerr');
     say(why === 'Lee did not restart: Kosmos could not find its window.', 'all: the refused agent is named with the engine\'s reason', JSON.stringify(why));
     say(await text(pg, '#rline-slot [data-rl-all]') === 'Restart Lee', 'one left: its button is named for it');
+    // Each agent's report arrives when its own wait ends: wait for the last, not the first.
+    await pg.waitForFunction(() => ['Ada', 'Mo', 'Ty'].every((n) => ((document.querySelector('#rline-slot .rlwoke') || {}).textContent || '').includes(n)), null, { timeout: 8000 }).catch(() => {});
+    const woke = await text(pg, '#rline-slot .rlwoke');
+    // The reports arrive in the order the waits end, so the names are checked as a set. Lee was refused: never woken.
+    const named = (/^Say hello to (.+) to wake them\.$/.exec(woke || '') || [, ''])[1].split(/, | and /);
+    say(['Ada', 'Mo', 'Ty'].every((n) => named.includes(n)) && !named.includes('Lee'), 'wake: the line says who still needs a hello after Restart all, not the refused agent', JSON.stringify(woke));
     say(errs.length === 0, 'restart: no page errors', errs.join(' | '));
+    await pg.close();
+  }
+
+  {
+    // Restart all with nobody refused: the line goes, and the wake result stays in its place until closed.
+    const state = { line: JSON.parse(JSON.stringify({ ...LINE, agents: AGENTS.slice(0, 2) })), refuse: [], notNow: 200 };
+    const { pg, errs } = await open(b, { width: 1400, height: 800 }, state);
+    await pg.click('#rline-slot [data-rl-all]');
+    await pg.waitForFunction(() => /Ada and Kai/.test((document.querySelector('#rline-slot .rldone') || {}).textContent || ''), null, { timeout: 8000 }).catch(() => {});
+    const note = await text(pg, '#rline-slot .rldone .utxt b');
+    say(note === 'Say hello to Ada and Kai to wake them.', 'wake: once the line has gone, a note says who still needs a hello', JSON.stringify(note));
+    say(!(await pg.$('#rline-slot [data-rl-all]')), 'wake: no Restart buttons are left once nobody needs one');
+    await pg.click('#rline-slot [data-rl-close]');
+    await pg.waitForTimeout(200);
+    say(await pg.evaluate(() => document.getElementById('rline-slot').innerHTML.trim() === ''), 'wake: the close button empties the slot');
+    say(errs.length === 0, 'wake: no page errors', errs.join(' | '));
+    await pg.close();
+  }
+
+  {
+    // Show who while Restart all is running: ignored, so the running button keeps its progress words.
+    const state = { line: JSON.parse(JSON.stringify(LINE)), refuse: [], notNow: 200 };
+    const { pg, errs } = await open(b, { width: 1400, height: 800 }, state);
+    await pg.route(/\/api\/agent\/[^/]+\/restart$/, async (route) => { await new Promise((r) => setTimeout(r, 400)); await route.fallback(); });
+    await pg.click('#rline-slot [data-rl-all]');
+    await pg.waitForTimeout(150);
+    await pg.click('#rline-slot .uacts [data-rl-who]');
+    await pg.waitForTimeout(100);
+    const busy = await pg.evaluate(() => { const b = document.querySelector('#rline-slot [data-rl-all]'); return { text: b && b.textContent, dis: b && b.getAttribute('aria-disabled'), list: !!document.querySelector('#rline-slot .rlrow') }; });
+    say(/^Restarting \d of 5$/.test(busy.text || '') && busy.dis === 'true' && !busy.list, 'busy: Show who during Restart all does nothing; the button keeps its progress', JSON.stringify(busy));
+    await pg.waitForFunction(() => !document.querySelector('#rline-slot [data-rl-all][aria-disabled="true"]'), null, { timeout: 10000 }).catch(() => {});
+    say(errs.length === 0, 'busy: no page errors', errs.join(' | '));
     await pg.close();
   }
 

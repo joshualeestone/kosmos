@@ -35,6 +35,12 @@ session. Kosmos never restarts anyone by itself.
 That this version's first board start is when agents stop missing the fix. An agent restarted during the update window
 but before the board came back reads as old and is named once; a restart clears it.
 
+## Known cost
+
+Restart all calls the ordinary per-agent restart route one agent at a time, and that route drives the restart on the
+board's thread. Five agents are five of those back to back, as five presses of Restart would be. A follow-up could move
+the route to removal.restartAsync; it is not this card's change.
+
 ## Not in this branch
 
 Marking any pool item `restart: "agents"`: none carries it yet, so the line shows nothing until the first one does.

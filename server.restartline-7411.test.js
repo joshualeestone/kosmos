@@ -69,6 +69,18 @@ test('#7411: start keeps this version\'s first start; the line names running age
   // CONTROL for the arm above: the same world read again names Splinter, so null there was the unread tmux.
   assert.equal((await line()).agents.length, 1);
 
+  // Nothing marked in this update: no line, and tmux is not read for it (the page asks every minute).
+  let reads = 0;
+  st.setSessionSource(() => { reads++; return sessionText; });
+  const realNotes = notes.readNotes;
+  notes.readNotes = () => ({ version, notes: [{ version, title: 'Plain note', line: 'x' }] });
+  assert.equal(await line(), null);
+  assert.equal(reads, 0, 'tmux was read with nothing marked to say');
+  notes.readNotes = realNotes;
+  assert.equal((await line()).agents.length, 1);   // CONTROL: marked again, the same world reads tmux and names Splinter
+  assert.ok(reads > 0, 'the control did not read tmux, so the zero above proves nothing');
+  st.setSessionSource(() => sessionText);
+
   const stale = await fetch(`${base}/api/restart-line/not-now`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: '0.0.1' }) });
   assert.equal(stale.status, 409, 'an old page hid the line for a newer update');
   await stale.text();

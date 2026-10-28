@@ -28,7 +28,7 @@ test('#7411: the line says who and what they get, with the right verb for one ag
   assert.equal(api.rlineHead({ notes: [fix('Hooks fix')], agents: agents('Ada', 'Kai') }), 'Ada and Kai need a restart to get: Hooks fix.');
   assert.equal(api.rlineHead({ notes: [fix('Hooks fix')], agents: agents('Ada', 'Kai', 'Lee') }), 'Ada, Kai and Lee need a restart to get: Hooks fix.');
   assert.equal(api.rlineHead({ notes: [fix('A'), fix('B')], agents: agents('Ada', 'Kai', 'Lee', 'Mo', 'Ty') }),
-    'Ada, Kai and <button type="button" class="rlmore" data-rl-who>3 more</button> need a restart to get 2 fixes in this update.');
+    'Ada, Kai and <button type="button" class="rlmore" data-rl-who aria-expanded="false" aria-controls="rl-who">3 more</button> need a restart to get 2 fixes in this update.');
   // Names and titles are escaped.
   assert.equal(api.rlineHead({ notes: [fix('<b>x</b>')], agents: agents('<i>') }), '&lt;i&gt; needs a restart to get: &lt;b&gt;x&lt;/b&gt;.');
 });
@@ -61,4 +61,21 @@ test('#7411: one agent gets one button named for it and no list; no line paints 
   api.RLINE.line = null;
   api.paintRestartLine();
   assert.equal(slot.innerHTML, '');
+});
+
+test('#7411: after restarts the wake result is said on the line, or in its place with a close button once the line goes', () => {
+  const { api, slot } = page();
+  api.RLINE.woke = { said: ['Ada'], manual: ['Kai', 'Lee'] };
+  api.RLINE.line = { version: '0.7.73', notes: [fix('A')], agents: agents('Mo', 'Ty') };
+  api.paintRestartLine();
+  assert.match(slot.innerHTML, /<small class="rlwoke">Restarted Ada, and said hello to wake them\. Say hello to Kai and Lee to wake them\.<\/small>/);
+  api.RLINE.line = null;
+  api.paintRestartLine();
+  assert.match(slot.innerHTML, /class="utoast rline rldone"/);
+  assert.match(slot.innerHTML, /<b>Restarted Ada, and said hello to wake them\. Say hello to Kai and Lee to wake them\.<\/b>/);
+  assert.match(slot.innerHTML, /data-rl-close aria-label="Close this notice"/);
+  assert.doesNotMatch(slot.innerHTML, /data-rl-all|data-rl-later/, 'Restart buttons are left with nobody to restart');
+  api.RLINE.woke = { said: [], manual: [] };
+  api.paintRestartLine();
+  assert.equal(slot.innerHTML, '', 'nothing left to say still painted a note');
 });
