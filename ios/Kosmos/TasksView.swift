@@ -148,8 +148,7 @@ struct TasksView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) { ScreenHeading(title: "Tasks") }
-                ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
-                if let switcher { ToolbarItem(placement: .navigationBarLeading) { switcher } }
+                KosmosBarLeading(switcher: switcher)
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     if let read, !read.tasks.isEmpty { picker }
                     // Not gated on the Tasks read: the sheet reads its own projects, so a failed list does not stop a new task.
