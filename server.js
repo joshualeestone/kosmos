@@ -276,6 +276,8 @@ function stampServedPlatform(pageBuffer) {
 }
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
+const pageCompress = require('./engine/pagecompress');
+const compressedPage = pageCompress.makePageCompressor();   // kosmos#7490
 /* 🛑 #1938: THE DISK SCAN IS HEAVIER THAN found() AND THE BOARD POLLS IT EVERY 5s.
    `found()` walks Claude's own records; `discover.scan()` walks a bounded slice of the
    actual disk (up to thousands of directories) AND calls found() itself. The board's
@@ -25867,8 +25869,11 @@ const server = http.createServer(async (req, res) => {
        on disk, and this header is that answer.
        #2973: and whether this board's logon task started it, which the hand-off needs
        before it may end the board, and which Task Scheduler cannot say reliably. */
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_IDENTITY_HEADER]: BOARD_IDENTITY, [BOARD_STARTED_BY_TASK_HEADER]: boardStartedByTaskHeaderValue() });
-    res.end(stampServedPlatform(buf));
+    /* kosmos#7490: compressed when the browser accepts it (brotli or gzip), so a phone over Kosmos+ is sent about
+       1.5 MB rather than 6. engine/pagecompress.js says why only the page, and why it is cached by content. */
+    const page = stampServedPlatform(buf);
+    pageCompress.sendPage(req, res, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_IDENTITY_HEADER]: BOARD_IDENTITY, [BOARD_STARTED_BY_TASK_HEADER]: boardStartedByTaskHeaderValue() },
+      Buffer.isBuffer(page) ? page : Buffer.from(page, 'utf8'), compressedPage);
   });
 });
 
