@@ -649,13 +649,16 @@ struct ProjectRowView: View {
                 // Review 2: at the largest sizes a sub-project's indent leaves little room, so the name may wrap.
                 Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary)
                     .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
-                if let bubble = Board.unreadBubble(project.unread) { UnreadBubble(text: bubble, quiet: project.quiet) }
                 Spacer(minLength: 8)
                 // kosmos#7486 (Josh 10-28 09:35): Working is the Agents list's own animated green pill, in the same place; the
-                // other words keep their look.
-                if word == .working {
-                    StatusPill(word: Board.projectWordText(.working), pill: .working, wraps: typeSize.isAccessibilitySize)
-                } else if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
+                // other words keep their look. kosmos#7342 (Mona Lisa): the unread bubble at the right end, after the word,
+                // 6 pt apart, as the Agents list has it, so the two tabs read alike.
+                HStack(spacing: 6) {
+                    if word == .working {
+                        StatusPill(word: Board.projectWordText(.working), pill: .working, wraps: typeSize.isAccessibilitySize)
+                    } else if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
+                    if let bubble = Board.unreadBubble(project.unread) { UnreadBubble(text: bubble, quiet: project.quiet) }
+                }
             }
             if !project.description.isEmpty {
                 Text(project.description).font(.footnote).foregroundColor(Palette.secondary).lineLimit(1)
