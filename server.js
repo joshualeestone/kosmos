@@ -23933,6 +23933,25 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#7407: what happens to a task taken off hold, in one plain sentence for the screen and both CLIs (no double
+     quote, so the Mac CLI's sed read prints it whole). Taking a task off hold never changes who is on it: the people on
+     it keep it. One nobody is on is handed to the next idle agent on the project when the Assigner is on (a user saw an
+     unrelated agent get one and did not know why), so that is said, and so is how to choose instead. */
+  function unholdNext(projectId, t) {
+    const plain = (x) => String(x).replace(/["\\\u0000-\u001f\u007f]/g, ' ');
+    const who = tasks.whoOf(t);
+    if (tasks.progressOf(t).closed) return '';
+    if (who.length) return 'It stays with ' + who.map(plain).join(', ') + '.';
+    let on = false;
+    try { on = assignerSetting.read().on === true; } catch { on = false; }
+    let paused = false;
+    try { const p = projects.readAll().find((x) => x && x.id === projectId); paused = !!p && projects.isPaused(p); } catch { /* unread: said as if live */ }
+    let outable = false;
+    try { outable = require('./engine/assigner').handOutable(t) === true; } catch { outable = false; }
+    if (!outable) return 'Nobody is on it, and Kosmos does not hand this one out on its own.';
+    if (!on || paused) return 'Nobody is on it, and Kosmos will not give it to anyone until a person does.';
+    return 'Nobody is on it, so Kosmos will give it to the next idle agent on the project. To choose who, assign it now.';
+  }
   /* #4771: put a task on hold, or take it off. Body { onHold: true | false, until?: { task: <n> } | { at: <time> } }. The Prompter never nudges an agent about a
      task on hold and the Assigner never hands it out; tasks.setOnHold validates and records it in the task's activity.
      The person's own hold is lifted only from the screen (isViaScreen). That is ADVISORY, as on /built: a local process
@@ -23950,7 +23969,7 @@ const server = http.createServer(async (req, res) => {
         const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body), until: body.until === undefined ? null : body.until });
         // The assignees' instructions mark a held task (projects.blockBody), so the block follows the record, as close does.
         try { tellEveryoneOn(t); } catch { /* the hold happened; a failed re-tell is reported by the row's told verdict */ }
-        sendJson(res, 200, { task: t });
+        sendJson(res, 200, { task: t, ...(body.onHold === false ? { next: unholdNext(id, t) } : {}) });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,
