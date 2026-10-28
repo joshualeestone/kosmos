@@ -213,6 +213,9 @@ let a = proj(name: "beta", created: "2026-10-01T00:00:00.000Z"), b = proj(name: 
 check(Board.sortProjects([a, b, c], .newest).map { $0.name } == ["Alpha", "beta", "gamma"], "newest first; an undated project after every dated one")
 check(Board.sortProjects([a, b, c], .oldest).map { $0.name } == ["beta", "Alpha", "gamma"], "oldest first; undated still last")
 check(Board.sortProjects([a, b, c], .az).map { $0.name } == ["Alpha", "beta", "gamma"], "name A to Z, ignoring case")
+// kosmos#7421 build 11 (Mona Lisa): the Projects sort button says Sort: <order>, and looks pressed off its default only.
+check(Board.sortButtonLabel(Board.projectSortLabel(.az)) == "Sort: Name A to Z", "the Projects sort button says Sort: <order>, as Agents does")
+check(Board.projectSortDefault == .newest && Board.ProjectSort(rawValue: "") == nil, "Projects' default is Newest first, and an unknown saved order is not a ProjectSort (the view falls back to the default)")
 check(Board.sortProjects([a, b, c], .za).map { $0.name } == ["gamma", "beta", "Alpha"], "name Z to A")
 check(Board.ProjectSort.allCases.map(Board.projectSortLabel) == ["Newest first", "Oldest first", "Name A to Z", "Name Z to A"], "the board's four labels, no update order")
 let orphan = proj(name: "Orphan", parent: "gone")

@@ -442,7 +442,7 @@ struct ProjectsView: View {
     let openPage: (URL) -> Void
     // kosmos#7266: the + at the top right, the board's own new-project form (ContentView.openCreate).
     var create: () -> Void = {}
-    @AppStorage("kosmos.projects.sort") private var sortRaw = Board.ProjectSort.newest.rawValue
+    @AppStorage("kosmos.projects.sort") private var sortRaw = Board.projectSortDefault.rawValue
     @State private var openProject: Board.ProjectRow?
     // A notification's room was not in the list: it has had its one fresh read.
     @State private var listReread = false
@@ -458,7 +458,7 @@ struct ProjectsView: View {
         _store = StateObject(wrappedValue: RoomStore(client: client))
     }
 
-    private var sort: Board.ProjectSort { Board.ProjectSort(rawValue: sortRaw) ?? .newest }
+    private var sort: Board.ProjectSort { Board.ProjectSort(rawValue: sortRaw) ?? Board.projectSortDefault }
 
     var body: some View {
         NavigationView {
@@ -560,8 +560,9 @@ struct ProjectsView: View {
             Picker("Order", selection: $sortRaw) {
                 ForEach(Board.ProjectSort.allCases, id: \.rawValue) { s in Text(Board.projectSortLabel(s)).tag(s.rawValue) }
             }
-        } label: { Image(systemName: "arrow.up.arrow.down") }
-        .accessibilityLabel("Order: \(Board.projectSortLabel(sort))")
+        } label: { SortButtonLabel(pressed: sort != Board.projectSortDefault) }
+        .accessibilityLabel(Board.sortButtonLabel(Board.projectSortLabel(sort)))
+        .accessibilityAddTraits(sort != Board.projectSortDefault ? .isSelected : [])
     }
 
     @ViewBuilder private var content: some View {

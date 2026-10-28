@@ -36,8 +36,9 @@ struct AgentsView: View {
             Picker("Sort agents", selection: Binding(get: { sortChoice.rawValue }, set: { agentSort = $0 })) {
                 ForEach(Board.AgentSort.allCases, id: \.rawValue) { s in Text(Board.agentSortLabel(s)).tag(s.rawValue) }
             }
-        } label: { Image(systemName: "arrow.up.arrow.down") }
-        .accessibilityLabel("Sort agents: \(Board.agentSortLabel(sortChoice))")
+        } label: { SortButtonLabel(pressed: sortChoice != Board.agentSortDefault) }
+        .accessibilityLabel(Board.sortButtonLabel(Board.agentSortLabel(sortChoice)))
+        .accessibilityAddTraits(sortChoice != Board.agentSortDefault ? .isSelected : [])
     }
 
     var body: some View {
@@ -705,6 +706,19 @@ extension View {
 }
 
 // kosmos#7343: no title shows in the bar, but VoiceOver still hears the screen's name as its heading.
+// kosmos#7343 / #7421 (Mona Lisa): the ⇅ button on Agents and Projects looks pressed while a non-default order is on,
+// so a person who chose another order last week can see the list is not in its usual one: the symbol on a soft
+// circle of the bar's tint. The same size either way, so the bar does not shift when the order changes.
+struct SortButtonLabel: View {
+    let pressed: Bool
+    var body: some View {
+        Image(systemName: "arrow.up.arrow.down")
+            .font(.body.weight(pressed ? .semibold : .regular))
+            .frame(width: 30, height: 30)
+            .background(Circle().fill(Color.accentColor.opacity(pressed ? 0.18 : 0)))
+    }
+}
+
 struct ScreenHeading: View {
     let title: String
     var body: some View {
