@@ -29,6 +29,8 @@ struct ContentView: View {
     // kosmos#7032: a room the Projects tab should open (a tapped room notification), cleared once it is open. Outside the
     // screenshot switch: both builds read it.
     @State private var roomRequest: PushBridge.RoomTarget?
+    // kosmos#7489: the native New project form (+ on Projects), in place of the board's slow web page.
+    @State private var newProjectOpen = false
     // kosmos#7418: an agent's chat a tapped notification asked for, handed to the Agents tab to open.
     @State private var agentRequest: PushBridge.AgentTarget?
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
@@ -163,7 +165,7 @@ struct ContentView: View {
                             // kosmos#7342 (Mona Lisa's rule: every tab's number is the sum of what its own list shows): Agents
                             // shows its rows' bubbles added up; Today, like the Dock, keeps the full total.
                             .badge(which == .today && AppTabs.todayTab ? (board.waitingCount ?? 0)
-                                   : which == .agents && !AppTabs.todayTab ? Board.agentsTabBadge(waiting: board.waitingCount, agents: board.agents)
+                                   : which == .agents && !AppTabs.todayTab ? Board.agentsTabBadge(waiting: board.waitingCount, agents: board.agents, stale: board.agentsListStale)
                                    : which == .projects ? (board.projectsUnread ?? 0) : 0)
                             .tag(which)
                     }
@@ -396,7 +398,13 @@ struct ContentView: View {
             // button) opens under Today, as an agent's chat does from Agents.
             ProjectsView(client: board, roomRequest: $roomRequest, openPage: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, create: { openCreate(.project) })
+            }, create: { newProjectOpen = true })
+            .sheet(isPresented: $newProjectOpen) {
+                NewProjectView(client: board) { id in
+                    // The new project's room, on the computer the list shows.
+                    if let host = board.switcherURL?.host { roomRequest = PushBridge.RoomTarget(host: host, project: id) }
+                }
+            }
         } else if which == .tasks {
             // kosmos#7031: native Tasks. A task's page is native too (kosmos#7074, TaskPageView); its info button opens
             // the board's page under Today in the board view; a press on Tasks brings the list back.

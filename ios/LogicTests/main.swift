@@ -4554,6 +4554,10 @@ do {
         // unless it needs him (then the red pill, from needsYou).
         check(Board.pill(a("blocked")) == nil, "a blocked agent shows no Waiting pill")
         check(Board.pill(Board.Agent(session: "x", name: "x", role: nil, state: "blocked", task: nil, needsYou: true)) == .problem, "CONTROL: a blocked agent that needs him still shows the red pill")
+        // Review 1: a current Mac sends a blocked agent's tone as needs-you; on the phone it is still no pill, and quiet.
+        check(Board.pill(q(a("blocked")) { $0.macTone = .needsYou }) == nil, "the Mac's needs-you tone does not bring back a Waiting pill")
+        check(Board.tone(q(a("blocked")) { $0.macTone = .needsYou }) == .quiet, "a blocked agent is not sorted or listed as needing him on the phone")
+        check(Board.pill(q(a("idle")) { $0.macTone = .needsYou }) == .problem, "CONTROL: the Mac's needs-you tone still reddens any other quiet state")
         check(Board.pill(a("idle", running: false)) == .problem && Board.pill(a("stopped")) == .problem, "not running is red")
         check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true }) == .cantTell, "a job Kosmos cannot see is grey, not red")
         check(Board.pill(q(a("working")) { $0.crashLooping = true }) == .problem, "a crash loop is red")
@@ -4584,6 +4588,7 @@ do {
             check(Board.agentsTabBadge(waiting: 292, agents: rowsA) == sum && sum == 1,
                   "the Agents tab is the sum of its rows' counts, not the Mac's total (292 was all project-room posts)")
             check(Board.agentsTabBadge(waiting: nil, agents: rowsA) == 0, "with the count switched off, no Agents badge")
+            check(Board.agentsTabBadge(waiting: 292, agents: rowsA, stale: true) == 0, "review 1: a list shown as not updating shows no bubbles, so no tab badge")
             let seen = Board.dmSeenRequest(mac: URL(string: "https://studio.kosmosplus.com")!, session: "dana")
             check(seen?.httpMethod == "POST" && seen?.url?.path == "/api/agent/dana/seen", "opening the chat moves the board's read cursor (server.js dmSeen)")
             check(Board.dmSeenRequest(mac: URL(string: "https://studio.kosmosplus.com")!, session: "../x") == nil, "CONTROL: a name the board would refuse is never sent")

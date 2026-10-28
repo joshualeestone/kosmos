@@ -300,6 +300,18 @@ section("By project's key (kosmos#7421)")
 // since its count adds nothing to the Projects tab. "all" or none is not.
 let notifyRows = Board.parseProjects(Data(#"{"projects":[{"id":"m","name":"M","notify":"muted"},{"id":"n","name":"N","notify":"mentions"},{"id":"a","name":"A","notify":"all"},{"id":"x","name":"X"}]}"#.utf8))?.projects ?? []
 check(notifyRows.map(\.quiet) == [true, true, false, false], "a muted or mentions-only project is quiet; all and none are not")
+// kosmos#7489: the native New project form: a name is enough; one POST /api/projects; the board's answer read honestly.
+let npMac = URL(string: "https://studio.kosmosplus.com")!
+check(!NewProject.canCreate(NewProject.Draft(name: "   ")) && NewProject.canCreate(NewProject.Draft(name: "Lease")), "a name (not blank) is enough to create")
+let npReq = NewProject.request(mac: npMac, draft: NewProject.Draft(name: " Henderson lease ", description: ""))
+let npBody = npReq?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+check(npReq?.httpMethod == "POST" && npReq?.url?.path == "/api/projects" && npBody?["name"] as? String == "Henderson lease" && npBody?["description"] == nil,
+      "Create sends the trimmed name to the board's own route, and no empty description")
+check(NewProject.request(mac: npMac, draft: NewProject.Draft(name: "")) == nil, "nothing is sent without a name")
+check(NewProject.result(sent: true, status: 200, body: Data(#"{"id":"henderson-lease","project":{}}"#.utf8)) == .made(id: "henderson-lease"), "made: the new project's id")
+check(NewProject.result(sent: true, status: 400, body: Data(#"{"error":"A project with that name already exists."}"#.utf8)) == .refused("A project with that name already exists."), "a refusal is the board's own sentence")
+check(NewProject.result(sent: true, status: 0, body: nil) == .unknown && NewProject.result(sent: true, status: 502, body: nil) == .unknown, "no answer, or a server error with no sentence, may have made it: unknown")
+check(NewProject.result(sent: false, status: 0, body: nil) == .refused(NewProject.fallback), "nothing sent: certainly not made")
 let firsts = Board.firstProjects(Board.parseProjects(Data(#"{"projects":[{"id":"z","name":"Zeta","agents":[{"sessionName":"a"}]},{"id":"b","name":"beta","agents":[{"sessionName":"a"},{"sessionName":"c"}]}]}"#.utf8)))
 let agentsSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentsView.swift"), encoding: .utf8)) ?? ""
 let clientSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardClient.swift"), encoding: .utf8)) ?? ""
