@@ -44,8 +44,7 @@ struct AgentsView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .principal) { ScreenHeading(title: "Agents") }
-                    ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
-                    ToolbarItem(placement: .navigationBarLeading) { MacSwitcher(client: client) }
+                    KosmosBarLeading(switcher: MacSwitcher(client: client))
                     ToolbarItemGroup(placement: .navigationBarTrailing) {
                         agentSortMenu
                         Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
@@ -549,6 +548,23 @@ struct KosmosMark: View {
         .frame(width: 44, height: 44)
         .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
         .accessibilityHidden(true)
+    }
+}
+
+// kosmos#7417 (Josh 10-27): the mark is its own circle, apart from the computer switcher. On iOS 26 the bar draws
+// neighbouring items in one glass pill, which clipped the mark's sides; so the mark draws no glass of its own and a
+// fixed gap starts a new pill for the switcher. Before iOS 26 there is no pill and the two simply sit side by side.
+struct KosmosBarLeading<S: View>: ToolbarContent {
+    let switcher: S?
+
+    var body: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }.sharedBackgroundVisibility(.hidden)
+            ToolbarSpacer(.fixed, placement: .navigationBarLeading)
+        } else {
+            ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
+        }
+        if let switcher { ToolbarItem(placement: .navigationBarLeading) { switcher } }
     }
 }
 

@@ -467,8 +467,7 @@ struct ProjectsView: View {
                 .navigationBarTitleDisplayMode(.inline)   // kosmos#7343: the shared bar, no big title
                 .toolbar {
                     ToolbarItem(placement: .principal) { ScreenHeading(title: "Projects") }
-                    ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
-                    ToolbarItem(placement: .navigationBarLeading) { MacSwitcher(client: client) }
+                    KosmosBarLeading(switcher: MacSwitcher(client: client))
                     // kosmos#7266 review 1: two items, not one HStack, so each keeps the toolbar's full tap target.
                     ToolbarItemGroup(placement: .navigationBarTrailing) {
                         sortMenu
