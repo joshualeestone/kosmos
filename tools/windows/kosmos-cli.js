@@ -1366,8 +1366,9 @@ async function taskClose(ctx, args) {
         if (!one.reached) { stop = i; lost = one; break; }
         if (one.json && one.json.task) { ok.push(n); continue; }
         // As install/kosmos: an error the board left empty did not say why; anything else is an answer we could not read.
-        const why = ctx.refusedBy(one) || (one.json && typeof one.json.error === 'string' ? 'it did not say why' : 'Kosmos gave an answer we could not read');
-        bad.push('Could not close task ' + n + ': ' + why + '.');   // one line each: a reason can hold a ; or a ,
+        const why = ctx.refusedBy(one) || (one.json && typeof one.json.error === 'string' ? 'it did not say why' : '');
+        // One line each: a reason can hold a ; or a ,. An answer we cannot read does not say it did not close.
+        bad.push(why ? 'Could not close task ' + n + ': ' + why + '.' : 'Task ' + n + ': Kosmos gave an answer we could not read; check kosmos task list ' + project + '.');
         /* Who is asking (401/403), a board that could not check or read its projects (500/503), no such project, or an
            answer that is not the board's (421): every later close would be refused the same way, so send no more. */
         if ([401, 403, 421, 500, 503].includes(one.status) || (one.status === 404 && /no project by that name/.test(why))
