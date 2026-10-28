@@ -205,6 +205,35 @@ function csharpLiteral(raw) {
   return raw.replace(/\\(u[0-9a-fA-F]{4}|[0nrt"'\\])/g, (_, e) => (e[0] === 'u' ? String.fromCharCode(parseInt(e.slice(1), 16))
     : { 0: '\0', n: '\n', r: '\r', t: '\t', '"': '"', "'": "'", '\\': '\\' }[e]));
 }
+/* kosmos#7503: C# source with every string and char literal's contents blanked (each becomes "" or '') and every comment
+   replaced by a space, read one character at a time: regular "..." with backslash escapes, verbatim @"..." with "" for a
+   quote, interpolated $"..." (either order with @), char '...', // and block comments. A regex over the whole file cannot
+   do this: a '"' char literal or a quote in a comment would open a string that swallows the code after it. */
+function blankCSharpLiterals(src) {
+  let out = '';
+  for (let i = 0; i < src.length;) {
+    const c = src[i];
+    if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i += 1; out += ' '; continue; }
+    if (c === '/' && src[i + 1] === '*') { const end = src.indexOf('*/', i + 2); i = end < 0 ? src.length : end + 2; out += ' '; continue; }
+    if (c === "'") { i += 1; while (i < src.length && src[i] !== "'") i += src[i] === '\\' ? 2 : 1; i += 1; out += "''"; continue; }
+    const m = /^[@$]{0,2}"/.exec(src.slice(i, i + 3));
+    if (m) {
+      const verbatim = m[0].includes('@');
+      i += m[0].length;
+      while (i < src.length) {
+        if (verbatim && src[i] === '"' && src[i + 1] === '"') { i += 2; continue; }
+        if (!verbatim && src[i] === '\\') { i += 2; continue; }
+        if (src[i] === '"') { i += 1; break; }
+        i += 1;
+      }
+      out += '""';
+      continue;
+    }
+    out += c;
+    i += 1;
+  }
+  return out;
+}
 /* Every `const string` in `source` as name -> value, folding + over literals and other constants of the file. A value
    that uses anything else (a call, a non-const field) is left out, by name, in `unresolved`. kosmos#7503: so is a
    declaration the value pattern does not read at all (a verbatim @"...", an interpolated $"...", a reference such as
@@ -225,9 +254,11 @@ function stringConstants(source) {
     }
   }
   const declared = new Set();
-  for (const st of source.matchAll(/\bconst\s+(?:System\s*\.\s*)?[Ss]tring\??\s+([^;]*);/g)) {
-    const body = st[1].replace(/[@$]*"(?:[^"\\]|\\.|"")*"/g, '""');   // string contents cannot add a name
-    for (const n of body.matchAll(/(?:^|,)\s*(\w+)\s*=/g)) declared.add(n[1]);
+  // String and char contents are blanked and comments dropped first, so a ; or a comma or an = inside a value can neither
+  // end a statement nor add a name, and a declaration written in a comment is not counted.
+  const blanked = blankCSharpLiterals(source);
+  for (const st of blanked.matchAll(/\bconst\s+(?:System\s*\.\s*)?[Ss]tring\??\s+([^;]*);/g)) {
+    for (const n of st[1].matchAll(/(?:^|,)\s*(\w+)\s*=/g)) declared.add(n[1]);
   }
   const uncollected = [...declared].filter((n) => !raw.has(n));
   return { values, unresolved: [...raw.keys()].filter((n) => !values.has(n)).concat(uncollected) };
@@ -271,11 +302,16 @@ test('#7492: every string constant in KosmosLauncher.cs is in the committed Kosm
   for (const [form, decl] of [['verbatim', 'const string PlantedVerbatim = @"C:\\Kosmos";'], ['interpolated', 'const string PlantedInterpolated = $"Kosmos {1}";'],
     ['reference', 'const string PlantedReference = Other.Name;'], ['spacing', 'const  string PlantedSpacing="x";'],
     ['String', 'const String PlantedType = "x";'], ['System.String', 'const System.String PlantedFullType = "x";'],
-    ['second name', 'const string PlantedFirst = "a", PlantedSecond = "b = c";']]) {
+    ['second name', 'const string PlantedFirst = "a", PlantedSecond = "b = c";'],
+    ['second name after a ; in a value', 'const string PlantedSemi = "a;b", PlantedAfterSemi = "c";']]) {
     const planted = SOURCE.slice(0, close) + '    ' + decl + '\n' + SOURCE.slice(close);
     const names = [...decl.matchAll(/(Planted\w+)\s*=/g)].map((x) => x[1]);
     assert.deepEqual(stringConstants(planted).unresolved, names, 'a ' + form + ' const string was skipped silently: ' + decl);
   }
+  // CONTROL: a readable constant whose value holds a ; and a comma is read, not flagged.
+  const readable = SOURCE.slice(0, close) + '    const string PlantedReadable = "a;b, c = d";\n' + SOURCE.slice(close);
+  assert.deepEqual(stringConstants(readable).unresolved, [], 'a readable constant was flagged');
+  assert.equal(stringConstants(readable).values.get('PlantedReadable'), 'a;b, c = d');
   // And the folded values: a page built with + is read whole (the window's starting page).
   assert.ok(stringConstants(SOURCE).values.get('StartingPage').startsWith('<!doctype html><html><head><meta charset="utf-8">'));
 });
