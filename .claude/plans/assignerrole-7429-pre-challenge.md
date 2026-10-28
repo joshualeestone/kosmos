@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: assignerrole-7429
-diff_hash: 5736b3b9ab0043f912d245d13ce8a6b3a72798f574bc2b7c3ef2d4ef74f5dbe4
+diff_hash: ba75f3cae98bc98858163d74d1a91c54ef8c6065cb325fe8b9f7f0caad42942d
 subdir_audit: passed
 timestamp: 2026-10-28T04:31:58Z
 converged: true
@@ -45,3 +45,6 @@ Ice Cream Kitty. Reviewers alternated opus, sonnet, opus; each was given the cod
 - [NIT] (round 2) forms like "reviewer/QA" or a quoted role do not match: KEPT, the safe side, pinned by a test
 - [NIT] (round 3) the instruction block change prompts every agent to re-read its instructions once: KEPT, the same as #5300
 - [BLOCKER] none open in any round
+
+## Re-bound after merging main (00:2x CDT 10-28)
+Main moved (kosmos 958acd2421 added CARRIED_NOTES to the same export line in engine/projects.js). Merged main in and kept both sides of that one line; no reviewed line changed. Focused tests on the merged tree: 451, 0 failed. diff_hash re-computed against the new origin/main.
