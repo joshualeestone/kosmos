@@ -419,8 +419,10 @@ struct MessageActionTarget: Identifiable {
 }
 
 private struct MessageActionsOpenKey: EnvironmentKey { static let defaultValue: ((MessageActionTarget) -> Void)? = nil }
-// kosmos#7419 build 11: which sheet is up (its target's id), so the message it is for can mark itself.
+// kosmos#7419 build 11: which sheet is up (its target's id), so the message it is for can mark itself; and, inside a
+// message, whether its sheet is the one up (read by PressedRing on the bubble's own shape).
 private struct MessageActionsShownKey: EnvironmentKey { static let defaultValue: UUID? = nil }
+private struct MessageRingedKey: EnvironmentKey { static let defaultValue = false }
 extension EnvironmentValues {
     var openMessageActions: ((MessageActionTarget) -> Void)? {
         get { self[MessageActionsOpenKey.self] }
@@ -429,6 +431,37 @@ extension EnvironmentValues {
     var shownMessageActions: UUID? {
         get { self[MessageActionsShownKey.self] }
         set { self[MessageActionsShownKey.self] = newValue }
+    }
+    var messageRinged: Bool {
+        get { self[MessageRingedKey.self] }
+        set { self[MessageRingedKey.self] = newValue }
+    }
+}
+
+// kosmos#7419 build 11 (Mona Lisa: "the person cannot see which message the sheet is for"): a system sheet dims
+// everything behind it and nothing in the chat can be drawn above that dim, so the message the sheet is for is ringed in
+// gold, as a reply's jump marks its post (#7101), strong enough to read through the dim. Each bubble draws it on its own
+// 18 pt shape, before its width frame (review 1: drawn outside, it went round the frame's empty side).
+struct PressedRing: View {
+    @Environment(\.messageRinged) private var ringed
+    var body: some View {
+        RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Palette.starGold, lineWidth: 2.5)
+            .padding(-4).opacity(ringed ? 1 : 0).allowsHitTesting(false).accessibilityHidden(true)
+    }
+}
+
+// The marking half, shared by the long press and the VoiceOver action: remembers which sheet this message opened, tells
+// what is inside it while that sheet is up, and hands what is inside (a file card's own "Message actions") an opener
+// that marks it too. The ring goes when that sheet goes (the host's id changes), and with the row if it is redrawn.
+private struct MessageRingMark: ViewModifier {
+    @Binding var opened: UUID?
+    @Environment(\.openMessageActions) private var open
+    @Environment(\.shownMessageActions) private var shown
+    @Environment(\.messageRinged) private var outer
+    func body(content: Content) -> some View {
+        content
+            .environment(\.messageRinged, outer || (opened != nil && opened == shown))
+            .environment(\.openMessageActions) { t in opened = t.id; open?(t) }
     }
 }
 
@@ -607,12 +640,7 @@ struct MessageActionsHost: ViewModifier {
 struct MessageActions: ViewModifier {
     let target: () -> MessageActionTarget
     @Environment(\.openMessageActions) private var open
-    @Environment(\.shownMessageActions) private var shown
-    // kosmos#7419 build 11 (Mona Lisa: "the person cannot see which message the sheet is for"): the sheet this message
-    // opened. A system sheet dims everything behind it and nothing in the chat can be drawn above that dim, so instead
-    // the message is ringed in gold, as a reply's jump marks its post (#7101), strong enough to read through the dim.
-    // The ring goes when that sheet goes (the host's id changes), and with the row if the row is redrawn.
-    @State private var opened: UUID?
+    @State private var opened: UUID?   // kosmos#7419 build 11: the sheet this message opened (MessageRingMark)
 
     private func show() {
         let t = target()
@@ -622,8 +650,7 @@ struct MessageActions: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Palette.starGold, lineWidth: 2.5)
-                .padding(-4).opacity(opened != nil && opened == shown ? 1 : 0).allowsHitTesting(false).accessibilityHidden(true))
+            .modifier(MessageRingMark(opened: $opened))
             .highPriorityGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in show() })
             // Review 2: VoiceOver reaches the sheet (Copy text, More) as an action, since a long press is not one.
             .accessibilityAction(named: "Message actions") { show() }
@@ -650,7 +677,11 @@ extension Notification.Name { static let sampleSheetMore = Notification.Name("ko
 struct MessageActionsAccessibility: ViewModifier {
     let target: () -> MessageActionTarget
     @Environment(\.openMessageActions) private var open
-    func body(content: Content) -> some View { content.accessibilityAction(named: "Message actions") { open?(target()) } }
+    @State private var opened: UUID?   // build 11 review 1: a sheet opened from VoiceOver rings its message too
+    func body(content: Content) -> some View {
+        content.modifier(MessageRingMark(opened: $opened))
+            .accessibilityAction(named: "Message actions") { let t = target(); opened = t.id; open?(t) }
+    }
 }
 
 extension View {

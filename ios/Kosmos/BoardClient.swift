@@ -84,6 +84,9 @@ final class BoardClient: ObservableObject {
     // either (the board may have answered it before applying the press).
     private var starEvents = 0
     func isStarred(_ session: String) -> Bool { shownStars?.contains(session) == true }
+    // build 11 review 1: a press is offered only once this computer's stars have been read. Before that the star would
+    // show an outline for a starred agent, and a press would build on an empty list (a failed save would leave it so).
+    var canStar: Bool { shownMac != nil && shownStars != nil }
     func toggleStar(_ session: String) async {
         guard let mac = shownMac, !starring.contains(session) else { return }
         let on = !isStarred(session)
