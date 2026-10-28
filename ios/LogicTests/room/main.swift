@@ -1267,7 +1267,9 @@ for (name, n, third, last) in inkRef {
     check(got.count == n && near(got[safe: 2], third) && near(got.last, last), "with a letter, the mark for \(name) is still the desktop's: its count, third and last dots")
 }
 let inkAll = AgentMark.dots(name: "Ada", ink: { x, _ in x < 128 })
-check(inkAll.allSatisfy { $0.x + $0.r + 2 >= 127.5 }, "no dot is drawn over the letter's ink")
+// The desktop keeps a dot only when its clearance samples miss the ink; for ink at x < 128 the leftmost sample,
+// round(x - (r + 2)), must be at least 128.
+check(!inkAll.isEmpty && inkAll.allSatisfy { ($0.x - $0.r - 2 + 0.5).rounded(.down) >= 128 }, "no dot is drawn over the letter's ink, by the desktop's own clearance")
 check(AgentMark.letter("  zoë ") == "Z" && AgentMark.letter("   ") == nil, "the letter is the trimmed name's first, upper-cased")
 
 // kosmos#7488 build 14: the picture is PUT where the desktop puts it, and a team portrait read where it reads it.

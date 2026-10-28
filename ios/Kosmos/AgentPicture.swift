@@ -55,30 +55,43 @@ enum AgentPicture {
     }
 
     // The board keeps a picture up to 60,000 bytes (the desktop's PICTURE_MAX_BYTES, the community's cap). A photo is
-    // redrawn as a JPEG on white, largest side first, as the desktop's fitPicture does for a picture with no
-    // transparency; nil when even the smallest will not fit.
+    // read already shrunk and upright from its file (never the whole photo in memory), cut to the centred square the
+    // desktop's crop editor opens on, and redrawn as a JPEG on white, 512 px down to 128, as the desktop's fitPicture
+    // does for a picture with no transparency. nil when it cannot be read or will not fit. Not on the main thread.
     static let maxBytes = 60000
-    static let minSide: CGFloat = 16   // the desktop's PICTURE_MIN_SIDE: a thinner picture is padded up to it
-    static func fit(_ image: UIImage) -> Data? {
-        let big = max(image.size.width, image.size.height)
-        guard big > 0 else { return nil }
-        for side in [512.0, 384, 256, 192, 128].map({ min(CGFloat($0), big) }) {
-            let k = side / big
-            let drawn0 = CGSize(width: (image.size.width * k).rounded(), height: (image.size.height * k).rounded())
-            let size = CGSize(width: max(minSide, drawn0.width), height: max(minSide, drawn0.height))
+    static let minSide = 16   // the desktop's PICTURE_MIN_SIDE
+    static func fit(data: Data) -> Data? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 1024] as CFDictionary)
+        else { return nil }
+        let w = CGFloat(cg.width), h = CGFloat(cg.height), square = min(w, h)
+        guard square >= 1, let cut = cg.cropping(to: CGRect(x: ((w - square) / 2).rounded(.down), y: ((h - square) / 2).rounded(.down),
+                                                           width: square, height: square)) else { return nil }
+        let image = UIImage(cgImage: cut)
+        // Each size once (a small picture is tried at its own size only), never under the board's smallest side.
+        var sides: [CGFloat] = []
+        for s in [512.0, 384, 256, 192, 128].map({ max(CGFloat(minSide), min(CGFloat($0), square)) }) where !sides.contains(s) { sides.append(s) }
+        for side in sides {
             let format = UIGraphicsImageRendererFormat()
             format.scale = 1
             format.opaque = true
-            let drawn = UIGraphicsImageRenderer(size: size, format: format).image { r in
+            let drawn = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { r in
                 UIColor.white.setFill()
-                r.fill(CGRect(origin: .zero, size: size))
-                image.draw(in: CGRect(x: (size.width - drawn0.width) / 2, y: (size.height - drawn0.height) / 2,
-                                      width: drawn0.width, height: drawn0.height))
+                r.fill(CGRect(x: 0, y: 0, width: side, height: side))
+                image.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
             }
             for q in [0.85, 0.7, 0.55] {
-                if let data = drawn.jpegData(compressionQuality: q), data.count <= maxBytes { return data }
+                if let out = drawn.jpegData(compressionQuality: q), out.count <= maxBytes { return out }
             }
         }
         return nil
+    }
+
+    // A catalogue portrait: a still PNG that fits is kept as it came (the desktop's fitPicture keeps those); anything else
+    // is redrawn, as the desktop redraws every WebP and JPEG.
+    static func portrait(_ data: Data, type: String) -> (Data, String)? {
+        if type == "image/png", data.count <= maxBytes, data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return (data, type) }
+        return fit(data: data).map { ($0, "image/jpeg") }
     }
 }
