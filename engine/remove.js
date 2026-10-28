@@ -503,7 +503,7 @@ function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}
     const m = /^\s*"([^"]+)"\s*=>\s*(disabled|true)\s*$/.exec(line);
     if (m) off.add(m[1]);
   }
-  const out = { ok: true, reapplied: [], failed: [], unsure: [] };
+  const out = { ok: true, reapplied: [], failed: [], unsure: [], recheck: [] };
   // A launchctl that gave no answer at all (no exit code: a timeout) stops the sweep: the rest would each wait as long.
   const silent = (r) => !r || (r.ok === false && r.code == null);
   // First every job step, as removeInner: disable (if launchd does not hold it disabled), then bootout (3 is launchd for
@@ -519,7 +519,10 @@ function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}
     const boot = run('/bin/launchctl', ['bootout', `gui/${id}/${label}`]);
     if (silent(boot)) { out.failed.push(...owned.slice(i).map((o) => o.name)); break; }
     if (!(boot.ok !== false || boot.code === 3)) { out.failed.push(name); continue; }
-    stopped.push({ name, label, changed: !off.has(label) || boot.ok !== false });
+    // Review 7: bootout returns before the job has stopped (#4964 measured 4.5 s); wait, bounded, before the roster read.
+    const justUnloaded = boot.ok !== false;
+    if (justUnloaded) waitUnloaded(label);
+    stopped.push({ name, label, changed: !off.has(label) || justUnloaded, justUnloaded });
   }
   /* Then ONE roster read, after the jobs are unloaded (review 5: read before, a supervisor starting its session at login
      could slip past the snapshot). A roster tmux cannot give is an unknown for each agent, never "nothing running". */
@@ -532,19 +535,22 @@ function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}
     if (!card.session) return { kind: FOUND.UNKNOWN, session: null };
     return card.isNamedOurs ? { kind: FOUND.OURS, session: card.session } : { kind: FOUND.UNTIED, session: card.session };
   };
-  for (const { name, label, changed } of stopped) {
+  for (const { name, changed, justUnloaded } of stopped) {
     const found = tie(name);
     if (found.kind === FOUND.OURS) {
       if (!sessionOps('darwin').end(found.session)) { out.failed.push(name); continue; }
-    } else if (found.kind === FOUND.UNKNOWN || (found.kind === FOUND.UNTIED && !off.has(label))) {
-      out.unsure.push(name);   // left alone, as a removal leaves it; an untied session a removal already left is not news
+    } else if (found.kind === FOUND.UNKNOWN || found.kind === FOUND.UNTIED) {
+      out.unsure.push(name);   // left alone, as a removal leaves it, and said every time (review 7: never skipped silently)
       continue;
-    } else if (!changed) {
+    } else if (justUnloaded) {
+      out.recheck.push(name);   // a session a supervisor was starting may not be on the roster yet: the retry looks again
+    }
+    if (!changed) {
       continue;   // already disabled, not loaded and not running: nothing was changed, nothing to say
     }
     out.reapplied.push(name);
   }
-  out.ok = !out.failed.length && !out.unsure.length;
+  out.ok = !out.failed.length && !out.unsure.length && !out.recheck.length;
   return out;
 }
 
