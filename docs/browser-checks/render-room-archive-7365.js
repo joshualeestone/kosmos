@@ -156,11 +156,13 @@ function findUnder(dir, name) {
       && /^They leave this room and what agents read here\. You can still search and open them, and put them back from the archive\.$/.test(ask.small),
       'the confirm asks "Archive older messages?", with "Older than [this week]" and its three choices under it, and says what it does', JSON.stringify(ask));
     chk(ask.focus === 'pjarch-when', 'the confirm opens with the choice focused', String(ask.focus));
-    // It sits inside the room's section (no spare body row); position:fixed must still make it cover the whole window.
-    const cover = await p.evaluate(() => { const r = document.getElementById('pjarch-modal').getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, vh: innerHeight }; });
-    chk(cover.x === 0 && cover.y === 0 && cover.w === cover.vw && cover.h === cover.vh, 'the confirm\'s backdrop covers the whole window, though it sits inside the room\'s section', JSON.stringify(cover));
-    const onTop = await p.evaluate(() => [[innerWidth / 2, innerHeight / 2], [4, 4], [innerWidth - 4, innerHeight - 4]].map(([x, y]) => { const e = document.elementFromPoint(x, y); return !!(e && e.closest('#pjarch-modal')); }));
-    chk(onTop.every(Boolean), 'the confirm paints above everything: the middle and two corners of the window are the confirm', JSON.stringify(onTop));
+    // It sits inside the room's section (no spare body row); position:fixed must still make it cover the whole page.
+    // The page's area, not innerWidth: with classic scrollbars (CI, the Windows app) the tab layout keeps a 15px
+    // gutter on <html> that no fixed layer covers, and #4506 dims it through the canvas (render-dialog-gutter-4506).
+    const cover = await p.evaluate(() => { const r = document.getElementById('pjarch-modal').getBoundingClientRect(); const root = document.documentElement; return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), cw: root.clientWidth, ch: root.clientHeight }; });
+    chk(cover.x === 0 && cover.y === 0 && cover.w === cover.cw && cover.h === cover.ch, 'the confirm\'s backdrop covers the whole page, though it sits inside the room\'s section', JSON.stringify(cover));
+    const onTop = await p.evaluate(() => { const root = document.documentElement; return [[root.clientWidth / 2, root.clientHeight / 2], [4, 4], [root.clientWidth - 4, root.clientHeight - 4]].map(([x, y]) => { const e = document.elementFromPoint(x, y); return !!(e && e.closest('#pjarch-modal')); }); });
+    chk(onTop.every(Boolean), 'the confirm paints above everything: the middle and two corners of the page are the confirm', JSON.stringify(onTop));
     await p.screenshot({ path: path.join(OUT, 'confirm.png') });
     await p.keyboard.press('Escape');
     await p.waitForTimeout(300);
