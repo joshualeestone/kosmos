@@ -210,25 +210,41 @@ function csharpLiteral(raw) {
    quote, interpolated $"..." (either order with @), char '...' (which stops at a newline, so a stray apostrophe cannot
    swallow the lines after it), // and block comments. A regex over the whole file cannot do this: a '"' char literal
    or a quote in a comment would open a string that swallows the code after it. With keepStrings it keeps every string
-   and char literal as written and drops only the comments. */
-function blankCSharpLiterals(src, { keepStrings = false } = {}) {
+   and char literal as written and drops only the comments.
+   Review 6: what it does not model is pushed onto `problems` (a line number and what it was) rather than guessed at,
+   because a guess that loses its place swallows the code after it, and an unreadable constant swallowed that way is
+   lost from every count at once: a regular or interpolated string still open at the end of its line (C# cannot
+   continue one there), a quote inside an interpolation hole, and a raw """ string. A # directive line is a comment. */
+function blankCSharpLiterals(src, { keepStrings = false, problems = [] } = {}) {
   let out = '';
+  const lineAt = (at) => src.slice(0, at).split('\n').length;
   for (let i = 0; i < src.length;) {
     const c = src[i];
     if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i += 1; out += ' '; continue; }
+    if (c === '#' && /(^|\n)[ \t]*$/.test(src.slice(Math.max(0, i - 200), i))) { while (i < src.length && src[i] !== '\n') i += 1; out += ' '; continue; }
     if (c === '/' && src[i + 1] === '*') { const end = src.indexOf('*/', i + 2); i = end < 0 ? src.length : end + 2; out += ' '; continue; }
     if (c === "'") { const at = i; i += 1; while (i < src.length && src[i] !== "'" && src[i] !== '\n') i += src[i] === '\\' ? 2 : 1; if (src[i] === "'") i += 1; out += keepStrings ? src.slice(at, i) : "''"; continue; }
     const m = /^[@$]{0,2}"/.exec(src.slice(i, i + 3));
     if (m) {
       const verbatim = m[0].includes('@');
+      const interpolated = m[0].includes('$');
       const at = i;
+      if (src.startsWith('""', i + m[0].length)) problems.push('a raw """ string at line ' + lineAt(at));
       i += m[0].length;
+      let hole = 0;
+      let ended = '';   // 'closed', 'hole' (a quote in a hole, said already) or '' (the line or the file ran out)
       while (i < src.length) {
-        if (verbatim && src[i] === '"' && src[i + 1] === '"') { i += 2; continue; }
+        if (interpolated && hole === 0 && src[i] === '{' && src[i + 1] === '{') { i += 2; continue; }
+        if (interpolated && src[i] === '{') { hole += 1; i += 1; continue; }
+        if (interpolated && hole > 0 && src[i] === '}') { hole -= 1; i += 1; continue; }
+        if (hole > 0 && (src[i] === '"' || src[i] === "'")) { problems.push('a quote inside an interpolation hole at line ' + lineAt(i)); ended = 'hole'; break; }
+        if (!verbatim && src[i] === '\n') break;
+        if (verbatim && hole === 0 && src[i] === '"' && src[i + 1] === '"') { i += 2; continue; }
         if (!verbatim && src[i] === '\\') { i += 2; continue; }
-        if (src[i] === '"') { i += 1; break; }
+        if (src[i] === '"') { i += 1; ended = 'closed'; break; }
         i += 1;
       }
+      if (!ended) problems.push('a string not closed on its line at line ' + lineAt(at));
       out += keepStrings ? src.slice(at, i) : '""';
       continue;
     }
@@ -263,12 +279,16 @@ function stringConstants(source) {
   let declarations = 0;
   // String and char contents are blanked and comments dropped first, so a ; or a comma or an = inside a value can neither
   // end a statement nor add a name, and a declaration written in a comment is not counted.
-  const blanked = blankCSharpLiterals(source);
+  const problems = [];
+  const blanked = blankCSharpLiterals(source, { problems });
+  // Review 6: a name the value pattern's \w+ cannot spell (@default, a non-ASCII letter) is still a name here, so it is
+  // counted and named rather than missed by both scans alike.
   for (const st of blanked.matchAll(/\bconst\s+(?:global\s*::\s*)?(?:System\s*\.\s*)?[Ss]tring\??\s+([^;]*);/g)) {
-    for (const n of st[1].matchAll(/(?:^|,)\s*(\w+)\s*=/g)) { declared.add(n[1]); declarations += 1; }
+    for (const n of st[1].matchAll(/(?:^|,)\s*(@?[\p{L}_][\p{L}\p{N}_]*)\s*=/gu)) { declared.add(n[1]); declarations += 1; }
   }
   const uncollected = [...declared].filter((n) => !raw.has(n));
-  return { values, unresolved: [...raw.keys()].filter((n) => !values.has(n)).concat(uncollected), declared: declarations, collected: readings };
+  return { values, unresolved: [...raw.keys()].filter((n) => !values.has(n)).concat(uncollected, problems.map((p) => '(not read: ' + p + ')')),
+    declared: declarations, collected: readings };
 }
 // ECMA-335 II.23.2: a compressed unsigned integer, as csc writes the length in front of a blob or a user string.
 function compressedLength(n) {
@@ -340,6 +360,28 @@ test('#7492: every string constant in KosmosLauncher.cs is in the committed Kosm
   const hole = SOURCE.slice(0, close) + '    const string PlantedHole = $"{(true ? "a" : "b")}";\n' + SOURCE.slice(close);
   const th = stringConstants(hole);
   assert.ok(th.unresolved.length > 0 || th.declared !== th.collected, 'an interpolation hole with quotes passed silently');
+  // Review 6: the two ways a lost place swallowed an UNREADABLE constant (so both counts lost it alike and agreed): an
+  // odd number of quotes in a hole, and a stray quote on a directive line. And names \w+ cannot spell. Each must say so.
+  // Each answer is pinned whole, so every rule is held on its own: the rules overlap, and a check for "anything
+  // flagged" stayed green with any one of them removed.
+  const at = SOURCE.slice(0, close).split('\n').length;   // the planted first line's number
+  const notRead = (what, line) => '(not read: ' + what + ' at line ' + line + ')';
+  for (const [form, lines, want] of [
+    ['odd quotes in a hole', ['var s = $"{s.Replace("\\"", "")}";', 'const string PlantedU = Foo.Bar;', 'var t = "q";'],
+      ['PlantedU', notRead('a quote inside an interpolation hole', at), notRead('a string not closed on its line', at)]],
+    ['a quote on a #region line', ['#region say "hi', 'const string PlantedU = Foo.Bar;', '#endregion', 'var t = "q";'], ['PlantedU']],
+    ['a string left open at the end of its line', ['var s = "open', 'const string PlantedU = Foo.Bar;'],
+      ['PlantedU', notRead('a string not closed on its line', at)]],
+    ['an @ name', ['const string @PlantedAt = "x";'], ['@PlantedAt']],
+    ['a non-ASCII name', ['const string PlantedGröße = "x";'], ['PlantedGröße']]]) {
+    const planted = SOURCE.slice(0, close) + lines.map((l) => '    ' + l + '\n').join('') + SOURCE.slice(close);
+    assert.deepEqual(stringConstants(planted).unresolved, want, form + ' was not said as expected');
+  }
+  // CONTROL for the directive rule: a # inside a string or after code is not a directive, and a directive line with no
+  // quote changes nothing.
+  const directive = SOURCE.slice(0, close) + '    #region Words\n    const string PlantedHash = "a #b";\n    #endregion\n' + SOURCE.slice(close);
+  assert.deepEqual(stringConstants(directive).unresolved, [], 'a plain #region, or a # in a value, was flagged');
+  assert.equal(stringConstants(directive).values.get('PlantedHash'), 'a #b');
   // CONTROL: a declaration written only in a comment is not a constant, so it is not flagged.
   const commented = SOURCE.slice(0, close) + '    // const string PlantedInComment = @"x";\n    /* const string PlantedInBlock = $"y"; */\n' + SOURCE.slice(close);
   assert.deepEqual(stringConstants(commented).unresolved, [], 'a declaration in a comment was flagged');
