@@ -457,16 +457,21 @@ struct PressedBubbleMark: View {
 // pressed bubble. A tap on it closes the sheet, as a tap on the system's dim does. At full height (More) the system's dim
 // is back, so this one goes.
 private struct LitDim: View {
-    let bubble: CGRect?
+    let anchor: Anchor<CGRect>?
     let close: () -> Void
     var body: some View {
+        // Review 3: the bubble is resolved in THIS reader, the one the dim is drawn in (it reaches under the bars), so the
+        // cut-out sits on the bubble; resolved in another reader it was off by the top inset (about 100 pt).
         GeometryReader { g in
+            let bubble = anchor.map { g[$0] }
             let shape = Path { p in
                 p.addRect(CGRect(origin: .zero, size: g.size).insetBy(dx: -400, dy: -400))
                 if let bubble { p.addRoundedRect(in: bubble, cornerSize: CGSize(width: 18, height: 18), style: .continuous) }
             }
             shape.fill(Color.black.opacity(0.4), style: FillStyle(eoFill: true))
-                .contentShape(shape, eoFill: true)
+                // Review 3: the whole area takes the tap, the lit bubble too (as the system's dim does over it), so a
+                // link in it never opens behind the sheet and no second press or scroll starts there.
+                .contentShape(Rectangle())
                 .onTapGesture(perform: close)
         }
         .ignoresSafeArea()
@@ -617,11 +622,14 @@ struct MessageActionsSheet: View {
 // its default grey shows at any height, including during a drag between the two heights.
 // kosmos#7419 build 11: also, at the small height, no system dim (the chat draws its own, LitDim, with the pressed
 // message lit). Before iOS 16.4 the system's dim stays and nothing is lit.
+// Review 3: with VoiceOver on, the system's dim stays (the sheet stays modal, so focus cannot wander into the chat).
 private struct SheetGround: ViewModifier {
     let small: PresentationDetent
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     func body(content: Content) -> some View {
         if #available(iOS 16.4, *) {
-            content.presentationBackground(Palette.ground).presentationBackgroundInteraction(.enabled(upThrough: small))
+            content.presentationBackground(Palette.ground)
+                .presentationBackgroundInteraction(voiceOver ? .disabled : .enabled(upThrough: small))
         } else { content }
     }
 }
@@ -643,19 +651,19 @@ struct MessageActionsHost: ViewModifier {
     }
 
     // kosmos#7419 build 11: our dim stands in for the system's only where the system's is off (16.4+, small height).
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     private var litDim: Bool {
-        guard target != nil, detent != .large else { return false }
+        guard target != nil, detent != .large, !voiceOver else { return false }
         if #available(iOS 16.4, *) { return true } else { return false }
     }
 
     func body(content: Content) -> some View {
         content
             .overlayPreferenceValue(PressedBubbleKey.self) { anchor in
-                GeometryReader { g in
-                    if litDim { LitDim(bubble: anchor.map { g[$0] }, close: { target = nil }) }
-                }
+                // Review 3: only the dim fades; the chat's own changes in the same update are not animated.
+                ZStack { if litDim { LitDim(anchor: anchor, close: { target = nil }) } }
+                    .animation(.easeOut(duration: 0.2), value: litDim)
             }
-            .animation(.easeOut(duration: 0.2), value: litDim)
             .environment(\.shownMessageActions, target?.id)
             .environment(\.openMessageActions) { t in
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()

@@ -92,8 +92,11 @@ final class BoardClient: ObservableObject {
     // build 11 review 2: a chat opened before the stars were read (from a notification, or after a failed read) asks
     // once, so its star appears instead of waiting for the Agents list's next re-sort. Taken only if no press began or
     // ended meanwhile, as a re-sort's read is.
+    private var readingStars = false   // review 3: one such read at a time
     func readStarsIfUnknown() async {
-        guard shownStars == nil, let mac = shownMac else { return }
+        guard shownStars == nil, !readingStars, let mac = shownMac else { return }
+        readingStars = true
+        defer { readingStars = false }
         let epoch = chatEpoch, events = starEvents
         let answer = await throughMac { Board.starsRequest(mac: $0) }
         guard epoch == chatEpoch, shownMac?.address == mac.address, shownStars == nil, starsReadStillGood(since: events),
