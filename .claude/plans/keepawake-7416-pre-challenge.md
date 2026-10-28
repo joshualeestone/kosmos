@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: keepawake-7416
-diff_hash: 5079ff8b0d89ba9b7132bc554916811e299f57aade82a96805b9249661245c9c
+diff_hash: 3cbdeefbd4fa3c258ff6c863db4c03a57594468925bc6fca381928d26738c4ae
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-28T17:17:23Z
+timestamp: 2026-10-28T17:51:59Z
 iterations: 7
 converged: true
 ---
@@ -24,6 +24,11 @@ that recorded clean entry. **Design:** Mona Lisa approved the shots (~/work/desi
 **After convergence, unreviewed by a blind round:** 2153e6e9f8 adds two design-shot screens to
 docs/browser-checks/mobile-shots.js (a helper plus two literal entries). Covered by the nine tests that read that file
 (110/110) and by the full validation above.
+
+**Rebased after convergence:** main gained #7500 (a hint on the start-at-sign-in row, the lines this branch's switch
+follows). The branch was squashed onto its merge base (index identical to the reviewed tree) and rebased; the one
+conflict kept both changes. The 104 touched tests pass on the result, and the full validation re-ran on Mortals for
+this rebased diff.
 
 **Self-generated:** counted by reading each cited line against this loop's own fix commits, not by the blame lookup.
 
