@@ -64,6 +64,7 @@ struct NewAgentView: View {
     @State private var markTask: Task<Void, Never>?
     #if DEBUG
     @State private var sampleBottom = false          // design shots: the team screen scrolled to its foot
+    @State private var sampleModelTop = false        // kosmos#7502 design shots: the team's Model group at the top
     #endif
     @State private var projectUnsure = false         // a new project's create got no answer: look before making another
     @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
@@ -151,8 +152,9 @@ struct NewAgentView: View {
         case "swarm": draft.kind = .swarm; draft.roleKey = "researcher"; draft.name = "Finch"; draft.label = "Researcher"; lastLabel = draft.label; path = [.role, .setup]
         case "made": draft.name = "Ada"; made = ("ada", "Ada"); seen = true; path = [.role, .setup, .made]
         case "notup": draft.name = "Ada"; made = ("ada", "Ada"); timedOut = true; path = [.role, .setup, .made]
-        case "team", "teammade", "teambottom":
-            sampleBottom = at == "teambottom"
+        case "team", "teammade", "teambottom", "teammodel":
+            sampleBottom = at == "teambottom" || at == "teammodel"
+            sampleModelTop = at == "teammodel"
             teams = NewTeam.parseTeams(Data(#"{"teams":[{"key":"marketing","label":"Marketing","blurb":"Plans and runs your campaigns","count":3},{"key":"support","label":"Customer Support","blurb":"Answers your customers","count":3}]}"#.utf8))
             detail = NewTeam.parseDetail(Data(#"{"team":{"key":"marketing","label":"Marketing","purpose":"A lead who plans the campaigns, and two who make them.","project":{"name":"Marketing"},"lead":"head"},"members":[{"slot":"head","title":"Head of Marketing","name":"Maya","reportsTo":null},{"slot":"writer","title":"Copywriter","name":"Wes","reportsTo":"lead"},{"slot":"social","title":"Social Media Manager","name":"Sol","reportsTo":"lead"}]}"#.utf8))
             teamKey = "marketing"
@@ -353,7 +355,7 @@ struct NewAgentView: View {
         }
         #if DEBUG
         // Design shots only: the sample's team screen scrolled to its foot (Project and Model).
-        .onAppear { if sampleBottom { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { proxy.scrollTo("teamModel", anchor: .bottom) } } }
+        .onAppear { if sampleBottom { DispatchQueue.main.asyncAfter(deadline: .now() + (sampleModelTop ? 1.5 : 0.6)) { proxy.scrollTo("teamModel", anchor: sampleModelTop ? .top : .bottom) } } }
         #endif
         }
         .navigationTitle(NewTeam.Words.title)
@@ -699,7 +701,7 @@ struct NewAgentView: View {
     private var setupScreen: some View {
         ScrollViewReader { proxy in setupForm
             // kosmos#7502 design shots: KOSMOS_SAMPLE_NEWAGENT=setupbottom scrolls to the Model group, as teambottom does.
-            .onAppear { if sampleBottom { DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { proxy.scrollTo("setupModel", anchor: .bottom) } } }
+            .onAppear { if sampleBottom { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { proxy.scrollTo("setupModel", anchor: .top) } } }
         }
     }
     private var setupForm: some View {
