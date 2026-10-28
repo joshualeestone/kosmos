@@ -40,7 +40,7 @@ function notesFor(pool, version, platform) {
   const forPlatform = (it) => !(Array.isArray(it.platforms) && it.platforms.length) || it.platforms.includes(platform);
   return items
     .filter((it) => it && it.status !== 'held' && parseVersion(it.since) && compareVersions(it.since, version) <= 0 && forPlatform(it))
-    .sort((a, b) => compareVersions(a.since, b.since) || (a.rank - b.rank))
+    .sort((a, b) => compareVersions(a.since, b.since) || ((a.rank || 0) - (b.rank || 0)))
     .map((it) => {
       const n = { version: it.since, title: it.title, line: it.line || '' };
       if (Array.isArray(it.platforms) && it.platforms.length) n.platforms = it.platforms.slice();
@@ -56,10 +56,13 @@ function readNotes(appRoot) {
   if (fs.existsSync(built)) {
     const d = JSON.parse(fs.readFileSync(built, 'utf8'));
     if (!d || !Array.isArray(d.notes) || !parseVersion(d.version)
-      || !d.notes.every((n) => n && typeof n.title === 'string' && parseVersion(n.version))) {
-      throw new Error('its release notes file is damaged (every note needs a title and a version)');
+      || !d.notes.every((n) => n && typeof n.title === 'string' && parseVersion(n.version) && typeof n.line === 'string'
+        && (n.restart === undefined || RESTART.includes(n.restart))
+        && (n.platforms === undefined || (Array.isArray(n.platforms) && n.platforms.every((x) => typeof x === 'string'))))) {
+      throw new Error('its release notes file is damaged (every note needs a title, a version and a line)');
     }
-    // A notes file left beside a newer app would answer for the wrong version: refuse it rather than mislead.
+    // A notes file left beside a newer app would answer for the wrong version: refuse it rather than mislead. (A
+    // layout with no package.json beside the notes has nothing to compare with, so the check is skipped there.)
     const pkg = path.join(appRoot, 'package.json');
     const installed = fs.existsSync(pkg) ? JSON.parse(fs.readFileSync(pkg, 'utf8')).version : null;
     if (installed && installed !== d.version) throw new Error('its release notes are for ' + d.version + ', but this install is ' + installed);

@@ -6,9 +6,10 @@
  * best of them.
  *
  * The pool, release/whats-new-pool.json, holds every highlight once: { title, line, icon, platforms?, rank, since,
- * status, restart? }. restart: "agents" (kosmos#7411) says a running agent keeps the old behaviour until it restarts. rank 1 is the most important. status is
+ * status, restart? }. rank 1 is the most important. status is
  *   pending  not yet shown to prod users: eligible
  *   shown    shown by a release that reached prod (shownIn names it): never chosen again
+ *   restart (optional, kosmos#7411): "agents" when a running agent keeps the old behaviour until it restarts
  * "prod" here is the Mac prod family (promote-channel.sh without --family win). Windows is promoted on its own and
  * shows whichever list is current when its build is made (its number goes in the built file's "also", by hand,
  * on the release branch, docs/windows RELEASING.md); the pool does not record Windows promotes.
@@ -271,7 +272,7 @@ function main(argv) {
     const pool = readPool(opt(argv, 'pool', POOL));
     let notes;
     try { notes = require('../engine/releasenotes').notesFor(pool, positional[1], platform); } catch (e) { process.stderr.write(e.message + '\n'); return 2; }
-    fs.writeFileSync(out, JSON.stringify({ version: positional[1], notes }, null, 2) + '\n');
+    try { fs.writeFileSync(out, JSON.stringify({ version: positional[1], notes }, null, 2) + '\n'); } catch (e) { process.stderr.write('could not write ' + out + ': ' + e.message + '\n'); return 2; }
     process.stdout.write(out + ': ' + notes.length + ' release notes up to ' + positional[1] + '\n');
     return 0;
   }

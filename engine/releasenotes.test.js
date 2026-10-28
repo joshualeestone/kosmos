@@ -194,3 +194,16 @@ test('#7411 review 5: a damaged notes entry is a sentence, not a crash', () => {
   assert.equal(r.code, 1);
   assert.match(r.err, /release notes file is damaged/);
 });
+
+test('#7411 review 6: a note with a bad line, restart or platforms is damaged; notes into a missing folder is a sentence', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-releasenotes-'));
+  for (const bad of [{ line: 5 }, { line: 'x', restart: 'board' }, { line: 'x', platforms: 'mac' }]) {
+    fs.writeFileSync(path.join(d, 'release-notes.json'), JSON.stringify({ version: '0.7.72', notes: [{ version: '0.7.72', title: 't', ...bad }] }));
+    assert.match(rn.render(d, { since: null, json: false }).err, /release notes file is damaged/, JSON.stringify(bad));
+  }
+  fs.writeFileSync(path.join(d, 'release-notes.json'), JSON.stringify({ version: '0.7.72', notes: [{ version: '0.7.72', title: 't', line: 'ok', platforms: ['mac'], restart: 'agents' }] }));
+  assert.equal(rn.render(d, { since: null, json: false }).code, 0, 'CONTROL: a well-formed note reads');
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'whats-new-pool.js'), 'notes', '0.7.72', '--platform=mac', '--out=' + path.join(d, 'no', 'such', 'dir', 'x.json')], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /^could not write /);
+});
