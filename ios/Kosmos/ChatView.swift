@@ -388,7 +388,9 @@ struct ChatView: View {
         // kosmos#7034 (Mona Lisa's long-name check, iPhone SE): with the star the trailing capsule holds three buttons,
         // and a title whose full width does not fit beside it is dropped by the system, not shortened. Capped at what is
         // left between the back button and the capsule, a long name ends in an ellipsis and the capsule keeps its size.
-        .frame(maxWidth: max(80, UIScreen.main.bounds.width - 250))
+        // Measured (shots run 4): width - 250 fitted on an iPhone 17 (402 pt, "Maximilia...") but not on the SE (375 pt),
+        // where the title was still dropped; width - 300 leaves the SE about 75 pt.
+        .frame(maxWidth: max(60, UIScreen.main.bounds.width - 300))
         .accessibilityElement(children: .combine)
     }
 
