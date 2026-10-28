@@ -606,6 +606,37 @@ kosmos_refuse_if_suite_live() {
   return 0
 }
 
+# #7512: the release cut's quiet-box wait, ONE committed answer to "is anything still running that the cut must wait
+# for?", so the per-cut wrapper (outside the repo, mortals:~/.cut-07NN.sh) sources it instead of keeping its own copy:
+#   running() { kosmos_cut_quiet_box_busy; }
+# The 0.7.73 cut deadlocked for about 20 minutes because the wrapper's own copy counted ANY live
+# `bash tools/run-tests.sh` as busy, including a suite that was only WAITING on the cut's own machine claim (it runs no
+# test, and waits for the claim to go). That is the 0.7.27 deadlock (#5467, #5470) through another door. Here a suite
+# that holds a verified waiting marker (kosmos_wait_until_clear's queue writes one after its first refused check; see
+# _kosmos_suite_waiter_live) is not counted, nor is anything descended from one; an unmarked suite still is.
+# Prints what it waits for on stdout and returns 0 while busy; returns 1 when the box is quiet. Anything it cannot read
+# counts as busy, the safe side. The same five things as the wrapper's copy, in its order: a relay pre-push build, a
+# suite, stray shell-shard workers (a #7100 shard can outlive its leader), an install harness, a browser-checks run.
+# KNOWN RESIDUAL: a suite started with the suite check off (KOSMOS_TESTS_IGNORE_SUITE=1, or inside a test) waits
+# without a marker, so it still reads as busy; its wait gives up at its own bound (KOSMOS_WAIT_MAX_S, 20 minutes).
+# Seams: KOSMOS_SUITE_PROBE and KOSMOS_SUITE_SELF_PID, as kosmos_refuse_if_suite_live reads them.
+_kosmos_shell_shards_live() { pgrep -f "tools/shell-shard\.js run" >/dev/null 2>&1; }
+kosmos_cut_quiet_box_busy() {
+  local probe="${KOSMOS_SUITE_PROBE:-}" self="${KOSMOS_SUITE_SELF_PID:-$$}" out rc sc
+  if kosmos_prepush_build_live; then echo "relay pre-push build"; return 0; fi
+  if [ -n "$probe" ]; then out="$("$probe" 2>/dev/null)"; rc=$?; else out="$(_kosmos_suite_candidates)"; rc=$?; fi
+  if [ "$rc" -ge 2 ]; then echo "could not tell whether a test suite runs (rc $rc): treated as busy"; return 0; fi
+  [ -n "$out" ] && out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
+  [ -n "$out" ] && out="$(printf '%s\n' "$out" | _kosmos_drop_suite_waiters || true)"
+  if [ -n "$out" ]; then echo "suite ${out%% *}"; return 0; fi
+  if _kosmos_shell_shards_live; then echo "shell shards running"; return 0; fi
+  for sc in tools/test-install.sh tools/browser-checks.sh; do
+    if kosmos_running_lines "$sc" >/dev/null; then echo "running: $sc"; return 0; else rc=$?; fi
+    [ "$rc" -eq 1 ] || { echo "could not tell whether $sc runs (rc $rc): treated as busy"; return 0; }
+  done
+  return 1
+}
+
 # --- #4498: wait for a quiet box instead of refusing at once ------------------
 # The guards above refuse at once. On a busy Mac a suite is usually running, so a refusal sent the
 # agent round by hand, or to the override. kosmos_wait_until_clear asks a caller's check again every

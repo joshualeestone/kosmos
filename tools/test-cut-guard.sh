@@ -665,6 +665,36 @@ mv "$W/markers/suitewait.$wp" "$W/held"
 out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$T/sprobe-waiter" kosmos_refuse_if_suite_live "this test run" 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && pass "#4498 CONTROL: the same process with no waiting marker is a running suite" \
   || fail "#4498 CONTROL: an unmarked suite did not refuse (rc=$rc, $out)"
+# #7512: the cut's quiet-box wait (kosmos_cut_quiet_box_busy, which the per-cut wrapper sources) does not count a
+# suite that is only waiting, so a suite waiting on the cut's own claim cannot hold the cut. The other four checks are
+# stubbed quiet in a subshell, so only the suite arm decides each answer.
+cutbusy() (
+  kosmos_prepush_build_live() { return 1; }
+  _kosmos_shell_shards_live() { return 1; }
+  kosmos_running_lines() { return 1; }
+  KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 KOSMOS_SUITE_PROBE="$1" kosmos_cut_quiet_box_busy
+)
+out="$(cutbusy "$T/sprobe-waiter" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && has "$out" "suite $wp" && pass "#7512 CONTROL: the cut's quiet-box wait counts an unmarked suite as running, by its pid" \
+  || fail "#7512 CONTROL: an unmarked suite did not hold the cut (rc=$rc, $out)"
+mv "$W/held" "$W/markers/suitewait.$wp"
+out="$(cutbusy "$T/sprobe-waiter" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [ -z "$out" ] && pass "#7512 the cut's quiet-box wait does not count a suite that is only waiting (the 0.7.73 deadlock)" \
+  || fail "#7512 a waiting suite held the cut (rc=$rc, $out)"
+printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n%s bash tools/run-tests.sh\\n"\n' "$wp" "$$" > "$T/sprobe-both"; chmod +x "$T/sprobe-both"
+out="$(cutbusy "$T/sprobe-both" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && has "$out" "suite $$" && pass "#7512 beside a waiting suite, a running one still holds the cut, named by its pid" \
+  || fail "#7512 a running suite beside a waiter did not hold the cut (rc=$rc, $out)"
+printf '#!/bin/sh\nexit 3\n' > "$T/sprobe-broken"; chmod +x "$T/sprobe-broken"
+out="$(cutbusy "$T/sprobe-broken" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && has "$out" "could not tell whether a test suite runs" && pass "#7512 a suite read that fails holds the cut (busy, the safe side)" \
+  || fail "#7512 a failed suite read let the cut go (rc=$rc, $out)"
+out="$( kosmos_running_lines() { [ "$1" = tools/browser-checks.sh ] && { echo "1 bash tools/browser-checks.sh"; return 0; }; return 1; }
+        kosmos_prepush_build_live() { return 1; }; _kosmos_shell_shards_live() { return 1; }
+        KOSMOS_SUITE_PROBE="$T/sprobe-waiter" KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID=999999 kosmos_cut_quiet_box_busy 2>&1 )"; rc=$?
+[ "$rc" -eq 0 ] && has "$out" "running: tools/browser-checks.sh" && pass "#7512 a browser-checks run still holds the cut while a suite only waits" \
+  || fail "#7512 a browser-checks run did not hold the cut (rc=$rc, $out)"
+mv "$W/markers/suitewait.$wp" "$W/held"
 # The right start time with the wrong command, so ONLY the command check can call it stale (Kano's review: with no
 # start time the start-time check caught it first, and removing the command check left this green).
 printf '100 %s\nnot its command\n%s\n%s\n' "$wp" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
