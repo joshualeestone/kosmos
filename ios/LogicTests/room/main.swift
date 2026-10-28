@@ -321,9 +321,13 @@ check(agentsSource.contains(".onChange(of: agentRequest) { _ in openRequested() 
 let splinterPush: [AnyHashable: Any] = ["kind": "replied", "address": "studio.kosmosplus.com", "session": "claudebot", "agent": "Splinter"]
 check(PushBridge.agentToOpen(fromNotification: splinterPush, coordinator: coordinator)?.session == "claudebot", "a notice opens exactly the agent that sent it (its session, whole)")
 check(agentsSource.contains("client.agents.first(where: { $0.session == target.session })"), "the Agents tab finds the notice's agent by its whole session, never a position or a prefix")
+// Review 2: the agentToOpen and agentOpening checks above test behaviour; the source checks below are wiring guards
+// only (that the view code still calls the tested logic the way it did), not proof of what the screen does.
 var unknownKind = roomPush; unknownKind["kind"] = "someday"; unknownKind["projectId"] = nil
 check(PushBridge.agentToOpen(fromNotification: unknownKind, coordinator: coordinator) == nil, "review 1: a kind the board does not send yet opens as before, never a chat by accident")
 check(content.contains("shownAddress: board.switcherShown ?? kept?.address"), "review 1: on a cold launch (nothing shown yet, or the Face ID lock up) the kept computer decides, so the tap still opens the chat")
+let chatSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
+check(chatSource.contains("Button { infoOpen = true } label: { title }"), "kosmos#7424: the DM header's name and status open the info page, as the (i) button does")
 check(agentsSource.contains(".id(agent.session)"), "review 1: a notice for another agent while a chat is open starts that chat afresh, not the old one renamed")
 if let a = content.range(of: ".onChange(of: pushManager.accountChanges)"), let c = content.range(of: "agentRequest = nil; roomRequest = nil") {
     check(a.lowerBound < c.lowerBound && content.distance(from: a.lowerBound, to: c.lowerBound) < 400, "review 1: a sign-out drops a chat or room a notice asked for")

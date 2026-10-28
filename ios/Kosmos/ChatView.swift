@@ -183,7 +183,11 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .kosmosSolidTopBar(fade: false)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
         .toolbar {
-            ToolbarItem(placement: .principal) { title }
+            // kosmos#7424 (Josh 10-27 20:49): the name and status open the same page as the info button.
+            ToolbarItem(placement: .principal) {
+                Button { infoOpen = true } label: { title }.buttonStyle(.plain)
+                    .accessibilityHint("Opens \(shown.name)\u{2019}s profile and AI settings")
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     // With the row already open it only puts the cursor back in the field.
