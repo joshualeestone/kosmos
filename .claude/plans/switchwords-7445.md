@@ -1,0 +1,71 @@
+# #7445: a switch between two non-Claude providers says the conversation does not come across
+
+## Done when
+1. A non-Claude to non-Claude switch (Codex to Gemini, Gemini to Grok, ...) says the conversation does not come across,
+   in the dialog (web/index.html switchCrossesFamily / switchFamilyNote) and in the result sentence (engine/create.js
+   switchCarryWords, via carryClaudeNotes / switchLosesConversation), and the dialog offers "Write handoff, then switch".
+2. A switch where the conversation does come across keeps today's wording.
+3. Tests for each pair kind, with controls.
+
+## The design call: OpenAI <-> Qwen (one runner, Codex) KEEPS the conversation, so it keeps today's wording
+
+Evidence, measured from the code:
+- The account home is not where Codex keeps its conversations. bin/agent-supervisor.sh ~1016-1131 (#4592) gives every
+  Codex agent a private, persistent runtime home, `codexruntime.forSession(SESSION)` = `<data>/codex-homes/<session>`
+  (engine/codexruntime.js:17), and launches Codex with `CODEX_HOME` set to THAT (supervisor ~1131-1132). The account
+  home (`~/.codex[-label]` for OpenAI, `~/.kosmos-qwen-<label>` for Qwen, qwenaccounts.js:7 and :41-44) only supplies
+  the credential: `auth.json` is symlinked in for OpenAI, the endpoint arguments are read from it for Qwen and the
+  stale `auth.json` link is removed (supervisor ~1041-1110).
+- Codex keeps its sessions under `$CODEX_HOME/sessions` (codexsession.js:11, :55), and the board reads an agent's
+  rollouts from the same private home (status.js ~6706, codexlimits.js:10). So the Qwen account's CODEX_HOME at
+  create.js ~2671 (the job's account dir) differs from the OpenAI one, but the home Codex actually runs in and keeps
+  its history in is the same folder before and after the switch.
+- So OpenAI <-> Qwen is the same as any restart on Codex: its past stays readable in the same place. The old sentence
+  is true for it. switchLosesConversation returns false for it, carried stays null, and the old words stay.
+
+Rejected: "the CODEX_HOME written into the job differs, so the conversation is lost". That reads the account home as the
+runner's home, which #4592 stopped being true; it would warn on a switch that keeps everything.
+
+Weakest point: on Windows a Codex agent runs through engine/win32codexsup.js and resumes a thread id; I did not trace
+which home it uses there. It does not matter today because a switch to Qwen is refused on Windows
+(create.js REFUSE_QWEN_WIN32 ~2246), but if Qwen comes to Windows the same question has to be asked of that path.
+
+What would change my mind: the supervisor (or the Windows Codex path) giving each ACCOUNT its own runtime home instead
+of each agent, or codexruntime.forSession taking the account into its key. Then OpenAI <-> Qwen loses it too, and
+both twins drop their `alibaba -> openai` runner fold.
+
+## Every pair kind and its wording
+
+| From -> to | Loses the conversation? | Dialog (switchFamilyNote) | Result (switchCarryWords) |
+|---|---|---|---|
+| Claude -> non-Claude | yes (#7410) | notes copied into its folder | notes copied / why not |
+| non-Claude -> Claude | yes (#7410) | notes in its folder stay | notes in its folder stay (if pointed) |
+| Claude <-> DeepSeek | yes (#7410) | notes stay behind with X | notes stay behind with X |
+| non-Claude -> another non-Claude RUNNER (Codex/Qwen, Gemini, Grok, Antigravity, Muse) | **yes (#7445, new)** | "Its conversation does not come across: Y cannot read X's history. Notes in its folder stay there for it to read; anything it only remembers from talking is lost." | "Y it is. It keeps its name, its instructions and its files, but its conversation does not come across: Y cannot read what it said on X." + "Anything it only remembered from talking is lost." (or, when its instructions point at notes an earlier switch left: "The notes in its folder stay there for it to read, and anything ...") |
+| OpenAI <-> Qwen (both Codex) | no | '' (old sentence, Switch and restart, no handoff button) | "Y it is. Everything it knows and everything it has done stays." |
+| same provider | not a switch (refused earlier) | '' | n/a |
+
+Shape: carryClaudeNotes returns, for the new case, the usual object with `notes: 'none-kept-by-runner'` and an extra
+`between: true` field, set ONLY in that case, so every Claude case keeps its exact shape (the #7410 deepEqual tests
+pass unchanged). Nothing is copied (there are no Claude notes and none of these runners keeps notes of its own); the
+pointer step still runs, so notes an earlier switch put in memory/claude-notes/ stay pointed at, and a pointer with
+nothing real behind it is taken out.
+
+Twins: switchLosesConversation (engine) and switchCrossesFamily (page) each name the other; web.switchwords-7445
+checks they agree on every provider pair the menu offers.
+
+## Tests (controls)
+
+- engine/create.switchwords-7445.test.js (7): 4 fail on the pre-change code (every non-Claude runner pair, Codex ->
+  Gemini state and sentence, pointer kept/taken out, end to end Claude -> OpenAI -> Gemini through setProvider).
+  3 pass on it by design: they are the keep-today's-wording controls (OpenAI <-> Qwen and the #7410 rule, the old
+  sentence for carried null, the Claude cases' exact shape).
+- web.switchwords-7445.test.js (4): 2 fail on the pre-change page (every non-Claude pair warns, the new note's words).
+  2 pass on it: the keep-today's-dialog control, and the page/engine agreement check (both copies were wrong the same
+  way before; it guards future drift).
+- web.switch-family-7410.test.js: its OpenAI -> Gemini "no warning" assertions encoded the bug; replaced by OpenAI ->
+  Qwen (6 tests, pass).
+- tools/windows-tests.js ALSO gains the new engine test (it branches on a win32 host for its .cmd stand-ins).
+
+## Log
+- Round 0 (build): rule, carried state, sentence and dialog built; tests above; policy tests run (see commit).

@@ -20,7 +20,8 @@ test('#7410: the family rule: Claude (and DeepSeek, on Claude Code) on one side,
   for (const [from, to] of [['anthropic', 'openai'], ['openai', 'anthropic'], ['anthropic', 'google'], ['xai', 'anthropic'], ['deepseek', 'openai'], ['anthropic', 'antigravity'], ['anthropic', 'deepseek'], ['deepseek', 'anthropic']]) {
     assert.equal(fns.switchCrossesFamily(from, to), true, from + ' -> ' + to);
   }
-  for (const [from, to] of [['openai', 'google'], ['openai', 'alibaba'], ['anthropic', 'anthropic'], ['', 'openai']]) {
+  // #7445: OpenAI -> Gemini moved to the warned side (web.switchwords-7445.test.js); OpenAI <-> Qwen stays here.
+  for (const [from, to] of [['openai', 'alibaba'], ['anthropic', 'anthropic'], ['', 'openai']]) {
     assert.equal(fns.switchCrossesFamily(from, to), false, from + ' -> ' + to);
   }
 });
@@ -36,8 +37,8 @@ test('#7410: across the line the dialog says the conversation does not come acro
   for (const s of [off, back]) assert.doesNotMatch(s, /—/, 'an em dash');
 });
 
-test('#7410: within a family there is no new warning', () => {
-  assert.equal(fns.switchFamilyNote('openai', 'google', 'Mara', 'OpenAI', 'Gemini'), '');
+test('#7410: within a family there is no new warning (#7445: one runner, OpenAI <-> Qwen)', () => {
+  assert.equal(fns.switchFamilyNote('openai', 'alibaba', 'Mara', 'OpenAI', 'Qwen'), '');
 });
 
 test('#7410 review 1: Claude <-> DeepSeek warns too, and says the notes stay behind (nothing is copied there)', () => {
