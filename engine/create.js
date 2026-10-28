@@ -2829,7 +2829,9 @@ const CARRIED_NOTE_MAX_BYTES = 1024 * 1024;   // review 1: a note over 1 MB is n
  *           'stayed'  rootChange: Claude <-> a vendor on Claude Code; the notes stay with the old config folder
  *           'shared' | 'unattributed' | 'collides' | 'newer'  backupsessions.ownedClaudeMemory refused: not copied
  *           'unchecked' the folders Kosmos knows could not be read, so a shared Claude name could not be ruled out
- *           'blocked' memory/ or memory/claude-notes/ in its folder is a link or a file, so nothing was copied into it
+ *           'blocked' something IS at memory/ or memory/claude-notes/ in its folder and it is a link, a junction or a
+ *                     file, so nothing was copied into it and the brief is not pointed there (review 5). A folder that
+ *                     could not be made (nothing there) is 'failed', not this.
  *           'failed'  review 3: it had notes and none landed (each failed or was skipped); never said as "no notes"
  *   skipped notes that were a link, not a regular file, or over 1 MB when copied (never followed, never copied)
  *   failed  notes whose copy failed (gone meanwhile, EACCES, ENOSPC, a claude-notes/ folder that could not be made)
@@ -2865,12 +2867,21 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
         /* Review 3: every note is counted, never dropped: copied, kept (already there as a plain file), skipped (a link,
            not a plain file, over 1 MB, or changed since the ownership check), occupied (review 4: something else is
            already in its place) or failed (gone meanwhile, or the copy itself failed: EACCES, ENOSPC, a folder that
-           could not be made). Nothing landed while notes existed is 'failed', so the person is never told it had none. */
-        try { fs.mkdirSync(destDir, { recursive: true }); } catch { /* checked just below */ }
-        /* Review 4: checked AGAIN after the mkdir. A link or junction put at memory/ or memory/claude-notes/ between the
+           could not be made: every note then counts as failed). Nothing landed while notes existed is 'failed', so the
+           person is never told it had none. */
+        let mkErr = null;
+        try { fs.mkdirSync(destDir, { recursive: true }); } catch (e) { mkErr = e; }
+        const there = (p) => { try { fs.lstatSync(p); return true; } catch { return false; } };
+        /* Review 5: the folder could not be made (EACCES, ENOSPC, a path too long, a read-only disk) and nothing is there:
+           every note failed, said as "could not be copied", never as "blocked", which claims something IS in the way.
+           Review 4: checked AGAIN after the mkdir. A link or junction put at memory/ or memory/claude-notes/ between the
            first check and the mkdir makes the recursive mkdir a no-op, and every copy would then write through it to
-           somewhere outside the agent's folder. Not a real folder now: blocked, and nothing is copied. */
-        if (!realDir(memDir) || !realDir(destDir)) out.notes = 'blocked';
+           somewhere outside the agent's folder. Something there that is not a real folder: blocked, nothing copied. */
+        if (!there(destDir)) {
+          out.failed += mem.files.length;
+          out.notes = 'failed';
+          try { console.warn(`create: the switch could not make ${CARRIED_NOTES_REL} for ${clean} (${(mkErr && mkErr.code) || 'it is not there'}), so no notes were copied`); } catch { /* never mask */ }
+        } else if (!realDir(memDir) || !realDir(destDir)) out.notes = 'blocked';
         else {
         for (const f of mem.files) {
           const src = path.join(mem.dir, f);
@@ -2907,7 +2918,8 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
     // Review 3: only a plain .md file counts as a note to point at (never a link or a folder named like one).
     has = st.isDirectory() && fs.readdirSync(destDir, { withFileTypes: true }).some((e) => e.isFile() && /\.md$/i.test(e.name));
   } catch { has = false; }
-  if (has && newBrief) {
+  // Review 5: never pointed at a folder that was blocked (memory/ a junction to somewhere else can hold notes too).
+  if (has && newBrief && out.notes !== 'blocked') {
     try {
       const ins = require('./instructions');
       const file = ins.fileFor(clean);

@@ -182,3 +182,14 @@ One warning and two nits, all taken; each test below is red on 6bd0cfacdd.
    now returns `newest`); one changed since is left out. The "left out" reason now reads "not a plain file, over 1 MB,
    or changed since its own last conversation". Test: an ownedClaudeMemory seam that rewrites one note's time after the
    ownership check; it is not copied, the other is.
+
+## Review 5 (decided)
+One warning (a regression from review 4) and one nit, both taken; both tests are red on 1972039955.
+1. **A notes folder that could not be made read as "blocked".** The mkdir error is kept now: if nothing is at
+   memory/claude-notes/ afterwards, every note counts as failed (`notes: 'failed'`, "one could not be copied into its
+   folder") and the error code is logged; `blocked` is only for something that IS there and is not a real folder. The
+   comments on `carryClaudeNotes` and in the loop say so. Test: an mkdir seam throwing EACCES.
+2. **memory/ itself a junction.** Already `blocked` (its first lstat is not a folder), but the pointer step could still
+   point the brief at notes behind the junction. The pointer now never runs when the result is `blocked`. Test: memory/
+   a junction to a folder holding claude-notes/MEMORY.md: `blocked`, not pointed, the brief unchanged, and nothing
+   written behind the junction.

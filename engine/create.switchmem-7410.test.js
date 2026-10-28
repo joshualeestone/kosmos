@@ -285,6 +285,41 @@ test('#7410 review 4: a link or junction put at memory/claude-notes/ after the f
   assert.deepEqual(fs.readdirSync(outside), [], 'a note was written through the link, outside the agent\'s folder');
 });
 
+test('#7410 review 5: a notes folder that cannot be made is "failed" and "could not be copied", never "blocked"', () => {
+  const name = born('sm7410-mkdirfail');
+  claudeProject(name, { 'MEMORY.md': 'a note\n' });
+  const dest = notesDir(name);
+  const real = fs.mkdirSync;
+  fs.mkdirSync = (p, o) => {
+    if (nodePath.resolve(String(p)) === nodePath.resolve(dest)) { const e = new Error('EACCES: permission denied'); e.code = 'EACCES'; throw e; }
+    return real(p, o);
+  };
+  const warn = console.warn;
+  console.warn = () => {};
+  let r;
+  try { r = carryOff(name); } finally { fs.mkdirSync = real; console.warn = warn; }
+  assert.deepEqual([r.notes, r.failed, r.copied], ['failed', 1, 0], 'a folder that could not be made was reported as something in the way');
+  const w = create.switchCarryWords('OpenAI', r, 'Claude');
+  assert.match(w, /It had saved notes, but none were copied: one could not be copied into its folder\./);
+  assert.doesNotMatch(w, /that is not a folder/);
+});
+
+test('#7410 review 5: memory/ itself a junction is blocked, and the brief is never pointed at what is behind it', (t) => {
+  const name = born('sm7410-memjunction');
+  claudeProject(name, { 'MEMORY.md': 'a note\n' });
+  const elsewhere = nodePath.join(SANDBOX, 'elsewhere-7410');
+  fs.mkdirSync(nodePath.join(elsewhere, 'claude-notes'), { recursive: true });
+  fs.writeFileSync(nodePath.join(elsewhere, 'claude-notes', 'MEMORY.md'), 'not this agent\'s folder\n', 'utf8');
+  try { fs.symlinkSync(elsewhere, nodePath.join(create.workerDir(name), 'memory'), 'junction'); }
+  catch (e) { t.skip('this computer will not make a link here (' + e.code + ')'); return; }
+  const brief = nodePath.join(create.workerDir(name), 'CLAUDE.md');
+  const r = create.carryClaudeNotes(name, { runner: 'claude' }, 'codex', brief, 'anthropic', 'openai');
+  assert.equal(r.notes, 'blocked');
+  assert.equal(r.pointed, false, 'the brief was pointed at notes behind a junction');
+  assert.equal(blocks(read(brief)), 0);
+  assert.deepEqual(fs.readdirSync(nodePath.join(elsewhere, 'claude-notes')), ['MEMORY.md'], 'a note was written through the junction');
+});
+
 test('#7410 review 4: a note changed after the ownership check (before its copy) is left out', () => {
   const name = born('sm7410-raced');
   const src = claudeProject(name, { 'MEMORY.md': 'stable\n', 'late.md': 'rewritten by another session\n' });
