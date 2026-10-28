@@ -16,13 +16,13 @@ enum AgentPicture {
     // The letter's outline at the desktop's size (215 pt bold in a 256 field), its ink centred, read as a mask.
     private static func inkMask(_ letter: String) -> [UInt8]? {
         let n = Int(AgentMark.side)
-        // Alpha only (one of CoreGraphics' documented bitmap formats: gray, 8 bits, alpha only): the mask is the alpha, as
-        // the desktop reads its canvas's alpha, so a colour glyph (an emoji) covers what it covers whatever its colours.
-        var px = [UInt8](repeating: 0, count: n * n)
+        // RGBA, the bitmap format every iOS supports; the mask is the alpha byte, as the desktop reads its canvas's alpha,
+        // so a colour glyph (an emoji) covers what it covers whatever its colours.
+        var px = [UInt8](repeating: 0, count: n * n * 4)
         let ok: Bool = px.withUnsafeMutableBytes { buf in
-            guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n,
-                                      space: CGColorSpaceCreateDeviceGray(),
-                                      bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return false }
+            guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
             let font = UIFont.systemFont(ofSize: 215, weight: .bold)
             // Opaque ink from the context itself, so the mask does not rest on which colour key CoreText reads.
             ctx.setFillColor(gray: 0, alpha: 1)
@@ -34,7 +34,7 @@ enum AgentPicture {
             CTLineDraw(line, ctx)
             return true
         }
-        return ok ? px : nil
+        return ok ? stride(from: 3, to: px.count, by: 4).map { px[$0] } : nil
     }
 
     // The mark as an image, or nil for a name with nothing in it.
@@ -117,14 +117,14 @@ enum AgentPicture {
     private static func transparent(_ image: CGImage) -> Bool {
         if [.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo) { return false }
         let n = 64
-        var px = [UInt8](repeating: 0, count: n * n)
+        var px = [UInt8](repeating: 0, count: n * n * 4)
         let read: Bool = px.withUnsafeMutableBytes { buf in
-            guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n,
-                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue) else { return false }
+            guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: n, height: n))
             return true
         }
-        return read && px.contains { $0 < 255 }
+        return read && stride(from: 3, to: px.count, by: 4).contains { px[$0] < 255 }
     }
 
     // A catalogue portrait: kept as it came when NewAgent.keepsPortrait says so (a still PNG; the catalogue serves WebP, so
