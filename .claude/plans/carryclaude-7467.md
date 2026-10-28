@@ -17,3 +17,7 @@ Stacked on switchlose-7455 (#7462, same answers, not yet merged): rebase onto ma
 - The partial keeps its own first sentence ("is switched to Claude, on your main Claude account: ..."), and the conversation sentences follow it, before "It is starting again now.", the same order as the ordinary result.
 - Keyed on `carried`, as the ordinary result is. Rejected: keying on `losesConversation`. That would say the conversation is lost even when the notes copy itself threw, which the ordinary result does not say either. Keeping one rule for both answers matters more.
 - Weakest premise: a partial whose notes copy threw (`carried` null) but which did cross the Claude line says nothing about the conversation. That gap is shared with the ordinary result and older than this card.
+
+## Review
+
+1. (blind) No blocker, no warning. switchCarryWords is byte-identical for every input; carriedFrom matches the inline expression; the new tests fail on today's code and aim at the restarted branch; no other place composes this answer. [NIT] the partial says the model words before the conversation sentences, while the ordinary result says them after "It is starting again now": kept, both read in order. [NIT] the engine test covers only the to-Claude notes path (the others go through unchanged code). Converged.
