@@ -1249,8 +1249,9 @@ for (name, fam, first) in markRef {
     let close = zip(got, first).allSatisfy { d, e in abs(d.x - e.0) < 1e-4 && abs(d.y - e.1) < 1e-4 && abs(d.r - e.2) < 1e-4 && d.color == e.3 }
     check(AgentMark.familyIndex(name) == fam && got.count == 240 && close, "the mark for \(name) is the desktop's: family, count and the first dots")
 }
-check(boardPage.contains("['#d6a62e', '#e3b341', '#b88920'],   // gold (brand, fixed)") && boardPage.contains("['#b2784c', '#c49468', '#9a6034'],   // clay")
-      && AgentMark.families.count == 14, "the 14 families are the desktop's")
+check(AgentMark.families.count == 14 && AgentMark.families.allSatisfy { fam in
+    boardPage.contains("[" + fam.map { "'#" + String(format: "%06x", $0) + "'" }.joined(separator: ", ") + "]")
+}, "each of the 14 families is the desktop's, colour for colour")
 // With a letter in the way (a rectangle, x 96 to 159 and y 70 to 189, run through the desktop's code the same way): the
 // clearance test and the draws a rejected dot uses are the desktop's too, to the last dot.
 let rectInk: (Int, Int) -> Bool = { x, y in x >= 96 && x < 160 && y >= 70 && y < 190 }
@@ -1285,7 +1286,8 @@ check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""name":"M
 check(portReq?.url?.path == "/api/catalogue/portrait" && portReq?.url?.query == "team=marketing&slot=head"
       && NewAgent.portraitRequest(mac: npMac, team: "marketing", slot: "Head of x") == nil, "a portrait only for a team and seat the route's pattern allows")
 check(boardPage.contains("PICTURE_MAX_BYTES = 60000"), "the picture limit is the desktop's")
-for w in [NewAgent.Words.identity, NewAgent.Words.changePicture, NewAgent.Words.markLabel] { check(boardPage.contains(w), "the desktop says it too: \(w)") }
+check(boardPage.contains("<h3 class=\"sform-h\">" + NewAgent.Words.identity + "</h3>") && boardPage.contains(">" + NewAgent.Words.changePicture + "</button>")
+      && boardPage.contains("aria-label=\"" + NewAgent.Words.markLabel + "\""), "Identity, Change picture and the mark's label are the desktop's own markup")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
