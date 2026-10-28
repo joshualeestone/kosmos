@@ -17,6 +17,7 @@
 - **Agents made into a project are told about it** once the board sees them (POST /api/project/<id>/agent/<name>, the desktop's tell). Team portraits are not set by the phone in this build (the desktop uploads the catalogue's picture or a generated mark).
 - **A project tell is sent once, when the phone's list first shows the agent, and not retried** (the desktop's fire-and-forget): if the phone is not connected at that moment, the tell is not sent, and the project's own screen shows the stored verdict.
 - **A team run is not cancelled when the sheet goes** (the lock closes it): the person asked for the whole team, so it finishes off screen, and its project tells still go out through the app. Weakest premise: a member that fails then is seen only in Agents, not on this screen. A single create whose answer was lost is not sent again under the same name.
+- **A tab change now closes the New project sheet too** (it was left set to reopen by itself), and New Agent closes when the phone moves to another computer, since its roles, managers and projects were the last one's.
 - **Duplicate names inside a team** are refused by the board's own name check, in its words; the phone does not check them a second time.
 - **Team names are editable on the preview**, because the board refuses a name already taken and the person must be able to change it.
 - The team's button reads the desktop's "Create N agents", not "Create the team" (Mona's note named the desktop's words as the rule).

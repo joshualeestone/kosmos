@@ -10,6 +10,8 @@ struct NewAgentView: View {
     let opened: (_ session: String, _ shownAs: String) -> Void   // Say hello: the new agent's chat (a team's lead)
     // The projects a new agent was put on, told by the app once the board sees it, so leaving this sheet early loses none.
     let tell: (_ session: String, _ projects: [String]) -> Void
+    // A team run outlives this sheet; held by the app so a sheet opened meanwhile does not start the same team again.
+    @Binding var teamBusy: Bool
     @Environment(\.dismiss) private var dismiss
 
     enum Step: Hashable { case role, otherRoles, setup, made, team, teamMade }
@@ -47,7 +49,7 @@ struct NewAgentView: View {
     @State private var teamMessage: String?
     @State private var maybeMade: [String: String] = [:]   // slot: the session a create with no answer may have made
     @State private var loadingTeams = false
-    @State private var teamTask: Task<Void, Never>?   // the run, ended if the sheet goes (a tab change can take it)
+    @State private var projectUnsure = false         // a new project's create got no answer: look before making another
     @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
     @State private var checkedNames: [String: String] = [:]   // the names the board checked free, by slot
 
@@ -303,6 +305,9 @@ struct NewAgentView: View {
             if let teamMessage {
                 Section { Text(teamMessage).foregroundColor(Palette.dangerWord) }
             }
+            if teamBusy && !teamRunning {
+                Section { Text(NewTeam.Words.stillMaking).foregroundColor(Palette.secondary) }
+            }
         }
         .navigationTitle(NewTeam.Words.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -310,7 +315,8 @@ struct NewAgentView: View {
         .safeAreaInset(edge: .bottom) {
             let n = detail?.members.count ?? 0
             let named = detail.map { $0.key == teamKey && $0.members.allSatisfy { !NewProject.trimmed(names[$0.slot] ?? "").isEmpty } } ?? false
-            pinned(n > 0 ? NewTeam.Words.create(n) : NewAgent.Words.create, enabled: !teamRunning && n > 0 && named, busy: teamRunning) {
+            pinned(n > 0 ? NewTeam.Words.create(n) : NewAgent.Words.create, enabled: !teamRunning && !teamBusy && n > 0 && named,
+                   busy: teamRunning || teamBusy) {
                 runTeam()
             }
         }
@@ -397,7 +403,19 @@ struct NewAgentView: View {
         case .existing(let id): project = id
         case .new:
             if let made = madeProject { project = made; break }
-            // The free name, then the next ones while the board answers folder_taken (the desktop's tc-go retry).
+            // After a create with no answer, the projects are read again: if it landed, it is this team's.
+            if projectUnsure {
+                let pj = await client.throughMac { Board.projectsRequest(mac: $0) }
+                guard epoch == client.chatEpoch else { return }
+                if let pj, (200...299).contains(pj.1.statusCode), let list = Board.parseProjects(pj.0) {
+                    projects = list.projects
+                    projectUnsure = false
+                    if let landed = projects.first(where: { $0.name == newProjectName && !$0.archived }) { madeProject = landed.id }
+                }
+            }
+        }
+        // The free name, then the next ones while the board answers folder_taken (the desktop's tc-go retry).
+        if projectChoice == .new, madeProject == nil {
             let candidates = NewTeam.projectNames(d, taken: projects.map(\.name), count: NewTeam.projectNameTries + 1)
             for (i, want) in candidates.enumerated() {
                 let draftProject = NewProject.Draft(name: want, description: d.projectGoal ?? "")
@@ -408,11 +426,12 @@ struct NewAgentView: View {
                 switch NewProject.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
                 case .made(let id): project = id; madeProject = id; newProjectName = want
                 case .refused(let why): say(NewTeam.sentence(why)); return
-                case .unknown: say(NewProject.unsureWords); return
+                case .unknown: projectUnsure = true; say(NewProject.unsureWords); return
                 }
                 break
             }
         }
+        if projectChoice == .new { project = madeProject }
         // 3. The members, with the project, the lead first; the rest only once it is made.
         let read = await client.throughMac { NewTeam.specsRequest(mac: $0, key: d.key, names: typed, project: project, model: model, check: false) }
         guard epoch == client.chatEpoch else { return }
@@ -428,10 +447,6 @@ struct NewAgentView: View {
         teamStarted = true
         let lead = d.members.first?.slot
         for s in specs {
-            if Task.isCancelled {   // the sheet went: nothing more is made that nobody can see
-                for m in d.members where !isMade(m.slot) && states[m.slot] != nil { states[m.slot] = .failed(NewAgent.unsureWords) }
-                return
-            }
             if case .made = states[s.slot] { continue }
             if s.slot != lead, let lead, !isMade(lead) { states[s.slot] = .afterLead; continue }
             // A create whose answer was lost may have landed: once that agent is on the board, it is this member (the
@@ -489,9 +504,13 @@ struct NewAgentView: View {
 
     // teamRunning is set here, before the task starts, so a second tap in between starts nothing.
     private func runTeam() {
-        guard !teamRunning else { return }
+        guard !teamRunning, !teamBusy else { return }
         teamRunning = true
-        teamTask = Task { @MainActor in await makeTeam() }
+        teamBusy = true
+        Task { @MainActor in
+            await makeTeam()
+            teamBusy = false
+        }
     }
 
     private func isMade(_ slot: String) -> Bool { if case .made = states[slot] { return true }; return false }
@@ -531,7 +550,7 @@ struct NewAgentView: View {
                     // A row with a name field keeps it reachable: combined, VoiceOver could not edit it.
                     .accessibilityElement(children: renamable(m) ? .contain : .combine)
                 }
-            } header: { Text(detail.map { NewAgent.Words.makingNamed($0.label) } ?? NewAgent.Words.making) }
+            } header: { Text(allMade ? (detail?.label ?? "") : detail.map { NewAgent.Words.makingNamed($0.label) } ?? NewAgent.Words.making) }
             if let teamMessage { Section { Text(teamMessage).foregroundColor(Palette.dangerWord) } }
             // All made and the lead not seen yet: say what the screen is waiting for, then the desktop's words.
             if allMade && !leadSeen(members) {
@@ -785,7 +804,7 @@ struct NewAgentView: View {
             ZStack {
                 // The label in the card colour, as the app's other prominent buttons (build 13 shots: unreadable in dark).
                 Text(title).font(.headline).foregroundColor(enabled ? Palette.card : Palette.secondary).opacity(busy ? 0 : 1)
-                if busy { ProgressView().tint(Palette.card) }
+                if busy { ProgressView().tint(Palette.secondary) }
             }
             .frame(maxWidth: .infinity, minHeight: 50)
         }
