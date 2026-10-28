@@ -1859,14 +1859,28 @@ async function projectRemoveMember(ctx, args) {
   if (!ms) { ctx.err('Kosmos gave an answer we could not read when asked about ' + project + '.'); return 1; }
   // Every member the name could mean, by sessionName or display name, ignoring case; more than one sends nothing.
   const want = who.toLowerCase();
-  const hit = ms.filter((m) => m.sessionName.toLowerCase() === want || (typeof m.name === 'string' && m.name.toLowerCase() === want));
-  const pj = one(ov.name || ov.id || project);
-  if (!hit.length) { ctx.err(who + ' is not on ' + pj + ', so nothing was changed.'); return 1; }
-  if (hit.length > 1) { ctx.err('More than one member of ' + pj + ' is called ' + who + ', so nothing was changed. Use one of these names instead: ' + hit.map((m) => one(m.sessionName)).join(', ') + '.'); return 1; }
+  const means = (x) => { const v = String(x).toLowerCase(); return ms.filter((m) => m.sessionName.toLowerCase() === v || (typeof m.name === 'string' && m.name.toLowerCase() === v)); };
+  const hit = means(who);
+  const pj = one(ov.name || ov.id || project) || one(ov.id || project);
+  // A stopped member, or every member when the agents could not be read, shows by its sessionName only.
+  if (!hit.length) {
+    ctx.err('No member of ' + pj + ' is called ' + who + ', so nothing was changed. ' + (o.json.agentsUnreadable === true
+      ? 'Kosmos could not read its agents just now, so members may show by their machine names: kosmos project show ' + project + ' lists who is on it.'
+      : 'kosmos project show ' + project + ' lists who is on it, and a member that is not running shows by its machine name.'));
+    return 1;
+  }
+  // Only names that mean exactly one member are offered, so the answer never sends the person in a circle.
+  if (hit.length > 1) {
+    const offer = hit.map((m) => [m.sessionName, m.name].find((n) => typeof n === 'string' && n && means(n).length === 1)).filter(Boolean);
+    ctx.err(offer.length
+      ? 'More than one member of ' + pj + ' is called ' + who + ', so nothing was changed. Use one of these names instead: ' + offer.map(one).join(', ') + '.'
+      : 'More than one member of ' + pj + ' is called ' + who + ', and no name here tells them apart, so nothing was changed. Take the member off on the board instead.');
+    return 1;
+  }
   const member = hit[0];
   // A path step is no member name: encoded, "." and ".." would still be resolved away by fetch (another route).
-  if (member.sessionName === '.' || member.sessionName === '..') { ctx.err('There is no member called ' + member.sessionName + '.'); return 1; }
-  const label = one(member.name || member.sessionName);
+  if (member.sessionName === '.' || member.sessionName === '..') { ctx.err('Kosmos cannot take a member stored as "' + member.sessionName + '" off from here, so nothing was changed. Take it off on the board instead.'); return 1; }
+  const label = one(member.name) || one(member.sessionName);
   ctx.out(label + ' comes off this project\'s list and stops getting its posts. Nothing else changes; you can put ' + label + ' back with the + at the top of the project.');
   if (!yes) {
     const answer = await ctx.ask('Remove ' + label + ' from ' + pj + '? [y/N] ');

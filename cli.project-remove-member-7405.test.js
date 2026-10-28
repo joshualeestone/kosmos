@@ -112,7 +112,7 @@ test('#7405 Mac: a sessionName works as well as the display name', () => withStu
 test('#7405 Mac: a name not on the project sends nothing and says so (control: a member does)', () => withStub(OVERVIEW, GONE, async (port, seen) => {
   const r = await cli(port, ['project', 'remove-member', 'launch', 'Nobody', '--yes']);
   assert.equal(r.code, 1, r.out);
-  assert.match(r.out, /Nobody is not on Launch, so nothing was changed\./);
+  assert.match(r.out, /No member of Launch is called Nobody, so nothing was changed\. kosmos project show launch lists who is on it, and a member that is not running shows by its machine name\./);
   assert.equal(deletes(seen).length, 0, 'a non-member was sent to the route, which answers it as success');
   assert.equal((await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes'])).code, 0);
   assert.equal(deletes(seen).length, 1, 'CONTROL: the member was not sent');
@@ -201,7 +201,7 @@ test('#7405 Windows: at a terminal, y takes the member off and anything else can
 test('#7405 Windows: a name not on the project, or shared by two, sends nothing (control: a member does)', () => withStub(OVERVIEW, GONE, async (port, seen) => {
   const none = await winRun(port, ['project', 'remove-member', 'launch', 'Nobody', '--yes']);
   assert.equal(none.code, 1);
-  assert.match(none.err, /Nobody is not on Launch, so nothing was changed\./);
+  assert.match(none.err, /No member of Launch is called Nobody, so nothing was changed\./);
   const many = await winRun(port, ['project', 'remove-member', 'launch', 'twin', '--yes']);
   assert.equal(many.code, 1);
   assert.match(many.err, /Use one of these names instead: twin-1, twin-2\./);
@@ -297,10 +297,10 @@ test('#7405 review 3: a sessionName that is another member\'s display name sends
   assert.deepEqual(SHOWN2.members.map((m) => [m.name, m.sessionName]), [['Ada Lovelace', 'ada'], ['ada', 'b7']], 'CONTROL: the fixture does not collide');
   const m = await cli(port, ['project', 'remove-member', 'lab', 'ada', '--yes']);
   assert.equal(m.code, 1, m.out);
-  assert.match(m.out, /More than one member of Lab is called ada, so nothing was changed\. Use one of these names instead: ada, b7\./);
+  assert.match(m.out, /More than one member of Lab is called ada, so nothing was changed\. Use one of these names instead: Ada Lovelace, b7\./);
   const w = await winRun(port, ['project', 'remove-member', 'lab', 'ADA', '--yes']);
   assert.equal(w.code, 1, w.err);
-  assert.match(w.err, /Use one of these names instead: ada, b7\./);
+  assert.match(w.err, /Use one of these names instead: Ada Lovelace, b7\./);
   assert.equal(deletes(seen).length, 0, 'an ambiguous name was sent');
   assert.equal((await cli(port, ['project', 'remove-member', 'lab', 'b7', '--yes'])).code, 0);
   assert.equal(deletes(seen)[0].url, '/api/project/lab/agent/b7', 'CONTROL: the unambiguous name was not sent');
@@ -331,7 +331,7 @@ function overviewWith(change) {
 test('#7405 review 4: a member stored as "." is refused with nothing sent, on both (control: a real member is sent)', () => withStub(overviewWith((ms) => { ms[1].sessionName = '.'; ms[1].name = 'Dot'; }), GONE, async (port, seen) => {
   const m = await cli(port, ['project', 'remove-member', 'launch', 'Dot', '--yes']);
   assert.equal(m.code, 1, m.out);
-  assert.match(m.out, /There is no member called \.\./);
+  assert.match(m.out, /Kosmos cannot take a member stored as "\." off from here, so nothing was changed\. Take it off on the board instead/);
   const w = await winRun(port, ['project', 'remove-member', 'launch', 'Dot', '--yes']);
   assert.equal(w.code, 1, w.err);
   assert.equal(deletes(seen).length, 0, 'a "." member reached the route');
@@ -347,4 +347,27 @@ test('#7405 review 4: an escape sequence in a display name never reaches the ter
   assert.equal(w.code, 0, w.err);
   assert.ok(!/[\u001b‮]/.test(w.out + w.err), 'Windows printed a raw escape');
   assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/project/launch/agent/ada', '/api/project/launch/agent/ada'], 'the raw sessionName was not what was sent');
+}));
+
+/* ── kosmos#7405 review 5 ─────────────────────────────────────────────────────── */
+
+test('#7405 review 5: when no name tells two members apart, the answer sends the person to the board, not in a circle, on both', () => withStub(overviewWith((ms) => {
+  ms[0].sessionName = 'ADA'; ms[0].name = 'ada'; ms[1].sessionName = 'ada'; ms[1].name = 'Ada';
+}), GONE, async (port, seen) => {
+  const m = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
+  assert.equal(m.code, 1, m.out);
+  assert.match(m.out, /and no name here tells them apart, so nothing was changed\. Take the member off on the board instead/);
+  assert.doesNotMatch(m.out, /Use one of these names/, 'it offered names that are themselves ambiguous');
+  const w = await winRun(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
+  assert.match(w.err, /no name here tells them apart/);
+  assert.equal(deletes(seen).length, 0);
+}));
+
+test('#7405 review 5: when the board could not read its agents, a missed name says members may show by machine name, on both', () => withStub([200, { project: SHOWN, agentsUnreadable: true }], GONE, async (port, seen) => {
+  const m = await cli(port, ['project', 'remove-member', 'launch', 'Nobody', '--yes']);
+  assert.equal(m.code, 1, m.out);
+  assert.match(m.out, /Kosmos could not read its agents just now, so members may show by their machine names: kosmos project show launch lists who is on it\./);
+  const w = await winRun(port, ['project', 'remove-member', 'launch', 'Nobody', '--yes']);
+  assert.match(w.err, /Kosmos could not read its agents just now/);
+  assert.equal(deletes(seen).length, 0);
 }));

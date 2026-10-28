@@ -6585,26 +6585,38 @@ cmd_project() {
           if (!ms) process.exit(1);
           // Every member the name could mean, by sessionName or display name, ignoring case; more than one sends nothing.
           const w = want.toLowerCase();
-          const hit = ms.filter((m) => m.sessionName.toLowerCase() === w || (typeof m.name === "string" && m.name.toLowerCase() === w));
-          const pj = one(p.name || p.id);
-          if (!hit.length) { console.log(["none", "", "", pj].join("\t")); return; }
-          if (hit.length > 1) { console.log(["many", "", "", pj, hit.map((m) => one(m.sessionName)).join(", ")].join("\t")); return; }
-          console.log(["ok", encodeURIComponent(hit[0].sessionName), one(hit[0].name || hit[0].sessionName), pj].join("\t"));
+          const means = (x) => { const v = String(x).toLowerCase(); return ms.filter((m) => m.sessionName.toLowerCase() === v || (typeof m.name === "string" && m.name.toLowerCase() === v)); };
+          const hit = means(want);
+          const pj = one(p.name || p.id) || one(p.id);
+          // A stopped member, or every member when the agents could not be read, shows by its sessionName only.
+          if (!hit.length) { console.log(["none", "", "", pj, j.agentsUnreadable === true ? "unread" : ""].join("\t")); return; }
+          // Only names that mean exactly one member are offered, so the answer never sends the person in a circle.
+          if (hit.length > 1) {
+            const offer = hit.map((m) => [m.sessionName, m.name].find((n) => typeof n === "string" && n && means(n).length === 1)).filter(Boolean);
+            console.log(["many", "", "", pj, offer.map(one).join(", ")].join("\t")); return;
+          }
+          console.log(["ok", encodeURIComponent(hit[0].sessionName), one(hit[0].name) || one(hit[0].sessionName), pj].join("\t"));
         });') || { say "Kosmos gave an answer we could not read when asked about $1."; exit 1; }
       # cut, not `IFS=<tab> read`: a tab is whitespace to read, so an empty field would take the next one's value.
       mm_state=$(printf '%s\n' "$mm_plan" | cut -f1); mm_sess=$(printf '%s\n' "$mm_plan" | cut -f2)
       mm_who=$(printf '%s\n' "$mm_plan" | cut -f3); mm_pj=$(printf '%s\n' "$mm_plan" | cut -f4); mm_why=$(printf '%s\n' "$mm_plan" | cut -f5)
       case "$mm_state" in
         ok) ;;
-        none) say "$2 is not on ${mm_pj:-$1}, so nothing was changed."; exit 1 ;;
-        many) say "More than one member of ${mm_pj:-$1} is called $2, so nothing was changed. Use one of these names instead: $mm_why."; exit 1 ;;
+        none)
+          if [ "$mm_why" = unread ]; then say "No member of ${mm_pj:-$1} is called $2, so nothing was changed. Kosmos could not read its agents just now, so members may show by their machine names: kosmos project show $1 lists who is on it."
+          else say "No member of ${mm_pj:-$1} is called $2, so nothing was changed. kosmos project show $1 lists who is on it, and a member that is not running shows by its machine name."; fi
+          exit 1 ;;
+        many)
+          if [ -n "$mm_why" ]; then say "More than one member of ${mm_pj:-$1} is called $2, so nothing was changed. Use one of these names instead: $mm_why."
+          else say "More than one member of ${mm_pj:-$1} is called $2, and no name here tells them apart, so nothing was changed. Take the member off on the board instead: $URL/"; fi
+          exit 1 ;;
         error)
           while [[ "$mm_why" == *[.[:space:]] ]]; do mm_why="${mm_why%?}"; done
           say "Kosmos could not read $1: ${mm_why:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when asked about $1."; exit 1 ;;
       esac
       # A path step is no member name: encoded, "." and ".." would still be resolved away (another route).
-      case "$mm_sess" in .|..) say "There is no member called $mm_sess."; exit 1 ;; esac
+      case "$mm_sess" in .|..) say "Kosmos cannot take a member stored as \"$mm_sess\" off from here, so nothing was changed. Take it off on the board instead: $URL/"; exit 1 ;; esac
       # The screen's confirm (openMemModal), word for word apart from where the + is.
       say "$mm_who comes off this project's list and stops getting its posts. Nothing else changes; you can put $mm_who back with the + at the top of the project."
       if [ -z "$KOSMOS_RMM_YES" ]; then

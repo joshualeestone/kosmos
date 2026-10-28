@@ -12,8 +12,11 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
 ## Change
 - `install/kosmos` cmd_project and `tools/windows/kosmos-cli.js` projectRemoveMember:
   - GET /api/project/<id>/overview first (the route answers { project: <overview>, agentsUnreadable }). The typed
-    name is checked against every member's sessionName and display name, ignoring case; none, or more than one member
-    (a shared display name, or one member's sessionName that is another's display name), sends nothing and says which.
+    name is checked against every member's sessionName and display name, ignoring case. No match says "No member of
+    <project> is called <name>" and points to kosmos project show (a member that is not running, or every member when
+    the board could not read its agents, shows by its sessionName only). More than one member (a shared display name,
+    or one member's sessionName that is another's display name) sends nothing and offers only names that mean exactly
+    one member; when none does, it says to take the member off on the board.
   - The screen's confirm line (openMemModal, with a straight apostrophe as all the command's text has), then "Remove <who> from <project>? [y/N]" at a terminal; --yes skips it,
     and no terminal without --yes refuses before anything is sent (as kosmos agent remove, #7362).
   - DELETE /api/project/<id>/agent/<sessionName> (what the screen's Remove sends), with the board token and the agent's
@@ -44,8 +47,9 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
   so only a whole sessionName or display name matches, and any name that could mean two members asks for a
   sessionName. Rejected: preferring an exact sessionName over a display name (a --yes script meaning one member by its
   display name would remove another without a word).
-- Weakest premise: that the person or agent knows the member's display name or sessionName. `kosmos project show`
-  lists both.
+- Weakest premise: that the person or agent knows a name that means one member. `kosmos project show` lists display
+  names (a sessionName only for a member with no card), so a sessionName is learned from the ambiguity answer, and a
+  pair no name tells apart is taken off on the board.
 - Deliberately not word for word with the screen: the result names the project ("is off Launch" where the screen,
   showing one project, says "this project"), and the confirm says "at the top of the project" (the screen says "at the
   top"), since a terminal shows no project around the words.
@@ -63,6 +67,7 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
 - The Mac refusing every answer: the terminal case goes red.
 - An unreadable answer after the DELETE back to exit 1: the not-JSON case goes red.
 - The old match (an exact sessionName first, display names only if none): the collision and case cases go red.
+- Every match's sessionName offered again (no exactly-one filter): the circle and collision cases go red.
 - The Mac's not-a-member arm sending anyway: the not-a-member case goes red.
 - The Windows not-a-member check removed: the Windows not-a-member case goes red.
 - The Mac's no-terminal guard removed: the no-terminal case goes red.
