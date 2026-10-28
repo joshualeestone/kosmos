@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: roomwindow-7365
-diff_hash: 5ad1d8df158518b77a243ed66075439e9182e86b92cc238184999bd3a8fc8f2e
+diff_hash: f11aea0fe1fe9dd44ceec502fc1b65b578b66f7934d7593a6f7cfcf21b941100
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-27T23:23:27Z
@@ -17,7 +17,7 @@ converged: false
 **Total findings:** 49 (3 BLOCKERs, 21 WARNINGs, 0 CONVENTIONs, 25 NITs)
 **Fixed:** 3 BLOCKERs, 21 WARNINGs, 15 NITs | **Deferred:** 10 NITs (each recorded in .claude/plans/roomarchive-7365.md, "Slice 2 review rounds") | **Asked (awaiting user):** 0
 
-Validation: full local suite on 301889e07d (this branch's head, the diff this proof hashes), run as a queued-heavy turn, validation rc=0 at 18:22:37 CDT 2026-10-27: node 24877 tests, 24495 pass, 0 fail (the rest skipped), and the shell part green. Since 301889e07d only files under .claude/plans/ changed (this proof, and a plan file named for the branch that points at the shared plan; `git diff --stat 301889e07d HEAD -- ':!.claude/plans/'` is empty), so the validated code is the code this hash covers. Both browser-check gates pass on 301889e07d (the Browser-check and nine Browser-check-surface trailers).
+Validation: full local suite on 301889e07d (this branch's head, the diff this proof hashes), run as a queued-heavy turn, validation rc=0 at 18:22:37 CDT 2026-10-27: node 24877 tests, 24495 pass, 0 fail (the rest skipped), and the shell part green. Since 301889e07d only files under .claude/plans/ changed (this proof, and a plan file named for the branch that points at the shared plan; `git diff --stat 301889e07d HEAD -- ':!.claude/plans/'` is empty), so the validated code is the code this hash covers. Then 4c63269b87 changed two browser checks only (render-room-send-shows-now-6168 and render-federation-invite-4649 answer the paged room read in their fetch stubs, after the PR's CI browser-checks job went red on both); no page, engine or test file changed, and those two checks are not part of the node suite this validation ran. Both browser-check gates pass on 301889e07d (the Browser-check and nine Browser-check-surface trailers).
 
 The full per-finding detail, with what was measured, is the ledger in .claude/plans/roomarchive-7365.md under "Slice 2 review rounds". Each iteration below names its findings and outcomes.
 
