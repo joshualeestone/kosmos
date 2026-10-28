@@ -196,6 +196,20 @@ enum PushBridge {
         return parts.url
     }
 
+    // kosmos#7420 (Josh 10-27): no banner for the conversation already on screen. The chat that is open (its computer's
+    // address and the agent's session) is set by ChatView while it shows. An agent's answer or question (replied,
+    // needs_you) from that same chat on that same computer is already in front of the person, so it shows nothing;
+    // every other notice (a room post, work ready for a look, another agent, another computer) shows as before.
+    struct OpenChat: Equatable { let host: String; let session: String }
+    static func showsBanner(_ userInfo: [AnyHashable: Any], openChat: OpenChat?) -> Bool {
+        guard let open = openChat,
+              let kind = userInfo["kind"] as? String, kind == "replied" || kind == "needs_you",
+              (userInfo["session"] as? String) == open.session,
+              (userInfo["address"] as? String)?.lowercased() == open.host.lowercased()
+        else { return true }
+        return false
+    }
+
     // The board's agent-name characters (engine/create.js NAME_RE): lowercase letters,
     // digits, hyphen and underscore, starting with a letter or digit. No dots,
     // slashes, colons, percent signs, spaces or Unicode. The LENGTH is deliberately
