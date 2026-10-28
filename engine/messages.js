@@ -2610,7 +2610,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   /* kosmos#7461: while paused, a post asking exactly ONE member still wakes it (a handoff; a summary to one member),
      within the pair's and the project's budget for this pause (engine/roomloop.js pairCan; spent with the wake count,
      below). Decided once per post, as the pause itself is. One is counted before switched-off members are set aside, so
-     an @all to a room where all but one are switched off is still an @all (review 1). */
+     an @all to a room where all but one are switched off is still an @all (review 1). In a room of two, an @all asks the
+     one other member and goes through as a handoff would: accepted, it is one wake, within the same caps. */
   const askedHere = operator === true ? [] : recipients.filter((n) => !offHere.has(n) && asksMember(n));
   const askedAll = operator === true ? 0 : recipients.filter((n) => asksMember(n)).length;
   const oneThrough = loopPaused && askedAll === 1 && askedHere.length === 1 && require('./roomloop').pairCan(projectId, from, askedHere[0]);
@@ -3180,6 +3181,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     /* #4447: every member's spill was removed as its delivery failed (above), so none is left here. */
     const failed = refuse('we could not get this post to anybody on ' + shownProject);
     failed.outcomes = outcomes;
+    if (oneThrough) require('./roomloop').pairRefund(projectId, from, askedHere[0]);   // kosmos#7461: no wake, so no slot
     return failed;
   }
   /* Round 3: the person is here, so the agents' count starts over. Round 6: only once the post reached the room (a refused

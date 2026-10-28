@@ -70,6 +70,18 @@ function pairCan(projectId, from, to) {
 }
 /* Spend one: called synchronously after pairCan in the same post, before any typing, so two posts cannot both spend the
    last slot. */
+/* Give one back: the post that spent it reached nobody (review 2), so it was not a wake, and its retry must not find the
+   pair spent. */
+function pairRefund(projectId, from, to) {
+  try {
+    const p = String(projectId);
+    const key = p + '\u0000' + from + '\u0000' + to;
+    const n = pairWakes.get(key) || 0;
+    if (n > 0) pairWakes.set(key, n - 1);
+    const t = throughWakes.get(p) || 0;
+    if (t > 0) throughWakes.set(p, t - 1);
+  } catch { /* the slot stays spent: one fewer handoff this pause */ }
+}
 function pairTake(projectId, from, to) {
   try {
     const p = String(projectId);
@@ -123,4 +135,4 @@ function liveCap() { return cap; }
 function setCapForTests(n) { cap = n; }
 function resetForTests() { wakes.clear(); said.clear(); pausedAt.clear(); pairWakes.clear(); throughWakes.clear(); cap = LOOP_CAP; }
 
-module.exports = { LOOP_CAP, LOOP_WINDOW_MS, paused, noteWake, clear, liveCap, freesAt, pauseNote, senderNote, setCapForTests, resetForTests, pairCan, pairTake, PAIR_CAP, THROUGH_CAP };
+module.exports = { LOOP_CAP, LOOP_WINDOW_MS, paused, noteWake, clear, liveCap, freesAt, pauseNote, senderNote, setCapForTests, resetForTests, pairCan, pairTake, pairRefund, PAIR_CAP, THROUGH_CAP };

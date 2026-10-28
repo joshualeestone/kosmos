@@ -529,3 +529,29 @@ test('kosmos#7461 review 1: under a pause an @all is never one member, even when
     });
   } finally { projects.swarmOffSet = real; }
 });
+
+test('kosmos#7461 review 2: a through post that reaches nobody (the member cannot be typed into) gives its slot back', () => {
+  const specs = [fleet.agent('pigeonpete', { state: 'idle', displayName: 'PigeonPete' }), fleet.agent('monalisa', { state: 'idle', displayName: 'Mona Lisa' }),
+    fleet.agent('angel', { state: 'idle', displayName: 'Angel' }), fleet.agent('ghost', { state: 'stopped' })];
+  const members = ['pigeonpete', 'monalisa', 'angel', 'ghost'];
+  withFleet(specs, (board) => {
+    pause(board);
+    for (let i = 0; i < roomloop.PAIR_CAP + 2; i += 1) {
+      armSender('pigeonpete-discord');
+      arm();
+      const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@ghost handoff ' + i }, board.agents, members);
+      assert.equal(sent.state, chat.DELIVERY.COULD_NOT, 'fixture: a stopped member was reached: ' + sent.state);
+    }
+    assert.equal(roomloop.pairCan(PROJECT, 'pigeonpete', 'ghost'), true, 'posts that reached nobody spent the pair');
+  });
+});
+
+test('kosmos#7461 review 2: in a room of two, an @all asks the one other member and goes through as a handoff (decided)', () => {
+  withFleet([fleet.agent('pigeonpete', { state: 'idle', displayName: 'PigeonPete' }), fleet.agent('monalisa', { state: 'idle', displayName: 'Mona Lisa' })], (board) => {
+    const two = ['pigeonpete', 'monalisa'];
+    const send = (from, text) => { armSender(from + '-discord'); const tmux = arm(); messages.sendPost({ fromPane: '%7', project: PROJECT, text }, board.agents, two); return typedTo(tmux, from === 'pigeonpete' ? 'monalisa' : 'pigeonpete').length; };
+    for (let i = 0; i < roomloop.LOOP_CAP; i += 1) send('pigeonpete', '@monalisa ping ' + i);
+    assert.equal(roomloop.paused(PROJECT), true, 'fixture: not paused');
+    assert.equal(send('pigeonpete', '@all status?'), 1, 'a room-of-two @all is one member and goes through');
+  });
+});
