@@ -124,7 +124,7 @@ test('#7405 Mac: a name not on the project sends nothing and says so (control: a
 test('#7405 Mac: a display name two members share sends nothing and lists their names', () => withStub(OVERVIEW, GONE, async (port, seen) => {
   const r = await cli(port, ['project', 'remove-member', 'launch', 'TWIN', '--yes']);
   assert.equal(r.code, 1, r.out);
-  assert.match(r.out, /More than one member of Launch is called TWIN, so nothing was changed\. Use one of these names instead: twin-1, twin-2\./);
+  assert.match(r.out, /More than one member of Launch is called TWIN, so nothing was changed\. Use one of these names instead: "twin-1", "twin-2"\./);
   assert.equal(deletes(seen).length, 0);
 }));
 
@@ -207,7 +207,7 @@ test('#7405 Windows: a name not on the project, or shared by two, sends nothing 
   assert.match(none.err, /No member of Launch is called Nobody, so nothing was changed\./);
   const many = await winRun(port, ['project', 'remove-member', 'launch', 'twin', '--yes']);
   assert.equal(many.code, 1);
-  assert.match(many.err, /Use one of these names instead: twin-1, twin-2\./);
+  assert.match(many.err, /Use one of these names instead: "twin-1", "twin-2"\./);
   assert.equal(deletes(seen).length, 0);
   assert.equal((await winRun(port, ['project', 'remove-member', 'launch', 'ada', '--yes'])).code, 0);
   assert.equal(deletes(seen).length, 1, 'CONTROL: the member was not sent');
@@ -284,6 +284,7 @@ test('#7405 review 2 Mac: at a terminal, y takes the member off and n cancels wi
   assert.match(no.out, /Cancelled\. Nothing was changed\./);
   assert.equal(deletes(seen).length, 0, 'a cancelled run still sent the change');
   const yes = await cliAtTerminal(port, ['project', 'remove-member', 'launch', 'Ada'], 'y');
+  assert.equal(yes.timedOut, false, 'the terminal run timed out: ' + yes.out);
   assert.match(yes.out, /Ada is off Launch and still on your computer\./, yes.out);
   assert.equal(deletes(seen).length, 1, 'CONTROL: y did not send');
 }));
@@ -300,10 +301,10 @@ test('#7405 review 3: a sessionName that is another member\'s display name sends
   assert.deepEqual(SHOWN2.members.map((m) => [m.name, m.sessionName]), [['Ada Lovelace', 'ada'], ['ada', 'b7']], 'CONTROL: the fixture does not collide');
   const m = await cli(port, ['project', 'remove-member', 'lab', 'ada', '--yes']);
   assert.equal(m.code, 1, m.out);
-  assert.match(m.out, /More than one member of Lab is called ada, so nothing was changed\. Use one of these names instead: Ada Lovelace, b7\./);
+  assert.match(m.out, /More than one member of Lab is called ada, so nothing was changed\. Use one of these names instead: "Ada Lovelace", "b7"\./);
   const w = await winRun(port, ['project', 'remove-member', 'lab', 'ADA', '--yes']);
   assert.equal(w.code, 1, w.err);
-  assert.match(w.err, /Use one of these names instead: Ada Lovelace, b7\./);
+  assert.match(w.err, /Use one of these names instead: "Ada Lovelace", "b7"\./);
   assert.equal(deletes(seen).length, 0, 'an ambiguous name was sent');
   assert.equal((await cli(port, ['project', 'remove-member', 'lab', 'b7', '--yes'])).code, 0);
   assert.equal(deletes(seen)[0].url, '/api/project/lab/agent/b7', 'CONTROL: the unambiguous name was not sent');
@@ -382,4 +383,18 @@ test('#7405 review 6: a ZWJ family emoji in a display name is printed whole, on 
   assert.match(m.out, /Ada \u{1F468}‍\u{1F469}‍\u{1F467} is off Launch/u, 'the Mac split the joined emoji: ' + JSON.stringify(m.out));
   const w = await winRun(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
   assert.match(w.out, /Ada \u{1F468}‍\u{1F469}‍\u{1F467} is off Launch/u, 'Windows split the joined emoji');
+}));
+
+/* ── kosmos#7405 review 7: some candidates with a name of their own and some without ─────────────── */
+test('#7405 review 7: when one candidate has no name of its own, no names are offered, on both (a list would read as all of them)', () => withStub(overviewWith((ms) => {
+  ms[0].sessionName = 'ada'; ms[0].name = 'ada'; ms[1].sessionName = 'b7'; ms[1].name = 'ada';
+}), GONE, async (port, seen) => {
+  const m = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
+  assert.equal(m.code, 1, m.out);
+  assert.match(m.out, /and no name here tells them apart, so nothing was changed\. Take the member off on the board instead/);
+  assert.doesNotMatch(m.out, /b7/, 'it offered one candidate as if it were all of them');
+  const w = await winRun(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
+  assert.match(w.err, /no name here tells them apart/);
+  assert.doesNotMatch(w.err, /b7/);
+  assert.equal(deletes(seen).length, 0);
 }));

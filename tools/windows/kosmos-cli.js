@@ -1853,7 +1853,7 @@ async function projectRemoveMember(ctx, args) {
   let clean = null;
   try { clean = ctx.engine('projectview').one; } catch (_) { clean = null; }
   const one = (v) => (clean ? clean(v) : String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g, ' '));   // the fallback only: projectview.one keeps ZWJ and ZWNJ
-  if (o.json && o.json.error) { ctx.err('Kosmos could not read ' + project + ': ' + (clause(one(o.json.error)) || 'it did not say why') + '.'); return 1; }
+  if (o.json && o.json.error) { const why = clause(one(o.json.error)); ctx.err('Kosmos could not read ' + project + ': ' + (why || 'it did not say why') + (/[?!)]$/.test(why) ? '' : '.')); return 1; }
   const ov = o.json && o.json.project;   // the route answers { project: <overview>, agentsUnreadable }
   const ms = ov && Array.isArray(ov.members) ? ov.members.filter((m) => m && typeof m.sessionName === 'string') : null;
   if (!ms) { ctx.err('Kosmos gave an answer we could not read when asked about ' + project + '.'); return 1; }
@@ -1872,8 +1872,9 @@ async function projectRemoveMember(ctx, args) {
   // Only names that mean exactly one member are offered, so the answer never sends the person in a circle.
   if (hit.length > 1) {
     const offer = hit.map((m) => [m.sessionName, m.name].find((n) => typeof n === 'string' && n && one(n) === n && means(n).length === 1)).filter(Boolean);   // only a name that can be typed back as shown
-    ctx.err(offer.length
-      ? 'More than one member of ' + pj + ' is called ' + who + ', so nothing was changed. Use one of these names instead: ' + offer.map(one).join(', ') + '.'
+    // A member with no name of its own makes the list misleading (it reads as all of them), so none is offered.
+    ctx.err(offer.length === hit.length
+      ? 'More than one member of ' + pj + ' is called ' + who + ', so nothing was changed. Use one of these names instead: ' + offer.map((n) => '"' + n + '"').join(', ') + '.'
       : 'More than one member of ' + pj + ' is called ' + who + ', and no name here tells them apart, so nothing was changed. Take the member off on the board instead.');
     return 1;
   }

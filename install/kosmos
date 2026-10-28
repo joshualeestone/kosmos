@@ -6593,7 +6593,8 @@ cmd_project() {
           // Only names that mean exactly one member are offered, so the answer never sends the person in a circle.
           if (hit.length > 1) {
             const offer = hit.map((m) => [m.sessionName, m.name].find((n) => typeof n === "string" && n && one(n) === n && means(n).length === 1)).filter(Boolean);   // only a name that can be typed back as shown
-            console.log(["many", "", "", pj, offer.map(one).join(", ")].join("\t")); return;
+            // A member with no name of its own makes the list misleading (it reads as all of them), so none is offered.
+            console.log(["many", "", "", pj, offer.length === hit.length ? offer.map((n) => "\"" + n + "\"").join(", ") : ""].join("\t")); return;
           }
           console.log(["ok", encodeURIComponent(hit[0].sessionName), one(hit[0].name) || one(hit[0].sessionName), pj].join("\t"));
         });') || { say "Kosmos gave an answer we could not read when asked about $1."; exit 1; }
@@ -6612,7 +6613,8 @@ cmd_project() {
           exit 1 ;;
         error)
           while [[ "$mm_why" == *[.[:space:]] ]]; do mm_why="${mm_why%?}"; done
-          say "Kosmos could not read $1: ${mm_why:-it did not say why}."; exit 1 ;;
+          case "$mm_why" in *[?!]|*\)) mm_end="" ;; *) mm_end="." ;; esac
+          say "Kosmos could not read $1: ${mm_why:-it did not say why}${mm_end}"; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when asked about $1."; exit 1 ;;
       esac
       # A path step is no member name: encoded, "." and ".." would still be resolved away (another route).

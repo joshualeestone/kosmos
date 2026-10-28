@@ -15,8 +15,10 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
     name is checked against every member's sessionName and display name, ignoring case. No match says "No member of
     <project> is called <name>" and points to kosmos project show (a member that is not running, or every member when
     the board could not read its agents, shows by its sessionName only). More than one member (a shared display name,
-    or one member's sessionName that is another's display name) sends nothing and offers only names that mean exactly
-    one member; when none does, it says to take the member off on the board.
+    or one member's sessionName that is another's display name) sends nothing. It offers names, in quotes, only when
+    EVERY candidate has a name that means it alone and prints as stored; if even one does not, it offers none (a
+    partial list reads as all of them, and with --yes would remove a member the person did not mean) and says to take
+    the member off on the board.
   - The screen's confirm line (openMemModal, with a straight apostrophe as all the command's text has), then "Remove <who> from <project>? [y/N]" at a terminal; --yes skips it,
     and no terminal without --yes refuses before anything is sent (as kosmos agent remove, #7362).
   - DELETE /api/project/<id>/agent/<sessionName> (what the screen's Remove sends), with the board token and the agent's
@@ -74,6 +76,7 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
 - An unreadable answer after the DELETE back to exit 1: the not-JSON case goes red.
 - The old match (an exact sessionName first, display names only if none): the collision and case cases go red.
 - Every match's sessionName offered again (no exactly-one filter): the circle and collision cases go red.
+- A partial list offered (any candidate with a name of its own): the partial-candidates case goes red.
 - projectview.one replaced by a function that cleans nothing: the escape-sequence case goes red (the test links the
   repo's engine into the sandbox, so the Mac uses projectview.one and not its fallback).
 - The Mac's not-a-member arm sending anyway: the not-a-member case goes red.
