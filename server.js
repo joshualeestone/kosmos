@@ -1429,6 +1429,13 @@ const autobalanceSetting = require('./engine/autobalance-setting'); // kosmos#71
 const autobalanceSweep = require('./engine/autobalance-sweep'); // kosmos#7152 slice 3: the record of what auto-balance would move
 const AUTOBALANCE_RECORD = path.join(path.dirname(autobalanceSetting.FILE), autobalanceSweep.FILE);
 let autobalanceSweepRun = null;   // the sweep, once its record has been read at start (it is off otherwise)
+const keepAwakeSetting = require('./engine/keepawake-setting'); // kosmos#7416 slice 3
+const keepAwake = require('./engine/keepawake'); // kosmos#7416 slice 3: caffeinate -i while the switch is on and a card reads working
+const KEEP_AWAKE = keepAwake.createHolder(process.env.AGENT_WORKFORCE_DRY_RUN === '1' ? { spawn: keepAwake.dryRunSpawn } : undefined);
+/* kosmos#7416 slice 3: one pass of the sweep (engine/keepawake.js pass). */
+function keepAwakeTick() {
+  keepAwake.pass({ readSetting: () => keepAwakeSetting.read(), readRoster: safeRoster, holder: KEEP_AWAKE });
+}
 const brief = require('./engine/brief'); // #3595 phase 3: a project's goal, read safely from its BRIEF.md
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
@@ -12806,6 +12813,35 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* kosmos#7416 slice 3: "Keep this computer awake while agents are working" (Settings > Computer). Screen-only PUT,
+     as auto-balance's. The answer carries whether caffeinate is held right now, read after the pass the save runs. */
+  if (pathname === '/api/keepawake-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = keepAwakeSetting.read();
+      const st = KEEP_AWAKE.state();
+      sendJson(res, 200, { on: r.on, ok: r.ok, supported: KEEP_AWAKE.supported, holding: st.holding, because: st.because });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/keepawake-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
+        if (!KEEP_AWAKE.supported) { sendJson(res, 409, { error: 'this computer cannot be kept awake by Kosmos yet' }); return; }
+        const saved = keepAwakeSetting.write({ on: body.on });
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        try { keepAwakeTick(); } catch { /* the next pass takes it */ }
+        const r = keepAwakeSetting.read();
+        const st = KEEP_AWAKE.state();
+        sendJson(res, 200, { on: r.on, ok: r.ok, supported: true, holding: st.holding, because: st.because });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
   /* #2619: the Assigner automation setting. Same STATUS-control contract. */
   if (pathname === '/api/assigner-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
@@ -16206,6 +16242,14 @@ const server = http.createServer(async (req, res) => {
         refused: births.filter((b) => b && b.outcome === 'refused').length,
       };
     } catch { checks.made = null; }
+    /* kosmos#7416 slice 3: the keep-awake switch rides on the sleep row, and only when its setting was READ, so the
+       switch is never drawn in a position nobody checked (as startAtSignIn's). Mac only for now. */
+    try {
+      const sleepRow = KEEP_AWAKE.supported && Array.isArray(checks.checks) ? checks.checks.find((c) => c && c.key === 'sleep') : null;
+      const ka = sleepRow ? keepAwakeSetting.read() : null;
+      const st = KEEP_AWAKE.state();
+      if (sleepRow && ka && ka.ok) sleepRow.keepAwake = { on: ka.on, holding: st.holding, because: st.because };
+    } catch { /* the row is drawn without the switch */ }
     sendJson(res, 200, checks);
     return;
   }
@@ -27365,6 +27409,10 @@ function start(port = PORT) {
         } catch { /* best-effort, like the nudge sweep */ }
       }, 60000);
       if (missedTellTick && typeof missedTellTick.unref === 'function') missedTellTick.unref();
+      /* kosmos#7416 slice 3: keep this computer awake while agents are working (keepAwakeTick, above). */
+      const keepAwakeSweep = setInterval(keepAwakeTick, keepAwake.TICK_MS);
+      setImmediate(() => { try { keepAwakeTick(); } catch { /* the sweep takes it */ } });   // a board started with the switch on holds now
+      if (keepAwakeSweep && typeof keepAwakeSweep.unref === 'function') keepAwakeSweep.unref();
       /* kosmos#6209 part 3: an owner that keeps posting in a held task's project room is asked, once per hold, whether the
          hold still stands (engine/holdstale.js holds the rules and is tested there). The same gates as the missed-run tell;
          the message log is read only when some open task is on hold, Kosmos may type into agents and the Prompter is on. */
