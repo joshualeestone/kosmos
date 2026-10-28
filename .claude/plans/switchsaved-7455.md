@@ -23,14 +23,23 @@ for carried null, else (round 1):
 <notes> is switchNotesWords, the ONE notes clause (round 1), shared with switchCarryWords: the carry already ran before
 the restart failed, so every notes fact is true now in both answers; only "anything it only remembered from talking"
 changes tense (`is lost` restarted, `will be lost` pending). switchCarryWords' output is byte-identical to before
-(differential check over 759 carried/from combinations: 0 differences; the #7410 and #7445 suites pass unchanged).
+(differential check against main's switchCarryWords over every carried shape it reads: each notes state (copied,
+failed, unchecked-error, every refusal state, none) crossed with rootChange / toClaude / between, pointed and
+unpointFailed on and off, several kept/skipped/occupied/failed counts, carried null, and several from-labels including
+none: 0 differences, in round 1's run and in round 2's reviewer's wider run of 1,057 cases; the #7410 and #7445
+suites pass unchanged).
 
-Whether the old session is still up: remove.js restart now returns `stillRunning: true` on the one outcome that knows
-it (it could not close the window: PARTIAL, "still running the older instructions"), and leaves it out everywhere else.
-The route passes `!ok && back.stillRunning === true`. A stopped agent (restart refuses: "is not running, so there is
-nothing to restart"), a restart that fails after the window closed, a refusal over an untied session and a restart that
-threw all read as not known to be up, so no handoff is promised there: that is the honest default when the route cannot
-tell.
+Whether the old session is still up (round 2, tightened): remove.js restart returns `stillRunning: true` ONLY when the
+old session was POSITIVELY SEEN ALIVE after the close attempt, by the close's own look-again: on a Mac, has-session
+answered exit 0 (a real answer, not a dry run); on Windows, win32stop's look-again found the process still running
+(its new `stillAlive`). The close reports this through an optional `seen` object; its Boolean ("proven gone") is
+unchanged, so removal is untouched. Every other not-proven-closed case gets NO flag: a has-session that timed out or
+answered anything other than 0 or 1, a kill that failed before the look-again, a Windows close that could not check,
+a close that threw, a dry run. So do every refusal (a stopped agent: "is not running, so there is nothing to
+restart"; an untied session), a restart that fails after the window closed, and a restart that threw in the route.
+The route passes `!ok && back.stillRunning === true`, and without the flag says the cautious next-start sentence with
+no handoff. Refusals for a RUNNING agent (a busy account move, a session it cannot confirm is this agent) also get the
+cautious answer with no handoff offered: safe, and deliberate (offering it needs positive evidence, which they lack).
 
 - Same fact as switchCarryWords: both key on `carried` (null = keeps it). The provider it left is named by one shared
   helper (switchFromWord) in the engine, and by one `carriedFrom` in the route, used for both the restarted and the
@@ -61,7 +70,9 @@ box: that file fails 10 of 12 on untouched main here (it drives the platform's r
 pure function is run. Second weakest (round 1): the route's existing "It is still running as before until it
 restarts." is still said for a STOPPED agent, right after the restart's own "is not running" (pre-existing, and kept
 exactly because carried null must keep today's answer). The new sentence no longer adds a handoff there, but the
-paragraph still contradicts itself; worth its own card.
+paragraph still contradicts itself, as does "Nothing was changed." after a saved switch: filed as #7470, not fixed
+here. Third (round 2): the Windows arm of the flag (win32stop stillAlive through sessionOps) is checked by reading the
+code; the new remove.js tests drive the Mac arm.
 
 What would change my mind: a restart-failed state in which the old runner is no longer running (then "still running as
 before" and the handoff advice are both wrong, and the route needs a different answer), or the board resuming
@@ -87,3 +98,4 @@ sentence at all, for a switch to Claude from another runner. That is a #7410 gap
 ## Log
 - Round 0 (build): switchPendingWords + route wiring (both restart-failed arms); tests above; policy tests run (see commit).
 - Round 1: no blockers. [WARNING] a stopped agent (restart refuses) or one whose window already closed was told to ask for a handoff nobody could ask for --> FIXED (remove.js returns stillRunning only when it could not close the window; the handoff is offered only then; otherwise "it will start on <new> without this conversation"; engine and route tests for both). [WARNING] the pending answer dropped the notes facts the restarted answer gives --> FIXED (switchNotesWords, one clause for both, tense of the lost clause only; switchCarryWords byte-identical, 759-case differential, #7410/#7445 suites unchanged; pending tests for rootChange, between, copied-not-pointed, failed). [NIT] FUTURE constant restated the implementation --> FIXED (specific assertions). [NIT] #5091 success-side gap --> recorded as #7467.
+- Round 2: no blockers. [WARNING] stillRunning was set whenever the window was not PROVEN closed (timeouts, other has-session answers, Windows unknowns, a close that threw, a dry run) --> FIXED (set only when the close's own look-again positively found it alive: Mac has-session exit 0, Windows win32stop stillAlive; reported through an optional seen object, the close's Boolean unchanged; remove.test.js: alive -> flag, timeout / other code -> none, throw -> none, dry run -> none; the last three red on dd5c5e961a). [WARNING] "still running as before" for a stopped agent and "Nothing was changed" after a saved switch --> filed as #7470, cited in weakest point. [NIT] refusals for a running agent get the cautious answer --> recorded. [NIT] "759 combinations" --> replaced by the input space (1,057 in the reviewer's run).

@@ -2232,6 +2232,66 @@ test('restart closes the window and lets launchd bring the agent back', () => {
   }
 });
 
+/* #7455 round 2: stillRunning (the provider route offers a handoff only with it) is set ONLY when the close's own
+   look-again positively found the old session alive. Every not-proven-closed case that is not that gets no flag. */
+function closeFailsWith(name, hasSession) {
+  boardShows(name, name);
+  remove.setRunner((file, args) => {
+    const cmd = args && args[0];
+    if (cmd === 'has-session') return hasSession();
+    return { ok: true, stdout: '' };
+  });
+}
+function restartedAs(name) {
+  try { return mac.restart(name); }
+  finally {
+    // Leaving dry-run demands a runner (the module refuses otherwise), so one is installed first, then cleared.
+    remove.setRunner(() => ({ ok: true, stdout: '' }));
+    remove.setDryRun(false);
+    remove.setRunner(null);
+    status.setPaneSource(null);
+  }
+}
+
+test('#7455 round 2: a close whose look-again finds the session still there: PARTIAL, stillRunning', () => {
+  const name = madeAgent('still7455alive');
+  closeFailsWith(name, () => ({ ok: true, stdout: '' }));   // has-session exit 0: it is there
+  const out = restartedAs(name);
+  assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+  assert.match(out.because, /still running the older instructions/, 'CONTROL: the close-failed outcome');
+  assert.equal(out.stillRunning, true, 'seen alive after the close, so the route may offer a handoff');
+});
+
+test('#7455 round 2: a look-again that timed out or answered something else: PARTIAL, no stillRunning', () => {
+  for (const [what, answer] of [['timed out', { ok: false, code: null }], ['answered 2', { ok: false, code: 2 }]]) {
+    const name = madeAgent('still7455-' + answer.code);
+    closeFailsWith(name, () => answer);
+    const out = restartedAs(name);
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL, what + ': ' + out.because);
+    assert.match(out.because, /still running the older instructions/, what + ': CONTROL: the close-failed outcome');
+    assert.equal('stillRunning' in out, false, what + ': not seen alive, so no handoff may be promised');
+  }
+});
+
+test('#7455 round 2: a close that threw: PARTIAL, no stillRunning', () => {
+  const name = madeAgent('still7455throws');
+  closeFailsWith(name, () => { throw new Error('tmux went away mid-close'); });
+  const out = restartedAs(name);
+  assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
+  assert.ok(out.steps.some((s) => s.label === 'closed its window' && s.ok === false), 'CONTROL: the close step failed');
+  assert.equal('stillRunning' in out, false, 'a close that threw saw nothing alive');
+});
+
+test('#7455 round 2: a dry run: no stillRunning', () => {
+  const name = madeAgent('still7455dry');
+  boardShows(name, name);
+  remove.setRunner(null);
+  remove.setDryRun(true);
+  const out = restartedAs(name);
+  assert.notEqual(out.outcome, remove.OUTCOME.RESTARTED, 'CONTROL: a dry run of a close is never proven closed: ' + out.because);
+  assert.equal('stillRunning' in out, false, 'a dry run answered nothing real');
+});
+
 test('restart reports PARTIAL when the launch job fails to reload, not a false RESTARTED (#3418)', () => {
   /* 🛑 THE BUG THAT MADE NORA VANISH. bootout unloads the job; if bootstrap then fails there
      is no loaded job for KeepAlive to revive, so the agent is DOWN. The old code returned the

@@ -3127,10 +3127,12 @@ function switchCarryWords(label, carried, fromLabel) {
  * comment on `landedOn` versus its future-tense account sentence is the same rule).
  * Round 1: the notes are said too, through switchNotesWords, the restarted answer's own clause: the carry already ran
  * before the restart failed, so those facts are true now; only "anything it only remembered from talking" is future.
- * `stillRunning` is true only when the route KNOWS its old session is still up (the restart could not close its
- * window: remove.js returns stillRunning then). Only then can the person still talk to it and ask for a handoff, so
- * only then is that offered. Otherwise (it was not running, its window was already closed, or the route cannot tell)
- * the next start is simply on the new provider, without this conversation, and no handoff is promised.
+ * `stillRunning` is true only when the old session was POSITIVELY SEEN ALIVE after the restart's close attempt
+ * (remove.js sets it then, and only then: a close that did not end it, followed by a look that finds this agent's own
+ * session). Only then can the person still talk to it and ask for a handoff, so only then is that offered. Every other
+ * case (not running, window already closed, a close that threw, a has-session or Windows answer that could not tell,
+ * a dry run, any refusal) gets the cautious answer: the next start is on the new provider, without this conversation,
+ * and no handoff is promised.
  */
 function switchPendingWords(label, carried, fromLabel, stillRunning) {
   if (!carried) return '';

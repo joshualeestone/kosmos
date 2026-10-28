@@ -926,12 +926,18 @@ function sessionOps(platform, tmuxBin) {
       /* #6183: the session close as a step, for the restart body's async driver. win32stop.endSteps resolves the
          pid (a read) then yields the taskkill, which remove.js's runAsync runs off the board's thread; wrap its
          { ok } to the Boolean the sync `end` returns (restartSteps records a step ok as `r !== false`). */
-      endSteps: function* (session) { const r = yield* win32stop.endSteps(session); return Boolean(r && r.ok); },
+      /* #7455 round 2: `seen`, when given, is told the close's own look-again FOUND IT STILL RUNNING (win32stop's
+         stillAlive): positive evidence, not merely "not proven gone". The returned Boolean is unchanged. */
+      endSteps: function* (session, seen) {
+        const r = yield* win32stop.endSteps(session);
+        if (seen && r && r.stillAlive === true && !r.dryRun) seen.alive = true;
+        return Boolean(r && r.ok);
+      },
     };
   }
   const tmux = tmuxBin || process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
   /* #6173: one body as steps (each tmux call yielded), driven synchronously for `end`. */
-  function* endSteps(session) {
+  function* endSteps(session, seen) {
     // ⚠️ `=`-anchored, and the exit code carried: tmux answers 1 for a session
     // that is not there, which is success for our purposes.
     const r = yield { exec: [tmux, ['kill-session', '-t', `=${session}`]] };
@@ -940,6 +946,10 @@ function sessionOps(platform, tmuxBin) {
     // gone, and this is the check that stops a removal or a restart being
     // reported over a live agent.
     const still = yield { exec: [tmux, ['has-session', '-t', `=${session}`]] };
+    /* #7455 round 2: `seen`, when given, is told only when has-session ANSWERED that the session is there (exit 0, a
+       real answer, not a dry run). A timeout, any other code, or no answer is not that, and leaves it untold. The
+       returned Boolean (proven gone) is unchanged. */
+    if (seen && still && still.ok === true && !still.dryRun) seen.alive = true;
     return Boolean(still && still.ok === false && still.code === 1);
   }
   return {
@@ -2402,8 +2412,16 @@ function* restartSteps(name, cause, platform, startIfDead) {
      the relaunch (which bootstraps the launchd job). `ended` is vacuously true there; the kill
      runs only for a live (FOUND.OURS) agent. */
   const sops = sessionOps(platform);
+  /* #7455 round 2: whether the close itself THREW, as against answering "not proven gone". `step` swallows a throw
+     into ok:false, so it is noted here, inside the step, and the step record stays exactly what it was. */
+  let closeThrew = false;
+  const seen = { alive: false };   // set by the close's own look-again only when it positively found the session
+  const closeSteps = function* () {
+    try { return yield* (sops.endSteps ? sops.endSteps(session, seen) : now(() => sops.end(session))); }
+    catch (e) { closeThrew = true; throw e; }
+  };
   const ended = fromDead ? true
-    : yield* step('closed its window', sops.endSteps ? sops.endSteps(session) : now(() => sops.end(session)));
+    : yield* step('closed its window', closeSteps());
 
   if (!ended) {
     /* #2019: the kill failed, so the agent is still running the older
@@ -2411,13 +2429,17 @@ function* restartSteps(name, cause, platform, startIfDead) {
        this still-live agent does not read as RESTARTING if it later stops for a
        real reason. */
     disruption.clear(clean);
+    /* #7455 round 2: `ended` false means only that the window was not PROVEN closed: a has-session that timed out or
+       answered something other than "no such session", a Windows close that could not find out, a close that threw,
+       or a dry run all land here too. stillRunning is set ONLY when the old session was POSITIVELY SEEN ALIVE after
+       the close attempt: the close's own look-again answered that it is there (Mac: has-session exit 0; Windows: the
+       process found still running, win32stop stillAlive). A close that threw, a dry run, a timeout, any other answer,
+       or no answer: no flag. The provider route offers a handoff only with the flag. */
+    const seenAlive = seen.alive === true && !closeThrew && !(DRY_RUN && !runner);
     return {
       outcome: OUTCOME.PARTIAL,
       steps,
-      /* #7455: the one restart outcome in which the old session is KNOWN to be still up, said as a field so a caller
-         (the provider route) does not read it from this sentence. Every other outcome leaves it out: not running,
-         already closed, or not known. */
-      stillRunning: true,
+      ...(seenAlive ? { stillRunning: true } : {}),   // #7455 round 2: only when seen alive after the close
       because: `we could not close ${shown}'s window, so it is still running the older instructions. `
         + 'Nothing was changed.',
     };

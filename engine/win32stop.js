@@ -253,7 +253,9 @@ function finishKill(r, pid, sessionId) {
      the rule both Mac call sites already carry, and the one that stops a removal
      being reported over a live agent. */
   if (alive(pid)) {
-    return { ok: false, because: 'it is still running after we asked it to close' };
+    /* #7455 round 2: stillAlive says the look-again FOUND it running (positive), as against the other ok:false
+       answers here, which only mean the close was not proven. */
+    return { ok: false, stillAlive: true, because: 'it is still running after we asked it to close' };
   }
 
   /* Drop the ownership record for the session we just ended. On the Mac the tmux
