@@ -76,29 +76,43 @@ final class BoardClient: ObservableObject {
     // save at a time per agent: a second press while one is out waits for nothing and is ignored.
     @Published private(set) var starNote: String?
     @Published private(set) var starring: Set<String> = []
+    // Review 1: every star press is numbered. A re-sort's own stars read that began before a press (or lands while one is
+    // out) is not taken, or it would put back the list from before the press; and an answer older than the newest
+    // press changes only its own agent, never the whole list.
+    private var starWrites = 0
     func isStarred(_ session: String) -> Bool { shownStars?.contains(session) == true }
     func toggleStar(_ session: String) async {
         guard let mac = shownMac, !starring.contains(session) else { return }
-        let before = shownStars ?? []
-        let on = !before.contains(session)
+        let on = !isStarred(session)
         let epoch = chatEpoch
+        starWrites += 1
+        let mine = starWrites
         starring.insert(session)
         defer { starring.remove(session) }
         starNote = nil
-        showStars(on ? before.union([session]) : before.subtracting([session]), mac: mac.address)
+        showStars(setting: session, on: on, mac: mac.address)
         let answer = await throughMac { Board.starWriteRequest(mac: $0, name: session, on: on) }
         guard epoch == chatEpoch, shownMac?.address == mac.address else { return }   // another computer or account now
         if let answer, answer.1.statusCode == 200, let names = Board.parseStars(answer.0) {
-            showStars(names, mac: mac.address)
+            // The newest press's answer is the board's whole list; an older one settles only its own agent.
+            if mine == starWrites && starring.count == 1 { showStars(names, mac: mac.address) }
+            else { showStars(setting: session, on: names.contains(session), mac: mac.address) }
         } else {
-            // Back to what the board last said, never to a guess.
-            showStars(before, mac: mac.address)
+            // Only this agent goes back; every other star stays as the phone now shows it (review 1).
+            showStars(setting: session, on: !on, mac: mac.address)
             starNote = Board.starFailure(on: on, status: answer?.1.statusCode ?? 0, data: answer?.0)
         }
+    }
+    // Whether a re-sort's stars read may be taken: no press since it began, and none out now.
+    func starsReadStillGood(since writes: Int) -> Bool { writes == starWrites && starring.isEmpty }
+    private func showStars(setting session: String, on: Bool, mac: String) {
+        let now = shownStars ?? []
+        showStars(on ? now.union([session]) : now.subtracting([session]), mac: mac)
     }
     private func showStars(_ names: Set<String>, mac: String) {
         stars = (mac, names)
         agents = Board.agentOrder(agents, sort: agentSort, projects: sortProjects, stars: names)
+        sortEpoch += 1   // review 1: Today re-takes its order too, so a star moves the agent there as well
     }
     func clearStarNote() { starNote = nil }
 
@@ -1371,6 +1385,7 @@ final class BoardClient: ObservableObject {
         let ticket = readsStarted
         // Taken when the read starts: a pull sets it while another read may already be in the air.
         let resort = resortNext
+        let starWritesAtStart = starWrites   // kosmos#7034 review 1
         async let starsRead = readStars(url: url, if: resort)
         let result = await env.send(Board.statusRequest(mac: url))
         let names = await starsRead
@@ -1387,7 +1402,7 @@ final class BoardClient: ObservableObject {
             // without one has withdrawn it.
             let sorting = resort && resortNext && ticket >= resortFrom
             // Stars are taken only with the re-sort they were read for, so Today never orders by stars the list is not.
-            if sorting, let names { stars = (mac.address, names) }
+            if sorting, let names, starsReadStillGood(since: starWritesAtStart) { stars = (mac.address, names) }   // kosmos#7034 review 1: never undo a press
             let known = stars?.mac == mac.address ? stars?.names : nil
             agents = sorting ? Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known) : Board.keepingOrder(agents, with: rows, stars: known, sort: agentSort, projects: sortProjects)
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
