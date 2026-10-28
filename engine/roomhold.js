@@ -154,6 +154,33 @@ function inputProjects(name) {
   return live;
 }
 function forgetInput(name) { inputHeld.delete(String(name)); }
+/* kosmos#7406: the posts the per-account cap held for a member of any runner but Antigravity (whose capped posts carry
+   their own mark and are retried with its quota, below). A capped post that ASKS the member is stored with the @ mark,
+   which other holds use too, so the cap's own posts are noted here, the #6256 input-hold way, and flushReleased retries
+   exactly those once the cap lets the member through. In memory: after a board restart they wait for the member's next
+   wake, as the input-held ones do. */
+const capHeld = new Map();   // name -> Map(projectId -> Set(plain post id))
+function noteCap(name, projectId, id) {
+  if (!name || !projectId || !id) return;
+  const byProject = capHeld.get(String(name)) || new Map();
+  const ids = byProject.get(String(projectId)) || new Set();
+  ids.add(plainId(String(id)));
+  byProject.set(String(projectId), ids);
+  capHeld.set(String(name), byProject);
+}
+/* The projects that still hold one of the member's cap-held posts; notes for posts gone since are dropped. */
+function capProjects(name) {
+  const byProject = capHeld.get(String(name));
+  if (!byProject) return [];
+  const live = [];
+  for (const [p, ids] of [...byProject]) {
+    const still = new Set(heldIn(String(name), p).map(plainId).filter((x) => ids.has(x)));
+    if (still.size) { byProject.set(p, still); live.push(p); } else byProject.delete(p);
+  }
+  if (!byProject.size) capHeld.delete(String(name));
+  return live;
+}
+function forgetCap(name) { capHeld.delete(String(name)); }
 
 /* #4588 PR B: a post held because the member is an Antigravity agent paused on the shared Google quota may @-name
    the member (an agent's post is an automatic sender there, addressed or not). Its id is kept with this mark, so the
@@ -328,6 +355,7 @@ function dropShown(name, projectId, shownIds) {
 /* The member was removed: nothing held for it is told to anyone who later takes its name. */
 function forget(name) {
   forgetInput(name);   // #6256 item 1
+  forgetCap(name);   // kosmos#7406
   try { fs.rmSync(limitFileFor(name), { force: true }); } catch { /* the held file is what matters */ }
   try { fs.rmSync(fileFor(name), { force: true }); return true; } catch { return false; }
 }
@@ -523,6 +551,7 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     // #5805: a usage limit held this flush: its ids keep their marks, and the reset is recorded for withoutStale.
     if (limitUntil) noteLimit(name, projectId, ids.filter(isAddressed), limitUntil);
     if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
+    if (capped) for (const x of ids) noteCap(name, projectId, x);   // kosmos#7406: retried by flushReleased once the cap frees
     else if (due) noteDigest(name, projectId, now);   // #7246: a digest was typed (or held for typing): the next waits an hour
     // A digest the gate refused is tried again in DIGEST_RETRY_MS, not at the next minute's sweep.
     if (due && (!state || state === DELIVERY.COULD_NOT)) noteDigest(name, projectId, now - DIGEST_MS + DIGEST_RETRY_MS);
@@ -582,6 +611,20 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
           const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: inProjects, modeOf, now });   // #7246: a digest room's unasked posts still wait
           inputProjects(inName);   // drop the notes for posts now told
           for (const d of done) out.push({ name: inName, why: 'input', ...d });
+          continue;
+        }
+      }
+      /* kosmos#7406: the per-account cap held these while the member was idle, so no wake is coming for them. Told once
+         the member is not in a fresh working turn, can be typed into, no usage limit or sign-out holds it, and the cap
+         lets it through; until then they wait, untouched. Antigravity members are left to their own path below. */
+      const capIn = isAgy(card) ? [] : capProjects(inName);
+      if (capIn.length && !workingNow(readReport, inName, now, decayMs)) {
+        const chatMod = require('./chat');
+        if (chatMod.addressable(inName, roster).ok === true && !chatMod.accountHeldVerdict(inName, roster)
+          && require('./agyquota').heldForCap(inName, roster, now, undefined, env || process.env) === null) {
+          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: capIn, modeOf, now });
+          capProjects(inName);   // drop the notes for posts now told
+          for (const d of done) out.push({ name: inName, why: 'cap', ...d });
           continue;
         }
       }
@@ -683,4 +726,4 @@ function carriedLine(name, projectId, ids, after, state) {
     : `room-hold: ${name} could not yet be told of ${ids.length} held post(s) in ${projectId} on an arrival there (delivery=${state || 'none'})\n`;
 }
 
-module.exports = { QUIET, capKept, NOTICE_MODES, BIG_ROOM, DIGEST_MS, DIGEST_RETRY_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };
+module.exports = { QUIET, capKept, NOTICE_MODES, BIG_ROOM, DIGEST_MS, DIGEST_RETRY_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, noteCap, capProjects, forgetCap, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };

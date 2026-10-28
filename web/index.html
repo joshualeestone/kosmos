@@ -19362,6 +19362,17 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="agycap-hint" style="margin:8px 0 0;">Gemini agents signed in with a Google subscription on this computer share one Google account's quota, so several working at once can use it up together. Gemini agents on an API key are not counted. With a limit, Kosmos holds its own automatic messages, room posts and the tasks it hands out to the others while that many are working, counting each one it just started for a few minutes, so those can arrive late. Your own messages, and a restart or new team you start, are not held by this limit, though a restart or new team counts toward it. No limit by default.</p>
       <p class="dhint" id="agycap-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
+    <!-- kosmos#7406: the same cap for every other agent, counted per account. One user's ~35 agents were woken
+         together and the turns set off the provider's rate limits. Same status-control contract as the Gemini cap. -->
+    <section class="dbox">
+      <h3 class="dlab">Agents on one account at once</h3>
+      <div class="frow" id="workcap-row" hidden style="margin-top:14px; align-items:center; gap:8px;">
+        <label class="dhint" for="workcap-max" style="margin:0;">Working at the same time, per account</label>
+        <select id="workcap-max" aria-describedby="workcap-hint"></select>
+      </div>
+      <p class="dhint" id="workcap-hint" style="margin:8px 0 0;">Agents signed in to the same account (one Claude, OpenAI or other sign-in) share that provider's limits, so many working at once can hit them together and their turns fail. With a limit, Kosmos holds its own automatic messages, other agents' room posts and the tasks it hands out to the others on that account while that many are working, counting each one it just started for a few minutes, so those can arrive late. Your own messages, and a restart or new team you start, are not held by this limit, though a restart or new team counts toward it. Gemini subscription agents have their own limit, above. No limit by default.</p>
+      <p class="dhint" id="workcap-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
          retitle #2619, formerly "Agents talking to each other") moved here from its own
          top-level tab, which is deleted. Block 3 of the consolidated Automation section,
@@ -27749,65 +27760,79 @@ function hbIntervalChange() {
 }
 document.getElementById('hb-toggle') && document.getElementById('hb-toggle').addEventListener('click', hbToggleClick);
 document.getElementById('hb-interval') && document.getElementById('hb-interval').addEventListener('change', hbIntervalChange);
-/* #4588 ask 3: the Gemini cap (GET/PUT /api/agycap-setting). Choices come from the server, so the select and the engine
-   cannot disagree; 0 reads "No limit". A non-ok or failed read hides the select and says so. Paint after a save comes
-   from the server's answer. AGYCAP_EPOCH: a slow GET cannot repaint over a newer save. */
-let AGYCAP_EPOCH = 0;
-function agycapLabel(n) { return n === 0 ? 'No limit' : (n === 1 ? '1 agent' : n + ' agents'); }
-function agycapShow(r, force) {
-  const sel = document.getElementById('agycap-max');
-  const row = document.getElementById('agycap-row');
-  if (Array.isArray(r.choices)) {
-    const html = r.choices.map((n) => '<option value="' + Number(n) + '">' + agycapLabel(Number(n)) + '</option>').join('');
-    if (sel.innerHTML !== html) sel.innerHTML = html;
+/* #4588 ask 3: the Gemini cap (GET/PUT /api/agycap-setting), and kosmos#7406 the per-account cap
+   (GET/PUT /api/workcap-setting): one control, made twice, so the two cannot behave differently (`api` holds the two
+   requests). Choices come from
+   the server, so the select and the engine cannot disagree; 0 reads "No limit". A non-ok or failed read hides the
+   select and says so. Paint after a save comes from the server's answer. The epoch: a slow GET cannot repaint over a
+   newer save. */
+function capLabel(n) { return n === 0 ? 'No limit' : (n === 1 ? '1 agent' : n + ' agents'); }
+function capControl(prefix, api) {
+  let epoch = 0;
+  const el = (id) => document.getElementById(prefix + '-' + id);
+  function show(r, force) {
+    const sel = el('max');
+    const row = el('row');
+    if (Array.isArray(r.choices)) {
+      const html = r.choices.map((n) => '<option value="' + Number(n) + '">' + capLabel(Number(n)) + '</option>').join('');
+      if (sel.innerHTML !== html) sel.innerHTML = html;
+    }
+    // force: after a failed save the select must show the stored value even while it has focus (it just changed).
+    if (force || document.activeElement !== sel) sel.value = String(Number(r.maxWorking) || 0);
+    if (row) row.hidden = false;
   }
-  // force: after a failed save the select must show the stored value even while it has focus (it just changed).
-  if (force || document.activeElement !== sel) sel.value = String(Number(r.maxWorking) || 0);
-  if (row) row.hidden = false;
-}
-async function paintAgycap(force) {
-  const mine = ++AGYCAP_EPOCH;
-  const sel = document.getElementById('agycap-max');
-  const row = document.getElementById('agycap-row');
-  const msg = document.getElementById('agycap-msg');
-  if (!sel) return;
-  try {
-    const res = await fetch('/api/agycap-setting', { cache: 'no-store' });
-    if (mine !== AGYCAP_EPOCH) return;
-    if (!res.ok) throw new Error('not ok');
-    const r = await res.json();
-    if (mine !== AGYCAP_EPOCH) return;
-    agycapShow(r, force);
-    // A saved file that could not be read is served as no limit (ok false): say so rather than show a quiet "No limit".
-    if (msg) msg.textContent = r.ok === false ? 'We could not read the saved limit, so no limit applies.' : '';
-  } catch {
-    if (mine !== AGYCAP_EPOCH) return;
-    if (row) row.hidden = true;
-    if (msg) msg.textContent = 'We could not read this setting just now.';
+  async function paint(force) {
+    const mine = ++epoch;
+    const sel = el('max');
+    const row = el('row');
+    const msg = el('msg');
+    if (!sel) return;
+    try {
+      const res = await api.get();
+      if (mine !== epoch) return;
+      if (!res.ok) throw new Error('not ok');
+      const r = await res.json();
+      if (mine !== epoch) return;
+      show(r, force);
+      // A saved file that could not be read is served as no limit (ok false): say so rather than show a quiet "No limit".
+      if (msg) msg.textContent = r.ok === false ? 'We could not read the saved limit, so no limit applies.' : '';
+    } catch {
+      if (mine !== epoch) return;
+      if (row) row.hidden = true;
+      if (msg) msg.textContent = 'We could not read this setting just now.';
+    }
   }
-}
-async function agycapChange() {
-  const sel = document.getElementById('agycap-max');
-  const msg = document.getElementById('agycap-msg');
-  if (!sel || !sel.options || !sel.options.length) return; // not loaded: never write a default over a stored value
-  const mine = ++AGYCAP_EPOCH;
-  try {
-    const res = await fetch('/api/agycap-setting', {
-      method: 'PUT', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ maxWorking: Number(sel.value) }),
-    });
-    const out = await res.json().catch(() => ({}));
-    if (mine !== AGYCAP_EPOCH) return;
-    if (!res.ok) { await paintAgycap(true); if (msg && AGYCAP_EPOCH === mine + 1) msg.textContent = out.error || 'We could not save that setting.'; return; }   // a newer change wins its own message
-    agycapShow(out, true);
-    if (msg) msg.textContent = '';
-  } catch {
-    if (mine !== AGYCAP_EPOCH) return;
-    await paintAgycap(true);   // never leave a choice on screen that was not saved
-    if (msg && AGYCAP_EPOCH === mine + 1) msg.textContent = 'We could not reach Kosmos to save that.';
+  async function change() {
+    const sel = el('max');
+    const msg = el('msg');
+    if (!sel || !sel.options || !sel.options.length) return; // not loaded: never write a default over a stored value
+    const mine = ++epoch;
+    try {
+      const res = await api.put(JSON.stringify({ maxWorking: Number(sel.value) }));
+      const out = await res.json().catch(() => ({}));
+      if (mine !== epoch) return;
+      if (!res.ok) { await paint(true); if (msg && epoch === mine + 1) msg.textContent = out.error || 'We could not save that setting.'; return; }   // a newer change wins its own message
+      show(out, true);
+      if (msg) msg.textContent = '';
+    } catch {
+      if (mine !== epoch) return;
+      await paint(true);   // never leave a choice on screen that was not saved
+      if (msg && epoch === mine + 1) msg.textContent = 'We could not reach Kosmos to save that.';
+    }
   }
+  if (el('max')) el('max').addEventListener('change', change);
+  return paint;
 }
-document.getElementById('agycap-max') && document.getElementById('agycap-max').addEventListener('change', agycapChange);
+// Literal URLs, so web.api-routes-3957.test.js can match each fetch to its board route.
+const CAP_PUT = { method: 'PUT', headers: { 'content-type': 'application/json' } };
+const paintAgycap = capControl('agycap', {
+  get: () => fetch('/api/agycap-setting', { cache: 'no-store' }),
+  put: (body) => fetch('/api/agycap-setting', { ...CAP_PUT, body }),
+});
+const paintWorkcap = capControl('workcap', {   // kosmos#7406
+  get: () => fetch('/api/workcap-setting', { cache: 'no-store' }),
+  put: (body) => fetch('/api/workcap-setting', { ...CAP_PUT, body }),
+});
 /* #3508: keep the check-ins live while Settings is on screen. The store updates on the
    Prompter's own (minutes-granularity) tick, so a 15s poll is ample; it is gated on the
    panel being visible (offsetParent is null when Settings is not the shown view) so it
@@ -28000,6 +28025,7 @@ async function paintSettings() {
   paintAutomation();
   paintHeartbeat();
   paintAgycap(); // #4588 ask 3
+  paintWorkcap(); // kosmos#7406
   paintRecommender(); // #3595: live.
   paintAssigner(); // #3595 phase 2: live.
   paintPrompterNudges();

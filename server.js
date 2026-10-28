@@ -681,7 +681,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
     // #4588 ask 3: the person's cap on how many Gemini agents work at once.
     try { heldUntil = agyq.heldForCap(who, r, now); } catch { heldUntil = null; }
-    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " waits: the Gemini subscription agents on this computer are at the limit set for working at once" };
+    if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + ' waits: ' + agyq.capWords(who, r).replace('the limit you set', 'the limit set') };   // kosmos#7406: either cap
     // Reserve now, before the part is assigned and told, so the next givePart in this same tick counts it.
     try { capSlot = agyq.noteCapStart(who, r, now); } catch { capSlot = null; }
   }
@@ -1418,6 +1418,7 @@ function connlostHealEnabled() {
 }
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const agycapSetting = require('./engine/agycap-setting');   // #4588 ask 3
+const workcapSetting = require('./engine/workcap-setting');   // kosmos#7406
 const recommenderSetting = require('./engine/recommender-setting'); // #2619
 const recommender = require('./engine/recommender'); // #3595: the Recommender's behaviour (pure step; the runner is below)
 const assignerSetting = require('./engine/assigner-setting'); // #2619
@@ -12535,6 +12536,31 @@ const server = http.createServer(async (req, res) => {
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         const r = agycapSetting.read();
         sendJson(res, 200, { maxWorking: r.maxWorking, choices: agycapSetting.CHOICES, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+  /* kosmos#7406: how many of this computer's agents on ONE ACCOUNT may work at once before Kosmos's automatic messages
+     to the others on it wait (Settings > Automation), for every runner but Antigravity (its own cap, above). The same
+     STATUS control and the same advisory write rule as /api/agycap-setting. */
+  if (pathname === '/api/workcap-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = workcapSetting.read();
+      sendJson(res, 200, { maxWorking: r.maxWorking, choices: workcapSetting.CHOICES, ok: r.ok });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/workcap-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        const saved = workcapSetting.set(body);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = workcapSetting.read();
+        sendJson(res, 200, { maxWorking: r.maxWorking, choices: workcapSetting.CHOICES, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;

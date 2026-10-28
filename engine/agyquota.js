@@ -146,10 +146,47 @@ function busyAgy(c, now) {
 }
 /* Counts what the cards say: an agent in a long tool run whose `working` report has decayed reads unknown and stops
    counting, so the cap can undercount then (the permissive side). */
-function heldForCap(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env) {
+/* kosmos#7406: the same cap for every other agent of ours, counted per ACCOUNT (engine/workcap-setting.js): a
+   provider's limit is per account, so only the agents sharing one runner and one account folder count against each
+   other. The account comes from the agent's launch job, kept ACCOUNT_MS (this runs once per automatic delivery and once
+   per roster card in it). A job that cannot be read is the runner's default account. */
+const ACCOUNT_MS = 2000;
+const ACCOUNT_MEMO = new Map();
+function accountOf(c, now) {
+  if (!c || !c.sessionName || c.isNamedOurs === false || isOurAgy(c)) return null;
+  const key = String(c.sessionName);
+  const hit = ACCOUNT_MEMO.get(key);
+  if (hit && now - hit.at >= 0 && now - hit.at < ACCOUNT_MS) return hit.account;
+  let dir = '';
+  try { const job = require('./create').readJob(key); dir = job && job.configDir ? String(job.configDir) : ''; } catch { dir = ''; }
+  const account = (c.runner || 'claude') + '\u0000' + dir;
+  ACCOUNT_MEMO.set(key, { at: now, account });
+  return account;
+}
+const busyCard = (c, now) => Boolean(c && c.sessionName && (c.state === 'working' || startedRecently(String(c.sessionName), now)));
+function heldForWorkCap(card, roster, now, readWorkCap) {
+  const account = accountOf(card, now);
+  if (account === null || busyCard(card, now)) return null;
+  let max = 0;
+  try { max = Number(readWorkCap().maxWorking) || 0; } catch { max = 0; }
+  if (max <= 0) return null;
+  const self = String(card.sessionName);
+  const busy = (Array.isArray(roster) ? roster : [])
+    .filter((c) => c && String(c.sessionName) !== self && busyCard(c, now) && accountOf(c, now) === account).length;
+  return busy >= max ? now + CAP_RECHECK_MS : null;
+}
+/* kosmos#7406: which cap holds `session`, in the words every surface uses (chat's held reason, the Assigner's refusal). */
+function capWords(session, roster) {
+  let card = null;
+  try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
+  return isOurAgy(card) ? 'the Gemini subscription agents on this computer are at the limit you set for working at once'
+    : 'the agents on its account are at the limit you set for working at once';
+}
+function heldForCap(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env, readWorkCap = () => require('./workcap-setting').read()) {
   if (quotaHoldOff(env)) return null;
   let card = null;
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
+  if (card && !isOurAgy(card)) return heldForWorkCap(card, roster, now, readWorkCap);   // kosmos#7406
   if (!isOurAgy(card) || busyAgy(card, now)) return null;   // review 13: before the setting is read, so other runners skip the disk
   let max = 0;
   try { max = Number(readCap().maxWorking) || 0; } catch { max = 0; }
@@ -161,14 +198,16 @@ function heldForCap(session, roster, now, readCap = () => require('./agycap-sett
 }
 /* Reserve `session`'s slot for an automatic line about to be typed (only our antigravity agents). Returns a token for
    releaseCapStart, or null. */
-function noteCapStart(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env) {
+function noteCapStart(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env, readWorkCap = () => require('./workcap-setting').read()) {
   if (quotaHoldOff(env)) return null;   // the brake lifts the cap, so nothing is reserved under it either
-  let max = 0;
-  try { max = Number(readCap().maxWorking) || 0; } catch { max = 0; }
-  if (max <= 0) return null;
   let card = null;
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
-  if (!isOurAgy(card)) return null;
+  // kosmos#7406: one of our other agents is reserved under the per-account cap, read the same way.
+  const agy = isOurAgy(card);
+  if (!agy && accountOf(card, now) === null) return null;
+  let max = 0;
+  try { max = Number((agy ? readCap : readWorkCap)().maxWorking) || 0; } catch { max = 0; }
+  if (max <= 0) return null;
   const name = String(card.sessionName);
   /* Review 3: an active reservation is left alone. Refreshing it let an idle agent that keeps receiving lines hold the
      slot for good, and a later line's failure would release the first one, which did reach the agent. */
@@ -365,4 +404,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { CAP_RECHECK_MS, CAP_START_MS, CAP_STARTS, noteCapStart, releaseCapStart, heldForCap, heldForAgy, GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, nudgeText, resumePending, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };
+module.exports = { CAP_RECHECK_MS, CAP_START_MS, CAP_STARTS, ACCOUNT_MEMO, accountOf, capWords, noteCapStart, releaseCapStart, heldForCap, heldForAgy, GRACE_MS, STAGGER_MS, MAX_AGE_MS, MAX_TRIES, NUDGE_OVER, NUDGE_TEXT, nudgeText, resumePending, pausedUntil, notePool, heldBackBy, releaseAfterMs, SLOT_MS, heldForQuota, quotaHoldOff, POOL_MEMO, newPoolMemo, MAX_POOL_MS, plan, sweepOnce, resumeEnabled, makeTick };

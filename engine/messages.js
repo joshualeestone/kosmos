@@ -3090,6 +3090,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
           // #5805: for withoutStale's day rule, every ask this arrival put back, not only the new post.
           if (sent.heldBy === 'limit') roomhold.noteLimit(name, projectId, [...(asksIt ? [id] : []), ...heldIds.filter(roomhold.isAddressed)], sent.limitReset);
           if (sent.heldBy === 'input') roomhold.noteInput(name, projectId, id);   // #6256 item 1: told once its box reads empty
+          if (sent.heldBy === 'cap') roomhold.noteCap(name, projectId, id);   // kosmos#7406: told once the per-account cap frees
           reached += 1;
         } else outcomes[name] = chat.DELIVERY.COULD_NOT;
         logCarried('held');   // #4926 N7: put back, so not told
