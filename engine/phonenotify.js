@@ -98,7 +98,7 @@ function noPush() {
   // Review 1: only "not there" is unmarked; any other failure to look (no permission, a broken path) counts as marked.
   try { fs.lstatSync(noPushFile()); return true; } catch (e) { return !(e && e.code === 'ENOENT'); }
 }
-const NO_PUSH_WHY = 'this computer is set never to send phone notices (a demo or test install)';
+const NO_PUSH_WHY = 'this computer was set up as a demo or test install, so it never sends phone notices';   // Mona Lisa's words (#7448)
 // #6488: the person's off, kept beside remote.json and OUTSIDE the tunnel state dir, because removing this computer
 // from Kosmos+ deletes that dir (remote.forget), and a reconnect must not turn back on what the person turned off.
 // It holds only { off: true }: no token. Written by turnOff (and by ensureDefaultOn, copying an off from before
