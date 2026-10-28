@@ -67,6 +67,16 @@ function atStart(version, now = Date.now()) {
   return { ...rec, notNow: false };
 }
 
+/** The notes marked restart:"agents" that this update brought (newer than `previous`, up to this version), or [] when
+ *  there is no line to make (no update, Not now, no record). The route asks this first, so a board with nothing marked
+ *  never reads tmux or the roster for the page's once-a-minute check. */
+function markedNotes(record, notes) {
+  if (!record || !record.previous || record.notNow || !Number.isFinite(record.at)) return [];
+  return (Array.isArray(notes) ? notes : []).filter((n) => n && n.restart === 'agents'
+    && VERSION.test(n.version) && cmp(n.version, record.previous) > 0 && cmp(n.version, record.version) <= 0
+    && typeof n.title === 'string' && n.title.trim());
+}
+
 /**
  * The line to show, or null. Pure, so the rule is tested without a disk or tmux.
  *   record  what atStart recorded ({ version, previous, at, notNow })
@@ -75,10 +85,7 @@ function atStart(version, now = Date.now()) {
  * Answers { version, notes: [{ version, title }], agents: [{ name, label }] }.
  */
 function lineFor({ record, notes, agents }) {
-  if (!record || !record.previous || record.notNow || !Number.isFinite(record.at)) return null;
-  const marked = (Array.isArray(notes) ? notes : []).filter((n) => n && n.restart === 'agents'
-    && VERSION.test(n.version) && cmp(n.version, record.previous) > 0 && cmp(n.version, record.version) <= 0
-    && typeof n.title === 'string' && n.title.trim());
+  const marked = markedNotes(record, notes);
   if (!marked.length) return null;
   const startSec = Math.floor(record.at / 1000) * 1000;
   const named = (Array.isArray(agents) ? agents : [])
@@ -97,4 +104,4 @@ function notNow(version) {
   return write({ version: rec.version, previous: rec.previous, at: rec.at, notNow: rec.version });
 }
 
-module.exports = { atStart, lineFor, notNow, read };
+module.exports = { atStart, lineFor, markedNotes, notNow, read };

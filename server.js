@@ -20377,15 +20377,18 @@ const server = http.createServer(async (req, res) => {
       if (!record || !record.previous || record.notNow) return null;
       let notes;
       try { notes = require('./engine/releasenotes').readNotes(__dirname).notes; } catch { return null; }
+      if (!rl.markedNotes(record, notes).length) return null;   // nothing marked: no tmux read for the minute's check
       const st = require('./engine/status');
       const [roster, starts] = await Promise.all([st.paneRosterAsync(), st.sessionStartsAsync()]);
       if (!Array.isArray(roster) || !starts) return null;
       const agents = roster
-        .filter((c) => c && c.isNamedOurs === true && c.session && c.sessionName && !(c.swarm && c.swarm.active === false))
+        .filter((c) => c && c.isNamedOurs === true && c.session && c.sessionName)
         .map((c) => {
           let id = null;
           try { id = readIdentity(c.sessionName); } catch { id = null; }
-          return { name: c.sessionName, label: id && id.displayName ? String(id.displayName) : c.sessionName, startedAt: starts.has(c.session) ? starts.get(c.session) : null };
+          // Cleaned as #7430's nameOf cleans it, so a control character or line break in a name never reaches the page.
+          const shown = String(id && id.displayName ? id.displayName : '').toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+          return { name: c.sessionName, label: shown || c.sessionName, startedAt: starts.has(c.session) ? starts.get(c.session) : null };
         });
       return rl.lineFor({ record, notes, agents });
     })().then((line) => sendJson(res, 200, { line }), () => sendJson(res, 200, { line: null }));

@@ -24179,13 +24179,26 @@ function paintRebootNote(note) {
    Show who on the line, each agent's own Restart in the list; Not now hides it until the next update. Kosmos never
    restarts anyone by itself: a restart stops what an agent is doing, and only the person can see whether that is fine.
    The line goes by itself once nobody named is still on an old session (asked again each minute). */
-let RLINE = { line: null, open: false, busy: false };
-/* "Ada", "Ada and Kai", "Ada, Kai and Lee", "Ada, Kai and 3 more" (the last two words a button that opens the list). */
+/* `woke`: after a restart, whether each agent was woken with the 'hello' every restart sends (#2686, autoHelloAfterRestart),
+   kept until closed: the line itself usually goes once everyone has restarted, so this is where the person learns it. */
+let RLINE = { line: null, open: false, busy: false, woke: { said: [], manual: [] } };
+/* "Ada", "Ada and Kai", "Ada, Kai and Lee" (escaped). */
+function rlineList(labels) {
+  const n = labels.map((l) => esc(l));
+  return n.length <= 1 ? n.join('') : n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1];
+}
+/* As rlineList, and past three "Ada, Kai and 3 more", the last two words a button that opens the list. */
 function rlineNames(agents) {
-  const n = agents.map((a) => esc(a.label));
-  if (n.length <= 1) return n.join('');
-  if (n.length <= 3) return n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1];
-  return n.slice(0, 2).join(', ') + ' and <button type="button" class="rlmore" data-rl-who>' + (n.length - 2) + ' more</button>';
+  if (agents.length <= 3) return rlineList(agents.map((a) => a.label));
+  return agents.slice(0, 2).map((a) => esc(a.label)).join(', ') + ' and <button type="button" class="rlmore" data-rl-who aria-expanded="'
+    + (RLINE.open ? 'true' : 'false') + '" aria-controls="rl-who">' + (agents.length - 2) + ' more</button>';
+}
+const RLINE_SAID = 'said';
+function rlineWokeWords() {
+  const w = RLINE.woke;
+  return (w.said.length ? 'Restarted ' + rlineList(w.said) + ', and said hello to wake them.' : '')
+    + (w.said.length && w.manual.length ? ' ' : '')
+    + (w.manual.length ? 'Say hello to ' + rlineList(w.manual) + ' to wake them.' : '');
 }
 function rlineHead(line) {
   const what = line.notes.length === 1 ? ': ' + esc(line.notes[0].title) : ' ' + line.notes.length + ' fixes in this update';
@@ -24202,12 +24215,18 @@ function paintRestartLine() {
   if (!slot) return;
   const line = RLINE.line;
   const held = slot.contains(document.activeElement);
-  if (!line) { slot.innerHTML = ''; delete slot.dataset.v; if (held) rebootFocusAway(); return; }
-  const one = line.agents.length === 1;
-  const html = '<div class="utoast rline"><span class="udot" aria-hidden="true"></span>'
+  const woke = rlineWokeWords();
+  if (!line && !woke) { slot.innerHTML = ''; delete slot.dataset.v; if (held) rebootFocusAway(); return; }
+  const one = line && line.agents.length === 1;
+  const html = !line
+    ? '<div class="utoast rline rldone"><span class="udot" aria-hidden="true"></span>'
+      + '<div class="utxt" role="status"><b>' + woke + '</b></div>'
+      + '<button type="button" class="ux" data-rl-close aria-label="Close this notice" title="Close this notice">&times;</button></div>'
+    : '<div class="utoast rline"><span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt" role="status"><b>' + rlineHead(line) + '</b>'
     + (line.notes.length > 1 ? line.notes.map((x) => '<small class="rlfix">' + esc(x.title) + '</small>').join('') : '')
-    + '<small>Restarting stops what they are doing now.</small></div>'
+    + '<small>Restarting stops what they are doing now.</small>'
+    + (woke ? '<small class="rlwoke">' + woke + '</small>' : '') + '</div>'
     + '<div class="uacts">'
     + '<button type="button" class="uprime" data-rl-all>' + (one ? 'Restart ' + esc(line.agents[0].label) : 'Restart all') + '</button>'
     + (one ? '' : '<button type="button" data-rl-who aria-expanded="' + (RLINE.open ? 'true' : 'false') + '" aria-controls="rl-who">' + (RLINE.open ? 'Hide who' : 'Show who') + '</button>')
@@ -24217,14 +24236,15 @@ function paintRestartLine() {
     + '</div>';
   // The same words do not repaint, so the minute's re-check never takes focus off a button or drops a refusal.
   if (slot.dataset.v === html) return;
-  const focusKey = held && document.activeElement ? ['data-rl-all', 'data-rl-who', 'data-rl-later', 'data-rl-one'].find((k) => document.activeElement.hasAttribute(k)) : null;
+  const focusKey = held && document.activeElement ? ['data-rl-all', 'data-rl-who', 'data-rl-later', 'data-rl-one', 'data-rl-close'].find((k) => document.activeElement.hasAttribute(k)) : null;
   const focusOne = focusKey === 'data-rl-one' ? document.activeElement.getAttribute('data-rl-one') : null;
   slot.dataset.v = html;
   slot.innerHTML = html;
   if (held) {
     const back = focusOne ? [...slot.querySelectorAll('[data-rl-one]')].find((b) => b.getAttribute('data-rl-one') === focusOne)
       : focusKey ? slot.querySelector('.uacts [' + focusKey + ']') || slot.querySelector('[' + focusKey + ']') : null;
-    (back || slot.querySelector('[data-rl-all]')).focus();
+    const to = back || slot.querySelector('[data-rl-all]') || slot.querySelector('[data-rl-close]');
+    if (to) to.focus();
   }
 }
 /* One agent's restart through the ordinary route. Resolves to null when it took, else the engine's sentence. */
@@ -24238,10 +24258,13 @@ async function rlineRestartOne(name) {
 async function rlineClick(e) {
   const slot = document.getElementById('rline-slot');
   const btn = e.target.closest('button');
-  if (!slot || !btn || !slot.contains(btn) || !RLINE.line) return;
-  if (btn.hasAttribute('data-rl-who')) { RLINE.open = !RLINE.open; delete slot.dataset.v; paintRestartLine(); if (RLINE.open) { const f = slot.querySelector('[data-rl-one]'); if (f) f.focus(); } return; }
-  // Busy, not disabled: a disabled button drops keyboard focus to the page.
+  if (!slot || !btn || !slot.contains(btn)) return;
+  if (btn.hasAttribute('data-rl-close')) { RLINE.woke = { said: [], manual: [] }; paintRestartLine(); return; }
+  if (!RLINE.line) return;
+  // Busy, not disabled: a disabled button drops keyboard focus to the page. Show who waits too, or its repaint would
+  // drop the running button's progress words and leave buttons that do nothing until the restarts finish.
   if (RLINE.busy || btn.getAttribute('aria-disabled') === 'true') return;
+  if (btn.hasAttribute('data-rl-who')) { RLINE.open = !RLINE.open; delete slot.dataset.v; paintRestartLine(); if (RLINE.open) { const f = slot.querySelector('[data-rl-one]'); if (f) f.focus(); } return; }
   if (btn.hasAttribute('data-rl-later')) {
     RLINE.busy = true;
     let ok = false, why = '';
@@ -24260,21 +24283,28 @@ async function rlineClick(e) {
   const names = one ? [one] : RLINE.line.agents.map((a) => a.name);
   const labelOf = (n) => { const a = RLINE.line.agents.find((x) => x.name === n); return a ? a.label : n; };
   RLINE.busy = true;
+  RLINE.woke = { said: [], manual: [] };
   btn.setAttribute('aria-disabled', 'true');
   const wasText = btn.textContent;
   const misses = [];
   for (let i = 0; i < names.length; i++) {
     if (!one && names.length > 1) btn.textContent = 'Restarting ' + (i + 1) + ' of ' + names.length;
     const why = await rlineRestartOne(names[i]);
-    if (why) misses.push({ name: names[i], why });
+    if (why) { misses.push({ name: names[i], why }); continue; }
+    // Woken as every other restart wakes an agent; the result is said on the line, or in its place once it has gone.
+    const label = labelOf(names[i]);
+    const batch = RLINE.woke;   // a report that arrives after the next press lands in its own batch, not the new one
+    autoHelloAfterRestart(names[i], (said) => { (said === RLINE_SAID ? batch.said : batch.manual).push(label); if (batch === RLINE.woke) paintRestartLine(); },
+      RLINE_SAID, 'manual');
   }
   RLINE.busy = false;
   btn.textContent = wasText;
   btn.removeAttribute('aria-disabled');
   await restartLineCheck();   // whoever restarted drops off the line; the line goes when nobody is left
   if (!misses.length) return;
+  // Each agent with its own reason: one reason under several names would read as covering them all.
   const words = misses.length === 1 ? labelOf(misses[0].name) + ' did not restart: ' + misses[0].why
-    : misses.map((m) => labelOf(m.name)).join(', ') + ' did not restart. ' + misses[0].why;
+    : misses.map((m) => labelOf(m.name) + ' did not restart: ' + asSentence(m.why)).join(' ');
   const row = one && slot.querySelector('[data-rl-one="' + CSS.escape(one) + '"]');
   rlineSay(row ? row.closest('.rlrow') : slot.querySelector('.utxt'), asSentence(words));
 }
