@@ -457,6 +457,132 @@ function removedNames() { return removedNamesFrom(REMOVED_FILE); }
    person removed there. Same parser, same "could not read" answer. */
 function removedNamesIn(storeRoot) { return removedNamesFrom(path.join(storeRoot, REMOVED_FILENAME)); }
 
+/* kosmos#7409 (an outside user's list): launchd keeps `disable` in its own per-machine database, never in the plist,
+   and Migration Assistant copies ~/Library/LaunchAgents but not that database. So after a move a removed agent's plist
+   loads at login, enabled, and the agent runs again in its tmux session. At board start, each removed agent whose
+   recorded job launchd does not hold disabled gets removal's own three steps again: `disable`, `bootout`, and its
+   session ended when the board can tie it to the agent (review 1: the session is not the job's, so bootout alone
+   leaves the agent running, hidden from the board). Restore's `enable` undoes it, as it undoes a removal.
+   Only a label removal itself would record for the record's own name (create.serviceLabel in this Kosmos, or the
+   default Kosmos's legacy com.<name>.discord) is used: removed.json is a file a person can edit. Nothing runs in a
+   dry run. A record of an agent the person chose to leave running (the untied override) is never swept: that
+   promise is the button's. A name removal itself would refuse (unsafeToActOn: a path step, a leading dash, another
+   Kosmos's separator) is skipped. On every start, not only after a move, a removed agent still loaded is unloaded
+   and then its tied session ended, so a half-done removal is finished.
+   The board's roster is read once (review 2: once per agent blocked the board's thread at start). An agent launchd
+   already holds disabled is still unloaded (bootout; review 3: a session ended while its job is loaded is started
+   again by KeepAlive), and only then its session ended when the board ties it to the agent (review 2). So a tied
+   session of a removed agent is ended on EVERY start, including one a person started again by hand (review 7).
+   Review 7: bootout returns before the job has stopped, so a job this run unloaded is waited on (waitUnloaded,
+   bounded) before the roster read, and one with no session on the roster yet is a recheck for the retry.
+   Returns { ok, reapplied: [names], failed: [names], unsure: [names], recheck: [names], because? }: failed is a step
+   launchd or tmux refused; unsure is a session the board could not tie to the agent, or could not ask about, left
+   alone (every run, never skipped); recheck is a job this run unloaded with no session on the roster yet (review 7: a
+   supervisor starting one can land after the read), which makes the run not clean so the retry looks again. */
+function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}) {
+  const none = { ok: true, reapplied: [], failed: [], unsure: [], recheck: [] };
+  if (platform !== 'darwin') return none;
+  if (!commandsAreReal() || (DRY_RUN && !runner)) return none;   // as waitUnloaded: a live dry run reads nothing real
+  const list = readRemovedForWrite();
+  if (list === UNREADABLE) return { ...none, ok: false, because: 'the list of removed agents could not be read' };
+  const wid = launchidentity.currentWorldId();
+  const owned = [];
+  const seen = new Set();
+  for (const r of list) {
+    if (!r || typeof r.name !== 'string' || typeof r.label !== 'string') continue;
+    if (r.leftRunningByChoice === true) continue;   // the person kept that session (its label is null today; a second guard)
+    const clean = create.cleanName(r.name);
+    if (!clean || unsafeToActOn(clean)) continue;
+    const ours = r.label === create.serviceLabel(clean, wid) || (launchidentity.isDefaultWorld(wid) && r.label === `com.${clean}.discord`);
+    if (!ours || seen.has(r.label)) continue;
+    seen.add(r.label);
+    owned.push({ name: clean, label: r.label });
+  }
+  if (!owned.length) return none;
+  const id = uid != null ? uid : process.getuid();
+  const held = run('/bin/launchctl', ['print-disabled', `gui/${id}`]);
+  if (!held || held.ok === false) return { ...none, ok: false, because: 'launchd did not say which jobs it holds disabled' };
+  // `"<label>" => disabled` (macOS 13 on) or `=> true` (before). A job launchd has never seen has no line: enabled.
+  const off = new Set();
+  for (const line of String(held.stdout || '').split('\n')) {
+    const m = /^\s*"([^"]+)"\s*=>\s*(disabled|true)\s*$/.exec(line);
+    if (m) off.add(m[1]);
+  }
+  const out = { ok: true, reapplied: [], failed: [], unsure: [], recheck: [] };
+  // A launchctl that gave no answer at all (no exit code: a timeout) stops the sweep: the rest would each wait as long.
+  const silent = (r) => !r || (r.ok === false && r.code == null);
+  // First every job step, as removeInner: disable (if launchd does not hold it disabled), then bootout (3 is launchd for
+  // "not loaded", the end state wanted).
+  const stopped = [];
+  for (let i = 0; i < owned.length; i += 1) {
+    const { name, label } = owned[i];
+    if (!off.has(label)) {
+      const dis = run('/bin/launchctl', ['disable', `gui/${id}/${label}`]);
+      if (silent(dis)) { out.failed.push(...owned.slice(i).map((o) => o.name)); break; }
+      if (dis.ok === false) { out.failed.push(name); continue; }
+    }
+    const boot = run('/bin/launchctl', ['bootout', `gui/${id}/${label}`]);
+    if (silent(boot)) { out.failed.push(...owned.slice(i).map((o) => o.name)); break; }
+    if (!(boot.ok !== false || boot.code === 3)) { out.failed.push(name); continue; }
+    // Review 7: bootout returns before the job has stopped (#4964 measured 4.5 s); wait, bounded, before the roster read.
+    const justUnloaded = boot.ok !== false;
+    if (justUnloaded) waitUnloaded(label);
+    stopped.push({ name, label, changed: !off.has(label) || justUnloaded, justUnloaded });
+  }
+  /* Then ONE roster read, after the jobs are unloaded (review 5: read before, a supervisor starting its session at login
+     could slip past the snapshot). A roster tmux cannot give is an unknown for each agent, never "nothing running". */
+  let cards = null;
+  if (stopped.length) { try { cards = status.paneRoster(); } catch { cards = null; } }
+  const tie = (name) => {
+    if (!Array.isArray(cards)) return { kind: FOUND.UNKNOWN, session: null };
+    const card = cards.find((c) => c && c.sessionName === name);
+    if (!card) return { kind: FOUND.NONE, session: null };
+    if (!card.session) return { kind: FOUND.UNKNOWN, session: null };
+    return card.isNamedOurs ? { kind: FOUND.OURS, session: card.session } : { kind: FOUND.UNTIED, session: card.session };
+  };
+  for (const { name, changed, justUnloaded } of stopped) {
+    const found = tie(name);
+    if (found.kind === FOUND.OURS) {
+      if (!sessionOps('darwin').end(found.session)) { out.failed.push(name); continue; }
+      out.reapplied.push(name);   // a session ended is a change, whatever launchd already held
+      continue;
+    }
+    if (found.kind === FOUND.UNKNOWN || found.kind === FOUND.UNTIED) {
+      out.unsure.push(name);   // left alone, as a removal leaves it, and said every time (review 7: never skipped silently)
+      continue;
+    }
+    // No session on the roster.
+    if (justUnloaded) out.recheck.push(name);   // one a supervisor was starting may not be on it yet: the retry looks again
+    if (changed) out.reapplied.push(name);   // else already disabled, not loaded, not running: nothing to say
+  }
+  out.ok = !out.failed.length && !out.unsure.length && !out.recheck.length;
+  return out;
+}
+
+/* kosmos#7409: the board-start half, so it is tested and server.js only calls it. A real board (`enforcing`, which a
+   sandboxed fixture never is) runs reapplyRemovedDisables once, `afterMs` after it starts, and says what it did on the
+   board's own log (stdout, stderr). Returns whether it was scheduled. */
+function reapplyAtBoardStart({ enforcing, afterMs = 2000, retryMs = 30000, setTimer = setTimeout, out = (t) => process.stdout.write(t), err = (t) => process.stderr.write(t) } = {}) {
+  if (!enforcing) return false;
+  // Review 2: once more, 30 s on, when the first run was not clean (a board up before the login session answers).
+  const runOnce = (again) => {
+    try {
+      let kept;
+      try { kept = reapplyRemovedDisables(); } catch (e) { kept = { ok: false, reapplied: [], failed: [], unsure: [], recheck: [], because: String(e && e.message) }; }
+      if (!kept.ok && again) { const t2 = setTimer(() => runOnce(false), retryMs); if (t2 && typeof t2.unref === 'function') t2.unref(); }
+      if (kept.reapplied.length) out(`Kosmos: removed agents switched off again: ${kept.reapplied.join(', ')}\n`);
+      if (kept.failed.length) err(`Kosmos: could not switch off every removed agent: ${kept.failed.join(', ')}\n`);
+      if (kept.unsure.length) err(`Kosmos: removed agents whose running session could not be tied to them, left alone: ${kept.unsure.join(', ')}\n`);
+      // Only the last run says it: the first run's recheck is what the retry is for.
+      if (kept.recheck.length && !again) err(`Kosmos: removed agents just stopped, not looked at again for a running session: ${kept.recheck.join(', ')}\n`);
+      if (kept.because) err(`Kosmos: could not check removed agents' startup jobs: ${kept.because}\n`);
+    } catch (e) { err(`Kosmos: could not check removed agents' startup jobs: ${String(e && e.message)}\n`); }
+  };
+  const t = setTimer(() => runOnce(true), afterMs);
+  if (t && typeof t.unref === 'function') t.unref();
+  return true;
+}
+
 /** Is this agent currently removed from Kosmos? */
 function isRemoved(name) {
   const clean = create.cleanName(name);
@@ -2649,6 +2775,8 @@ function forget(name) {
 }
 
 module.exports = {
+  reapplyRemovedDisables,
+  reapplyAtBoardStart,
   plan,
   restart,
   restartAsync,   // #6173: an account move's restarts, without blocking the board's thread

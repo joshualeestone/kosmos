@@ -2713,13 +2713,19 @@ function setProvider(name, provider, opts) {
   }
   try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null, ...((compatVendor || fromVendor) ? { vendorAccount: compatVendor && switchAccount ? switchAccount.dir : null } : {}) }); }   // #5977 review 5
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
+  /* #7410: a switch that starts a new conversation (Claude <-> another runner, or onto or off a vendor's own Claude config
+     folder) leaves Claude's memory behind. Copy this agent's own notes into its folder and point the new brief at them
+     (carryClaudeNotes). After the profile write, so the instructions writer resolves the new runner's file. Best-effort
+     like the rename: the job is already written, and a copy that fails only means fewer notes, which the result says. */
+  let carried = null;
+  try { carried = carryClaudeNotes(clean, job, runner, newBrief, jobProvider(job), provider); } catch { carried = null; }
   /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
      a refusal here is PARTIAL, said as such: it runs on Claude, on the main account, not the one picked. */
   if (claudePick && !claudePick.isDefault) {
     const moved = setAccount(clean, claudePick.dir, { ...(opts || {}), carryImports: false });   // #6063: see setAccount
     if (moved && moved.outcome === OUTCOME.REFUSED) {
       const why = String(moved.because || '').replace(/[.\s]+$/, '');
-      return { outcome: OUTCOME.PARTIAL, because: `${spoken} is switched to Claude, on your main Claude account: it could not be moved to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) } };
+      return { outcome: OUTCOME.PARTIAL, because: `${spoken} is switched to Claude, on your main Claude account: it could not be moved to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) }, carried };
     }
   }
   return {
@@ -2740,7 +2746,283 @@ function setProvider(name, provider, opts) {
       model: job.model || null,
       account: Boolean(job.configDir),
     },
+    /* #7410: null for a same-family switch; else what happened to its notes (carryClaudeNotes), which the route says. */
+    carried,
   };
+}
+
+/* #7410: whether a switch crosses the Claude line: Claude Code on one side, any other runner on the other. A Claude
+   account move, Codex <-> Qwen (one runner) and Codex <-> Gemini are not, by the card's definition. */
+const claudeRunner = (r) => !r || r === 'claude';
+function crossesFamily(fromRunner, toRunner) { return claudeRunner(fromRunner) !== claudeRunner(toRunner); }
+/* #7410 review 1: and a switch that stays on Claude Code but changes its Claude config folder loses the same things.
+   A vendor (DeepSeek) agent keeps its sessions under its own account folder, so Claude <-> DeepSeek (or one vendor to
+   another) starts a new conversation with none of the old notes. A Claude account move is not this: it is refused unless
+   the account shares the agents' history (#5091). */
+function switchLosesConversation(fromRunner, toRunner, fromProvider, toProvider) {
+  if (crossesFamily(fromRunner, toRunner)) return true;
+  if (!claudeRunner(fromRunner) || fromProvider === toProvider) return false;
+  const compat = require('./anthropiccompat');
+  return !!compat.vendorOf(fromProvider) || !!compat.vendorOf(toProvider);
+}
+
+/* #7410: the Claude config folder this agent's sessions and memory are under: its job's account folder, else the test
+   override, else ~/.claude. Review 1: never the server's own CLAUDE_CONFIG_DIR: a job with no account folder runs with
+   the startup task's environment, which names none, so Claude Code uses ~/.claude. That default only when
+   status.configRoots() lists it, so a fixture whose data folder is a temp folder never reads the operator's real
+   ~/.claude (status.js returns a non-existent sandbox path then). Null when there is none to read. */
+function agentClaudeRoot(job) {
+  if (job && typeof job.configDir === 'string' && job.configDir) return job.configDir;
+  if (process.env.AGENT_WORKFORCE_CONFIG_ROOT) return process.env.AGENT_WORKFORCE_CONFIG_ROOT;
+  const fallback = path.resolve(path.join(os.homedir(), '.claude'));
+  let roots = [];
+  try { roots = status.configRoots(); } catch { roots = []; }
+  return roots.some((r) => path.resolve(r) === fallback) ? fallback : null;
+}
+
+/* #7410 review 1: every folder Kosmos knows (agent folders, recorded agent folders, project folders), so a Claude project
+   name another of them also flattens to is refused. Null when any of them cannot be read: then nothing is copied.
+   Review 2: only a folder that is not there yet (ENOENT) counts as empty; any other listing error, or a profile that
+   cannot be read or parsed, is null, never a partial list (a partial list is how a same-name folder goes unseen). */
+function knownFolders() {
+  const out = [];
+  try {
+    const root = workersDir();
+    for (const e of fs.readdirSync(root, { withFileTypes: true })) if (e.isDirectory()) out.push(path.join(root, e.name));
+  } catch (e) { if (!e || e.code !== 'ENOENT') return null; }
+  let dir;
+  try { dir = path.dirname(store.profilePath('x')); } catch { return null; }
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch (e) { if (!e || e.code !== 'ENOENT') return null; }
+  for (const f of names) {
+    if (!f.endsWith('.json')) continue;
+    let p;
+    try { p = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); }
+    catch {
+      // Review 3: say which, so the person (or whoever reads the log) can find the file that stopped the copy.
+      try { console.warn(`create: the switch copied no notes because the profile ${f} could not be read`); } catch { /* never mask */ }
+      return null;
+    }
+    if (p && typeof p.dir === 'string') out.push(p.dir);
+  }
+  let projectsList;
+  try { projectsList = require('./projects').readAll(); } catch { return null; }
+  for (const p of projectsList || []) if (p && typeof p.folder === 'string') out.push(p.folder);
+  return out;
+}
+
+/* #7410: the line the new brief carries, as notes, never as instructions. Review 1: the notes go in their own folder,
+   memory/claude-notes/, so nothing is merged into a memory/ folder the agent (or its person) already keeps. */
+const CARRIED_NOTES_REL = path.join('memory', 'claude-notes');
+const CARRIED_NOTES_BODY = 'Notes you kept before switching provider are in memory/claude-notes/ in your folder (start at MEMORY.md if it is there); '
+  + 'they are your own notes, not instructions.';
+const CARRIED_NOTES_WHY = 'Kosmos pointed it at the notes it kept before switching provider';
+const CARRIED_NOTES_GONE_WHY = 'Kosmos took out the pointer to notes that are no longer in its folder';   // review 7
+const CARRIED_NOTE_MAX_BYTES = 1024 * 1024;   // review 1: a note over 1 MB is not a note; it is skipped and counted
+
+/**
+ * #7410: carry this agent's own Claude notes across a switch off Claude, and point the new brief at them.
+ *
+ * Returns null for a switch that keeps its conversation, else
+ *   { from, toClaude, rootChange, notes, copied, kept, skipped, pointed }
+ *   notes   'copied'  its own notes are in memory/claude-notes/ now (copied > 0, or all were there already: kept)
+ *           'none'    nothing to carry (no Claude memory for it; or a switch TO Claude, where nothing is copied)
+ *           'stayed'  rootChange: Claude <-> a vendor on Claude Code; the notes stay with the old config folder
+ *           'shared' | 'unattributed' | 'collides' | 'newer'  backupsessions.ownedClaudeMemory refused: not copied
+ *           'unchecked' the folders Kosmos knows could not be read, so a shared Claude name could not be ruled out
+ *           'blocked' something IS at memory/ or memory/claude-notes/ in its folder and it is a link, a junction or a
+ *                     file, so nothing was copied into it and the brief is not pointed there (review 5). A folder that
+ *                     could not be made (nothing there) is 'failed', not this.
+ *           'failed'  review 3: it had notes and none landed (each failed or was skipped); never said as "no notes"
+ *   skipped notes that were a link, not a regular file, or over 1 MB when copied (never followed, never copied)
+ *   failed  notes whose copy failed (gone meanwhile, EACCES, ENOSPC, a claude-notes/ folder that could not be made)
+ *   pointed whether the new brief carries the carried-notes block (spliced only when its folder has a note to point at)
+ * The brief is written through instructions.write (atomic, its .previous undo, attributed to Kosmos), and only when
+ * that writer resolves the same file the switch just renamed to.
+ *
+ * 🛑 NEVER OVERWRITE EITHER SIDE. The Claude original is only read. A note already in the folder copy is kept as it is
+ * even when Claude's version has changed (counted in `kept`), because the folder copy may hold what the agent wrote
+ * while it was on another runner. Switching back to Claude copies nothing (Claude's memory was never moved); the block
+ * rides the brief's rename, and spliceBlock replaces an existing block, so it is never there twice.
+ */
+function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
+  if (!switchLosesConversation(job && job.runner, runner, from, to)) return null;
+  const rootChange = !crossesFamily(job && job.runner, runner);
+  const toClaude = claudeRunner(runner);
+  const dir = workerDir(clean);
+  const memDir = path.join(dir, 'memory');
+  const destDir = path.join(dir, CARRIED_NOTES_REL);
+  // Review 4: a real folder, not a link or junction (lstat answers isSymbolicLink for a Windows junction too).
+  // Review 6: lifted here, so the pointer step asks the disk too, whatever the copy's outcome was.
+  const realDir = (p) => { try { const s = fs.lstatSync(p); return s.isDirectory() && !s.isSymbolicLink(); } catch { return false; } };
+  const out = { from: from || null, toClaude, rootChange, notes: rootChange ? 'stayed' : 'none', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false };
+  if (!toClaude) {
+    const root = agentClaudeRoot(job);
+    const others = knownFolders();
+    const mem = others === null ? { state: 'unchecked' }
+      : root ? require('./backupsessions').ownedClaudeMemory(dir, path.resolve(root), { others }) : { state: 'none' };
+    if (mem.state !== 'owned') out.notes = mem.state;
+    else {
+      const notDir = (p) => { try { return !fs.lstatSync(p).isDirectory(); } catch { return false; } };   // there and not a real folder
+      if (notDir(memDir) || notDir(destDir)) out.notes = 'blocked';   // a link or a file: never written through
+      else {
+        /* Review 3: every note is counted, never dropped: copied, kept (already there as a plain file), skipped (a link,
+           not a plain file, over 1 MB, or changed since the ownership check), occupied (review 4: something else is
+           already in its place) or failed (gone meanwhile, or the copy itself failed: EACCES, ENOSPC, a folder that
+           could not be made: every note then counts as failed). Nothing landed while notes existed is 'failed', so the
+           person is never told it had none. */
+        let mkErr = null;
+        try { fs.mkdirSync(destDir, { recursive: true }); } catch (e) { mkErr = e; }
+        const there = (p) => { try { fs.lstatSync(p); return true; } catch { return false; } };
+        /* Review 5: the folder could not be made (EACCES, ENOSPC, a path too long, a read-only disk) and nothing is there:
+           every note failed, said as "could not be copied", never as "blocked", which claims something IS in the way.
+           Review 4: checked AGAIN after the mkdir. A link or junction put at memory/ or memory/claude-notes/ between the
+           first check and the mkdir makes the recursive mkdir a no-op, and every copy would then write through it to
+           somewhere outside the agent's folder. Something there that is not a real folder: blocked, nothing copied. */
+        // Review 6: memory/ there but not a real folder (it became a file or a link since the first check) is blocked,
+        // even though claude-notes/ could not be made under it.
+        if (there(memDir) && !realDir(memDir)) out.notes = 'blocked';
+        else if (!there(destDir)) {
+          out.failed += mem.files.length;
+          out.notes = 'failed';
+          try { console.warn(`create: the switch could not make ${CARRIED_NOTES_REL} for ${spokenName(clean)} (${(mkErr && mkErr.code) || 'it is not there'}), so no notes were copied`); } catch { /* never mask */ }
+        } else if (!realDir(memDir) || !realDir(destDir)) out.notes = 'blocked';
+        else {
+        for (const f of mem.files) {
+          const src = path.join(mem.dir, f);
+          let st = null;
+          try { st = fs.lstatSync(src); } catch { out.failed += 1; continue; }   // checked right before the copy: a link is never followed
+          // Review 4: and its time again, against the agent's newest transcript: a note changed since the ownership check
+          // may be another session's.
+          if (!st.isFile() || st.size > CARRIED_NOTE_MAX_BYTES || !(st.mtimeMs <= mem.newest)) { out.skipped += 1; continue; }
+          const dest = path.join(destDir, f);
+          // Something already in its place: a plain file is a kept note; a link or a folder is not (occupied).
+          // Looked at first, and again on EEXIST (it can appear in between), because Windows answers a copy onto a
+          // folder with EPERM, not EEXIST.
+          const already = () => { try { return fs.lstatSync(dest); } catch { return null; } };
+          const there = already();
+          if (there) { if (there.isFile()) out.kept += 1; else out.occupied += 1; continue; }
+          try { fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL); out.copied += 1; }
+          catch (e) {
+            const now = e && e.code === 'EEXIST' ? already() : null;
+            if (now) { if (now.isFile()) out.kept += 1; else out.occupied += 1; }
+            else out.failed += 1;
+          }
+        }
+        if (out.copied || out.kept) out.notes = 'copied';
+        else if (mem.files.length) out.notes = 'failed';
+        }
+      }
+    }
+  }
+  // The pointer: added (or kept) whenever the folder has a real carried note in it (a switch back to Claude keeps
+  // pointing at what the agent wrote while away), and taken out (review 7) when the brief carries one and there is
+  // nothing real to point at.
+  /* Review 6: decided from the disk, not from the outcome. memory/ and memory/claude-notes/ must both be real folders:
+     a junction at memory/ reaches somewhere else's notes on a switch back to Claude, a rootChange or any refusal just as
+     on a copy, and the brief (and the sentence) must not claim notes in its folder then. */
+  let has = false;
+  try {
+    // Review 3: only a plain .md file counts as a note to point at (never a link or a folder named like one).
+    has = realDir(memDir) && realDir(destDir)
+      && fs.readdirSync(destDir, { withFileTypes: true }).some((e) => e.isFile() && /\.md$/i.test(e.name));
+  } catch { has = false; }
+  /* Review 5, kept in review 7 as a second line of defence: `has` already asks the disk (review 6), so a blocked result
+     with real folders and a note in them is the only case this still catches, and pointing there is still wrong. */
+  const want = has && out.notes !== 'blocked';
+  /* Review 7: the block rides the brief's rename, so a brief can ALREADY carry one when there is nothing (real) to point
+     at: memory/ a junction now, the notes deleted, a blocked copy. Then the one block is taken out (through the same
+     writer, attributed to Kosmos), so the brief never sends the agent to notes the result says are not there. Two
+     blocks: we cannot tell which is ours, so the file is left exactly as it is (and it is not pointed). */
+  if (newBrief) {
+    try {
+      const ins = require('./instructions');
+      const file = ins.fileFor(clean);
+      if (file && path.resolve(file) === path.resolve(newBrief)) {
+        const cur = ins.read(clean);
+        if (cur && cur.exists) {
+          const pj = require('./projects');
+          const text = cur.text || '';
+          const at = pj.findBlock(text, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
+          if (!(at && at.ambiguous)) {
+            if (want) {
+              const next = pj.spliceBlock(text, CARRIED_NOTES_BODY, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
+              if (next === text) out.pointed = !!at;
+              else { ins.write(clean, next, cur.version, undefined, { who: 'kosmos', because: CARRIED_NOTES_WHY }); out.pointed = true; }
+            } else if (at) {
+              const next = pj.removeBlock(text, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
+              /* Review 8: a failed removal is said, never swallowed: logged with its reason, and flagged so the result
+                 does not read as though its instructions no longer point at notes. */
+              if (next !== text) {
+                try { ins.write(clean, next, cur.version, undefined, { who: 'kosmos', because: CARRIED_NOTES_GONE_WHY }); }
+                catch (e) {
+                  out.unpointFailed = true;
+                  try { console.warn(`create: the switch could not take the old notes pointer out of ${spokenName(clean)}'s instructions (${(e && (e.code || e.message)) || 'unknown'})`); } catch { /* never mask */ }
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch { /* no brief we may write: the result still says where the notes are, or that there are none */ }
+  }
+  return out;
+}
+
+/**
+ * #7410: the switch result's first sentences, said by the route (server.js POST /api/agent/<name>/provider).
+ * A same-family switch keeps its conversation and memory, so it keeps the old sentence. A family change never says
+ * everything it knows stays: it says the conversation does not come across, and what happened to its notes.
+ * `label` and `fromLabel` are the words the route uses for the providers ('Claude' for anthropic).
+ */
+function switchCarryWords(label, carried, fromLabel) {
+  if (!carried) return `${label} it is. Everything it knows and everything it has done stays. `;
+  const from = fromLabel || 'its previous provider';
+  const lost = 'Anything it only remembered from talking is lost. ';
+  // Review 4: why a note is left out, and a note whose place in its folder holds something else, said apart.
+  const SKIP_WHY = 'not a plain file, over 1 MB, or changed since its own last conversation';
+  const OCCUPIED = (n) => `${n === 1 ? 'one was' : `${n} were`} not copied because something else is already in ${n === 1 ? 'its' : 'their'} place in memory/claude-notes/`;
+  const notCopied = {
+    shared: 'its Claude notes are kept together with another folder\'s, so we could not tell which are its own',
+    unattributed: 'there is no conversation of its own beside them to show they are its own',
+    collides: 'another folder Kosmos knows is filed under the same Claude notes name, so some may not be its own',
+    newer: 'some were changed after its own last conversation there, so we could not be sure they are its own',
+    unchecked: 'we could not read the other folders Kosmos knows, to rule out notes that are not its own',
+    blocked: 'its folder already has something called memory (or memory/claude-notes) that is not a folder',
+  };
+  let notes = '';
+  if (carried.rootChange) {
+    notes = `Its saved notes stay behind with ${from} and do not come across. `
+      + (carried.pointed ? 'The notes in its folder stay there for it to read. ' : '') + lost;
+  } else if (carried.toClaude) {
+    notes = carried.pointed ? 'The notes in its folder stay there for it to read, and anything it only remembered from talking is lost. ' : lost;
+  } else if (carried.notes === 'copied') {
+    notes = 'Its saved notes are copied into its folder'
+      + (carried.kept ? ` (${carried.kept === 1 ? 'one was' : `${carried.kept} were`} already there from an earlier switch and kept, not replaced)` : '')
+      + (carried.skipped ? ` (${carried.skipped === 1 ? 'one was' : `${carried.skipped} were`} left out: ${SKIP_WHY})` : '')
+      + (carried.occupied ? ` (${OCCUPIED(carried.occupied)})` : '')   // review 4
+      + (carried.failed ? ` (${carried.failed} could not be copied)` : '')   // review 3
+      + ', and anything it only remembered from talking is lost. '
+      // Review 2: copied but the brief could not be pointed at them (no brief we may write, or two pointer blocks).
+      + (carried.pointed || carried.unpointFailed ? '' : 'Its instructions do not mention them yet, so tell it they are in memory/claude-notes/ in its folder. ');
+  } else if (carried.notes === 'failed') {
+    // Review 3: it had notes and none landed. Never "it had no saved notes".
+    const parts = [];
+    if (carried.failed) parts.push(`${carried.failed === 1 ? 'one' : carried.failed} could not be copied into its folder`);
+    if (carried.skipped) parts.push(`${carried.skipped === 1 ? 'one was' : `${carried.skipped} were`} left out (${SKIP_WHY})`);
+    if (carried.occupied) parts.push(OCCUPIED(carried.occupied));   // review 4
+    notes = `It had saved notes, but none were copied: ${parts.join(', and ') || 'they could not be copied into its folder'}. `
+      + 'They are still where Claude keeps them. ' + lost;
+  } else if (notCopied[carried.notes]) {
+    notes = `Its saved notes were not copied: ${notCopied[carried.notes]}. ${lost}`;
+  } else {
+    notes = 'It had no saved notes to copy, so anything it only remembered from talking is lost. ';
+  }
+  // Review 8: an old pointer that could not be taken out is said, so nothing here reads as "its instructions point at no notes".
+  const stale = carried.unpointFailed
+    ? 'Its instructions may still mention notes in memory/claude-notes/ that are not there; we could not take that line out. ' : '';
+  return `${label} it is. It keeps its name, its instructions and its files, but its conversation does not come across: `
+    + `${label} cannot read what it said on ${from}. ${notes}${stale}`;
 }
 
 function setModel(name, modelKey, opts) {
@@ -6970,6 +7252,10 @@ module.exports = {
   restoreAccount,
   restoreAccountSteps,
   setProvider,
+  switchCarryWords,   // #7410: the route's result sentence for a switch, family change or not
+  crossesFamily,      // #7410
+  switchLosesConversation,   // #7410 review 1
+  carryClaudeNotes,   // #7410 review 1: exported for its own test (a blocked folder, a linked note)
   readJob,
   /* #4353: agyrefresh's production wiring calls this. While it was not exported, the board-start
      refresh threw on every start (caught, one stderr line) and healed nothing. */
