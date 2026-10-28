@@ -54,6 +54,7 @@ struct NewAgentView: View {
     @State private var loadingTeams = false
     @State private var gone = false
     @State private var photoPick: PhotosPickerItem?
+    @FocusState private var nameFocus: String?       // the team member whose name has the cursor
     @State private var markImage: UIImage?           // the mark for markName, drawn once per name, not per redraw
     @State private var markName = ""
     @State private var photoLoad = 0                 // the newest pick: an older one finishing late is not used
@@ -90,6 +91,12 @@ struct NewAgentView: View {
         .textCase(nil)   // the desktop's sentences as headers, not capitals
         .interactiveDismissDisabled(sending || (made != nil && !seen && !timedOut) || teamRunning)
         .onChange(of: client.agents) { rows in agentsChanged(rows) }
+        // As the desktop's refillDetails: another role starts from the mark again, not a photo chosen for the last one.
+        // Here, on the sheet, because the role is changed on a screen before Set up.
+        .onChange(of: draft.roleKey) { _ in
+            draft.photo = nil; photoImage = nil; photoMessage = nil; markName = ""; markImage = nil
+            redrawMark()
+        }
         // A team run is not cancelled: the person asked for the whole team, so it finishes off screen (the lock closes
         // this sheet), and its project tells go through the app. Only the timers stop.
         .onDisappear { helloTimer?.cancel(); leadTimer?.cancel(); gone = true }
@@ -371,13 +378,17 @@ struct NewAgentView: View {
     private var teamLocked: Bool { teamRunning || teamStarted }
 
     // Mona Lisa (build 14): a name that can be changed looks it, with a pencil while it can.
+    // A tap anywhere on the row, the pencil included, puts the cursor in the name.
     private func nameField(_ m: NewTeam.Member, editable: Bool = true) -> some View {
         HStack(spacing: 8) {
             TextField(m.title, text: Binding(get: { names[m.slot] ?? "" }, set: { names[m.slot] = $0 }))
                 .textInputAutocapitalization(.words)
+                .focused($nameFocus, equals: m.slot)
                 .accessibilityLabel(m.title + ", " + NewAgent.Words.name)
             if editable { Image(systemName: "pencil").foregroundColor(Palette.secondary).accessibilityHidden(true) }
         }
+        .contentShape(Rectangle())
+        .onTapGesture { if editable { nameFocus = m.slot } }
     }
 
     private func leadName(_ d: NewTeam.Detail) -> String {
@@ -697,6 +708,7 @@ struct NewAgentView: View {
         // Create is off from the moment of the pick, not from when the load starts.
         .onChange(of: photoPick) { item in if item != nil { photoLoading = true; Task { @MainActor in await loadPhoto(item) } } }
         .onChange(of: draft.name) { _ in redrawMark() }
+
         .onAppear { redrawMark() }
         .navigationTitle(NewAgent.Words.setupTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -847,7 +859,7 @@ struct NewAgentView: View {
             draft.photo = fitted
             photoImage = UIImage(data: fitted)
             photoMessage = nil
-            announce(NewAgent.Words.chosenPicture)
+            announce(NewAgent.Words.pictureChosen)
         } else {
             // Said for what will happen: an earlier chosen picture is still the one that goes.
             let said = draft.photo == nil ? NewAgent.Words.pictureUnusable : NewAgent.Words.pictureKept
