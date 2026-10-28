@@ -71060,6 +71060,8 @@ document.getElementById('tk-hold-choose').addEventListener('click', () => {
   const msg = document.getElementById('tk-hold-msg');
   if (msg) { msg.textContent = ''; delete msg.dataset.nextSig; }
   tkHoldChooseShow(false);
+  const hold = document.getElementById('tk-hold');
+  if (hold) hold.focus();   // review 8: the pressed button is gone, so focus lands on the hold control beside it
 });
 function tkHoldStoredChoice(t) {
   const u = t && t.onHoldUntil;

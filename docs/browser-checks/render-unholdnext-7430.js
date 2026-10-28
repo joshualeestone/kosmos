@@ -122,6 +122,11 @@ function chk(ok, label, extra) {
       const sel = await page.waitForSelector('#tk-who .tkwho-sel', { timeout: 4000 }).catch(() => null);
       chk(!!sel, `${tag} Choose who opens the picker on the part nobody is on`);
       if (sel) {
+        // Review 8: pressed again while that picker is open. Pressing it blurs the picker, whose repaint puts the free
+        // part's button back before the click lands, so a picker opens again and the line stays (measured: no guard needed).
+        await page.click('#tk-hold-choose');
+        chk(await page.evaluate(() => document.activeElement && document.activeElement.classList.contains('tkwho-sel')) && await rowShown() && await text(page, '#tk-hold-msg') === said,
+          `${tag} Choose who with the picker already open ends on a picker, with the line kept`, JSON.stringify([await rowShown(), await text(page, '#tk-hold-msg')]));
         // The Assigner may give it out on its own: the arm below means something only if nobody is on it yet.
         chk(tasks.whoOf(stored(p.id, 1)).length === 0, `${tag} nobody is on task 1 before the choice (the premise)`, JSON.stringify(tasks.whoOf(stored(p.id, 1))));
         await page.selectOption('#tk-who .tkwho-sel', 'ada');
@@ -144,6 +149,7 @@ function chk(ok, label, extra) {
       await page.click('#tk-hold-choose');
       chk(!(await rowShown()) && await text(page, '#tk-hold-msg') === '' && !(await page.$('#tk-who .tkwho-sel')),
         `${tag} Choose who with no free part takes the stale line down and opens no picker`, JSON.stringify([await rowShown(), await text(page, '#tk-hold-msg')]));
+      chk(await page.evaluate(() => document.activeElement && document.activeElement.id === 'tk-hold'), `${tag} focus moves to the hold control when Choose who goes`, await page.evaluate(() => document.activeElement && document.activeElement.id));
       // Show it again for the Assigner arm below.
       await openTask(page, p.id, 5);
       await page.click('#tk-hold');
