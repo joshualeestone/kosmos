@@ -309,6 +309,15 @@ do {
     check(Board.lastSeen(listed, address: nil, name: "Mac") == nil, "two of one name: no time rather than the other one's")
     check(Board.lastSeen(listed, address: "gone.kosmosplus.com", name: nil) == nil && Board.lastSeen(listed, address: nil, name: nil) == nil, "a computer not listed: no time")
     // The switcher's Offline row says when it was last seen; an online one does not.
+    // Review 2: the switcher takes the app's own reads too, so it says the screen's time, and a Mac read in the last
+    // 15 s is online whatever the list said.
+    let stale = [Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true, connected: false, lastSeen: 100)]
+    let readAt = at(2026, 10, 27, 21, 40)
+    check(Board.switcherRows(stale, shown: nil, heard: ["studio.kosmosplus.com": readAt], now: readAt.addingTimeInterval(5), calendar: cal, locale: en).map(\.status) == ["Online"],
+          "a Mac the app read 5 s ago is online, whatever the list said")
+    check(Board.switcherRows(stale, shown: nil, heard: ["studio.kosmosplus.com": readAt], now: now, calendar: cal, locale: en)
+            .map { $0.status.replacingOccurrences(of: "\u{202F}", with: " ") } == ["Offline, last seen at 9:40 PM"],
+          "an offline row says the app's later read, as the screen does, not the list's older time")
     let sw = Board.switcherRows([Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true, connected: false, lastSeen: seen),
                                  Board.Mac(name: "Mini", address: "mini.kosmosplus.com", usable: true, lastSeen: seen),
                                  Board.Mac(name: "Old", address: "old.kosmosplus.com", usable: true, connected: false)],
@@ -2214,6 +2223,10 @@ section("native board loop: connecting")
         let back = await settle { isLive(c) }
         check(back && c.agents.map(\.session) == ["dana", "wes"], "after a sign-out, stars that cannot be read are no stars")
         c.stop()
+        // kosmos#7416 review 2: an account change (forget, the loop stopped so nothing restarts) keeps no read times.
+        let hadRead = !c.heardFrom.isEmpty
+        c.accountChanged()
+        check(hadRead && c.heardFrom.isEmpty && c.failingAddress == nil, "kosmos#7416: another account starts with no read times (CONTROL: there were some)")
     }
     do {
         // #7034: a read that started before the list now shown never puts its older rows back over it.
@@ -2504,6 +2517,18 @@ section("native board loop: connecting")
         check(c.switcherShown == "laptop.kosmosplus.com", "and the switcher checks Laptop while it opens")
         let down = await settle { if case .unreachable = c.phase { return true }; return false }
         check(down && c.phase.macName == "Laptop" && c.failingMacName == "Laptop", "an offline choice says Laptop is not answering, never Studio")
+        // kosmos#7416 review 2: a Mac that never let the session in is the failing address too (openSession), its time is
+        // the list's, and the not-answering screen asks Kosmos+ for the list again (once a minute at most).
+        check(c.failingAddress == "laptop.kosmosplus.com" && c.lastHeard(address: c.failingAddress, name: "Laptop") == 100,
+              "kosmos#7416: Laptop, by address, with the list's time (the app never read it)")
+        let lists0 = w.count("/v1/account/macs")
+        w.macsBody = w.macsBody.replacingOccurrences(of: #""last_seen":100"#, with: #""last_seen":5000"#)
+        c.refreshLastSeen()
+        let fresher = await settle { c.lastHeard(address: c.failingAddress, name: "Laptop") == 5000 }
+        check(fresher && w.count("/v1/account/macs") == lists0 + 1, "kosmos#7416: the screen reads the list again and says its fresher time")
+        c.refreshLastSeen()
+        _ = await settle { w.count("/v1/account/macs") > lists0 + 1 }
+        check(w.count("/v1/account/macs") == lists0 + 1, "kosmos#7416: and not again within the minute")
         // The bug review 1 found: any later start restored Studio's kept session and undid the choice.
         c.retry()
         _ = await settle { if case .unreachable = c.phase { return true }; return false }
@@ -3430,6 +3455,8 @@ section("native board loop: connecting")
         c.start()
         let ok7 = await settle { c.phase == .signedOut } && c.agents.isEmpty
         check(ok7, "signed out: nothing shown")
+        check(c.heardFrom.isEmpty && c.failingAddress == nil && c.lastHeard(address: "studio.kosmosplus.com", name: "Studio") == nil,
+              "kosmos#7416 review 2: signed out, no read times are kept for the next account")
         check(macs.value != nil, "the kept Mac session is left for the sign-out itself to delete (PushNotificationManager)")
         c.stop()
     }

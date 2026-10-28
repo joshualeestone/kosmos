@@ -180,12 +180,20 @@ enum Board {
 
     // The computers the switcher lists: the usable ones, by name (then address, so two of one name keep their order),
     // the shown one marked. A retired, held, refused or switched-off Mac is not listed: it cannot be opened.
-    static func switcherRows(_ macs: [Mac], shown: String?, now: Date = Date(),
+    // kosmos#7416 review 2: `heard` is the app's own last good read of each Mac (BoardClient.heardFrom), so a row says
+    // the same time as the not-answering screen (Board.lastHeard), and a Mac the app read in the last 15 s is online
+    // whatever the list said when it was read.
+    static func switcherRows(_ macs: [Mac], shown: String?, heard: [String: Date] = [:], now: Date = Date(),
                              calendar: Calendar = .current, locale: Locale = .current) -> [SwitcherRow] {
         macs.filter(\.usable)
             .sorted { ($0.name.lowercased(), $0.address) < ($1.name.lowercased(), $1.address) }
-            .map { SwitcherRow(name: $0.name, address: $0.address, online: $0.connected, shown: $0.address == shown,
-                               seen: $0.connected ? nil : Shell.heardWhen($0.lastSeen, now: now, calendar: calendar, locale: locale)) }
+            .map { mac in
+                let read = heard[mac.address.lowercased()]
+                let online = mac.connected || (read.map { now.timeIntervalSince($0) < 15 } ?? false)
+                return SwitcherRow(name: mac.name, address: mac.address, online: online, shown: mac.address == shown,
+                                   seen: online ? nil : Shell.heardWhen(lastHeard(listed: mac.lastSeen, heard: read),
+                                                                        now: now, calendar: calendar, locale: locale))
+            }
     }
 
     // kosmos#4903: Kosmos+ refused a fresh handoff because this session did not sign in recently enough.

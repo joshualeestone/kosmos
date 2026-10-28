@@ -434,6 +434,7 @@ struct ContentView: View {
             if let failure = shell.failure {
                 LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer, macName: shell.failureMac,
                                 lastSeen: board.lastHeard(address: shell.failureAddress, name: shell.failureMac))
+                    .onAppear { if failure == .macUnreachable { board.refreshLastSeen() } }   // kosmos#7416 review 2
             }
             // kosmos#7389 (Mona Lisa): a file that takes more than a second says so, with Cancel, so a big file never looks like
             // a tap that did nothing.

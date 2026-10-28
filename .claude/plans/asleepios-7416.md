@@ -45,3 +45,22 @@ nothing from it.
   locale, zone and template adds state for no visible gain.
 - [NIT] weekday and month names follow the phone's language inside an English sentence. Not changed: the board does
   the same (formats with []); changing it is a change to both together.
+
+### Round 2 (1 B, 2 W, 2 C, 2 N), all B/W/C applied
+- [BLOCKER] the list is read once a launch, a switch or a second Try again, and the app reads a Mac only while its
+  loop runs, so after a night in the background the screen could say "yesterday at 11:00 PM" for a Mac Kosmos+ saw at
+  7:58 AM; worst on the web view for a Mac the loop never read. FIXED: `refreshLastSeen()` reads the list again when
+  either not-answering screen appears, at most once a minute. Measured: the Mac's standing report touches last_seen
+  (coordinator macs.rs, touch_mac), so a fresh list has a fresh time. Tests: the fresher time is said, and not read
+  again within the minute; mutation (no throttle) red.
+- [WARNING] the switcher used only the list's time and could disagree with the screen. FIXED: `switcherRows(heard:)`
+  takes `heardFrom`, says `Board.lastHeard`, and a Mac read in the last 15 s is online. Mutation red.
+- [WARNING] the web-view path had no test. FIXED by the client test above: Laptop, a Mac the loop never read, by its
+  address through `lastHeard(address:name:)`, the same call ContentView makes with the failed host.
+- [CONCERN] read times survived sign-out and account change. FIXED in both `forget()` and start's signed-out branch,
+  with a test for each; the forget test is the one that reds when forget keeps them (the sign-out test goes through
+  start, so my first test did not cover forget).
+- [CONCERN] openSession's failingAddress was untested. FIXED: the switch-to-offline-Laptop test checks it; mutation red.
+- [NIT] failingAddress written by a stale run. FIXED: only when `gen == generation`.
+- [NIT] the switcher's time does not redraw on its own while the loop is stopped. Not changed: the menu is rebuilt
+  when opened, and that is when it is read.
