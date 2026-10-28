@@ -1386,9 +1386,10 @@ struct RoomBubble: View {
 // ease is a cosine, which is the CSS ease-in-out to within a few percent. Drawn from the clock at 30 frames a second
 // at most (kosmos#7080 review 1: a repeatForever started on appear catches layout changes in a pushed view).
 struct WorkingDots: View {
-    var color: Color = Palette.pillWord(.working)   // the board's green (#2f7d5a), light and dark
+    var color: Color = Palette.pillWord(.working)   // the Working green, light and dark (the board's #2f7d5a is too dark on the dark ground)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // With the person's text size, as the line beside them (kosmos#7080 review 4); the board's are 3 px.
+    // With the person's text size, as the line beside them (kosmos#7080 review 4): 4 pt at the default size where the
+    // board's are 3 px, a deliberate step up so they read on a phone; timing and rise are the board's exactly.
     @ScaledMetric(relativeTo: .footnote) private var size: CGFloat = 4
 
     // Where dot i is in its loop at time t, 0 at rest and 1 at the top (the 50% keyframe).

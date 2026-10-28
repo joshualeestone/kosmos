@@ -658,7 +658,7 @@ struct MacSwitcher: View {
 }
 
 // kosmos#7342: one status pill, 20 pt tall and fully round, 12 pt semibold with 8 pt sides. Working carries the board's
-// Sweep: three dots lit one after another (Josh's pick, 09-05); with Reduce Motion they stand still, the first lit.
+// three dots, the board's wave (WorkingDots, kosmos#7427), in place of the Sweep of 09-05.
 struct StatusPill: View {
     let word: String
     let pill: Board.Pill
