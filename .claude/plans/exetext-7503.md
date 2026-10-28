@@ -26,5 +26,10 @@ quotes), and not quotes inside an interpolation hole ($"{(f ? "a" : "b")}"; an o
 part of the file goes red rather than passing.
 
 ## Proof
-- tools.win-launcher-native.test.js: the planted forms are named; mutation (uncollected always empty) reds it, naming
-  the verbatim constant.
+- tools.win-launcher-native.test.js, in the #7492 test: each planted unreadable form is named exactly; a readable value
+  holding a ; or a comma is read; a declaration only in a comment is not flagged; a commented-out old value does not
+  hide a live one; the real file declares as many constants as it reads (counts, so a name declared twice is seen).
+- Mutations, each red: uncollected always empty (names the verbatim one); the type pattern back to `string` only (names
+  String); the scan over the raw source (a name after a ; in a value); // comments kept (a commented declaration
+  flagged); the value pattern over the raw source (the commented-out shadow); a declaration count capped at 40 (the
+  whole-file guard).

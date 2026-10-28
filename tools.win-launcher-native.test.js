@@ -207,15 +207,17 @@ function csharpLiteral(raw) {
 }
 /* kosmos#7503: C# source with every string and char literal's contents blanked (each becomes "" or '') and every comment
    replaced by a space, read one character at a time: regular "..." with backslash escapes, verbatim @"..." with "" for a
-   quote, interpolated $"..." (either order with @), char '...', // and block comments. A regex over the whole file cannot
-   do this: a '"' char literal or a quote in a comment would open a string that swallows the code after it. */
+   quote, interpolated $"..." (either order with @), char '...' (which stops at a newline, so a stray apostrophe cannot
+   swallow the lines after it), // and block comments. A regex over the whole file cannot do this: a '"' char literal
+   or a quote in a comment would open a string that swallows the code after it. With keepStrings it keeps every string
+   and char literal as written and drops only the comments. */
 function blankCSharpLiterals(src, { keepStrings = false } = {}) {
   let out = '';
   for (let i = 0; i < src.length;) {
     const c = src[i];
     if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i += 1; out += ' '; continue; }
     if (c === '/' && src[i + 1] === '*') { const end = src.indexOf('*/', i + 2); i = end < 0 ? src.length : end + 2; out += ' '; continue; }
-    if (c === "'") { const at = i; i += 1; while (i < src.length && src[i] !== "'") i += src[i] === '\\' ? 2 : 1; i += 1; out += keepStrings ? src.slice(at, i) : "''"; continue; }
+    if (c === "'") { const at = i; i += 1; while (i < src.length && src[i] !== "'" && src[i] !== '\n') i += src[i] === '\\' ? 2 : 1; if (src[i] === "'") i += 1; out += keepStrings ? src.slice(at, i) : "''"; continue; }
     const m = /^[@$]{0,2}"/.exec(src.slice(i, i + 3));
     if (m) {
       const verbatim = m[0].includes('@');
@@ -242,9 +244,10 @@ function blankCSharpLiterals(src, { keepStrings = false } = {}) {
    `const string` statement declares is counted on its own, whatever its value looks like. */
 function stringConstants(source) {
   const raw = new Map();
+  let readings = 0;
   // kosmos#7503 review 3: read with comments dropped, so a commented-out old value cannot stand in for a live declaration.
   const code = blankCSharpLiterals(source, { keepStrings: true });
-  for (const m of code.matchAll(/const string (\w+) =\s*((?:"(?:[^"\\]|\\.)*"|[A-Za-z_]\w*|\s|\+)+);/g)) raw.set(m[1], m[2]);
+  for (const m of code.matchAll(/const string (\w+) =\s*((?:"(?:[^"\\]|\\.)*"|[A-Za-z_]\w*|\s|\+)+);/g)) { raw.set(m[1], m[2]); readings += 1; }
   const values = new Map();
   for (let changed = true; changed;) {
     changed = false;
@@ -257,14 +260,15 @@ function stringConstants(source) {
     }
   }
   const declared = new Set();
+  let declarations = 0;
   // String and char contents are blanked and comments dropped first, so a ; or a comma or an = inside a value can neither
   // end a statement nor add a name, and a declaration written in a comment is not counted.
   const blanked = blankCSharpLiterals(source);
   for (const st of blanked.matchAll(/\bconst\s+(?:System\s*\.\s*)?[Ss]tring\??\s+([^;]*);/g)) {
-    for (const n of st[1].matchAll(/(?:^|,)\s*(\w+)\s*=/g)) declared.add(n[1]);
+    for (const n of st[1].matchAll(/(?:^|,)\s*(\w+)\s*=/g)) { declared.add(n[1]); declarations += 1; }
   }
   const uncollected = [...declared].filter((n) => !raw.has(n));
-  return { values, unresolved: [...raw.keys()].filter((n) => !values.has(n)).concat(uncollected), declared: declared.size, collected: raw.size };
+  return { values, unresolved: [...raw.keys()].filter((n) => !values.has(n)).concat(uncollected), declared: declarations, collected: readings };
 }
 // ECMA-335 II.23.2: a compressed unsigned integer, as csc writes the length in front of a blob or a user string.
 function compressedLength(n) {
@@ -320,9 +324,13 @@ test('#7492: every string constant in KosmosLauncher.cs is in the committed Kosm
   // Review 3: a commented-out old value does not stand in for a live declaration of the same name in a form not read.
   const shadowed = SOURCE.slice(0, close) + '    // const string PlantedShadow = "old";\n    const string PlantedShadow = @"new";\n' + SOURCE.slice(close);
   assert.deepEqual(stringConstants(shadowed).unresolved, ['PlantedShadow'], 'a commented-out value hid the live one');
-  // Review 3: the declaration scan saw the whole real file: as many names declared as constants read.
+  // Review 3: the declaration scan saw the whole real file: as many declarations as readings (counts, not names, so a
+  // name declared twice, once in a form not read, does not hide). 50 is the floor this test already holds the count to.
   const whole = stringConstants(SOURCE);
   assert.ok(whole.collected >= 50 && whole.declared === whole.collected, 'the declaration scan lost part of the file: ' + whole.declared + ' declared, ' + whole.collected + ' read');
+  const twice = SOURCE.slice(0, close) + '    class PlantedOther { const string RunningHereMessage = @"other"; }\n' + SOURCE.slice(close);
+  const t2 = stringConstants(twice);
+  assert.notEqual(t2.declared, t2.collected, 'a name declared twice, once in a form not read, was hidden');
   // CONTROL: a declaration written only in a comment is not a constant, so it is not flagged.
   const commented = SOURCE.slice(0, close) + '    // const string PlantedInComment = @"x";\n    /* const string PlantedInBlock = $"y"; */\n' + SOURCE.slice(close);
   assert.deepEqual(stringConstants(commented).unresolved, [], 'a declaration in a comment was flagged');
