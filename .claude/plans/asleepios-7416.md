@@ -115,3 +115,12 @@ nothing from it.
 - [NIT] `Board.lastSeen` is a one-line wrapper. Kept: the tests read it and the name says what it returns.
 - [NIT] the switcher's words have no minute timer. Kept: the reviewer measured that something redraws it every few
   seconds while a Mac is shown or failing.
+
+### Round 7 (0 B, 0 W, 0 C, 3 N), all applied
+- Reviewer confirmed every LoadFailureView call compiles against `lastHeard:` (and the iOS build at 5a9da5c241 is
+  BUILD SUCCEEDED), and re-ran four guard mutations, all red.
+- [NIT] the round 6 test's "opens its computer from its own answer" could not fail (Laptop was in both lists). FIXED:
+  the newer list leaves Laptop out; mutation (pick from the shown list) red.
+- [NIT] the in-flight flag had no test and survived an account change. FIXED: a test that two refreshes send one read
+  (mutation red), and the flag is cleared in forget and the signed-out branch.
+- [NIT] the heardWhen comment sat above clockAllowance. FIXED: moved.

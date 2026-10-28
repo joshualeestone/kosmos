@@ -334,6 +334,7 @@ final class BoardClient: ObservableObject {
             heardFrom = [:]
             failingAddress = nil
             lastSeenReadAt = nil
+            lastSeenReading = false   // review 7: an old account's slow read never blocks the next one's
             chosenMac = nil
             forgetYou()
             pictures = [:]
@@ -1263,6 +1264,7 @@ final class BoardClient: ObservableObject {
         heardFrom = [:]    // kosmos#7416 review 2: nor its read times
         failingAddress = nil
         lastSeenReadAt = nil
+        lastSeenReading = false
         chosenMac = nil
         forgetYou()
         shownOwner = nil
