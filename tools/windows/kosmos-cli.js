@@ -2781,7 +2781,6 @@ async function verbWhatsNew(ctx, args) {
     if (a === '--since') { if (!args[i + 1]) { ctx.err('--since needs a version, like 0.7.60'); return 1; } since = args[++i]; }
     else if (a.startsWith('--since=')) { since = a.slice(8); if (!since) { ctx.err('--since needs a version, like 0.7.60'); return 1; } }
     else if (a === '--json') json = true;
-    else if (a === '-h' || a === '--help') { ctx.out(USAGE['whats-new']); return 0; }
     else { ctx.err("kosmos whats-new takes --since <version> and --json, not '" + a + "'"); return 1; }
   }
   let rn;

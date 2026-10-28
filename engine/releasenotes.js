@@ -55,7 +55,10 @@ function readNotes(appRoot) {
   const built = path.join(appRoot, 'release-notes.json');
   if (fs.existsSync(built)) {
     const d = JSON.parse(fs.readFileSync(built, 'utf8'));
-    if (!d || !Array.isArray(d.notes) || !parseVersion(d.version)) throw new Error(built + ' is not a release notes file');
+    if (!d || !Array.isArray(d.notes) || !parseVersion(d.version)
+      || !d.notes.every((n) => n && typeof n.title === 'string' && parseVersion(n.version))) {
+      throw new Error('its release notes file is damaged (every note needs a title and a version)');
+    }
     // A notes file left beside a newer app would answer for the wrong version: refuse it rather than mislead.
     const pkg = path.join(appRoot, 'package.json');
     const installed = fs.existsSync(pkg) ? JSON.parse(fs.readFileSync(pkg, 'utf8')).version : null;

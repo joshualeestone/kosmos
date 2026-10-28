@@ -24,6 +24,10 @@ latest list only), and fixes that take effect only when an agent starts looked b
 
 Rejected: shipping the pool (leaks held features); parsing versions.html (the site's prose); a commit changelog.
 
+Not in this branch, next after it: one line in the instructions Kosmos gives agents naming `kosmos whats-new` (as
+they name `kosmos accounts`), so an agent told "it still looks broken after the update" knows to run it. Separate
+because those instruction blocks are pinned by their own tests.
+
 Not in this branch (the card's step 4): after an update, the board naming running agents that started before it when
 an item since the previous version needs a restart. Separate, after this.
 
@@ -31,7 +35,7 @@ Weakest premise: that highlights are the right granularity; a restart-needing fi
 unsaid. Remedy if it matters: pool entries never shown in What's New but listed here.
 
 ## Tests
-engine/releasenotes.test.js (15): the filter (held and future excluded, with a control), since and its refusal, the
+engine/releasenotes.test.js (16): the filter (held and future excluded, with a control), since and its refusal, the
 format and its single restart line, the built file vs the source fallback, the pool's restart check and the `notes`
 command, the real pool ships no held item, all three builds call `notes` after their version and none copies the
 pool, the CLI end to end (text, --json, a bad --since), the platform filter, the newest-version
