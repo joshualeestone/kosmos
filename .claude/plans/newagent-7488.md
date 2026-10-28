@@ -20,6 +20,8 @@
 - **Team names are editable on the preview**, because the board refuses a name already taken and the person must be able to change it.
 - The team's button reads the desktop's "Create N agents", not "Create the team" (Mona's note named the desktop's words as the rule).
 - Not on the phone in this build (Mona's design): import an agent, upload an org chart.
+- **The team-making order lives in the view and is not unit-tested**, as New project's and New task's flows are not; the pieces it composes (requests, answers, names, the seen test) are. Weakest premise: an ordering slip there would only show on a real board.
+- "Describe it yourself" with an emptied box cannot continue (the desktop falls back to the example); "Let Kosmos know an agent was created" is always on, the board's own default, with no box on the phone.
 
 ## Not verified
 

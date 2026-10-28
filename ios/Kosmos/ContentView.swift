@@ -201,6 +201,7 @@ struct ContentView: View {
             board.accountChanged(); web.sessionChanged()
             // kosmos#7418 review 1: a chat or room a notice asked for belonged to the account that was signed in.
             agentRequest = nil; roomRequest = nil
+            pendingTells = [:]   // kosmos#7488: a tell names a project on the computer of the account that made it
             // kosmos#7042 review round 5: signed out later in the launch (on the account page, a session that ended),
             // the next sign-in is the native one too, or the web page's own device key would make this iPhone a second
             // device on the Mac. Recorded gap: the Mac's "fresh sign-in" link then lands here, not on the page.
@@ -257,7 +258,11 @@ struct ContentView: View {
         .sheet(isPresented: $newAgentOpen) {
             NewAgentView(client: board, opened: { session, shown in
                 // Say hello: the new agent's chat, natively, as a notification's agent opens (kosmos#7418).
-                if let host = board.macURL?.host { agentRequest = PushBridge.AgentTarget(host: host, session: session, name: shown) }
+                // On Agents, as a notification's agent opens, since the tab under the sheet may have changed meanwhile.
+                if let host = board.macURL?.host {
+                    agentRequest = PushBridge.AgentTarget(host: host, session: session, name: shown)
+                    tab = .agents; todayBoard = false; web.press(.agents)
+                }
             }, tell: { session, projects in
                 pendingTells[session] = projects
                 sendTells(board.agents)
