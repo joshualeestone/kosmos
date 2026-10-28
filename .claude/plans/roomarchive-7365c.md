@@ -68,6 +68,8 @@
    merged: the newest read reconciles (archiveMoved on the cursor kept), then the earlier-page read is tried once
    more. MINOR: an overtaken poll at another count writes nothing. NOT unit-tested: these are in RoomStore, which needs
    a client; the room runner tests Board.archiveMoved only. Round 7's probe replayed the steps by hand.
+8. sonnet: 0 BLOCKER/MAJOR, 2 MINOR, applied AFTER the last round (not reviewed): a retry used up sets olderFailed (the
+   top shows Try again, not a spinner nothing loads); a cancelled task does not retry. Loop stopped at the 8-round cap.
 
 ## Not verified
 

@@ -335,7 +335,10 @@ final class RoomStore: ObservableObject {
         if page.archivedCount != (archivedCount[project] ?? page.archivedCount) {
             loadingOlder.remove(project)
             await loadRoom(project)
-            if !retried, same(epoch) { await loadOlder(project, retried: true) }
+            // Review 8: not when the room was left; and a retry used up shows the top's Try again, never a spinner that
+            // nothing is loading.
+            if !retried, same(epoch), !Task.isCancelled { await loadOlder(project, retried: true) }
+            else if retried { olderFailed.insert(project) }
             return
         }
         rows[project] = Board.mergeRoom(page.rows, with: rows[project] ?? [])
