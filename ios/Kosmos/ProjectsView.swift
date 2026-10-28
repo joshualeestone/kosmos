@@ -36,6 +36,8 @@ final class RoomStore: ObservableObject {
     // Each room's newest-page reads in the order they started, and the read count when a reopen landed: a read started
     // before the reopen never writes the hold back (review 1: an older poll landing late brought the notice back).
     private var roomReads: [String: Int] = [:]
+    // kosmos#7365 slice 3c review 6: the newest live read applied, by project.
+    private var roomLanded: [String: Int] = [:]
     private var reopenedAt: [String: Int] = [:]
     @Published private(set) var loadingOlder: Set<String> = []
     // Rooms whose last older-page read failed: the top of the room offers it again rather than spinning.
@@ -116,7 +118,7 @@ final class RoomStore: ObservableObject {
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
         archivedCount = [:]; archive = [:]; archiveNote = [:]; archiveNoteId = [:]; archiveOpens = [:]; archiveRefreshing = []; archiveRefreshFailed = [:]   // kosmos#7365 slice 3c
         returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAsk = [:]
-        held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
+        held = [:]; roomReads = [:]; roomLanded = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0
@@ -217,6 +219,9 @@ final class RoomStore: ObservableObject {
         // board's pjRoomDropArchived drops the leading run); fewer archived (an undo) takes the page and its cursor, so
         // the rows given back are reachable above. Otherwise the pages already read are kept, as the board's poll keeps
         // them (the automatic rule moves the count with every post in a room past 1,000).
+        // Review 6: a read older than one already applied is dropped (it would put back rows a newer read took out).
+        if read < (roomLanded[project] ?? 0) { return true }
+        roomLanded[project] = read
         // Review 5: only the newest read started counts a move; an older one landing late must not read as an undo.
         let newest = read == roomReads[project]
         let fresh = (newest ? Board.archiveMoved(rows[project], older: older[project], was: archivedCount[project], page: page) : nil)
@@ -316,6 +321,7 @@ final class RoomStore: ObservableObject {
         olderFailed.remove(project)
         defer { loadingOlder.remove(project) }
         let epoch = client.chatEpoch
+        let landedBefore = roomLanded[project]
         let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, cursor: cursor) }
         guard same(epoch), older[project]?.cursor == cursor else { return }   // a re-read replaced the room meanwhile
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
@@ -325,7 +331,7 @@ final class RoomStore: ObservableObject {
         older[project] = (page.olderCount, page.olderCursor)
         // Review 4: this page was read at its own archived count, and every row shown now comes after its first row, so
         // that count is the one the rows shown match. Kept stale, the next poll would read the difference as rows to drop.
-        archivedCount[project] = page.archivedCount
+        if roomLanded[project] == landedBefore { archivedCount[project] = page.archivedCount }   // review 6: not over a newer read's
     }
 
     // Posts the words. Kept: the room is re-read, then the bubble goes (so the post never blinks out). Otherwise, as the

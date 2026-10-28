@@ -411,11 +411,16 @@ extension Board {
     //   hold that row. The page's nil cursor is taken.
     // - More archived, the live start off the page: the earlier rows still unread were archived first; only the rest of
     //   the move (beyond older.count) reaches the rows shown, the first ones, and then nothing earlier is left to read.
+    // Review 6: every move keeps older.count (the earlier live rows still unread) in step, a move that stops short of the
+    // rows shown included, so the next one is measured against the truth.
     static func archiveMoved(_ shown: [RoomRow]?, older: (count: Int, cursor: String?)?, was: Int?, page: RoomPage)
         -> (rows: [RoomRow], older: (count: Int, cursor: String?))? {
         guard let was, was != page.archivedCount, let shown, let older else { return nil }
         let start = (count: 0, cursor: String?.none)
-        if page.archivedCount < was { return older.cursor == nil ? (page.rows, (page.olderCount, page.olderCursor)) : nil }
+        if page.archivedCount < was {
+            if older.cursor == nil { return (page.rows, (page.olderCount, page.olderCursor)) }
+            return refreshRoom(shown, older: (older.count + (was - page.archivedCount), older.cursor), page: page)
+        }
         let kept: [RoomRow]
         if page.olderCount == 0 {
             guard let first = page.rows.first else { return (page.rows, start) }
@@ -425,7 +430,7 @@ extension Board {
         } else {
             let unread = older.cursor == nil ? 0 : older.count
             let k = page.archivedCount - was - unread
-            guard k > 0 else { return nil }
+            guard k > 0 else { return refreshRoom(shown, older: (unread - (page.archivedCount - was), older.cursor), page: page) }
             kept = Array(shown.dropFirst(k))
         }
         // Nothing shown is still live: the page and its own cursor, so the live rows before it stay reachable.

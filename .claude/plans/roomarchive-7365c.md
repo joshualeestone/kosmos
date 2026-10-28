@@ -58,6 +58,10 @@
    decide, net of the earlier rows still unread (older.count). An undo with earlier pages unread is left to the
    earlier-page read. MINORs: only the newest live read started counts a move (an older one landing late is not an
    undo); equal times at the boundary are covered by the id cut. 6 of 6 mutations red.
+6. sonnet: 1 MAJOR, 2 MINOR, all fixed. MAJOR (probed): a move that stopped short of the rows shown, or an undo with
+   earlier pages unread, kept older.count as it was, so the next move was measured wrong; every move now keeps it in
+   step (two-read tests). MINORs: a read older than one already applied is dropped; an earlier-page read stores its
+   count only if no newer live read landed while it was out. 7 of 7 mutations red.
 
 ## Not verified
 

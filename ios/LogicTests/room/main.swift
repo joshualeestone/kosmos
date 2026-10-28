@@ -196,8 +196,9 @@ func archPg(_ ids: [Int], archived: Int, older: Int = 0, cursor: String? = nil) 
 let shownStart = archPg([1, 2, 3, 4], archived: 10).rows
 check(Board.archiveMoved(shownStart, older: (0, nil), was: nil, page: archPg([3, 4, 5], archived: 12)) == nil, "the first read is never a move")
 check(Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([3, 4, 5], archived: 10)) == nil, "the same count is no move")
-check(Board.archiveMoved(shownStart, older: (5, "c"), was: 10, page: archPg([3, 4, 5], archived: 12, older: 5, cursor: "c2")) == nil,
-      "a move no larger than the earlier live rows still unread: nothing shown is archived, the pages read are kept")
+let notReached = Board.archiveMoved(shownStart, older: (5, "c"), was: 10, page: archPg([3, 4, 5], archived: 12, older: 5, cursor: "c2"))
+check(notReached?.rows.map(\.id) == ["m1", "m2", "m3", "m4", "m5"] && notReached?.older.count == 3,
+      "a move no larger than the earlier live rows still unread: nothing shown goes, 3 left unread")
 // Review 5: the archive grows past the earlier rows still unread (an "Archive older messages" on the computer): the new
 // live start falls inside the rows shown. Rows 21 to 30 shown, 5 earlier live rows unread, 10 archived.
 let deepShown = archPg(Array(21...30), archived: 10).rows
@@ -208,11 +209,22 @@ check(onPage?.rows.map(\.id) == ["m28", "m29", "m30"] && onPage?.older.cursor ==
 let untimed = Board.parseRoom(Data(#"{"rows":[{"kind":"post","id":"m1","text":"a","at":"2026-10-22T15:01:00.000Z"},{"kind":"post","id":"mx","text":"b","at":null},{"kind":"post","id":"m3","text":"c","at":"2026-10-22T15:03:00.000Z"}],"olderCount":0,"archivedCount":10}"#.utf8))!.rows
 let untimedMoved = Board.archiveMoved(untimed, older: (0, nil), was: 10, page: archPg([3, 4], archived: 12))
 check(untimedMoved?.rows.map(\.id) == ["m3", "m4"], "a row with no time before the live start goes too: \(untimedMoved?.rows.map(\.id) ?? [])")
+// Review 6: two reads in a row. A move that stops short of the rows shown still counts down the rows unread, so the next
+// move is measured against the truth; an undo with earlier pages unread counts them up.
+let short = Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([29, 30], archived: 12, older: 8, cursor: "d"))
+check(short?.rows.map(\.id) == deepShown.map(\.id) + [] && short?.older.count == 3 && short?.older.cursor == "c",
+      "a move of 2 with 5 unread: the rows stay, 3 left unread: \(short.map { "\($0.older)" } ?? "nil")")
+if let short {
+    let second = Board.archiveMoved(short.rows, older: short.older, was: 12, page: archPg([29, 30], archived: 16, older: 4, cursor: "e"))
+    check(second?.rows.first?.id == "m22" && second?.older.cursor == nil, "then +4: the 3 unread and m21 went: \(second?.rows.first?.id ?? "nil")")
+}
+let undoUnread = Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([29, 30], archived: 5, older: 13, cursor: "d"))
+check(undoUnread?.older.count == 10 && undoUnread?.older.cursor == "c", "an undo of 5 with earlier pages unread: 10 now unread")
 let offPage = Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([29, 30], archived: 18, older: 10, cursor: "d"))
 check(offPage?.rows.first?.id == "m24" && offPage?.rows.count == 7 && offPage?.older.cursor == nil,
       "the live start off the page: the 5 unread went first, then the first 3 shown: \(offPage?.rows.map(\.id) ?? [])")
-check(Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([28, 29, 30], archived: 8, older: 20, cursor: "u")) == nil,
-      "an undo with earlier pages unread: the rows given back are read as the reader scrolls up")
+check(Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([28, 29, 30], archived: 8, older: 20, cursor: "u"))?.older.cursor == "c",
+      "an undo with earlier pages unread: the rows given back are read as the reader scrolls up, on the cursor held")
 let moved2 = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([3, 4, 5], archived: 12))
 check(moved2?.rows.map(\.id) == ["m3", "m4", "m5"], "two more archived: the first two shown go, the rest merge with the page: \(moved2?.rows.map(\.id) ?? [])")
 // Review 4: the page reaches the live start: the cut is its first row's time, whatever the phone did not draw.
