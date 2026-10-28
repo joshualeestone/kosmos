@@ -80,3 +80,19 @@ nothing from it.
   reviewer called it harmless today).
 - [NIT] the account-change test's `failingAddress == nil` half could not fail. Removed. [NIT] the signed-out test had no
   control. Added (`readBefore`).
+
+### Round 4 (2 W, 2 C, 1 N), all applied
+- [WARNING] refreshLastSeen stamped the throttle before reading and tied the read to the run, so on a return the
+  agents tab's own start() (a new generation) could drop it and block a retry for a minute. FIXED: the stamp is set
+  only when a list lands; an in-flight flag stops doubles; the refresh read is not tied to a run but lands only while
+  the signed-in account is the one it asked for (and the shown list's owner). Test: a slow read that lands after
+  another account signed in is not shown, with a CONTROL for the same account; mutation (no account check) red. The
+  "dropped read leaves no stamp" half is reasoned, not tested.
+- [WARNING] `.task(id: failure)` did not run on a Try again (same failure) or a second Mac failing. FIXED: id is the
+  failure, the address and the Try again count; comment corrected (my round 3 note claimed this was covered; it was not).
+- [CONCERN] round 3's "last started wins" ticket could throw away a good list when the newer read failed, leaving the
+  switcher empty for the run. FIXED: `macsLanded`, an answer is dropped only when a newer one already landed (chooseMac
+  records its landing too). Tests: out of order (newer stays), newer fails (older lands). Mutations: no ordering, no
+  chooseMac landing, and round 3's ticket each red.
+- [CONCERN] the ticket and owner guards had no test. FIXED: the review 4 section above.
+- [NIT] the .task comment's claim. FIXED with the id.

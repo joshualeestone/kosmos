@@ -436,10 +436,12 @@ struct ContentView: View {
             if let failure = shell.failure {
                 LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer, macName: shell.failureMac,
                                 lastSeen: board.lastHeard(address: shell.failureAddress, name: shell.failureMac))
-                    // kosmos#7416 review 3: keyed on the failure, not on the view appearing: this screen stays up across a
-                    // Try again and a change of failure in place, so onAppear would miss both (the return to the app is
-                    // below, in onChange(of: scenePhase)).
-                    .task(id: failure) { if failure == .macUnreachable { board.refreshLastSeen() } }
+                    // kosmos#7416 review 3 and 4: keyed on the failure, the computer and each Try again, not on the view
+                    // appearing: this screen stays up across all three (a failed Try again shows the same failure), so
+                    // onAppear would miss them. The return to the app is below, in onChange(of: scenePhase).
+                    .task(id: "\(failure)|\(shell.failureAddress ?? "")|\(shell.retryCount)") {
+                        if failure == .macUnreachable { board.refreshLastSeen() }
+                    }
             }
             // kosmos#7389 (Mona Lisa): a file that takes more than a second says so, with Cancel, so a big file never looks like
             // a tap that did nothing.

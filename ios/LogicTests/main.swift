@@ -1859,6 +1859,10 @@ final class FakeBoardWorld {
     // The Mac cookie each status request carried, as the real session would send it from the jar.
     var presented: [String] = []
     var macsStatus = 200
+    // kosmos#7416 review 4: when not empty, each list read takes the first: it waits that many yields, then answers
+    // that body (nil: no answer at all). The body is the one queued, not macsBody when it answers.
+    var macsQueue: [(Int, String?)] = []
+    var macsAnswered = 0
     // kosmos#7266 slice B: the person's record and picture (nil: no answer at all).
     var youAnswer: (Int, String)? = nil
     var youPictureAnswer: (Int, String, Data)? = nil
@@ -2031,6 +2035,13 @@ func boardLoopTests() async {
                                                 else if r.url?.path.hasSuffix("/thread") == true { for _ in 0..<world.threadYields { await Task.yield() } }
                                                 if r.url?.path == "/api/agent-stars", r.httpMethod == "PUT" { for _ in 0..<world.starWriteYields { await Task.yield() } }
                                                 else if r.url?.path == "/api/agent-stars", r.httpMethod != "PUT", !world.starsYields.isEmpty { for _ in 0..<world.starsYields.removeFirst() { await Task.yield() } }
+                                                else if r.url?.path == "/v1/account/macs", !world.macsQueue.isEmpty {
+                                                    let (n, body) = world.macsQueue.removeFirst()
+                                                    _ = world.send(r)   // recorded as asked
+                                                    for _ in 0..<n { await Task.yield() }
+                                                    world.macsAnswered += 1
+                                                    return body.map { (Data($0.utf8), HTTPURLResponse(url: r.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!) }
+                                                }
                                                 else if r.url?.path == "/api/status" { world.statusStarted += 1; if !world.statusYields.isEmpty { for _ in 0..<world.statusYields.removeFirst() { await Task.yield() } } }
                                                 else if r.url?.path.hasPrefix("/api/attachment/") == true { world.attachmentStarted.append(r.url!.path); for _ in 0..<world.attachmentYields { await Task.yield() } }
                                                 return world.send(r)
@@ -2551,6 +2562,51 @@ section("native board loop: connecting")
         check(c.macs.isEmpty && c.switcherShown == nil, "a sign-out clears the switcher")
         c.stop()
     }
+    section("kosmos#7416 review 4: the list read again for its time, in order and for the right account")
+    do {
+        let (c, w, sessions, _) = make("kst1")
+        func listed(_ laptop: Int) -> String {
+            #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":\#(laptop)}]}"#
+        }
+        w.macsBody = listed(100)
+        c.start()
+        _ = await settle { isLive(c) && c.macs.count == 2 }
+        func laptop() -> Double? { c.macs.first { $0.address == "laptop.kosmosplus.com" }?.lastSeen }
+        // An older answer never lands over a newer one: the screen's slow read, then the switch's fast one.
+        w.clock += 61
+        w.sessionNoAnswer = true
+        w.macsQueue = [(3000, listed(111)), (0, listed(222))]
+        c.refreshLastSeen()
+        c.showMac(address: "laptop.kosmosplus.com")
+        _ = await settle { w.macsAnswered == 2 }
+        let older = await settle { laptop() == 111 }
+        check(w.macsAnswered == 2 && !older && laptop() == 222, "the switch's newer list stays when the screen's older read lands after it")
+        // A newer read that fails never costs an older good answer.
+        _ = await settle { if case .unreachable = c.phase { return true }; return false }
+        w.clock += 61
+        w.macsQueue = [(3000, listed(333)), (0, nil)]
+        c.refreshLastSeen()
+        c.showMac(address: "studio.kosmosplus.com")
+        let kept = await settle { w.macsAnswered == 4 && laptop() == 333 }
+        check(kept, "a newer list read with no answer does not drop the older good one")
+        // A read that lands after another account signed in is not shown.
+        c.stop()
+        w.clock += 61
+        w.macsQueue = [(3000, listed(444))]
+        c.refreshLastSeen()
+        sessions.value = "kst2"
+        _ = await settle { w.macsAnswered == 5 }
+        let wrong = await settle { laptop() == 444 }
+        check(w.macsAnswered == 5 && !wrong, "a list that lands after another account signed in is not shown under the first")
+        sessions.value = "kst1"
+        // CONTROL: the same slow read for the same account is shown.
+        w.clock += 61
+        w.macsQueue = [(3000, listed(555))]
+        c.refreshLastSeen()
+        let shown = await settle { w.macsAnswered == 6 && laptop() == 555 }
+        check(shown, "CONTROL: the same slow read for the account still signed in is shown")
+    }
+
     section("the person's name and picture (kosmos#7266 slice B)")
     do {
         let (c, w, _, _) = make("kst1")
