@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: roomarchive3b-7365
-diff_hash: bd0154e34a5fff4ff1555af068cff705aff610eeffbc9c6a9ddcc9a4a4bccf22
+diff_hash: 3418edc48db9426574ef549331b984f80c3234fb4eba02e6208e19cab85f8e8a
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-28T15:14:57Z
-iterations: 10
+timestamp: 2026-10-28T16:20:39Z
+iterations: 11
 converged: true
 ---
 
@@ -70,6 +70,17 @@ The full per-finding detail is the ledger in .claude/plans/roomarchive3b-7365.md
   3c3aca725e; a browser arm red with the fix off, entry 19)
 - Decided, not fixed: the end row sits about 60 px under the newest message (shared bottom measure); pjArchAskShown can
   name a hidden composer, unreachable today (entry 19)
+
+#### Iteration 11 (focused, after CI: the confirm check under classic scrollbars)
+**Reviewer model:** sonnet
+- The PR's browser-checks job was red twice on render-room-archive-7365: the backdrop measured 1265 in a 1280 window.
+  CI draws classic scrollbars and the tab layout keeps a 15px gutter on <html> that no fixed layer covers (#4506 dims
+  it through the canvas, measured by render-dialog-gutter-4506). The check was wrong, not the page --> FIXED
+  (04c2a0437a: measure against documentElement.clientWidth/clientHeight, probe corners inside them)
+- [WARNING] the page-area comparison no longer proves the backdrop is fixed --> FIXED (assert position fixed; innerWidth
+  back in the evidence)
+- Not measured locally: this Mac draws overlay scrollbars, and a forced 15px scrollbar takes no width on a page that does
+  not scroll, so the local run cannot tell the old assertion from the new. The PR's CI run is the measurement.
 
 ### Not guarded by unit tests (stated so nobody reads the unit suite as covering them)
 The archive-view thread having no end row is guarded by both. The delegated click on the end row and the
