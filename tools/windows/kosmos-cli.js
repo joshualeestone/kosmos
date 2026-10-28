@@ -1350,18 +1350,18 @@ async function taskClose(ctx, args) {
     for (const w of args.slice(2)) {
       if (w === '--replaced-by') { ctx.err('--replaced-by takes one task: close the others on their own.'); return 2; }
       if (/^--/.test(w)) { if (tooManyWords(ctx, 'task close', 2, TASK_CLOSE_USAGE, args)) return 2; }
-      if (!/^[0-9]+$/.test(w)) { ctx.err('Every task number must be a number, from: kosmos task list <project-id>. Not: ' + w); return 2; }
+      if (!/^[0-9]+$/.test(w) && tooManyWords(ctx, 'task close', 2, TASK_CLOSE_USAGE, args)) return 2;   // not a number: as #4889 review 6
     }
     if (args.length > 2) {
       const ok = [];
       const bad = [];
-      for (const n of args.slice(1)) {
+      for (const n of [...new Set(args.slice(1))]) {   // a number given twice is closed once
         const one = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + n + '/close');
         if (!one.reached) bad.push(n + ' (Kosmos did not answer)');
         else if (one.json && one.json.task) ok.push(n);
         else bad.push(n + ' (' + (ctx.refusedBy(one) || 'an answer we could not read') + ')');
       }
-      if (ok.length) ctx.out('Closed tasks ' + ok.join(', ') + ' on ' + project + '.');
+      if (ok.length) ctx.out((ok.length > 1 ? 'Closed tasks ' : 'Closed task ') + ok.join(', ') + ' on ' + project + '.');
       if (bad.length) { ctx.err('Could not close: ' + bad.join('; ') + '.'); return 1; }
       return 0;
     }

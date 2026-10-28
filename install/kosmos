@@ -5733,7 +5733,7 @@ cmd_task() {
           case "$_cw" in
             --replaced-by) say "--replaced-by takes one task: close the others on their own."; exit 2 ;;
             --*) _refuse_option "task close" "$_cusage" "$_cw" ;;
-            ''|*[!0-9]*) say "Every task number must be a number, from: kosmos task list <project-id>. Not: $_cw"; exit 2 ;;
+            ''|*[!0-9]*) _no_more_words "task close" 2 "$_cusage" "$@" ;;   # a word that is not a number: as #4889 review 6
           esac
         done
       fi ;;
@@ -6138,8 +6138,10 @@ cmd_task() {
       # kosmos#7412: more numbers after the first: close each the same way, one request each, then one summary. Each task
       # is closed exactly as a single close is (the board's own route); a refusal of one does not stop the others.
       if [ -z "$_by" ] && [ -n "${3:-}" ]; then
-        local _all=("$num" "${@:3}") _n _ok="" _bad="" _b _r _why
+        local _all=("$num" "${@:3}") _n _ok="" _bad="" _b _r _why _seen=" "
         for _n in "${_all[@]}"; do
+          case "$_seen" in *" $_n "*) continue ;; esac   # a number given twice is closed once
+          _seen="$_seen$_n "
           if [ "$_n" = "$num" ]; then _b="$body"; _r=0
           else _r=0; _b=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$_n/close" 2>/dev/null) || _r=$?; fi
           if [ "$_r" -ne 0 ]; then _bad="${_bad:+$_bad; }$_n (Kosmos did not answer)"; continue; fi
@@ -6149,7 +6151,7 @@ cmd_task() {
             *) _bad="${_bad:+$_bad; }$_n (an answer we could not read)" ;;
           esac
         done
-        [ -n "$_ok" ] && say "Closed tasks $_ok on ${project:-the project}."
+        case "$_ok" in '') ;; *,*) say "Closed tasks $_ok on ${project:-the project}." ;; *) say "Closed task $_ok on ${project:-the project}." ;; esac
         [ -z "$_bad" ] || { say "Could not close: $_bad."; exit 1; }
         exit 0
       fi
