@@ -444,8 +444,9 @@ const BLOCK = [
   'that replaces it whole, which is not an edit.',
   '',
   '**To see what an update changed, run `kosmos whats-new`.** It prints the',
-  'release notes since a version (`--since 0.7.70`), or the newest version\'s own,',
-  'and says where a fix needs you restarted before you get it.',
+  'newest version\'s notes, or with `--since <the version you were on>` every',
+  'note after it. A note marked for it says you need a restart to get that fix;',
+  'an unmarked note says nothing either way.',
   '',
   '### When your work reaches outside your own folder',
   '',
@@ -1232,9 +1233,10 @@ function block() {
  *     WEAKEST PREMISE, NAMED: that a coordinator reads this section when it audits a queue; the
  *     card's "done when" asks for the mention, and `kosmos task` help names both forms too.
  *  42. kosmos#7411 (agents could not read what changed in an update, or which fixes need them restarted). "Kosmos
- *     itself is not yours to edit" names `kosmos whats-new` after the line on updating Kosmos: the release notes since
- *     a version, or the newest version's own, with the restart line. No new heading, so as in 32 an agent's EDITED
- *     copy of that section is not re-offered it.
+ *     itself is not yours to edit" names `kosmos whats-new` after the line on updating Kosmos: the newest version's
+ *     notes, or every note after the version the agent was on; a note marked for it says a restart is needed, and an
+ *     unmarked one is said to mean nothing either way (no note carries the mark yet). No new heading, so as in 32 an
+ *     agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent reads this section when the person asks what changed; the command's own
  *     --help says the same, and both CLIs carry it.
  */
