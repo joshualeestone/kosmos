@@ -392,7 +392,7 @@ struct ChatView: View {
                         chatRows(items)
                         pendingBubbles
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
-                        Color.clear.frame(height: 1).id("end")
+                        Color.clear.frame(height: 19).id("end")   // 1 + the 18 pt fade (kosmos#7346): at the end, the newest message sits clear of it
                             .onAppear {
                                 Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
                                 endVisible = true
@@ -1064,7 +1064,7 @@ struct ChatView: View {
                 .background(Capsule().fill(Palette.card).shadow(color: .black.opacity(0.15), radius: 6, y: 2))
         }
         .buttonStyle(.plain)
-        .padding(.bottom, 8)
+        .padding(.bottom, 8 + 18)   // above the 18 pt fade (kosmos#7346)
     }
 
     // MARK: - Sending
