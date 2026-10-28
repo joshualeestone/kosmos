@@ -309,7 +309,8 @@ struct AgentsView: View {
             .background(RoundedRectangle(cornerRadius: 10).fill(Palette.banner))
     }
 
-    private var notUpdatingHeard: Double? { client.phase.isUnreachable ? client.failingMacLastHeard : nil }
+    // Not `phase.isUnreachable`: that one is fileprivate to TodayView.swift.
+    private var notUpdatingHeard: Double? { if case .unreachable = client.phase { return client.failingMacLastHeard }; return nil }
     private var notUpdatingWords: String {
         if case .unreachable = client.phase { return Shell.notUpdatingLine(client.failingMacName, lastHeard: notUpdatingHeard) }   // kosmos#7197: named; #7416: when
         return "Checking for updates."
