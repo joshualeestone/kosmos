@@ -218,7 +218,7 @@ if [ "$_KOSMOS_PROC_WIN" = 1 ]; then
   # The file is <marker dir>/winanc/<msys pid>.<windows pid>.<start in ms since boot>: a process's ancestry when it
   # started cannot change, and a recycled pid has another start, so another name. A file whose MSYS pid is gone is
   # removed whenever one is written. A file this cannot read is asked again, never trusted.
-  declare -gA _KOSMOS_WIN_ANC_SEEN 2>/dev/null || true
+  declare -gA _KOSMOS_WIN_ANC_SEEN 2>/dev/null || true   # bash4-ok: Windows-only block (uname-gated); Git Bash is bash 5, a Mac never reaches it
   _kosmos_win_native_ancestors() {
     local pid="$1" n="$2" wp key out rc line a0 rest dir f g b got=0 stl start="" seen=0 w
     local -a st=() words=()
