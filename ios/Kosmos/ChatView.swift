@@ -385,6 +385,10 @@ struct ChatView: View {
                 .foregroundColor(lost ? Palette.secondary : Palette.word(tone))
                 .lineLimit(1)
         }
+        // kosmos#7034 (Mona Lisa's long-name check, iPhone SE): with the star the trailing capsule holds three buttons,
+        // and a title whose full width does not fit beside it is dropped by the system, not shortened. Capped at what is
+        // left between the back button and the capsule, a long name ends in an ellipsis and the capsule keeps its size.
+        .frame(maxWidth: max(80, UIScreen.main.bounds.width - 250))
         .accessibilityElement(children: .combine)
     }
 
