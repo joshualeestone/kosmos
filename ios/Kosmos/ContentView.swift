@@ -35,7 +35,7 @@ struct ContentView: View {
     @State private var newTeamBusy = false    // kosmos#7488: a team still being made, after its sheet closed
     // kosmos#7488: new agents' projects to tell once the board's list shows them (the desktop's tell after create), kept
     // here so closing New Agent early drops none.
-    @State private var pendingTells: [String: (host: String, projects: [String], at: Date)] = [:]   // by session
+    @State private var pendingTells: [String: (host: String, projects: [String], picture: AgentPicture.Pending, at: Date)] = [:]   // by session
     // kosmos#7418: an agent's chat a tapped notification asked for, handed to the Agents tab to open.
     @State private var agentRequest: PushBridge.AgentTarget?
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
@@ -267,10 +267,10 @@ struct ContentView: View {
                     agentRequest = PushBridge.AgentTarget(host: host, session: session, name: shown)
                     tab = .agents; todayBoard = false; web.press(.agents)
                 }
-            }, tell: { session, projects in
+            }, afterMade: { session, projects, picture in
                 // Kept with the computer that made it: a tell names a project there, never on another Mac.
                 guard let host = board.macURL?.host else { return }
-                pendingTells[session] = (host, projects, Date())
+                pendingTells[session] = (host, projects, picture, Date())
                 sendTells(board.agents)
             }, teamBusy: $newTeamBusy)
         }
@@ -380,7 +380,8 @@ struct ContentView: View {
     }
 
     // Fire-and-forget, as the desktop, once the board can see the agent running (a tell before that is stored as
-    // could not): a failed tell is recoverable from the project's own screen.
+    // could not, and the picture route refuses an agent it does not know): a failed tell is recoverable from the
+    // project's own screen, and a picture from the agent's page.
     private func sendTells(_ rows: [Board.Agent]) {
         let on = Set(rows.filter(\.boardSeesIt).map(\.session))
         guard let host = board.macURL?.host else { return }
@@ -389,7 +390,27 @@ struct ContentView: View {
         for (session, pending) in pendingTells where on.contains(session) && pending.host == host {
             pendingTells[session] = nil
             for id in pending.projects { Task { _ = await board.throughMac { NewAgent.tellRequest(mac: $0, project: id, session: session) } } }
+            Task { await setPicture(session, pending.picture) }
         }
+    }
+
+    // kosmos#7488 build 14: the desktop's order (uploadPendingAvatar, tcPortrait): the chosen photo, else a team member's
+    // catalogue portrait, else the mark from the name; each sent twice at most, two seconds apart.
+    private func setPicture(_ session: String, _ picture: AgentPicture.Pending) async {
+        func put(_ data: Data, _ type: String) async -> Bool {
+            for i in 0..<2 {
+                if i > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+                if let got = await board.throughMac({ NewAgent.pictureRequest(mac: $0, session: session, data: data, type: type) }),
+                   (200...299).contains(got.1.statusCode) { return true }
+            }
+            return false
+        }
+        if let photo = picture.photo, await put(photo, "image/jpeg") { return }
+        if let team = picture.team, let slot = picture.slot,
+           let got = await board.throughMac({ NewAgent.portraitRequest(mac: $0, team: team, slot: slot) }), got.1.statusCode == 200,
+           let type = got.1.value(forHTTPHeaderField: "Content-Type")?.split(separator: ";").first.map(String.init),
+           await put(got.0, type) { return }
+        if let mark = AgentPicture.mark(picture.name)?.pngData() { _ = await put(mark, "image/png") }
     }
 
     // kosmos#7266: a + button: the board's own create form, over the tabs, opened through the board's door.

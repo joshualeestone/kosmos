@@ -1235,6 +1235,39 @@ check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #","lead":"
       && NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""reportsTo":null"#, with: #""x":1"#).utf8))?.members.first?.isLead == true,
       "the lead is the team's own lead slot, not a guess from a missing field")
 
+// kosmos#7488 build 14: the generated mark is the desktop's, number for number. These are the desktop's own dotGlyph and
+// markFamFor (run from web/index.html with an empty letter), for five names.
+let markRef: [(String, Int, [(Double, Double, Double, UInt32)])] = [
+    ("Ada", 8, [(38.128618, 115.37908, 9.679533, 0xc4a3d9), (178.376706, 103.066609, 3.026667, 0xb289cd), (93.255063, 163.903479, 3.038945, 0x9d6fbe), (209.608709, 213.043119, 4.864524, 0xb289cd), (53.418479, 205.681031, 4.681662, 0xb289cd), (89.512766, 109.379368, 5.348784, 0xc4a3d9)]),
+    ("Maya", 12, [(185.13399, 69.92518, 3.561725, 0xd8a099), (28.703765, 179.757724, 3.441622, 0xd8a099), (29.256261, 65.977565, 3.922968, 0xbd6659), (143.080831, 36.218665, 3.225146, 0xd8a099), (231.823336, 73.491707, 7.602522, 0xd8a099), (69.011504, 47.405337, 9.15071, 0xcb847a)]),
+    ("leo", 10, [(38.048185, 60.165884, 7.478487, 0xd49dbb), (135.019997, 97.306536, 2.71333, 0xc681a8), (126.86531, 16.28877, 7.570537, 0xd49dbb), (130.726239, 189.711593, 2.608267, 0xc681a8), (220.062619, 68.629463, 2.867195, 0xb76490), (104.811565, 103.45045, 8.475486, 0xb76490)]),
+    ("Zoë Ng", 0, [(125.119024, 153.950246, 9.035226, 0xd6a62e), (146.344181, 36.886348, 8.786265, 0xd6a62e), (123.013675, 206.204523, 5.493955, 0xd6a62e), (183.63152, 138.358002, 5.744376, 0xd6a62e), (147.164371, 239.05094, 7.58513, 0xb88920), (192.151578, 37.367611, 8.420359, 0xd6a62e)]),
+    ("Project Manager", 2, [(157.783333, 229.660522, 11.830959, 0x90a249), (100.191415, 81.434444, 6.34051, 0x90a249), (148.698133, 108.815559, 3.285189, 0x90a249), (238.385012, 130.882257, 6.444931, 0x77892f), (81.814805, 136.55263, 3.324382, 0x77892f), (241.820359, 99.842757, 2.878578, 0x77892f)]),
+]
+for (name, fam, first) in markRef {
+    let got = AgentMark.dots(name: name, ink: { _, _ in false })
+    let close = zip(got, first).allSatisfy { d, e in abs(d.x - e.0) < 1e-4 && abs(d.y - e.1) < 1e-4 && abs(d.r - e.2) < 1e-4 && d.color == e.3 }
+    check(AgentMark.familyIndex(name) == fam && got.count == 240 && close, "the mark for \(name) is the desktop's: family, count and the first dots")
+}
+check(boardPage.contains("['#d6a62e', '#e3b341', '#b88920'],   // gold (brand, fixed)") && boardPage.contains("['#b2784c', '#c49468', '#9a6034'],   // clay")
+      && AgentMark.families.count == 14, "the 14 families are the desktop's")
+let inkAll = AgentMark.dots(name: "Ada", ink: { x, _ in x < 128 })
+check(inkAll.allSatisfy { $0.x + $0.r + 2 >= 127.5 }, "no dot is drawn over the letter's ink")
+check(AgentMark.letter("  zoë ") == "Z" && AgentMark.letter("   ") == nil, "the letter is the trimmed name's first, upper-cased")
+
+// kosmos#7488 build 14: the picture is PUT where the desktop puts it, and a team portrait read where it reads it.
+let picReq = NewAgent.pictureRequest(mac: npMac, session: "ada", data: Data([1, 2, 3]), type: "image/png")
+check(picReq?.httpMethod == "PUT" && picReq?.url?.path == "/api/agent/ada/avatar" && picReq?.value(forHTTPHeaderField: "Content-Type") == "image/png"
+      && boardPage.contains("fetch('/api/agent/' + encodeURIComponent(name) + '/avatar', {"), "the picture goes to the desktop's avatar route")
+check(NewAgent.pictureRequest(mac: npMac, session: "../x", data: Data([1]), type: "image/png") == nil
+      && NewAgent.pictureRequest(mac: npMac, session: "ada", data: Data(count: 60001), type: "image/png") == nil
+      && NewAgent.pictureRequest(mac: npMac, session: "ada", data: Data([1]), type: "image/gif") == nil, "never a bad name, an oversized picture or a type the board refuses")
+let portReq = NewAgent.portraitRequest(mac: npMac, team: "marketing", slot: "head")
+check(portReq?.url?.path == "/api/catalogue/portrait" && portReq?.url?.query == "team=marketing&slot=head"
+      && NewAgent.portraitRequest(mac: npMac, team: "marketing", slot: "Head of x") == nil, "a portrait only for a team and seat the route's pattern allows")
+check(boardPage.contains("PICTURE_MAX_BYTES = 60000"), "the picture limit is the desktop's")
+for w in [NewAgent.Words.identity, NewAgent.Words.changePicture, NewAgent.Words.markLabel] { check(boardPage.contains(w), "the desktop says it too: \(w)") }
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
