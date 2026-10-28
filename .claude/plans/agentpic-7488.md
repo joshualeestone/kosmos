@@ -14,6 +14,8 @@
 - A catalogue portrait that is a still PNG within the limits is kept as it came; anything else is redrawn the phone's way (a centred square, JPEG on white). The desktop keeps its shape and transparency, so a transparent portrait too large to keep shows on white on the phone.
 - The picture is set by the app with the project tells (ContentView), when the board sees the agent, so leaving the sheet early loses neither. Two tries two seconds apart, as the desktop; a failed photo falls back to the mark.
 - Weakest premise: a photo with transparency loses it (JPEG on white); the desktop keeps PNG or WebP for those.
+- A chosen photo waits in the app until the board sees the agent; if the app is closed before then, the agent gets no picture from the phone (as the project tells; the agent's page can set one).
+- With no photo chosen, the mark is set as the picture, as the desktop's create does (PENDING_AVATAR is the mark then); the stored mark carries the phone's font.
 - When a chosen photo cannot be set, the phone falls back to the mark silently (the desktop says "That picture did not load. The mark drawn from the name is still there." on its made screen; the phone may have closed the sheet by then).
 - "Number for number" holds for the arithmetic; the trig functions are the platform's, so a last-bit difference could in principle move a dot. The five reference names match. The reference numbers are frozen from one node run of the desktop's dotGlyph: a later change to the desktop's constants (240 dots, R 118, the clearance) would not fail the test, though a change to its colours would.
 

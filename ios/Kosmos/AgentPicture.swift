@@ -16,13 +16,16 @@ enum AgentPicture {
     // The letter's outline at the desktop's size (215 pt bold in a 256 field), its ink centred, read as a mask.
     private static func inkMask(_ letter: String) -> [UInt8]? {
         let n = Int(AgentMark.side)
-        var px = [UInt8](repeating: 0, count: n * n)
+        // Grey and alpha per pixel; the mask is the alpha, as the desktop reads its canvas's alpha, so a colour glyph (an
+        // emoji) covers what it covers whatever its colours.
+        var px = [UInt8](repeating: 0, count: n * n * 2)
         let ok: Bool = px.withUnsafeMutableBytes { buf in
-            guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n,
-                                      space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return false }
+            guard let ctx = CGContext(data: buf.baseAddress, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n * 2,
+                                      space: CGColorSpaceCreateDeviceGray(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
             let font = UIFont.systemFont(ofSize: 215, weight: .bold)
-            // White ink from the context itself, so the mask does not rest on which colour key CoreText reads.
-            ctx.setFillColor(gray: 1, alpha: 1)
+            // Opaque ink from the context itself, so the mask does not rest on which colour key CoreText reads.
+            ctx.setFillColor(gray: 0, alpha: 1)
             let attrs: [NSAttributedString.Key: Any] = [.font: font,
                 NSAttributedString.Key(kCTForegroundColorFromContextAttributeName as String): true]
             let line = CTLineCreateWithAttributedString(NSAttributedString(string: letter, attributes: attrs))
@@ -31,7 +34,7 @@ enum AgentPicture {
             CTLineDraw(line, ctx)
             return true
         }
-        return ok ? px : nil
+        return ok ? stride(from: 1, to: px.count, by: 2).map { px[$0] } : nil
     }
 
     // The mark as an image, or nil for a name with nothing in it.
