@@ -65,8 +65,13 @@ printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/agy-report-bridg
 # from the copied script's own stage_app, so a new one is created here the day it is added: a file it SOURCES is the
 # real one (a stub would not define its functions), anything else a stub. The positive control further down
 # (a --refresh-only run into a real board install must succeed) turns this test red if that is still not enough.
+# Seen: a fully quoted "$REPO/<path>" literal. Not seen: "$REPO"/x, ${REPO}/x, an unquoted $REPO/x, a path built in
+# a variable, `source` for `.`, and anything a sourced library reads itself. Each of those fails closed (a cp returns
+# 1, or a function is undefined), so the control goes red rather than this passing quietly. The glob
+# "$REPO"/engine/*.js is covered by the hand-written engine/noop.js above.
 for rel in $(sed -n '/^stage_app() {/,/^}/p' "$FAKE_REPO/deploy/install-board.sh" \
     | grep -oE '"\$REPO/[A-Za-z0-9._/-]+"' | sed 's/^"\$REPO\///; s/"$//' | sort -u); do
+  case "$rel" in *..*) continue ;; esac   # never a path outside the fake repo
   [ -e "$FAKE_REPO/$rel" ] && continue
   mkdir -p "$(dirname "$FAKE_REPO/$rel")"
   if sed -n '/^stage_app() {/,/^}/p' "$FAKE_REPO/deploy/install-board.sh" | grep -qF ". \"\$REPO/$rel\""; then
@@ -206,7 +211,7 @@ mkdir -p "$TMP/prior-board/engine"
 touch "$TMP/prior-board/server.js"
 accepts "an existing board install (server.js + engine/) is accepted" "$TMP/prior-board"
 
-# ---- kosmos#7465: the fixture really is stageable (the control the guard-absent case rests on) ----
+# ---- kosmos#7465: the fixture really is stageable, with no service key set (the control the guard-absent case rests on) ----
 # A --refresh-only run into a real board install must stage, swap and finish. If stage_app gains an input the
 # fixture lacks, this goes red, instead of the guard-absent case below silently failing before the swap.
 mkdir -p "$TMP/refresh-ok/engine"
@@ -215,7 +220,7 @@ OK_OUT="$(KOSMOS_BOARD_LIBEXEC="$TMP/refresh-ok" sh "$SCRIPT" --refresh-only 2>&
 if [ "$OK_RC" -eq 0 ] && printf '%s' "$OK_OUT" | grep -q "refresh complete" \
    && grep -qx 'process.exit(0)' "$TMP/refresh-ok/server.js" \
    && grep -q '0.0.0-test' "$TMP/refresh-ok/web/index.html"; then
-  ok "the fixture is fully stageable: a --refresh-only run into a board install swaps and finishes"
+  ok "the fixture is stageable (no service key set): a --refresh-only run into a board install swaps and finishes"
 else
   bad "the fixture is NOT fully stageable, so the guard-absent case below proves nothing (rc=$OK_RC): $(printf '%s' "$OK_OUT" | tail -3 | tr '\n' ' ')"
 fi
