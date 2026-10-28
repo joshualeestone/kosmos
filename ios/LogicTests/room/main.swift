@@ -187,6 +187,22 @@ check(Board.Archive.boundaryShown(olderCursor: nil, archivedCount: 3, searching:
 check(!Board.Archive.boundaryShown(olderCursor: "c", archivedCount: 3, searching: false), "not while there is an earlier live page to read")
 check(!Board.Archive.boundaryShown(olderCursor: nil, archivedCount: 0, searching: false), "not when nothing is archived")
 check(!Board.Archive.boundaryShown(olderCursor: nil, archivedCount: 3, searching: true), "not while searching, as the board's pjRoomTopEdge")
+// Review 3: a move of the archived count changes the rows shown only when they reach the start of the live part.
+func archPg(_ ids: [Int], archived: Int, older: Int = 0, cursor: String? = nil) -> Board.RoomPage {
+    let rows = ids.map { #"{"kind":"post","id":"m\#($0)","text":"t\#($0)","at":"2026-10-22T15:\#(String(format: "%02d", $0)):00.000Z"}"# }.joined(separator: ",")
+    let c = cursor.map { #","olderCursor":"\#($0)""# } ?? ""
+    return Board.parseRoom(Data(#"{"rows":[\#(rows)],"olderCount":\#(older)\#(c),"archivedCount":\#(archived)}"#.utf8))!
+}
+let shownStart = archPg([1, 2, 3, 4], archived: 10).rows
+check(Board.archiveMoved(shownStart, older: (0, nil), was: nil, page: archPg([3, 4, 5], archived: 12)) == nil, "the first read is never a move")
+check(Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([3, 4, 5], archived: 10)) == nil, "the same count is no move")
+check(Board.archiveMoved(shownStart, older: (5, "c"), was: 10, page: archPg([3, 4, 5], archived: 12)) == nil,
+      "earlier live pages still unread: nothing shown can be archived, the pages read are kept")
+let moved2 = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([3, 4, 5], archived: 12))
+check(moved2?.rows.map(\.id) == ["m3", "m4", "m5"], "two more archived: the first two shown go, the rest merge with the page: \(moved2?.rows.map(\.id) ?? [])")
+let undone = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([1, 2, 3, 4, 5], archived: 4, older: 6, cursor: "k"))
+check(undone?.rows.map(\.id) == ["m1", "m2", "m3", "m4", "m5"] && undone?.older.cursor == "k" && undone?.older.count == 6,
+      "fewer archived: the page and its cursor, so the rows given back are reachable above")
 check(Board.Archive.count(1) == "1 message" && Board.Archive.count(5500) == "5,500 messages", "the count, as the board's toLocaleString")
 check(Board.Archive.showing(2) == "Showing the archive, 2 messages.", "the archive is announced as the board announces it")
 check(boardPage.contains("<span>" + Board.Archive.boundary + "</span> <button type=\"button\" class=\"linkish pj-arch-ctl\" id=\"pj-arch-open\">" + Board.Archive.view + "</button>"),

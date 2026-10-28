@@ -65,8 +65,10 @@ final class RoomStore: ObservableObject {
     @Published var archiveNote: [String: String] = [:]
     // Review 2: each note's number, so a timer clears only the note it was started for.
     @Published private(set) var archiveNoteId: [String: Int] = [:]
-    // Review 2: the count a refresh last failed to read, so a failing read is not asked again on every poll.
-    private var archiveRefreshFailed: [String: Int] = [:]
+    // Review 2 and 3: the count a refresh last failed to read and when, so a failing read is asked again every 30 s, not
+    // on every poll and not never (the board's next poll catches a failed re-read).
+    private var archiveRefreshFailed: [String: (count: Int, at: Date)] = [:]
+    static let archiveRetry: TimeInterval = 30
     // A post in the air or one that did not go, by project: its words, the line under it once answered, and the ids of
     // the person's posts already in the room when Post was pressed (so an earlier post with the same words never
     // settles it).
@@ -210,11 +212,13 @@ final class RoomStore: ObservableObject {
         roomFailed.remove(project)
         roomPartial = Board.partialRooms(roomPartial, project: project, partial: page.unread)
         if Board.readMayWriteHold(read: read, reopenedAt: reopenedAt[project]) { if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil } }
-        // Review 2: the archive moved under the rows shown (set or undone on the computer): the page replaces them, so no
-        // row now archived stays above the boundary (the board's pjRoomDropArchived).
-        let moved = archivedCount[project].map { $0 != page.archivedCount } ?? false
-        let fresh = moved ? (rows: page.rows, older: (count: page.olderCount, cursor: page.olderCursor))
-            : Board.refreshRoom(rows[project], older: older[project], page: page)
+        // Review 3: the archive moved under the rows shown. Only rows that reach the start of the live part (no earlier
+        // live page) can now be archived, so only then: k more archived drops the first k rows shown, the oldest (the
+        // board's pjRoomDropArchived drops the leading run); fewer archived (an undo) takes the page and its cursor, so
+        // the rows given back are reachable above. Otherwise the pages already read are kept, as the board's poll keeps
+        // them (the automatic rule moves the count with every post in a room past 1,000).
+        let fresh = Board.archiveMoved(rows[project], older: older[project], was: archivedCount[project], page: page)
+            ?? Board.refreshRoom(rows[project], older: older[project], page: page)
         // Stamped before the rows are replaced: `before` must be what the room held until this read. The phone's clock,
         // as BoardClient.updatedAt is (its env.now() is Date() outside the tests).
         let stamped = Board.stampSpeakers(spokeAt[project] ?? [:], baselined: spokeBaseline.contains(project), before: rows[project],
@@ -226,7 +230,9 @@ final class RoomStore: ObservableObject {
         archivedCount[project] = page.archivedCount
         // Review 1: an archive set or undone elsewhere while this one shows: read it again, as the board's poll does
         // when the count it sees changes.
-        if let a = archive[project], !a.opening, a.count != page.archivedCount, archiveRefreshFailed[project] != page.archivedCount {
+        let failed = archiveRefreshFailed[project]
+        if let a = archive[project], !a.opening, a.count != page.archivedCount,
+           !(failed?.count == page.archivedCount && Date().timeIntervalSince(failed!.at) < Self.archiveRetry) {
             let want = page.archivedCount
             Task { await self.refreshArchive(project, want: want) }
         }
@@ -256,8 +262,9 @@ final class RoomStore: ObservableObject {
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
             archive[project] = nil; archiveNote[project] = Board.Archive.couldNotOpen; archiveNoteId[project, default: 0] += 1; return
         }
+        // Review 3: the archive's count stays the archive's; the live count is the live read's (it is what a move is
+        // measured against).
         archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
-        archivedCount[project] = page.archivedCount
     }
     // The archive's newest page again, in place of what it showed (its count changed under it). Kept as it was when the
     // read fails; dropped when the archive was closed or opened again meanwhile.
@@ -271,7 +278,7 @@ final class RoomStore: ObservableObject {
         let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, part: .archive) }
         guard same(epoch), archiveOpens[project] == open, archive[project] != nil else { return }
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
-            archiveRefreshFailed[project] = want; return
+            archiveRefreshFailed[project] = (want, Date()); return
         }
         archiveRefreshFailed[project] = nil
         archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)

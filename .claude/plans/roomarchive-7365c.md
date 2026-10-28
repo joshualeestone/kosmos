@@ -40,6 +40,12 @@
    inside a deep archive is not kept; the board keeps it). The change check is the count only, not count plus marker.
    The 0.85 opacity's contrast is to be checked in the shots. A search over an empty live part with messages archived
    shows nothing (the board would search the archive too; the phone's search is of the live room).
+3. opus: 1 MAJOR, 4 MINOR, all fixed. MAJOR: round 2's replace-on-move fired whenever the automatic rule moved the
+   count (every post in a room past 1,000), wiping earlier live pages read. Now Board.archiveMoved acts only when the
+   rows shown reach the start of the live part: k more archived drops the first k shown, fewer takes the page and its
+   cursor; tested, and 2 of 2 mutations red. MINORs: the archive read no longer writes the live count; a failed
+   refresh is asked again after 30 s; each note has its own view identity and timer; the new-row scroll compares the
+   part it last saw instead of a flag set by another handler.
 
 ## Not verified
 

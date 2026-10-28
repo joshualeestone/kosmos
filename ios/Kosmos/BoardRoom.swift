@@ -402,6 +402,17 @@ extension Board {
     // (it still points before the oldest row shown). When it shares no row with them and the computer says older rows
     // exist, more than a page arrived while the room was away: merging would hide a gap no cursor can reach, so the
     // page replaces what was shown and its own cursor takes over.
+    // kosmos#7365 slice 3c review 3: the newest live page when the archived count moved since the rows shown were read.
+    // nil (merge as usual) unless the rows reach the start of the live part: then k more archived drops the first k
+    // shown, and fewer archived takes the page and its cursor. The first read (was nil) never counts as a move.
+    static func archiveMoved(_ shown: [RoomRow]?, older: (count: Int, cursor: String?)?, was: Int?, page: RoomPage)
+        -> (rows: [RoomRow], older: (count: Int, cursor: String?))? {
+        guard let was, was != page.archivedCount, let shown, let older, older.cursor == nil else { return nil }
+        if page.archivedCount < was { return (page.rows, (page.olderCount, page.olderCursor)) }
+        let kept = Array(shown.dropFirst(page.archivedCount - was))
+        return refreshRoom(kept, older: older, page: page)
+    }
+
     static func refreshRoom(_ shown: [RoomRow]?, older: (count: Int, cursor: String?)?, page: RoomPage)
         -> (rows: [RoomRow], older: (count: Int, cursor: String?)) {
         guard let shown, let older else { return (page.rows, (page.olderCount, page.olderCursor)) }

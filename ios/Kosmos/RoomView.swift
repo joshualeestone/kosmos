@@ -96,8 +96,9 @@ struct RoomView: View {
     @AccessibilityFocusState private var archiveBackFocused: Bool
     // Review 1: the archive was showing (its rows in), so Back can put the reader back at the boundary row.
     @State private var archiveWasShown = false
-    // Review 2: the rows are swapping between the archive and the live room: the new-row scroll stays out of it.
-    @State private var archiveSwap = false
+    // Review 2 and 3: which part the new-row scroll last saw; a change of part is the archive's handler's to place, read
+    // here rather than from a flag the other handler sets (their order in one update is not documented).
+    @State private var rowsPart = false
     // The rows the search keeps, before refusals fold (as the board filters before its fold).
     private var shownRows: [Board.RoomRow] {
         guard searching else { return rows }
@@ -131,6 +132,7 @@ struct RoomView: View {
             } else if let note = store.archiveNote[project.id] {
                 // The board's toast when the archive would not open: said once, shown for a few seconds (review 1).
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
+                    .id(store.archiveNoteId[project.id] ?? 0)   // review 3: each note its own appearance and timer
                     .onAppear {
                         Self.say(note)
                         let id = store.archiveNoteId[project.id]
@@ -722,7 +724,7 @@ struct RoomView: View {
             }
             .kosmosTopFade()   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
             .onChange(of: rows.last?.id) { _ in
-                if archiveSwap { return }   // review 2: the archive's own handler places the reader
+                if rowsPart != (archiveShown != nil) { rowsPart = archiveShown != nil; return }   // the archive's handler places the reader
                 if !settledAtBottom {
                     // The first page: straight to the newest row, then the top may ask for older ones. A page that fits
                     // on one screen moves neither marker, so settle here when the end is already showing.
@@ -810,8 +812,6 @@ struct RoomView: View {
             // only once that scroll has settled, as on opening the room (review 1). Back: the reader is put back at the
             // boundary row they left from, as the board's PJ_ARCH.anchor. A failed open never moved them.
             .onChange(of: archiveShown != nil) { shown in
-                archiveSwap = true
-                DispatchQueue.main.async { archiveSwap = false }
                 if shown {
                     archiveWasShown = true
                     settledAtBottom = false
