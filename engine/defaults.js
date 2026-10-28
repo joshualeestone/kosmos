@@ -443,6 +443,10 @@ const BLOCK = [
   'something. Updating Kosmos with its own update or its install line is fine:',
   'that replaces it whole, which is not an edit.',
   '',
+  '**To see what an update changed, run `kosmos whats-new`.** It prints the',
+  'release notes since a version (`--since 0.7.70`), or the newest version\'s own,',
+  'and says where a fix needs you restarted before you get it.',
+  '',
   '### When your work reaches outside your own folder',
   '',
   'The first time you touch a folder like Desktop or Documents, this Mac may',
@@ -1227,8 +1231,14 @@ function block() {
  *     as in 32 an agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that a coordinator reads this section when it audits a queue; the
  *     card's "done when" asks for the mention, and `kosmos task` help names both forms too.
+ *  42. kosmos#7411 (agents could not read what changed in an update, or which fixes need them restarted). "Kosmos
+ *     itself is not yours to edit" names `kosmos whats-new` after the line on updating Kosmos: the release notes since
+ *     a version, or the newest version's own, with the restart line. No new heading, so as in 32 an agent's EDITED
+ *     copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that an agent reads this section when the person asks what changed; the command's own
+ *     --help says the same, and both CLIs carry it.
  */
-const DOCTRINE_VERSION = 41;
+const DOCTRINE_VERSION = 42;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
