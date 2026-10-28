@@ -27838,6 +27838,11 @@ if (require.main === module) {
       if (r.anchor && !r.anchor.ok) {
         process.stderr.write(`Kosmos could not point its startup files at this folder, so your agents may start an older copy: ${r.anchor.because}\n`);
       }
+      /* #2988: the check that starts the board again if it stops. Not fatal, and never
+         a reason to call the startup job itself broken. */
+      if (r.watchdog && !r.watchdog.ok) {
+        process.stderr.write(`Kosmos could not set up the check that starts it again if it stops: ${r.watchdog.because}\n`);
+      }
       if (r.action === 'registered') {
         process.stdout.write(`Kosmos will now start when you log in. Task Scheduler > Kosmos > board; remove it with: ${r.removeHint}\n`);
       } else if (r.downgrade) {
@@ -27859,10 +27864,13 @@ if (require.main === module) {
        window opens that a person could close. `/End`, the first step of the
        board's own restart, then kills only that conhost, so the board leaves when
        its host does. See engine/win32orphan.js. Armed only for a task-started
-       board: a hand-started one belongs to whoever started it. */
+       board: a hand-started one belongs to whoever started it.
+       #2988: recordBoardExits arms that same watch, and writes this board's start
+       and the cause of its exit to win32-logs\board.log, which the board's
+       watchdog task reads when it has to start the board again. */
     try {
       if (require('./engine/win32board').startedByTask()) {
-        require('./engine/win32orphan').exitWhenParentGone({ onGone: () => process.exit(0) });
+        require('./engine/win32boardwatch').recordBoardExits({});
       }
     } catch (err) {
       process.stderr.write(`Kosmos could not watch the job that started it: ${String(err && err.message)}\n`);
@@ -28115,8 +28123,35 @@ if (require.main === module) {
          board by hand). A double-clicked Kosmos.exe has a hidden console and shows
          its own box with the same advice once this board is listening. */
       process.stderr.write(`Kosmos could not move to the background (${handOff.because}), so it is running from this window instead. Keep this window open while you use Kosmos.\n`);
+      /* #2988 round 3: the hold against the board's restart check could not be written. Round 4: a
+         double-clicked Kosmos.exe hides this console and the launcher has no channel for such a note, so
+         it also goes to the board's own log (win32-logs\board.log), where it can be found later. */
+      if (handOff.holdProblem) {
+        const holdNote = `Kosmos could not keep its restart check from starting the background board while this window started, because ${handOff.holdProblem}. The background board may start again, and then this window's Kosmos may not be able to start.`;
+        process.stderr.write(holdNote + '\n');
+        require('./engine/win32boardwatch').boardLogNote(holdNote);
+      }
     }
+    /* #2988 round 5: while this board is still starting, the hand-off's hold is written again every
+       minute, so a slow start cannot outlive it; stopped once the board listens or fails to start. */
+    let handOffHoldTimer = null;
+    if (typeof handOff.refreshHold === 'function') {
+      /* Round 6: at most ten refreshes (ten minutes), even if start() never settles: a board stuck starting
+         for that long should not keep the background board off for good. */
+      let handOffHoldRefreshes = 0;
+      handOffHoldTimer = setInterval(() => {
+        handOffHoldRefreshes += 1;
+        if (handOffHoldRefreshes > 10) { stopHandOffHold(); return; }
+        try { handOff.refreshHold(); } catch { /* the next tick tries again */ }
+      }, 60 * 1000);
+      if (typeof handOffHoldTimer.unref === 'function') handOffHoldTimer.unref();
+    }
+    const stopHandOffHold = () => { if (handOffHoldTimer) { clearInterval(handOffHoldTimer); handOffHoldTimer = null; } };
     start().then(() => {
+      stopHandOffHold();
+      /* #2988 round 2: this board now answers on the port, so the hold the hand-off took against the
+         board's watchdog (engine/win32handoff.js) is no longer needed. */
+      if (typeof handOff.releaseHold === 'function') { try { handOff.releaseHold(); } catch { /* it expires on its own */ } }
       // Report the port actually bound, not the one requested, or a `PORT=0` run
       // would announce itself on port 0.
       process.stdout.write(`Kosmos on http://127.0.0.1:${server.address().port}\n`);
@@ -28137,6 +28172,13 @@ if (require.main === module) {
          walks it. Not fatal: a reply that finds no ledger seeds it then. */
       try { require('./engine/replyfile').seed(); } catch { /* seeded on the first reply instead */ }
     }).catch((err) => {
+      stopHandOffHold();
+      /* #2988 round 6: this window held the background board off and still could not take the port, which
+         is the background board having started in its place (the watchdog's /Run raced the hold). Kosmos
+         is then running in the background, and the board's log says so. */
+      if (typeof handOff.releaseHold === 'function' && err && err.code === 'EADDRINUSE') {
+        try { require('./engine/win32boardwatch').boardLogNote("This window's Kosmos could not start because the background board took its place; Kosmos is running in the background."); } catch { /* the note is a courtesy */ }
+      }
       // Say what to do rather than name an exception. A raw EADDRINUSE stack is
       // exactly what start()'s promise exists to replace, and leaving this
       // uncaught made the comment above it a lie.
