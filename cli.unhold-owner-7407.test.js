@@ -109,7 +109,10 @@ test('#7407: a task nobody is on says the next idle agent will get it, and how t
     assert.equal(r.code, 0, label + ': ' + r.text);
     assert.match(r.text, /^\s*Nobody is on it, so Kosmos will give it to the next idle agent on the project\. To choose who, assign it now\.$/m, label + ': ' + r.text);
     assert.match(r.text, new RegExp('^\\s*kosmos task assign ' + projectId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ' ' + n + ' <agent>$', 'm'), label + ': ' + r.text);
-    assert.equal(assigner.handOutable(taskOf(n)), true, label + ': CONTROL, the sentence matches what the Assigner will do');
+    // Review 1: CONTROL against the Assigner itself, not the function the sentence reads: pick gives it out.
+    const p = projects.readAll().find((x) => x.id === projectId);
+    const only = { ...p, tasks: [taskOf(n)] };
+    assert.equal((assigner.pick('mara', [only], new Set()) || {}).n, n, label + ': pick hands it to an idle agent');
   }
 });
 
@@ -117,14 +120,14 @@ test('#7407: with the Assigner off, or a task it never hands out, the answer doe
   for (const [label, run] of BOTH) {
     const w = make('webhook ' + label, null, { via: 'webhook', by: 'hook' });
     const rw = await holdThenUnhold(run, w);
-    assert.match(rw.text, /Nobody is on it, and Kosmos does not hand this one out on its own\./, label + ': ' + rw.text);
-    assert.doesNotMatch(rw.text, /task assign/, label);
+    assert.match(rw.text, /Nobody is on it, and Kosmos does not hand this one out on its own\. To choose who, assign it now\./, label + ': ' + rw.text);
+    assert.match(rw.text, /kosmos task assign /, label + ': assigning is the only way it moves, so the command is shown');
     assert.equal(assigner.handOutable(taskOf(w)), false, label);
     assignerSetting.setOn(false);
     try {
       const n = make('off ' + label);
       const r = await holdThenUnhold(run, n);
-      assert.match(r.text, /Nobody is on it, and Kosmos will not give it to anyone until a person does\./, label + ': ' + r.text);
+      assert.match(r.text, /Nobody is on it, and the Assigner is off, so it waits for a person\. To choose who, assign it now\./, label + ': ' + r.text);
     } finally {
       assignerSetting.setOn(true);
     }
@@ -137,4 +140,68 @@ test('#7407: the route answers next only when a task comes off hold', async () =
   assert.equal('next' in hold, false);
   const off = await (await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/hold`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"onHold":false}' })).json();
   assert.equal(off.next, 'It stays with otto.');
+});
+
+const unholdNext = async (n) => {
+  const url = `${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/hold`;
+  await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"onHold":true}' });
+  return (await (await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"onHold":false}' })).json()).next;
+};
+const projectNow = () => projects.readAll().find((x) => x.id === projectId);
+
+test('#7407 review 1: someone who finished a part does not have the task; nobody on its open parts is said, and the Assigner agrees', async () => {
+  const n = make('finished part', 'otto');
+  const second = tasks.addPart(projectId, n, { sentence: 'the rest' });
+  const first = tasks.progressOf(taskOf(n)).parts.find((x) => x.who === 'otto');
+  tasks.setPartClosed(projectId, n, first.id, new Date().toISOString());
+  assert.ok(second, 'setup: a second part');
+  const next = await unholdNext(n);
+  assert.doesNotMatch(next, /stays with otto/, next);
+  assert.match(next, /^Nobody is on its open parts, and Kosmos does not hand out a task someone has worked on\. To choose who, assign it now\.$/, next);
+  assert.equal(assigner.pick('mara', [{ ...projectNow(), tasks: [taskOf(n)] }], new Set()), null, 'CONTROL: pick does not hand it out either');
+});
+
+test('#7407 review 1: no agent that takes work here, a paused project, or a parent whose subtasks go first: no hand-out is promised', async () => {
+  // Every agent on the project has swarm work switched off.
+  projects.mutate(projectId, (p) => ({ ...p, swarmOff: ['mara', 'otto'] }));
+  try {
+    const n = make('swarm off');
+    const next = await unholdNext(n);
+    assert.match(next, /^Nobody is on it, and no agent on the project can be given it now .*To choose who, assign it now\.$/, next);
+    assert.equal(assigner.pick('mara', [{ ...projectNow(), tasks: [taskOf(n)] }], new Set()), null, 'CONTROL: pick agrees');
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, swarmOff: [] }));
+  }
+  // A parent with an open subtask that will move: the subtask goes first.
+  const parent = make('parent');
+  const child = make('child');
+  tasks.setParent(projectId, child, parent);
+  const pn = await unholdNext(parent);
+  assert.match(pn, /^Nobody is on it, and no agent on the project can be given it now/, pn);
+  // Paused: said as paused, with what happens on resume.
+  const paused = make('paused');
+  projects.mutate(projectId, (p) => ({ ...p, paused: true }));
+  try {
+    if (projects.isPaused(projectNow())) {
+      const next = await unholdNext(paused);
+      assert.match(next, /^Nobody is on it\. The project is paused; when it is resumed, Kosmos will give it to an idle agent on it\. To choose who, assign it now\.$/, next);
+    } else {
+      assert.fail('setup: could not pause the project with paused: true; find the field projects.isPaused reads');
+    }
+  } finally {
+    projects.mutate(projectId, (p) => { const q = { ...p }; delete q.paused; return q; });
+  }
+});
+
+test('#7407 review 1: with failover on, "stays with" says a limited holder\'s part may move', async () => {
+  const n = make('failover', 'otto');
+  const was = assignerSetting.read();
+  assignerSetting.setFailover && assignerSetting.setFailover(true);
+  try {
+    if (assignerSetting.read().failover !== true) assert.fail('setup: could not switch failover on');
+    const next = await unholdNext(n);
+    assert.match(next, /^It stays with otto\. If they hit a usage limit, Kosmos may move it to an idle agent\.$/, next);
+  } finally {
+    assignerSetting.setFailover && assignerSetting.setFailover(was.failover === true);
+  }
 });

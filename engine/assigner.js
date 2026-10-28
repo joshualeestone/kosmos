@@ -226,6 +226,37 @@ function blocksGoalAsk(t) {
   return !(t && t.addedVia === 'webhook' && !tasks.whoOf(t).length);
 }
 
+/* #7407: one task's candidacy for one agent in one project, the loop body of pick (moved here unchanged so the unhold
+   answer, whoMayGet, asks the very rules pick uses). null, or the candidate pick sorts. */
+function candidateIn(p, tree, holdersOf, t, session, taken) {
+  if (!handOutable(t)) return null;   // the task's own filters, shared with willMove (#5678 review 5)
+  if (taken.has(p.id + '#' + t.number)) return null;
+  const prog = tasks.progressOf(t);
+  /* #5678 (user feedback 10-09): never a second builder on one tree. Its holder may take more of it when free
+     (review 1: the owner was shut out of its own subtasks); anyone else is not given it. */
+  /* #5678 review 3: a parent whose subtasks are still open is not handed out: given first (it is the oldest), its
+     holder would sit busy on the umbrella while the tree stays locked to everyone else. The subtasks go first. */
+  /* Review 4: only a subtask that will move holds it back: one pick could hand out, or one a project agent holds busy.
+     A webhook, repeating, on-hold or built subtask, or one held by an agent who left or parked it, never moves on
+     its own, and would keep the parent waiting for good. */
+  const above = upChain(tree, t);
+  if (tree.under(t.number).some((c) => !tasks.progressOf(c).closed && !above.has(c.number) && willMove(p, c))) return null;
+  const root = tasks.rootIn(tree, t);
+  if (treeIsOthers(p, tree, holdersOf, root, session, taken, null)) return null;
+  const part = prog.parts.find((x) => !x.closedAt);
+  if (!part) return null;
+  return { projectId: p.id, n: t.number, partId: part.id, due: dueKey(t), age: ageKey(t), treeKey: p.id + '#tree#' + root + '#' + session };
+}
+/* #7407: the project's agents pick could give task `t` to right now, by pick's own rules (archived, paused, swarm off,
+   the task's filters, its open subtasks, another builder's tree), whether or not they are idle. Empty: nobody will be
+   given it without a person. `t` is the task object inside `p`. */
+function whoMayGet(p, t) {
+  if (!p || p.archived === true || require('./projects').isPaused(p)) return [];
+  const tree = tasks.treeOf(p);
+  const holdersOf = tasks.treeHolders(p, tree, (x, who) => busyHold(p, x, who));
+  return (Array.isArray(p.agents) ? p.agents : []).filter((s) => !isSwarmOff(p, s) && candidateIn(p, tree, holdersOf, t, s, new Set()) !== null);
+}
+
 /* The next task nobody is on, in a live project this agent belongs to, and the part to give:
    the first open one. `taken` holds "project#number" already chosen this step. */
 function pick(session, projects, taken) {
@@ -239,23 +270,8 @@ function pick(session, projects, taken) {
     const tree = tasks.treeOf(p);
     const holdersOf = tasks.treeHolders(p, tree, (t, who) => busyHold(p, t, who));
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
-      if (!handOutable(t)) continue;   // the task's own filters, shared with willMove (#5678 review 5)
-      if (taken.has(p.id + '#' + t.number)) continue;
-      const prog = tasks.progressOf(t);
-      /* #5678 (user feedback 10-09): never a second builder on one tree. Its holder may take more of it when free
-         (review 1: the owner was shut out of its own subtasks); anyone else is not given it. */
-      /* #5678 review 3: a parent whose subtasks are still open is not handed out: given first (it is the oldest), its
-         holder would sit busy on the umbrella while the tree stays locked to everyone else. The subtasks go first. */
-      /* Review 4: only a subtask that will move holds it back: one pick could hand out, or one a project agent holds busy.
-         A webhook, repeating, on-hold or built subtask, or one held by an agent who left or parked it, never moves on
-         its own, and would keep the parent waiting for good. */
-      const above = upChain(tree, t);
-      if (tree.under(t.number).some((c) => !tasks.progressOf(c).closed && !above.has(c.number) && willMove(p, c))) continue;
-      const root = tasks.rootIn(tree, t);
-      if (treeIsOthers(p, tree, holdersOf, root, session, taken, null)) continue;
-      const part = prog.parts.find((x) => !x.closedAt);
-      if (!part) continue;
-      candidates.push({ projectId: p.id, n: t.number, partId: part.id, due: dueKey(t), age: ageKey(t), treeKey: p.id + '#tree#' + root + '#' + session });
+      const c = candidateIn(p, tree, holdersOf, t, session, taken);
+      if (c) candidates.push(c);
     }
   }
   candidates.sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : a.age - b.age));
@@ -727,4 +743,4 @@ function tick({ prev, now, readSetting, readRoster, readRecords, readCommitment,
 
 module.exports = { step, runOnce, tick, pick, hasOpenWork, commitmentsFree, idleCard, liveProjects, goalProject, askText,
   projectSig, savedForm, restoredMemory, loadMemory, saveMemory, MEMORY_FILE,
-  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, handOutable, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };
+  IDLE_MS, FAILOVER_MS, RESET_SOON_MS, LIMIT_KEEP_MS, providerOf, limitedCard, personGiveAt, stalledParts, failoverPick, handOutable, whoMayGet, MAX_PER_HOUR, MAX_PER_AGENT_PER_HOUR, GOAL_ASK_MS, MAX_ASKS_PER_HOUR, MAX_ASKS_PER_AGENT_PER_HOUR, ASK_RETRY_MS, MAX_ASK_FAILS, goalAskGaveUp };
