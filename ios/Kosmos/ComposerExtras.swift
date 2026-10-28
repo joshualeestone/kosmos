@@ -443,10 +443,10 @@ extension EnvironmentValues {
 // The host draws the dim with that bubble cut out, so it stays at full brightness. Nothing is drawn on the bubble.
 // Review 4: with the area messages are seen in (below the bar, above the composer's strip), so the hole lights only the
 // part of the bubble that shows, never a patch of the composer a half-hidden bubble sits under.
-struct PressedBubble: Equatable {
+// Not Equatable on purpose: an equality that compared less than the positions would let a moved bubble read as unchanged.
+struct PressedBubble {
     var bubble: Anchor<CGRect>?
     var visible: Anchor<CGRect>?
-    static func == (a: PressedBubble, b: PressedBubble) -> Bool { (a.bubble == nil) == (b.bubble == nil) && (a.visible == nil) == (b.visible == nil) }
 }
 struct PressedBubbleKey: PreferenceKey {
     static var defaultValue = PressedBubble()
