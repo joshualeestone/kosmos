@@ -90,10 +90,12 @@ cp -R "$REPO/web" "$STAGE/app/web"
 # with "No such file or directory". package.json IS already copied, and one
 # field out of it does not need a JSON parser.
 _ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$STAGE/app/package.json" | head -1)"
-# kosmos#7411: the release notes this build ships (nothing held, nothing newer than it), never the pool itself.
-node "$REPO/tools/whats-new-pool.js" notes "$_ver" --out="$STAGE/app/release-notes.json" >/dev/null \
-  || { echo "could not write the release notes for $_ver (kosmos#7411)" >&2; exit 1; }
 [ -n "$_ver" ] || { echo "could not read the version to bake into the page" >&2; exit 1; }
+# kosmos#7411: the release notes this build ships (nothing held, nothing newer than it, this platform's only), never
+# the pool itself.
+command -v node >/dev/null 2>&1 || { echo "writing the release notes needs node on this machine (kosmos#7411)" >&2; exit 1; }
+node "$REPO/tools/whats-new-pool.js" notes "$_ver" --platform=mac --out="$STAGE/app/release-notes.json" >/dev/null \
+  || { echo "could not write the release notes for $_ver (kosmos#7411)" >&2; exit 1; }
 sed -i '' "s/__KOSMOS_VERSION__/$_ver/" "$STAGE/app/web/index.html" 2>/dev/null \
   || sed -i "s/__KOSMOS_VERSION__/$_ver/" "$STAGE/app/web/index.html"
 grep -q "__KOSMOS_VERSION__" "$STAGE/app/web/index.html" && {

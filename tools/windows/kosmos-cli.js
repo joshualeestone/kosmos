@@ -185,6 +185,7 @@ const USAGE = {
     '       (--body-file reads the text from a file, the same in every shell; in PowerShell, text piped into kosmos does not reach it)',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
+  'whats-new': 'Usage: kosmos whats-new [--since <version>] [--json]   (what changed in each version, and which fixes need your agents restarted)',
   accounts: 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)',
   connect: 'Usage: kosmos connect <service>   (the token on stdin, never as an argument, e.g. printf \'%s\' "$TOKEN" | kosmos connect brave-search; kosmos connections lists the services)\n       (in PowerShell, text piped into kosmos does not reach it: run it from Git Bash)',
 };
@@ -2744,6 +2745,27 @@ async function verbAccounts(ctx) {
   return 0;
 }
 
+/* kosmos#7411, as install/kosmos cmd_whats_new: the release notes this install holds, since a version or (by default)
+   the newest version's own, with a restart line where a running agent needs one. The words and the reads live once,
+   in engine/releasenotes.js render(), which the Mac CLI runs too. A local read, so no board call. */
+async function verbWhatsNew(ctx, args) {
+  let since = null, json = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--since') { if (!args[i + 1]) { ctx.err('--since needs a version, like 0.7.60'); return 1; } since = args[++i]; }
+    else if (a.startsWith('--since=')) { since = a.slice(8); if (!since) { ctx.err('--since needs a version, like 0.7.60'); return 1; } }
+    else if (a === '--json') json = true;
+    else if (a === '-h' || a === '--help') { ctx.out(USAGE['whats-new']); return 0; }
+    else { ctx.err("kosmos whats-new takes --since <version> and --json, not '" + a + "'"); return 1; }
+  }
+  let rn;
+  try { rn = ctx.engine('releasenotes'); } catch { ctx.err('Kosmos could not find its own release notes reader; this install looks incomplete.'); return 1; }
+  const r = rn.render(path.dirname(engineDir()), { since, json });
+  if (r.out) ctx.out(r.out.replace(/\n$/, ''));
+  if (r.err) ctx.err(r.err);
+  return r.code;
+}
+
 /* #6506, as install/kosmos cmd_handoff: the FACTS for an agent's handoff -- its live self-report state, a sha256 for
    each artifact path it names, when its instruction file last changed, and whether the folder is a git repository.
    Facts only: it writes nothing and changes no state. The words and the reads live once, in engine/handoff.js, which
@@ -2947,6 +2969,7 @@ const VERB_HANDLERS = {
   connections: verbConnections,
   accounts: verbAccounts,
   connect: verbConnect,
+  'whats-new': verbWhatsNew,   // kosmos#7411
 };
 const SUBCOMMAND_HANDLERS = {
   // #4891 N4, as install/kosmos: clear is reporting working.
@@ -2998,6 +3021,7 @@ const DESCRIBE = {
   connections: 'list the outside services and which are connected',
   accounts: 'list the provider accounts and whether each is signed in',
   connect: 'connect an outside service with its token',
+  'whats-new': 'what changed in each version, and which fixes need your agents restarted',
 };
 /* kosmos#5805 part 2: padEnd(13) ran `reply-channel` (13 letters) into its words. The Mac's column (14), widened if a
    verb is ever longer, so a verb is always followed by at least one space. */

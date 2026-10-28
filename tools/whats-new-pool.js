@@ -244,9 +244,9 @@ function opt(args, name, dflt) {
 function main(argv) {
   const whatsnew = require('../engine/whatsnew');
   // Only --name=value flags this tool knows: a typo (`--outt=`) or `--max 4` must not silently do something else.
-  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from|ref)=./.test(a) && a !== '--promoted' && a !== '--from-history' && a !== '--offline' && a !== '--none');
+  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from|ref|platform)=./.test(a) && a !== '--promoted' && a !== '--from-history' && a !== '--offline' && a !== '--none');
   if (unknown.length) {
-    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE, --from-history, --ref=COMMIT, --promoted, --offline, --none)\n');
+    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --platform=P, --from=FILE, --from-history, --ref=COMMIT, --promoted, --offline, --none)\n');
     return 2;
   }
   const positional = argv.filter((a) => !a.startsWith('--'));
@@ -257,15 +257,16 @@ function main(argv) {
     process.stderr.write(misplaced.join(' ') + ' does not go with ' + (positional[0] || 'that') + '; nothing done\n');
     return 2;
   }
-  /* kosmos#7411: `notes <version> --out=FILE` writes the release notes a build of <version> ships as
+  /* kosmos#7411: `notes <version> --platform=mac|linux|windows --out=FILE` writes the release notes that build ships as
      app/release-notes.json (engine/releasenotes.js notesFor: nothing held, nothing newer than the build). Every build
      (Mac, Linux, Windows) runs it, so the app never ships the pool itself. */
   if (positional.length === 2 && positional[0] === 'notes') {
     const out = opt(argv, 'out', '');
-    if (!out) { process.stderr.write('notes needs --out=FILE\n'); return 2; }
+    const platform = opt(argv, 'platform', '');
+    if (!out || !platform) { process.stderr.write('notes needs --platform=mac|linux|windows and --out=FILE\n'); return 2; }
     const pool = readPool(opt(argv, 'pool', POOL));
     let notes;
-    try { notes = require('../engine/releasenotes').notesFor(pool, positional[1]); } catch (e) { process.stderr.write(e.message + '\n'); return 2; }
+    try { notes = require('../engine/releasenotes').notesFor(pool, positional[1], platform); } catch (e) { process.stderr.write(e.message + '\n'); return 2; }
     fs.writeFileSync(out, JSON.stringify({ version: positional[1], notes }, null, 2) + '\n');
     process.stdout.write(out + ': ' + notes.length + ' release notes up to ' + positional[1] + '\n');
     return 0;
