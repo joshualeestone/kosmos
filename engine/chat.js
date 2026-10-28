@@ -2822,12 +2822,6 @@ function deliver(sessionName, raw, roster, envelope, trailer, opts) {
   return deliverystreak.noted(streakKey(sessionName, card), movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, false)));
 }
 
-/**
- * #4588 PR B: deliver for a TIMER, never for a person. While the shared Google quota of this machine's Antigravity
- * agents is out, a line typed into any of them spends a turn against the empty pool, so it is not typed. The verdict is
- * COULD_NOT (nothing reached the pane) with `held: true` and `heldUntil` (ISO), so a sender that budgets its tries can
- * keep the try for after the reset. A person's own message goes through deliver() and is never held.
- */
 /* kosmos#7406 review 1: an Enter for a line already in an agent's box (a remembered unsent line, which may be the
    person's own: nothing records whose) is not held by the per-account cap: the text is already in the box, and a
    person's line is never held (an automatic one was counted when it was typed). A Gemini (Antigravity) agent keeps its
@@ -2837,6 +2831,12 @@ function typedLineCap(sessionName, roster) {
   try { card = resolveCard(roster, sessionName); } catch { card = null; }
   return card && card.runner === 'antigravity' ? {} : { cap: false };
 }
+/**
+ * #4588 PR B: deliver for a TIMER, never for a person. While the shared Google quota of this machine's Antigravity
+ * agents is out, a line typed into any of them spends a turn against the empty pool, so it is not typed. The verdict is
+ * COULD_NOT (nothing reached the pane) with `held: true` and `heldUntil` (ISO), so a sender that budgets its tries can
+ * keep the try for after the reset. A person's own message goes through deliver() and is never held.
+ */
 function quotaHeldVerdict(sessionName, roster, opts = {}) {
   // Review round 6: only a pane we could type into is HELD. A stopped or untypeable member (no agent process, no
   // target, not ours) is refused by deliver/deliverAsync with its real reason, exactly as without the quota gate, so

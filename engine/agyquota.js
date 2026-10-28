@@ -171,6 +171,7 @@ function accountOf(c, now) {
     }
   } catch { dir = ''; }
   const account = runner + '\u0000' + dir;
+  if (ACCOUNT_MEMO.size > 500) for (const [k, v] of ACCOUNT_MEMO) if (now - v.at >= ACCOUNT_MS) ACCOUNT_MEMO.delete(k);   // review 6: lapsed entries go
   ACCOUNT_MEMO.set(key, { at: now, account });
   return account;
 }

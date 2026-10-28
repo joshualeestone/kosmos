@@ -3539,7 +3539,7 @@ function sweepUnanswered(roster, now) {
         if (!card || !card.target) continue;
         const line = '[the room has not seen an answer to ' + postId
           + '; to answer, run: kosmos post --in-reply-to ' + postId + ' ' + projectId + ']';
-        const sent = chat.deliverAutomatic(name, line, roster);
+        const sent = chat.deliverAutomatic(name, line, roster, undefined, undefined, { cap: false })   /* kosmos#7406 review 6: the person's own unanswered ask is never held by a working-at-once cap */;
         /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen, or #5805 a usage limit), nothing typed. No row, so the pair's one nudge is still unspent, and
            unanswered() has only a lower age bound (UNANSWERED_AFTER_MS), so the post is still due after a long pause. */
         if (sent && sent.held === true) continue;
