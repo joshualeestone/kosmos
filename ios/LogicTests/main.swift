@@ -4087,6 +4087,9 @@ do {
     let deskKeys = boardPage.range(of: "const AGENT_SORTS = [").map { String(boardPage[$0.upperBound...].prefix(while: { $0 != "]" })) } ?? ""
     check(deskKeys.replacingOccurrences(of: "'", with: "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } == Board.AgentSort.allCases.map(\.rawValue), "the phone's orders are the desktop's AGENT_SORTS, in its order")
     check(Board.AgentSort.allCases.allSatisfy { boardPage.contains("['\($0.rawValue)', '\(Board.agentSortLabel($0))']") }, "each order's words are the desktop's menu words (agentSortControlHtml)")
+    // kosmos#7421 build 11 (Mona Lisa): one spoken label on both tabs, and "pressed" keyed on each tab's own default.
+    check(Board.sortButtonLabel(Board.agentSortLabel(.newest)) == "Sort: Newest first", "the Agents sort button says Sort: <order> (Projects: room tests)")
+    check(Board.agentSortDefault == .talked && Board.agentSort(saved: "") == Board.agentSortDefault, "the pressed look is off at Last talked to, and a fresh install reads as it")
     check(boardPage.contains("const AGENT_SORT_DEFAULT = '\(Board.agentSortDefault.rawValue)';"), "the default order is the desktop's")
     // kosmos#7341: the avatar dot's presence table is the board's CARD_ST pres, state for state (read from web/index.html).
     do {

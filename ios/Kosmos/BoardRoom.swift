@@ -778,6 +778,7 @@ extension Board {
     }
 
     enum ProjectSort: String, CaseIterable { case newest, oldest, az, za }
+    static let projectSortDefault = ProjectSort.newest
     static func projectSortLabel(_ s: ProjectSort) -> String {
         switch s {
         case .newest: return "Newest first"

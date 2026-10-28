@@ -415,6 +415,8 @@ enum Board {
         case .role: return "By role"
         }
     }
+    // kosmos#7421 (Mona Lisa's build 11 note): one spoken label for the sort button on Agents and Projects.
+    static func sortButtonLabel(_ order: String) -> String { "Sort: \(order)" }
     // A saved choice: one of the eight, or the phone's older "board" (its Needs you first), else the default.
     static func agentSort(saved: String) -> AgentSort { saved == "board" ? .needs : AgentSort(rawValue: saved) ?? agentSortDefault }
 
