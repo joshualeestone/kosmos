@@ -28,3 +28,15 @@ Mona Lisa approved build 10 (10-28 02:30) with three notes to land in TestFlight
 
 - Nothing here has been run on a device. The simulator cannot long-press or tap a menu, so the lit message and the open sort menu are shown through Debug sample hooks (KOSMOS_SAMPLE_SHEET, KOSMOS_SAMPLE_SORTMENU), not a real press.
 - Mona's owed shots ride the same run: a reaction already the person's (KOSMOS_SAMPLE_MINE), and the sort menu open on an iPhone SE.
+
+## Reviews (blind, one per round)
+
+1. [BLOCKER] the first ring went round the bubble's width frame, not the bubble. Fixed (drawn on each bubble's own shape). [WARNING] a sheet opened from VoiceOver or a file card was not marked; a failed star save was said only on the Agents list; the star could build on an unread star list. Fixed.
+2. [WARNING] the star's failure note showed in any chat; the star could stay disabled for a whole chat. Fixed (the note carries its agent; the chat asks for stars once and shows no star until they are known).
+   Then Mona Lisa corrected the design (lit, not ringed), and the ring was replaced by the cut-out dim.
+3. [BLOCKER] the cut-out sat about 100 pt above the bubble (resolved in a different reader from the one it was drawn in). [WARNING] VoiceOver could leave the non-modal sheet; the lit bubble was live (links, a second press). Fixed. Not taken: the navigation bar stays live under the small sheet (Back closes both; Mona judges the bar from the shots).
+4. [WARNING] a half-hidden bubble lit a patch of the composer; a star built empty on iOS 16 could stay clipped. Fixed (the hole is clipped to the area messages show in; the star is a conditional toolbar item).
+5. [BLOCKER] the visible-area preference replaced the rows' value, so no hole was cut. Fixed (a transform).
+6. No blocker. [WARNING] a lit bubble that scrolls out of the list while the sheet is up leaves a full dim with nothing lit: kept on purpose, it is the fallback. [NIT] a chat opened before its computer is known shows its star only after the next re-sort.
+
+Converged at round 6.
