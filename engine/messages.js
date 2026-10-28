@@ -1809,12 +1809,14 @@ function logHeldDropped(entry) {
 }
 /* A dropped message's sender was told it was accepted, so it is told, in its own pane, that it never arrived. Through
    the automatic gate (held or refused there, the dropped row still records it). */
+/* kosmos#7406 review 4: a once-only notice that a kept message was dropped is not held by a working-at-once cap (nothing
+   retries it, so a held notice would leave the sender never knowing). */
 async function tellHeldDropped(entry, roster) {
   logHeldDropped(entry);
   unspill(entry.spill);   // a long message's file, kept only for the line that was never typed
   const line = '[from Kosmos] Your message ' + entry.id + ' to ' + entry.to + ' was never delivered: Kosmos kept it for a'
     + ' day and could not type it. Send it again, or to someone else, if it still matters.';
-  try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }
+  try { return await chat.deliverAutomaticAsync(entry.from, line, roster, undefined, undefined, { cap: false }); } catch { return null; }
 }
 
 /* #5805: a task message's line (`kosmos task message`, or the person's from the screen) for an agent out of usage is
@@ -1923,7 +1925,7 @@ async function tellTaskLineDropped(entry, roster) {
         + ' and could not send it within a day. To tell ' + entry.to + ' now, use kosmos msg ' + entry.to + '.'
       : '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it ' + kept
         + ' and could not send it within a day. Send it again if it still matters.';
-    try { v = await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { v = null; }
+    try { v = await chat.deliverAutomaticAsync(entry.from, line, roster, undefined, undefined, { cap: false }); } catch { v = null; }
     told = entry.from + ', delivery=' + ((v && v.state) || 'could_not');
   }
   // The board's own record of the drop (a task line has no message-log row), whether or not the tell was typed.
@@ -3090,7 +3092,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
           // #5805: for withoutStale's day rule, every ask this arrival put back, not only the new post.
           if (sent.heldBy === 'limit') roomhold.noteLimit(name, projectId, [...(asksIt ? [id] : []), ...heldIds.filter(roomhold.isAddressed)], sent.limitReset);
           if (sent.heldBy === 'input') roomhold.noteInput(name, projectId, id);   // #6256 item 1: told once its box reads empty
-          if (sent.heldBy === 'cap' && !roomhold.agyCard(name, roster)) roomhold.noteCap(name, projectId, id);   // kosmos#7406: told once the per-account cap frees
+          // kosmos#7406: told once the per-account cap frees. Review 4: the older held posts restored above are noted too, so
+          // a retry that read the file while they were taken out cannot have dropped their notes for good.
+          if (sent.heldBy === 'cap' && !roomhold.agyCard(name, roster)) for (const x of [id, ...heldIds]) roomhold.noteCap(name, projectId, x);
           reached += 1;
         } else outcomes[name] = chat.DELIVERY.COULD_NOT;
         logCarried('held');   // #4926 N7: put back, so not told

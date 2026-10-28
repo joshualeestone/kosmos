@@ -655,7 +655,9 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
           const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: capIn, modeOf, now });
           capProjects(inName);   // drop the notes for posts now told
           for (const d of done) out.push({ name: inName, why: 'cap', ...d });
-          continue;
+          // Review 4: only a minute that told something skips the rest; a note left for a digest room's quiet post must
+          // not keep this member from the usage-limit path below.
+          if (done.length) continue;
         }
       }
       const agy = isAgy(card);

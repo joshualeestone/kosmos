@@ -153,9 +153,9 @@ test('reviews 1-3: an agent\'s kept queue goes through the cap, but never while 
     for (const n of ['cl-a', 'cl-b']) for (const e of limitqueue.list(n)) limitqueue.remove(n, e.id);
   }
   assert.deepEqual(seen[0][5], {}, 'CONTROL: an agent-only queue skipped the cap (the reset burst)');
-  assert.deepEqual(seen[1][5], { cap: false }, 'an agent line ahead of a person\'s DM can stop it');
-  assert.deepEqual(seen[2][5], { cap: false }, 'a person\'s kept DM can be held by the cap');
-  assert.deepEqual(seen[3][5], { cap: false }, 'a person\'s kept task message can be held by the cap');
+  assert.deepEqual(seen[1][5], { cap: false }, 'an agent line ahead of a person\'s DM went through the cap (it could stop the DM)');
+  assert.deepEqual(seen[2][5], { cap: false }, 'a person\'s kept DM went through the cap');
+  assert.deepEqual(seen[3][5], { cap: false }, 'a person\'s kept task message went through the cap');
 });
 
 test('review 3: the note of the person\'s own post from another computer is never held by the cap', () => {
@@ -220,4 +220,23 @@ test('review 1: a cap note is kept on disk, so a board restart does not lose it'
   assert.deepEqual(roomhold.capProjects('cl-d'), []);
   assert.equal(fs.readdirSync(roomhold.dir()).filter((f) => f.endsWith('.cap')).length, 0, 'a told post\'s note stayed on disk');
   roomhold.forget('cl-d');
+});
+
+test('review 4: at the cap, a line sent with { cap: false } is typed, and the same line without it is held (the real gate)', () => {
+  const chat = require('./chat');
+  const r = world({ ...ALL_IDLE, 'cl-a': 'working', 'cl-b': 'working' });
+  assert.equal(workcap.set({ maxWorking: 2 }).ok, true);
+  chat.setRunner((args) => (args[0] === 'display-message' ? { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' } : { ran: true, spawnFailed: false, status: 0, out: '', err: '' }));
+  chat.setDryRun(false);
+  try {
+    const held = chat.deliverAutomatic('cl-c', 'an automatic line', r);
+    assert.equal(held.held, true, 'CONTROL: the gate did not hold an automatic line at the cap: ' + JSON.stringify(held));
+    assert.equal(held.heldBy, 'cap');
+    q.CAP_STARTS.clear();
+    const sent = chat.deliverAutomatic('cl-c', 'a person\'s line', r, undefined, undefined, { cap: false });
+    assert.notEqual(sent.held, true, 'a { cap: false } line was held: ' + JSON.stringify(sent));
+  } finally {
+    fs.rmSync(workcap.FILE, { force: true });
+    chat.resetForTests();
+  }
 });
