@@ -54,7 +54,12 @@ enum NewAgent {
         static func makingNamed(_ n: String) -> String { n.isEmpty ? making : "Making " + n }
         static let hello = "Say “hello” to your agent to activate it on Kosmos."
         static func sayHello(_ shown: String) -> String { "Say Hello to " + shown }
-        static let nameMissing = "Give it a name first."
+        static let labelMissing = "Say what this agent does. One or two words."
+        static func running(_ shown: String) -> String { shown + " is running" }
+        static func notUp(_ shown: String) -> String { shown + " has not come up" }
+        static let notUpWhy = "It was set up, but nothing is running under that name yet."
+        static let notUpNext = "It keeps trying at every login. If it appears under Agents, you can remove it there."
+        static let done = "Done"
         static let rolesUnread = "Kosmos could not load the roles. Pull down or try again."
     }
 
@@ -75,6 +80,7 @@ enum NewAgent {
         let blurb: String
         let instructions: String
         let group: String?
+        var caution: String? = nil   // the limit that travels with the role (/api/roles), said at the moment of choice
         var id: String { key }
     }
     struct Model: Equatable, Identifiable {
@@ -126,7 +132,8 @@ enum NewAgent {
             let label = (row["label"] as? String).flatMap { NewProject.trimmed($0).isEmpty ? nil : $0 } ?? fallback
             guard let label else { return nil }
             return Role(key: key, label: label, blurb: row["blurb"] as? String ?? "",
-                        instructions: row["instructions"] as? String ?? "", group: row["group"] as? String)
+                        instructions: row["instructions"] as? String ?? "", group: row["group"] as? String,
+                        caution: (row["caution"] as? String).flatMap { NewProject.trimmed($0).isEmpty ? nil : $0 })
         }
         let roles = rows.compactMap { role($0) }
         // own has no label of its own (the person's words are its label); it is shown under its radio's name.
@@ -159,10 +166,36 @@ enum NewAgent {
         guard let role = c.role(d.roleKey) else { return false }
         return role.key != "own" || !NewProject.trimmed(d.ownWords).isEmpty
     }
+    // The desktop refuses a blank Role for any role (labelMissing).
     static func canCreate(_ d: Draft, _ c: Catalogue) -> Bool {
-        guard canContinueRole(d, c), !NewProject.trimmed(d.name).isEmpty else { return false }
-        // own's label always travels and the engine refuses without one.
-        return d.roleKey != "own" || !NewProject.trimmed(d.label).isEmpty
+        canContinueRole(d, c) && !NewProject.trimmed(d.name).isEmpty && !NewProject.trimmed(d.label).isEmpty
+    }
+
+    // The desktop's paintPickLimit: a role picked from the menu says its caution under it; on a swarm only a
+    // professional-advice one (Josh 10-01, #4871), matched by the desktop's own words.
+    static let advice = try! NSRegularExpression(pattern: #"\b(advi[cs]\w*|lawyers?|attorneys?|counsel\w*|legal\w*|accountants?|cpas?|auditors?|tax(es)?|financial planners?|licensed|medic\w*|doctors?|physicians?|clinicians?|nurses?|pharmacists?|psycholog\w*|psychiatr\w*|therap\w*|dentists?|diagnos\w*|veterinar\w*)\b"#, options: [.caseInsensitive])
+    static func caution(_ role: Role?, kind: Kind) -> String? {
+        guard let role, role.key != "own", let c = role.caution else { return nil }
+        if kind == .swarm && advice.firstMatch(in: c, range: NSRange(c.startIndex..., in: c)) == nil { return nil }
+        return c
+    }
+
+    // The projects a create put the agent on (its answer's `projects`, added only). The create route records the
+    // membership but leaves the project's tell untried, so the screen tells each one once the board sees the agent.
+    static func addedProjects(_ body: Data?) -> [String] {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        return ((obj?["projects"] as? [[String: Any]]) ?? []).compactMap { p in
+            guard p["added"] as? Bool == true, let id = p["id"] as? String, Board.isProjectId(id) else { return nil }
+            return id
+        }
+    }
+    static func tellRequest(mac: URL, project: String, session: String) -> URLRequest? {
+        guard Board.isProjectId(project), Board.isAgentSession(session) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/project/\(project)/agent/\(session)", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return r
     }
 
     // The desktop's body (create-go): name and role; a label only when changed (always for own); edited instructions;
@@ -250,6 +283,7 @@ enum NewTeam {
         static let afterLead = "Made once the lead is made."
         static let tryAgain = "Try again"
         static let nameAsTyped = "Kosmos could not use that name as it is typed. Change it and try again."
+        static func reportsTo(_ title: String, _ manager: String) -> String { title + " · " + NewAgent.Words.reportsTo + " " + manager }
     }
 
     struct Team: Equatable, Identifiable {
@@ -309,9 +343,11 @@ enum NewTeam {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let team = obj["team"] as? [String: Any], let key = team["key"] as? String, isKey(key),
               let rows = obj["members"] as? [[String: Any]] else { return nil }
+        // The lead is the team's own `lead` slot (the board's leadSlot), read from the reply, not guessed per row.
+        guard let lead = team["lead"] as? String, !lead.isEmpty else { return nil }
         let members: [Member] = rows.compactMap { m in
             guard let slot = m["slot"] as? String, !slot.isEmpty, let title = m["title"] as? String else { return nil }
-            return Member(slot: slot, title: title, name: m["name"] as? String ?? "", isLead: m["reportsTo"] is NSNull || m["reportsTo"] == nil)
+            return Member(slot: slot, title: title, name: m["name"] as? String ?? "", isLead: slot == lead)
         }
         // The board refuses a team without exactly one lead; so does the phone, rather than make one Create would refuse.
         guard !members.isEmpty, members.filter(\.isLead).count == 1, members.first?.isLead == true,
@@ -327,13 +363,23 @@ enum NewTeam {
     // The desktop's tcFillProjects: the team's project name (else its label), and the first free "<name> N" when a project
     // by that name exists already, since the board refuses a project whose folder is taken.
     static let projectNameCap = 100
-    static func newProjectName(_ d: Detail, taken: [String]) -> String {
+    static func newProjectName(_ d: Detail, taken: [String]) -> String { projectNames(d, taken: taken, count: 1)[0] }
+    // The free name and the next ones after it, for the desktop's retry when the board answers folder_taken (a project
+    // renamed keeps its folder, so a free name can still be refused): TC_PROJECT_NAME_TRIES (5) more after the first.
+    static let projectNameTries = 5
+    static func projectNames(_ d: Detail, taken: [String], count: Int) -> [String] {
         let base = d.projectName ?? d.label
         let names = Set(taken.map { NewProject.trimmed($0).lowercased() })
+        var out: [String] = []
         var wanted = base
         var next = 2
         while names.contains(wanted.lowercased()) && next < projectNameCap { wanted = base + " \(next)"; next += 1 }
-        return wanted
+        out.append(wanted)
+        while out.count < count { out.append(base + " \(next)"); next += 1 }
+        return out
+    }
+    static func folderTaken(_ body: Data?) -> Bool {
+        (body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["code"] as? String == "folder_taken"
     }
 
     enum ProjectChoice: Hashable { case new, none, existing(String) }
