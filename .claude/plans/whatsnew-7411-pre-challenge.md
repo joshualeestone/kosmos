@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: whatsnew-7411
-diff_hash: db16a33bc46b4abf3e2daf5348a1442eeeae484f1a054c212d0ad09042771a7a
+diff_hash: 8014715be9ff86ba0ba1c2f265e834682c17b7c48c1df612d2c4516e79d5deaf
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-28T11:00:03Z
-iterations: 9
+timestamp: 2026-10-28T12:30:24Z
+iterations: 10
 converged: false
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 9 (the 8-round loop, then one blind round on the board-deploy fix the full validation forced)
+**Iterations:** 10 (the 8-round loop, one blind round on the board-deploy fix the full validation forced, and one on the node fallback PR #7477's CI forced)
 **Converged:** No. Round 8 found nothing actionable (the loop converged on that diff at the 8-round cap). The full
 validation then went red on tools/test-board-deploy-manifest.sh, a real gap; the fix (ea6fdb52ca) got one blind round
 (iteration 9), whose two WARNINGs were fixed or filed (a10af938e4, #7465) and not re-reviewed.
@@ -22,7 +22,7 @@ Provenance, stated plainly: iterations 1 to 8 ran in Baron's earlier session (10
 from the commit messages that fixed each round (b498afc545 to 0e7b635652) and the session's handoff, not from the
 session's own record, and their reviewer models were not recorded. Iteration 9 ran in this session.
 
-Validation: PASSED on a10af938e4 (stack=typescript, hash db16a33bc46b, 25057 node tests, 0 failed). Two earlier full
+Validation: PASSED on bdf4f1032d (rebased onto main after #7466; stack=typescript, hash 8014715be9ff, 25295 node tests, 0 failed). Earlier: PASSED on a10af938e4 (stack=typescript, hash db16a33bc46b, 25057 node tests, 0 failed). Two earlier full
 runs on the branch are on record and explained: one failed on test-queued-heavy-4977, caused by an orphaned fixture of
 Baron's own earlier run (a fresh checkout of the same commit passed; #7411 comment); one failed on three timing-bound
 tests in files the branch does not touch that passed 317/317 alone under load, and on test-board-deploy-manifest.sh,
@@ -94,3 +94,15 @@ which was real and is fixed here.
 - The status filter is an allowlist and fails closed; a test checks the real pool against package.json.
 - Both CLIs call the same render, so they cannot drift; errors go to stderr and long output is not cut off.
 - readNotes refuses a notes file for another version, and a damaged entry is a sentence, each with a control.
+
+#### Iteration 10 (after PR #7477's CI red, 06:1x CDT 10-28)
+PR #7477's CI went red on tools/test-install-board-paths-2870.sh (main's version, from #7466, which requires the
+fixture to stage): CI's Linux runner has no /opt/homebrew/bin/node, so the notes step failed staging. Fixed in
+eebc09d04b (the board's node, else the one on PATH), reproduced red here with KOSMOS_BOARD_NODE pointing at a missing
+file and green after.
+**Reviewer model:** sonnet
+- [WARNING] deploy/install-board.sh: nothing executed the notes step (the release-notes test reads text; the fixture stubs the tool) --> FIXED (bdf4f1032d: a test runs stage_app for real into a temp folder with no board node; an extra argument on the call reds only it, measured)
+- [WARNING] a prerelease version would now stop staging --> DEFERRED: every Kosmos version is N.N.N (package.json, the cut)
+- [WARNING] the PATH fallback is silent --> DEFERRED: the service-key step's fallback is silent the same way; a say line is a later polish
+- [NIT] the manifest test does not pin release-notes.json --> DEFERRED: the new execution test checks the file itself
+- [CONVENTION] the plan's test count was stale --> FIXED (20)
