@@ -3448,13 +3448,15 @@ cmd_post() {
           # Round 3: not typed AND not recorded, so they have no copy anywhere.
           say "Not reached: $_missed. Kosmos could not type into their session and the room could not record it, so they do not have it."
           say "Message them directly (it goes to them alone): kosmos msg $_first \"...\""
+          say "If that fails too, they are not running: start them, then message them."
         else
           say "Not reached: $_missed. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room $project)."
           say "To reach one of them sooner, message them directly (it goes to them alone): kosmos msg $_first \"...\""
+          say "If that fails too, they are not running: start them, then message them."
         fi
       fi
       if [ -n "$_unrec" ]; then
-        say "The room could not record it, so it may not show there. Do not re-post: anyone it reached could get it twice."
+        say "It is not in the room: the room could not record it. Do not re-post: anyone it reached could get it twice."
       else
         say "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice."
       fi

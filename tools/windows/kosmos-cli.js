@@ -837,12 +837,14 @@ async function verbPost(ctx, args) {
       if (d.unrecorded === true) {
         ctx.err('Not reached: ' + whose('could_not').join(', ') + '. Kosmos could not type into their session and the room could not record it, so they do not have it.');
         ctx.err('Message them directly (it goes to them alone): kosmos msg ' + whose('could_not')[0] + ' "..."');
+        ctx.err('If that fails too, they are not running: start them, then message them.');
       } else {
         ctx.err('Not reached: ' + whose('could_not').join(', ') + '. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room ' + project + ').');
         ctx.err('To reach one of them sooner, message them directly (it goes to them alone): kosmos msg ' + whose('could_not')[0] + ' "..."');
+        ctx.err('If that fails too, they are not running: start them, then message them.');
       }
     }
-    ctx.err(d.unrecorded === true ? 'The room could not record it, so it may not show there. Do not re-post: anyone it reached could get it twice.'
+    ctx.err(d.unrecorded === true ? 'It is not in the room: the room could not record it. Do not re-post: anyone it reached could get it twice.'
       : 'Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.');
     // #6925 parity with install/kosmos: an unconfirmed summary still used this member's one.
     if (d.closing === true) ctx.err('This went through as your one summary while the room is held; anything more is not posted until the hold lifts.');

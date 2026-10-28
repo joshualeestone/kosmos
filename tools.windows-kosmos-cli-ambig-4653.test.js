@@ -69,13 +69,14 @@ test('kosmos#7414: an unconfirmed post names who is not confirmed and who was no
     "Kosmos may have typed it in, but could not confirm it, for: april, kit. It may well have arrived.",
     "Not reached: leo. Kosmos could not type into their session, so they will see it only when they read the room (kosmos room proj).",
     "To reach one of them sooner, message them directly (it goes to them alone): kosmos msg leo \"...\"",
+    "If that fails too, they are not running: start them, then message them.",
     "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice."
 ]);
 });
 
 test('kosmos#7414: only a post the room could not record is said to be missing from the room', async () => {
   const unrec = await post({ state: 'unconfirmed', because: 'it reached the room but could not be recorded', unrecorded: true, id: 'm1', outcomes: { mara: 'placed' }, text: 'x' });
-  assert.deepEqual(unrec.err, ['Posted, but not everyone is confirmed: it reached the room but could not be recorded.', "The room could not record it, so it may not show there. Do not re-post: anyone it reached could get it twice."]);
+  assert.deepEqual(unrec.err, ['Posted, but not everyone is confirmed: it reached the room but could not be recorded.', "It is not in the room: the room could not record it. Do not re-post: anyone it reached could get it twice."]);
   // A folded retry and a paused room carry a reason too, and those posts ARE in the room.
   for (const because of ["this was sent a moment ago and was not confirmed then", 'your post is in the room, but it woke no one']) {
     const r = await post({ state: 'unconfirmed', because, id: 'm1', outcomes: { mara: 'unconfirmed' }, duplicate: true, text: 'x' });
@@ -103,6 +104,7 @@ test('kosmos#7414 review 3: a member not reached for a post the room could not r
     'Posted, but not everyone is confirmed: it reached the room but could not be recorded.',
     'Not reached: leo. Kosmos could not type into their session and the room could not record it, so they do not have it.',
     'Message them directly (it goes to them alone): kosmos msg leo "..."',
-    'The room could not record it, so it may not show there. Do not re-post: anyone it reached could get it twice.',
+    'If that fails too, they are not running: start them, then message them.',
+    'It is not in the room: the room could not record it. Do not re-post: anyone it reached could get it twice.',
   ]);
 });
