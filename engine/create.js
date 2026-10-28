@@ -3049,9 +3049,11 @@ const switchFromWord = (fromLabel) => fromLabel || 'its previous provider';
 /* #7455 round 1: what happened to its notes, said ONCE for both answers: switchCarryWords (restarted) and
    switchPendingWords (saved, not restarted). The carry already ran before either is said, so every notes fact is true
    now in both; the only word that differs is whether what it remembered from talking `is lost` (it restarted) or
-   `will be lost` (at its next start). `lostVerb` is that word and nothing else. Returns the notes sentences and the
+   `will be lost` (at its next start). `lostVerb` is that word. Round 4: and `pending` (switchPendingWords only) changes
+   one instruction to the person: copied but not pointed, "tell it" becomes "once it has restarted, tell it", since the
+   session to tell is the next one. Absent, the restarted answer is byte-identical. Returns the notes sentences and the
    stale-pointer sentence, each ending in a space. */
-function switchNotesWords(carried, from, lostVerb) {
+function switchNotesWords(carried, from, lostVerb, pending) {
   const lost = `Anything it only remembered from talking ${lostVerb}. `;
   // Review 4: why a note is left out, and a note whose place in its folder holds something else, said apart.
   const SKIP_WHY = 'not a plain file, over 1 MB, or changed since its own last conversation';
@@ -3084,7 +3086,8 @@ function switchNotesWords(carried, from, lostVerb) {
       + (carried.failed ? ` (${carried.failed} could not be copied)` : '')   // review 3
       + `, and anything it only remembered from talking ${lostVerb}. `
       // Review 2: copied but the brief could not be pointed at them (no brief we may write, or two pointer blocks).
-      + (carried.pointed || carried.unpointFailed ? '' : 'Its instructions do not mention them yet, so tell it they are in memory/claude-notes/ in its folder. ');
+      + (carried.pointed || carried.unpointFailed ? ''
+        : `Its instructions do not mention them yet, so ${pending === true ? 'once it has restarted, ' : ''}tell it they are in memory/claude-notes/ in its folder. `);
   } else if (carried.notes === 'failed') {
     // Review 3: it had notes and none landed. Never "it had no saved notes".
     const parts = [];
@@ -3142,7 +3145,7 @@ function switchPendingWords(label, carried, fromLabel, stillRunning) {
   const head = stillRunning === true
     ? `At that restart, its conversation will not come across: ${label} will not be able to read what it said on ${from}. `
     : `When it next starts, it will start on ${label} without this conversation: ${label} will not be able to read what it said on ${from}. `;
-  return head + switchNotesWords(carried, from, 'will be lost')
+  return head + switchNotesWords(carried, from, 'will be lost', true)
     + (stillRunning === true ? SWITCH_HANDOFF_WORDS : '');
 }
 /* #7455 round 3: the handoff pointed at the REAL mechanism, not "ask it to write a handoff": a handoff it wrote into
@@ -3150,9 +3153,12 @@ function switchPendingWords(label, carried, fromLabel, stillRunning) {
    behind). The agent page's Restart offers "Write a handoff, then restart" (#3492): Kosmos asks for the handoff at
    <Kosmos data>/handoffs/<agent>.md (autohandoff-sweep handoffPathFor), outside any runner's or provider's folder,
    waits until it is written, restarts, and tells the new session to read it (handoff-restart/pickup). The same routes
-   on both platforms, so the sentence is true after a provider switch on either. */
-const SWITCH_HANDOFF_WORDS = 'To keep what it is doing, restart it from its page and choose "Write a handoff, then restart": '
-  + 'Kosmos keeps that handoff and tells its next session to read it. ';
+   on both platforms, so the sentence is true after a provider switch on either.
+   Round 4: and it promises no restart. This is said exactly when a restart's close just failed, and that option runs
+   the same close (via /restart), so it can fail again after the agent was asked to stop and write its handoff. So the
+   handoff is kept "if that restart works", and the person is told what to do if it does not. */
+const SWITCH_HANDOFF_WORDS = 'To keep what it is doing, restart it again from its page and choose "Write a handoff, then restart": '
+  + 'if that restart works, Kosmos keeps the handoff and tells its next session to read it; if it fails again, tell it to carry on. ';
 
 function setModel(name, modelKey, opts) {
   const platform = opts && opts.platform;

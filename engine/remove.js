@@ -931,7 +931,8 @@ function sessionOps(platform, tmuxBin) {
          returned Boolean is unchanged. A dry run is not checked here (win32stop's result does not carry it); the
          restart refuses the flag on any dry run itself. */
       endSteps: function* (session, seen) {
-        const r = yield* win32stop.endSteps(session);
+        // Round 4: with `seen`, win32stop confirms stillAlive after a short settle (a kill still finishing reads alive).
+        const r = yield* win32stop.endSteps(session, undefined, Boolean(seen));
         if (seen && r && r.stillAlive === true) seen.alive = true;
         return Boolean(r && r.ok);
       },
@@ -950,7 +951,11 @@ function sessionOps(platform, tmuxBin) {
     const still = yield { exec: [tmux, ['has-session', '-t', `=${session}`]] };
     /* #7455 round 2: `seen`, when given, is told only when has-session ANSWERED that the session is there (exit 0, a
        real answer, not a dry run). A timeout, any other code, or no answer is not that, and leaves it untold. The
-       returned Boolean (proven gone) is unchanged. */
+       returned Boolean (proven gone) is unchanged.
+       Round 4: no settle-and-recheck here, unlike Windows. tmux's kill-session is synchronous (the session is gone
+       from the server when it returns), so the "process still finishing" race does not apply; and has-session asks
+       by NAME, so a later re-check could see a fresh session the supervisor started under the same name and report
+       that as the old one, which a settle would make likelier, not rarer. */
     if (seen && still && still.ok === true && !still.dryRun) seen.alive = true;
     return Boolean(still && still.ok === false && still.code === 1);
   }

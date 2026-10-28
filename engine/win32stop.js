@@ -287,12 +287,30 @@ function killAndForget(pid, sessionId) {
    pid resolution (resolve -> liveByName) is a READ, done in the generator; only the taskkill is yielded, so
    remove.js's runAsync runs it off the board's thread. The look-again and the forget are the SAME finishKill the
    sync path uses. Mirrors end() decision-for-decision; returns the same shapes. */
-function* endSteps(name, opts) {
+function* endSteps(name, opts, confirmAlive) {
   const found = resolve(name, opts);
   if (found.unknown) return { ok: false, because: 'we could not check what is running on this computer' };
   if (!found.found) return { ok: true, already: true };
   const r = yield { exec: ['taskkill.exe', ['/PID', String(found.pid), '/T', '/F'], { timeout: TASKKILL_TIMEOUT_MS }] };
-  return finishKill(require('./win32job').win32StepResult(r), found.pid, found.sessionId);
+  const out = finishKill(require('./win32job').win32StepResult(r), found.pid, found.sessionId);
+  /* #7455 round 4: the look-again runs right after taskkill /F, and a process still finishing can read 'alive' for a
+     moment. So stillAlive is CONFIRMED: after a short settle the same pid must still read 'alive', or the flag is
+     dropped (the answer stays "not closed", exactly as before). The pid is the one taskkill was aimed at, so a NEW
+     session the supervisor starts meanwhile, which has its own pid, cannot pass this re-check. Only when the caller
+     asks (the restart's handoff flag, through remove.js sessionOps); removal never waits here. The settle is a
+     yielded sleep, answered by the driver. */
+  if (confirmAlive === true && out.stillAlive === true) {
+    yield { sleep: stillAliveSettleMs() };
+    if (pidSeen(found.pid) !== 'alive') { const { stillAlive, ...notSeen } = out; return notSeen; }
+  }
+  return out;
+}
+/* #7455 round 4: the settle before stillAlive is re-checked. Well inside the restart's 12 s liveness deadline (a
+   restart reaches liveness in about 5.8 s on a Windows box), and enough for a forced kill to finish. Overridable like
+   remove.js's AGENT_WORKFORCE_RELAUNCH_RETRY_MS. */
+function stillAliveSettleMs() {
+  const v = Number(process.env.AGENT_WORKFORCE_STILL_ALIVE_SETTLE_MS);
+  return Number.isFinite(v) && v >= 0 ? v : 750;
 }
 
 module.exports = { end, endSteps, endSession, resolve, aliveFromError, setRunner, setAlive, setLive, setPark };

@@ -87,7 +87,9 @@ test('#7455: still running: the next restart loses the conversation, in the futu
     assert.match(w, /will be lost\./, what + ': what it remembered from talking, in the future');
     // Round 3: the handoff points at Kosmos's own restart-with-handoff (kept outside any provider's folder), never at
     // the agent's own memory, which the switch already left behind.
-    assert.match(w, /To keep what it is doing, restart it from its page and choose "Write a handoff, then restart": Kosmos keeps that handoff and tells its next session to read it\. $/, what + ': the handoff ends it');
+    // Round 4: it promises no restart (the option runs the same close that just failed).
+    assert.match(w, /To keep what it is doing, restart it again from its page and choose "Write a handoff, then restart": if that restart works, Kosmos keeps the handoff and tells its next session to read it; if it fails again, tell it to carry on\. $/, what + ': the handoff ends it');
+    assert.doesNotMatch(w, /Kosmos keeps that handoff and tells/, what + ': the round 3 promise');
     assert.doesNotMatch(w, /ask it to write a handoff|When it restarts/, what + ': the old pointer, or a second "When it restarts" opening');
     assert.doesNotMatch(w, /\bcannot read\b|\bis lost\b|\bit is\.|Everything it knows/, what + ': present tense, or the restarted sentence');
     assert.doesNotMatch(w, /—/, what + ': an em dash');
@@ -130,7 +132,9 @@ test('#7455 round 1: the pending answer says the same notes facts as the restart
   const copied = carry(cName, 'claude', 'codex', 'anthropic', 'openai');
   assert.deepEqual([copied.notes, copied.pointed], ['copied', false], 'CONTROL: copied and not pointed');
   assert.match(create.switchPendingWords('OpenAI', copied, 'Claude', true),
-    /Its saved notes are copied into its folder, and anything it only remembered from talking will be lost\. Its instructions do not mention them yet, so tell it they are in memory\/claude-notes\/ in its folder\. /);
+    /Its saved notes are copied into its folder, and anything it only remembered from talking will be lost\. Its instructions do not mention them yet, so once it has restarted, tell it they are in memory\/claude-notes\/ in its folder\. /);
+  // Round 4: only the pending answer waits for the restart; the restarted answer still says "so tell it".
+  assert.match(create.switchCarryWords('OpenAI', copied, 'Claude'), /Its instructions do not mention them yet, so tell it they are in memory\/claude-notes\//);
   // failed: it had notes and none landed (all over 1 MB), never "it had no saved notes".
   const fName = born('ss7455-n-failed', 'claude', 'anthropic');
   claudeNotes(fName, { 'huge.md': 'x'.repeat(1024 * 1024 + 1) });
@@ -143,7 +147,8 @@ test('#7455 round 1: the pending answer says the same notes facts as the restart
   for (const c of [root, between, copied, failed]) {
     const now = create.switchCarryWords('X', c, 'Y').split('cannot read what it said on Y. ')[1];
     const later = create.switchPendingWords('X', c, 'Y', false).split('will not be able to read what it said on Y. ')[1];
-    assert.equal(later, now.split(' is lost.').join(' will be lost.'), JSON.stringify(c));
+    // Round 4: and the one instruction that waits for the restart ("once it has restarted, tell it").
+    assert.equal(later, now.split(' is lost.').join(' will be lost.').split(', so tell it ').join(', so once it has restarted, tell it '), JSON.stringify(c));
   }
 });
 

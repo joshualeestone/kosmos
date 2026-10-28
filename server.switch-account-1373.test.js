@@ -248,7 +248,7 @@ test('#7455 route: saved but not restarted, a switch that loses its conversation
   assert.match(r.body.because, /still running as before until it restarts/, 'control: the not-restarted sentence changed');
   // Its window could not be closed, so it IS still running: the handoff can be asked for, and ends the answer.
   assert.match(r.body.because,
-    /When it restarts it will run on [\s\S]*At that restart, its conversation will not come across: OpenAI will not be able to read what it said on Claude\. [\s\S]*will be lost\. [\s\S]*To keep what it is doing, restart it from its page and choose "Write a handoff, then restart": Kosmos keeps that handoff and tells its next session to read it\.$/,
+    /When it restarts it will run on [\s\S]*At that restart, its conversation will not come across: OpenAI will not be able to read what it said on Claude\. [\s\S]*will be lost\. [\s\S]*To keep what it is doing, restart it again from its page and choose "Write a handoff, then restart": if that restart works, Kosmos keeps the handoff and tells its next session to read it; if it fails again, tell it to carry on\.$/,
     'the not-restarted answer does not warn that the next restart loses the conversation: ' + r.body.because);
   // The future tense is the point: nothing here may read as though the conversation is already gone or kept.
   assert.doesNotMatch(r.body.because, /Everything it knows|cannot read what it said|\bis lost\b/, r.body.because);
@@ -268,6 +268,34 @@ test('#7455 route round 1: saved for an agent that is not running: it will start
     /When it next starts, it will start on OpenAI without this conversation: OpenAI will not be able to read what it said on Claude\. [\s\S]*will be lost\./,
     'a stopped agent is not told its next start loses the conversation: ' + r.body.because);
   assert.doesNotMatch(r.body.because, /handoff/, 'a handoff is offered to an agent nobody can ask: ' + r.body.because);
+});
+
+test('#7455 route round 4: OpenAI -> Qwen saved but not restarted keeps today\'s answer exactly (it keeps its conversation)', async () => {
+  /* OpenAI <-> Qwen is one runner in one private Codex home (#7445), so carried is null and nothing may be added.
+     The Qwen account is made the way create.compat-7206.test.js makes one: a named folder holding its endpoint. */
+  const qwen = require('./engine/qwenaccounts');
+  const QDIR = nodePath.resolve(nodePath.join(HOME, qwen.DIR_PREFIX + 'route7455'));
+  qwen.storeEndpoint(QDIR, { baseUrl: 'http://localhost:11434/v1', model: 'kosmos-qwen2.5-7b-16k:latest', contextWindow: 16384 });
+  const name = born('route-7455-qwen');
+  const first = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
+  assert.equal(first.body.outcome, 'changed', 'CONTROL: the agent is on OpenAI first: ' + JSON.stringify(first.body));
+
+  const alive = () => ({ ok: true, stdout: '' });
+  create.setRunner(alive);
+  require('./engine/remove').setRunner(alive);
+  let r;
+  try {
+    r = await switchTo(name, { provider: 'alibaba', account: QDIR, picked: true });
+  } finally {
+    create.setRunner(fakeRun);
+    require('./engine/remove').setRunner(fakeRun);
+  }
+  assert.equal(r.status, 200, 'the route errored instead of answering: ' + JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'partial', 'the fixture did not reach the not-restarted branch: ' + JSON.stringify(r.body));
+  assert.equal(r.body.because,
+    'We saved the switch to Qwen, but could not start it again: '
+    + `we could not close ${name}'s window, so it is still running the older instructions. Nothing was changed. `
+    + 'It is still running as before until it restarts. When it restarts it will run on the account you picked.');
 });
 
 test('#1373 route: a PICKED account is named back, and the sentence says the person chose it', async () => {

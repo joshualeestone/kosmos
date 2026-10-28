@@ -487,3 +487,36 @@ test('#7455 round 3 (win32): sessionOps.end answers the same yes/no as before', 
     assert.equal(remove.sessionOps('win32').end('a'), true, 'gone after the kill: ended');
   } finally { stop.setLive(null); stop.setAlive(null); stop.setRunner(null); }
 });
+
+test('#7455 round 4 (win32): alive right after the kill but gone after the settle: not closed, and NOT seen alive', () => {
+  stop.setLive(() => new Map([['a', { sessionId: 's1', pid: 4242 }]]));
+  const answers = [true, false];   // the look-again, then the re-check after the settle
+  stop.setAlive(() => answers.shift());
+  try {
+    const seen = { alive: false };
+    const r = driveWin32(remove.sessionOps('win32').endSteps('a', seen), () => ({ ok: true, stdout: '' }));
+    assert.equal(r.ret, false, 'the close answer is unchanged: it was not proven closed');
+    assert.equal(r.sleeps, 1, 'CONTROL: the settle was yielded before the re-check');
+    assert.equal(answers.length, 0, 'CONTROL: the pid was checked twice');
+    assert.equal(seen.alive, false, 'a kill still finishing is not "seen still running"');
+  } finally { stop.setLive(null); stop.setAlive(null); }
+});
+
+test('#7455 round 4 (win32): alive after the kill and still alive after the settle: seen alive; removal never waits', () => {
+  stop.setLive(() => new Map([['a', { sessionId: 's1', pid: 4242 }]]));
+  let checks = 0;
+  stop.setAlive(() => { checks += 1; return true; });
+  try {
+    const seen = { alive: false };
+    const r = driveWin32(remove.sessionOps('win32').endSteps('a', seen), () => ({ ok: true, stdout: '' }));
+    assert.equal(r.ret, false);
+    assert.equal(checks, 2, 'CONTROL: checked after the kill and again after the settle');
+    assert.equal(seen.alive, true);
+    // Without `seen` (removal's close), no settle and one check, as before.
+    checks = 0;
+    const plain = driveWin32(remove.sessionOps('win32').endSteps('a'), () => ({ ok: true, stdout: '' }));
+    assert.equal(plain.ret, false);
+    assert.equal(plain.sleeps, 0, 'a removal\'s close waited for the restart\'s settle');
+    assert.equal(checks, 1);
+  } finally { stop.setLive(null); stop.setAlive(null); }
+});
