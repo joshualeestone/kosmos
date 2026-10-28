@@ -215,7 +215,7 @@ test('#7365 3b review 3: what Archive says depends on the count before and after
   vm.runInContext(liftAll(SCRIPT, ['pjRoomArchWhen', 'pjArchReceipt', 'pjArchOutcome']) + '\nthis.f = pjArchOutcome;', ctx);
   const t = new Date(2026, 9, 26, 16, 10).toISOString();
   assert.match(ctx.f(0, 260, t), /^Messages before .+, .+ are archived\. Undo is in the archive\.$/);
-  assert.match(ctx.f(260, 0, t), /^Messages before .+ are archived; newer ones you had archived are back in the room\.$/);
+  assert.match(ctx.f(260, 10, t), /^Messages before .+ are archived; newer ones you had archived are back in the room\.$/);
   assert.match(ctx.f(260, 260, t), /^Nothing more in this room was old enough to archive \(before .+\)\.$/);
   assert.equal(ctx.f(0, 0, undefined), 'Nothing more in this room was old enough to archive.');
   assert.equal(ctx.f(0, 5, undefined), 'Older messages are archived. Undo is in the archive.');
@@ -232,4 +232,87 @@ test('#7365 3b review 4: the Undo sentence states the server\'s own archive rule
   assert.ok(said, 'the Undo sentence was not found');
   assert.equal(Number(said[1]), days);
   assert.equal(said[2], keep);
+});
+
+/* The confirm itself (pjArchAsk), run against fake controls and a scripted board: each fetch answers from `answers`. */
+function askPage({ answers, current = 'p1', projects = { p1: { id: 'p1', name: 'Alpha' } } }) {
+  const els = {};
+  const listeners = [];
+  const doc = {
+    activeElement: null, visibilityState: 'visible',
+    getElementById: (id) => els[id] || (els[id] = { id, hidden: id === 'pjarch-modal', disabled: false, value: 'week', textContent: '', onclick: null, onchange: null,
+      focus() { doc.activeElement = this; }, setAttribute() {}, getClientRects: () => [1], closest: () => null }),
+    addEventListener: (t, f) => listeners.push(f), removeEventListener: (t, f) => { const i = listeners.indexOf(f); if (i >= 0) listeners.splice(i, 1); },
+  };
+  const toasts = [], loads = [], calls = [];
+  const ctx = vm.createContext({
+    document: doc, Date, Number, JSON, Promise,
+    PJ_CURRENT: current, PJ_ARCH: { on: false }, pjById: (id) => projects[id] || null,
+    msgToast: (t) => toasts.push(t), pjRoomAnnounce: () => {}, pjArchReset: () => calls.push('reset'), pjArchClose: () => calls.push('close'),
+    pjWinReset: () => calls.push('winreset'), loadRoom: () => loads.push(ctx.PJ_CURRENT),
+    fetch: async (url, opt) => { const a = answers.shift(); calls.push((opt && opt.method) || 'GET'); return typeof a === 'function' ? a(url, opt) : a; },
+  });
+  vm.runInContext([liftAll(SCRIPT, ['pjArchBefore', 'pjRoomArchWhen', 'pjArchReceipt', 'pjArchOutcome', 'pjArchCount', 'pjArchAsk']),
+    'let PJ_ARCH_ASK_CLOSE = null; let PJ_ARCH_ASK_GEN = 0;',
+    'this.ask = pjArchAsk; this.closeFromProject = () => PJ_ARCH_ASK_CLOSE && PJ_ARCH_ASK_CLOSE(); this.gen = () => PJ_ARCH_ASK_GEN;'].join('\n'), ctx);
+  return { ctx, doc, el: doc.getElementById, toasts, loads, calls, listeners };
+}
+const count = (n) => ({ ok: true, json: async () => ({ archivedCount: n }) });
+const marked = { ok: true, json: async () => ({ ok: true, marker: { before: new Date(2026, 9, 20, 18, 0).toISOString() } }) };
+
+test('#7365 3b review 5: opening another project closes the confirm without moving focus, and the outcome is still said, by name', async () => {
+  let answer;
+  const slowPost = () => new Promise((r) => { answer = r; });
+  const h = askPage({ answers: [count(0), slowPost, count(260)] });
+  h.ctx.ask();
+  const press = h.el('pjarch-go').onclick();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(h.el('pjarch-when').disabled, true, 'the choice is locked while the request is out');
+  const other = { id: 'elsewhere' };
+  h.doc.activeElement = other;   // the person is in the other project now
+  const before = h.ctx.gen();
+  h.ctx.closeFromProject();
+  assert.equal(h.el('pjarch-modal').hidden, true);
+  assert.ok(h.ctx.gen() > before, 'the opening is over: a late answer cannot act on a later confirm');
+  assert.equal(h.doc.activeElement, other, 'focus stays where the person put it');
+  assert.equal(h.listeners.length, 0, 'no key listener is left behind');
+  h.ctx.PJ_CURRENT = 'p2';
+  answer(marked);
+  await press;
+  assert.equal(h.toasts.length, 1);
+  assert.match(h.toasts[0], /^In Alpha: Messages before .+ are archived\. Undo is in the archive\.$/);
+  assert.deepEqual(h.loads, [], 'the room on screen is another one, so nothing reloads');
+});
+
+test('#7365 3b review 5: Archive pressed from inside the archive view closes it through pjArchClose (which repaints), not a bare reset', async () => {
+  const h = askPage({ answers: [count(0), marked, count(260)] });
+  h.ctx.PJ_ARCH.on = true;
+  h.ctx.ask();
+  await h.el('pjarch-go').onclick();
+  assert.ok(h.calls.includes('close') && !h.calls.includes('reset'), JSON.stringify(h.calls));
+  assert.deepEqual(h.loads, ['p1']);
+});
+
+test('#7365 3b review 5: Back marks the room seen before painting it, and a search closing the archive does not', async () => {
+  const h = archPage({ reads: [page1, page1] });
+  const seen = [];
+  h.ctx.pjMarkSeen = (pid) => seen.push(['seen', pid]);
+  h.doc.visibilityState = 'visible';
+  const paint = h.ctx.paintRoom; h.ctx.paintRoom = (b) => { seen.push(['paint']); paint(b); };
+  Object.assign(h.ctx.PJ_WIN, { pid: 'p1' });
+  await h.ctx.pjArchOpen();
+  h.ctx.pjArchClose();
+  assert.deepEqual(seen, [['seen', 'p1'], ['paint']]);
+  seen.length = 0;
+  await h.ctx.pjArchOpen();
+  h.ctx.pjArchClose(true, undefined, true);   // the search's close
+  assert.deepEqual(seen, [['paint']]);
+});
+
+test('#7365 3b review 5: when every archived message comes back, the outcome does not say anything is archived', () => {
+  const ctx = vm.createContext({ Date, Number });
+  vm.runInContext(liftAll(SCRIPT, ['pjRoomArchWhen', 'pjArchReceipt', 'pjArchOutcome']) + '\nthis.f = pjArchOutcome;', ctx);
+  const t = new Date(2026, 9, 26, 16, 10).toISOString();
+  assert.match(ctx.f(260, 0, t), /^Nothing in this room is older than .+; the messages you had archived are back in the room\.$/);
+  assert.match(ctx.f(260, 10, t), /^Messages before .+ are archived; newer ones you had archived are back in the room\.$/);
 });

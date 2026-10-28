@@ -116,8 +116,15 @@ function findUnder(dir, name) {
       await p.selectOption('#pjarch-when', choice);
       await p.click('#pjarch-go');
       await p.waitForSelector('#pjarch-modal', { state: 'hidden', timeout: 5000 });
-      const m = await toastSays(re);
-      return m ? m[0] : await p.evaluate(() => (document.getElementById('msg-toast') || {}).textContent || '');
+      await toastSays(re);
+      return p.evaluate(() => ((document.getElementById('msg-toast') || {}).textContent || '').trim());   // the whole sentence, not the matched part
+    };
+    /* The View archive button must be there before a step clicks it. Missing, it is a labelled FAIL and the run stops
+       (every later step needs the archive), never a 30-second click timeout with no label (review 5). */
+    const needViewArchive = async (where) => {
+      const there = await p.waitForSelector('#pj-arch-open', { timeout: 5000 }).then(() => true, () => false);
+      chk(there, 'the View archive button is there ' + where);
+      if (!there) throw new Error('stopping: no View archive button ' + where);
     };
     // Scroll the room to its top until the window holds the live history back to its start (or 20 tries).
     const scrollToStart = async () => {
@@ -187,7 +194,7 @@ function findUnder(dir, name) {
     chk(!(await p.evaluate(() => pjWinAtStart())) && await p.locator('#pj-arch-open').count() === 0,
       'the first page (200 of 230 live posts) does not show the boundary row: it is not a standing notice');
     chk(await scrollToStart(), 'scrolling back reaches the start of the live history');
-    await p.waitForSelector('#pj-arch-open', { timeout: 5000 }).catch(() => null);
+    await needViewArchive('at the start of the live history');
     const edge = await p.evaluate(() => {
       const b = document.getElementById('pj-arch-open');
       const e = b && b.closest('.pj-arch-edge');
@@ -198,9 +205,11 @@ function findUnder(dir, name) {
     chk(edge.archived === ARCHIVED, 'the live read says 260 posts are archived', String(edge.archived));
     chk(await p.locator('#pj-room .msg').filter({ hasText: /^archived post|archived post \d/ }).count() === 0, 'no archived post is in the live room');
     await p.screenshot({ path: path.join(OUT, 'boundary-row.png') });
-    const liveReply = await p.evaluate(() => { const r = [...document.querySelectorAll('#pj-room .msg')].find((m) => /live post 1\b/.test(m.textContent) && !/live post 1\d/.test(m.textContent)); const h = r && r.querySelector('.msg-replyto'); return h ? h.textContent.trim() : null; });
+    const liveReply = await p.evaluate(() => { const r = [...document.querySelectorAll('#pj-room .msg')].find((m) => { const b = m.querySelector('.msg-bd > p'); return b && /^live post 1$/.test(b.textContent.trim()); }); const h = r && r.querySelector('.msg-replyto'); return h ? h.textContent.trim() : null; });
     chk(liveReply === 'Original message may be in the archive', 'a live reply whose original is archived says it may be in the archive, not "unavailable"', String(liveReply));
-    const placeBefore = await p.evaluate(() => { const b = document.getElementById('pj-arch-open'); const box = document.getElementById('pj-room'); if (!b) return null; const r = b.getBoundingClientRect(), q = box.getBoundingClientRect(); return r.top >= q.top - 1 && r.bottom <= q.bottom + 1; });
+    // The reader's place: the first message whose bottom is inside the view, and how far from the top it sits.
+    const place = () => p.evaluate(() => { const box = document.getElementById('pj-room'); const q = box.getBoundingClientRect(); const m = [...box.querySelectorAll('.msg')].find((x) => x.getBoundingClientRect().bottom > q.top + 1); const b = m && m.querySelector('.msg-bd > p'); return m ? { text: b ? b.textContent.trim() : '', dy: Math.round(m.getBoundingClientRect().top - q.top) } : null; });
+    const placeBefore = await place();
 
     // View archive.
     await p.click('#pj-arch-open');
@@ -217,7 +226,7 @@ function findUnder(dir, name) {
     chk(arch.on && arch.n === 200 && /archived post 259/.test(arch.last) && !arch.live, 'the archive shows its newest page, the newest archived post at the bottom, and no live post', JSON.stringify({ n: arch.n, live: arch.live }));
     chk(!arch.start, 'CONTROL: on the first archive page the start-of-room line is not shown yet');
     chk(await p.locator('#pj-room .msg-archived').count() === 0, 'inside the archive view no row carries the Archived tag (the header says it)');
-    const archReply = await p.evaluate(() => { const r = [...document.querySelectorAll('#pj-room .msg')].find((m) => /archived post 250\b/.test(m.textContent)); if (!r) return null; const h = r.querySelector('.msg-replyto'); const vh = r.querySelector('.vh'); return { header: h ? h.textContent.trim() : null, heard: vh ? vh.textContent.trim() : null }; });
+    const archReply = await p.evaluate(() => { const r = [...document.querySelectorAll('#pj-room .msg')].find((m) => { const b = m.querySelector('.msg-bd > p'); return b && /^archived post 250$/.test(b.textContent.trim()); }); if (!r) return null; const h = r.querySelector('.msg-replyto'); const vh = r.querySelector('.vh'); return { header: h ? h.textContent.trim() : null, heard: vh ? vh.textContent.trim() : null }; });
     chk(!!archReply && !/unavailable/.test(JSON.stringify(archReply)) && /archived post 249/.test(JSON.stringify(archReply)), 'an archived reply names its archived original, not "unavailable"', JSON.stringify(archReply));
     // A poll lands while the archive is open, with a new post in the live room: the archive stays as it is.
     const sent = await fetch(base + '/api/project/' + pid + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'posted while the archive was open' }) });
@@ -245,8 +254,8 @@ function findUnder(dir, name) {
       await p.waitForTimeout(400);
     }
     const earlier = await p.evaluate(() => ({ n: document.querySelectorAll('#pj-room .msg').length, start: /This is the start of the room\./.test(document.getElementById('pj-room').textContent),
-      first: (document.querySelector('#pj-room .msg') || {}).textContent || '' }));
-    chk(earlier.n === ARCHIVED && earlier.start && /archived post 0\b/.test(earlier.first), 'scrolling to the top of the archive reads the earlier page and reaches "This is the start of the room."', JSON.stringify({ n: earlier.n, start: earlier.start }));
+      first: ((document.querySelector('#pj-room .msg .msg-bd > p') || {}).textContent || '').trim() }));
+    chk(earlier.n === ARCHIVED && earlier.start && earlier.first === 'archived post 0', 'scrolling to the top of the archive reads the earlier page and reaches "This is the start of the room."', JSON.stringify(earlier));
 
     // Back to the room.
     await p.click('#pj-arch-back');
@@ -256,8 +265,8 @@ function findUnder(dir, name) {
     chk(back.head && !back.on && back.live && !back.arch, 'Back to the room hides the archive header and paints the live room', JSON.stringify(back));
     chk(await p.evaluate(() => /posted while the archive was open/.test(document.getElementById('pj-room').textContent)), 'Back shows the post that arrived while the archive was open');
     chk(await p.evaluate(() => document.activeElement && document.activeElement.id) === 'pj-post', 'Back moves focus to the room\'s message box');
-    const placeAfter = await p.evaluate(() => { const b = document.getElementById('pj-arch-open'); const box = document.getElementById('pj-room'); if (!b) return null; const r = b.getBoundingClientRect(), q = box.getBoundingClientRect(); return r.top >= q.top - 1 && r.bottom <= q.bottom + 1; });
-    chk(placeBefore === true && placeAfter === true, 'Back puts the reader back where they were (the boundary row they left from is in view)', JSON.stringify({ placeBefore, placeAfter }));
+    const placeAfter = await place();
+    chk(!!placeBefore && !!placeAfter && placeBefore.text === placeAfter.text && Math.abs(placeBefore.dy - placeAfter.dy) <= 2, 'Back puts the reader back where they were (the same message at the same place at the top of the view)', JSON.stringify({ placeBefore, placeAfter }));
 
     // Search covers both, and an archived hit says so.
     await p.fill('#pj-room-search', 'needle');
@@ -273,7 +282,7 @@ function findUnder(dir, name) {
 
     // Undo, from the archive view.
     if (!(await scrollToStart())) chk(false, 'scrolling back reaches the start again before Undo');
-    await p.waitForSelector('#pj-arch-open', { timeout: 5000 }).catch(() => null);
+    await needViewArchive('before Undo');
     await p.click('#pj-arch-open');
     await p.waitForSelector('#pj-arch-undo:not([hidden])', { timeout: 5000 });
     await p.focus('#pj-arch-undo');
@@ -297,8 +306,8 @@ function findUnder(dir, name) {
     chk(Math.abs(dayMs - (Date.now() - DAY)) < 5 * 60 * 1000 && Number(dayM.archivedCount) === ARCHIVED && live === LIVE + 1,
       '"everything older than a day" archives up to 24 hours ago, and today\'s posts (230, and the one posted meanwhile) stay live', JSON.stringify({ before: dayM.archiveMarker && dayM.archiveMarker.before, archived: dayM.archivedCount, live, said: daySaid }));
     // What Archive says follows the count before and after: an earlier cutoff brings rows back; the same one archives nothing more.
-    const backSaid = await archiveWith('month', /are archived; newer ones you had archived are back in the room\./);
-    chk(/are archived; newer ones you had archived are back in the room\.$/.test(backSaid), 'a cutoff earlier than the room\'s last one says the newer archived messages are back', backSaid);
+    const backSaid = await archiveWith('month', /the messages you had archived are back in the room\./);
+    chk(/^Nothing in this room is older than .+; the messages you had archived are back in the room\.$/.test(backSaid), 'a cutoff earlier than every post says the archived messages are back and claims nothing is archived', backSaid);
     const sameSaid = await archiveWith('month', /^Nothing more in this room was old enough to archive/);
     chk(/^Nothing more in this room was old enough to archive \(before .+\)\.$/.test(sameSaid), 'the same cutoff again says nothing more was old enough, not a receipt', sameSaid);
     // Phone width: the header holds read-aloud, the archive button and search; none of it may push the page sideways.
@@ -311,14 +320,24 @@ function findUnder(dir, name) {
     // And the archive view at 390px: its header above the thread must not push the newest archived post under the composer.
     await archiveWith('day', /are archived/);   // the search was cleared before the resize, so nothing to fill here (review 4)
     await scrollToStart();
-    await p.waitForSelector('#pj-arch-open', { timeout: 5000 }).catch(() => null);
+    await needViewArchive('at 390px');
     await p.click('#pj-arch-open');
     await p.waitForSelector('#pj-arch-head:not([hidden])', { timeout: 5000 });
     await p.waitForTimeout(500);
-    const fit = await p.evaluate(() => { const msgs = document.querySelectorAll('#pj-room .msg'); const last = msgs[msgs.length - 1]; const comp = document.getElementById('pj-post'); const box = document.getElementById('pj-room').getBoundingClientRect();
-      return { lastBottom: last ? Math.round(Math.min(last.getBoundingClientRect().bottom, box.bottom)) : null, roomBottom: Math.round(box.bottom), composerTop: comp ? Math.round(comp.getBoundingClientRect().top) : null }; });
+    // Measured against the composer box itself (.pjmid .composer, what the phone fit uses), with the thread at its end.
+    await p.evaluate(() => { const b = document.getElementById('pj-room'); b.scrollTop = b.scrollHeight; });
+    await p.waitForTimeout(300);
+    const fit = await p.evaluate(() => { const msgs = document.querySelectorAll('#pj-room .msg'); const last = msgs[msgs.length - 1]; const comp = document.querySelector('.pjmid .composer'); const box = document.getElementById('pj-room').getBoundingClientRect();
+      return { lastBottom: last ? Math.round(last.getBoundingClientRect().bottom) : null, roomBottom: Math.round(box.bottom), composerTop: comp ? Math.round(comp.getBoundingClientRect().top) : null }; });
     await p.screenshot({ path: path.join(OUT, 'phone-archive.png') });
-    chk(fit.lastBottom !== null && fit.composerTop !== null && fit.roomBottom <= fit.composerTop + 1, 'at 390px the archive\'s thread ends above the composer, so its newest post is not hidden under it', JSON.stringify(fit));
+    chk(fit.lastBottom !== null && fit.composerTop !== null && fit.roomBottom <= fit.composerTop + 1 && fit.lastBottom <= fit.composerTop + 1,
+      'at 390px the archive\'s thread, and its newest post, end above the composer', JSON.stringify(fit));
+    // Archive pressed from inside the archive view: the archive closes and the live room is painted, never left unlabelled.
+    const insideSaid = await archiveWith('week', /archived|old enough/);
+    const inside = await p.evaluate(() => ({ head: document.getElementById('pj-arch-head').hidden, on: document.getElementById('pj-room').classList.contains('pj-arch-on'),
+      live: [...document.querySelectorAll('#pj-room .msg .msg-bd > p')].some((x) => /^live post \d+$/.test(x.textContent.trim())),
+      arch: [...document.querySelectorAll('#pj-room .msg .msg-bd > p')].some((x) => /^archived post \d+$/.test(x.textContent.trim())) }));
+    chk(inside.head && !inside.on && inside.live && !inside.arch, 'Archive pressed inside the archive view closes it and paints the live room, with no archived row left on screen', JSON.stringify(Object.assign({ said: insideSaid }, inside)));
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {
     if (browser) await browser.close();

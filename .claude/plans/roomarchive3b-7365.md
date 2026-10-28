@@ -142,3 +142,27 @@ map. Fixed by moving the return to just before the rows are written.
      costly; the POST answering its own count would remove both, a server change for a later slice.
    - NIT 10, answered: the archive route is an operator write that needs only the project, so a room with no agents
      archives normally; nothing ends in "could not" there.
+5. (general-purpose, 19:0x CDT) 0 BLOCKERs, 4 WARNINGs, 1 CONVENTION, 4 NITs; all applied.
+   - (W) Archive pressed inside the archive view reset it without repainting, leaving its rows unlabelled: it closes
+     through pjArchClose (which repaints); vm test and a browser arm.
+   - (W) the 390 px fit arm clamped what it measured and compared against the textarea: it measures the composer box
+     with the thread scrolled to its end, and asserts the newest post's own bottom.
+   - (W) review 4's fixes had no tests: vm tests for the confirm closing on a project switch (focus untouched, the
+     opening over, no listener left, the outcome said by name, nothing reloaded for another room) and for Back marking
+     the room seen before its paint (not on a search's close), each mutation-proven.
+   - (W) the Tab trap held every Tab on the page if the room's section was hidden some other way: the confirm closes
+     when it has no box on screen.
+   - (C) a slow Undo with the archive closed and reopened meanwhile left that view stale: it reads again.
+   - NITs: the project-switch toast says the real outcome and the room reloads if it is back on screen; 260 to 0 says
+     nothing is archived; Back marks seen before its paint and not on a search's close; the check's View archive waits
+     are now labelled (fixed with the run below).
+6. Browser run 1 (c8b1b3b8e0, queued-heavy 19:07): 45 PASS, 5 FAIL, all five the check's own defects, none the page's:
+   - three matched a row by its whole text with `\b` after the number, but a row's text runs into its time ("live
+     post 17:07"), so no row matched: they match the message paragraph (.msg-bd > p) exactly;
+   - "Back puts the reader back" assumed the boundary row was in view before opening, but the last earlier page's
+     anchor keeps the reader's place and scrolls it away: it compares the top message and its offset before and after;
+   - archiveWith returned the matched part of the toast, not the sentence: it returns the whole toast.
+   - The labelled View archive waits (round 5's last NIT) landed with this commit, not with the run above as the line
+     before first said: a missing button is a named FAIL and the run stops, no unlabelled 30-second click timeout.
+   - Also applied here: slice 2's fix for its CI red (#7394): render-room-send-shows-now-6168 and
+     render-federation-invite-4649 answer the room's paged read in their fetch stubs.
