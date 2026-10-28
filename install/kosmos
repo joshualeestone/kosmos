@@ -6133,7 +6133,7 @@ cmd_task() {
       # happened to each. A refusal of one task does not stop the others. A refusal for the whole project (who is asking,
       # or which project) stops there, as does a close Kosmos did not answer: the rest are named as not tried.
       if [ -z "$_by" ] && [ -n "${3:-}" ]; then
-        local _n _ok="" _bad="" _b _r _code _why _seen=" " _stop="" _stoprc=0 _left="" _wide=0 _l
+        local _n _ok="" _bad="" _b _r _code _why _seen=" " _stop="" _stoprc=0 _left="" _wide=0 _l _redir=""
         for _n in "$num" "${@:3}"; do
           _n=$(printf '%s' "$_n" | sed 's/^0*\([0-9]\)/\1/')   # the board reads 013 as 13: one task, named as 13
           case "$_seen" in *" $_n "*) continue ;; esac   # a number given twice is closed once
@@ -6142,12 +6142,16 @@ cmd_task() {
           _r=0; _b=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -w $'\n%{http_code}' -X POST "$URL/api/project/$esc_project/task/$_n/close" 2>/dev/null) || _r=$?
           if [ "$_r" -ne 0 ]; then
             _stop="$_n"; _stoprc="$_r"
-            # Only an answer cut off after the request went (as say_unreached's write words) may have closed it. Any other
-            # failure (a refused connection, a board not proven ours, an interrupt) sent nothing, so it is named as not tried.
-            case "$_r" in 18|28|52|56) ;; *) _left="$_n" ;; esac
+            # Only the failures that send nothing are named not tried: curl could not start (1-3), find (6) or connect (7),
+            # or kosmos_curl refused before sending (96-98, #1765) or was interrupted (130). Anything else came after the
+            # request may have gone (as the Windows command reads a failure), so that one may have closed.
+            case "$_r" in 1|2|3|6|7|96|97|98|130) _left="$_n" ;; esac
             continue
           fi
           _code="${_b##*$'\n'}"; _b="${_b%$'\n'*}"
+          # A redirect is not the board (it never redirects an /api/ request; kosmos#6464), so the close did not reach
+          # Kosmos: not followed, named not tried, and no more sent (the Windows command stops there too).
+          case "$_code" in 3??) _redir="$_n"; _stop="$_n"; _left="$_n"; continue ;; esac
           case "$_b" in
             '{"task":'*) _ok="${_ok:+$_ok, }$_n"; continue ;;
             '{"error":'*) _why=$(printf '%s' "$_b" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'); _why="${_why%.}"; _why="${_why:-it did not say why}" ;;
@@ -6155,22 +6159,27 @@ cmd_task() {
           esac
           _bad="${_bad}Could not close task $_n: $_why."$'\n'   # one line each: a reason can hold a ; or a ,
           # Who is asking (401/403), a board that could not check or read its projects (500/503), no such project, or an
-          # answer that is not the board's (a redirect, 421; Windows stops there too): every later close would be refused
-          # the same way, so send no more.
+          # answer that is not the board's (421): every later close would be refused the same way, so send no more.
           case "$_code:$_why" in
-            3??:*|401:*|403:*|421:*|500:*|503:*|404:*"no project by that name"*|400:*"not a name we can read"*) _wide=1; _stop="$_n" ;;
+            401:*|403:*|421:*|500:*|503:*|404:*"no project by that name"*|400:*"not a name we can read"*) _wide=1; _stop="$_n" ;;
           esac
         done
         case "$_ok" in '') ;; *,*) say "Closed tasks $_ok on ${project:-the project}." ;; *) say "Closed task $_ok on ${project:-the project}." ;; esac
         while IFS= read -r _l; do [ -z "$_l" ] || say "$_l"; done <<< "$_bad"
         if [ "$_stoprc" -ne 0 ]; then
-          say_unreached "close task $_stop" "$_stoprc" write
-          case "$_stoprc" in 18|28|52|56) say "Task $_stop may have closed anyway: check kosmos task list ${project:-<project-id>} before closing it again." ;; esac
+          case "$_stoprc" in
+            1|2|3|6|7|96|97|98|130) say_unreached "close task $_stop" "$_stoprc" write ;;
+            # As say_unreached's write words for 18/28/52/56, for every failure that may have closed it (never "is it running?").
+            *) say "Kosmos is running but did not answer in time, so we could not close task $_stop. It may still have happened: check before doing it again. It does not need a restart."
+               say "Task $_stop may have closed anyway: check kosmos task list ${project:-<project-id>} before closing it again." ;;
+          esac
+        elif [ -n "$_redir" ]; then
+          say "Whatever answered tried to send the close of task $_redir somewhere else, which Kosmos never does, so it did not reach Kosmos."
         elif [ "$_wide" = 1 ] && [ -n "$_left" ]; then
           say "That reason holds for every task on ${project:-the project}, so the rest were not sent."
         fi
         [ -z "$_left" ] || say "Not tried: $_left."   # never read, so not said to be open: one may be closed already
-        { [ -z "$_bad" ] && [ "$_stoprc" -eq 0 ]; } || exit 1
+        { [ -z "$_bad" ] && [ "$_stoprc" -eq 0 ] && [ -z "$_redir" ]; } || exit 1
         exit 0
       fi
       if [ -n "$_by" ]; then

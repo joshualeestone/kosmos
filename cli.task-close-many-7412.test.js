@@ -72,7 +72,7 @@ fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));
 function mac(args, agentToken = '', port = server.address().port) {
   const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: agentToken };
   return new Promise((resolve, reject) => {
-    execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000 }, (err, stdout, stderr) => {
+    execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 45000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code: ' + (stderr || err.signal))); return; }
       resolve({ code: err ? err.code : 0, text: (stdout || '') + (stderr || '') });
     });
@@ -229,11 +229,11 @@ test('#7412: a close Kosmos does not answer stops the run: the ones before are s
 });
 
 /* Runs either command against a stand-in board at `pbase`. */
-async function runVia(label, port, argv, agentToken) {
+async function runVia(label, port, argv, agentToken, winFetch) {
   if (label === 'Mac') return mac(argv, agentToken, port);
   const pbase = 'http://127.0.0.1:' + port;
   const out = []; const err = [];
-  const code = await cli.main(argv, { env: {}, url: pbase, hook: { resolveUrl: () => pbase, readBoardToken: () => null, agentToken: () => agentToken }, out: (s) => out.push(s), err: (s) => err.push(s) });
+  const code = await cli.main(argv, { env: {}, url: pbase, ...(winFetch ? { fetch: winFetch } : {}), hook: { resolveUrl: () => pbase, readBoardToken: () => null, agentToken: () => agentToken }, out: (s) => out.push(s), err: (s) => err.push(s) });
   return { code, text: out.concat(err).join('\n') };
 }
 
@@ -301,5 +301,53 @@ test('#7412 review 5: a project that does not exist is said once, and the rest a
     assert.equal((r.text.match(/Could not close task/g) || []).length, 1, label + ': one refusal line: ' + r.text);
     assert.match(r.text, /^\s*Could not close task 1: there is no project by that name\.$/m, label + ': one period, as the board said it: ' + r.text);
     assert.match(r.text, /^\s*Not tried: 2, 3\.$/m, label + ': ' + r.text);
+  }
+});
+
+test('#7412 review 6: a redirect and a timeout read the same on both commands, and say only what is known', { timeout: 120000 }, async () => {
+  const http = require('node:http');
+  const same = (t) => t.split('\n').map((l) => l.trim()).filter(Boolean).join('\n').replace(/[0-9]+/g, 'N');
+  for (const mode of ['redirect', 'timeout']) {
+    const texts = {};
+    for (const [label] of BOTH) {
+      const [a, b, c] = open(mode + ' ' + label);
+      const held = [];
+      const isB = (u) => new RegExp('/task/' + b + '/close$').test(u);
+      // The Mac meets a real listener: a 302 for task b, or no answer at all (curl gives up after its 15 s, exit 28).
+      const proxy = http.createServer((req, res) => {
+        if (req.method === 'POST' && isB(req.url)) {
+          if (mode === 'redirect') { res.writeHead(302, { location: 'http://127.0.0.1:9/elsewhere' }); res.end(); } else held.push(res);
+          return;
+        }
+        const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+        up.on('error', () => { res.statusCode = 502; res.end(); });
+        req.pipe(up);
+      });
+      await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+      // Windows: the same 302 from the proxy; a timeout as fetch reports one (AbortSignal.timeout), without the 15 s wait.
+      const winFetch = mode === 'timeout'
+        ? (u, opts) => (isB(String(u)) ? Promise.reject(Object.assign(new Error('timed out'), { name: 'TimeoutError' })) : fetch(u, opts))
+        : null;
+      try {
+        const r = await runVia(label, proxy.address().port, ['task', 'close', projectId, String(a), String(b), String(c)], token('mara'), winFetch);
+        assert.equal(r.code, 1, label + ' ' + mode + ': ' + r.text);
+        assert.match(r.text, new RegExp('^\\s*Closed task ' + a + ' on ', 'm'), label + ' ' + mode + ': ' + r.text);
+        if (mode === 'redirect') {
+          assert.match(r.text, new RegExp('tried to send the close of task ' + b + ' somewhere else'), label + ': ' + r.text);
+          assert.doesNotMatch(r.text, /may have closed|check before doing it again/, label + ': a redirect did not reach Kosmos: ' + r.text);
+          assert.match(r.text, new RegExp('^\\s*Not tried: ' + b + ', ' + c + '\\.$', 'm'), label + ': ' + r.text);
+        } else {
+          assert.match(r.text, new RegExp('^\\s*Task ' + b + ' may have closed anyway', 'm'), label + ': ' + r.text);
+          assert.doesNotMatch(r.text, /too busy|Is it running/, label + ': ' + r.text);
+          assert.match(r.text, new RegExp('^\\s*Not tried: ' + c + '\\.$', 'm'), label + ': ' + r.text);
+        }
+        assert.equal(isDone(b), false, label + ' ' + mode); assert.equal(isDone(c), false, label + ' ' + mode);
+        texts[label] = same(r.text);
+      } finally {
+        for (const res of held) { try { res.socket.destroy(); } catch { /* gone */ } }
+        proxy.close();
+      }
+    }
+    assert.equal(texts.Windows, texts.Mac, mode + ': the two commands disagree');
   }
 });
