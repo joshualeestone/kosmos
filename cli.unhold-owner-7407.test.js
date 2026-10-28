@@ -409,6 +409,10 @@ test('#7430: the unhold sentence names an agent by its name, as Who is on it doe
   try {
     assert.equal(unholdNext(projectId, taskOf(k), rosterOf), 'It stays with Otto Brandt.');
     assert.equal(reads, 0, 'naming reads the identity file, never the roster (review 6)');
+    // Review 3: a typed name is cleaned like any typed text the CLIs print (a line separator, a run of spaces).
+    fs.writeFileSync(file, 'You are **Otto\u2028  Brandt**, a builder.\n');
+    assert.equal(unholdNext(projectId, taskOf(k), rosterOf), 'It stays with Otto Brandt.');
+    fs.writeFileSync(file, 'You are **Otto Brandt**, a builder.\n');
     // Review 1: the tree sentence names its builder the same way.
     const root = make('named root');
     const sub = make('named sub', 'otto');

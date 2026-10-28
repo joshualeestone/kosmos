@@ -6548,10 +6548,14 @@ function unholdNext(projectId, t, rosterOf) {
       return runningSet;
     };
     const reachable = (n) => !running() || running().has(n);
-    /* kosmos#7430: a person reads this sentence beside Who is on it, which names each agent by its card's name, so this
-       does too: readIdentity, the card name's own source (files, not a pane snapshot, so review 6 still holds), else
-       the machine name. */
-    const nameOf = (n) => { let id = null; try { id = readIdentity(n); } catch { id = null; } return plain(id && id.displayName ? id.displayName : n); };
+    /* kosmos#7430: agents by name, from readIdentity (a file read, not a pane snapshot: review 6), else the machine
+       name. A typed name is cleaned as taskMessageSummary cleans one (review 3: line separators, runs of space). */
+    const nameOf = (n) => {
+      let id = null;
+      try { id = readIdentity(n); } catch { id = null; }
+      const shown = String(id && id.displayName ? id.displayName : n).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+      return shown || plain(n);
+    };
     // Review 5: whose part failover can take is limitedCard's test (ours, limited), with no swarm condition.
     const ours = () => { const r = roster(); return Array.isArray(r) && r.length ? new Set(r.filter((c) => c && c.isNamedOurs === true).map((c) => c.sessionName)) : null; };
     // Review 1: only who is on an OPEN part has it; someone who finished a part does not.

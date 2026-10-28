@@ -13,8 +13,12 @@ given it, which is the case the card came from.
   button. It opens the existing Who is on it picker on the task's first open part nobody is on (the name button
   that already assigns a part), so there is one way to assign, not two.
 - A hold sends no `next`, so putting a task on hold says nothing about who is next.
-- The line is about who was on the task when it was shown. The repaint takes it (and Choose who) down once that changes,
-  whether by Choose who or by the Assigner (review 1). Choose who opens only a part nobody is on, never a held one.
+- The line is recorded against the task the route answered about (out.task): its state (open, held or closed) and who is
+  on each open part. The repaint takes the line and Choose who down when that differs: Choose who, the Assigner, a
+  hand-out between the answer and the reload, or the task being closed (reviews 1 and 3). Choose who opens only a part
+  nobody is on, and takes a stale line down when there is none (review 2).
+- Names in the sentence are cleaned as taskMessageSummary cleans typed text (line separators, runs of space), since a
+  display name is typed and the Mac CLI reads the sentence whole (review 3).
 - Choose who sits in its own row under the line, outside the live region (review 1), as a bordered button on a touch
   screen's 44 px list (design review).
 - Found in the design shots: the route named agents by machine name ("It stays with ada.") beside a column that says

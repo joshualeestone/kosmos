@@ -71013,7 +71013,8 @@ function tkHoldSay(key, words) {
 const TK_HOLD_ASSIGN = ' To choose who, assign it now.';
 function tkHoldNextSig(t) {
   const parts = Array.isArray(t.parts) && t.parts.length ? t.parts : [{ who: t.who || null, closedAt: t.closedAt || null }];
-  return (t.onHold === true ? 'held' : 'open') + '|' + parts.filter((x) => !x.closedAt).map((x) => x.who || '').join(',');
+  const closed = t.progress ? t.progress.closed === true : Boolean(t.closedAt);   // review 3: a task closed under the line
+  return (closed ? 'closed' : t.onHold === true ? 'held' : 'open') + '|' + parts.filter((x) => !x.closedAt).map((x) => x.who || '').join(',');
 }
 function tkHoldChooseShow(on) {
   const row = document.getElementById('tk-hold-choose-row');
@@ -71218,10 +71219,9 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
     await pjReload();
     paintTaskActivity(TK_OPEN);
     // kosmos#7430: an unhold answers with who gets the task next (#7407); a hold answers with no `next`.
-    if (out && typeof out.next === 'string' && out.next) {
-      const now = (pjById(p.id) && (pjById(p.id).tasks || []).find((x) => String(x.number) === String(t.number))) || (out && out.task);
-      if (now) tkHoldSayNext(key, out.next, now);
-    }
+    // Review 3: the line is recorded against the task the route's sentence describes (out.task), so a hand-out that
+    // lands before the reload above differs from it and the next repaint takes the line down.
+    if (out && typeof out.next === 'string' && out.next && out.task) tkHoldSayNext(key, out.next, out.task);
   } catch {
     tkHoldSay(key, 'We could not reach Kosmos to change that task.');
   } finally {
