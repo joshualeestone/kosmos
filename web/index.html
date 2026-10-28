@@ -7315,7 +7315,11 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-arch-head { display: flex; flex-wrap: wrap; gap: .5em; align-items: baseline; padding: 6px 12px; border-bottom: 1px solid var(--k-rule); font-size: .85rem; }
 .pj-arch-edge { display: flex; flex-wrap: wrap; gap: .5em; justify-content: center; align-items: baseline; margin: 8px 0 12px; font-size: .8rem; color: var(--k-ink-2); }
 #pj-room.pj-arch-on .msg-bd { opacity: .82; }
-.pj-arch-ask { white-space: nowrap; font-size: .8rem; }
+/* The archive's controls are links, as the room's other secondary actions are (design shots, 10-27: as bordered buttons
+   they outweighed the room). On a touch screen each still taps at 44px. The confirm keeps its choice and the "?" together. */
+.pj-arch-ctl { white-space: nowrap; }
+@media (hover: none) { .pj-arch-ctl { min-height: 44px; } }
+.pjarch-pick { white-space: nowrap; }
 #pjarch-when { font: inherit; }
 .msg-archived { display: inline-block; margin-right: .5em; padding: 0 .4em; border: 1px solid var(--k-rule); border-radius: 4px; font-size: .7rem; }
 /* #5406 part 2 slice C: a question's choices, inside its bubble (Josh #3419: no box, no banner). The old answer buttons'
@@ -17450,7 +17454,7 @@ window.kosmosMeasureScrollbarWidth();
       <div class="pjmidhead"><h3 class="dlab">Conversation</h3>
         <div class="pjconvsearch">
           <!-- kosmos#7365 slice 3b: the room has no menu, so its one archive action is a quiet button here. -->
-          <button type="button" class="btn-quiet pj-arch-ask" id="pj-arch-ask">Archive older messages</button>
+          <button type="button" class="linkish pj-arch-ctl pj-arch-ask" id="pj-arch-ask">Archive older messages</button>
           <button class="convbtn" id="pj-conv" type="button" data-conv-for="pj" aria-pressed="false" aria-label="Read new messages aloud as they arrive" title="Read new messages aloud"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
         <div class="tsearch">
           <span class="tsearch-i" aria-hidden="true">
@@ -17472,14 +17476,14 @@ window.kosmosMeasureScrollbarWidth();
       <!-- kosmos#7365: the room's earlier pages load as the reader scrolls back, as a Direct conversation's do (#6086):
            this line floats over the top while one loads, and a failed load takes a row of its own with Try again. -->
       <!-- kosmos#7365 slice 3: the room's archive opens in this same panel, under this header (Mona's design). -->
-      <div class="pj-arch-head" id="pj-arch-head" hidden><b>Archive</b> <span id="pj-arch-count"></span> <button type="button" class="btn-quiet" id="pj-arch-undo" hidden>Undo</button> <button type="button" class="btn-quiet" id="pj-arch-back">Back to the room</button></div>
+      <div class="pj-arch-head" id="pj-arch-head" hidden><b>Archive</b> <span id="pj-arch-count"></span> <button type="button" class="linkish pj-arch-ctl" id="pj-arch-undo" hidden>Undo</button> <button type="button" class="linkish pj-arch-ctl" id="pj-arch-back">Back to the room</button></div>
       <!-- Inside the room's section, not the body: it is opened only from here, and the consolidated grid has no spare
            body row (web.consolidated-980.test.js). It is position:fixed, so it still covers the window. -->
       <!-- kosmos#7365 slice 3b: "Archive older messages" (Mona's design, card comment 6449440652). The wording promises no
            more than the server does: it keeps the last day live, so the receipt states the time it actually used. -->
       <div class="rm-back" id="pjarch-modal" hidden>
         <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="pjarch-title" aria-describedby="pjarch-small">
-          <h2 class="rm-title" id="pjarch-title">Archive messages older than <select id="pjarch-when" aria-label="Archive messages older than"><option value="week">this week</option><option value="month">this month</option><option value="day">everything older than a day</option></select>?</h2>
+          <h2 class="rm-title" id="pjarch-title">Archive messages older than <span class="pjarch-pick"><select id="pjarch-when" aria-label="Archive messages older than"><option value="week">this week</option><option value="month">this month</option><option value="day">everything older than a day</option></select>?</span></h2>
           <p class="rm-small" id="pjarch-cut"></p>
           <p class="rm-small" id="pjarch-small">They leave this room and what agents read here. You can still search and open them, and undo this from the archive.</p>
           <div class="rm-acts">
@@ -78590,7 +78594,7 @@ function paintRoom(body) {
   /* kosmos#7365 slice 3: once the reader has the live history back to its start, its first row says older messages are
      archived, with the way in. Not while searching (search covers both), and not a standing notice. */
   const archivedEdge = !filtering && typeof PJ_WIN !== 'undefined' && pjWinAtStart() && PJ_WIN.archivedCount > 0
-    ? '<div class="pj-arch-edge"><span>Older messages are archived.</span> <button type="button" class="btn-quiet" id="pj-arch-open">View archive</button></div>' : '';
+    ? '<div class="pj-arch-edge"><span>Older messages are archived.</span> <button type="button" class="linkish pj-arch-ctl" id="pj-arch-open">View archive</button></div>' : '';
   const html = note + archivedEdge + (rows || (archivedEdge ? '' : empty));
   /* #5800: the hold notice, written only when it changes (it holds a button the person may be focused on), and said
      aloud when the room goes on hold, so a screen-reader user hears it as a sighted person sees it appear. */
