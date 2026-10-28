@@ -214,8 +214,9 @@ enum NewAgent {
 
     // kosmos#7488 build 14: the new agent's picture, PUT to the route the desktop's uploadPendingAvatar uses, once the
     // board can see the agent (it refuses a name it does not know). The type is the picture's: PNG or JPEG (anything else is redrawn first).
+    static let pictureMaxBytes = 60000   // the board's and the desktop's PICTURE_MAX_BYTES
     static func pictureRequest(mac: URL, session: String, data: Data, type: String) -> URLRequest? {
-        guard Board.isAgentSession(session), !data.isEmpty, data.count <= 60000, ["image/png", "image/jpeg"].contains(type) else { return nil }
+        guard Board.isAgentSession(session), !data.isEmpty, data.count <= pictureMaxBytes, ["image/png", "image/jpeg"].contains(type) else { return nil }
         var r = URLRequest(url: URL(string: "/api/agent/\(session)/avatar", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "PUT"
         r.setValue(type, forHTTPHeaderField: "Content-Type")

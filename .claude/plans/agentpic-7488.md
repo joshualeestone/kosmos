@@ -15,7 +15,7 @@
 - The picture is set by the app with the project tells (ContentView), when the board sees the agent, so leaving the sheet early loses neither. Two tries two seconds apart, as the desktop; a failed photo falls back to the mark.
 - Weakest premise: a photo with transparency loses it (JPEG on white); the desktop keeps PNG or WebP for those.
 - When a chosen photo cannot be set, the phone falls back to the mark silently (the desktop says "That picture did not load. The mark drawn from the name is still there." on its made screen; the phone may have closed the sheet by then).
-- "Number for number" holds for the arithmetic; the trig functions are the platform's, so a last-bit difference could in principle move a dot. The five reference names match.
+- "Number for number" holds for the arithmetic; the trig functions are the platform's, so a last-bit difference could in principle move a dot. The five reference names match. The reference numbers are frozen from one node run of the desktop's dotGlyph: a later change to the desktop's constants (240 dots, R 118, the clearance) would not fail the test, though a change to its colours would.
 
 ## Not verified
 

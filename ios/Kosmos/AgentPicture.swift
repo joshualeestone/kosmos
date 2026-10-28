@@ -59,7 +59,7 @@ enum AgentPicture {
     // decoded already shrunk and upright from its file (never the full-size bitmap), cut to the centred square the
     // desktop's crop editor opens on, and redrawn as a JPEG on white, 512 px down to 128, as the desktop's fitPicture
     // does for a picture with no transparency. nil when it cannot be read or will not fit. Not on the main thread.
-    static let maxBytes = 60000
+    static let maxBytes = NewAgent.pictureMaxBytes
     static let minSide = 16   // the desktop's PICTURE_MIN_SIDE
     static func fit(data: Data) -> Data? {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),

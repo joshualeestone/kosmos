@@ -695,7 +695,7 @@ struct NewAgentView: View {
             }
         }
         // Create is off from the moment of the pick, not from when the load starts.
-        .onChange(of: photoPick) { item in if item != nil { photoLoading = true; Task { await loadPhoto(item) } } }
+        .onChange(of: photoPick) { item in if item != nil { photoLoading = true; Task { @MainActor in await loadPhoto(item) } } }
         .onChange(of: draft.name) { _ in redrawMark() }
         .onAppear { redrawMark() }
         .navigationTitle(NewAgent.Words.setupTitle)
@@ -814,7 +814,7 @@ struct NewAgentView: View {
         HStack(spacing: 12) {
             PhotosPicker(selection: $photoPick, matching: .images) { Text(NewAgent.Words.changePicture) }
                 .buttonStyle(.bordered)
-            if photoLoading { ProgressView() }
+            if photoLoading { ProgressView().accessibilityLabel(NewAgent.Words.making) }
         }
     }
 
@@ -860,7 +860,7 @@ struct NewAgentView: View {
         guard name != markName, draft.photo == nil else { return }   // no mark drawn that a chosen photo hides
         markName = name
         markTask?.cancel()
-        markTask = Task {
+        markTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
             let image = await Task.detached(operation: { AgentPicture.mark(name) }).value

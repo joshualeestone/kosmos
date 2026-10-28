@@ -422,7 +422,12 @@ struct ContentView: View {
             if let (data, kind) = await Task.detached(operation: { AgentPicture.portrait(raw, type: type) }).value, await put(data, kind) { return }
         }
         let name = picture.name
-        if let mark = await Task.detached(operation: { AgentPicture.mark(name)?.pngData() }).value { _ = await put(mark, "image/png") }
+        // The mark through the same fitting when it would not fit as it is (it is far under the limit at 144 px).
+        let mark: (Data, String)? = await Task.detached(operation: {
+            guard let png = AgentPicture.mark(name)?.pngData() else { return nil }
+            return png.count <= AgentPicture.maxBytes ? (png, "image/png") : AgentPicture.fit(data: png).map { ($0, "image/jpeg") }
+        }).value
+        if let (data, type) = mark { _ = await put(data, type) }
     }
 
     // kosmos#7266: a + button: the board's own create form, over the tabs, opened through the board's door.
