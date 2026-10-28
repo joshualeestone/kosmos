@@ -465,10 +465,13 @@ function removedNamesIn(storeRoot) { return removedNamesFrom(path.join(storeRoot
    leaves the agent running, hidden from the board). Restore's `enable` undoes it, as it undoes a removal.
    Only a label removal itself would record for the record's own name (create.serviceLabel in this Kosmos, or the
    default Kosmos's legacy com.<name>.discord) is used: removed.json is a file a person can edit. Nothing runs in a
-   dry run. A record of an agent the person chose to leave running is swept too: they asked for it to be removed.
+   dry run. A record of an agent the person chose to leave running (the untied override) is never swept: that
+   promise is the button's. A name removal itself would refuse (unsafeToActOn: a path step, a leading dash, another
+   Kosmos's separator) is skipped. On every start, not only after a move, a removed agent still loaded is unloaded
+   and then its tied session ended, so a half-done removal is finished.
    The board's roster is read once (review 2: once per agent blocked the board's thread at start). An agent launchd
-   already holds disabled still has its session looked at, read-only first, and ended only when the board ties it to
-   the agent (review 2: a session missed at login was otherwise never looked at again).
+   already holds disabled is still unloaded (bootout; review 3: a session ended while its job is loaded is started
+   again by KeepAlive), and only then its session ended when the board ties it to the agent (review 2).
    Returns { ok, reapplied: [names], failed: [names], unsure: [names], because? }: failed is a step launchd or tmux
    refused; unsure is a session the board could not tie to the agent, or could not ask about, left alone. */
 function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}) {
@@ -482,8 +485,9 @@ function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}
   const seen = new Set();
   for (const r of list) {
     if (!r || typeof r.name !== 'string' || typeof r.label !== 'string') continue;
+    if (r.leftRunningByChoice === true) continue;   // the person kept that session: never swept
     const clean = create.cleanName(r.name);
-    if (!clean) continue;
+    if (!clean || unsafeToActOn(clean)) continue;
     const ours = r.label === create.serviceLabel(clean, wid) || (launchidentity.isDefaultWorld(wid) && r.label === `com.${clean}.discord`);
     if (!ours || seen.has(r.label)) continue;
     seen.add(r.label);
@@ -511,25 +515,22 @@ function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}
   };
   const out = { ok: true, reapplied: [], failed: [], unsure: [] };
   for (const { name, label } of owned) {
-    if (off.has(label)) {
-      // Already held disabled: only a session the board ties to it is ended; an untied or unknown one is left as before.
-      const was = tie(name);
-      if (was.kind === FOUND.OURS) {
-        if (sessionOps('darwin').end(was.session)) out.reapplied.push(name); else out.failed.push(name);
-      }
-      continue;
+    if (!off.has(label)) {
+      const dis = run('/bin/launchctl', ['disable', `gui/${id}/${label}`]);
+      if (!dis || dis.ok === false) { out.failed.push(name); continue; }
     }
-    const dis = run('/bin/launchctl', ['disable', `gui/${id}/${label}`]);
-    if (!dis || dis.ok === false) { out.failed.push(name); continue; }
     // 3 is launchd for "not loaded", which is the end state wanted; anything else refused is a failed step.
     const boot = run('/bin/launchctl', ['bootout', `gui/${id}/${label}`]);
     if (!(boot && (boot.ok !== false || boot.code === 3))) { out.failed.push(name); continue; }
+    const unloaded = boot.ok !== false;   // it was loaded and is not now: a change, even for a job already disabled
     const found = tie(name);
     if (found.kind === FOUND.OURS) {
       if (!sessionOps('darwin').end(found.session)) { out.failed.push(name); continue; }
-    } else if (found.kind !== FOUND.NONE) {
-      out.unsure.push(name);   // untied, or tmux could not be asked: left alone, as a removal leaves it
+    } else if (found.kind === FOUND.UNKNOWN || (found.kind === FOUND.UNTIED && !off.has(label))) {
+      out.unsure.push(name);   // left alone, as a removal leaves it; an untied session a removal already left is not news
       continue;
+    } else if (off.has(label) && !unloaded) {
+      continue;   // already disabled, not loaded and not running: nothing was changed, nothing to say
     }
     out.reapplied.push(name);
   }
@@ -547,7 +548,7 @@ function reapplyAtBoardStart({ enforcing, afterMs = 2000, retryMs = 30000, setTi
     try {
       const kept = reapplyRemovedDisables();
       if (!kept.ok && again) { const t2 = setTimer(() => runOnce(false), retryMs); if (t2 && typeof t2.unref === 'function') t2.unref(); }
-      if (kept.reapplied.length) out(`Kosmos: removed agents kept from running again (as after a machine move, where launchd's disable does not travel): ${kept.reapplied.join(', ')}\n`);
+      if (kept.reapplied.length) out(`Kosmos: removed agents found able to run again and stopped (their startup job switched off and unloaded, their session ended): ${kept.reapplied.join(', ')}\n`);
       if (kept.failed.length) err(`Kosmos: could not stop every removed agent starting again: ${kept.failed.join(', ')}\n`);
       if (kept.unsure.length) err(`Kosmos: removed agents whose running session could not be tied to them, left alone: ${kept.unsure.join(', ')}\n`);
       if (kept.because) err(`Kosmos: could not check removed agents' startup jobs: ${kept.because}\n`);

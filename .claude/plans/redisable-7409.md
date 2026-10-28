@@ -23,8 +23,11 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
     block the board's thread at start); for each such label launchd does not hold disabled (`=> disabled` or
     `=> true`), runs `disable` and `bootout` (code 3, "not loaded", counts as done), then ends the agent's session only
     when the roster ties it to the agent (FOUND.OURS), as removeInner does;
-  - for a label launchd already holds disabled, still ends a session the roster ties to the agent (one missed at login
-    is otherwise never looked at again); an untied or unknown one is left alone silently, as on every start before;
+  - for a label launchd already holds disabled, still runs `bootout` (review 3: a session ended while its job is still
+    loaded is started again by KeepAlive), and only then ends a session the roster ties to the agent (review 2: one
+    missed at login is otherwise never looked at again);
+  - skips a record the person chose to leave running (leftRunningByChoice: the untied override's promise) and any name
+    removal itself would refuse (unsafeToActOn: a path step, a leading dash, another Kosmos's separator);
   - reports names: reapplied, failed (launchd or tmux refused a step), unsure (a session it could not tie to the
     agent, or could not ask tmux about, left alone as removal leaves it).
 - `engine/remove.js` reapplyAtBoardStart: a real board (`enforcing`; a sandboxed fixture never is) runs it 2 s after
@@ -47,7 +50,11 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
 - It runs on the board's thread, synchronously (one roster read, and launchctl and tmux calls only for agents that need
   them; an unmoved Mac pays one print-disabled and one roster read). Not moved to the async driver: the work is small
   after the single roster read.
-- A record of an agent the person chose to leave running is swept too: they asked for it to be removed.
+- On every board start, not only after a move, a removed agent whose job is still loaded is unloaded and its tied
+  session ended. That finishes a half-done removal too (one whose bootout failed at the time), and switches off again an
+  agent a person re-enabled by hand with launchctl: the board cannot tell that from a move, and the record says removed.
+- A launchd that does not answer at login can stall the board's thread on print-disabled (execFileSync, up to 20 s);
+  accepted for one call at start, with the 30 s retry behind it.
 - What it does is said on the board's log only. Not done here: a notice on the board for a failed or unsure agent.
 
 ## Mutation checks (run by hand, code restored after each)
@@ -57,4 +64,6 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
 - No real-board gate: the board-start case goes red.
 - An already-disabled agent's session not looked at: the review-2 recheck case goes red.
 - No second try: the board-start case goes red.
+- No bootout for a job already held disabled (round 3's blocker): the retry case goes red.
+- No leftRunningByChoice skip, or no unsafeToActOn skip: the kept-or-unsafe case goes red.
 - A label launchd already holds disabled not skipped (first round): the already-disabled case goes red.

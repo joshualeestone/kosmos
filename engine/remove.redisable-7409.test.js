@@ -37,10 +37,11 @@ function removedList(rows) {
 const removedRow = (name) => ({ name, label: labelOf(name), plist: '/x/' + labelOf(name) + '.plist', stopped: true });
 
 /* A launchctl and tmux that answer from `held` (print-disabled) and record every call. A killed session is gone. */
-function machine(held, { refuse = {} } = {}) {
+function machine(held, { refuse = {}, notLoaded = [] } = {}) {
   const calls = [];
   remove.setRunner((file, args) => {
     calls.push(args.join(' '));
+    if (args[0] === 'bootout' && notLoaded.some((l) => args[1].endsWith('/' + l))) return { ok: false, code: 3, stdout: '', stderr: '' };
     if (args[0] === 'print-disabled') return { ok: true, stdout: 'disabled services = {\n' + held.map(([l, v]) => '\t"' + l + '" => ' + v + '\n').join('') + '}\n' };
     for (const [verb, code] of Object.entries(refuse)) if (args[0] === verb) return { ok: false, code, stdout: '', stderr: 'no' };
     if (args[0] === 'has-session') return { ok: false, code: 1, stdout: '', stderr: '' };   // gone after the kill
@@ -87,9 +88,9 @@ test('#7409: a session the board cannot tie to the agent is left alone and repor
 test('#7409: a label launchd already holds disabled (either spelling) is left alone (control: an enabled one is not)', () => {
   removedList([removedRow('a'), removedRow('b'), removedRow('c')]);
   roster([]);
-  const calls = machine([[labelOf('a'), 'disabled'], [labelOf('b'), 'true'], [labelOf('c'), 'enabled']]);
+  const calls = machine([[labelOf('a'), 'disabled'], [labelOf('b'), 'true'], [labelOf('c'), 'enabled']], { notLoaded: [labelOf('a'), labelOf('b')] });
   assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }).reapplied, ['c'], 'CONTROL: an enabled one must be disabled again');
-  assert.ok(!calls.some((c) => c.endsWith('/' + labelOf('a')) || c.endsWith('/' + labelOf('b'))), calls.join(' | '));
+  assert.ok(!calls.some((c) => c === 'disable gui/501/' + labelOf('a') || c === 'disable gui/501/' + labelOf('b')), 'a job launchd already held disabled was disabled again: ' + calls.join(' | '));
 });
 
 test('#7409: a label that is not the one removal records for that name is never touched (a hand-edited removed.json)', () => {
@@ -158,7 +159,7 @@ test('#7409: a sandboxed board never schedules it; a real board does, logs the n
   assert.equal(remove.reapplyAtBoardStart({ enforcing: true, setTimer, ...sinks }), true);
   assert.equal(timers.length, 1, 'CONTROL: a real board did not schedule it');
   timers[0].fn();
-  assert.match(said.join(''), /removed agents kept from running again .*: casey/, 'the board log did not name the agent: ' + said.join(''));
+  assert.match(said.join(''), /removed agents found able to run again and stopped .*: casey/, 'the board log did not name the agent: ' + said.join(''));
   assert.equal(timers.length, 1, 'a clean run scheduled another');
   machine([], { refuse: { disable: 5 } });
   remove.reapplyAtBoardStart({ enforcing: true, setTimer, ...sinks });
@@ -172,12 +173,12 @@ test('#7409: a sandboxed board never schedules it; a real board does, logs the n
 test('#7409 review 2: an agent launchd already holds disabled still has its own running session ended (an untied one left)', () => {
   removedList([removedRow('casey'), removedRow('dana')]);
   roster([fleet.agent('casey', { state: 'working' }), fleet.agent('dana', { state: 'working', ours: false })]);
-  const calls = machine([[labelOf('casey'), 'disabled'], [labelOf('dana'), 'disabled']]);
+  const calls = machine([[labelOf('casey'), 'disabled'], [labelOf('dana'), 'disabled']], { notLoaded: [labelOf('casey'), labelOf('dana')] });
   const out = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
   assert.deepEqual(out, { ok: true, reapplied: ['casey'], failed: [], unsure: [] });
   assert.ok(calls.some((c) => /^kill-session -t =casey/.test(c)), 'the session missed earlier was not ended: ' + calls.join(' | '));
   assert.ok(!calls.some((c) => /^kill-session -t =dana/.test(c)), 'an untied session was killed');
-  assert.ok(!calls.some((c) => c.startsWith('disable') || c.startsWith('bootout')), 'a job launchd already held disabled was touched again');
+  assert.ok(!calls.some((c) => c.startsWith('disable')), 'a job launchd already held disabled was disabled again');
 });
 
 test('#7409 review 2: the default Kosmos legacy com.<name>.discord label is swept for its own name only', () => {
@@ -188,4 +189,37 @@ test('#7409 review 2: the default Kosmos legacy com.<name>.discord label is swep
   assert.equal(launchidentity.isDefaultWorld(launchidentity.currentWorldId()), true, 'CONTROL: this test runs in the default Kosmos');
   assert.deepEqual(out.reapplied, ['casey']);
   assert.ok(calls.includes('disable gui/501/com.casey.discord'), calls.join(' | '));
+});
+
+/* ── kosmos#7409 review 3 ─────────────────────────────────────────────────────── */
+
+test('#7409 review 3: a bootout refused on the first run is tried again on the retry before the session is ended', () => {
+  removedList([removedRow('casey')]);
+  roster([fleet.agent('casey', { state: 'working' })]);
+  let calls = machine([], { refuse: { bootout: 5 } });
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }).failed, ['casey']);
+  assert.ok(!calls.some((c) => c.startsWith('kill-session')), 'the session was ended while its job was still loaded');
+  // The retry: launchd now holds it disabled, and this time the bootout goes through.
+  calls = machine([[labelOf('casey'), 'disabled']]);
+  const again = remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 });
+  assert.deepEqual(again.reapplied, ['casey']);
+  const boot = calls.indexOf('bootout gui/501/' + labelOf('casey'));
+  const kill = calls.findIndex((c) => /^kill-session -t =casey/.test(c));
+  assert.ok(boot >= 0 && kill > boot, 'the retry did not unload the job before ending the session: ' + calls.join(' | '));
+  // A retry that still cannot unload it does not end the session and does not call it done.
+  calls = machine([[labelOf('casey'), 'disabled']], { refuse: { bootout: 5 } });
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: ['casey'], unsure: [] });
+  assert.ok(!calls.some((c) => c.startsWith('kill-session')));
+});
+
+test('#7409 review 3: a record the person chose to leave running, or a name removal would refuse, is never touched', () => {
+  removedList([
+    { ...removedRow('kept'), leftRunningByChoice: true },
+    { name: 'ava+qa', label: labelOf('ava+qa') },
+    { name: '-x', label: labelOf('-x') },
+  ]);
+  roster([fleet.agent('kept', { state: 'working' })]);
+  const calls = machine([]);
+  assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [] });
+  assert.deepEqual(calls, [], 'a kept session or an unsafe name reached launchctl or tmux');
 });
