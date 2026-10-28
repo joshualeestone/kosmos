@@ -1491,7 +1491,8 @@ function takeTo(ctx, args) {
     if (!past && a === '--to') {
       const v = args[i + 1];
       if (!v || /^-/.test(v)) { ctx.err('--to needs the name of an agent on the project, so nothing was sent.'); ctx.err(TASK_MESSAGE_USAGE); return null; }
-      if (/["\\\u0000-\u001f\u007f]/.test(v)) { ctx.err('--to needs the name of an agent on the project, so nothing was sent. Not: an agent name with a quote, backslash or control character in it.'); return null; }
+      // review 4: C1 controls too, as the Mac's [[:cntrl:]] reads them in UTF-8
+      if (/["\\\u0000-\u001f\u007f-\u009f]/.test(v)) { ctx.err('--to needs the name of an agent on the project, so nothing was sent. Not: an agent name with a quote, backslash or control character in it.'); return null; }
       to.push(v);
       if (to.length > 10) { ctx.err('A task message can name up to 10 agents with --to.'); return null; }
       i++;
@@ -1519,8 +1520,8 @@ async function taskMessage(ctx, args) {
     // kosmos#7408 review 1: a board that answers no "to" does not know --to, so the names were not told; never the hint then.
     /* Review 2: on stdout, as install/kosmos says it; exit 0 on purpose (the message WAS recorded, so a failing exit would
        invite a resend that records it twice). */
-    if (took.to.length) { if (!Array.isArray(r.json.to)) ctx.out('This Kosmos does not know --to yet, so only the task\'s assignees were told. Update Kosmos, or assign the task.'); }
-    else if (/^ Nobody is assigned to it/.test(told)) ctx.out('To tell an agent anyway, name it: --to <agent>.');
+    if (took.to.length) { if (!Array.isArray(r.json.to)) ctx.out('This Kosmos does not know --to yet, so the agents you named were not told. Update Kosmos, or assign the task.'); }
+    else if (/^ Nobody (else )?is assigned to it/.test(told)) ctx.out('To tell an agent anyway, name it: --to <agent>.');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that message: ' + ctx.refusedBy(r) + '.'); return 1; }

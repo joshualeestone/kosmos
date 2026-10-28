@@ -6508,9 +6508,9 @@ cmd_task() {
           # Review 1: a board that answers no "to" does not know --to, so the names were not told; never the hint then.
           # Review 2: exit 0 on purpose (the message WAS recorded; a failing exit invites a resend that records it twice).
           if [ -n "$KOSMOS_TO_JSON" ]; then
-            case "$body" in *'"to":['*) ;; *) say "This Kosmos does not know --to yet, so only the task's assignees were told. Update Kosmos, or assign the task." ;; esac
+            case "$body" in *'"to":['*) ;; *) say "This Kosmos does not know --to yet, so the agents you named were not told. Update Kosmos, or assign the task." ;; esac
           else
-            case "$told" in "Nobody is assigned to it"*) say "To tell an agent anyway, name it: --to <agent>." ;; esac
+            case "$told" in "Nobody is assigned to it"*|"Nobody else is assigned to it"*) say "To tell an agent anyway, name it: --to <agent>." ;; esac
           fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
