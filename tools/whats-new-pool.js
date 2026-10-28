@@ -63,6 +63,12 @@ function readPool(file) {
       throw new Error(file + ': every item needs a title, a numeric rank, a since version and a status (' + STATUSES.join(', ') + ')');
     }
   }
+  // kosmos#7411: `restart`, when present, says what a running agent needs to pick the fix up. Only "agents" today.
+  for (const it of pool.items) {
+    if (it.restart !== undefined && it.restart !== 'agents') {
+      throw new Error(file + ': "' + it.title + '" has restart ' + JSON.stringify(it.restart) + '; the only value is "agents"');
+    }
+  }
   if (pool.lastProd !== undefined && (typeof pool.lastProd !== 'string' || !/^\d+\.\d+\.\d+$/.test(pool.lastProd))) {
     throw new Error(file + ': lastProd must be a version like 0.7.35, not ' + JSON.stringify(pool.lastProd));
   }
@@ -250,6 +256,19 @@ function main(argv) {
   if (misplaced.length) {
     process.stderr.write(misplaced.join(' ') + ' does not go with ' + (positional[0] || 'that') + '; nothing done\n');
     return 2;
+  }
+  /* kosmos#7411: `notes <version> --out=FILE` writes the release notes a build of <version> ships as
+     app/release-notes.json (engine/releasenotes.js notesFor: nothing held, nothing newer than the build). Every build
+     (Mac, Linux, Windows) runs it, so the app never ships the pool itself. */
+  if (positional.length === 2 && positional[0] === 'notes') {
+    const out = opt(argv, 'out', '');
+    if (!out) { process.stderr.write('notes needs --out=FILE\n'); return 2; }
+    const pool = readPool(opt(argv, 'pool', POOL));
+    let notes;
+    try { notes = require('../engine/releasenotes').notesFor(pool, positional[1]); } catch (e) { process.stderr.write(e.message + '\n'); return 2; }
+    fs.writeFileSync(out, JSON.stringify({ version: positional[1], notes }, null, 2) + '\n');
+    process.stdout.write(out + ': ' + notes.length + ' release notes up to ' + positional[1] + '\n');
+    return 0;
   }
   /* #5713 review 1: `prod-check` is the cut's read-only check (release.sh 1b-ii): 0 when the pool records what Mac prod
      serves (or newer), 3 when prod is newer (a promote since the last build: build again and commit the pool),

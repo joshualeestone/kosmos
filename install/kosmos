@@ -3611,6 +3611,37 @@ cmd_connections() {
     });' || { say "Kosmos gave an answer we could not read about what is connected."; exit 1; }
 }
 
+# ---- kosmos whats-new     (#7411)
+# What changed, for every version this install holds, read from the app's own release notes (engine/releasenotes.js:
+# nothing held, nothing newer than this build), with a line on each fix a running agent needs a restart for.
+#   kosmos whats-new [--since <version>] [--json]
+# --since: only what is newer than that version (default: what this version itself added). --json: for an agent.
+cmd_whats_new() {
+  local _since='' _json=''
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --since) [ "$#" -ge 2 ] || { say "--since needs a version, like 0.7.60"; exit 1; }; _since="$2"; shift 2 ;;
+      --since=*) _since="${1#--since=}"; shift ;;
+      --json) _json=1; shift ;;
+      *) say "kosmos whats-new takes --since <version> and --json, not '$1'"; exit 1 ;;
+    esac
+  done
+  local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read its release notes."; exit 1; }
+  local _mod; _mod="$(kosmos_engine_module releasenotes)"
+  local _root; _root="$(cd "$(dirname "$_mod")/.." && pwd)"
+  WN_MOD="$_mod" WN_ROOT="$_root" WN_SINCE="$_since" WN_JSON="$_json" "$_node" -e '
+    const rn = require(process.env.WN_MOD);
+    let d, notes;
+    try { d = rn.readNotes(process.env.WN_ROOT); } catch (e) { console.log("Kosmos could not read its release notes: " + e.message); process.exit(1); }
+    const v = rn.parseVersion(d.version);
+    // Default: what this version itself added (newer than the patch before it).
+    const since = process.env.WN_SINCE || (v && v[2] > 0 ? v[0] + "." + v[1] + "." + (v[2] - 1) : "");
+    try { notes = rn.since(d.notes, since); } catch (e) { console.log(e.message); process.exit(1); }
+    if (process.env.WN_JSON) { console.log(JSON.stringify({ installed: d.version, since: since || null, notes }, null, 2)); }
+    else { process.stdout.write(rn.format(notes, d.version)); }
+  '
+}
+
 # ---- kosmos accounts      (#5359)
 # Which providers' accounts this board has, and whether each is signed in, from GET /api/accounts (most accounts
 # checked live, some from Kosmos's own record), so an agent no longer hand-rolls that authenticated read. The route
@@ -5356,6 +5387,7 @@ kosmos_command_list() {
   printf '  kosmos fingerprint   print the fingerprint of a file, or compare one with it, to check a handed-off copy (the dates and ID inside a PDF are left out)\n'
   printf '  kosmos connections   list the outside services and which are connected\n'
   printf '  kosmos accounts      list the provider accounts and whether each is signed in\n'
+  printf '  kosmos whats-new     what changed in each version, and which fixes need your agents restarted\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
   printf '  For how to use one: kosmos <command> --help (agents, accounts, msg, post, reply, reply-channel, inbox, react, claim, report,\n'
   printf '  room, feedback, community, task, project, records, agent and connect show their usage).\n'
@@ -7141,6 +7173,7 @@ case "${1:-}" in
   inbox)   shift; cmd_inbox "$@" ;;
   connections) cmd_connections ;;
   accounts) cmd_accounts ;;
+  whats-new) shift; cmd_whats_new "$@" ;;   # kosmos#7411
   connect) shift; cmd_connect "$@" ;;
   room)    shift; cmd_room "$@" ;;
   notice)  shift; cmd_notice "$@" ;;
