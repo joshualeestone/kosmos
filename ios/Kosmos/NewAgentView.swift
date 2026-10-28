@@ -147,7 +147,7 @@ struct NewAgentView: View {
         switch at {
         case "role": draft.roleKey = "pm"; path = [.role]
         case "own": draft.roleKey = "own"; draft.ownWords = NewAgent.ownExample(c); path = [.role]
-        case "setup": draft.roleKey = "pm"; draft.name = "Ada"; draft.label = "Project Manager"; lastLabel = draft.label; path = [.role, .setup]
+        case "setup", "setupbottom": sampleBottom = at == "setupbottom"; draft.roleKey = "pm"; draft.name = "Ada"; draft.label = "Project Manager"; lastLabel = draft.label; path = [.role, .setup]
         case "swarm": draft.kind = .swarm; draft.roleKey = "researcher"; draft.name = "Finch"; draft.label = "Researcher"; lastLabel = draft.label; path = [.role, .setup]
         case "made": draft.name = "Ada"; made = ("ada", "Ada"); seen = true; path = [.role, .setup, .made]
         case "notup": draft.name = "Ada"; made = ("ada", "Ada"); timedOut = true; path = [.role, .setup, .made]
@@ -697,6 +697,12 @@ struct NewAgentView: View {
     // MARK: 3. Set up your agent
 
     private var setupScreen: some View {
+        ScrollViewReader { proxy in setupForm
+            // kosmos#7502 design shots: KOSMOS_SAMPLE_NEWAGENT=setupbottom scrolls to the Model group, as teambottom does.
+            .onAppear { if sampleBottom { DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { proxy.scrollTo("setupModel", anchor: .bottom) } } }
+        }
+    }
+    private var setupForm: some View {
         Form {
             Section(NewAgent.Words.identity) {
                 // Side by side, or stacked when the text is too large for the row.
@@ -724,7 +730,7 @@ struct NewAgentView: View {
                     ForEach(client.agents.filter { !$0.isGuide }) { a in Text(a.name).tag(a.session) }   // as the desktop's menu
                 }
             }
-            modelChoice
+            modelChoice.id("setupModel")
             if draft.kind == .swarm { swarmSection }
             if let message {
                 Section { Text(message).foregroundColor(Palette.dangerWord) }
