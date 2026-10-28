@@ -3,10 +3,11 @@
 Follow-up from #7492's review round 4 (Baron). Not a defect today: all 71 constants match the pattern.
 
 ## Decided
-- stringConstants counts every name a `const string` statement declares (type `string`, `String` or `System.String`,
+- stringConstants counts every name a `const string` statement declares (type `string`, `String`, `System.String` or
+  `global::System.String`,
   each name after a comma), whatever form its value takes, and adds each one the value pattern did not collect to
-  `unresolved`, which the test already requires to be empty (its message says to teach stringConstants the form). No
-  new assertion, so the failure reads the same either way.
+  `unresolved`, which the test already requires to be empty (its message says to teach stringConstants the form), so
+  an unread form fails as before. The whole-file count and its controls are the new assertions.
 - The scan runs over a copy with string and char contents blanked and comments dropped (blankCSharpLiterals, a small
   tokenizer; a regex over the whole file cannot, as a '"' char literal or a quote in a comment opens a false string), so
   a ; or comma inside a value cannot hide a later name, and a declaration in a comment is not counted.

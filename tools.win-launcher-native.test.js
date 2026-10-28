@@ -264,7 +264,7 @@ function stringConstants(source) {
   // String and char contents are blanked and comments dropped first, so a ; or a comma or an = inside a value can neither
   // end a statement nor add a name, and a declaration written in a comment is not counted.
   const blanked = blankCSharpLiterals(source);
-  for (const st of blanked.matchAll(/\bconst\s+(?:System\s*\.\s*)?[Ss]tring\??\s+([^;]*);/g)) {
+  for (const st of blanked.matchAll(/\bconst\s+(?:global\s*::\s*)?(?:System\s*\.\s*)?[Ss]tring\??\s+([^;]*);/g)) {
     for (const n of st[1].matchAll(/(?:^|,)\s*(\w+)\s*=/g)) { declared.add(n[1]); declarations += 1; }
   }
   const uncollected = [...declared].filter((n) => !raw.has(n));
@@ -310,7 +310,8 @@ test('#7492: every string constant in KosmosLauncher.cs is in the committed Kosm
     ['reference', 'const string PlantedReference = Other.Name;'], ['spacing', 'const  string PlantedSpacing="x";'],
     ['String', 'const String PlantedType = "x";'], ['System.String', 'const System.String PlantedFullType = "x";'],
     ['second name', 'const string PlantedFirst = "a", PlantedSecond = "b = c";'],
-    ['second name after a ; in a value', 'const string PlantedSemi = "a;b", PlantedAfterSemi = "c";']]) {
+    ['second name after a ; in a value', 'const string PlantedSemi = "a;b", PlantedAfterSemi = "c";'],
+    ['global::System.String', 'const global::System.String PlantedGlobal = "x";']]) {
     const planted = SOURCE.slice(0, close) + '    ' + decl + '\n' + SOURCE.slice(close);
     const names = [...decl.matchAll(/(Planted\w+)\s*=/g)].map((x) => x[1]);
     assert.deepEqual(stringConstants(planted).unresolved, names, 'a ' + form + ' const string was skipped silently: ' + decl);
@@ -331,6 +332,14 @@ test('#7492: every string constant in KosmosLauncher.cs is in the committed Kosm
   const twice = SOURCE.slice(0, close) + '    class PlantedOther { const string RunningHereMessage = @"other"; }\n' + SOURCE.slice(close);
   const t2 = stringConstants(twice);
   assert.notEqual(t2.declared, t2.collected, 'a name declared twice, once in a form not read, was hidden');
+  // An independent count: the value pattern over the raw file (no tokenizer) reads as many as the tokenized read does,
+  // so a tokenizer that dropped the same code from both scans still goes red here.
+  const rawCount = [...SOURCE.matchAll(/const string (\w+) =\s*((?:"(?:[^"\\]|\\.)*"|[A-Za-z_]\w*|\s|\+)+);/g)].length;
+  assert.equal(whole.collected, rawCount, 'the tokenized read and the raw read disagree: ' + whole.collected + ' and ' + rawCount);
+  // An odd number of quotes in an interpolation hole is a form the tokenizer does not model: it must go red, not pass.
+  const hole = SOURCE.slice(0, close) + '    const string PlantedHole = $"{(true ? "a" : "b")}";\n' + SOURCE.slice(close);
+  const th = stringConstants(hole);
+  assert.ok(th.unresolved.length > 0 || th.declared !== th.collected, 'an interpolation hole with quotes passed silently');
   // CONTROL: a declaration written only in a comment is not a constant, so it is not flagged.
   const commented = SOURCE.slice(0, close) + '    // const string PlantedInComment = @"x";\n    /* const string PlantedInBlock = $"y"; */\n' + SOURCE.slice(close);
   assert.deepEqual(stringConstants(commented).unresolved, [], 'a declaration in a comment was flagged');
