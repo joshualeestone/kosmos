@@ -34,7 +34,7 @@ struct ContentView: View {
     @State private var newAgentOpen = false   // kosmos#7488
     // kosmos#7488: new agents' projects to tell once the board's list shows them (the desktop's tell after create), kept
     // here so closing New Agent early drops none.
-    @State private var pendingTells: [String: [String]] = [:]
+    @State private var pendingTells: [String: (host: String, projects: [String])] = [:]   // by session
     // kosmos#7418: an agent's chat a tapped notification asked for, handed to the Agents tab to open.
     @State private var agentRequest: PushBridge.AgentTarget?
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
@@ -202,6 +202,7 @@ struct ContentView: View {
             // kosmos#7418 review 1: a chat or room a notice asked for belonged to the account that was signed in.
             agentRequest = nil; roomRequest = nil
             pendingTells = [:]   // kosmos#7488: a tell names a project on the computer of the account that made it
+            newAgentOpen = false   // kosmos#7488: the sheet sits above the tabs, so it never outlives the account
             // kosmos#7042 review round 5: signed out later in the launch (on the account page, a session that ended),
             // the next sign-in is the native one too, or the web page's own device key would make this iPhone a second
             // device on the Mac. Recorded gap: the Mac's "fresh sign-in" link then lands here, not on the page.
@@ -264,7 +265,9 @@ struct ContentView: View {
                     tab = .agents; todayBoard = false; web.press(.agents)
                 }
             }, tell: { session, projects in
-                pendingTells[session] = projects
+                // Kept with the computer that made it: a tell names a project there, never on another Mac.
+                guard let host = board.macURL?.host else { return }
+                pendingTells[session] = (host, projects)
                 sendTells(board.agents)
             })
         }
@@ -312,6 +315,7 @@ struct ContentView: View {
                 // prompt. (App-switcher snapshot hardening - an .inactive privacy
                 // overlay - is a further enhancement, noted in the plan.)
                 isUnlocked = false
+                newAgentOpen = false   // kosmos#7488: never left over the lock (the sheet sits above it)
                 didBackground = true
                 unlockGeneration += 1
                 // The locked app keeps no page: an unlock starts a fresh web view, as before the tabs shared one,
@@ -376,9 +380,10 @@ struct ContentView: View {
     // could not): a failed tell is recoverable from the project's own screen.
     private func sendTells(_ rows: [Board.Agent]) {
         let on = Set(rows.filter(\.boardSeesIt).map(\.session))
-        for (session, ids) in pendingTells where on.contains(session) {
+        guard let host = board.macURL?.host else { return }
+        for (session, pending) in pendingTells where on.contains(session) && pending.host == host {
             pendingTells[session] = nil
-            for id in ids { Task { _ = await board.throughMac { NewAgent.tellRequest(mac: $0, project: id, session: session) } } }
+            for id in pending.projects { Task { _ = await board.throughMac { NewAgent.tellRequest(mac: $0, project: id, session: session) } } }
         }
     }
 

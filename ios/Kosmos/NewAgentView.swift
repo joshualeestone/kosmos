@@ -25,7 +25,8 @@ struct NewAgentView: View {
     @State private var timedOut = false          // 30 s and the board still cannot see it (the desktop's "has not come up")
     @State private var madeWarnings: [String] = []      // what the single agent did not get (NewAgent.madeWarnings)
     @State private var memberWarnings: [String: [String]] = [:]   // the same, per team member
-    @State private var helloTimer: Task<Void, Never>?   // started by the create, not by the screen, so a redraw cannot restart it
+    @State private var helloTimer: Task<Void, Never>?
+    @State private var leadTimedOut = false             // the team's lead made, and 30 s on the board still cannot see it   // started by the create, not by the screen, so a redraw cannot restart it
     @State private var lastLabel = ""     // the role title the Role field was last filled with (still untouched if equal)
     // The Team path (NewTeam).
     @State private var teams: [NewTeam.Team]?
@@ -136,7 +137,7 @@ struct NewAgentView: View {
 
     private func choose(_ kind: NewAgent.Kind) {
         if kind == .team {
-            draft.kind = .single
+            draft.kind = .single   // a team is never a swarm; only its model is read from the draft
             path = [.team]
             if teams == nil { Task { await loadTeams() } }
             return
@@ -167,6 +168,7 @@ struct NewAgentView: View {
                     NavigationLink(value: Step.otherRoles) {
                         pickLabel(title: NewAgent.Words.pickAnother, line: other?.label, picked: other != nil)
                     }
+                    .accessibilityAddTraits(other != nil ? [.isSelected] : [])
                     if let caution = NewAgent.caution(other, kind: draft.kind) {
                         Text(caution).font(.footnote).foregroundColor(Palette.askedWord)
                     }
@@ -244,7 +246,7 @@ struct NewAgentView: View {
                     if teams.isEmpty { Text(NewTeam.Words.none).foregroundColor(Palette.secondary) }
                     ForEach(teams) { t in
                         pickRow(title: t.label, line: t.blurb.isEmpty ? nil : t.blurb, picked: teamKey == t.key) {
-                            guard !teamLocked, teamKey != t.key else { return }
+                            guard !teamLocked, madeProject == nil, teamKey != t.key else { return }
                             teamKey = t.key
                             Task { await loadDetail(t.key) }
                         }
@@ -275,7 +277,7 @@ struct NewAgentView: View {
                         ForEach(projects.filter { !$0.archived }) { p in Text(p.name).tag(NewTeam.ProjectChoice.existing(p.id)) }
                     }
                     .labelsHidden()
-                    .disabled(teamLocked)
+                    .disabled(teamLocked || madeProject != nil)   // a made project is the team's; it is not left empty
                 }
                 if let models = catalogue?.models, !models.isEmpty {
                     Section {
@@ -285,6 +287,7 @@ struct NewAgentView: View {
                         .disabled(teamLocked)
                     } header: { Text(NewAgent.Words.model + " " + NewTeam.Words.modelSoft) }
                 }
+                if catalogue == nil { Section { loadingRow } }   // the models come with the roles: Try again is here too
             } else if teamKey != nil {
                 Section {
                     if detailFailed {
@@ -327,7 +330,7 @@ struct NewAgentView: View {
 
     // The desktop locks the team's choices from the click on (its review 27); a member that failed is renamed on the
     // Made screen instead.
-    private var teamLocked: Bool { teamRunning || teamStarted || madeProject != nil }
+    private var teamLocked: Bool { teamRunning || teamStarted }
 
     private func nameField(_ m: NewTeam.Member) -> some View {
         TextField(m.title, text: Binding(get: { names[m.slot] ?? "" }, set: { names[m.slot] = $0 }))
@@ -525,6 +528,17 @@ struct NewAgentView: View {
                 }
             } header: { Text(detail.map { NewAgent.Words.makingNamed($0.label) } ?? NewAgent.Words.making) }
             if let teamMessage { Section { Text(teamMessage).foregroundColor(Palette.dangerWord) } }
+            // All made and the lead not seen yet: say what the screen is waiting for, then the desktop's words.
+            if allMade && !leadSeen(members) {
+                Section {
+                    if leadTimedOut {
+                        Text(NewAgent.Words.notUp(leadShown(members))).font(.headline)
+                        Text(NewAgent.Words.notUpWhy + " " + NewAgent.Words.notUpNext).font(.footnote).foregroundColor(Palette.secondary)
+                    } else {
+                        HStack(spacing: 8) { ProgressView(); Text(NewAgent.Words.makingNamed(leadShown(members))) }
+                    }
+                }
+            }
         }
         .navigationTitle(NewTeam.Words.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -542,6 +556,23 @@ struct NewAgentView: View {
             // A way out when the rest is not wanted: the members made stay made.
             if !teamRunning { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         }
+        .onChange(of: allMade) { done in
+            guard done else { return }
+            leadTimedOut = false
+            Task {
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                if !Task.isCancelled, !leadSeen(members) { leadTimedOut = true; announce(NewAgent.Words.notUp(leadShown(members))) }
+            }
+        }
+    }
+
+    private func leadSeen(_ members: [NewTeam.Member]) -> Bool {
+        guard let lead = members.first, case .made(let session, _) = states[lead.slot] else { return false }
+        return client.agents.contains { $0.session == session && $0.boardSeesIt }
+    }
+    private func leadShown(_ members: [NewTeam.Member]) -> String {
+        guard let lead = members.first, case .made(_, let shown) = states[lead.slot] else { return "" }
+        return shown
     }
 
     // Not a row whose create may have landed: a new name would make a second agent for it.
@@ -667,6 +698,7 @@ struct NewAgentView: View {
             } else if timedOut {
                 Text(NewAgent.Words.notUp(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
                 Text(NewAgent.Words.notUpWhy + " " + NewAgent.Words.notUpNext).font(.body).foregroundColor(Palette.secondary)
+                ForEach(madeWarnings, id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
             } else {
                 ProgressView().controlSize(.large)
                 Text(NewAgent.Words.makingNamed(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
