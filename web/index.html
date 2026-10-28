@@ -76037,13 +76037,18 @@ function pjArchReset() {
   if (typeof pjFitRoomPhone === 'function') pjFitRoomPhone();
 }
 function pjArchShowing() { return PJ_ARCH.on && PJ_ARCH.pid === PJ_CURRENT; }
+/* The archive header's count and Undo, from the latest live read when there is one (the poll keeps it current). */
+function pjArchHead() {
+  if (PJ_WIN.pid === PJ_ARCH.pid && Array.isArray(PJ_WIN.newest)) PJ_ARCH.count = PJ_WIN.archivedCount;
+  const n = PJ_ARCH.count;
+  document.getElementById('pj-arch-count').textContent = n.toLocaleString() + (n === 1 ? ' message' : ' messages');
+  document.getElementById('pj-arch-undo').hidden = !PJ_WIN.archiveMarker;
+}
 function paintArch() {
   const box = document.getElementById('pj-room');
   const p = pjById(PJ_CURRENT);
   if (!box || !p || !pjArchShowing()) return;
-  const n = PJ_ARCH.count;
-  document.getElementById('pj-arch-count').textContent = n.toLocaleString() + (n === 1 ? ' message' : ' messages');
-  document.getElementById('pj-arch-undo').hidden = !PJ_WIN.archiveMarker;
+  pjArchHead();
   document.getElementById('pj-arch-head').hidden = false;
   box.classList.add('pj-arch-on');
   const start = PJ_ARCH.olderCount === 0 ? '<div class="pj-arch-edge">This is the start of the room.</div>' : '';
@@ -76053,12 +76058,14 @@ function paintArch() {
   // The header above the thread moves its top, so the phone's fit (#7196) is measured again (review 3).
   if (typeof pjFitRoomPhone === 'function') pjFitRoomPhone();
 }
-async function pjArchOpen() {
+/* `again`: Undo landed while this view was open (review 6), so it reads again even if a read is out (that older read
+   may predate the Undo; the reset's generation discards it), and keeps the live room's anchor taken when it first opened. */
+async function pjArchOpen(again) {
   const pid = PJ_CURRENT;
   if (!pid) return;
   const box0 = document.getElementById('pj-room');
-  const anchor = box0 ? threadAnchor(box0) : null;
-  if (PJ_ARCH.on && PJ_ARCH.pid === pid && PJ_ARCH.loading) return;   // a second press while the first read is out
+  const anchor = again ? PJ_ARCH.anchor : (box0 ? threadAnchor(box0) : null);
+  if (!again && PJ_ARCH.on && PJ_ARCH.pid === pid && PJ_ARCH.loading) return;   // a second press while the first read is out
   pjArchReset();
   // `opening`: said on the earlier-pages line while the read is out, so a slow archive does not look like a dead button
   // (review 2), and kept there by pjWinOlderLine whatever else repaints the line meanwhile (review 3).
@@ -76101,7 +76108,7 @@ async function pjArchEarlier() {
 /* Back to the room, and the end of Undo: the live room is painted from the poll's latest body and the reader is put back
    on the message they were on when the archive opened. Focus goes to the room's message box (the header that held the
    pressed button is hidden). `quiet` is for Undo, which says its own sentence. */
-function pjArchClose(quiet, hadFocusIn, forSearch) {
+function pjArchClose(quiet, hadFocusIn, forSearch, refresh) {
   if (!PJ_ARCH.on) return;
   const anchor = PJ_ARCH.anchor;
   // Focus was in the header (or fell to the page from it, as a clicked button does in WebKit): it goes to the message box.
@@ -76115,8 +76122,11 @@ function pjArchClose(quiet, hadFocusIn, forSearch) {
      a search closes the archive, whose hits replace these rows (review 5). */
   const view = document.getElementById('pj-one-view');
   if (!forSearch && box && PJ_CURRENT && document.visibilityState === 'visible' && (!view || !view.hidden) && typeof pjMarkSeen === 'function') pjMarkSeen(PJ_CURRENT);
-  if (box && box.__lastBody) { box.__lastRoom = undefined; paintRoom(box.__lastBody); }
-  if (box && anchor) restoreThreadAnchor(box, anchor);
+  /* `refresh` (after Archive): the last body still holds rows the server has just archived, so nothing is painted from it
+     and the room stays empty for the moment until loadRoom paints the fresh read (review 6). */
+  if (refresh && box) { box.__lastBody = undefined; box.__lastRoom = undefined; box.innerHTML = ''; }
+  else if (box && box.__lastBody) { box.__lastRoom = undefined; paintRoom(box.__lastBody); }
+  if (box && anchor && !refresh) restoreThreadAnchor(box, anchor);
   if (hadFocus) { const post = document.getElementById('pj-post'); if (post) post.focus({ preventScroll: true }); }
   if (!quiet) pjRoomAnnounce('Back in the room.');
 }
@@ -76143,7 +76153,7 @@ document.getElementById('pj-arch-undo').addEventListener('click', async (e) => {
   if (gen === PJ_ARCH.gen) pjArchClose(true, hadFocus);
   // As after Archive: the window held before Undo stops at the old boundary, so it starts again from the newest page.
   if (PJ_CURRENT === pid) { pjWinReset(pid); const b = document.getElementById('pj-room'); if (b) b.__lastRoom = undefined; loadRoom(); }
-  if (reopened) pjArchOpen();
+  if (reopened) pjArchOpen(true);
 });
 document.addEventListener('click', (e) => {
   if (e.target && e.target.closest && e.target.closest('#pj-arch-open')) pjArchOpen();
@@ -76206,7 +76216,7 @@ function pjArchAsk() {
   const cut = document.getElementById('pjarch-cut');
   const showCut = () => { const b = pjArchBefore(when.value); cut.textContent = b ? 'Messages from before ' + pjRoomArchWhen(b) + '.' : ''; };
   showCut(); when.onchange = showCut;
-  let leftFor = false;   // closed because another project opened (focus is theirs now; the outcome is still said)
+  let leftFor = false;   // closed while the person went elsewhere (another project, or the room's section hidden): focus is theirs, the outcome is still said
   const close = (restoreFocus = true) => {
     if (ask !== PJ_ARCH_ASK_GEN) return;   // a later opening owns the confirm now
     PJ_ARCH_ASK_GEN += 1;
@@ -76222,7 +76232,7 @@ function pjArchAsk() {
     if (back.hidden || ask !== PJ_ARCH_ASK_GEN) return;
     // It sits inside the room's section: when that section is hidden some other way, the confirm is gone from the screen,
     // so it closes instead of holding every Tab on the page (review 5).
-    if (!back.getClientRects().length) { close(false); return; }
+    if (!back.getClientRects().length) { leftFor = true; close(false); return; }   // the outcome is still said (review 6)
     if (e.key === 'Escape' && !go.disabled) { close(); return; }
     if (e.key !== 'Tab') return;
     const stops = [when, keep, go].filter((x) => !x.disabled);
@@ -76256,16 +76266,16 @@ function pjArchAsk() {
       if (p && !ok) msgToast('We could not archive ' + name + ' just now; nothing changed.');
       if (p && ok) msgToast('In ' + name + ': ' + pjArchOutcome(was, await pjArchCount(pid), out.marker && out.marker.before));
       // A quick switch away and back: the room this was for is on screen again, and its window may hold archived rows.
-      if (ok && PJ_CURRENT === pid) { if (PJ_ARCH.on) pjArchClose(true, false); else pjArchReset(); pjWinReset(pid); const b = document.getElementById('pj-room'); if (b) b.__lastRoom = undefined; loadRoom(); }
+      if (ok && PJ_CURRENT === pid) { if (PJ_ARCH.on) pjArchClose(true, false, false, true); else pjArchReset(); pjWinReset(pid); const b = document.getElementById('pj-room'); if (b) b.__lastRoom = undefined; loadRoom(); }
       return;
     }
     if (!ok) { go.disabled = false; keep.disabled = false; when.disabled = false; msg.textContent = 'We could not archive just now; nothing changed.'; go.focus(); return; }
     close();
     msgToast(pjArchOutcome(was, await pjArchCount(pid), out.marker && out.marker.before));   // a live region: heard once
     /* Pages already read may hold rows that are now archived, so the window starts again from the newest page. Pressed
-       inside the archive view, the archive closes through pjArchClose, which repaints the live room, so its rows are never
-       left on screen unlabelled (review 5). */
-    if (PJ_CURRENT === pid) { if (PJ_ARCH.on) pjArchClose(true, false); else pjArchReset(); pjWinReset(pid); const b = document.getElementById('pj-room'); if (b) b.__lastRoom = undefined; loadRoom(); }
+       inside the archive view, the archive closes through pjArchClose with nothing painted from the old body, so neither
+       its rows nor rows archived just now show as live; loadRoom paints the fresh read (reviews 5 and 6). */
+    if (PJ_CURRENT === pid) { if (PJ_ARCH.on) pjArchClose(true, false, false, true); else pjArchReset(); pjWinReset(pid); const b = document.getElementById('pj-room'); if (b) b.__lastRoom = undefined; loadRoom(); }
   };
   back.hidden = false;
   when.focus();
@@ -78831,6 +78841,8 @@ async function loadRoom() {
          block, whose pjWinReset would otherwise zero them for one poll (review 2). */
       PJ_WIN.archivedCount = Number(body.archivedCount) || 0;
       PJ_WIN.archiveMarker = body.archiveMarker || null;
+      // With the archive open, its header follows: an archive or undo from another computer shows (review 6).
+      if (typeof PJ_ARCH !== 'undefined' && pjArchShowing()) pjArchHead();
       /* A reader on the newest row lets the pages they scrolled back to go BEFORE the merge, so the return never paints
          the whole held body first (review 6). */
       // Not while the archive is on screen: offFloorNow would measure the archive's rows, not the room's (review 1).

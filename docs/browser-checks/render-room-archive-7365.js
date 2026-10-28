@@ -111,6 +111,8 @@ function findUnder(dir, name) {
     };
     // Archive with one choice, through the confirm; answers what the toast said.
     const archiveWith = async (choice, re) => {
+      // A toast keeps its words after it hides, so the last one is cleared first: only this press's sentence can match (review 6).
+      await p.evaluate(() => { const t = document.getElementById('msg-toast'); if (t) t.textContent = ''; });
       await p.click('#pj-arch-ask');
       await p.waitForSelector('#pjarch-modal:not([hidden])', { timeout: 5000 });
       await p.selectOption('#pjarch-when', choice);
@@ -180,6 +182,7 @@ function findUnder(dir, name) {
     const refused = await p.evaluate(() => ({ open: !document.getElementById('pjarch-modal').hidden, msg: document.getElementById('pjarch-msg').textContent, focus: document.activeElement && document.activeElement.id }));
     chk(refused.open && refused.msg === 'We could not archive just now; nothing changed.' && refused.focus === 'pjarch-go', 'a refused Archive keeps the confirm open, says nothing changed (no raw reason) and keeps focus on Archive', JSON.stringify(refused));
     await p.unroute('**/room/archive');
+    await p.evaluate(() => { const t = document.getElementById('msg-toast'); if (t) t.textContent = ''; });
     await p.click('#pjarch-go');
     await p.waitForSelector('#pjarch-modal', { state: 'hidden', timeout: 5000 });
     // The page closes the confirm, then reads the count, then writes the toast (60 ms after its first): wait for the words.
@@ -333,7 +336,10 @@ function findUnder(dir, name) {
     chk(fit.lastBottom !== null && fit.composerTop !== null && fit.roomBottom <= fit.composerTop + 1 && fit.lastBottom <= fit.composerTop + 1,
       'at 390px the archive\'s thread, and its newest post, end above the composer', JSON.stringify(fit));
     // Archive pressed from inside the archive view: the archive closes and the live room is painted, never left unlabelled.
-    const insideSaid = await archiveWith('week', /archived|old enough/);
+    const insideSaid = await archiveWith('week', /^Nothing more in this room was old enough to archive/);
+    // The archive closes after the count is read, a moment after the toast: wait for it rather than racing it.
+    await p.waitForFunction(() => document.getElementById('pj-arch-head').hidden, null, { timeout: 5000 }).catch(() => null);
+    await p.waitForFunction(() => [...document.querySelectorAll('#pj-room .msg .msg-bd > p')].some((x) => /^live post \d+$/.test(x.textContent.trim())), null, { timeout: 10000 }).catch(() => null);
     const inside = await p.evaluate(() => ({ head: document.getElementById('pj-arch-head').hidden, on: document.getElementById('pj-room').classList.contains('pj-arch-on'),
       live: [...document.querySelectorAll('#pj-room .msg .msg-bd > p')].some((x) => /^live post \d+$/.test(x.textContent.trim())),
       arch: [...document.querySelectorAll('#pj-room .msg .msg-bd > p')].some((x) => /^archived post \d+$/.test(x.textContent.trim())) }));

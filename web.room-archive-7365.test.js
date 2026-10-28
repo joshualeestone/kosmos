@@ -142,7 +142,7 @@ function archPage({ reads }) {
     pjWinRead: (pid, n, cursor, archive) => { const r = reads.shift(); return typeof r === 'function' ? r({ pid, n, cursor, archive }) : r; },
   });
   vm.runInContext([liftConst(SCRIPT, 'PJ_WIN'), liftConst(SCRIPT, 'PJ_ARCH'),
-    liftAll(SCRIPT, ['pjArchReset', 'pjArchShowing', 'paintArch', 'pjArchOpen', 'pjArchEarlier', 'pjArchClose', 'pjWinOlderLine', 'pjWinNoteReactions'])].join('\n')
+    liftAll(SCRIPT, ['pjArchReset', 'pjArchShowing', 'pjArchHead', 'paintArch', 'pjArchOpen', 'pjArchEarlier', 'pjArchClose', 'pjWinOlderLine', 'pjWinNoteReactions'])].join('\n')
     + '\nthis.PJ_WIN = PJ_WIN; this.PJ_ARCH = PJ_ARCH; this.pjArchOpen = pjArchOpen; this.pjArchEarlier = pjArchEarlier; this.pjArchClose = pjArchClose; this.pjWinNoteReactions = pjWinNoteReactions;', ctx);
   el('pj-room').__lastBody = { rows: [{ text: 'live' }] };
   return { ctx, el, doc, said, toasts, painted, restored };
@@ -315,4 +315,58 @@ test('#7365 3b review 5: when every archived message comes back, the outcome doe
   const t = new Date(2026, 9, 26, 16, 10).toISOString();
   assert.match(ctx.f(260, 0, t), /^Nothing in this room is older than .+; the messages you had archived are back in the room\.$/);
   assert.match(ctx.f(260, 10, t), /^Messages before .+ are archived; newer ones you had archived are back in the room\.$/);
+});
+
+test('#7365 3b review 6: Undo landing while a reopened archive is still reading reads it again, and the older read never lands', async () => {
+  let release;
+  const slow = new Promise((r) => { release = r; });
+  const fresh = { rows: [{ kind: 'post', id: 'f1', text: 'after undo' }], olderCount: 0, archivedCount: 1 };
+  const h = archPage({ reads: [() => slow, fresh] });
+  Object.assign(h.ctx.PJ_WIN, { pid: 'p1' });
+  const first = h.ctx.pjArchOpen();
+  h.ctx.PJ_ARCH.anchor = { mid: 'kept' };
+  await h.ctx.pjArchOpen(true);   // what Undo does for a view reopened meanwhile
+  assert.match(h.el('pj-room').innerHTML, /after undo/);
+  assert.deepEqual(h.ctx.PJ_ARCH.anchor, { mid: 'kept' }, 'the live room\'s anchor from the first opening is kept');
+  release({ rows: [{ kind: 'post', id: 'old', text: 'before undo' }], olderCount: 0, archivedCount: 260 });
+  await first;
+  assert.doesNotMatch(h.el('pj-room').innerHTML, /before undo/);
+});
+
+test('#7365 3b review 6: closing the archive for a fresh read paints nothing from the old body and restores no anchor', async () => {
+  const h = archPage({ reads: [page1] });
+  Object.assign(h.ctx.PJ_WIN, { pid: 'p1' });
+  await h.ctx.pjArchOpen();
+  h.ctx.pjArchClose(true, false, false, true);
+  assert.equal(h.painted.length, 0, 'nothing painted from the stale body');
+  assert.equal(h.el('pj-room').innerHTML, '');
+  assert.equal(h.el('pj-room').__lastBody, undefined);
+  assert.deepEqual(h.restored, []);
+});
+
+test('#7365 3b review 6: the confirm closing because its box left the screen still says the outcome', async () => {
+  let answer;
+  const h = askPage({ answers: [count(0), () => new Promise((r) => { answer = r; }), count(260)] });
+  h.ctx.ask();
+  const press = h.el('pjarch-go').onclick();
+  await new Promise((r) => setImmediate(r));
+  h.el('pjarch-modal').getClientRects = () => [];   // the room's section was hidden some other way
+  h.listeners.slice().forEach((f) => f({ key: 'Tab', preventDefault() {} }));
+  assert.equal(h.listeners.length, 0, 'it closed and let go of the keyboard');
+  answer(marked);
+  await press;
+  assert.match(h.toasts.join('|'), /^In Alpha: Messages before .+ are archived\./);
+});
+
+test('#7365 3b review 6: the archive header follows the poll (a count or Undo changed elsewhere)', async () => {
+  const h = archPage({ reads: [page1] });
+  Object.assign(h.ctx.PJ_WIN, { pid: 'p1', archiveMarker: { before: 'x' } });
+  await h.ctx.pjArchOpen();
+  assert.equal(h.el('pj-arch-count').textContent, '6 messages');
+  Object.assign(h.ctx.PJ_WIN, { newest: [], archivedCount: 2, archiveMarker: null });   // a later poll's read
+  vm.runInContext('pjArchHead()', h.ctx);
+  assert.equal(h.el('pj-arch-count').textContent, '2 messages');
+  assert.equal(h.el('pj-arch-undo').hidden, true);
+  const src = liftAll(SCRIPT, ['loadRoom']);
+  assert.ok(src.indexOf('pjArchHead()') > src.indexOf('PJ_WIN.archiveMarker = body.archiveMarker'), 'loadRoom refreshes the header after storing the read');
 });

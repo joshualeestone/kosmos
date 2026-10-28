@@ -166,3 +166,19 @@ map. Fixed by moving the return to just before the rows are written.
      before first said: a missing button is a named FAIL and the run stops, no unlabelled 30-second click timeout.
    - Also applied here: slice 2's fix for its CI red (#7394): render-room-send-shows-now-6168 and
      render-federation-invite-4649 answer the room's paged read in their fetch stubs.
+7. Review 6 (sonnet, 19:3x CDT) 0 BLOCKERs, 4 WARNINGs, 3 NITs; the WARNINGs and NIT 1 applied, NITs 2 and 3 answered.
+   - (W) a toast keeps its words after it hides, so the check's last arm matched the previous toast and read the room
+     before the archive closed: archiveWith clears the toast first, the arm's pattern is anchored, and it waits for the
+     archive to close and the live rows to arrive.
+   - (W) the confirm closing because its box left the screen dropped an in-flight Archive's outcome: it is said, by
+     the project's name (vm test, mutation reds it).
+   - (W) Undo landing while a reopened archive was still reading was swallowed by the loading guard: pjArchOpen(true)
+     reads again (the older read is discarded by the reset's generation) and keeps the live room's first anchor (vm
+     test, mutation reds it).
+   - (W) closing the archive after Archive painted the last body, which held rows just archived, as live: that close
+     paints nothing and restores no anchor; the room is empty for the moment until loadRoom paints the fresh read (vm
+     test, mutation reds it). The comment that claimed otherwise is corrected.
+   - NIT 1: the archive header's count and Undo follow the poll (pjArchHead from loadRoom; vm test, mutation reds it).
+   - NIT 2, answered: Escape on the focused choice cancels the confirm, which is the expected way out of a dialog; an
+     open native popup takes its own Escape first.
+   - NIT 3, left: the project-switch path reads the count a second time; cosmetic.
