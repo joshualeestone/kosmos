@@ -286,7 +286,11 @@ test('#7408 review 4: the limit counts every agent to names before the message i
     setTaskMsgCapForTests(c + 2);
     const before = said(n).length;
     const over = await post(n, { text: 'two more', to: ['otto', 'kai'] });   // 1 + 2 would make c + 3
-    assert.equal(over.status, 429, 'refused before it is sent: ' + JSON.stringify(await over.json()));
+    const oj = await over.json();
+    assert.equal(over.status, 429, 'refused before it is sent: ' + JSON.stringify(oj));
+    // Review 5: its own words, with the real count (not one that includes the names), and when it fits again.
+    assert.match(oj.error, new RegExp('^that message names 2 agents to tell, and with the ' + c + ' task messages sent in the last hour that would pass the limit of ' + (c + 2) + ';'), oj.error);
+    assert.ok(Number(oj.retry_after_secs) > 0, 'says when it fits');
     assert.equal(said(n).length, before, 'nothing recorded');
     assert.equal(taskMessageSendCountForTests(), c, 'nothing counted');
     // A screen claim (a browser header, no token) naming agents is limited too.
@@ -296,6 +300,31 @@ test('#7408 review 4: the limit counts every agent to names before the message i
     const fits = await post(n, { text: 'one more', to: ['otto', 'mara'] });
     assert.equal(fits.status, 200, JSON.stringify(await fits.json()));
     assert.equal(taskMessageSendCountForTests(), c + 2, 'the message plus otto; mara is the sender');
+  } finally {
+    setTaskMsgCapForTests();
+    projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'kai') }));
+  }
+});
+
+test('#7408 review 5: naming an assignee costs nothing at the edge of the limit, and a list bigger than the limit can never fit', async () => {
+  const { taskMessageSendCountForTests, setTaskMsgCapForTests } = require('./server');
+  projects.mutate(projectId, (p) => ({ ...p, agents: [...p.agents, 'kai'] }));
+  try {
+    const n = make('edge', 'otto');
+    const c = taskMessageSendCountForTests();
+    setTaskMsgCapForTests(c + 1);   // room for exactly one
+    const r = await post(n, { text: 'his already', to: ['otto'] });
+    assert.equal(r.status, 200, 'an assignee named with to adds nobody, so it fits: ' + JSON.stringify(await r.json()));
+    assert.equal(taskMessageSendCountForTests(), c + 1, 'counted once, the same as the check');
+    // Never fits: room left under the limit, but the list alone costs more than the whole limit.
+    const { taskMessageRefusal } = require('./server');
+    const c2 = taskMessageSendCountForTests();
+    setTaskMsgCapForTests(c2 + 1);
+    const never = taskMessageRefusal(Date.now(), c2 + 5);
+    assert.ok(never, 'refused');
+    assert.match(never.because, /can never fit; name fewer agents/, never.because);
+    assert.equal(never.retryAfterSecs, null, 'no retry time: waiting does not help');
+    assert.equal(taskMessageRefusal(Date.now(), 0), null, 'CONTROL: a plain message still fits');
   } finally {
     setTaskMsgCapForTests();
     projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'kai') }));
