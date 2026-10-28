@@ -120,3 +120,21 @@ test('#7508 review 4: two reads at once share one check of the same commit', asy
   assert.equal(a.state, 'kept');
   assert.equal(calls, 3, 'two reads at once ran the check twice (' + calls + ' git calls)');
 });
+
+test('#7508 review 6: at most MAX_RUNNING checks run at once, whatever request started them', async () => {
+  const gates = [];
+  const hold = () => new Promise((resolve) => gates.push(() => resolve('refs/heads/main\n')));
+  const started = [];
+  for (let i = 0; i < landedcheck.MAX_RUNNING + 2; i += 1) {
+    started.push(landedcheck.checkTask({ landedCommit: String(i % 10).repeat(39) + 'a', landedRepo: SANDBOX }, { git: hold, budget: { left: 10 } }));
+  }
+  const over = await Promise.race([started[landedcheck.MAX_RUNNING], new Promise((r) => setTimeout(() => r('still waiting'), 50))]);
+  assert.equal(over, null, 'a check past the limit started anyway');
+  while (gates.length) gates.shift()();
+  await new Promise((r) => setTimeout(r, 20));
+  while (gates.length) gates.shift()();
+  await new Promise((r) => setTimeout(r, 20));
+  while (gates.length) gates.shift()();
+  const results = await Promise.all(started);
+  assert.equal(results.filter((x) => x && x.state === 'kept').length, landedcheck.MAX_RUNNING, 'CONTROL: the ones under the limit ran');
+});

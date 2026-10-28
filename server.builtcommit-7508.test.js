@@ -358,3 +358,23 @@ test('review 5: the Windows CLI says the commit was recorded only when the board
   assert.ok(out.join('\n').includes('This Kosmos did not record the commit'), out.join('\n'));
   assert.equal(out.join('\n').includes('Recorded commit'), false, 'it said recorded when the board dropped it');
 });
+
+test('review 6: a busy checkout can still record an older commit already made; only its own HEAD is refused', async () => {
+  const r = makeRepo('busy');
+  const older = r.sha;
+  fs.writeFileSync(path.join(r.dir, 'other.txt'), 'other work\n');
+  git(r.dir, 'add', 'other.txt');
+  git(r.dir, 'commit', '-q', '-m', 'other work');
+  fs.writeFileSync(path.join(r.dir, 'other.txt'), 'other work, in progress\n');
+  const n = newTask('Fix already committed earlier');
+  const ok = await win(['task', 'built', projectId, String(n), '--commit', older], r.dir);
+  assert.equal(ok.code, 0, ok.out + ok.err);
+  assert.equal(stored(n).landedCommit, older, 'an older commit was refused because of unrelated changes');
+  if (process.platform !== 'win32') {
+    const m = newTask('Fix already committed earlier, Mac');
+    const mr = await mac(['task', 'built', projectId, String(m), '--commit', older], { KOSMOS_AGENT_TOKEN: sendertoken.mint('mona').token }, r.dir);
+    assert.equal(mr.code, 0, mr.out);
+    const head = await mac(['task', 'built', projectId, String(m), '--commit', 'HEAD'], { KOSMOS_AGENT_TOKEN: sendertoken.mint('mona').token }, r.dir);
+    assert.equal(head.code, 2, 'CONTROL: its own HEAD with changes is still refused: ' + head.out);
+  }
+});

@@ -5,7 +5,10 @@ Design approved by Mona Lisa on the card (comment 6477647461 and her wording rep
 ## Decided
 - `kosmos task built <project> <n> --commit <ref>`, both CLIs: the CLI resolves the ref in the agent's checkout (full
   sha, `--git-common-dir` so a removed worktree does not lose it, whether `git branch -r --contains` finds it). A ref
-  that is no commit here, an empty `--commit`, and `--commit` with `--clear` are refused before the board.
+  that is no commit here, an empty `--commit`, a value starting with a dash, and `--commit` with `--clear` are refused
+  before the board. Review 5/6: naming the checkout's own HEAD while tracked files have uncommitted changes is refused
+  (HEAD would be the commit before an uncommitted fix); an older commit already made is not. The CLI says "Recorded
+  commit" only when the board's answer carries it (an older board drops the field).
 - Stored in its own task fields (landedCommit, landedRepo, landedOnRemote, landedBy, landedAt), not built ones:
   closing keeps them; `--clear`, a reopen (by the person or by its parts) and new work drop them; a mark without
   `--commit` keeps a recorded one. The screen's mark never records one.
@@ -17,9 +20,11 @@ Design approved by Mona Lisa on the card (comment 6477647461 and her wording rep
   limit, a signal or any other failure is unknown. Git prunes unreachable objects after two weeks by default, so older
   closed tasks are not checked. Git runs with fsmonitor and hooks off, no optional locks, no lazy fetch and every
   transport refused. Bounded: 3 s per git call, 5 min cache (30 s for unknown), 10 new checks per read, and the page
-  waits at most 1.5 s for them, and a check already running is shared. The Tasks view does not send the repository
+  waits at most 1.5 s for them; a check already running is shared, and at most 8 run at once on the board. The Tasks view does not send the repository
   path (other routes that return a stored task still carry it, as project records carry absolute folder paths).
-- Words (Mona Lisa): row "Saved as change abc1234" (", only on this computer so far" while no remote has it); missing
+- Words (Mona Lisa): row "Saved as change abc1234" (", only on this computer so far" while no remote has it); a CLOSED
+  row still only on this computer, in amber: "Saved as change abc1234, but only on this computer. Ask the agent that
+  did it to save it online."; missing, in red
   "Kosmos cannot find the change this task was finished with (abc1234). It may not have been saved. Ask the agent that
   did it to check."; unknown "Kosmos could not check whether this task's change was saved."; CLI "Recorded commit
   abc1234. It is not pushed yet: push it so it is not only on this computer."

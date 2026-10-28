@@ -44,9 +44,11 @@ test('#7508 slice 2: a closed row whose change cannot be found says so plainly; 
   assert.match(row({ ...base, landedCommit: SHA, landedOnRemote: true, landedCheck: 'missing' }), /Saved as change 0123456<\/div>/);
 });
 
-test('#7508 review 5: a closed row still only on this computer says it as a warning; an open one does not (control)', () => {
+test('#7508 review 5: a closed row still only on this computer says it in amber, with what to do; an open one does not (control)', () => {
   const local = { ...base, landedCommit: SHA, landedOnRemote: false };
-  assert.match(row({ ...local, state: 'closed' }), /<div class="why tsk-landed tsk-landed-missing">Saved as change 0123456, only on this computer so far<\/div>/);
+  // Mona Lisa: amber (tsk-landed-local), not the red of a change that may be gone, and what to do about it.
+  assert.match(row({ ...local, state: 'closed' }), /<div class="why tsk-landed tsk-landed-local">Saved as change 0123456, but only on this computer\. Ask the agent that did it to save it online\.<\/div>/);
+  assert.doesNotMatch(row({ ...local, state: 'closed' }), /tsk-landed-missing/, 'a fix that is there but at risk was shown as possibly gone');
   assert.match(row(local), /<div class="why tsk-landed">Saved as change 0123456, only on this computer so far<\/div>/);
   assert.doesNotMatch(row({ ...base, landedCommit: SHA.slice(0, 41) + 'a'.repeat(9), landedOnRemote: true }), /tsk-landed/, 'a 50-character value read as a sha');
 });

@@ -4577,7 +4577,8 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 /* kosmos#4787 slice 2: a repeating task's line turns the error red while a run is missed (row and task page alike). */
 .tsk-row .why.tsk-repeat.missed, #tk-repeat-line.missed { color: var(--danger); }
-.why.tsk-landed-missing { color: var(--danger); }   /* kosmos#7508: a closed fix whose change cannot be found */
+.why.tsk-landed-missing { color: var(--danger); }
+.why.tsk-landed-local { color: var(--warn-ink); }   /* kosmos#7508: a closed fix that is only on this computer (Mona Lisa: amber, not red) */   /* kosmos#7508: a closed fix whose change cannot be found */
 .tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
 .tsk-who { display: inline-flex; align-items: center; gap: 6px; font: 600 .8125rem var(--font-ui); color: var(--k-ink); padding: 2px 9px;
   border-radius: 999px; border: 1px solid var(--k-rule); background: var(--k-surface); cursor: pointer; }
@@ -69184,9 +69185,11 @@ function tskRow(t, at) {
         + '). It may not have been saved. Ask the agent that did it to check.</div>'
       : t.state === 'closed' && t.landedCheck === 'unknown'
         ? '<div class="why tsk-landed">Kosmos could not check whether this task\u2019s change was saved.</div>'
-        /* Review 5: closed and still only on this computer is the risk that is left, so that row says it as a warning. */
-        : '<div class="why tsk-landed' + (t.state === 'closed' && t.landedOnRemote === false ? ' tsk-landed-missing' : '') + '">Saved as change ' + esc(landedSha)
-          + (t.landedOnRemote === false ? ', only on this computer so far' : '') + '</div>';
+        /* Review 5 and Mona Lisa: closed and still only on this computer is the risk that is left, so that row says it in
+           amber (red is for a change that may be gone) and says what to do. An open row keeps the quiet words. */
+        : t.state === 'closed' && t.landedOnRemote === false
+          ? '<div class="why tsk-landed tsk-landed-local">Saved as change ' + esc(landedSha) + ', but only on this computer. Ask the agent that did it to save it online.</div>'
+          : '<div class="why tsk-landed">Saved as change ' + esc(landedSha) + (t.landedOnRemote === false ? ', only on this computer so far' : '') + '</div>';
   /* #6923: a task closed as replaced says so under its row, so it does not read as delivered among the done ones. */
   const replacedLine = t.state === 'closed' && Number.isInteger(t.replacedBy) ? '<div class="why tsk-replaced">Replaced by task ' + t.replacedBy + '</div>' : '';
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,

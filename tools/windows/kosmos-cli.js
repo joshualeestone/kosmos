@@ -1665,8 +1665,11 @@ async function taskBuilt(ctx, args) {
     if (!repo) { ctx.err('Kosmos cannot read which repository that commit is in.'); return 2; }
     if (!/^(?:[A-Za-z]:[\\/]|\/)/.test(repo)) { ctx.err('Kosmos cannot read which repository that commit is in (it needs git 2.31 or later).'); return 2; }   // review 5: as the Mac
     /* Review 5, as install/kosmos: changed tracked files mean the fix is not (all) committed, so nothing is recorded. */
-    let dirty;
-    try { dirty = String(ctx.git(['status', '--porcelain', '--untracked-files=no'])).trim(); } catch { dirty = '?'; }
+    let dirty = '';
+    // Review 6: only when the commit named is the checkout's own HEAD; an older commit already made is the fix itself.
+    if (sha === git(['rev-parse', '--verify', '--quiet', 'HEAD'])) {
+      try { dirty = String(ctx.git(['status', '--porcelain', '--untracked-files=no'])).trim(); } catch { dirty = '?'; }
+    }
     if (dirty) { ctx.err('Kosmos did not mark it: this checkout has changes that are not committed. Commit the fix first, then mark it built with --commit.'); return 2; }
     if (/[\u0000-\u001f\u007f]/.test(repo)) { ctx.err('Kosmos cannot record a commit from a repository whose path has control characters in it.'); return 2; }   // review 3: as the Mac
     commit = { sha, repo, onRemote: git(['branch', '-r', '--contains', sha]) !== '' };
