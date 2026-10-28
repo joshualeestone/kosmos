@@ -27,8 +27,21 @@ const win32anchor = require('./win32anchor');
 const win32apply = require('./win32apply');
 const win32update = require('./win32update');
 
-const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-boardwatch-2988-'));
-test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+/* CI fix: realpath, because on a Mac os.tmpdir() is under /var, a link to /private/var, and a shim run from
+   there sees its real path as __dirname. */
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-boardwatch-2988-')));
+
+/* CI fix, #4495's rule: the ensureInstalled arms below register a Windows board, whose claim folder is a
+   Windows path (win32anchor.anchorDir('win32', ...)). Off Windows that is one relative, backslash-named folder,
+   so this file runs from a temp cwd of its own and the last arm checks nothing leaked where it was started. */
+const ORIG_CWD = process.cwd();
+const BACKSLASH_BEFORE = new Set(fs.readdirSync(ORIG_CWD).filter((name) => name.startsWith('\\')));
+const LEAK_CWD = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-boardwatch-cwd-'));
+process.chdir(LEAK_CWD);
+test.after(() => {
+  try { process.chdir(ORIG_CWD); } catch { /* the process is ending anyway */ }
+  for (const dir of [SANDBOX, LEAK_CWD]) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+});
 
 let n = 0;
 function scratch(name) {
@@ -1193,4 +1206,13 @@ test('#2988 remove() with a watchdog Windows would not delete is not ok, and say
   assert.equal(out.ok, false);
   assert.equal(out.boardRemoved, true);
   assert.match(out.because, /restarts the board if it stops \(ERROR: Access is denied\.\)/);
+});
+
+/* CI fix, #4495: on Windows the claim folder is an absolute path and there is nothing to leak, so this arm runs
+   where its premise holds, a relative claim folder (a Mac or Linux). */
+test('#2988 CI fix (#4495): this file leaves no backslash-named folder in the directory it was started from',
+  { skip: path.isAbsolute(CLAIM_DIR) && 'the claim folder is an absolute path on this host, so it cannot leak into the cwd' }, () => {
+  assert.ok(fs.readdirSync(process.cwd()).some((name) => name.startsWith('\\')), 'CONTROL: no backslash name was written at all, so this proves nothing');
+  const leaked = fs.readdirSync(ORIG_CWD).filter((name) => name.startsWith('\\') && !BACKSLASH_BEFORE.has(name));
+  assert.deepEqual(leaked, [], 'a backslash-named folder leaked into the worktree: ' + leaked.join(', '));
 });

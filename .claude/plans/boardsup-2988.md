@@ -196,3 +196,11 @@ Running-with-no-board state is common (then an `/End` path with a long grace is 
   ENOENT "a file was missing", ENOTDIR/EISDIR/EEXIST "something is in the way", ENOSPC "the disk is full"); (6) the
   round-5 read-count assertion replaced by a behaviour test (a hold that appears while the crash-loop guard runs
   still stops the /Run); (7) the agent named "board" sharing board.log's rotation recorded as a residual.
+- CI fix (PR #7495, Mac CI run 40715278893, two test-only failures, no product change): (1) the shim test compared
+  its anchor folder with a /var path while the shim saw /private/var (macOS's tmpdir is a link); the test sandbox is
+  now realpath'd. (2) the ensureInstalled arms register a Windows board, whose claim folder is a Windows path; off
+  Windows that is a relative backslash-named folder, and it was written into the directory the suite started from,
+  where win32board.test.js's #4495 guard found it. The file now runs from a temp cwd of its own, as
+  win32board.test.js does, and carries the same #4495 guard (skipped on Windows, where the folder is absolute).
+  The product's own writes were checked: holdBoard, boardLogNote, the move's and the hand-off's holds all resolve
+  their folders with the host's rules (process.platform), so none can write a backslash folder on a Mac or Linux.
