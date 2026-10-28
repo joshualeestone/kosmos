@@ -206,6 +206,19 @@ struct ChatView: View {
                 Button { infoOpen = true } label: { title.frame(minHeight: 44).contentShape(Rectangle()) }.buttonStyle(.plain)
                     .accessibilityHint("Opens \(shown.name)\u{2019}s profile and AI settings")
             }
+            // kosmos#7034 (Mona Lisa, build 11): a star you can see, answering Josh's "where do I star them": an outline
+            // that turns gold when the agent is starred, the same save as the Agents row's swipe (BoardClient.toggleStar).
+            ToolbarItem(placement: .navigationBarTrailing) {
+                let starred = client.isStarred(agent.session)
+                Button { Task { await client.toggleStar(agent.session) } } label: {
+                    Image(systemName: starred ? "star.fill" : "star").font(.system(size: 20))
+                        .foregroundColor(starred ? Palette.starGold : Palette.secondary)
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                .disabled(client.starring.contains(agent.session))
+                .accessibilityLabel(starred ? "Unstar \(shown.name)" : "Star \(shown.name)")
+                .accessibilityAddTraits(starred ? .isSelected : [])
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
                     // With the row already open it only puts the cursor back in the field.
