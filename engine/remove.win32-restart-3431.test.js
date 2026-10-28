@@ -401,3 +401,89 @@ test('#6243 win32stop.endSteps: a taskkill whose TEXT says "no running instance"
     stop.setLive(null); stop.setAlive(null);
   }
 });
+
+/* ── #7455 round 3: the Windows half of the restart's stillRunning flag ───────────────────────────────────────────
+   The provider route offers a handoff only when the old session was POSITIVELY seen alive after the close. On
+   Windows that evidence is win32stop's look-again finding the process (stillAlive), told to the restart through the
+   `seen` object sessionOps('win32').endSteps takes. Every not-proven case leaves it untold. The close's own yes/no is
+   unchanged throughout. */
+function closeWin32(answerTaskkill) {
+  const seen = { alive: false };
+  let ret;
+  let threw = null;
+  try { ret = driveWin32(remove.sessionOps('win32').endSteps('a', seen), answerTaskkill).ret; }
+  catch (e) { threw = e; }
+  return { seen, ret, threw };
+}
+
+test('#7455 round 3 (win32): taskkill ok, but the look-again finds the process: not closed, and seen alive', () => {
+  stop.setLive(() => new Map([['a', { sessionId: 's1', pid: 4242 }]]));
+  stop.setAlive(() => true);
+  try {
+    const c = closeWin32(() => ({ ok: true, stdout: '' }));
+    assert.equal(c.ret, false, 'a process still there after the kill is not closed');
+    assert.equal(c.seen.alive, true, 'positively seen alive, so the route may offer a handoff');
+  } finally { stop.setLive(null); stop.setAlive(null); }
+});
+
+test('#7455 round 3 (win32): taskkill ok and the process gone: closed, not seen alive', () => {
+  stop.setLive(() => new Map([['a', { sessionId: 's1', pid: 4242 }]]));
+  stop.setAlive(() => false);
+  try {
+    const c = closeWin32(() => ({ ok: true, stdout: '' }));
+    assert.equal(c.ret, true);
+    assert.equal(c.seen.alive, false);
+  } finally { stop.setLive(null); stop.setAlive(null); }
+});
+
+test('#7455 round 3 (win32): a taskkill that answered another code, or timed out: not closed, not seen alive', () => {
+  stop.setLive(() => new Map([['a', { sessionId: 's1', pid: 4242 }]]));
+  stop.setAlive(() => { throw new Error('the look-again must not run after a failed kill'); });
+  try {
+    for (const [what, answer] of [['code 5', { ok: false, code: 5, stderr: 'ERROR: Access is denied.' }], ['timed out', { ok: false, code: null, stderr: '' }]]) {
+      const c = closeWin32(() => answer);
+      assert.equal(c.threw, null, what + ': ' + (c.threw && c.threw.message));
+      assert.equal(c.ret, false, what + ': not closed');
+      assert.equal(c.seen.alive, false, what + ': a failed kill is not evidence it is running');
+    }
+  } finally { stop.setLive(null); stop.setAlive(null); }
+});
+
+test('#7455 round 3 (win32): the live list unreadable, or the lookup throwing: not closed, not seen alive', () => {
+  try {
+    stop.setLive(() => null);   // the list could not be read
+    const unreadable = closeWin32(() => { throw new Error('no taskkill when nothing could be read'); });
+    assert.equal(unreadable.ret, false);
+    assert.equal(unreadable.seen.alive, false);
+    stop.setLive(() => { throw new Error('the live list read blew up'); });
+    const threw = closeWin32(() => { throw new Error('no taskkill when the lookup threw'); });
+    assert.ok(threw.threw, 'CONTROL: the lookup threw through the close');
+    assert.equal(threw.seen.alive, false, 'a lookup that threw saw nothing');
+  } finally { stop.setLive(null); }
+});
+
+test('#7455 round 3 (win32): a pid check that cannot tell (not ESRCH, not EPERM) is still running for removal, but not seen alive', () => {
+  stop.setLive(() => new Map([['a', { sessionId: 's1', pid: 4242 }]]));
+  stop.setAlive(null);   // the real three-way reading, through process.kill
+  const realKill = process.kill;
+  process.kill = (pid, sig) => {
+    if (pid === 4242 && sig === 0) { const e = new Error('cannot tell'); e.code = 'EINVAL'; throw e; }
+    return realKill.call(process, pid, sig);
+  };
+  try {
+    const c = closeWin32(() => ({ ok: true, stdout: '' }));
+    assert.equal(c.ret, false, 'removal must still read a doubt as running (unchanged)');
+    assert.equal(c.seen.alive, false, 'a doubt is not "positively seen running"');
+  } finally { process.kill = realKill; stop.setLive(null); }
+});
+
+test('#7455 round 3 (win32): sessionOps.end answers the same yes/no as before', () => {
+  stop.setLive(() => new Map([['a', { sessionId: 's1', pid: 4242 }]]));
+  stop.setRunner(() => ({ ok: true, out: '' }));
+  try {
+    stop.setAlive(() => true);
+    assert.equal(remove.sessionOps('win32').end('a'), false, 'still there after the kill: not ended');
+    stop.setAlive(() => false);
+    assert.equal(remove.sessionOps('win32').end('a'), true, 'gone after the kill: ended');
+  } finally { stop.setLive(null); stop.setAlive(null); stop.setRunner(null); }
+});

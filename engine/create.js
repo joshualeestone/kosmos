@@ -3137,12 +3137,22 @@ function switchCarryWords(label, carried, fromLabel) {
 function switchPendingWords(label, carried, fromLabel, stillRunning) {
   if (!carried) return '';
   const from = switchFromWord(fromLabel);
+  /* Round 3: "At that restart", not a second sentence opening "When it restarts" (the route's account sentence just
+     before it already does); both callers say "until it restarts" first, so "that restart" has its referent. */
   const head = stillRunning === true
-    ? `When it restarts, its conversation will not come across: ${label} will not be able to read what it said on ${from}. `
+    ? `At that restart, its conversation will not come across: ${label} will not be able to read what it said on ${from}. `
     : `When it next starts, it will start on ${label} without this conversation: ${label} will not be able to read what it said on ${from}. `;
   return head + switchNotesWords(carried, from, 'will be lost')
-    + (stillRunning === true ? 'To keep what it is doing, ask it to write a handoff before it restarts. ' : '');
+    + (stillRunning === true ? SWITCH_HANDOFF_WORDS : '');
 }
+/* #7455 round 3: the handoff pointed at the REAL mechanism, not "ask it to write a handoff": a handoff it wrote into
+   its own memory would be lost (the notes carry already ran, and with a Claude config change its saved notes stay
+   behind). The agent page's Restart offers "Write a handoff, then restart" (#3492): Kosmos asks for the handoff at
+   <Kosmos data>/handoffs/<agent>.md (autohandoff-sweep handoffPathFor), outside any runner's or provider's folder,
+   waits until it is written, restarts, and tells the new session to read it (handoff-restart/pickup). The same routes
+   on both platforms, so the sentence is true after a provider switch on either. */
+const SWITCH_HANDOFF_WORDS = 'To keep what it is doing, restart it from its page and choose "Write a handoff, then restart": '
+  + 'Kosmos keeps that handoff and tells its next session to read it. ';
 
 function setModel(name, modelKey, opts) {
   const platform = opts && opts.platform;

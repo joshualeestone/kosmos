@@ -927,10 +927,12 @@ function sessionOps(platform, tmuxBin) {
          pid (a read) then yields the taskkill, which remove.js's runAsync runs off the board's thread; wrap its
          { ok } to the Boolean the sync `end` returns (restartSteps records a step ok as `r !== false`). */
       /* #7455 round 2: `seen`, when given, is told the close's own look-again FOUND IT STILL RUNNING (win32stop's
-         stillAlive): positive evidence, not merely "not proven gone". The returned Boolean is unchanged. */
+         stillAlive, set only for a pid that answered: round 3): positive evidence, not merely "not proven gone". The
+         returned Boolean is unchanged. A dry run is not checked here (win32stop's result does not carry it); the
+         restart refuses the flag on any dry run itself. */
       endSteps: function* (session, seen) {
         const r = yield* win32stop.endSteps(session);
-        if (seen && r && r.stillAlive === true && !r.dryRun) seen.alive = true;
+        if (seen && r && r.stillAlive === true) seen.alive = true;
         return Boolean(r && r.ok);
       },
     };
@@ -2413,7 +2415,10 @@ function* restartSteps(name, cause, platform, startIfDead) {
      runs only for a live (FOUND.OURS) agent. */
   const sops = sessionOps(platform);
   /* #7455 round 2: whether the close itself THREW, as against answering "not proven gone". `step` swallows a throw
-     into ok:false, so it is noted here, inside the step, and the step record stays exactly what it was. */
+     into ok:false, so it is noted here, inside the step, and the step record stays exactly what it was.
+     Round 3: a DEFENCE, not a live path. Today nothing in either close runs after it sets seen.alive (that is its
+     last act before returning), so a throw always comes before any evidence and leaves seen.alive false anyway. The
+     guard keeps that true if a step is ever added after the look-again. */
   let closeThrew = false;
   const seen = { alive: false };   // set by the close's own look-again only when it positively found the session
   const closeSteps = function* () {

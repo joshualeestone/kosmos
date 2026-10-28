@@ -2279,7 +2279,9 @@ test('#7455 round 2: a close that threw: PARTIAL, no stillRunning', () => {
   const out = restartedAs(name);
   assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
   assert.ok(out.steps.some((s) => s.label === 'closed its window' && s.ok === false), 'CONTROL: the close step failed');
-  assert.equal('stillRunning' in out, false, 'a close that threw saw nothing alive');
+  /* Round 3: the throw here comes at the look-again itself, before any evidence, so nothing was seen; the restart's
+     closeThrew guard is a defence for a step added after the look-again, not what this test proves. */
+  assert.equal('stillRunning' in out, false, 'a close that threw before its look-again answered set the flag');
 });
 
 test('#7455 round 2: a dry run: no stillRunning', () => {

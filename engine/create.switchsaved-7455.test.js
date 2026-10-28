@@ -82,13 +82,26 @@ test('#7455: still running: the next restart loses the conversation, in the futu
   for (const [what, carried, label, from] of KINDS()) {
     assert.ok(carried, what + ': CONTROL: the carry says this switch loses its conversation');
     const w = create.switchPendingWords(label, carried, from, true);
-    assert.match(w, new RegExp('^When it restarts, its conversation will not come across: ' + esc(label)
+    assert.match(w, new RegExp('^At that restart, its conversation will not come across: ' + esc(label)
       + ' will not be able to read what it said on ' + esc(from) + '\\. '), what);
     assert.match(w, /will be lost\./, what + ': what it remembered from talking, in the future');
-    assert.match(w, /To keep what it is doing, ask it to write a handoff before it restarts\. $/, what + ': the handoff ends it');
+    // Round 3: the handoff points at Kosmos's own restart-with-handoff (kept outside any provider's folder), never at
+    // the agent's own memory, which the switch already left behind.
+    assert.match(w, /To keep what it is doing, restart it from its page and choose "Write a handoff, then restart": Kosmos keeps that handoff and tells its next session to read it\. $/, what + ': the handoff ends it');
+    assert.doesNotMatch(w, /ask it to write a handoff|When it restarts/, what + ': the old pointer, or a second "When it restarts" opening');
     assert.doesNotMatch(w, /\bcannot read\b|\bis lost\b|\bit is\.|Everything it knows/, what + ': present tense, or the restarted sentence');
     assert.doesNotMatch(w, /—/, what + ': an em dash');
   }
+});
+
+test('#7455 round 3: the handoff the sentence names is a real control, and its file is outside any provider\'s folder', () => {
+  const page = fs.readFileSync(nodePath.join(__dirname, '..', 'web', 'index.html'), 'utf8');
+  assert.match(page, /<button class="btn" id="rst-handoff-go" type="button">Write a handoff, then restart<\/button>/,
+    'the restart dialog no longer offers the option the sentence tells the person to choose');
+  // Where Kosmos keeps it: its own data folder, keyed on the agent, not the agent's folder or any runner's home.
+  const where = require('./autohandoff-sweep').handoffPathFor(store, 'ss7455-any');
+  assert.equal(nodePath.dirname(where), nodePath.join(store.ROOT, 'handoffs'));
+  assert.ok(!where.startsWith(create.workerDir('ss7455-any')), 'the handoff lives in the agent folder');
 });
 
 test('#7455 round 1: not known to be running: it starts on the new provider without this conversation, and no handoff is promised', () => {

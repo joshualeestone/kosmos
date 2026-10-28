@@ -248,7 +248,7 @@ test('#7455 route: saved but not restarted, a switch that loses its conversation
   assert.match(r.body.because, /still running as before until it restarts/, 'control: the not-restarted sentence changed');
   // Its window could not be closed, so it IS still running: the handoff can be asked for, and ends the answer.
   assert.match(r.body.because,
-    /When it restarts, its conversation will not come across: OpenAI will not be able to read what it said on Claude\. [\s\S]*will be lost\. [\s\S]*To keep what it is doing, ask it to write a handoff before it restarts\.$/,
+    /When it restarts it will run on [\s\S]*At that restart, its conversation will not come across: OpenAI will not be able to read what it said on Claude\. [\s\S]*will be lost\. [\s\S]*To keep what it is doing, restart it from its page and choose "Write a handoff, then restart": Kosmos keeps that handoff and tells its next session to read it\.$/,
     'the not-restarted answer does not warn that the next restart loses the conversation: ' + r.body.because);
   // The future tense is the point: nothing here may read as though the conversation is already gone or kept.
   assert.doesNotMatch(r.body.because, /Everything it knows|cannot read what it said|\bis lost\b/, r.body.because);

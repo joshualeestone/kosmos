@@ -14,9 +14,16 @@ Chosen: one small pure function, `switchPendingWords(label, carried, fromLabel, 
 next to switchCarryWords, exported because the route calls it (as it already calls switchCarryWords). It returns ''
 for carried null, else (round 1):
 
-- old session known to be still up (stillRunning true): "When it restarts, its conversation will not come across:
-  <new> will not be able to read what it said on <old>. <notes> To keep what it is doing, ask it to write a handoff
-  before it restarts."
+- old session known to be still up (stillRunning true): "At that restart, its conversation will not come across:
+  <new> will not be able to read what it said on <old>. <notes> To keep what it is doing, restart it from its page and
+  choose "Write a handoff, then restart": Kosmos keeps that handoff and tells its next session to read it."
+  (Round 3: "At that restart", so it does not open the same way as the route's "When it restarts it will run on ..."
+  just before it; both callers say "until it restarts" first. And the handoff names Kosmos's own mechanism, #3492:
+  the agent page's Restart dialog option, which asks for the handoff at <Kosmos data>/handoffs/<agent>.md, outside any
+  runner's or provider's folder, waits until it is written, restarts, and sends the new session a pickup pointing at
+  it. The same routes on both platforms, with no platform branch, so it holds after a provider switch on either.
+  Rejected: "ask it to write a handoff", because a handoff the agent saves into its own memory is lost: the notes carry
+  already ran, and on a Claude config change its saved notes stay behind.)
 - otherwise (not running, window already closed, or not known): "When it next starts, it will start on <new> without
   this conversation: <new> will not be able to read what it said on <old>. <notes>"
 
@@ -32,10 +39,15 @@ suites pass unchanged).
 Whether the old session is still up (round 2, tightened): remove.js restart returns `stillRunning: true` ONLY when the
 old session was POSITIVELY SEEN ALIVE after the close attempt, by the close's own look-again: on a Mac, has-session
 answered exit 0 (a real answer, not a dry run); on Windows, win32stop's look-again found the process still running
-(its new `stillAlive`). The close reports this through an optional `seen` object; its Boolean ("proven gone") is
-unchanged, so removal is untouched. Every other not-proven-closed case gets NO flag: a has-session that timed out or
-answered anything other than 0 or 1, a kill that failed before the look-again, a Windows close that could not check,
-a close that threw, a dry run. So do every refusal (a stopped agent: "is not running, so there is nothing to
+(its new `stillAlive`, round 3: only for a pid whose check answered, win32orphan.pidState 'alive'; a check that could
+not tell, 'unknown', still counts as running for removal, as before, but is not "seen alive"). The close reports this
+through an optional `seen` object; its Boolean ("proven gone") is unchanged, so removal is untouched. Every other
+not-proven-closed case gets NO flag: a has-session that timed out or answered anything other than 0 or 1, a kill that
+failed before the look-again (any taskkill code but success / 128 / "not found", or a timeout), a Windows live list
+that could not be read or a lookup that threw, a pid check that could not tell, a close that threw, a dry run (the
+restart refuses the flag on any dry run itself; round 3 dropped a Windows-side dryRun check that could never fire,
+because win32stop's result does not carry dryRun). The restart's closeThrew guard is a defence: today nothing runs
+after the look-again sets the evidence, so a throw always comes first. So do every refusal (a stopped agent: "is not running, so there is nothing to
 restart"; an untied session), a restart that fails after the window closed, and a restart that threw in the route.
 The route passes `!ok && back.stillRunning === true`, and without the flag says the cautious next-start sentence with
 no handoff. Refusals for a RUNNING agent (a busy account move, a session it cannot confirm is this agent) also get the
@@ -71,8 +83,10 @@ pure function is run. Second weakest (round 1): the route's existing "It is stil
 restarts." is still said for a STOPPED agent, right after the restart's own "is not running" (pre-existing, and kept
 exactly because carried null must keep today's answer). The new sentence no longer adds a handoff there, but the
 paragraph still contradicts itself, as does "Nothing was changed." after a saved switch: filed as #7470, not fixed
-here. Third (round 2): the Windows arm of the flag (win32stop stillAlive through sessionOps) is checked by reading the
-code; the new remove.js tests drive the Mac arm.
+here. Third (round 3): the Windows arm of the flag is now tested (remove.win32-restart-3431.test.js drives
+sessionOps('win32').endSteps through the win32stop seams), but the handoff advice rests on the new runner reading a
+file in Kosmos's data folder, outside its own folder; that is how #3492's pickup already works for every runner, and it
+was not re-measured here per runner.
 
 What would change my mind: a restart-failed state in which the old runner is no longer running (then "still running as
 before" and the handoff advice are both wrong, and the route needs a different answer), or the board resuming
@@ -99,3 +113,4 @@ sentence at all, for a switch to Claude from another runner. That is a #7410 gap
 - Round 0 (build): switchPendingWords + route wiring (both restart-failed arms); tests above; policy tests run (see commit).
 - Round 1: no blockers. [WARNING] a stopped agent (restart refuses) or one whose window already closed was told to ask for a handoff nobody could ask for --> FIXED (remove.js returns stillRunning only when it could not close the window; the handoff is offered only then; otherwise "it will start on <new> without this conversation"; engine and route tests for both). [WARNING] the pending answer dropped the notes facts the restarted answer gives --> FIXED (switchNotesWords, one clause for both, tense of the lost clause only; switchCarryWords byte-identical, 759-case differential, #7410/#7445 suites unchanged; pending tests for rootChange, between, copied-not-pointed, failed). [NIT] FUTURE constant restated the implementation --> FIXED (specific assertions). [NIT] #5091 success-side gap --> recorded as #7467.
 - Round 2: no blockers. [WARNING] stillRunning was set whenever the window was not PROVEN closed (timeouts, other has-session answers, Windows unknowns, a close that threw, a dry run) --> FIXED (set only when the close's own look-again positively found it alive: Mac has-session exit 0, Windows win32stop stillAlive; reported through an optional seen object, the close's Boolean unchanged; remove.test.js: alive -> flag, timeout / other code -> none, throw -> none, dry run -> none; the last three red on dd5c5e961a). [WARNING] "still running as before" for a stopped agent and "Nothing was changed" after a saved switch --> filed as #7470, cited in weakest point. [NIT] refusals for a running agent get the cautious answer --> recorded. [NIT] "759 combinations" --> replaced by the input space (1,057 in the reviewer's run).
+- Round 3: no blockers. [WARNING] "ask it to write a handoff" could be lost (its own memory is not carried; with a Claude config change its notes stay behind) --> FIXED (points at Kosmos's own restart-with-handoff, #3492: restart from its page and choose "Write a handoff, then restart"; that handoff lives in Kosmos's data folder and the next session is told to read it, on both platforms; unit and route tests assert the words, a test checks the button exists and the file is outside the agent folder). [WARNING] Windows half untested --> FIXED (6 tests in remove.win32-restart-3431.test.js: seen alive, gone, other taskkill code / timeout, unreadable list / lookup throws, a pid check that cannot tell, sessionOps.end unchanged). [NIT] Windows dryRun check never fired --> FIXED (dropped; the restart refuses the flag on any dry run). [NIT] any non-ESRCH error read as seen alive --> FIXED (win32orphan.pidState; unknown is not seen, removal unchanged; the cannot-tell test is red on 2cf9c393ff). [NIT] closeThrew is a defence --> FIXED (comment, test claim). [NIT] two sentences opening "When it restarts" --> FIXED ("At that restart").

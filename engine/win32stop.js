@@ -118,14 +118,14 @@ function setAlive(fn) { aliveFn = typeof fn === 'function' ? fn : null; }
    here" that the board's restart and the host watch also use. */
 function aliveFromError(e) { return require('./win32orphan').aliveFromError(e); }
 
-function alive(pid) {
-  if (aliveFn) return Boolean(aliveFn(pid));
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (e) {
-    return aliveFromError(e);
-  }
+/* #7455 round 3: the pid's state with the doubt KEPT: 'alive', 'gone', or 'unknown' (win32orphan.pidState, the one
+   three-way reading). finishKill treats anything but 'gone' as still running, exactly as aliveFromError always did
+   (removal must never report a kill over a live agent), so removal is unchanged; only its stillAlive asks for 'alive'
+   itself, so a doubt is never reported as "positively seen running". The aliveFn seam answers yes/no, read as
+   alive/gone. */
+function pidSeen(pid) {
+  if (aliveFn) return aliveFn(pid) ? 'alive' : 'gone';
+  return require('./win32orphan').pidState(pid);
 }
 
 /* The live-read seam, module-level for the same reason win32job's runner is: the
@@ -252,10 +252,12 @@ function finishKill(r, pid, sessionId) {
   /* ⚠️ LOOK AGAIN. The kill's own answer is not evidence the process has gone --
      the rule both Mac call sites already carry, and the one that stops a removal
      being reported over a live agent. */
-  if (alive(pid)) {
-    /* #7455 round 2: stillAlive says the look-again FOUND it running (positive), as against the other ok:false
-       answers here, which only mean the close was not proven. */
-    return { ok: false, stillAlive: true, because: 'it is still running after we asked it to close' };
+  const seen = pidSeen(pid);
+  if (seen !== 'gone') {
+    /* #7455 rounds 2-3: stillAlive says the look-again FOUND it running ('alive': the pid answered, or EPERM), as
+       against 'unknown' (the check itself failed) and the other ok:false answers here, which only mean the close was
+       not proven. Removal reads both the same way, as before. */
+    return { ok: false, ...(seen === 'alive' ? { stillAlive: true } : {}), because: 'it is still running after we asked it to close' };
   }
 
   /* Drop the ownership record for the session we just ended. On the Mac the tmux
