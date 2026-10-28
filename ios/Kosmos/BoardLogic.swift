@@ -256,6 +256,12 @@ enum Board {
         // the guide, which the Mac's waiting total leaves out of the DM count.
         var dmUnread = 0
         var isGuide = false
+        // kosmos#7421: what the desktop's orders read (web/index.html sortAgents): when the person last talked to it, when
+        // it was last active, when it was made, and the model it shows; nil when the row does not say.
+        var lastTalkedAt: Date? = nil
+        var lastActiveAt: Date? = nil
+        var createdAt: Date? = nil
+        var model: String? = nil
         var id: String { session }
     }
 
@@ -315,7 +321,11 @@ enum Board {
                          contextPercent: Board.contextPercent(row["context"]),
                          contextFull: Board.isRealTrue((row["context"] as? [String: Any])?["overCeiling"]),
                          dmUnread: max(0, (row["dmUnread"] as? NSNumber)?.intValue ?? 0),
-                         isGuide: (row["isGuide"] as? Bool) == true)
+                         isGuide: (row["isGuide"] as? Bool) == true,
+                         lastTalkedAt: isoDate(row["lastTalkedAt"] as? String),
+                         lastActiveAt: isoDate(row["lastActiveAt"] as? String),
+                         createdAt: isoDate(row["createdAt"] as? String),
+                         model: Board.sortModel(row))
         }
     }
 
@@ -367,15 +377,99 @@ enum Board {
     }
 
     // kosmos#7343: the Agents list's order: the list's own (starred agents, then needs you first, Board.sorted), or by name.
-    enum AgentSort: String, CaseIterable { case board, name }
-    static func agentSortLabel(_ s: AgentSort) -> String { s == .board ? "Needs you first" : "Name" }
-    static func agentOrder(_ list: [Agent], byName: Bool) -> [Agent] {
-        guard byName else { return list }
+    // kosmos#7421 (Josh 10-27 20:34: "the sort options for agent mobile should mirror the desktop app"): the desktop's
+    // eight orders, its keys, its words and its order (web/index.html AGENT_SORTS and agentSortControlHtml), Last
+    // talked to first as there. A test reads both lists out of web/index.html so they cannot drift apart.
+    enum AgentSort: String, CaseIterable { case talked, model, name, needs, active, newest, project, role }
+    static let agentSortDefault = AgentSort.talked
+    static func agentSortLabel(_ s: AgentSort) -> String {
+        switch s {
+        case .talked: return "Last talked to"
+        case .model: return "By model"
+        case .name: return "Name A to Z"
+        case .needs: return "Needs you first"
+        case .active: return "Recently active"
+        case .newest: return "Newest first"
+        case .project: return "By project"
+        case .role: return "By role"
+        }
+    }
+    // A saved choice: one of the eight, or the phone's older "board" (its Needs you first), else the default.
+    static func agentSort(saved: String) -> AgentSort { saved == "board" ? .needs : AgentSort(rawValue: saved) ?? agentSortDefault }
+
+    // The model the row says, as the desktop's tileModelLine reads it for the order: the live model, else the one its job
+    // will start on, else the earlier session's (a bare Claude model name gets "Claude " in front, as there). nil when
+    // none is known, which sorts last.
+    static func sortModel(_ row: [String: Any]) -> String? {
+        func text(_ k: String) -> String? { (row[k] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 } }
+        if let m = text("modelName") ?? text("plannedModelName") { return m }
+        if let e = text("earlierModelName") { return e.lowercased().hasPrefix("claude") ? e : "Claude " + e }
+        return text("runner").flatMap { ["codex", "gemini", "grok", "antigravity", "muse"].contains($0) ? $0 : nil }
+    }
+
+    // The role as the desktop's roleLine shows it for the order: the first character a capital, the rest as written.
+    static func sortRole(_ role: String?) -> String? {
+        guard let r = role?.trimmingCharacters(in: .whitespaces), let first = r.first else { return nil }
+        return first.uppercased() + r.dropFirst()
+    }
+
+    // The desktop's sortAgents: starred agents first in every order (`stars`, by session; nil when not known), then the
+    // chosen key, then the name, then the computer's own order. A missing value sorts after every present one.
+    // `projects` is each agent's first project name A to Z (by session), for By project.
+    static func agentOrder(_ list: [Agent], sort: AgentSort, projects: [String: String] = [:], stars: Set<String>? = nil) -> [Agent] {
+        func cmpText(_ a: String?, _ b: String?) -> Int {
+            switch (a, b) {
+            case (nil, nil): return 0
+            case (nil, _): return 1
+            case (_, nil): return -1
+            case let (x?, y?):
+                switch x.compare(y, options: [.caseInsensitive, .diacriticInsensitive], locale: .current) {
+                case .orderedAscending: return -1
+                case .orderedDescending: return 1
+                case .orderedSame: return 0
+                }
+            }
+        }
+        func cmpTime(_ a: Date?, _ b: Date?) -> Int {
+            switch (a, b) {
+            case (nil, nil): return 0
+            case (nil, _): return 1
+            case (_, nil): return -1
+            case let (x?, y?): return x == y ? 0 : (x > y ? -1 : 1)   // newest first
+            }
+        }
+        func needsRank(_ a: Agent) -> Int {
+            if a.needsYou { return 0 }
+            switch a.state {
+            case "blocked": return 1
+            case "working", "restarting": return 2
+            case "idle": return 3
+            default: return 4
+            }
+        }
+        func key(_ a: Agent, _ b: Agent) -> Int {
+            switch sort {
+            case .name: return 0
+            case .model: return cmpText(a.model, b.model)
+            case .needs: return needsRank(a) - needsRank(b)
+            case .project: return cmpText(projects[a.session], projects[b.session])
+            case .role: return cmpText(sortRole(a.role), sortRole(b.role))
+            case .active: return cmpTime(a.lastActiveAt, b.lastActiveAt)
+            case .newest: return cmpTime(a.createdAt, b.createdAt)
+            case .talked: return cmpTime(a.lastTalkedAt, b.lastTalkedAt)
+            }
+        }
+        func starred(_ a: Agent) -> Int { stars?.contains(a.session) == true ? 0 : 1 }
         return list.enumerated().sorted { l, r in
-            let c = l.element.name.localizedCaseInsensitiveCompare(r.element.name)
-            return c == .orderedSame ? l.offset < r.offset : c == .orderedAscending
+            let s = starred(l.element) - starred(r.element)
+            if s != 0 { return s < 0 }
+            let k = key(l.element, r.element)
+            if k != 0 { return k < 0 }
+            let n = cmpText(l.element.name, r.element.name)
+            return n != 0 ? n < 0 : l.offset < r.offset
         }.map(\.element)
     }
+
 
     static func statusWord(_ agent: Agent) -> String {
         if let word = agent.macWord { return word }
