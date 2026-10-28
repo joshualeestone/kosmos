@@ -115,7 +115,7 @@ const USAGE = {
     '      --done "<check>"                                         what finished means for it; up to 3, one --done each',
     '  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody',
     '      --part <part-number>                                     which part, when the task has several',
-    '  kosmos task close <project-id> <task-number> [...]           close one, or several at once (numbers are from list)',
+    '  kosmos task close <project-id> <task-number> [...] [--with-built]   close one, or several at once; --with-built closes their built subtasks too (numbers are from list)',
     '      --replaced-by <task-number>                              a later task replaced it: closed, but not done',
     '  kosmos task reopen <project-id> <task-number> ["why"]        put a done one back; it keeps its number and history',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
@@ -1365,11 +1365,11 @@ async function taskAssign(ctx, args) {
   return 1;
 }
 
-const TASK_CLOSE_USAGE = 'Usage: kosmos task close <project-id> <task-number> [<task-number> ...] [--replaced-by <task-number>]   (the numbers are shown by kosmos task list; --replaced-by takes one task)';
-/* kosmos#7514, as install/kosmos: a parent's close takes its built subtasks; the board names them in closedWith (an older
-   board sends none). "13, 14", or '' when there are none. */
-function closedWithOf(task) {
-  const w = task && Array.isArray(task.closedWith) ? task.closedWith.filter((x) => Number.isInteger(x)) : [];
+const TASK_CLOSE_USAGE = 'Usage: kosmos task close <project-id> <task-number> [<task-number> ...] [--with-built | --replaced-by <task-number>]   (the numbers are shown by kosmos task list; --with-built also closes each one\'s built subtasks; --replaced-by takes one task)';
+/* kosmos#7514, as install/kosmos: the built subtasks a parent's close took with it (closedWith, with --with-built) or left
+   open (builtLeft); an older board sends neither. "13, 14", or '' when there are none. */
+function closedWithOf(task, key = 'closedWith') {
+  const w = task && Array.isArray(task[key]) ? task[key].filter((x) => Number.isInteger(x)) : [];
   return w.join(', ');
 }
 
@@ -1379,6 +1379,8 @@ async function taskClose(ctx, args) {
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   // #6923, as install/kosmos: --replaced-by <n> closes it as replaced by task n, rather than done.
   const by = args[2] === '--replaced-by' ? args[3] : null;
+  const wb = args.includes('--with-built');   // kosmos#7514
+  const closeBody = wb ? { withBuilt: true } : undefined;
   if (args[2] === '--replaced-by' && !/^[0-9]+$/.test(by || '')) { ctx.err('--replaced-by needs the number of the task that replaced it, from: kosmos task list <project-id>.'); return 2; }
   if (by) { if (tooManyWords(ctx, 'task close', 4, TASK_CLOSE_USAGE, args)) return 2; }   // kosmos#4889 review 6
   else {
@@ -1386,26 +1388,30 @@ async function taskClose(ctx, args) {
        number must be a number too, checked before anything closes. */
     for (const w of args.slice(2)) {
       if (w === '--replaced-by') { ctx.err('--replaced-by takes one task: close the others on their own.'); return 2; }
+      if (w === '--with-built') continue;   // kosmos#7514: also close the built subtasks of each task closed
       if (!/^[0-9]+$/.test(w) && tooManyWords(ctx, 'task close', 2, TASK_CLOSE_USAGE, args)) return 2;   // not a number: as #4889 review 6
     }
     /* The board's own limit for closing several at once (server.js BULK_CLOSE_MAX), refused before anything is sent. */
     if (args.length - 1 > 200) { ctx.err('Close up to 200 tasks at a time: run it again with the rest.'); return 2; }
-    if (args.length > 2) {
+    const nums = args.slice(1).filter((x) => x !== '--with-built');
+    if (nums.length > 1) {
       const ok = [];
       const bad = [];
       const withs = [];   // kosmos#7514: the built subtasks each parent's close took with it
-      const all = [...new Set(args.slice(1).map((x) => x.replace(/^0+(?=[0-9])/, '')))];   // a number given twice (013 is 13) is closed once
+      const all = [...new Set(nums.map((x) => x.replace(/^0+(?=[0-9])/, '')))];   // a number given twice (013 is 13) is closed once
       let stop = -1;
       let lost = null;   // the call Kosmos did not answer
       let wide = false;
       for (let i = 0; i < all.length; i++) {
         const n = all[i];
-        const one = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + n + '/close');
+        const one = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + n + '/close', closeBody);
         if (!one.reached) { stop = i; lost = one; break; }
         if (one.json && one.json.task) {
           ok.push(n);
           const w = closedWithOf(one.json.task);
           if (w) withs.push('Task ' + n + '\'s built subtasks closed with it: ' + w + '.');
+          const left = closedWithOf(one.json.task, 'builtLeft');
+          if (left) withs.push('Task ' + n + ' still has built subtasks open: ' + left + '. To close them with it: kosmos task close ' + projectSlug(project) + ' ' + n + ' --with-built');
           continue;
         }
         // As install/kosmos: an error the board left empty did not say why; anything else is an answer we could not read.
@@ -1440,7 +1446,7 @@ async function taskClose(ctx, args) {
   }
   const r = by
     ? await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close', { replacedBy: Number(by) })
-    : await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close');   // #4491 slice 5: with the agent's own token
+    : await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close', closeBody);   // #4491 slice 5: with the agent's own token
   if (!r.reached) return ctx.unreachable('close that task');
   if (r.json && r.json.task && by && !Number.isInteger(r.json.task.replacedBy)) {
     // An older board ignores replacedBy and closes it as done: say so, never claim a link it did not record.
@@ -1451,6 +1457,8 @@ async function taskClose(ctx, args) {
     ctx.out('Closed task ' + num + ' on ' + project + (by ? ' as replaced by task ' + r.json.task.replacedBy : '') + '.');
     const w = closedWithOf(r.json.task);
     if (w) ctx.out('Its built subtasks closed with it: ' + w + '.');
+    const left = closedWithOf(r.json.task, 'builtLeft');
+    if (left) ctx.out('Its built subtasks are still open: ' + left + '. To close them with it: kosmos task close ' + projectSlug(project) + ' ' + num + ' --with-built');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not close that task: ' + ctx.refusedBy(r) + '.'); return 1; }

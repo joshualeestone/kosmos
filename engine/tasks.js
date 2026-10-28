@@ -177,10 +177,10 @@ function whoProblem(who) {
  * its project (the header), so a parent stored as a bare number cannot name a task anywhere
  * else: a cross-project parent is not refused by a check that could be forgotten, it has no
  * spelling at all.
- * 🔑 NOTHING UNFINISHED CASCADES. Closing a parent never closes an open or held child, closing
- * the last child never closes the parent (the person decides; the screen offers it), and tasks
- * are never deleted. kosmos#7514: a plain close of a parent does take its BUILT children (work
- * somebody already marked finished), as #6501's "Close them and this task" did in one press. The parent's "3 of 5 done" is DERIVED from its children on every read, so it
+ * 🔑 NOTHING CASCADES UNASKED. Closing a parent never closes its children, closing the last child
+ * never closes the parent (the person decides; the screen offers it), and tasks are never
+ * deleted. Only an explicit ask closes several: #6501's "Close them and this task", and
+ * kosmos#7514's close `withBuilt` (`kosmos task close ... --with-built`). The parent's "3 of 5 done" is DERIVED from its children on every read, so it
  * cannot drift from them.
  *
  * Refused: a parent that is not a whole number, that is not a task on this project, that is
@@ -988,28 +988,45 @@ function replacedByValue(v) {
   if (!Number.isSafeInteger(n) || n < 1) throw new Error('the task that replaced it has to be a task number');
   return n;
 }
-/** Close: a record edit, never an act on an agent (see the header).
- * kosmos#7514: a plain close of a parent also closes its BUILT subtasks (open and held ones stay open), and theirs in
- * turn; `closedWith` lists them, so a coordinator's round ends with one close. A close as replaced takes none: that
- * round's built work was superseded, not done. */
-function close(projectId, n, { replacedBy = null } = {}) {
-  const by = replacedByValue(replacedBy);
-  const closed = setClosed(projectId, n, new Date().toISOString(), {}, { replacedBy: by });
-  if (by !== null) return closed;
-  const closedWith = [];
-  const takeBuiltUnder = (parent, seen) => {
-    const p = projects.get(projectId);
-    for (const child of (p ? childrenOf(p, parent) : [])) {
+/** A task still open, not held, and marked built: "Built but waiting" (#3951), the same test as treeOf's. */
+const isBuiltOpen = (t) => typeof t.builtAt === 'string' && t.builtAt !== '' && !isOnHold(t) && !progressOf(t).closed;
+
+/** kosmos#7514: the built subtasks under task `top` on project record `p`, and theirs under them, in order. A child that
+ * is not built (open, held, closed) is not taken, nor anything under it. `seen` bounds a hand-edited store that loops. */
+function builtUnder(p, top) {
+  const out = [];
+  const seen = new Set([top]);
+  const walk = (parent) => {
+    for (const child of childrenOf(p, parent)) {
       if (seen.has(child.number)) continue;
       seen.add(child.number);
-      const built = typeof child.builtAt === 'string' && child.builtAt !== '' && !isOnHold(child) && !progressOf(child).closed;
-      if (!built) continue;
-      setClosed(projectId, child.number, new Date().toISOString());
-      closedWith.push(child.number);
-      takeBuiltUnder(child.number, seen);
+      if (!isBuiltOpen(child)) continue;
+      // A repeat the person set (or a reviewer they chose) is theirs to end: the close route refuses it, so this does too.
+      if (child.repeat && (child.repeatByPerson === true || child.repeatReviewerByPerson === true)) continue;
+      out.push(child.number);
+      walk(child.number);
     }
   };
-  takeBuiltUnder(closed.number, new Set([closed.number]));
+  walk(top);
+  return out;
+}
+
+/** Close: a record edit, never an act on an agent (see the header).
+ * kosmos#7514: `withBuilt` (asked for, never assumed: built means waiting for a check, #3951) also closes the parent's
+ * built subtasks, listed in `closedWith`. Without it a parent that still has built subtasks says so in `builtLeft`, so a
+ * caller can offer the choice. A close as replaced does neither: that round's work was superseded, not done. */
+function close(projectId, n, { replacedBy = null, withBuilt = false } = {}) {
+  const by = replacedByValue(replacedBy);
+  const snapshot = (projects.readAll() || []).find((x) => x && x.id === projectId);   // raw: no claim join
+  const built = snapshot && by === null ? builtUnder(snapshot, Number(n)) : [];
+  const closed = setClosed(projectId, n, new Date().toISOString(), {}, { replacedBy: by });
+  if (!built.length) return closed;
+  if (withBuilt !== true) return { ...closed, builtLeft: built };
+  const closedWith = [];
+  for (const k of built) {
+    // Re-checked inside its own write: one that stopped being built since the read above is left as it is.
+    if (setClosed(projectId, k, new Date().toISOString(), { via: 'parent', parent: closed.number }, { onlyIfBuilt: true })) closedWith.push(k);
+  }
   return closedWith.length ? { ...closed, closedWith } : closed;
 }
 
@@ -1024,16 +1041,18 @@ function reopen(projectId, n, { by = null, person = false, why = '' } = {}) {
   return setClosed(projectId, n, null, { ...(who ? { by: who } : {}), ...(isPerson ? { person: true } : {}), ...(said ? { why: said } : {}) });
 }
 
-function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null } = {}) {
+function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyIfBuilt = false } = {}) {
   let changed;
   let replacedNew = false;   // #6923: an already-closed task newly marked replaced records that too
   // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
   let transition = 0;
   let heldDropped = false;
   let repeatDropped = false;
+  let skipped = false;   // kosmos#7514: `onlyIfBuilt` and it is no longer built: left as it is, and null returned
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
+    if (onlyIfBuilt && !isBuiltOpen(t)) { skipped = true; return p; }
     // #992: record on the DERIVED completion state (progressOf), not the raw
     // parent closedAt. Two reasons: (1) a re-close passes a fresh timestamp, so
     // comparing closed-ness rather than the value logs no duplicate; (2) an
@@ -1074,7 +1093,10 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null } = {}
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
-  if (transition) taskchat.record(projectId, changed.number, transition > 0 ? { kind: 'closed', ...(replacedBy !== null ? { replacedBy } : {}) } : { kind: 'reopened', ...said });   // #6157, #6923
+  if (skipped) return null;
+  // kosmos#7514: a subtask closed with its parent says so (via, and which parent), as hold-cleared says via.
+  const closedBy = said.via === 'parent' && Number.isInteger(said.parent) ? { via: 'parent', parent: said.parent } : {};
+  if (transition) taskchat.record(projectId, changed.number, transition > 0 ? { kind: 'closed', ...(replacedBy !== null ? { replacedBy } : {}), ...closedBy } : { kind: 'reopened', ...said });   // #6157, #6923
   else if (replacedNew) taskchat.record(projectId, changed.number, { kind: 'replaced', replacedBy });   // #6923: closed earlier, replaced now
   if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
   if (repeatDropped) taskchat.record(projectId, changed.number, { kind: 'repeat-cleared', via: 'close' });

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * kosmos#7514: closing a parent closes its built subtasks; the board says which, and both commands (Mac install/kosmos,
+ * kosmos#7514: a close asked withBuilt also closes the built subtasks; a plain close names those left; both commands (Mac install/kosmos,
  * Windows tools/windows/kosmos-cli.js) print them. Harness copied from cli.task-close-many-7412.test.js.
  *
  * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included).
@@ -88,58 +88,80 @@ function round(label) {
   assert.equal(tasks.setBuilt(projectId, kid.number, { by: 'mara' }).ok, true);
   return { top: top.number, kid: kid.number, open: open.number };
 }
+const post = (n, body) => fetch(`${base}/api/project/${projectId}/task/${n}/close`, { method: 'POST',
+  ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }) });
 
-test('kosmos#7514: the close route answers which built subtasks closed with the parent', async () => {
-  const r = round('Route');
-  const res = await fetch(`${base}/api/project/${projectId}/task/${r.top}/close`, { method: 'POST' });
+test('kosmos#7514: a plain close of a parent takes nothing and names the built subtasks left', async () => {
+  const r = round('Plain');
+  const res = await post(r.top);
   const j = await res.json();
   assert.equal(res.status, 200, JSON.stringify(j));
+  assert.equal(j.task.closedWith, undefined);
+  assert.deepEqual(j.task.builtLeft, [r.kid]);
+  assert.equal(isDone(r.kid), false, 'a plain close took a built subtask');
+});
+
+test('kosmos#7514: a close with withBuilt takes the built subtasks, tells their agent, and leaves the open one', async () => {
+  const r = round('With');
+  const told = [];
+  const real = projects.syncAgent;
+  projects.syncAgent = (name, roster) => { told.push(name); return real(name, roster); };
+  let j;
+  try {
+    const res = await post(r.top, { withBuilt: true });
+    j = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(j));
+  } finally { projects.syncAgent = real; }
   assert.deepEqual(j.task.closedWith, [r.kid]);
   assert.equal(isDone(r.kid), true);
   assert.equal(isDone(r.open), false, 'an open subtask was closed');
+  assert.ok(told.includes('mara'), 'the closed subtask\'s agent was not told: ' + JSON.stringify(told));
+  assert.equal(told.filter((x) => x === 'mara').length, 1, 'an agent was told more than once');
 });
 
-test('kosmos#7514: the bulk close route says closedWith on the parent, and counts the subtask once if listed too', async () => {
+test('kosmos#7514: withBuilt must be true or false, and is refused beside replacedBy; nothing closes', async () => {
+  const r = round('Refuse');
+  for (const body of [{ withBuilt: 'yes' }, { withBuilt: 1 }, { withBuilt: true, replacedBy: r.open }]) {
+    const res = await post(r.top, body);
+    assert.equal(res.status, 400, JSON.stringify(body));
+    assert.equal(isDone(r.top), false, 'a refused close closed the parent: ' + JSON.stringify(body));
+  }
+});
+
+test('kosmos#7514: the Tasks screen\'s bulk close takes no subtasks', async () => {
   const r = round('Bulk');
   const res = await fetch(`${base}/api/tasks/close`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
-    body: JSON.stringify({ tasks: [{ projectId, number: r.top }, { projectId, number: r.kid }] }) });
-  const j = await res.json();
-  assert.equal(res.status, 200, JSON.stringify(j));
-  const parentRow = j.results.find((x) => x.number === r.top);
-  assert.deepEqual(parentRow.closedWith, [r.kid]);
-  const kidRow = j.results.find((x) => x.number === r.kid);
-  assert.equal(kidRow.already, true, 'the subtask closed with its parent was closed a second time');
-  assert.equal(isDone(r.open), false);
+    body: JSON.stringify({ tasks: [{ projectId, number: r.top }] }) });
+  assert.equal(res.status, 200);
+  assert.equal(isDone(r.kid), false, 'the screen\'s bulk close took a built subtask');
 });
 
-test('kosmos#7514: the Windows command says which built subtasks closed with it, single and several', async () => {
-  const a = round('WinOne');
-  const one = await win(['task', 'close', projectId, String(a.top)]);
-  assert.equal(one.code, 0, one.text);
-  assert.match(one.text, new RegExp('Closed task ' + a.top + ' on '));
-  assert.match(one.text, new RegExp('Its built subtasks closed with it: ' + a.kid + '\\.'));
-  const b = round('WinMany');
-  const c = round('WinMany2');
-  const many = await win(['task', 'close', projectId, String(b.top), String(c.open)]);
-  assert.equal(many.code, 0, many.text);
-  assert.match(many.text, new RegExp('Task ' + b.top + "'s built subtasks closed with it: " + b.kid + '\\.'));
-  const plain = round('WinPlain');
-  const p = await win(['task', 'close', projectId, String(plain.open)]);
-  assert.doesNotMatch(p.text, /closed with it/, 'a task with no built subtasks said some closed with it');
-});
-
-test('kosmos#7514: the Mac command says which built subtasks closed with it, single and several', async () => {
-  const a = round('MacOne');
-  const one = await mac(['task', 'close', projectId, String(a.top)]);
-  assert.equal(one.code, 0, one.text);
-  assert.match(one.text, new RegExp('Closed task ' + a.top + ' on '));
-  assert.match(one.text, new RegExp('Its built subtasks closed with it: ' + a.kid + '\\.'));
-  const b = round('MacMany');
-  const c = round('MacMany2');
-  const many = await mac(['task', 'close', projectId, String(b.top), String(c.open)]);
-  assert.equal(many.code, 0, many.text);
-  assert.match(many.text, new RegExp('Task ' + b.top + "'s built subtasks closed with it: " + b.kid + '\\.'));
-  const plain = round('MacPlain');
-  const p = await mac(['task', 'close', projectId, String(plain.open)]);
-  assert.doesNotMatch(p.text, /closed with it/, 'a task with no built subtasks said some closed with it');
-});
+for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) {
+  test(`kosmos#7514: the ${name} command offers --with-built, and says what it closed`, async () => {
+    const a = round(name + 'Hint');
+    const plain = await run(['task', 'close', projectId, String(a.top)]);
+    assert.equal(plain.code, 0, plain.text);
+    assert.match(plain.text, new RegExp('Its built subtasks are still open: ' + a.kid + '\\. To close them with it: kosmos task close \\S+ ' + a.top + ' --with-built'));
+    assert.equal(isDone(a.kid), false);
+    const b = round(name + 'One');
+    const one = await run(['task', 'close', projectId, String(b.top), '--with-built']);
+    assert.equal(one.code, 0, one.text);
+    assert.match(one.text, new RegExp('Its built subtasks closed with it: ' + b.kid + '\\.'));
+    assert.equal(isDone(b.kid), true);
+    const c = round(name + 'Many');
+    const d = round(name + 'Many2');
+    const many = await run(['task', 'close', projectId, String(c.top), String(d.open), '--with-built']);
+    assert.equal(many.code, 0, many.text);
+    assert.match(many.text, new RegExp('Task ' + c.top + "'s built subtasks closed with it: " + c.kid + '\\.'));
+    const e = round(name + 'ManyPlain');
+    const f = round(name + 'ManyPlain2');
+    const manyPlain = await run(['task', 'close', projectId, String(e.top), String(f.open)]);
+    assert.match(manyPlain.text, new RegExp('Task ' + e.top + ' still has built subtasks open: ' + e.kid + '\\.'));
+    assert.equal(isDone(e.kid), false);
+    const g = round(name + 'Lone');
+    const lone = await run(['task', 'close', projectId, String(g.open)]);
+    assert.doesNotMatch(lone.text, /built subtasks/, 'a task with no subtasks spoke of some');
+    const refused = await run(['task', 'close', projectId, String(g.top), '--replaced-by', String(g.open), '--with-built']);
+    assert.notEqual(refused.code, 0, 'replaced and --with-built together were accepted: ' + refused.text);
+  });
+}

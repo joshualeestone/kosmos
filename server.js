@@ -21823,15 +21823,8 @@ const server = http.createServer(async (req, res) => {
           const t = tasks.close(projectId, number);
           closedHere.add(here);
           for (const one of tasks.whoOf(t)) toTell.add(one);
-          // kosmos#7514: the built subtasks closed with a parent are closed here too, and their agents are told.
-          const closedWith = Array.isArray(t.closedWith) ? t.closedWith : [];
-          for (const sub of closedWith) {
-            closedHere.add(projectId + '#' + sub);
-            const rec = tasks.byNumber(projects.get(projectId) || {}, sub);
-            if (rec) for (const one of tasks.whoOf(rec)) toTell.add(one);
-          }
           const noteRecorded = note ? !!taskchat.record(projectId, found.number, { kind: 'said', text: note }) : null;
-          results.push({ projectId, number, ok: true, ...(closedWith.length ? { closedWith } : {}), ...(note ? { noteRecorded } : {}) });
+          results.push({ projectId, number, ok: true, ...(note ? { noteRecorded } : {}) });
         } catch (err) {
           results.push({ projectId, number, ok: false, error: String((err && err.message) || 'we could not close that task') });
         }
@@ -24170,11 +24163,11 @@ const server = http.createServer(async (req, res) => {
         return;
       }
     }
-    const act = (why, replacedBy) => {
+    const act = (why, replacedBy, withBuilt = false) => {
       try {
         /* #6157: a reopen records who put it back (the person from the screen, or the agent its token named; an agent
            that sends no token stays unnamed, as above) and why. #6923: a close may name the task that replaced it. */
-        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2], { replacedBy })
+        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2], { replacedBy, withBuilt })
           : tasks.reopen(id, taskAct[2], { by: actor, person: isViaScreen(req, {}), why });
         // Close and reopen change what the assignee's block should list, so
         // the block follows the record. Non-gating.
@@ -24182,10 +24175,13 @@ const server = http.createServer(async (req, res) => {
         // stopped following the record and an agent's instructions kept listing
         // a task it had already finished.
         let told = tellEveryoneOn(t);
-        // kosmos#7514: a parent's close takes its built subtasks; their agents' blocks follow too (non-gating).
-        for (const sub of (Array.isArray(t.closedWith) ? t.closedWith : [])) {
-          const rec = tasks.byNumber(projects.get(id) || {}, sub);
-          if (rec) { try { tellEveryoneOn(rec); } catch { /* non-gating, as above */ } }
+        // kosmos#7514: the built subtasks closed with it: each of their agents is told once, from one roster (non-gating).
+        if (Array.isArray(t.closedWith) && t.closedWith.length) {
+          const rec = (projects.readAll() || []).find((x) => x && x.id === id);   // raw: no claim join
+          const named = new Set();
+          for (const sub of t.closedWith) { const k = rec ? tasks.byNumber(rec, sub) : null; if (k) for (const one of tasks.whoOf(k)) named.add(one); }
+          for (const one of tasks.whoOf(t)) named.delete(one);   // told above
+          if (named.size) { const roster = safeRoster(); for (const one of named) { try { projects.syncAgent(one, roster); } catch { /* non-gating */ } } }
         }
         sendJson(res, 200, { task: t, told });
       } catch (err) {
@@ -24209,11 +24205,18 @@ const server = http.createServer(async (req, res) => {
           if (!body || typeof body !== 'object' || Array.isArray(body)) {
             sendJson(res, 400, { error: 'we could not read that request, so the task was not closed' }); return;
           }
-          if (Object.keys(body).some((k) => k !== 'replacedBy')) {
-            sendJson(res, 400, { error: 'a close takes only replacedBy (the number of the task that replaced it), so the task was not closed' }); return;
+          if (Object.keys(body).some((k) => k !== 'replacedBy' && k !== 'withBuilt')) {
+            sendJson(res, 400, { error: 'a close takes only replacedBy (the number of the task that replaced it) or withBuilt, so the task was not closed' }); return;
+          }
+          // kosmos#7514: withBuilt (also close its built subtasks) is true or false, never a word that reads as either.
+          if (body.withBuilt !== undefined && typeof body.withBuilt !== 'boolean') {
+            sendJson(res, 400, { error: 'withBuilt has to be true or false, so the task was not closed' }); return;
+          }
+          if (body.withBuilt === true && body.replacedBy !== undefined && body.replacedBy !== null) {
+            sendJson(res, 400, { error: 'a task closed as replaced does not take its built subtasks: close them on their own, so the task was not closed' }); return;
           }
         }
-        act('', body && typeof body === 'object' ? body.replacedBy : undefined);
+        act('', body && typeof body === 'object' ? body.replacedBy : undefined, body && typeof body === 'object' && body.withBuilt === true);
       }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
       return;
     }
