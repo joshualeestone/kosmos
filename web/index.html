@@ -71149,7 +71149,8 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
   btn.disabled = true;
   btn.dataset.busy = '1';
   holdBtn.disabled = true;   // round 5: never both in flight (a take-off between Save's read and its POST would be undone)
-  if (msg) { msg.textContent = ''; msg.dataset.task = key; delete msg.dataset.nextSig; } tkHoldChooseShow(false);
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; delete msg.dataset.nextSig; }
+  tkHoldChooseShow(false);
   try {
     /* Review 1: Save is a screen hold, which would put back on hold (as the person's) a task an agent has just taken off.
        Read it again first; change nothing unless it is still on hold. */
@@ -71194,7 +71195,8 @@ document.getElementById('tk-hold').addEventListener('click', async () => {
   const save = document.getElementById('tk-hold-save');
   btn.disabled = true;
   save.dataset.busy = '1'; save.disabled = true;   // round 5: Save waits while this is in flight
-  if (msg) { msg.textContent = ''; msg.dataset.task = key; delete msg.dataset.nextSig; } tkHoldChooseShow(false);   // whose message it is (the page repaint clears another's)
+  if (msg) { msg.textContent = ''; msg.dataset.task = key; delete msg.dataset.nextSig; }   // whose message it is (the page repaint clears another's)
+  tkHoldChooseShow(false);
   try {
     /* kosmos#7184: a screen hold sets exactly what it sends, so a page that has not yet seen an agent's hold would
        replace what it waits for. Read the task again first; if it is already on hold, change nothing and show it. */

@@ -6549,7 +6549,7 @@ function unholdNext(projectId, t, rosterOf) {
     };
     const reachable = (n) => !running() || running().has(n);
     /* kosmos#7430: agents by name, from readIdentity (a file read, not a pane snapshot: review 6), else the machine
-       name. A typed name is cleaned as taskMessageSummary cleans one (review 3: line separators, runs of space). */
+       name. A typed name is cleaned with taskMessageSummary's own expression. */
     const nameOf = (n) => {
       let id = null;
       try { id = readIdentity(n); } catch { id = null; }

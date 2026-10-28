@@ -75,12 +75,15 @@ function chk(ok, label, extra) {
       tasks.create(p.id, { sentence: 'Weigh the crates' });                 // 5: nobody on it, held, then given to Ada elsewhere
       tasks.create(p.id, { sentence: 'Seal the crates' });                  // 6: nobody on it, held, closed while the line shows
       tasks.create(p.id, { sentence: 'Ship the crates' });                  // 7: nobody on it, held, given out before the page reloads
+      tasks.create(p.id, { sentence: 'Load the van', who: 'ada' });        // 8: two parts, Ada on one, nobody on the other, held
+      tasks.addPart(p.id, 8, { sentence: 'the second trip' });
       tasks.setOnHold(p.id, 1, true, { viaScreen: true });
       tasks.setOnHold(p.id, 2, true, { viaScreen: true });
       tasks.setOnHold(p.id, 4, true, { viaScreen: true });
       tasks.setOnHold(p.id, 5, true, { viaScreen: true });
       tasks.setOnHold(p.id, 6, true, { viaScreen: true });
       tasks.setOnHold(p.id, 7, true, { viaScreen: true });
+      tasks.setOnHold(p.id, 8, true, { viaScreen: true });
       const phone = width < 600;   // the phone pass is a touch screen, where the page's tap targets grow to 44 px
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, hasTouch: phone, isMobile: phone });
       const errs = [];
@@ -168,6 +171,18 @@ function chk(ok, label, extra) {
       chk(tasks.whoOf(stored(p.id, 7)).includes('ada'), `${tag} Ada was put on task 7 between the answer and the reload (the premise)`);
       await page.waitForFunction(() => document.getElementById('tk-hold-msg').textContent === '' && document.getElementById('tk-hold-choose-row').hidden, null, { timeout: 7000 }).catch(() => {});
       chk(await text(page, '#tk-hold-msg') === '' && !(await rowShown()), `${tag} a hand-out before the reload still takes the line down within a repaint`, JSON.stringify([await text(page, '#tk-hold-msg'), await rowShown()]));
+
+      // Review 4: a two-part task (Ada on one part, nobody on the other): the route's raw task and the board's copy of it
+      // must read the same, so the line survives a repaint when nothing changed.
+      await openTask(page, p.id, 8);
+      await page.click('#tk-hold');
+      await settle(page);
+      await page.waitForFunction(() => document.getElementById('tk-hold-msg').textContent !== '', null, { timeout: 6000 }).catch(() => {});
+      const want8 = routeSays(p.id, 8);
+      chk(/^It stays with Ada\. Its part nobody is on waits for a person to assign it\.$/.test(want8) && await text(page, '#tk-hold-msg') === want8,
+        `${tag} a two-part task says the route's sentence (the premise)`, JSON.stringify([want8, await text(page, '#tk-hold-msg')]));
+      await page.waitForTimeout(5600);   // one five-second repaint
+      chk(await text(page, '#tk-hold-msg') === want8, `${tag} the two-part task's line survives the repaint`, await text(page, '#tk-hold-msg'));
 
       // The control: Ada is on task 2, so it stays with her and nothing asks for a choice.
       await openTask(page, p.id, 2);
