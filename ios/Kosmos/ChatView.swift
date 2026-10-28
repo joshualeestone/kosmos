@@ -192,6 +192,7 @@ struct ChatView: View {
         // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
         .toolbar(.hidden, for: .tabBar)
         .messageActionsHost()   // kosmos#7419: the one long-press sheet of this chat
+        .task { await client.readStarsIfUnknown() }   // kosmos#7034 build 11 review 2: the header star's stars
         .quickLookPreview($previewURL)
         // Closed: the file it showed is removed from the phone (#7016 review 1).
         .onChange(of: previewURL) { now in
@@ -209,6 +210,8 @@ struct ChatView: View {
             // kosmos#7034 (Mona Lisa, build 11): a star you can see, answering Josh's "where do I star them": an outline
             // that turns gold when the agent is starred, the same save as the Agents row's swipe (BoardClient.toggleStar).
             ToolbarItem(placement: .navigationBarTrailing) {
+                // Review 2-3: no star (and no empty slot) until this computer's stars are known, never a greyed control.
+                if client.canStar {
                 let starred = client.isStarred(agent.session)
                 Button {
                     Task {
@@ -224,10 +227,7 @@ struct ChatView: View {
                 }
                 .disabled(client.starring.contains(agent.session))
                 .accessibilityLabel(starred ? "Unstar \(shown.name)" : "Star \(shown.name)")
-                // Review 2: no star until this computer's stars are known (never a greyed control nothing explains);
-                // the chat asks for them once, so it appears as soon as they can be read.
-                .opacity(client.canStar ? 1 : 0).allowsHitTesting(client.canStar).accessibilityHidden(!client.canStar)
-                .task { await client.readStarsIfUnknown() }
+                }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
