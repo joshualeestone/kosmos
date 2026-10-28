@@ -3046,10 +3046,13 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
    it differently. */
 const switchFromWord = (fromLabel) => fromLabel || 'its previous provider';
 
-function switchCarryWords(label, carried, fromLabel) {
-  if (!carried) return `${label} it is. Everything it knows and everything it has done stays. `;
-  const from = switchFromWord(fromLabel);
-  const lost = 'Anything it only remembered from talking is lost. ';
+/* #7455 round 1: what happened to its notes, said ONCE for both answers: switchCarryWords (restarted) and
+   switchPendingWords (saved, not restarted). The carry already ran before either is said, so every notes fact is true
+   now in both; the only word that differs is whether what it remembered from talking `is lost` (it restarted) or
+   `will be lost` (at its next start). `lostVerb` is that word and nothing else. Returns the notes sentences and the
+   stale-pointer sentence, each ending in a space. */
+function switchNotesWords(carried, from, lostVerb) {
+  const lost = `Anything it only remembered from talking ${lostVerb}. `;
   // Review 4: why a note is left out, and a note whose place in its folder holds something else, said apart.
   const SKIP_WHY = 'not a plain file, over 1 MB, or changed since its own last conversation';
   const OCCUPIED = (n) => `${n === 1 ? 'one was' : `${n} were`} not copied because something else is already in ${n === 1 ? 'its' : 'their'} place in memory/claude-notes/`;
@@ -3068,7 +3071,7 @@ function switchCarryWords(label, carried, fromLabel) {
   } else if (carried.toClaude || carried.between) {
     // #7445: between two runners that are not Claude Code, as on the way back to Claude: nothing is copied, and notes
     // an earlier switch left in its folder stay there (said only when its instructions point at them).
-    notes = (carried.pointed ? 'The notes in its folder stay there for it to read, and anything it only remembered from talking is lost. ' : lost)
+    notes = (carried.pointed ? `The notes in its folder stay there for it to read, and anything it only remembered from talking ${lostVerb}. ` : lost)
       /* Round 4: it is leaving a runner that is not Claude Code, and that runner may have kept notes of its own (Gemini's
          save_memory, Codex's memories: see lostConversationCarried). Kosmos copies none of them. "Any": whether it saved
          any is not known here. The dialog's twin is web/index.html switchFamilyNote. */
@@ -3079,7 +3082,7 @@ function switchCarryWords(label, carried, fromLabel) {
       + (carried.skipped ? ` (${carried.skipped === 1 ? 'one was' : `${carried.skipped} were`} left out: ${SKIP_WHY})` : '')
       + (carried.occupied ? ` (${OCCUPIED(carried.occupied)})` : '')   // review 4
       + (carried.failed ? ` (${carried.failed} could not be copied)` : '')   // review 3
-      + ', and anything it only remembered from talking is lost. '
+      + `, and anything it only remembered from talking ${lostVerb}. `
       // Review 2: copied but the brief could not be pointed at them (no brief we may write, or two pointer blocks).
       + (carried.pointed || carried.unpointFailed ? '' : 'Its instructions do not mention them yet, so tell it they are in memory/claude-notes/ in its folder. ');
   } else if (carried.notes === 'failed') {
@@ -3095,17 +3098,23 @@ function switchCarryWords(label, carried, fromLabel) {
     // Round 3: true only because every step from the copy on (the mkdir, each copy, the pointer write) catches its own
     // errors in carryClaudeNotes, so a throw that escapes it comes before anything was copied. Add a copy step that can
     // throw out of it and this sentence can be false (notes copied, then "we could not check" them).
-    notes = 'We could not check its saved notes; any it had are still where Claude keeps them, and anything it only remembered from talking is lost. ';
+    notes = `We could not check its saved notes; any it had are still where Claude keeps them, and anything it only remembered from talking ${lostVerb}. `;
   } else if (notCopied[carried.notes]) {
     notes = `Its saved notes were not copied: ${notCopied[carried.notes]}. ${lost}`;
   } else {
-    notes = 'It had no saved notes to copy, so anything it only remembered from talking is lost. ';
+    notes = `It had no saved notes to copy, so anything it only remembered from talking ${lostVerb}. `;
   }
   // Review 8: an old pointer that could not be taken out is said, so nothing here reads as "its instructions point at no notes".
   const stale = carried.unpointFailed
     ? 'Its instructions may still mention notes in memory/claude-notes/ that are not there; we could not take that line out. ' : '';
+  return `${notes}${stale}`;
+}
+
+function switchCarryWords(label, carried, fromLabel) {
+  if (!carried) return `${label} it is. Everything it knows and everything it has done stays. `;
+  const from = switchFromWord(fromLabel);
   return `${label} it is. It keeps its name, its instructions and its files, but its conversation does not come across: `
-    + `${label} cannot read what it said on ${from}. ${notes}${stale}`;
+    + `${label} cannot read what it said on ${from}. ${switchNotesWords(carried, from, 'is lost')}`;
 }
 
 /**
@@ -3115,15 +3124,22 @@ function switchCarryWords(label, carried, fromLabel) {
  * Built from the same fact as switchCarryWords: `carried` null means the switch keeps its conversation (OpenAI <-> Qwen,
  * one Codex home), so there is nothing to add and the route's sentence stays exactly as it was. Anything else means
  * the next start begins a new conversation, said in the FUTURE tense (the agent has not moved yet: the route's own
- * comment on `landedOn` versus its future-tense account sentence is the same rule). The notes carry already ran before
- * the restart failed, so what it did is true now and is not repeated here; only the conversation loss is still to come.
- * The advice is the one thing the person can still do: talk to it as it is, and ask for a handoff before it restarts.
+ * comment on `landedOn` versus its future-tense account sentence is the same rule).
+ * Round 1: the notes are said too, through switchNotesWords, the restarted answer's own clause: the carry already ran
+ * before the restart failed, so those facts are true now; only "anything it only remembered from talking" is future.
+ * `stillRunning` is true only when the route KNOWS its old session is still up (the restart could not close its
+ * window: remove.js returns stillRunning then). Only then can the person still talk to it and ask for a handoff, so
+ * only then is that offered. Otherwise (it was not running, its window was already closed, or the route cannot tell)
+ * the next start is simply on the new provider, without this conversation, and no handoff is promised.
  */
-function switchPendingWords(label, carried, fromLabel) {
+function switchPendingWords(label, carried, fromLabel, stillRunning) {
   if (!carried) return '';
   const from = switchFromWord(fromLabel);
-  return `When it next starts, its conversation will not come across: ${label} will not be able to read what it said on ${from}, `
-    + 'and anything it only remembered from talking will be lost. To keep what it is doing, ask it to write a handoff before then. ';
+  const head = stillRunning === true
+    ? `When it restarts, its conversation will not come across: ${label} will not be able to read what it said on ${from}. `
+    : `When it next starts, it will start on ${label} without this conversation: ${label} will not be able to read what it said on ${from}. `;
+  return head + switchNotesWords(carried, from, 'will be lost')
+    + (stillRunning === true ? 'To keep what it is doing, ask it to write a handoff before it restarts. ' : '');
 }
 
 function setModel(name, modelKey, opts) {

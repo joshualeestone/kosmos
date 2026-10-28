@@ -10,13 +10,27 @@
 
 ## Decision
 
-Chosen: one small pure function, `switchPendingWords(label, carried, fromLabel)` in engine/create.js next to
-switchCarryWords, exported because the route calls it (as it already calls switchCarryWords). It returns '' for
-carried null, else:
+Chosen: one small pure function, `switchPendingWords(label, carried, fromLabel, stillRunning)` in engine/create.js
+next to switchCarryWords, exported because the route calls it (as it already calls switchCarryWords). It returns ''
+for carried null, else (round 1):
 
-"When it next starts, its conversation will not come across: <new> will not be able to read what it said on <old>,
-and anything it only remembered from talking will be lost. To keep what it is doing, ask it to write a handoff before
-then."
+- old session known to be still up (stillRunning true): "When it restarts, its conversation will not come across:
+  <new> will not be able to read what it said on <old>. <notes> To keep what it is doing, ask it to write a handoff
+  before it restarts."
+- otherwise (not running, window already closed, or not known): "When it next starts, it will start on <new> without
+  this conversation: <new> will not be able to read what it said on <old>. <notes>"
+
+<notes> is switchNotesWords, the ONE notes clause (round 1), shared with switchCarryWords: the carry already ran before
+the restart failed, so every notes fact is true now in both answers; only "anything it only remembered from talking"
+changes tense (`is lost` restarted, `will be lost` pending). switchCarryWords' output is byte-identical to before
+(differential check over 759 carried/from combinations: 0 differences; the #7410 and #7445 suites pass unchanged).
+
+Whether the old session is still up: remove.js restart now returns `stillRunning: true` on the one outcome that knows
+it (it could not close the window: PARTIAL, "still running the older instructions"), and leaves it out everywhere else.
+The route passes `!ok && back.stillRunning === true`. A stopped agent (restart refuses: "is not running, so there is
+nothing to restart"), a restart that fails after the window closed, a refusal over an untied session and a restart that
+threw all read as not known to be up, so no handoff is promised there: that is the honest default when the route cannot
+tell.
 
 - Same fact as switchCarryWords: both key on `carried` (null = keeps it). The provider it left is named by one shared
   helper (switchFromWord) in the engine, and by one `carriedFrom` in the route, used for both the restarted and the
@@ -27,41 +41,49 @@ then."
 - Appended last in the restart-failed answer (after the account and sign-in sentences), so the paragraph ends on what
   the next start costs and what the person can do. Also appended to the #5091 PARTIAL branch's restart-failed arm
   (a picked Claude account that could not be applied, and the restart failed): same situation, same words.
-- The notes: setProvider ran the notes carry before the restart failed, so whatever it did is already true. Not
-  repeated here; only the conversation loss is still in the future.
+- The notes (round 1, reversed from round 0): said, through the shared clause, because dropping them left the pending
+  answer silent on facts the restarted answer gives for the same carried (notes that stay behind, a runner's own notes,
+  copied but not pointed, copies that failed).
 
 Rejected:
 - Reusing switchCarryWords whole in the failed branch: its sentences are present tense ("is lost", "X it is"), which
   contradicts "still running as before" in the same paragraph.
 - New sentence logic in server.js: two places deciding when the conversation is lost is the defect #7410 and #7445
   closed.
-- Saying the notes outcome in the failed branch too: it would double the paragraph on the branch where something
-  already went wrong, for a fact that is not about the next start.
+- (Round 0 rejected saying the notes in the failed branch; round 1 reversed that, above.)
+- Reading "still running" from the restart's sentence or step labels in the route: the producer now says it as a field.
+- Starting a stopped agent from the switch so it can be asked for a handoff: whether a config switch starts a dead
+  agent is a separate decision remove.js names (#3410), not this card's.
 
 Weakest point: the route wiring is tested only on the Mac CI. The HTTP route test (added to
 server.switch-account-1373.test.js, beside its #1373 partial test, reached the same way) cannot run on this Windows
 box: that file fails 10 of 12 on untouched main here (it drives the platform's real job and tmux path). Here, only the
-pure function is run. Second weakest: the handoff advice assumes the agent is still running and can be asked; when the
-restart failed because the agent is down, the advice cannot be followed (it is still true that nothing is lost until
-it next starts).
+pure function is run. Second weakest (round 1): the route's existing "It is still running as before until it
+restarts." is still said for a STOPPED agent, right after the restart's own "is not running" (pre-existing, and kept
+exactly because carried null must keep today's answer). The new sentence no longer adds a handoff there, but the
+paragraph still contradicts itself; worth its own card.
 
 What would change my mind: a restart-failed state in which the old runner is no longer running (then "still running as
 before" and the handoff advice are both wrong, and the route needs a different answer), or the board resuming
 conversations across a runner change (then the warning is false).
 
 Not covered: the #5091 PARTIAL branch when the restart DID work says "It is starting again now." with no conversation
-sentence at all, for a switch to Claude from another runner. That is a #7410 gap on the success side, not this card's
-restart-failed case; worth its own card.
+sentence at all, for a switch to Claude from another runner. That is a #7410 gap on the success side, filed as #7467.
 
 ## Tests (controls)
-- engine/create.switchsaved-7455.test.js (3, new): every losing kind (Claude -> OpenAI, OpenAI -> Claude, OpenAI ->
-  Gemini, Claude -> DeepSeek) gives the exact future sentence; OpenAI -> Qwen gives ''; the pending and restarted
-  sentences agree on the same `carried` and name the same providers. `carried` comes from the real carryClaudeNotes in
-  a sandbox, with the job (plist) seeded as setProvider finds it. All 3 fail on main 925178a72d (the function does
-  not exist there).
-- server.switch-account-1373.test.js: one new HTTP test, Claude -> OpenAI saved but not restarted, asserting the whole
-  new sentence ends the answer and "still running as before" stays. Runs on the Mac CI only; it would fail on main
-  (the answer has no such sentence).
+- engine/create.switchsaved-7455.test.js (5, new): for every losing kind (Claude -> OpenAI, OpenAI -> Claude, OpenAI ->
+  Gemini, Claude -> DeepSeek), still running gives the restart sentence ending in the handoff, and not known to be
+  running gives the next-start sentence with no handoff (future tense, both providers named, no present tense); the
+  notes are said for rootChange, between, copied-but-not-pointed and failed, and the pending notes equal the restarted
+  answer's with only "is lost" -> "will be lost"; OpenAI -> Qwen gives ''; both answers key on the same fact. Specific
+  assertions, not a restated constant (round 1). Every `carried` comes from the real carryClaudeNotes in a sandbox, with
+  the job (plist) seeded as setProvider finds it. All 5 fail on main 925178a72d; 4 fail on 8d76947a03 (the fifth, the
+  keep case, is a guard).
+- server.switch-account-1373.test.js: two HTTP tests. Claude -> OpenAI whose window could not be closed (still running):
+  the restart sentence and the handoff end the answer. A stopped agent (no pane): the next-start sentence, no handoff,
+  beside the restart's own "is not running". Run on the Mac CI only (here the route refuses before the restart: a test
+  may not read the job through Task Scheduler); both would fail on main.
 
 ## Log
 - Round 0 (build): switchPendingWords + route wiring (both restart-failed arms); tests above; policy tests run (see commit).
+- Round 1: no blockers. [WARNING] a stopped agent (restart refuses) or one whose window already closed was told to ask for a handoff nobody could ask for --> FIXED (remove.js returns stillRunning only when it could not close the window; the handoff is offered only then; otherwise "it will start on <new> without this conversation"; engine and route tests for both). [WARNING] the pending answer dropped the notes facts the restarted answer gives --> FIXED (switchNotesWords, one clause for both, tense of the lost clause only; switchCarryWords byte-identical, 759-case differential, #7410/#7445 suites unchanged; pending tests for rootChange, between, copied-not-pointed, failed). [NIT] FUTURE constant restated the implementation --> FIXED (specific assertions). [NIT] #5091 success-side gap --> recorded as #7467.

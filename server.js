@@ -10642,7 +10642,10 @@ const server = http.createServer(async (req, res) => {
         /* #7455: saved but not restarted: it is still running as before, and what its NEXT start will cost is said here,
            in the future tense, or the person keeps talking to it and loses all of it at the next restart unwarned. ''
            for a switch that keeps its conversation (carried null), so that answer is exactly what it was. */
-        const pendingWords = create.switchPendingWords(label, wrote.carried || null, carriedFrom);
+        /* Round 1: whether its old session is still up, from the restart's own field (remove.js sets stillRunning only
+           when it could not close the window). Not running, already closed, or a restart that threw: not known to be up,
+           so no handoff is offered. */
+        const pendingWords = create.switchPendingWords(label, wrote.carried || null, carriedFrom, !ok && back.stillRunning === true);
         const pending = pendingWords ? ' ' + pendingWords.trimEnd() : '';
         /* #5091: the switch happened but the picked Claude account could not be applied. It is a PARTIAL, said first,
            so the page shows it as one (not "Ready"), whether or not the restart worked. */

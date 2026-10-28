@@ -2414,6 +2414,10 @@ function* restartSteps(name, cause, platform, startIfDead) {
     return {
       outcome: OUTCOME.PARTIAL,
       steps,
+      /* #7455: the one restart outcome in which the old session is KNOWN to be still up, said as a field so a caller
+         (the provider route) does not read it from this sentence. Every other outcome leaves it out: not running,
+         already closed, or not known. */
+      stillRunning: true,
       because: `we could not close ${shown}'s window, so it is still running the older instructions. `
         + 'Nothing was changed.',
     };

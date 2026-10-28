@@ -246,11 +246,28 @@ test('#7455 route: saved but not restarted, a switch that loses its conversation
   assert.equal(r.body.outcome, 'partial',
     'the fixture did not reach the not-restarted branch, so this test proves nothing about it: ' + JSON.stringify(r.body));
   assert.match(r.body.because, /still running as before until it restarts/, 'control: the not-restarted sentence changed');
+  // Its window could not be closed, so it IS still running: the handoff can be asked for, and ends the answer.
   assert.match(r.body.because,
-    /When it next starts, its conversation will not come across: \S+ will not be able to read what it said on Claude, and anything it only remembered from talking will be lost\. To keep what it is doing, ask it to write a handoff before then\.$/,
-    'the not-restarted answer does not warn that the next start loses the conversation: ' + r.body.because);
+    /When it restarts, its conversation will not come across: OpenAI will not be able to read what it said on Claude\. [\s\S]*will be lost\. [\s\S]*To keep what it is doing, ask it to write a handoff before it restarts\.$/,
+    'the not-restarted answer does not warn that the next restart loses the conversation: ' + r.body.because);
   // The future tense is the point: nothing here may read as though the conversation is already gone or kept.
-  assert.doesNotMatch(r.body.because, /Everything it knows|cannot read what it said/, r.body.because);
+  assert.doesNotMatch(r.body.because, /Everything it knows|cannot read what it said|\bis lost\b/, r.body.because);
+});
+
+test('#7455 route round 1: saved for an agent that is not running: it will start without this conversation, and no handoff is offered', async () => {
+  /* A stopped agent: born, then no pane, so the restart refuses ("is not running, so there is nothing to restart") and
+     nobody can be asked for a handoff. */
+  const name = born('route-7455-stopped');
+  fs.writeFileSync(PANES, '');
+  const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
+  assert.equal(r.status, 200, 'the route errored instead of answering: ' + JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'partial', 'the fixture did not reach the not-restarted branch: ' + JSON.stringify(r.body));
+  assert.match(r.body.because, /is not running, so there is nothing to restart/,
+    'control: the fixture is not a stopped agent, so this test is about some other branch: ' + r.body.because);
+  assert.match(r.body.because,
+    /When it next starts, it will start on OpenAI without this conversation: OpenAI will not be able to read what it said on Claude\. [\s\S]*will be lost\./,
+    'a stopped agent is not told its next start loses the conversation: ' + r.body.because);
+  assert.doesNotMatch(r.body.because, /handoff/, 'a handoff is offered to an agent nobody can ask: ' + r.body.because);
 });
 
 test('#1373 route: a PICKED account is named back, and the sentence says the person chose it', async () => {
