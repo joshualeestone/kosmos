@@ -80,15 +80,19 @@ final class BoardClient: ObservableObject {
     // out) is not taken, or it would put back the list from before the press; and an answer older than the newest
     // press changes only its own agent, never the whole list.
     private var starWrites = 0
+    // Review 2: bumped when a press starts AND when it ends, so a read that began while a press was out is not taken
+    // either (the board may have answered it before applying the press).
+    private var starEvents = 0
     func isStarred(_ session: String) -> Bool { shownStars?.contains(session) == true }
     func toggleStar(_ session: String) async {
         guard let mac = shownMac, !starring.contains(session) else { return }
         let on = !isStarred(session)
         let epoch = chatEpoch
         starWrites += 1
+        starEvents += 1
         let mine = starWrites
         starring.insert(session)
-        defer { starring.remove(session) }
+        defer { starring.remove(session); starEvents += 1 }
         starNote = nil
         showStars(setting: session, on: on, mac: mac.address)
         let answer = await throughMac { Board.starWriteRequest(mac: $0, name: session, on: on) }
@@ -103,8 +107,8 @@ final class BoardClient: ObservableObject {
             starNote = Board.starFailure(on: on, status: answer?.1.statusCode ?? 0, data: answer?.0)
         }
     }
-    // Whether a re-sort's stars read may be taken: no press since it began, and none out now.
-    func starsReadStillGood(since writes: Int) -> Bool { writes == starWrites && starring.isEmpty }
+    // Whether a re-sort's stars read may be taken: no press began or ended since it began, and none is out now.
+    func starsReadStillGood(since events: Int) -> Bool { events == starEvents && starring.isEmpty }
     private func showStars(setting session: String, on: Bool, mac: String) {
         let now = shownStars ?? []
         showStars(on ? now.union([session]) : now.subtracting([session]), mac: mac)
@@ -1385,7 +1389,7 @@ final class BoardClient: ObservableObject {
         let ticket = readsStarted
         // Taken when the read starts: a pull sets it while another read may already be in the air.
         let resort = resortNext
-        let starWritesAtStart = starWrites   // kosmos#7034 review 1
+        let starEventsAtStart = starEvents   // kosmos#7034 review 1 and 2
         async let starsRead = readStars(url: url, if: resort)
         let result = await env.send(Board.statusRequest(mac: url))
         let names = await starsRead
@@ -1402,7 +1406,7 @@ final class BoardClient: ObservableObject {
             // without one has withdrawn it.
             let sorting = resort && resortNext && ticket >= resortFrom
             // Stars are taken only with the re-sort they were read for, so Today never orders by stars the list is not.
-            if sorting, let names, starsReadStillGood(since: starWritesAtStart) { stars = (mac.address, names) }   // kosmos#7034 review 1: never undo a press
+            if sorting, let names, starsReadStillGood(since: starEventsAtStart) { stars = (mac.address, names) }   // kosmos#7034 review 1: never undo a press
             let known = stars?.mac == mac.address ? stars?.names : nil
             agents = sorting ? Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known) : Board.keepingOrder(agents, with: rows, stars: known, sort: agentSort, projects: sortProjects)
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
