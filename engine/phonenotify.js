@@ -88,13 +88,15 @@ const COOLDOWN_PRUNE_MS = POSTED_ROOM_COOLDOWN_MS;   // the longest; an entry ol
 const file = () => path.join(remote.stateDir(), 'phone-notify.json');
 /* #7448 (after #7446: a demo board signed in to a real account pushed its made-up agents to that person's phone): a
    computer can be marked never to send phone notices, for a demo or test install. Either the file below (made once by
-   whoever sets the install up, kept across restarts and updates) or KOSMOS_NO_PHONE_NOTICES=1 (for a check run). While
+   whoever sets the install up, kept across restarts, updates and Forget computer: it sits beside remote.json, outside
+   the tunnel state dir that Forget empties, as the person's own off does) or KOSMOS_NO_PHONE_NOTICES=1 (a check run). While
    marked: nothing is sent, the switch never turns itself on, a press is refused with the reason, and Settings says
    why. The coordinator may still keep its own list (#7446); this is the board's half, so it holds wherever it runs. */
-const noPushFile = () => path.join(remote.stateDir(), 'no-phone-notices');
+const noPushFile = () => path.join(path.dirname(remote.FILE), 'no-phone-notices');
 function noPush() {
   if (process.env.KOSMOS_NO_PHONE_NOTICES === '1') return true;
-  try { return fs.existsSync(noPushFile()); } catch { return true; }   // cannot tell: never send
+  // Review 1: only "not there" is unmarked; any other failure to look (no permission, a broken path) counts as marked.
+  try { fs.lstatSync(noPushFile()); return true; } catch (e) { return !(e && e.code === 'ENOENT'); }
 }
 const NO_PUSH_WHY = 'this computer is set never to send phone notices (a demo or test install)';
 // #6488: the person's off, kept beside remote.json and OUTSIDE the tunnel state dir, because removing this computer
@@ -231,7 +233,7 @@ function status() {
   // defaultBecause: why it has not turned on by itself yet (Settings says it instead of promising), or null.
   // #6488: connected means Kosmos+ is live here (signed in AND switched on), the only state anything is sent in.
   // #7448: a computer marked never to send says so (noPush), and is shown off whatever an older file holds.
-  if (noPush()) return { available: true, on: false, connected: plusLive(), kinds: s.kinds, offByChoice: true, defaultBecause: null, noPush: true, because: NO_PUSH_WHY };
+  if (noPush()) return { available: true, on: false, connected: plusLive(), kinds: s.kinds, offByChoice: false, defaultBecause: null, noPush: true, because: NO_PUSH_WHY };
   return { available: true, on: s.on, connected: plusLive(), kinds: s.kinds, offByChoice,
     defaultBecause: !s.on && !offByChoice ? defaultBecause : null };
 }
@@ -282,6 +284,8 @@ async function doTurnOn({ quiet } = {}) {
   if (!remote.enrolled()) return { ok: false, because: 'This computer was removed from Kosmos+ while turning on.' };
   const token = minted.data && typeof minted.data.token === 'string' ? minted.data.token : '';
   if (!TOKEN_SHAPE.test(token)) return { ok: false, minted: true, because: 'Kosmos+ answered in a shape we could not use.' };
+  // #7448 review 1: the mark appeared while this turn-on was out: nothing is saved on, and the press is told why.
+  if (noPush()) return { ok: false, notSent: true, because: NO_PUSH_WHY };
   const saved = writeState({ on: true, notifyId, token, kinds: storedKinds() });
   if (!saved.ok) return { ok: false, minted: true, because: 'This setting could not be saved on this computer.' };
   writeChoice(false);   // #6488: turning on undoes the person's earlier off

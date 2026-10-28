@@ -22,3 +22,11 @@ install never reaches a phone without anybody remembering to list it.
 - engine.phonenotify-nopush-7448.test.js: the file and the env var each stop every send (the 8 of #7446), turnOn is
   refused, the default never turns on, status says why; CONTROLS: unmarked it sends, and sends again once unmarked.
 - The existing phone-notify tests (718, gate-718, send-4163, phonenotice-6487): 69 pass.
+
+## Review
+- Round 1 (opus): 1 blocker fixed: the mark sat in the tunnel state dir, which Forget computer empties, so a demo board
+  removed and signed in again lost it and the default turned notices back on (the #7446 shape). It now sits beside
+  remote.json, as the person's own off does; a test empties the state dir as Forget does and the mark holds.
+  Warnings fixed: existsSync never throws, so an unreadable mark read as unmarked; now only ENOENT is unmarked. A
+  turn-on in flight when the mark appears saves nothing. Nit fixed: status no longer claims offByChoice while marked.
+  Not done (coordinator): retiring the token there; events the coordinator already holds.

@@ -34,7 +34,7 @@ pn.setAvailableForTests(true);
 const sent = [];
 pn.setSender((url, headers, body) => { sent.push(body); });
 
-const mark = path.join(state, 'no-phone-notices');
+const mark = path.join(path.dirname(remote.FILE), 'no-phone-notices');   // beside remote.json, outside the state dir
 const event = (n) => ({ kind: 'needs_you', session: 'demo' + n, agent: 'Demo ' + n });
 
 test.after(() => { fs.rmSync(dir, { recursive: true, force: true }); });
@@ -79,4 +79,26 @@ test('KOSMOS_NO_PHONE_NOTICES=1 (a check run) stops every send too', () => {
     assert.equal(pn.status().noPush, true);
   } finally { delete process.env.KOSMOS_NO_PHONE_NOTICES; }
   assert.equal(pn.noPush(), false, 'CONTROL: unset, it is not marked');
+});
+
+test('review 1: the mark survives Forget computer (the state dir emptied), which is what re-arms a default turn-on', async () => {
+  fs.writeFileSync(mark, '');
+  try {
+    remote.clearStateDir([]);   // what Forget computer does to the state dir
+    assert.equal(fs.existsSync(path.join(state, 'phone-notify.json')), false, 'premise: the state dir really was emptied');
+    assert.equal(pn.noPush(), true, 'still marked after Forget');
+    assert.equal(await pn.ensureDefaultOn(), null);
+  } finally { fs.rmSync(mark, { force: true }); }
+});
+
+test('review 1: a mark that cannot be looked at counts as marked (never send)', () => {
+  // A path through a file where a folder should be: lstat fails with ENOTDIR, not ENOENT.
+  const blocker = path.join(dir, 'not-a-dir');
+  fs.writeFileSync(blocker, '');
+  const real = remote.FILE;
+  try {
+    Object.defineProperty(remote, 'FILE', { value: path.join(blocker, 'remote.json'), configurable: true, writable: true });
+    assert.equal(pn.noPush(), true);
+  } finally { Object.defineProperty(remote, 'FILE', { value: real, configurable: true, writable: true }); }
+  assert.equal(pn.noPush(), false, 'CONTROL: the real place, unmarked');
 });
