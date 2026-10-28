@@ -6569,9 +6569,12 @@ cmd_project() {
       [ "$rc" -eq 0 ] || { say_unreached "read that project" "$rc"; exit 1; }
       # Fields, tab-separated: state (ok, none, many, error), the sessionName, the member's name, the project's name;
       # for many, the sessionNames to choose from; for error, the board's reason.
-      mm_plan=$(printf '%s' "$body" | KOSMOS_RMM_WHO="$2" "$_node" -e '
+      mm_plan=$(printf '%s' "$body" | KOSMOS_RMM_WHO="$2" KOSMOS_RMM_VIEW="$(kosmos_engine_module projectview)" "$_node" -e '
         let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
-          const one = (v) => String(v == null ? "" : v).replace(/[\t\r\n]+/g, " ");
+          // Shown text goes through projectview.one (control, bidi and invisible characters), as project show prints it;
+          // the sessionName that builds the DELETE path is sent raw, URL-encoded here, never cleaned (review 4).
+          let clean = null; try { clean = require(process.env.KOSMOS_RMM_VIEW).one; } catch { /* the fallback below */ }
+          const one = (v) => (clean ? clean(v) : String(v == null ? "" : v)).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g, " ");
           let j; try { j = JSON.parse(s); } catch { process.exit(1); }
           if (!j || typeof j !== "object") process.exit(1);
           if (j.error) { console.log(["error", "", "", "", one(j.error)].join("\t")); return; }
@@ -6586,7 +6589,7 @@ cmd_project() {
           const pj = one(p.name || p.id);
           if (!hit.length) { console.log(["none", "", "", pj].join("\t")); return; }
           if (hit.length > 1) { console.log(["many", "", "", pj, hit.map((m) => one(m.sessionName)).join(", ")].join("\t")); return; }
-          console.log(["ok", one(hit[0].sessionName), one(hit[0].name || hit[0].sessionName), pj].join("\t"));
+          console.log(["ok", encodeURIComponent(hit[0].sessionName), one(hit[0].name || hit[0].sessionName), pj].join("\t"));
         });') || { say "Kosmos gave an answer we could not read when asked about $1."; exit 1; }
       # cut, not `IFS=<tab> read`: a tab is whitespace to read, so an empty field would take the next one's value.
       mm_state=$(printf '%s\n' "$mm_plan" | cut -f1); mm_sess=$(printf '%s\n' "$mm_plan" | cut -f2)
@@ -6610,7 +6613,7 @@ cmd_project() {
         read -r mm_answer || mm_answer=""
         case "$(printf '%s' "$mm_answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in y|yes) ;; *) say "Cancelled. Nothing was changed."; exit 1 ;; esac
       fi
-      mm_path=$(KOSMOS_RMM_SESS="$mm_sess" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_RMM_SESS))') || { say "We could not use that name."; exit 1; }
+      mm_path="$mm_sess"   # already URL-encoded by the overview read above
       # The board token opens the route whatever KOSMOS_AGENT_TOKEN_ONLY says, as for pause; the agent's own token
       # rides too, so the board can tell an agent's change from the person's.
       _mbt="$(board_token || true)"
@@ -6623,16 +6626,19 @@ cmd_project() {
         *) say_unreached "take $mm_who off $mm_pj" "$rc" write; exit 1 ;;
       esac
       # Fields: state (ok, could_not, error), then the reason the board gave.
-      mm_out=$(printf '%s' "$body" | "$_node" -e '
+      mm_out=$(printf '%s' "$body" | KOSMOS_RMM_VIEW="$(kosmos_engine_module projectview)" "$_node" -e '
         let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => {
-          const one = (v) => String(v == null ? "" : v).replace(/[\t\r\n]+/g, " ");
+          // Shown text goes through projectview.one (control, bidi and invisible characters), as project show prints it;
+          // the sessionName that builds the DELETE path is sent raw, URL-encoded here, never cleaned (review 4).
+          let clean = null; try { clean = require(process.env.KOSMOS_RMM_VIEW).one; } catch { /* the fallback below */ }
+          const one = (v) => (clean ? clean(v) : String(v == null ? "" : v)).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g, " ");
           let j; try { j = JSON.parse(s); } catch { process.exit(1); }
           if (!j || typeof j !== "object") process.exit(1);
           if (j.error) { console.log(["error", one(j.error)].join("\t")); return; }
           // A 200 with no project read back: the change landed, the read after it did not (server.js).
-          if (!j.project) { console.log("unread"); return; }
+          if (!j.project) { console.log("unread\t"); return; }
           if (j.told && j.told.state === "could_not") { console.log(["could_not", one(j.told.because)].join("\t")); return; }
-          console.log("ok");
+          console.log("ok\t");
         });') || { say "Kosmos gave an answer we could not read after it was asked. $mm_who may be off $mm_pj; look at the project on the board before trying again: $URL/"; exit 3; }
       mm_state=$(printf '%s\n' "$mm_out" | cut -f1); mm_why=$(printf '%s\n' "$mm_out" | cut -f2)
       while [[ "$mm_why" == *[.[:space:]] ]]; do mm_why="${mm_why%?}"; done

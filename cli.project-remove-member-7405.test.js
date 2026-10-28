@@ -311,3 +311,40 @@ test('#7405 review 3: a sessionName typed in another case finds its member, on b
   assert.equal((await winRun(port, ['project', 'remove-member', 'launch', 'Sally-Sales', '--yes'])).code, 0);
   assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/project/launch/agent/sally-sales', '/api/project/launch/agent/sally-sales']);
 }));
+
+/* ── kosmos#7405 review 4 ─────────────────────────────────────────────────────── */
+
+test('#7405 review 4 Windows: a project the board does not have is said in its words, and nothing is removed', () => withStub(NO_PROJECT, GONE, async (port, seen) => {
+  const w = await winRun(port, ['project', 'remove-member', 'nope', 'Ada', '--yes']);
+  assert.equal(w.code, 1, w.err);
+  assert.match(w.err, /Kosmos could not read nope: there is no project by that name\./);
+  assert.equal(deletes(seen).length, 0);
+}));
+
+// The real overview, with one member's stored values changed by assignment (never a hand-built member).
+function overviewWith(change) {
+  const p = JSON.parse(JSON.stringify(SHOWN));
+  change(p.members);
+  return [200, { project: p, agentsUnreadable: false }];
+}
+
+test('#7405 review 4: a member stored as "." is refused with nothing sent, on both (control: a real member is sent)', () => withStub(overviewWith((ms) => { ms[1].sessionName = '.'; ms[1].name = 'Dot'; }), GONE, async (port, seen) => {
+  const m = await cli(port, ['project', 'remove-member', 'launch', 'Dot', '--yes']);
+  assert.equal(m.code, 1, m.out);
+  assert.match(m.out, /There is no member called \.\./);
+  const w = await winRun(port, ['project', 'remove-member', 'launch', 'Dot', '--yes']);
+  assert.equal(w.code, 1, w.err);
+  assert.equal(deletes(seen).length, 0, 'a "." member reached the route');
+  assert.equal((await cli(port, ['project', 'remove-member', 'launch', 'Sally Sales', '--yes'])).code, 0);
+  assert.equal(deletes(seen).length, 1, 'CONTROL: a real member was not sent');
+}));
+
+test('#7405 review 4: an escape sequence in a display name never reaches the terminal, on both', () => withStub(overviewWith((ms) => { ms[1].name = 'Ada\u001b[2J‮'; }), GONE, async (port, seen) => {
+  const m = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
+  assert.equal(m.code, 0, m.out);
+  assert.ok(!/[\u001b‮]/.test(m.out), 'the Mac printed a raw escape: ' + JSON.stringify(m.out));
+  const w = await winRun(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
+  assert.equal(w.code, 0, w.err);
+  assert.ok(!/[\u001b‮]/.test(w.out + w.err), 'Windows printed a raw escape');
+  assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/project/launch/agent/ada', '/api/project/launch/agent/ada'], 'the raw sessionName was not what was sent');
+}));

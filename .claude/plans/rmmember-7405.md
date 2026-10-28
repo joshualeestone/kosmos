@@ -23,6 +23,9 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
     timeout or a dropped connection after sending, "may be off", exit 3; a 200 with no project read back (the change
     landed, the read after it did not), "most likely off", exit 3; an answer that is not JSON after the DELETE left,
     "may be off", exit 3. The DELETE waits 120 s on both, as agent remove.
+  - Every name and reason the board sends goes through projectview.one before it is shown (control, bidi and
+    invisible characters, as project show prints them), so a display name cannot rewrite the y/N prompt; the
+    sessionName that builds the DELETE path is sent raw, URL-encoded, never cleaned.
   - A member stored as "." or ".." is refused, as agent remove refuses those names, but with exit 1 after the
     overview read: here it is the board's data, not a typed argument.
 - `cli.project-remove-member-7405.test.js`: both commands against a stub board whose overview is the board's own
@@ -43,6 +46,9 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
   display name would remove another without a word).
 - Weakest premise: that the person or agent knows the member's display name or sessionName. `kosmos project show`
   lists both.
+- Deliberately not word for word with the screen: the result names the project ("is off Launch" where the screen,
+  showing one project, says "this project"), and the confirm says "at the top of the project" (the screen says "at the
+  top"), since a terminal shows no project around the words.
 - Kept as agent remove has them: the Mac's "may be off" names the board's address and Windows' does not, and the Mac
   strips every space from the y/N answer.
 - Not checked: that the member is gone from the project a 200 returns. After a 200 the board's removeAgent has run,
@@ -51,7 +57,8 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
   cannot use node's sockets); the answer is typed only once the prompt is printed.
 
 ## Mutation checks (run by hand, code restored after each)
-- The overview read at the top level again: 9 Mac and 6 Windows cases go red.
+- The overview read at the top level again: cases on both commands go red.
+- The name cleaning removed (Mac or Windows): the escape-sequence case goes red.
 - A 200 with no project treated as unreadable: the "most likely off" case goes red.
 - The Mac refusing every answer: the terminal case goes red.
 - An unreadable answer after the DELETE back to exit 1: the not-JSON case goes red.
