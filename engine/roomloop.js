@@ -23,6 +23,15 @@ const wakes = new Map();
 const pausedAt = new Map();
 /* projectId -> the pause (its pausedAt) last said, so each pause is said once; a pause lasts at least an hour. */
 const said = new Map();
+/* kosmos#7461: while a project is paused, a post asking exactly ONE member still wakes it, so a handoff gets through (a
+   gate queue's "my run ended" to the next in line; a summary addressed to one member). Bounded twice, so a loop cannot
+   use it: PAIR_CAP wakes per ordered pair (sender to recipient) per pause, and THROUGH_CAP for the whole project per
+   pause (a ring of agents uses fresh pairs, so the pair bound alone would grow with the room's size). The pair counts
+   and the project's total are forgotten whenever the pause ends (it runs out, or a person clears it). */
+const PAIR_CAP = 3;
+const THROUGH_CAP = 10;
+const pairWakes = new Map();   // project\u0000from\u0000to -> wakes this pause
+const throughWakes = new Map();   // project -> wakes this pause
 
 function recent(projectId, now) {
   const list = (wakes.get(projectId) || []).filter((t) => now - t < LOOP_WINDOW_MS);
@@ -37,12 +46,49 @@ function paused(projectId, now = Date.now()) {
     const p = String(projectId);
     if (pausedAt.has(p)) {
       if (now - pausedAt.get(p) < LOOP_WINDOW_MS) return true;
-      pausedAt.delete(p); wakes.delete(p);
+      pausedAt.delete(p); wakes.delete(p); forgetPairs(p);
       return false;
     }
     if (recent(p, now).length >= cap) { pausedAt.set(p, now); return true; }
     return false;
   } catch { return false; }
+}
+
+function forgetPairs(p) {
+  for (const k of [...pairWakes.keys()]) if (k.startsWith(p + '\u0000')) pairWakes.delete(k);
+  throughWakes.delete(p);
+}
+/* kosmos#7461: may this paused project's one-member post from `from` wake `to`? Asks only; pairTake spends it, once the
+   post is counted (review 1: a post refused after this check must not spend a slot). False when no pause is recorded
+   (the caller asks only after paused(), which clears an expired one), or either name is missing. */
+function pairCan(projectId, from, to) {
+  try {
+    const p = String(projectId);
+    if (!pausedAt.has(p) || typeof from !== 'string' || !from || typeof to !== 'string' || !to) return false;
+    return (pairWakes.get(p + '\u0000' + from + '\u0000' + to) || 0) < PAIR_CAP && (throughWakes.get(p) || 0) < THROUGH_CAP;
+  } catch { return false; }
+}
+/* Give one back: the post that spent it reached nobody (review 2), so it was not a wake, and its retry must not find the
+   pair spent. */
+function pairRefund(projectId, from, to) {
+  try {
+    const p = String(projectId);
+    const key = p + '\u0000' + from + '\u0000' + to;
+    const n = pairWakes.get(key) || 0;
+    if (n > 0) pairWakes.set(key, n - 1);
+    const t = throughWakes.get(p) || 0;
+    if (t > 0) throughWakes.set(p, t - 1);
+  } catch { /* the slot stays spent: one fewer handoff this pause */ }
+}
+/* Spend one: called synchronously after pairCan in the same post, before any typing, so two posts cannot both spend the
+   last slot. */
+function pairTake(projectId, from, to) {
+  try {
+    const p = String(projectId);
+    const key = p + '\u0000' + from + '\u0000' + to;
+    pairWakes.set(key, (pairWakes.get(key) || 0) + 1);
+    throughWakes.set(p, (throughWakes.get(p) || 0) + 1);
+  } catch { /* the bound errs toward one more wake */ }
 }
 
 /* Count one agent post that woke at least one member in `projectId` (once per post, so an @all is one). */
@@ -79,7 +125,7 @@ function senderNote(projectId, now = Date.now()) {
 
 /* Round 3: a person posted in `projectId`, so its count starts over and the next pause is said at once. */
 function clear(projectId) {
-  try { const p = String(projectId); wakes.delete(p); said.delete(p); pausedAt.delete(p); } catch { /* the pause runs out instead */ }
+  try { const p = String(projectId); wakes.delete(p); said.delete(p); pausedAt.delete(p); forgetPairs(p); } catch { /* the pause runs out instead */ }
 }
 
 /* The cap in force (LOOP_CAP unless a test set it), for the board's log line. */
@@ -87,6 +133,6 @@ function liveCap() { return cap; }
 
 /* A test that is about something else (the room valve) and sends many posts sets this high. */
 function setCapForTests(n) { cap = n; }
-function resetForTests() { wakes.clear(); said.clear(); pausedAt.clear(); cap = LOOP_CAP; }
+function resetForTests() { wakes.clear(); said.clear(); pausedAt.clear(); pairWakes.clear(); throughWakes.clear(); cap = LOOP_CAP; }
 
-module.exports = { LOOP_CAP, LOOP_WINDOW_MS, paused, noteWake, clear, liveCap, freesAt, pauseNote, senderNote, setCapForTests, resetForTests };
+module.exports = { LOOP_CAP, LOOP_WINDOW_MS, paused, noteWake, clear, liveCap, freesAt, pauseNote, senderNote, setCapForTests, resetForTests, pairCan, pairTake, pairRefund, PAIR_CAP, THROUGH_CAP };

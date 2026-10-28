@@ -142,10 +142,11 @@ test('C: past the per-project cap, agent posts wake no one, the person is told o
   withFleet(room(), (board) => {
     let n = 0;
     while (n < roomloop.LOOP_CAP) { post(board, 'angel', '@monalisa ping ' + n); n += 1; }
-    const over = post(board, 'angel', '@monalisa ping over');
+    // kosmos#7461: a post asking ONE member gets through a pause (within its pair's budget), so this asks two.
+    const over = post(board, 'angel', '@monalisa @pigeonpete ping over');
     assert.deepEqual(over.woke, [], 'the capped post still woke someone');
     assert.equal(over.sent.outcomes.monalisa, roomhold.QUIET);
-    post(board, 'angel', '@monalisa ping over again');
+    post(board, 'angel', '@monalisa @pigeonpete ping over again');
     const notes = messages.record().rows.filter((m) => m.kind === 'note' && /paused agents waking each other/.test(m.text));
     assert.equal(notes.length, 1, 'the person must be told once per pause, not once per post');
     const tmux = arm();
@@ -293,7 +294,7 @@ test('round 3 CONTROLS: what is not a header addresses no one', () => {
 test('round 3: a person\'s post clears the pause, so the agents can wake each other again', () => {
   withFleet(room(), (board) => {
     for (let i = 0; i < roomloop.LOOP_CAP; i += 1) post(board, 'angel', '@monalisa ping ' + i);
-    assert.deepEqual(post(board, 'angel', '@monalisa paused?').woke, [], 'control: the project must be paused before the person posts');
+    assert.deepEqual(post(board, 'angel', '@monalisa @pigeonpete paused?').woke, [], 'control: the project must be paused before the person posts');   // kosmos#7461: two, not one
     arm();
     messages.sendPost({ operator: true, project: PROJECT, text: 'carry on, both of you' }, board.agents, MEMBERS);
     assert.deepEqual(post(board, 'angel', '@monalisa after the person').woke, ['monalisa'], 'the person posted and the pause still held');
@@ -344,7 +345,8 @@ test('round 4: two posts started together at the last free wake: only one wakes 
     armSender('angel-discord');
     arm();
     const a = messages.sendPostAsync({ fromPane: '%7', project: PROJECT, text: '@monalisa first of two' }, board.agents, MEMBERS);
-    const b = messages.sendPostAsync({ fromPane: '%7', project: PROJECT, text: '@pigeonpete second of two' }, board.agents, MEMBERS);
+    // kosmos#7461: the second asks two members, since a one-member post would get through the pause by design.
+    const b = messages.sendPostAsync({ fromPane: '%7', project: PROJECT, text: '@pigeonpete @monalisa second of two' }, board.agents, MEMBERS);
     const [ra, rb] = await Promise.all([a, b]);
     assert.equal(ra.outcomes.monalisa, 'placed', 'the first post fills the cap and wakes its member');
     assert.equal(rb.outcomes.pigeonpete, roomhold.QUIET, 'a post started while the first was still typing ran past the cap');
@@ -426,5 +428,161 @@ test('round 7: the header is the post\'s first line as written, not the post wit
     assert.deepEqual(post(board, 'pigeonpete', 'Deploy done\nbuild -> Angel: ok').woke, [], 'a second line was read as the header');
     assert.deepEqual(post(board, 'pigeonpete', 'PigeonPete -> Angel\nsee: the log').woke, [], 'a header with no colon took one from a later line');
     assert.deepEqual(post(board, 'pigeonpete', 'PigeonPete -> Angel: the build\nis green').woke, ['angel'], 'CONTROL: a header on the first line');
+  });
+});
+
+/* kosmos#7461: the cap paused Fleet Builders while its gate queue was handing off by "my run ended" posts, each to the
+   next agent in line, and those handoffs went quiet. While paused, a post asking exactly one member still wakes it,
+   PAIR_CAP times per ordered pair per pause. */
+function pause(board) {
+  for (let i = 0; i < roomloop.LOOP_CAP; i += 1) post(board, 'angel', '@monalisa ping ' + i);
+  assert.deepEqual(post(board, 'angel', '@monalisa @pigeonpete paused?').woke, [], 'fixture: the project is not paused');
+}
+
+test('kosmos#7461: while paused, a handoff to one named member wakes it, and the next handoff in the chain does too', () => {
+  withFleet(room(), (board) => {
+    pause(board);
+    const a = post(board, 'pigeonpete', 'PigeonPete -> Mona Lisa: my gate run has ended, the gate is yours.');
+    assert.deepEqual(a.woke, ['monalisa'], 'a one-member handoff went quiet under the pause');
+    assert.equal(a.sent.because, null, 'the sender was told its post woke no one, and it did');
+    assert.deepEqual(post(board, 'monalisa', 'Mona Lisa -> Angel: mine has ended, yours.').woke, ['angel']);
+    // A reply to that member's own post is one-to-one too.
+    const asked = post(board, 'angel', '@pigeonpete which branch is next?');
+    assert.deepEqual(post(board, 'pigeonpete', 'cloudwire', { replyTo: asked.sent.id }).woke, ['angel']);
+  });
+});
+
+test('kosmos#7461: two agents answering each other under the pause stop after PAIR_CAP each way; @all and two names stay quiet', () => {
+  withFleet(room(), (board) => {
+    pause(board);
+    const woke = [];
+    for (let i = 0; i < roomloop.PAIR_CAP + 2; i += 1) {
+      woke.push(post(board, 'pigeonpete', '@monalisa round ' + i).woke.length);
+      woke.push(post(board, 'monalisa', '@pigeonpete round ' + i).woke.length);
+    }
+    assert.equal(woke.reduce((a, b) => a + b, 0), 2 * roomloop.PAIR_CAP, 'a two-agent loop was not bounded under the pause: ' + woke.join(','));
+    const late = post(board, 'pigeonpete', '@monalisa one more');
+    assert.equal(late.sent.outcomes.monalisa, roomhold.QUIET);
+    assert.match(String(late.sent.because), /woke no one/, 'a post the pause kept quiet must say so');
+    assert.deepEqual(post(board, 'angel', '@all status?').woke, [], '@all woke members under the pause');
+    assert.deepEqual(post(board, 'angel', '@pigeonpete @monalisa status?').woke, [], 'a two-member post woke members under the pause');
+  });
+});
+
+test('kosmos#7461: the pair budget is per pause: a new pause starts each pair again', () => {
+  withFleet(room(), (board) => {
+    pause(board);
+    for (let i = 0; i < roomloop.PAIR_CAP; i += 1) post(board, 'pigeonpete', '@monalisa used ' + i);
+    assert.deepEqual(post(board, 'pigeonpete', '@monalisa spent?').woke, [], 'fixture: the pair budget is not spent');
+    arm();
+    messages.sendPost({ operator: true, project: PROJECT, text: 'carry on' }, board.agents, MEMBERS);   // a person clears the pause
+    pause(board);
+    assert.deepEqual(post(board, 'pigeonpete', '@monalisa new pause').woke, ['monalisa'], 'the pair budget carried over to a new pause');
+  });
+});
+
+test('kosmos#7461 review 1: a ring of agents handing on under a pause is bounded by THROUGH_CAP for the project, not by its pairs', () => {
+  withFleet(room(), (board) => {
+    pause(board);
+    const ring = [['pigeonpete', 'monalisa'], ['monalisa', 'angel'], ['angel', 'pigeonpete'], ['pigeonpete', 'angel'], ['angel', 'monalisa'], ['monalisa', 'pigeonpete']];
+    let woke = 0;
+    for (let i = 0; i < 4; i += 1) for (const [from, to] of ring) woke += post(board, from, '@' + to + ' hand on ' + i).woke.length;
+    assert.equal(woke, roomloop.THROUGH_CAP, 'a ring escaped the project bound under a pause: ' + woke);
+  });
+});
+
+test('kosmos#7461 review 1: a pause that runs out forgets the pair counts, so the next pause starts every pair again', () => {
+  roomloop.setCapForTests(2);
+  const p = 'expiry-7461';
+  const t0 = Date.parse('2026-10-28T07:00:00Z');
+  roomloop.noteWake(p, t0); roomloop.noteWake(p, t0 + 1);
+  assert.equal(roomloop.paused(p, t0 + 2), true, 'fixture: not paused');
+  for (let i = 0; i < roomloop.PAIR_CAP; i += 1) { assert.equal(roomloop.pairCan(p, 'a', 'b'), true); roomloop.pairTake(p, 'a', 'b'); }
+  assert.equal(roomloop.pairCan(p, 'a', 'b'), false, 'fixture: the pair is not spent');
+  assert.equal(roomloop.paused(p, t0 + 2 + roomloop.LOOP_WINDOW_MS), false, 'fixture: the pause did not run out');
+  const t1 = t0 + 2 * roomloop.LOOP_WINDOW_MS;
+  roomloop.noteWake(p, t1); roomloop.noteWake(p, t1 + 1);
+  assert.equal(roomloop.paused(p, t1 + 2), true, 'fixture: no second pause');
+  assert.equal(roomloop.pairCan(p, 'a', 'b'), true, 'a pause that ran out kept its pair counts');
+});
+
+test('kosmos#7461 review 1: checking a pair spends nothing; only a post that gets through spends a slot', () => {
+  withFleet(room(), (board) => {
+    pause(board);
+    // The check (pairCan) runs before the board's refusals (the room valve, the acknowledgement rule); the slot is spent
+    // only where the post is counted, after them. So checking, however often, must leave the budget whole.
+    for (let i = 0; i < 10; i += 1) assert.equal(roomloop.pairCan(PROJECT, 'pigeonpete', 'monalisa'), true, 'checking spent a slot');
+    for (let i = 0; i < roomloop.PAIR_CAP; i += 1) assert.deepEqual(post(board, 'pigeonpete', '@monalisa handoff ' + i).woke, ['monalisa']);
+    assert.equal(roomloop.pairCan(PROJECT, 'pigeonpete', 'monalisa'), false, 'CONTROL: posts that got through did spend');
+  });
+});
+
+test('kosmos#7461 review 1: under a pause an @all is never one member, even when all but one are switched off here', () => {
+  const projects = require('./projects');
+  const real = projects.swarmOffSet;
+  projects.swarmOffSet = () => new Set(['angel']);
+  try {
+    withFleet(room(), (board) => {
+      pause(board);
+      assert.deepEqual(post(board, 'pigeonpete', '@all status?').woke, [], 'an @all got through the pause as a one-member post');
+      assert.deepEqual(post(board, 'pigeonpete', '@monalisa status?').woke, ['monalisa'], 'CONTROL: a one-member post still gets through');
+    });
+  } finally { projects.swarmOffSet = real; }
+});
+
+test('kosmos#7461 review 2: a through post that reaches nobody (the member cannot be typed into) gives its slot back', () => {
+  const specs = [fleet.agent('pigeonpete', { state: 'idle', displayName: 'PigeonPete' }), fleet.agent('monalisa', { state: 'idle', displayName: 'Mona Lisa' }),
+    fleet.agent('angel', { state: 'idle', displayName: 'Angel' }), fleet.agent('ghost', { state: 'stopped' })];
+  const members = ['pigeonpete', 'monalisa', 'angel', 'ghost'];
+  withFleet(specs, (board) => {
+    pause(board);
+    for (let i = 0; i < roomloop.PAIR_CAP + 2; i += 1) {
+      armSender('pigeonpete-discord');
+      arm();
+      const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@ghost handoff ' + i }, board.agents, members);
+      assert.equal(sent.state, chat.DELIVERY.COULD_NOT, 'fixture: a stopped member was reached: ' + sent.state);
+    }
+    assert.equal(roomloop.pairCan(PROJECT, 'pigeonpete', 'ghost'), true, 'posts that reached nobody spent the pair');
+  });
+});
+
+test('kosmos#7461 review 2: in a room of two, an @all asks the one other member and goes through as a handoff (decided)', () => {
+  withFleet([fleet.agent('pigeonpete', { state: 'idle', displayName: 'PigeonPete' }), fleet.agent('monalisa', { state: 'idle', displayName: 'Mona Lisa' })], (board) => {
+    const two = ['pigeonpete', 'monalisa'];
+    const send = (from, text) => { armSender(from + '-discord'); const tmux = arm(); messages.sendPost({ fromPane: '%7', project: PROJECT, text }, board.agents, two); return typedTo(tmux, from === 'pigeonpete' ? 'monalisa' : 'pigeonpete').length; };
+    for (let i = 0; i < roomloop.LOOP_CAP; i += 1) send('pigeonpete', '@monalisa ping ' + i);
+    assert.equal(roomloop.paused(PROJECT), true, 'fixture: not paused');
+    assert.equal(send('pigeonpete', '@all status?'), 1, 'a room-of-two @all is one member and goes through');
+  });
+});
+
+test('kosmos#7461 review 3: a one-member post the room valve refuses under a pause spends nothing', () => {
+  withFleet(room(), (board) => {
+    pause(board);
+    seedArrivals(ROOM_BUDGET);
+    // PAIR_CAP refused posts: one that spent a slot before the valve refused it would leave the pair used up.
+    for (let i = 0; i < roomloop.PAIR_CAP; i += 1) {
+      const held = post(board, 'pigeonpete', '@monalisa my run ended, the gate is yours (' + i + ')');
+      assert.equal(held.sent.code, 'room_held', 'fixture: the valve did not refuse the post, so this proves nothing: ' + held.sent.code);
+    }
+    assert.equal(roomloop.pairCan(PROJECT, 'pigeonpete', 'monalisa'), true, 'refused posts spent the pair');
+  });
+});
+
+test('kosmos#7461 review 3: failed handoffs give back the project total too, so they cannot use up THROUGH_CAP', () => {
+  const live = ['pigeonpete', 'monalisa', 'angel', 'baron', 'kitty'];
+  const specs = live.map((n) => fleet.agent(n, { state: 'idle' })).concat([fleet.agent('ghost', { state: 'stopped' })]);
+  const members = live.concat(['ghost']);
+  withFleet(specs, (board) => {
+    const send = (from, text) => { armSender(from + '-discord'); const tmux = arm(); return { sent: messages.sendPost({ fromPane: '%7', project: PROJECT, text }, board.agents, members), tmux }; };
+    for (let i = 0; i < roomloop.LOOP_CAP; i += 1) send('angel', '@monalisa ping ' + i);
+    assert.equal(roomloop.paused(PROJECT), true, 'fixture: not paused');
+    let failed = 0;
+    for (const from of ['pigeonpete', 'monalisa', 'angel', 'baron']) {
+      for (let i = 0; i < roomloop.PAIR_CAP; i += 1) if (send(from, '@ghost handoff ' + i).sent.state === chat.DELIVERY.COULD_NOT) failed += 1;
+    }
+    assert.ok(failed > roomloop.THROUGH_CAP, 'fixture: too few failed handoffs to reach the project total: ' + failed);
+    const real = send('kitty', '@pigeonpete my run ended');
+    assert.equal(typedTo(real.tmux, 'pigeonpete').length, 1, 'failed handoffs used up the project total');
   });
 });
