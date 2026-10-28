@@ -125,7 +125,7 @@ enum Download {
     /// times on one page.
     static let repeatSeconds: TimeInterval = 10
     static let perPage = 2
-    /// A failure (`refusal` false) is always said, as on the Mac, but never over another message.
+    /// The app asks this only for a refusal; a failure is always said, in its turn (the Coordinator's queue).
     static func shouldSay(up: Bool, refusal: Bool, lastAt: Date?, now: Date, shownThisPage: Int) -> Bool {
         if up { return false }
         if !refusal { return true }

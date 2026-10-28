@@ -67,3 +67,6 @@ Challenge loop to convergence. Merge on green (beta rule).
 - Review 4: the queue notices when what is on screen went without reporting back and moves on (its file's folder
   goes); retries stop after about ten seconds with nowhere to show, and a waiting sheet's file goes with them; folders
   left by a killed app are swept once per launch (older than a day); a long name never starts on a dot.
+- Review 5: on lock (BoardWeb.drop) every download stops, lines go, what is on screen is dismissed and every kept file
+  is removed, so no file is offered over the lock screen; a late report from a presentation the queue moved past
+  changes nothing (a token); Cancel is its own VoiceOver button.
