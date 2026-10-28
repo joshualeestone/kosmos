@@ -26,13 +26,20 @@ function compareVersions(a, b) {
   return 0;
 }
 
-/** The notes a build of `version` contains: every pool item not held, shipped at or before it, oldest first (rank
- *  within a version). Only the fields a reader needs; nothing about status, shownIn or rank leaves. */
-function notesFor(pool, version) {
+// The build platforms. A pool item tagged `platforms` (engine/whatsnew.js: mac, windows) is for those only; Linux is
+// never a tag, so a Linux build keeps only the untagged items.
+const BUILD_PLATFORMS = ['mac', 'windows', 'linux'];
+
+/** The notes a build of `version` for `platform` contains: every pool item not held, shipped at or before it, and
+ *  for that platform (an untagged item is for all), oldest first (rank within a version). Only the fields a reader
+ *  needs; nothing about status, shownIn or rank leaves. */
+function notesFor(pool, version, platform) {
   if (!parseVersion(version)) throw new Error('not a version: ' + JSON.stringify(version));
+  if (!BUILD_PLATFORMS.includes(platform)) throw new Error('not a build platform: ' + JSON.stringify(platform) + ' (' + BUILD_PLATFORMS.join(', ') + ')');
   const items = (pool && Array.isArray(pool.items)) ? pool.items : [];
+  const forPlatform = (it) => !(Array.isArray(it.platforms) && it.platforms.length) || it.platforms.includes(platform);
   return items
-    .filter((it) => it && it.status !== 'held' && parseVersion(it.since) && compareVersions(it.since, version) <= 0)
+    .filter((it) => it && it.status !== 'held' && parseVersion(it.since) && compareVersions(it.since, version) <= 0 && forPlatform(it))
     .sort((a, b) => compareVersions(a.since, b.since) || (a.rank - b.rank))
     .map((it) => {
       const n = { version: it.since, title: it.title, line: it.line || '' };
@@ -53,12 +60,20 @@ function readNotes(appRoot) {
   }
   const pool = JSON.parse(fs.readFileSync(path.join(appRoot, 'release', 'whats-new-pool.json'), 'utf8'));
   const version = JSON.parse(fs.readFileSync(path.join(appRoot, 'package.json'), 'utf8')).version;
-  return { version, notes: notesFor(pool, version) };
+  const platform = process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'windows' : 'linux';
+  return { version, notes: notesFor(pool, version, platform) };
 }
 
-/** The notes newer than `since` (all when `since` is empty). A `since` that is not a version is refused. */
+/** The newest version's own notes: the default view, whatever number came before it (Mac and Windows share one
+ *  numbering, so the previous release is not always the patch before). */
+function latest(notes) {
+  if (!notes.length) return [];
+  const top = notes.reduce((m, n) => (compareVersions(n.version, m) > 0 ? n.version : m), notes[0].version);
+  return notes.filter((n) => n.version === top);
+}
+
+/** The notes newer than `sinceVersion`. A `sinceVersion` that is not a version (empty included) is refused. */
 function since(notes, sinceVersion) {
-  if (!sinceVersion) return notes.slice();
   if (!parseVersion(sinceVersion)) throw new Error('--since needs a version like 0.7.60, not ' + JSON.stringify(sinceVersion));
   return notes.filter((n) => compareVersions(n.version, sinceVersion) > 0);
 }
@@ -76,4 +91,16 @@ function format(notes, installed) {
   return out.join('\n') + '\n';
 }
 
-module.exports = { notesFor, readNotes, since, format, compareVersions, parseVersion, RESTART };
+/** What `kosmos whats-new` answers, for both CLIs (install/kosmos and the Windows one), so they cannot drift.
+ *  opts: { since: string|null (null: the newest version's own notes), json: bool }. -> { code, out, err }. */
+function render(appRoot, opts) {
+  let d;
+  try { d = readNotes(appRoot); } catch (e) { return { code: 1, out: '', err: 'Kosmos could not read its release notes: ' + e.message }; }
+  let notes;
+  if (opts.since === null || opts.since === undefined) notes = latest(d.notes);
+  else { try { notes = since(d.notes, opts.since); } catch (e) { return { code: 1, out: '', err: e.message }; } }
+  if (opts.json) return { code: 0, out: JSON.stringify({ installed: d.version, since: opts.since == null ? null : opts.since, notes }, null, 2) + '\n', err: '' };
+  return { code: 0, out: format(notes, d.version), err: '' };
+}
+
+module.exports = { notesFor, readNotes, latest, since, format, render, compareVersions, parseVersion, RESTART, BUILD_PLATFORMS };

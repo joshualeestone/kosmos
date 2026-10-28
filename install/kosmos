@@ -3647,33 +3647,29 @@ cmd_connections() {
 }
 
 # ---- kosmos whats-new     (#7411)
-# What changed, for every version this install holds, read from the app's own release notes (engine/releasenotes.js:
-# nothing held, nothing newer than this build), with a line on each fix a running agent needs a restart for.
+# What changed, for every version this install holds, read from the app's own release notes. The words and the reads
+# live once, in engine/releasenotes.js render(), which the Windows CLI runs too, so the two cannot drift.
 #   kosmos whats-new [--since <version>] [--json]
-# --since: only what is newer than that version (default: what this version itself added). --json: for an agent.
+# --since: everything newer than that version (default: the newest version's own notes). --json: for an agent.
 cmd_whats_new() {
-  local _since='' _json=''
+  local _since='' _have_since='' _json=''
   while [ "$#" -gt 0 ]; do
     case "$1" in
-      --since) [ "$#" -ge 2 ] || { say "--since needs a version, like 0.7.60"; exit 1; }; _since="$2"; shift 2 ;;
-      --since=*) _since="${1#--since=}"; shift ;;
+      --since) [ "$#" -ge 2 ] && [ -n "$2" ] || { say "--since needs a version, like 0.7.60"; exit 1; }; _since="$2"; _have_since=1; shift 2 ;;
+      --since=*) _since="${1#--since=}"; [ -n "$_since" ] || { say "--since needs a version, like 0.7.60"; exit 1; }; _have_since=1; shift ;;
       --json) _json=1; shift ;;
+      -h|--help) printf 'Usage: kosmos whats-new [--since <version>] [--json]   (what changed in each version, and which fixes need your agents restarted)\n'; return 0 ;;
       *) say "kosmos whats-new takes --since <version> and --json, not '$1'"; exit 1 ;;
     esac
   done
   local _node; _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read its release notes."; exit 1; }
   local _mod; _mod="$(kosmos_engine_module releasenotes)"
-  local _root; _root="$(cd "$(dirname "$_mod")/.." && pwd)"
-  WN_MOD="$_mod" WN_ROOT="$_root" WN_SINCE="$_since" WN_JSON="$_json" "$_node" -e '
-    const rn = require(process.env.WN_MOD);
-    let d, notes;
-    try { d = rn.readNotes(process.env.WN_ROOT); } catch (e) { console.log("Kosmos could not read its release notes: " + e.message); process.exit(1); }
-    const v = rn.parseVersion(d.version);
-    // Default: what this version itself added (newer than the patch before it).
-    const since = process.env.WN_SINCE || (v && v[2] > 0 ? v[0] + "." + v[1] + "." + (v[2] - 1) : "");
-    try { notes = rn.since(d.notes, since); } catch (e) { console.log(e.message); process.exit(1); }
-    if (process.env.WN_JSON) { console.log(JSON.stringify({ installed: d.version, since: since || null, notes }, null, 2)); }
-    else { process.stdout.write(rn.format(notes, d.version)); }
+  [ -f "$_mod.js" ] || { say "Kosmos could not find its own release notes reader; this install looks incomplete."; exit 1; }
+  WN_MOD="$_mod" WN_ROOT="$(dirname "$(dirname "$_mod")")" WN_SINCE="$_since" WN_HAVE_SINCE="$_have_since" WN_JSON="$_json" "$_node" -e '
+    const r = require(process.env.WN_MOD).render(process.env.WN_ROOT, { since: process.env.WN_HAVE_SINCE ? process.env.WN_SINCE : null, json: !!process.env.WN_JSON });
+    if (r.out) process.stdout.write(r.out);
+    if (r.err) process.stderr.write(r.err + "\n");
+    process.exit(r.code);
   '
 }
 
@@ -5425,7 +5421,7 @@ kosmos_command_list() {
   printf '  kosmos whats-new     what changed in each version, and which fixes need your agents restarted\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
   printf '  For how to use one: kosmos <command> --help (agents, accounts, msg, post, reply, reply-channel, inbox, react, claim, report,\n'
-  printf '  room, feedback, community, task, project, records, agent and connect show their usage).\n'
+  printf '  room, feedback, community, task, project, records, agent, connect and whats-new show their usage).\n'
 }
 
 # kosmos#1674: -h / --help must never SEND.

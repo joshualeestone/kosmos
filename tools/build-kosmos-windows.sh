@@ -221,10 +221,11 @@ tr -d '\r' < "$REPO/tools/windows/kosmos.sh" > "$STAGE/bin/kosmos"
 # reason (#269): a fact about the bundle must not require the bundle's API. The
 # checks below FAIL THE BUILD rather than shipping the marker to a screen.
 _ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$STAGE/app/package.json" | head -1)"
-# kosmos#7411: the release notes this build ships (nothing held, nothing newer than it), never the pool itself.
-node "$REPO/tools/whats-new-pool.js" notes "$_ver" --out="$STAGE/app/release-notes.json" >/dev/null \
-  || { echo "could not write the release notes for $_ver (kosmos#7411)" >&2; exit 1; }
 [ -n "$_ver" ] || { echo "could not read the version to bake into the page" >&2; exit 1; }
+# kosmos#7411: the release notes this build ships (nothing held, nothing newer than it, this platform's only), never
+# the pool itself.
+node "$REPO/tools/whats-new-pool.js" notes "$_ver" --platform=windows --out="$STAGE/app/release-notes.json" >/dev/null \
+  || { echo "could not write the release notes for $_ver (kosmos#7411)" >&2; exit 1; }
 sed -i '' "s/__KOSMOS_VERSION__/$_ver/" "$STAGE/app/web/index.html" 2>/dev/null \
   || sed -i "s/__KOSMOS_VERSION__/$_ver/" "$STAGE/app/web/index.html"
 if grep -q "__KOSMOS_VERSION__" "$STAGE/app/web/index.html"; then

@@ -140,10 +140,11 @@ kosmos_stage_service_keys "$REPO" "$STAGE/app/engine" || exit 1
 cp -R "$REPO/web" "$STAGE/app/web"
 # The version baked into the page, as the Mac builder does (#269), and verified so the marker never ships.
 _ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$STAGE/app/package.json" | head -1)"
-# kosmos#7411: the release notes this build ships (nothing held, nothing newer than it), never the pool itself.
-node "$REPO/tools/whats-new-pool.js" notes "$_ver" --out="$STAGE/app/release-notes.json" >/dev/null \
-  || { echo "could not write the release notes for $_ver (kosmos#7411)" >&2; exit 1; }
 [ -n "$_ver" ] || { echo "could not read the version to bake into the page" >&2; exit 1; }
+# kosmos#7411: the release notes this build ships (nothing held, nothing newer than it, this platform's only), never
+# the pool itself.
+node "$REPO/tools/whats-new-pool.js" notes "$_ver" --platform=linux --out="$STAGE/app/release-notes.json" >/dev/null \
+  || { echo "could not write the release notes for $_ver (kosmos#7411)" >&2; exit 1; }
 sed -i.bak "s/__KOSMOS_VERSION__/$_ver/" "$STAGE/app/web/index.html" && rm -f "$STAGE/app/web/index.html.bak"
 if grep -q "__KOSMOS_VERSION__" "$STAGE/app/web/index.html"; then echo "the version marker survived the bake" >&2; exit 1; fi
 grep -q "content=\"$_ver\"" "$STAGE/app/web/index.html" || { echo "the version was not baked into the page" >&2; exit 1; }
