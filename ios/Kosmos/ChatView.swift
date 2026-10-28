@@ -155,11 +155,20 @@ struct ChatView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             // Mona Lisa's spec: 16 pt side margins, 6 pt above the composer.
                             .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 6)
-                            .background(Palette.ground.opacity(0.94))
+                            .background(Palette.ground)
                             .onAppear { UIAccessibility.post(notification: .announcement, argument: line) }
                             .onChange(of: line) { now in UIAccessibility.post(notification: .announcement, argument: now) }
                     }
                     composer
+                }
+                // kosmos#7346 (Josh 10-27 19:59): solid behind and below the box, down to the home indicator, as Discord: no
+                // message shows through or under it. The inset already ends the list above this strip.
+                .background(Palette.ground.ignoresSafeArea(edges: .bottom))
+                // Josh 10-27: "with a slide fade into it so it looks smooth": messages fade into the strip over 18 pt above it,
+                // never a hard edge. Drawn over the list, so it takes no room and no touches.
+                .overlay(alignment: .top) {
+                    LinearGradient(colors: [Palette.ground.opacity(0), Palette.ground], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 18).offset(y: -18).allowsHitTesting(false).accessibilityHidden(true)
                 }
             }
         }
@@ -1062,9 +1071,9 @@ struct ChatView: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // kosmos#7346 review: over the conversation running behind, the strips get the page's ground, edge to edge.
-            if let replying { replyStrip(replying).background(Palette.ground.opacity(0.94).padding(.horizontal, -12)) }
-            if !attachedHere.isEmpty || uploadingHere > 0 { chips.background(Palette.ground.opacity(0.94).padding(.horizontal, -12)) }
+            // kosmos#7346: the strips above the box are the page's solid ground, edge to edge (nothing shows through).
+            if let replying { replyStrip(replying).background(Palette.ground.padding(.horizontal, -12)) }
+            if !attachedHere.isEmpty || uploadingHere > 0 { chips.background(Palette.ground.padding(.horizontal, -12)) }
             // kosmos#7346: one floating box, + then the text then emoji and mic; no send arrow (the keyboard's Send sends).
             // Radius 24, at least 48 pt, the card colour with a soft shadow and a hairline edge (Mona Lisa's spec).
             HStack(alignment: .bottom, spacing: 0) {
@@ -1078,7 +1087,7 @@ struct ChatView: View {
             if let line = ComposerExtras.micLine(dictation.state) {
                 Text(line).font(.footnote).foregroundColor(Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 4)
-                    .background(Palette.ground.opacity(0.94).padding(.horizontal, -12))
+                    .background(Palette.ground.padding(.horizontal, -12))
             }
             // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it. The tab bar is
             // already hidden in a conversation, so nothing sits under the panel.
