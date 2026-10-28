@@ -35,7 +35,7 @@ struct ContentView: View {
     @State private var newTeamBusy = false    // kosmos#7488: a team still being made, after its sheet closed
     // kosmos#7488: new agents' projects to tell once the board's list shows them (the desktop's tell after create), kept
     // here so closing New Agent early drops none.
-    @State private var pendingTells: [String: (host: String, projects: [String])] = [:]   // by session
+    @State private var pendingTells: [String: (host: String, projects: [String], at: Date)] = [:]   // by session
     // kosmos#7418: an agent's chat a tapped notification asked for, handed to the Agents tab to open.
     @State private var agentRequest: PushBridge.AgentTarget?
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
@@ -270,7 +270,7 @@ struct ContentView: View {
             }, tell: { session, projects in
                 // Kept with the computer that made it: a tell names a project there, never on another Mac.
                 guard let host = board.macURL?.host else { return }
-                pendingTells[session] = (host, projects)
+                pendingTells[session] = (host, projects, Date())
                 sendTells(board.agents)
             }, teamBusy: $newTeamBusy)
         }
@@ -384,6 +384,8 @@ struct ContentView: View {
     private func sendTells(_ rows: [Board.Agent]) {
         let on = Set(rows.filter(\.boardSeesIt).map(\.session))
         guard let host = board.macURL?.host else { return }
+        // Not kept for ever: an agent the board has not seen in ten minutes is told from its project's own screen.
+        pendingTells = pendingTells.filter { $0.value.at.timeIntervalSinceNow > -600 }
         for (session, pending) in pendingTells where on.contains(session) && pending.host == host {
             pendingTells[session] = nil
             for id in pending.projects { Task { _ = await board.throughMac { NewAgent.tellRequest(mac: $0, project: id, session: session) } } }

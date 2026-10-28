@@ -446,15 +446,18 @@ struct NewAgentView: View {
         if path.last != .teamMade { path.append(.teamMade) }
         teamStarted = true
         let lead = d.members.first?.slot
+        // The run's own record of the lead, so the order never rests on the sheet's state once the sheet has gone.
+        var leadMade = lead.map(isMade) ?? false
         for s in specs {
             if case .made = states[s.slot] { continue }
-            if s.slot != lead, let lead, !isMade(lead) { states[s.slot] = .afterLead; continue }
+            if s.slot != lead, !leadMade { states[s.slot] = .afterLead; continue }
             // A create whose answer was lost may have landed: once that agent is on the board, it is this member (the
             // desktop's maybeMade, checked against the board's list).
             if maybeMade[s.slot] == s.session, client.agents.contains(where: { $0.session == s.session && $0.boardSeesIt }) {
                 states[s.slot] = .made(session: s.session, shownAs: s.name)
                 maybeMade[s.slot] = nil
                 tellLater(s.session, teamProject.map { [$0] } ?? [])
+                if s.slot == lead { leadMade = true }
                 continue
             }
             states[s.slot] = .making
@@ -463,6 +466,7 @@ struct NewAgentView: View {
             guard epoch == client.chatEpoch else { return }
             switch NewAgent.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
             case .made(let session, let shown):
+                if s.slot == lead { leadMade = true }
                 states[s.slot] = .made(session: session, shownAs: shown)
                 memberWarnings[s.slot] = NewAgent.madeWarnings(got?.0)
                 maybeMade[s.slot] = nil
