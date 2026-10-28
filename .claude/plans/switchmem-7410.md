@@ -193,3 +193,14 @@ One warning (a regression from review 4) and one nit, both taken; both tests are
    point the brief at notes behind the junction. The pointer now never runs when the result is `blocked`. Test: memory/
    a junction to a folder holding claude-notes/MEMORY.md: `blocked`, not pointed, the brief unchanged, and nothing
    written behind the junction.
+
+## Review 6 (decided)
+One warning and one nit, both taken; both tests are red on ca3c2c3ae2.
+1. **The pointer was decided from the outcome, not the disk**, so with memory/ a junction any outcome other than
+   `blocked` (a switch back to Claude, a rootChange, any refusal) still pointed the brief behind it and the sentence
+   said "The notes in its folder stay there for it to read". `realDir` is lifted to the top of `carryClaudeNotes`, and
+   the pointer needs memory/ and memory/claude-notes/ both to be real folders. The sentence follows `pointed`, so it
+   no longer claims those notes. Test: memory/ a junction, codex -> claude: not pointed, the brief unchanged, the
+   sentence without "notes in its folder".
+2. **memory/ that became a file (or a link) between the first check and the mkdir** read as `failed`; it is `blocked`
+   now (checked before failures are counted). Test: an mkdir seam that puts a file at memory/ and throws ENOTDIR.

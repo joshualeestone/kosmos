@@ -320,6 +320,42 @@ test('#7410 review 5: memory/ itself a junction is blocked, and the brief is nev
   assert.deepEqual(fs.readdirSync(nodePath.join(elsewhere, 'claude-notes')), ['MEMORY.md'], 'a note was written through the junction');
 });
 
+test('#7410 review 6: memory/ a junction is never pointed at, whatever the outcome (here a switch back to Claude)', (t) => {
+  const name = born('sm7410-backjunction');
+  const elsewhere = nodePath.join(SANDBOX, 'elsewhere-back-7410');
+  fs.mkdirSync(nodePath.join(elsewhere, 'claude-notes'), { recursive: true });
+  fs.writeFileSync(nodePath.join(elsewhere, 'claude-notes', 'MEMORY.md'), 'not this agent\'s folder\n', 'utf8');
+  try { fs.symlinkSync(elsewhere, nodePath.join(create.workerDir(name), 'memory'), 'junction'); }
+  catch (e) { t.skip('this computer will not make a link here (' + e.code + ')'); return; }
+  const brief = nodePath.join(create.workerDir(name), 'CLAUDE.md');
+  const r = create.carryClaudeNotes(name, { runner: 'codex' }, 'claude', brief, 'openai', 'anthropic');
+  assert.equal(r.notes, 'none', 'CONTROL: a switch back to Claude, not a blocked copy');
+  assert.equal(r.pointed, false, 'the brief was pointed at notes behind a junction');
+  assert.equal(blocks(read(brief)), 0);
+  assert.doesNotMatch(create.switchCarryWords('Claude', r, 'OpenAI'), /notes in its folder/);
+});
+
+test('#7410 review 6: memory/ that became a file between the check and the mkdir is blocked, not failed', () => {
+  const name = born('sm7410-memfile');
+  claudeProject(name, { 'MEMORY.md': 'a note\n' });
+  const memPath = nodePath.join(create.workerDir(name), 'memory');
+  const real = fs.mkdirSync;
+  // The seam: the mkdir finds a file where memory/ should be (put there after the first check) and fails.
+  fs.mkdirSync = (p, o) => {
+    if (nodePath.resolve(String(p)) === nodePath.resolve(notesDir(name))) {
+      fs.writeFileSync(memPath, 'a file now\n', 'utf8');
+      const e = new Error('ENOTDIR: not a directory'); e.code = 'ENOTDIR'; throw e;
+    }
+    return real(p, o);
+  };
+  const warn = console.warn;
+  console.warn = () => {};
+  let r;
+  try { r = carryOff(name); } finally { fs.mkdirSync = real; console.warn = warn; }
+  assert.equal(r.notes, 'blocked');
+  assert.equal(r.failed, 0);
+});
+
 test('#7410 review 4: a note changed after the ownership check (before its copy) is left out', () => {
   const name = born('sm7410-raced');
   const src = claudeProject(name, { 'MEMORY.md': 'stable\n', 'late.md': 'rewritten by another session\n' });

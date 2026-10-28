@@ -2851,6 +2851,9 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
   const dir = workerDir(clean);
   const memDir = path.join(dir, 'memory');
   const destDir = path.join(dir, CARRIED_NOTES_REL);
+  // Review 4: a real folder, not a link or junction (lstat answers isSymbolicLink for a Windows junction too).
+  // Review 6: lifted here, so the pointer step asks the disk too, whatever the copy's outcome was.
+  const realDir = (p) => { try { const s = fs.lstatSync(p); return s.isDirectory() && !s.isSymbolicLink(); } catch { return false; } };
   const out = { from: from || null, toClaude, rootChange, notes: rootChange ? 'stayed' : 'none', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false };
   if (!toClaude) {
     const root = agentClaudeRoot(job);
@@ -2860,8 +2863,6 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
     if (mem.state !== 'owned') out.notes = mem.state;
     else {
       const notDir = (p) => { try { return !fs.lstatSync(p).isDirectory(); } catch { return false; } };   // there and not a real folder
-      // Review 4: a real folder, not a link or junction (lstat answers isSymbolicLink for a Windows junction too).
-      const realDir = (p) => { try { const s = fs.lstatSync(p); return s.isDirectory() && !s.isSymbolicLink(); } catch { return false; } };
       if (notDir(memDir) || notDir(destDir)) out.notes = 'blocked';   // a link or a file: never written through
       else {
         /* Review 3: every note is counted, never dropped: copied, kept (already there as a plain file), skipped (a link,
@@ -2877,7 +2878,10 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
            Review 4: checked AGAIN after the mkdir. A link or junction put at memory/ or memory/claude-notes/ between the
            first check and the mkdir makes the recursive mkdir a no-op, and every copy would then write through it to
            somewhere outside the agent's folder. Something there that is not a real folder: blocked, nothing copied. */
-        if (!there(destDir)) {
+        // Review 6: memory/ there but not a real folder (it became a file or a link since the first check) is blocked,
+        // even though claude-notes/ could not be made under it.
+        if (there(memDir) && !realDir(memDir)) out.notes = 'blocked';
+        else if (!there(destDir)) {
           out.failed += mem.files.length;
           out.notes = 'failed';
           try { console.warn(`create: the switch could not make ${CARRIED_NOTES_REL} for ${clean} (${(mkErr && mkErr.code) || 'it is not there'}), so no notes were copied`); } catch { /* never mask */ }
@@ -2912,11 +2916,14 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
   }
   // The pointer, whenever the folder has a carried note in it (a switch back to Claude keeps pointing at what the agent
   // wrote while away).
+  /* Review 6: decided from the disk, not from the outcome. memory/ and memory/claude-notes/ must both be real folders:
+     a junction at memory/ reaches somewhere else's notes on a switch back to Claude, a rootChange or any refusal just as
+     on a copy, and the brief (and the sentence) must not claim notes in its folder then. */
   let has = false;
   try {
-    const st = fs.lstatSync(destDir);
     // Review 3: only a plain .md file counts as a note to point at (never a link or a folder named like one).
-    has = st.isDirectory() && fs.readdirSync(destDir, { withFileTypes: true }).some((e) => e.isFile() && /\.md$/i.test(e.name));
+    has = realDir(memDir) && realDir(destDir)
+      && fs.readdirSync(destDir, { withFileTypes: true }).some((e) => e.isFile() && /\.md$/i.test(e.name));
   } catch { has = false; }
   // Review 5: never pointed at a folder that was blocked (memory/ a junction to somewhere else can hold notes too).
   if (has && newBrief && out.notes !== 'blocked') {
