@@ -158,7 +158,7 @@ test('#4926 review 1 (Opus): the held line riding a typed arrival leaves out a s
        (stoppedAt > at), and a stop stamped "now" could share the earlier post's millisecond (a stop stamped AT it fails
        every run). That tie is likelier on an idle machine than a loaded one, so it may not be the reported flake; it is
        closed here regardless: the stop is 1 ms after the earlier post, and the later post is posted 2 ms or more past
-       it. The assert below names a later post at or before the stop (only a wall clock stepping back) by name. */
+       the stop. The assert below names a later post at or before the stop (only a wall clock stepping back) by name. */
     const stopAt = Date.parse(before.at) + 1;
     fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'valve', from: 'cy', to: 'room4926', project: 'room4926', at: new Date(stopAt).toISOString(), because: 'loop', stopped: true }) + '\n');
     while (Date.now() <= stopAt + 1) await new Promise((r) => setTimeout(r, 2));
