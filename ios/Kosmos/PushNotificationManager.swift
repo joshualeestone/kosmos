@@ -6,6 +6,9 @@ import UserNotifications
 // handling. Kept separate from AppDelegate so the behavior is testable and the
 // delegate stays a thin forwarder.
 final class PushNotificationManager: NSObject, ObservableObject {
+    // kosmos#7420: the conversation on screen, set and cleared by ChatView (main thread), read when a notice arrives in
+    // the foreground so the open chat gets no banner of its own.
+    static var chatOnScreen: PushBridge.OpenChat?
 
     // One tap's request to open a board. Each tap gets its own id, so a second tap
     // on the same Mac is a new request rather than an unchanged value.
@@ -227,7 +230,12 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound, .badge])
+        // kosmos#7420: nothing for the conversation the person has open (PushBridge.showsBanner). Read on the main thread,
+        // where ChatView sets it: this call need not arrive there.
+        let userInfo = notification.request.content.userInfo
+        DispatchQueue.main.async {
+            completionHandler(PushBridge.showsBanner(userInfo, openChat: Self.chatOnScreen) ? [.banner, .sound, .badge] : [])
+        }
     }
 
     // Handle a response to a notification: the plain tap, Reply, and Allow and Deny (#7017), the only actions any category registers.
