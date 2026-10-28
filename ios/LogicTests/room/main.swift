@@ -1088,6 +1088,70 @@ check(bubbleSource.contains("Button(\"Copy\") { UIPasteboard.general.string = Bo
       && bubbleSource.components(separatedBy: "UIPasteboard.general.string =").count == 2,
       "both Copy paths (VoiceOver's action and the long-press sheet) take the row's words, never the line")
 
+// kosmos#7488: the native New Agent flow. Its words are the desktop's, read from the board's own page so they cannot drift.
+for w in [NewAgent.Words.kindTitle, NewAgent.Words.roleTitle, NewAgent.Words.roleHint, NewAgent.Words.pickAnother,
+          NewAgent.Words.ownName, NewAgent.Words.ownLine, NewAgent.Words.ownFull, NewAgent.Words.maxHelpers,
+          NewAgent.Words.dailyLimit, NewAgent.Words.pauses, NewAgent.Words.hello]
+    + NewAgent.Kind.allCases.flatMap({ [NewAgent.Words.kindName($0), NewAgent.Words.kindLine($0)] }) {
+    check(boardPage.contains(w), "the desktop says it too: \(w)")
+}
+check(boardPage.contains("The lead agent brings in up to ${max} helpers when parts of a task can be done at the same time. Otherwise, it works alone.")
+      && NewAgent.Words.swarmExplain(3) == "The lead agent brings in up to 3 helpers when parts of a task can be done at the same time. Otherwise, it works alone.",
+      "the swarm explanation is the desktop's, following the helpers")
+check(boardPage.contains("'Say Hello to ' + shown") && NewAgent.Words.sayHello("Ada") == "Say Hello to Ada", "Say Hello to <name>, as the desktop")
+check(boardPage.contains("min=\"2\" max=\"10\" step=\"1\" value=\"3\"") && NewAgent.helpersRange == 2...10 && NewAgent.helpersStart == 3, "helpers 2 to 10, starting at 3, as the desktop's slider")
+check(NewAgent.capWords(6) == "6,000,000 tokens a day", "the limit reads in tokens a day, as the desktop's token mode")
+let naRoles = Data(#"""
+{"models":[{"key":"opus","provider":"anthropic","label":"Opus","default":false},{"key":"sonnet","provider":"anthropic","label":"Sonnet","default":true},{"key":"gpt-5","provider":"openai","label":"GPT-5"}],
+ "own":{"key":"own","blurb":"An agent whose job you write yourself","instructions":"You are **{{NAME}}**, an assistant.\nDo the work."},
+ "roles":[{"key":"writer","label":"Writer","blurb":"Writes","instructions":"x","group":"Words"},
+          {"key":"pm","label":"Project Manager","blurb":"Runs","instructions":"y","group":"Running the work"},
+          {"key":"editor","label":"Editor","blurb":"Edits","instructions":"z","group":"Words"},
+          {"key":"","label":"No key"}]}
+"""#.utf8)
+let naCat = NewAgent.parseCatalogue(naRoles, swarms: false)
+check(naCat?.roles.map(\.key) == ["writer", "pm", "editor"], "menu roles as served, a keyless row dropped")
+check(naCat?.recommended?.key == "pm", "the recommended role is pm, as the desktop's buildPicker")
+check(naCat?.models.map(\.key) == ["opus", "sonnet"] && naCat?.defaultModel?.key == "sonnet", "Claude models only, the served default chosen")
+check(naCat?.groups.map(\.name) == ["Words", "Running the work"] && naCat?.groups.first?.roles.map(\.key) == ["writer", "editor"], "grouped in the catalogue's order")
+check(naCat?.own?.label == "Describe it yourself" && NewAgent.ownExample(naCat!) == "You are **your agent**, an assistant.\nDo the work.", "own starts from the example, the name read as the desktop does")
+check(NewAgent.parseCatalogue(Data("{}".utf8), swarms: false) == nil, "a reply without roles is not a catalogue")
+check(Board.swarmsOn(fromStatus: Data(#"{"swarms":true,"agents":[]}"#.utf8)) && Board.swarmsOn(fromStatus: Data(#"{"agents":[{"swarm":{}}]}"#.utf8))
+      && !Board.swarmsOn(fromStatus: Data(#"{"agents":[{"name":"a"}]}"#.utf8)), "Swarm shows when the board says so, as SWARMS_ON")
+if let c = naCat {
+    func bodyOf(_ d: NewAgent.Draft) -> [String: Any]? {
+        NewAgent.createRequest(mac: npMac, draft: d, catalogue: c).flatMap { $0.httpBody }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    }
+    var d = NewAgent.Draft(); d.roleKey = "pm"; d.name = "  Ada "; d.label = "Project Manager"; d.model = "sonnet"
+    let b1 = bodyOf(d)
+    check(b1?["name"] as? String == "Ada" && b1?["role"] as? String == "pm" && b1?["label"] == nil && b1?["model"] as? String == "sonnet"
+          && b1?["reportsTo"] == nil && b1?["kind"] == nil && b1?["notifyCreated"] as? Bool == true, "single: an unchanged label and you as manager do not travel")
+    check(NewAgent.createRequest(mac: npMac, draft: d, catalogue: c)?.url?.absoluteString == npMac.absoluteString.replacingOccurrences(of: "/$", with: "", options: .regularExpression) + "/api/agents"
+          && NewAgent.createRequest(mac: npMac, draft: d, catalogue: c)?.httpMethod == "POST", "POST /api/agents, the desktop's route")
+    d.label = "Lead"; d.reportsTo = "boss-1"
+    check(bodyOf(d)?["label"] as? String == "Lead" && bodyOf(d)?["reportsTo"] as? String == "boss-1", "a changed label and a manager travel")
+    d.name = " "
+    check(bodyOf(d) == nil && !NewAgent.canCreate(d, c), "nothing is sent without a name")
+    var o = NewAgent.Draft(); o.roleKey = "own"; o.name = "Ada"
+    check(!NewAgent.canContinueRole(o, c), "own needs words in its box")
+    o.ownWords = NewAgent.ownExample(c)
+    check(NewAgent.canContinueRole(o, c) && !NewAgent.canCreate(o, c), "own's Role label is required, as the engine requires it")
+    o.label = "Researcher"
+    check(bodyOf(o)?["label"] as? String == "Researcher" && bodyOf(o)?["instructions"] == nil, "own: the label always travels; the untouched example does not")
+    o.ownWords = "You are **your agent**, an assistant.\nRead leases."
+    check(bodyOf(o)?["instructions"] as? String == "You are **Ada**, an assistant.\nRead leases.", "own: edited words travel, with the agent's name in place")
+    var s = NewAgent.Draft(kind: .swarm); s.roleKey = "writer"; s.name = "Hive"; s.maxHelpers = 99; s.capMillions = 6
+    let sb = bodyOf(s)
+    check(sb?["kind"] as? String == "swarm" && sb?["maxHelpers"] as? Int == 10 && sb?["dailyTokenLimit"] as? Int == 6_000_000
+          && sb?["provider"] as? String == "anthropic", "swarm: kind, helpers (kept in range), the limit in tokens, Claude")
+}
+check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"created","name":"ada-1","shownAs":"Ada"}"#.utf8)) == .made(session: "ada-1", shownAs: "Ada"), "created: the session and its shown name")
+check(NewAgent.result(sent: true, status: 400, body: Data(#"{"outcome":"refused","because":"There is already an agent called Ada."}"#.utf8)) == .refused("There is already an agent called Ada."), "refused: the board's own sentence")
+check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"partial","because":"It could not start."}"#.utf8)) == .refused("It could not start."), "partial is rolled back by the engine: its sentence")
+check(NewAgent.result(sent: true, status: 0, body: nil) == .unknown && NewAgent.result(sent: true, status: 502, body: nil) == .unknown, "no answer may have made it")
+check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"created","name":"../x"}"#.utf8)) == .unknown, "a made answer with no usable session is unknown, never guessed")
+check(NewAgent.result(sent: false, status: 0, body: nil) == .refused(NewAgent.fallback), "nothing sent is certainly not made")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")

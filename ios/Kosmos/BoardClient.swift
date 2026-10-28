@@ -506,6 +506,8 @@ final class BoardClient: ObservableObject {
     // The engine's Tasks flag from the same poll (nil when the Mac does not say).
     @Published private(set) var tasksTab: Bool?
     @Published private(set) var projectsUnread: Int?
+    // kosmos#7488: whether New Agent offers a Swarm, as the board's SWARMS_ON (from the same status read).
+    @Published private(set) var swarmsOn = false
     // kosmos#7137: the board's fedShow() from the same poll: the shared-room UI is shown to this person.
     @Published private(set) var fedShown = false
     // The tasks an agent marked built, oldest first; nil until a read answers. tasksFailed: the last read did not
@@ -1603,6 +1605,7 @@ final class BoardClient: ObservableObject {
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
             tasksTab = AppTabs.tasksTab(fromStatus: data)   // kosmos#7032: Tasks earned, with no board page loaded
             projectsUnread = AppTabs.projectsUnread(fromStatus: data)     // kosmos#7032: the Projects tab's badge
+            swarmsOn = Board.swarmsOn(fromStatus: data)   // kosmos#7488: New Agent's Swarm choice
             fedShown = Board.fedShown(fromStatus: data)   // kosmos#7137: the shared-room UI, as the board's fedShow()
             if sorting { resortNext = false; sortedTicket = ticket; sortEpoch += 1 }
             updatedAt = env.now()

@@ -386,6 +386,14 @@ enum Board {
         return r
     }
 
+    // kosmos#7488: the desktop's SWARMS_ON, which offers New Agent's Swarm: the board says so, or a row already carries
+    // a swarm.
+    static func swarmsOn(fromStatus data: Data) -> Bool {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        if obj["swarms"] as? Bool == true { return true }
+        return ((obj["agents"] as? [[String: Any]]) ?? []).contains { $0.keys.contains("swarm") }
+    }
+
     // `/api/status`'s `agents`: one row per agent, keyed by `sessionName`.
     static func parseAgents(_ data: Data) -> [Agent]? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
