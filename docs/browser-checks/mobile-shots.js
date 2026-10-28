@@ -743,8 +743,11 @@ async function stallRoute(page, data, kind) {
   });
 }
 /* kosmos#7365 slice 3b: the room's reads, answered as a room with an archive (see room-archive-edge-7365). Installed once
-   per page; the archived rows are dated ten days back and the live rows are the board's own. */
-async function archiveRoute7365(page, data) {
+   per page; the archived rows are dated ten days back and the live rows are the board's own. long: the newest page
+   says an earlier page is still to load (210 rows, served on its cursor), so the room is over one page and on a phone
+   its last row is "Archive older messages". Read per call, since one page serves several screens. */
+async function archiveRoute7365(page, data, long) {
+  page.__arch7365long = Boolean(long);
   if (page.__arch7365) return;
   page.__arch7365 = true;
   const day = 24 * 60 * 60 * 1000;
@@ -759,6 +762,15 @@ async function archiveRoute7365(page, data) {
     try {
       if (r.request().method() !== 'GET') { await r.continue(); return; }
       const u = new URL(r.request().url());
+      // The long room's earlier page is answered here: the board does not know the made-up cursor and would refuse it.
+      if (page.__arch7365long && u.searchParams.get('cursor') === 'older-7365') {
+        const rows = Array.from({ length: 210 }, (_, i) => {
+          const at = new Date(Date.now() - 6 * day + i * 20 * 60000).toISOString();
+          return { kind: 'post', id: 'fill-7365-' + i, from: data.chatAgent, fromKind: 'agent', text: 'Proof check ' + (i + 1) + ': pages read, no changes.', at, key: at + '|0' };
+        });
+        await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rows, olderCount: 0, olderCursor: null, archivedCount: archived.length, archiveMarker: marker }) });
+        return;
+      }
       const res = await r.fetch();
       let body = null;
       try { body = await res.json(); } catch { body = null; }
@@ -766,7 +778,8 @@ async function archiveRoute7365(page, data) {
       if (u.searchParams.get('archive') === '1') {
         body = Object.assign({}, body, { rows: archived.map((x) => Object.assign({}, x)), olderCount: 0, olderCursor: null, archivedCount: archived.length, archiveMarker: marker });
       } else if (u.searchParams.has('n')) {
-        body = Object.assign({}, body, { olderCount: 0, olderCursor: null, archivedCount: archived.length, archiveMarker: marker });
+        const older = page.__arch7365long ? { olderCount: 210, olderCursor: 'older-7365' } : { olderCount: 0, olderCursor: null };
+        body = Object.assign({}, body, older, { archivedCount: archived.length, archiveMarker: marker });
       } else {
         body = Object.assign({}, body, { rows: archived.map((x) => Object.assign({ archived: true }, x)).concat(Array.isArray(body.rows) ? body.rows : []), archivedCount: archived.length, archiveMarker: marker });
       }
@@ -1300,10 +1313,19 @@ const SCREENS = [
     await page.waitForTimeout(200);
     await page.mouse.move(1, 1);
   } },
-  { name: 'room-archive-confirm-7365', owner: 'Renet Tilley', noServiceWorker: true, go: async (page, data) => {
-    await archiveRoute7365(page, data);
+  /* 3b final placement (Mona Lisa): a room over one page, scrolled to the end. On a phone the thread's last row is
+     "Archive older messages"; on a computer it stays in the header. */
+  { name: 'room-archive-end-7365', owner: 'Renet Tilley', noServiceWorker: true, go: async (page, data) => {
+    await archiveRoute7365(page, data, true);
     await SCREENS.find((s) => s.name === 'project-room').go(page, data);
-    await page.click('#pj-arch-ask');
+    await page.waitForSelector('#pj-room [data-arch-ask]', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => { const b = document.getElementById('pj-room'); b.scrollTop = b.scrollHeight; });
+    await page.waitForTimeout(250);
+  } },
+  { name: 'room-archive-confirm-7365', owner: 'Renet Tilley', noServiceWorker: true, go: async (page, data) => {
+    // From the long room: whichever "Archive older messages" this width shows (the header's, or a phone's last row).
+    await SCREENS.find((s) => s.name === 'room-archive-end-7365').go(page, data);
+    await page.locator('#pj-arch-ask:visible, #pj-room [data-arch-ask]:visible').first().click();
     await page.waitForSelector('#pjarch-modal:not([hidden])', { timeout: 8000 });
     await page.waitForTimeout(150);
   }, after: async (page) => {

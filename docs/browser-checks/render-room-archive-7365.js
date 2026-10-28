@@ -113,7 +113,7 @@ function findUnder(dir, name) {
     const archiveWith = async (choice, re) => {
       // A toast keeps its words after it hides, so the last one is cleared first: only this press's sentence can match (review 6).
       await p.evaluate(() => { const t = document.getElementById('msg-toast'); if (t) t.textContent = ''; });
-      // Whichever "Archive older messages" this width shows: the header's, or on a phone the thread's first row (Mona Lisa).
+      // Whichever "Archive older messages" this width shows: the header's, or on a phone the thread's last row (Mona Lisa).
       await p.locator('#pj-arch-ask:visible, #pj-room [data-arch-ask]:visible').first().click();
       await p.waitForSelector('#pjarch-modal:not([hidden])', { timeout: 5000 });
       await p.selectOption('#pjarch-when', choice);
