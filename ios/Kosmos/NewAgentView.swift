@@ -388,6 +388,7 @@ struct NewAgentView: View {
                 .accessibilityLabel(m.title + ", " + NewAgent.Words.name)
             if editable {
                 Image(systemName: "pencil").foregroundColor(Palette.secondary).accessibilityHidden(true)
+                    .frame(minWidth: 44, minHeight: 44)   // a tap target, not just the glyph
                     .contentShape(Rectangle())
                     .onTapGesture { nameFocus = m.slot }
             }
