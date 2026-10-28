@@ -321,8 +321,8 @@ let sheetSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/
 // small height), cut out on the bubble's own shape in every bubble kind; nothing (no ring) is drawn on the bubble.
 let litSrcs = ["ChatView.swift", "ChatFiles.swift", "ChatChoices.swift", "RoomView.swift"].map { (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/" + $0), encoding: .utf8)) ?? "" }
 check(litSrcs.allSatisfy { $0.contains(".overlay(PressedBubbleMark())") }, "kosmos#7419: every bubble kind marks where it is for the lit dim")
-check(sheetSrc.contains("presentationBackgroundInteraction(.enabled(upThrough: small))") && sheetSrc.contains("FillStyle(eoFill: true)") && sheetSrc.contains("close: { target = nil }"),
-      "kosmos#7419: at the small height the chat draws its own dim with the pressed bubble cut out, and a tap on it closes the sheet")
+check(sheetSrc.contains("presentationBackgroundInteraction(voiceOver ? .disabled : .enabled(upThrough: small))") && sheetSrc.contains("transformAnchorPreference(key: PressedBubbleKey.self") && sheetSrc.contains("FillStyle(eoFill: true)") && sheetSrc.contains("close: { target = nil }"),
+      "kosmos#7419: at the small height (VoiceOver off) the chat draws its own dim with the pressed bubble cut out, the visible area joining the rows' preference, and a tap on it closes the sheet")
 check(!sheetSrc.contains("PressedRing") && litSrcs.allSatisfy { !$0.contains("PressedRing") }, "kosmos#7419: no ring is drawn on the pressed message (gold is only a reaction already the person's)")
 check(sheetChat.components(separatedBy: ".messageActions(").count - 1 == 2 && sheetRoom.components(separatedBy: ".messageActions(").count - 1 == 1,
       "kosmos#7419: the chat bubble, the files bubble and the room's post open the sheet on a long press")
