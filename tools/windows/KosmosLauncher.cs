@@ -122,7 +122,7 @@ class KosmosLauncher
     // task and is serving from this launcher, which has no window, so this box
     // is the person's handle on it.
     const string RunningHereMessage =
-        "Kosmos couldn't move to the background, so it's running from here instead. Keep this box open while you use Kosmos. Click OK to close it and stop Kosmos here. If 'Start Kosmos when I sign in to Windows' is on in Settings, Kosmos then tries to start again in the background by itself within about a minute. To see why, run Kosmos.exe --console.";
+        "Kosmos couldn't move to the background, so it's running from here instead. Keep this box open while you use Kosmos. Click OK to close it and stop Kosmos here. If 'Start Kosmos when I sign in to Windows' is on in Settings, Kosmos then tries to start again in the background by itself. To see why, run Kosmos.exe --console.";
 
     // The window class of every Windows message box, ours included.
     const string DialogWindowClass = "#32770";

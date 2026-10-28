@@ -305,7 +305,7 @@ test('rounds 1-2 BUG: a board PROVABLY serving from the launcher (listening) get
     'the check mark is no longer derived from the budget and its floors');
   assert.doesNotMatch(SOURCE + handoffSource, /HandOffWorstCaseMs|HANDOFF_WORST_CASE_MS/, 'a constant still claims to be the hand-off\'s worst case, which round 2 measured it is not');
   assert.equal(sourceConstant('RunningHereMessage'),
-    "Kosmos couldn't move to the background, so it's running from here instead. Keep this box open while you use Kosmos. Click OK to close it and stop Kosmos here. If 'Start Kosmos when I sign in to Windows' is on in Settings, Kosmos then tries to start again in the background by itself within about a minute. To see why, run Kosmos.exe --console.");
+    "Kosmos couldn't move to the background, so it's running from here instead. Keep this box open while you use Kosmos. Click OK to close it and stop Kosmos here. If 'Start Kosmos when I sign in to Windows' is on in Settings, Kosmos then tries to start again in the background by itself. To see why, run Kosmos.exe --console.");
   /* #7492: the box names the Settings switch the board watchdog (#2988) obeys. One label, two copies
      (the page's and this one), so a reworded switch must reword the box too. */
   const label = fs.readFileSync(path.join(REPO, 'web', 'index.html'), 'utf8').match(/startAtSignInLabel: '([^']+)'/);

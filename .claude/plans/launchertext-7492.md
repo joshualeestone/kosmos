@@ -6,8 +6,7 @@
 
 When the Windows hand-off falls back to serving the board in a window, the box no longer says "Click OK to stop
 Kosmos", which the watchdog made untrue. It says: "Click OK to close it and stop Kosmos here. If 'Start Kosmos when I
-sign in to Windows' is on in Settings, Kosmos then tries to start again in the background by itself within about a
-minute."
+sign in to Windows' is on in Settings, Kosmos then tries to start again in the background by itself."
 
 ## Pieces
 
@@ -15,7 +14,8 @@ minute."
 2. `tools.win-launcher-native.test.js`: the pinned text, and a new assertion that the quoted switch name equals
    web/index.html's `startAtSignInLabel` (red-capable: rewording the label fails it).
 3. `tools/windows/Kosmos.exe`: rebuilt and re-signed on the Windows box by Homer (verify-launcher OK, signature
-   Valid, the Windows-only launcher tests 29/29, signin-6512 10/10), commit b66d91b79b.
+   Valid, the Windows-only launcher tests 29/29, signin-6512 10/10), commit b66d91b79b, for the first wording; rebuilt again for the
+   round-1 wording (no time in the sentence).
 
 ## Decisions
 
@@ -26,6 +26,10 @@ minute."
   quotes risk csc's codepage.
 - No rebase before merging: main's newer commits touch nothing under tools/windows, CI tests the PR against main, and
   a rebase-merge keeps the signed exe's bytes. Any rebase would need Homer to re-run verify-launcher.
+- No time in the sentence (review round 1): the watchdog backs off to one start per 15 minutes after repeated
+  failures, which is likely for exactly the person who sees this box, so "within about a minute" would be false then.
+- The claim holds on main, where #2988's watchdog is merged (#7495); this branch's base predates it, so it must merge
+  after #7495 (it is merged) and as a rebase-merge, never ahead of it.
 
 ## Weakest premise
 
