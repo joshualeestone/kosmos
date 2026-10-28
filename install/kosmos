@@ -506,7 +506,7 @@ _take_to() {
         --to)
           _v="${2:-}"
           case "$_v" in ''|-*) say "--to needs the name of an agent on the project, so nothing was sent."; say "$_usage"; exit 2 ;; esac
-          case "$_v" in *[\"\\]*|*[[:cntrl:]]*) say "--to needs the name of an agent on the project, so nothing was sent. Not: an agent name with a quote or backslash in it."; exit 2 ;; esac
+          case "$_v" in *[\"\\]*|*[[:cntrl:]]*) say "--to needs the name of an agent on the project, so nothing was sent. Not: an agent name with a quote, backslash or control character in it."; exit 2 ;; esac
           _n=$((_n + 1))
           [ "$_n" -le 10 ] || { say "A task message can name up to 10 agents with --to."; exit 2; }
           KOSMOS_TO_JSON="${KOSMOS_TO_JSON:+$KOSMOS_TO_JSON,}\"$_v\""
@@ -6506,6 +6506,7 @@ cmd_task() {
           say "Message recorded on task $num of ${project:-the project}.${told:+ $told}"
           # kosmos#7408: on a task nobody holds, say how to reach someone next time.
           # Review 1: a board that answers no "to" does not know --to, so the names were not told; never the hint then.
+          # Review 2: exit 0 on purpose (the message WAS recorded; a failing exit invites a resend that records it twice).
           if [ -n "$KOSMOS_TO_JSON" ]; then
             case "$body" in *'"to":['*) ;; *) say "This Kosmos does not know --to yet, so only the task's assignees were told. Update Kosmos, or assign the task." ;; esac
           else

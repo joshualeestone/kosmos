@@ -35,6 +35,7 @@ const tasks = require('./engine/tasks');
 const taskchat = require('./engine/taskchat');
 const sendertoken = require('./engine/sendertoken');
 const fleet = require('./test-support/fleet');
+const chat = require('./engine/chat');
 const cli = require('./tools/windows/kosmos-cli');
 
 let base;
@@ -82,7 +83,12 @@ const BOTH = [['Windows', win], ['Mac', mac]];
 
 const said = (n) => taskchat.read(projectId, n).filter((x) => x.kind === 'said');
 const make = (label, who) => tasks.create(projectId, { sentence: 'Message to ' + label, ...(who ? { who } : {}) }).number;
-const post = (n, body) => fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+/* Review 2: delivery reached otto's window. This board is a dry run that types into no window, so a delivery that got
+   that far reads "Not told: otto (we could not check its window ...)"; any earlier stop (off the project, switched off)
+   gives another reason, and a dropped name gives no otto at all. */
+const REACHED_OTTO = /(\bTold [^.]*\botto\b|Not told: otto \(we could not check its window)/;
+// Review 2: as an agent with its own token (mara by default), since an unnamed sender may not use to; null sends none.
+const post = (n, body, as = 'mara') => fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', ...(as ? { 'x-kosmos-agent-token': token(as) } : {}) }, body: JSON.stringify(body) });
 
 test('#7408: on a task nobody holds, either command says nobody was told and how to name someone', async () => {
   for (const [label, run] of BOTH) {
@@ -101,7 +107,7 @@ test('#7408: --to tells a named agent on a task nobody holds, from either comman
     const r = await run(['task', 'message', projectId, String(n), '--to', 'otto', 'the', 'ruling'], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
     assert.doesNotMatch(r.text, /Nobody is assigned|--to <agent>/, label + ': ' + r.text);
-    assert.match(r.text, /(Told|Not told:|may have been told)[^.]*\botto\b/, label + ': the summary says what happened for otto: ' + r.text);
+    assert.match(r.text, REACHED_OTTO, label + ': delivery reached otto: ' + r.text);
     assert.doesNotMatch(r.text, /does not know --to/, label);
     assert.equal(said(n).length, 1, label);
     assert.equal(said(n)[0].text, 'the ruling', label + ': --to and its name are not part of the words');
@@ -113,7 +119,7 @@ test('#7408: --to an agent already assigned tells it once; the sender is never t
     const n = make('dup ' + label, 'otto');
     const r = await run(['task', 'message', projectId, String(n), '--to', 'otto', '--to', 'mara', 'once'], token('mara'));
     assert.equal(r.code, 0, label + ': ' + r.text);
-    assert.match(r.text, /(Told|Not told:|may have been told)[^.]*\botto\b/, label + ': ' + r.text);
+    assert.match(r.text, REACHED_OTTO, label + ': delivery reached otto: ' + r.text);
     assert.doesNotMatch(r.text, /mara/, label + ': the sender is not told: ' + r.text);
   }
 });
@@ -185,6 +191,7 @@ test('#7408 review 1: the route delivers to a --to name once, also when it is as
   const u = make('route-unassigned');
   const u1 = await (await post(u, { text: 'x', to: ['otto'] })).json();
   assert.deepEqual(u1.delivered.map((d) => d.agent), ['otto'], 'an unassigned task tells the --to name');
+  assert.ok(u1.delivered[0].state === chat.DELIVERY.PLACED || /check its window/.test(u1.delivered[0].because || ''), 'delivery reached otto: ' + JSON.stringify(u1.delivered));
 });
 
 test('#7408 review 1: a sender that names only itself on a task nobody holds hears that nobody is assigned', async () => {
@@ -223,4 +230,23 @@ test('#7408 review 1: against an older board that ignores to, both commands say 
   } finally {
     old.close();
   }
+});
+
+test('#7408 review 2: an agent stored under its key is found by its name, and a sender the board cannot name may not use to', async () => {
+  projects.mutate(projectId, (p) => ({ ...p, agents: [...p.agents, 'icecreamkitty'] }));
+  try {
+    const n = make('keyed');
+    const r = await post(n, { text: 'keyed', to: ['Ice Cream Kitty'] });
+    const j = await r.json();
+    assert.equal(r.status, 200, JSON.stringify(j));
+    assert.deepEqual(j.to, ['icecreamkitty'], 'matched by store key');
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'icecreamkitty') }));
+  }
+  const m = make('unnamed');
+  const before = said(m).length;
+  const u = await post(m, { text: 'from nobody', to: ['otto'] }, null);
+  assert.equal(u.status, 403, 'an unnamed sender may not name agents');
+  assert.match((await u.json()).error, /could not tell which agent is sending/);
+  assert.equal(said(m).length, before, 'nothing recorded');
 });
