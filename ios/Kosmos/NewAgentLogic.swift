@@ -301,6 +301,7 @@ enum NewTeam {
         static let made = "Made"
         static let afterLead = "Made once the lead is made."
         static let tryAgain = "Try again"
+        static let unreachable = "Kosmos could not reach your computer. Nothing was made at this step. Try again."
         static let stillMaking = "Kosmos is still making your last team. You can make another once it is done."
         static func reportsTo(_ title: String, _ manager: String) -> String { title + " · " + NewAgent.Words.reportsTo + " " + manager }
     }

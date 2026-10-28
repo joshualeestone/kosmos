@@ -49,6 +49,7 @@ struct NewAgentView: View {
     @State private var teamMessage: String?
     @State private var maybeMade: [String: String] = [:]   // slot: the session a create with no answer may have made
     @State private var loadingTeams = false
+    @State private var gone = false
     @State private var projectUnsure = false         // a new project's create got no answer: look before making another
     @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
     @State private var checkedNames: [String: String] = [:]   // the names the board checked free, by slot
@@ -70,11 +71,14 @@ struct NewAgentView: View {
                     }
                 }
         }
+        // The app's ink, as the tabs have it: this sheet is shown above them, so it does not inherit their tint.
+        .tint(Palette.primary)
+        .textCase(nil)   // the desktop's sentences as headers, not capitals
         .interactiveDismissDisabled(sending || (made != nil && !seen && !timedOut) || teamRunning)
         .onChange(of: client.agents) { rows in agentsChanged(rows) }
         // A team run is not cancelled: the person asked for the whole team, so it finishes off screen (the lock closes
         // this sheet), and its project tells go through the app. Only the timers stop.
-        .onDisappear { helloTimer?.cancel(); leadTimer?.cancel() }
+        .onDisappear { helloTimer?.cancel(); leadTimer?.cancel(); gone = true }
         .task {
             #if DEBUG
             if showSample() { return }
@@ -392,7 +396,7 @@ struct NewAgentView: View {
             guard epoch == client.chatEpoch else { return }
             switch NewTeam.specsAnswer(status: check?.1.statusCode ?? 0, body: check?.0) {
             case .refused(let why): say(why); return
-            case .unknown: say(NewAgent.unsureWords); return
+            case .unknown: say(NewTeam.Words.unreachable); return   // this read makes nothing
             case .specs: checkedNames = typed
             }
         }
@@ -426,7 +430,7 @@ struct NewAgentView: View {
                 switch NewProject.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
                 case .made(let id): project = id; madeProject = id; newProjectName = want
                 case .refused(let why): say(NewTeam.sentence(why)); return
-                case .unknown: projectUnsure = true; say(NewProject.unsureWords); return
+                case .unknown: projectUnsure = true; newProjectName = want; say(NewProject.unsureWords); return   // looked for by this name
                 }
                 break
             }
@@ -439,7 +443,7 @@ struct NewAgentView: View {
         switch NewTeam.specsAnswer(status: read?.1.statusCode ?? 0, body: read?.0) {
         case .specs(let list): specs = list
         case .refused(let why): say(why); return   // this read makes nothing, so a refusal is only that
-        case .unknown: say(NewAgent.unsureWords); return
+        case .unknown: say(NewTeam.Words.unreachable); return
         }
         teamProject = project
         for s in specs where states[s.slot].map({ if case .made = $0 { return false } else { return true } }) ?? true { states[s.slot] = .waiting }
@@ -504,7 +508,8 @@ struct NewAgentView: View {
         if !projects.isEmpty { tell(session, projects) }
     }
 
-    private func announce(_ words: String) { UIAccessibility.post(notification: .announcement, argument: words) }
+    // Not once the sheet has gone: a team still being made would speak its names over the lock.
+    private func announce(_ words: String) { if !gone { UIAccessibility.post(notification: .announcement, argument: words) } }
 
     // teamRunning is set here, before the task starts, so a second tap in between starts nothing.
     private func runTeam() {
@@ -521,7 +526,7 @@ struct NewAgentView: View {
 
     private func say(_ why: String) {
         teamMessage = why
-        UIAccessibility.post(notification: .announcement, argument: why)
+        announce(why)
     }
 
     // The members as they are made; Try again makes the ones not made yet; the lead's chat once it is made.
