@@ -1566,6 +1566,10 @@ function taskHoldAs(want) {
     if (r.json && r.json.task) {
       ctx.out(want ? 'Put task ' + num + ' on ' + project + ' on hold. Kosmos will not nudge anyone about it or hand it out.'
         : 'Took task ' + num + ' on ' + project + ' off hold.');
+      // kosmos#7407, as install/kosmos: who has it now, as the board says; none from an older board.
+      const next = !want && typeof r.json.next === 'string' ? r.json.next.trim() : '';
+      if (next) ctx.out(next);
+      if (/assign it now\.$/.test(next)) ctx.out('  kosmos task assign ' + project + ' ' + num + ' <agent>');
       if (until && until.task) ctx.out('It waits for task ' + value + ' to be closed; Kosmos tells its owner when it is.');
       else if (until) {
         // The time as the board stored it (UTC), not as typed: a bare date is midnight UTC.
