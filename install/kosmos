@@ -3444,14 +3444,17 @@ cmd_post() {
       if [ -n "$_unrec" ]; then
         # Round 5: a post the room could not record is in no one's room view, so ONE plain block: every member not
         # placed for sure is named (unconfirmed, not reached, held, or not addressed), and none is said to have a copy.
-        _notsure=$(printf '%s' "$_outs" | tr ',' '\n' | sed -n '/":"placed"$/!s/^"\([^"]*\)":"[^"]*"$/\1/p' | paste -sd ',' - | sed 's/,/, /g') || true
+        # Not reached first, then not confirmed, then held or not addressed, so the example below names one it was meant for.
+        _notsure=$( { printf '%s' "$_outs" | tr ',' '\n' | sed -n 's/^"\([^"]*\)":"could_not"$/\1/p'
+                      printf '%s' "$_outs" | tr ',' '\n' | sed -n 's/^"\([^"]*\)":"unconfirmed"$/\1/p'
+                      printf '%s' "$_outs" | tr ',' '\n' | sed -n -e '/":"placed"$/d' -e '/":"could_not"$/d' -e '/":"unconfirmed"$/d' -e 's/^"\([^"]*\)":"[^"]*"$/\1/p'; } | paste -sd ',' - | sed 's/,/, /g') || true
         say "Posted, but the room could not record it, so it is not in the room."
         if [ -n "$_notsure" ]; then
           say "Not surely reached: $_notsure. They may have no copy anywhere."
-          say "Re-posting now would not put it in the room (Kosmos folds a repeat for a few minutes); later it would, but every member who has it would get it twice. Message them directly instead (it goes to each alone): kosmos msg ${_notsure%%,*} \"...\""
+          say "Do not re-post to fix this: a repeat sent soon after is usually skipped, and a later one is typed again to every member who has it. Message them directly instead (it goes to each alone): kosmos msg ${_notsure%%,*} \"...\""
           say "$_fail"
         else
-          say "Every member it was typed to has it. Re-posting now would not put it in the room (Kosmos folds a repeat for a few minutes); later it would, but they would get it twice."
+          say "Every member it was typed to has it. Do not re-post: a repeat sent soon after is usually skipped, and a later one would reach them twice."
         fi
       else
         say "Posted, but not everyone is confirmed${because:+: $because}."

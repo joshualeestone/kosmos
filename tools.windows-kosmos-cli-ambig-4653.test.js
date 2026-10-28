@@ -91,13 +91,13 @@ test('kosmos#7414: a post the room could not record says it is not in the room a
   assert.equal(r.code, 3);
   assert.deepEqual(r.err, [
     'Posted, but the room could not record it, so it is not in the room.',
-    'Not surely reached: april, leo, kit, bo. They may have no copy anywhere.',
-    'Re-posting now would not put it in the room (Kosmos folds a repeat for a few minutes); later it would, but every member who has it would get it twice. Message them directly instead (it goes to each alone): kosmos msg april "..."',
+    'Not surely reached: leo, april, kit, bo. They may have no copy anywhere.',
+    'Do not re-post to fix this: a repeat sent soon after is usually skipped, and a later one is typed again to every member who has it. Message them directly instead (it goes to each alone): kosmos msg leo "..."',
     "If that fails too, its answer says why; if they are not running, ask the person to start them.",
   ]);
   // Every member placed: nobody is named, and it never says anyone lacks a copy.
   const all = await post({ state: 'unconfirmed', because: 'it reached the room but could not be recorded', unrecorded: true, id: 'm1', outcomes: { mara: 'placed' }, text: 'x' });
-  assert.deepEqual(all.err, ['Posted, but the room could not record it, so it is not in the room.', 'Every member it was typed to has it. Re-posting now would not put it in the room (Kosmos folds a repeat for a few minutes); later it would, but they would get it twice.']);
+  assert.deepEqual(all.err, ['Posted, but the room could not record it, so it is not in the room.', 'Every member it was typed to has it. Do not re-post: a repeat sent soon after is usually skipped, and a later one would reach them twice.']);
   // Documentation more than a control: the board escapes a post's quotes, so its text can never hold the mark.
   const spoof = await post({ state: 'unconfirmed', because: 'x', id: 'm1', outcomes: {}, text: '","unrecorded":true' });
   assert.equal(spoof.err.at(-1), "Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.");

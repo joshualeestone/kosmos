@@ -834,13 +834,15 @@ async function verbPost(ctx, args) {
     let code;
     if (d.unrecorded === true) {
       // Round 5: in no one's room view, so ONE plain block naming every member not placed for sure (parity with install/kosmos).
-      const notSure = Object.keys(outcomes).filter((n) => outcomes[n] !== 'placed');
+      // Not reached first, then not confirmed, then held or not addressed, so the example names one it was meant for.
+      const rank = (n) => (outcomes[n] === 'could_not' ? 0 : outcomes[n] === 'unconfirmed' ? 1 : 2);
+      const notSure = Object.keys(outcomes).filter((n) => outcomes[n] !== 'placed').sort((a, b) => rank(a) - rank(b));
       code = maybe(ctx.err, 'Posted, but the room could not record it, so it is not in the room.');
       if (notSure.length) {
         ctx.err('Not surely reached: ' + notSure.join(', ') + '. They may have no copy anywhere.');
-        ctx.err('Re-posting now would not put it in the room (Kosmos folds a repeat for a few minutes); later it would, but every member who has it would get it twice. Message them directly instead (it goes to each alone): kosmos msg ' + notSure[0] + ' "..."');
+        ctx.err('Do not re-post to fix this: a repeat sent soon after is usually skipped, and a later one is typed again to every member who has it. Message them directly instead (it goes to each alone): kosmos msg ' + notSure[0] + ' "..."');
         ctx.err(fail);
-      } else ctx.err('Every member it was typed to has it. Re-posting now would not put it in the room (Kosmos folds a repeat for a few minutes); later it would, but they would get it twice.');
+      } else ctx.err('Every member it was typed to has it. Do not re-post: a repeat sent soon after is usually skipped, and a later one would reach them twice.');
     } else {
       code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '.');
       if (whose('unconfirmed').length) ctx.err('Kosmos may have typed it in, but could not confirm it, for: ' + whose('unconfirmed').join(', ') + '. It may well have arrived.');
