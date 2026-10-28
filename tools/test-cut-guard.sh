@@ -683,7 +683,7 @@ out="$(cutbusy "$T/sprobe-waiter" 2>&1)"; rc=$?
   || fail "#7512 a waiting suite held the cut (rc=$rc, $out)"
 printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n%s bash tools/run-tests.sh\\n"\n' "$wp" "$$" > "$T/sprobe-both"; chmod +x "$T/sprobe-both"
 out="$(cutbusy "$T/sprobe-both" 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && has "$out" "suite $$" && pass "#7512 beside a waiting suite, a running one still holds the cut, named by its pid" \
+[ "$rc" -eq 0 ] && [ "$out" = "suite $$" ] && pass "#7512 beside a waiting suite, a running one still holds the cut, named by its pid" \
   || fail "#7512 a running suite beside a waiter did not hold the cut (rc=$rc, $out)"
 printf '#!/bin/sh\nexit 3\n' > "$T/sprobe-broken"; chmod +x "$T/sprobe-broken"
 out="$(cutbusy "$T/sprobe-broken" 2>&1)"; rc=$?
@@ -695,6 +695,41 @@ out="$( kosmos_running_lines() { [ "$1" = tools/browser-checks.sh ] && { echo "1
 [ "$rc" -eq 0 ] && has "$out" "running: tools/browser-checks.sh" && pass "#7512 a browser-checks run still holds the cut while a suite only waits" \
   || fail "#7512 a browser-checks run did not hold the cut (rc=$rc, $out)"
 mv "$W/markers/suitewait.$wp" "$W/held"
+# #7512 review 1: the real chain, not a hand-written marker. A suite queued behind a FOREIGN machine claim (the real
+# kosmos_refuse_if_machine_claimed, inside the real kosmos_wait_until_clear --suite-queue) holds a verified waiting marker
+# while it sleeps, and the cut's quiet-box wait then reads that suite as not running. The sleep seam asks both.
+_rm_claim() { rm -f "$(_kosmos_machine_claim_file)"; }
+(
+  KOSMOS_MACHINE_CLAIM_COOKIE="cut-7512-stand-in"; export KOSMOS_MACHINE_CLAIM_COOKIE
+  kosmos_claim_machine 30
+)
+claimcheck() { kosmos_refuse_if_machine_claimed "this test run"; }
+printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$$" > "$T/sprobe-self"; chmod +x "$T/sprobe-self"
+cutsleep() {
+  [ -f "$W/markers/suitewait.$$" ] && echo marked >> "$W/chain" || echo unmarked >> "$W/chain"
+  if cutbusy "$T/sprobe-self" >/dev/null 2>&1; then echo busy >> "$W/chain"; else echo quiet >> "$W/chain"; fi
+}
+rm -f "$W/chain"
+out="$(unset KOSMOS_MACHINE_CLAIM_COOKIE; KOSMOS_WAIT_MAX_S=60 KOSMOS_WAIT_EVERY_S=30 KOSMOS_WAIT_QUEUE_CEIL_S=60 KOSMOS_WAIT_SLEEP=cutsleep \
+  kosmos_wait_until_clear "this test run" --suite-queue claimcheck 2>&1)"; rc=$?
+chain="$(tr '\n' ' ' < "$W/chain" 2>/dev/null)"
+{ [ "$rc" -eq 1 ] && has "$out" "reserved for a release" && has "$chain" "marked quiet" && ! has "$chain" "unmarked"; } \
+  && pass "#7512 a suite queued behind a foreign claim is marked waiting while it sleeps, and the cut's wait reads it as not running" \
+  || fail "#7512 the claim-to-marker chain broke (rc=$rc, chain: $chain, $out)"
+[ ! -e "$W/markers/suitewait.$$" ] && pass "#7512 the waiter's marker is gone once its wait gives up" \
+  || fail "#7512 a given-up wait left its marker"
+_rm_claim; rm -f "$W/chain"
+out="$(cutbusy "$T/sprobe-self" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "suite $$" ] && pass "#7512 CONTROL: the same suite with no wait running reads as a running suite" \
+  || fail "#7512 CONTROL: an unmarked suite read as quiet (rc=$rc, $out)"
+# And the wiring the chain leans on: run-tests.sh asks about the claim inside the box check, and waits for that check in
+# the suite queue (which is what writes the marker).
+_wired "$RT" '^_rt_box_clear() {' && grep -A1 '^_rt_box_clear() {' "$RT" | grep -q 'kosmos_refuse_if_machine_claimed "this test run" || return 1' \
+  && pass "#7512 run-tests.sh's box check asks about the machine claim first" \
+  || fail "#7512 run-tests.sh's box check no longer asks about the machine claim on its first line"
+_wired "$RT" 'kosmos_wait_until_clear "this test run" --suite-queue _rt_box_clear' \
+  && pass "#7512 run-tests.sh waits for its box check in the suite queue (the queue writes the waiting marker)" \
+  || fail "#7512 run-tests.sh no longer waits in the suite queue, so a suite held by a claim waits unmarked"
 # The right start time with the wrong command, so ONLY the command check can call it stale (Kano's review: with no
 # start time the start-time check caught it first, and removing the command check left this green).
 printf '100 %s\nnot its command\n%s\n%s\n' "$wp" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"

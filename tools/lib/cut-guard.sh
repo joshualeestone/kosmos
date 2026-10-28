@@ -607,8 +607,13 @@ kosmos_refuse_if_suite_live() {
 }
 
 # #7512: the release cut's quiet-box wait, ONE committed answer to "is anything still running that the cut must wait
-# for?", so the per-cut wrapper (outside the repo, mortals:~/.cut-07NN.sh) sources it instead of keeping its own copy:
-#   running() { kosmos_cut_quiet_box_busy; }
+# for?", so the per-cut wrapper (outside the repo, mortals:~/.cut-07NN.sh) sources it instead of keeping its own copy.
+# Review 1: the wrapper must FAIL CLOSED around it. It sources the main checkout's copy of this file BEFORE that checkout
+# is moved to the cut's target, so a checkout older than this function gives 127 (not found), and a bare
+# `running() { kosmos_cut_quiet_box_busy; }` would read that as a quiet box and start the cut beside a live suite.
+# Only 0 (busy) and 1 (quiet) are answers; anything else is busy:
+#   running() { local r; kosmos_cut_quiet_box_busy; r=$?; [ "$r" -le 1 ] && return "$r"
+#               echo "could not ask whether the box is quiet (rc $r; is the main checkout pulled?): treated as busy"; return 0; }
 # The 0.7.73 cut deadlocked for about 20 minutes because the wrapper's own copy counted ANY live
 # `bash tools/run-tests.sh` as busy, including a suite that was only WAITING on the cut's own machine claim (it runs no
 # test, and waits for the claim to go). That is the 0.7.27 deadlock (#5467, #5470) through another door. Here a suite
