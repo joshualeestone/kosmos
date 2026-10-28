@@ -188,6 +188,7 @@ test('#7412: both commands refuse an option-shaped word after the numbers with t
 
 test('#7412: a close Kosmos does not answer stops the run: the ones before are said, the rest are not tried', async () => {
   const http = require('node:http');
+  const lostTexts = {};
   for (const [label] of BOTH) for (const firstLost of [false, true]) {
     const [a0, b0, c] = open('lost ' + label + ' ' + firstLost);
     // firstLost: the very first number is the one not answered.
@@ -214,14 +215,17 @@ test('#7412: a close Kosmos does not answer stops the run: the ones before are s
       if (a !== null) assert.match(r.text, new RegExp('^\\s*Closed task ' + a + ' on ', 'm'), label + ': ' + r.text);
       else assert.doesNotMatch(r.text, /Closed task/, label + ': ' + r.text);
       assert.match(r.text, new RegExp('^\\s*Task ' + b + ' may have closed anyway: check kosmos task list ', 'm'), label + ': says it may have closed: ' + r.text);
-      assert.match(r.text, new RegExp('^\\s*Not tried, so still open: ' + c + '\\.$', 'm'), label + ': ' + r.text);
+      assert.match(r.text, new RegExp('^\\s*Not tried: ' + c + '\\.$', 'm'), label + ': ' + r.text);
       assert.doesNotMatch(r.text, /Could not close/, label + ': an unanswered close is not said as refused: ' + r.text);
       if (a !== null) assert.equal(isDone(a), true, label);
       assert.equal(isDone(c), false, label + ': sent after an unanswered close');
+      (lostTexts[firstLost] = lostTexts[firstLost] || {})[label] = r.text.split('\n').map((l) => l.trim()).filter(Boolean).join('\n').replace(/[0-9]+/g, 'N');
     } finally {
       proxy.close();
     }
   }
+  // Review 5: the two commands say an unanswered close in the same words (not "is it running?" on one of them).
+  for (const k of Object.keys(lostTexts)) assert.equal(lostTexts[k].Windows, lostTexts[k].Mac, 'firstLost=' + k + ': the two commands disagree');
 });
 
 /* Runs either command against a stand-in board at `pbase`. */
@@ -254,7 +258,7 @@ test('#7412 review 4: a close whose connection is refused sent nothing, so it is
       assert.notEqual(r.code, 0, label + ': ' + r.text);
       assert.match(r.text, new RegExp('^\\s*Closed task ' + a + ' on ', 'm'), label + ': ' + r.text);
       assert.doesNotMatch(r.text, /may have closed/, label + ': nothing was sent for task ' + b + ': ' + r.text);
-      assert.match(r.text, new RegExp('^\\s*Not tried, so still open: ' + b + ', ' + c + '\\.$', 'm'), label + ': ' + r.text);
+      assert.match(r.text, new RegExp('^\\s*Not tried: ' + b + ', ' + c + '\\.$', 'm'), label + ': ' + r.text);
       assert.equal(isDone(a), true, label); assert.equal(isDone(b), false, label); assert.equal(isDone(c), false, label);
     } finally {
       proxy.close();
@@ -269,7 +273,7 @@ test('#7412 review 4: an agent not on the project is told once, and the rest are
     assert.equal(r.code, 1, label + ': ' + r.text);
     assert.equal((r.text.match(/Could not close task/g) || []).length, 1, label + ': one refusal line, not one per task: ' + r.text);
     assert.match(r.text, new RegExp('^\\s*Could not close task ' + a + ': that agent is not on this project', 'm'), label + ': ' + r.text);
-    assert.match(r.text, new RegExp('^\\s*Not tried, so still open: ' + b + ', ' + c + '\\.$', 'm'), label + ': ' + r.text);
+    assert.match(r.text, new RegExp('^\\s*Not tried: ' + b + ', ' + c + '\\.$', 'm'), label + ': ' + r.text);
     for (const n of [a, b, c]) assert.equal(isDone(n), false, label + ': task ' + n + ' closed by an agent not on the project');
   }
 });
@@ -287,5 +291,15 @@ test('#7412 review 4: both commands keep to the board limit for closing several 
     const at = await run(['task', 'close', projectId, ...Array(MAX).fill(String(a))], token('mara'));
     assert.equal(at.code, 0, label + ': ' + at.text);
     assert.equal(isDone(a), true, label);
+  }
+});
+
+test('#7412 review 5: a project that does not exist is said once, and the rest are not sent', async () => {
+  for (const [label, run] of BOTH) {
+    const r = await run(['task', 'close', 'no-such-project-7412', '1', '2', '3'], token('mara'));
+    assert.equal(r.code, 1, label + ': ' + r.text);
+    assert.equal((r.text.match(/Could not close task/g) || []).length, 1, label + ': one refusal line: ' + r.text);
+    assert.match(r.text, /^\s*Could not close task 1: there is no project by that name\.$/m, label + ': one period, as the board said it: ' + r.text);
+    assert.match(r.text, /^\s*Not tried: 2, 3\.$/m, label + ': ' + r.text);
   }
 });
