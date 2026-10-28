@@ -16,10 +16,11 @@ const SCRIPT = page.scriptOf(HTML);
 const fns = new Function(`${page.liftAll(SCRIPT, ['switchCrossesFamily', 'switchFamilyNote'])}\nreturn { switchCrossesFamily, switchFamilyNote };`)();
 
 test('#7410: the family rule: Claude (and DeepSeek, on Claude Code) on one side, every other runner on the other', () => {
-  for (const [from, to] of [['anthropic', 'openai'], ['openai', 'anthropic'], ['anthropic', 'google'], ['xai', 'anthropic'], ['deepseek', 'openai'], ['anthropic', 'antigravity']]) {
+  // Review 1: Claude <-> DeepSeek too (one runner, two config folders: neither the conversation nor the notes cross).
+  for (const [from, to] of [['anthropic', 'openai'], ['openai', 'anthropic'], ['anthropic', 'google'], ['xai', 'anthropic'], ['deepseek', 'openai'], ['anthropic', 'antigravity'], ['anthropic', 'deepseek'], ['deepseek', 'anthropic']]) {
     assert.equal(fns.switchCrossesFamily(from, to), true, from + ' -> ' + to);
   }
-  for (const [from, to] of [['openai', 'google'], ['openai', 'alibaba'], ['anthropic', 'deepseek'], ['anthropic', 'anthropic'], ['', 'openai']]) {
+  for (const [from, to] of [['openai', 'google'], ['openai', 'alibaba'], ['anthropic', 'anthropic'], ['', 'openai']]) {
     assert.equal(fns.switchCrossesFamily(from, to), false, from + ' -> ' + to);
   }
 });
@@ -37,7 +38,13 @@ test('#7410: across the line the dialog says the conversation does not come acro
 
 test('#7410: within a family there is no new warning', () => {
   assert.equal(fns.switchFamilyNote('openai', 'google', 'Mara', 'OpenAI', 'Gemini'), '');
-  assert.equal(fns.switchFamilyNote('anthropic', 'deepseek', 'Mara', 'Claude', 'DeepSeek'), '');
+});
+
+test('#7410 review 1: Claude <-> DeepSeek warns too, and says the notes stay behind (nothing is copied there)', () => {
+  const s = fns.switchFamilyNote('anthropic', 'deepseek', 'Mara', 'Claude', 'DeepSeek');
+  assert.match(s, /Its conversation does not come across: DeepSeek cannot read Claude’s history\. Its saved notes stay behind with Claude and do not come across/);
+  assert.doesNotMatch(s, /are copied/);
+  assert.match(fns.switchFamilyNote('deepseek', 'anthropic', 'Mara', 'DeepSeek', 'Claude'), /stay behind with DeepSeek/);
 });
 
 test('#7410: the switch dialog uses the note, and offers the handoff only with it', () => {

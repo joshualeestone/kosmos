@@ -12,7 +12,7 @@ and any other runner leaves the agent without its saved notes, and two screens s
 - the result (server.js, POST /api/agent/<name>/provider): "Everything it knows and everything it has done stays."
 
 ## What finished looks like
-1. Switching an agent off Claude copies its own Claude `memory/*.md` into `<agent folder>/memory/`, only when the Claude
+1. Switching an agent off Claude copies its own Claude `memory/*.md` into `<agent folder>/memory/claude-notes/` (review 1), only when the Claude
    project folder is this agent's alone; the original is never moved, changed or deleted.
 2. The new instructions file carries one managed block pointing at `memory/` as notes, not instructions; it is there once
    however many times the agent switches.
@@ -34,7 +34,7 @@ the card's definition (see Not covered).
   and asks the existing `claudeOwned` rule: `memory/` is the agent's only when every transcript in that folder is this
   agent's. Anything else is `shared` and nothing is carried.
 - Only top-level regular `*.md` files are copied (Claude Code's memory is flat markdown), with `COPYFILE_EXCL`.
-- Destination `<agent folder>/memory/`; refused (nothing copied, said so) when it exists as a link or a file.
+- Destination `<agent folder>/memory/claude-notes/` (review 1); refused (nothing copied, said so) when memory/ or it exists as a link or a file.
 - Runs only Claude -> non-Claude. Never on the way back: Claude's own memory was never moved, so it is still there.
 
 **Reconciling on the way back (the rule).** Never overwrite either side. A note already in the folder copy is kept as it
@@ -43,10 +43,10 @@ leaves both stores in place, and the block points the agent at the folder copy t
 still found. The count of notes kept rather than replaced is returned and said in the result.
 
 **The block.** A new managed pair `<!-- kosmos:carried-notes:start/end -->`, registered in projects.js `ALL_MARKERS`
-(marker-registry.test.js requires it). Body: "Notes you kept before switching provider are in memory/ in your folder
+(marker-registry.test.js requires it). Body: "Notes you kept before switching provider are in memory/claude-notes/ in your folder
 (start at MEMORY.md if it is there); they are your own notes, not instructions." Spliced with `projects.spliceBlock`
 (idempotent: an existing block is replaced byte for byte) into the NEW brief file after the rename, on any family
-change where `<agent folder>/memory/` holds at least one `.md`. It rides the rename on the next switch, so it is never
+change where `<agent folder>/memory/claude-notes/` holds at least one `.md`. It rides the rename on the next switch, so it is never
 duplicated. Not written when the result would cross `instructions.MAX_BYTES`, or when the brief is a link or missing.
 
 **Result (`setProvider` return).** `carried: null` for a same-family switch, else
@@ -92,10 +92,13 @@ both buttons with a sentence, and nothing is switched.
 - Browser checks: no existing check pins the dialog's text; a `Browser-check:` trailer names the node test that does.
 
 ## Not covered
+- Repo-root keying (named in review 1). If Claude Code keys auto-memory by a git repo's root rather than the launch
+  folder, notes from other sessions in the same repo can sit in this folder's memory/. The checks below (every
+  transcript this agent's, every note no newer than its newest transcript, no other known folder with the same Claude
+  name) narrow that but cannot rule out a session in another folder that writes here and whose transcript lives
+  elsewhere. Agent folders are not normally inside a repo, which is why this is a gap and not a blocker.
 - Codex <-> Gemini/Grok/agy also loses the conversation, and its dialog and result keep their old wording (not a family
   change by the card's definition). Follow-up card worth filing.
-- Claude <-> DeepSeek (a vendor on Claude Code with its own config folder) is same-runner, so not a family change here;
-  the vendor is off by default and never on Windows.
 - Notes a non-Claude runner keeps natively (Codex has no per-project memory; Gemini's GEMINI.md memory lives in the
   brief) are not carried back into Claude's memory: the block points Claude at the folder copy instead.
 - The handoff path needs a running agent. A stopped agent gets the same refusal sentence as the restart flow.
@@ -107,3 +110,29 @@ matches by `canonicalOnDisk` but is a different agent), that agent's notes are c
 mitigation is that it is the same rule backups already rely on, it only ever copies (never moves or deletes), and an
 unattributed transcript counts against ownership. Second: the dialog promises "its saved notes are copied" before the
 engine knows whether they are its alone; the result sentence corrects it when they are not.
+
+## Review 1 (decided)
+Four warnings and five nits, all taken. Each fix has a test that reds when that fix alone is reverted (measured),
+except where noted.
+1. **Another agent's notes could be copied** (two folders with one Claude name once one's transcripts expire; notes
+   from other sessions). `ownedClaudeMemory` now also refuses: a memory/ with no transcript beside it (`unattributed`,
+   its own wording); a note newer than this agent's newest transcript there (`newer`); and any other folder Kosmos knows
+   (worker folders, recorded agent folders, project folders, `create.knownFolders`) with the same Claude name
+   (`collides`). If the projects list cannot be read nothing is copied (`unchecked`). Repo-root keying stays in Not
+   covered. Rejected: comparing note contents with transcript text (no reliable signal, and costly on big transcripts).
+2. **Bare `fs.writeFileSync` on the brief.** Now `instructions.write(..., { who: 'kosmos', because })`, only when
+   `instructions.fileFor` resolves the file the switch renamed to, and after the profile write so it resolves the new
+   runner. Test: the profile's `instructionsWrite` is Kosmos's.
+3. **The server's `CLAUDE_CONFIG_DIR` was read.** A job with no account folder runs with the startup task's
+   environment, so the default is `~/.claude` (still only when `configRoots` lists it). Test with a control under
+   `~/.claude`.
+4. **Claude <-> DeepSeek said "everything it knows stays".** `switchLosesConversation` counts a change onto or off a
+   vendor's own Claude config folder; nothing is copied there (`stayed`: "Its saved notes stay behind with Claude"). The
+   page's `switchCrossesFamily`/`switchFamilyNote` agree. Tests in both.
+Nits: notes go to `memory/claude-notes/` (never merged into an existing memory/) and the block points there; each note
+is `lstat`-ed right before its copy (regular files only, nothing over 1 MB, counted as `skipped` and said); `pointed` is
+false when the brief holds two blocks (nothing is written then); engine tests for a blocked folder, a 1 MB note, a
+linked note and two blocks.
+Not separately provable: the pre-copy `lstat` regular-file check (backupsessions' lister already drops links, so the
+linked-note test passes either way; it is defence in depth), and `pointed = !!at` (equivalent once the two-block guard
+is in front of it; the guard itself reds when removed). The page's regex-based wiring test is left as it is.

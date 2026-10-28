@@ -59823,16 +59823,22 @@ async function changeProviderNow(say, how) {
 /* #7410: whether a switch crosses the Claude line (Claude Code on one side, any other runner on the other), the page's
    twin of create.js crossesFamily. DeepSeek runs on Claude Code, so it is on Claude's side. A Claude account move never
    comes here (it is Move, not a switch). */
+/* Review 1: and Claude <-> DeepSeek, which stays on Claude Code but keeps its sessions in the vendor account's own folder,
+   so it loses the conversation and the notes the same way (create.js switchLosesConversation). */
 function switchCrossesFamily(fromProv, toProv) {
   const claudeSide = (p) => p === 'anthropic' || p === 'deepseek';
-  return !!fromProv && !!toProv && fromProv !== toProv && claudeSide(fromProv) !== claudeSide(toProv);
+  if (!fromProv || !toProv || fromProv === toProv) return false;
+  return claudeSide(fromProv) !== claudeSide(toProv) || fromProv === 'deepseek' || toProv === 'deepseek';
 }
 /* #7410: what a switch across the Claude line does not carry, said before it happens; '' for any other switch. The
    engine copies its Claude notes into its folder on the way off Claude, and leaves the folder's notes for it on the
    way back; the result sentence says if it could not copy them (another folder shares its Claude notes). */
 function switchFamilyNote(fromProv, toProv, shown, fromWord, toWord) {
   if (!switchCrossesFamily(fromProv, toProv)) return '';
-  const notes = (toProv === 'anthropic' || toProv === 'deepseek')
+  const claudeSide = (p) => p === 'anthropic' || p === 'deepseek';
+  const notes = (claudeSide(fromProv) && claudeSide(toProv))
+    ? 'Its saved notes stay behind with ' + fromWord + ' and do not come across; anything it only remembers from talking is lost.'
+    : claudeSide(toProv)
     ? 'Notes in its folder stay there for it to read; anything it only remembers from talking is lost.'
     : 'Its saved notes are copied into its folder; anything it only remembers from talking is lost.';
   return shown + ' keeps its name, its face, its instructions and its files, and restarts. '
