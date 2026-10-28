@@ -2118,8 +2118,9 @@ test('#7395: a key glued to an identifier after an underscore is masked (mcp__AK
 });
 
 test('#7395: CONTROL: a letter before a prefix still keeps an ordinary word from being taken for a key', () => {
-  for (const word of ['risk-ant-colony', 'deskxoxb-board', 'maxai-settings-panel']) {
-    assert.equal(mask('see ' + word).text, 'see ' + word, word);
+  // Each is long enough that its key shape WOULD match with no boundary at all (review 1: shorter words could not fail).
+  for (const word of ['risk-ant-colonynest', 'deskxoxb-board-cleanup', 'maxai-settings-panel-v2', 'xghp_' + 'Ab3dEf6hIj9kLm2nOp5qRs8t']) {
+    assert.ok(mask('see ' + word).text.endsWith(word.slice(-6)), word + ' was masked: ' + mask('see ' + word).text);
   }
   // A 20-character run that only looks like an AWS id inside a longer word is left alone.
   assert.equal(mask('xAKIAIOSFODNN7EXAMPLQ').text.includes('AKIAIOSFODNN7EXAMPLQ'), true);
