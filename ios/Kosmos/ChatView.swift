@@ -91,6 +91,8 @@ struct ChatView: View {
     @State private var diagContentWidth: CGFloat = 0
     @State private var diagReport: String?
     @State private var diagDone = false   // once per open chat, even after the line is dismissed
+    @State private var diagTick = 0   // bumped when the last row leaves the screen (review 1)
+    private var diagWide: Bool { diagViewport.width > 0 && diagContentWidth > diagViewport.width + 1 }
     // kosmos#7016 part 2: each file card's state, and the file open in Quick Look.
     @State private var fileStates: [String: FileCardState] = [:]
     @State private var previewURL: URL?
@@ -239,6 +241,8 @@ struct ChatView: View {
         #endif
         .onAppear {
             visible = true
+            // kosmos#7420 review 1: the record starts with this chat, so a report never carries another chat's events.
+            if !diagDone { Self.diagRing = []; Self.trace("chat shown") }
             epoch = client.chatEpoch
             // kosmos#7420: this conversation gets no banner while it shows.
             if let host = client.switcherShown { PushNotificationManager.chatOnScreen = PushBridge.OpenChat(host: host, session: agent.session) }
@@ -301,6 +305,7 @@ struct ChatView: View {
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: client.chatEpoch) { now in
+            diagDone = false; diagReport = nil   // kosmos#7420 review 1: another account or computer is a new chat
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
@@ -380,7 +385,10 @@ struct ChatView: View {
             // Which rows are on screen, so a page landing above keeps the one the reader is on. The eager rows all
             // appear and go together (kosmos#7265), so they count as on screen while any of them shows.
             .onAppear { onScreen.insert(item.id) }
-            .onDisappear { onScreen.remove(item.id) }
+            .onDisappear {
+                onScreen.remove(item.id)
+                if onScreen.isEmpty { diagTick &+= 1 }   // kosmos#7420: the diagnostic's check, only when the last row leaves
+            }
     }
 
     @ViewBuilder private var conversation: some View {
@@ -457,12 +465,16 @@ struct ChatView: View {
                     Color.clear.onAppear { diagViewport = g.size }
                         .onChange(of: g.size) { now in diagViewport = now; Self.trace("viewport \(Int(now.width))x\(Int(now.height))") }
                 })
-                .onChange(of: onScreen.isEmpty) { empty in
-                    guard empty else { return }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { diagCheck(proxy, count: items.count) }
+                // Review 1: driven by a tick bumped only when the last row leaves (row()), never by reading onScreen here,
+                // which would redraw the whole chat on every row that scrolls in or out. Checked at 0.5 s and again at 1.5 s.
+                .onChange(of: diagTick) { _ in
+                    for wait in [0.5, 1.5] { DispatchQueue.main.asyncAfter(deadline: .now() + wait) { diagCheck(proxy, count: items.count) } }
                 }
-                .onChange(of: diagContentWidth) { w in
-                    if diagViewport.width > 0, w > diagViewport.width + 1 { diagCapture(proxy, why: "a row wider than the screen", count: items.count) }
+                // Review 1: a row wider than the list, measured in one pass (diagContentWidth carries the list's width beside it)
+                // and still so 0.3 s later, so a rotation or resize between two readers cannot fire it.
+                .onChange(of: diagWide) { wide in
+                    guard wide else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if diagWide { diagCapture(proxy, why: "a row wider than the screen", count: items.count, recover: false) } }
                 }
                 .onAppear {
                     // kosmos#7265: the eager stack starts at this row for as long as the chat stays open.
@@ -499,7 +511,7 @@ struct ChatView: View {
                     guard let id else { return }
                     // The id anchor already keeps the reader's message in place as a page lands above (kosmos#7265).
                     if Self.idAnchor { keepAnchor = nil; return }
-                    Self.trace("keepAnchor scrollTo \(id)")
+                    Self.trace("keepAnchor scrollTo a message")   // kosmos#7420 review 1: no message id in the record
                     proxy.scrollTo(id, anchor: .top)
                     keepAnchor = nil
                 }
@@ -639,14 +651,16 @@ struct ChatView: View {
     // kosmos#7265 debug: KOSMOS_SAMPLE_TRACE=1 appends the chat's scroll state to Documents/trace.txt.
     // kosmos#7420 diagnostic: no message on screen for half a second while the conversation has some (the black list).
     private func diagCheck(_ proxy: ScrollViewProxy, count: Int) {
-        guard onScreen.isEmpty, !endVisible, !topVisible, count > 0, thread != nil else { return }
+        // Review 1: only for the chat on screen with the app in front: under the info page, another tab or Quick Look every
+        // row leaves too, and that is not a fault.
+        guard visible, scenePhase == .active, onScreen.isEmpty, !endVisible, !topVisible, count > 0, thread != nil else { return }
         diagCapture(proxy, why: "no message on screen", count: count)
     }
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
     // and whether that worked. Nothing leaves the phone unless the person shares it.
-    private func diagCapture(_ proxy: ScrollViewProxy, why: String, count: Int) {
-        guard !diagDone else { return }
+    private func diagCapture(_ proxy: ScrollViewProxy, why: String, count: Int, recover: Bool = true) {
+        guard !diagDone, visible, scenePhase == .active else { return }
         diagDone = true
         let info = Bundle.main.infoDictionary
         let anchor = positionId == nil ? "none" : positionId == "end" ? "end" : positionId == "top" ? "top" : "a message"
@@ -657,24 +671,34 @@ struct ChatView: View {
                      "messages \(count), on screen \(onScreen.count), end showing \(endVisible), top showing \(topVisible), at newest \(atBottom)",
                      "anchor \(anchor), id anchor \(Self.idAnchor), searching \(searchMode), keyboard focus \(composerFocused)",
                      "recent events:"] + Self.diagRing
+        guard recover else { diagReport = lines.joined(separator: "\n"); announceDiag(); return }   // review 1: a width finding moves nobody
         Self.trace("diag: \(why), trying the newest message")
         goNewest(proxy)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             lines.append("after one try: " + (onScreen.isEmpty ? "still nothing on screen" : "messages on screen again"))
             diagReport = lines.joined(separator: "\n")
+            announceDiag()
         }
     }
 
-    // The line that offers it: what happened in plain words, and Share.
+    private func announceDiag() { UIAccessibility.post(notification: .announcement, argument: "This conversation did not draw properly. Share what happened is above the messages.") }
+
+    // The line that offers it: what happened in plain words, and Share. Stacked at the largest text sizes (review 1).
     private func diagLine(_ report: String) -> some View {
-        HStack(spacing: 10) {
-            Text("This conversation did not draw properly.").font(.footnote).foregroundColor(Palette.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            ShareLink(item: report, subject: Text("Kosmos chat diagnostic")) { Text("Share what happened").font(.footnote.weight(.semibold)) }
-            Button { diagReport = nil } label: { Image(systemName: "xmark").font(.footnote) }
-                .buttonStyle(.plain).foregroundColor(Palette.secondary).accessibilityLabel("Dismiss")
+        let close = Button { diagReport = nil } label: {
+            Image(systemName: "xmark").font(.footnote).frame(width: 44, height: 44).contentShape(Rectangle())
         }
-        .padding(12)
+        .buttonStyle(.plain).foregroundColor(Palette.secondary).accessibilityLabel("Dismiss")
+        let share = ShareLink(item: report, subject: Text("Kosmos chat diagnostic")) { Text("Share what happened").font(.footnote.weight(.semibold)) }
+        let words = Text("This conversation did not draw properly.").font(.footnote).foregroundColor(Palette.primary)
+        return Group {
+            if typeSize.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 6) { HStack { words; Spacer(minLength: 0); close }; share }
+            } else {
+                HStack(spacing: 10) { words.frame(maxWidth: .infinity, alignment: .leading); share; close }
+            }
+        }
+        .padding(.leading, 12).padding(.vertical, 2)
         .background(Palette.banner)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .padding(.horizontal, 16).padding(.top, 8)
