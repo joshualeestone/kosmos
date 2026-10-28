@@ -18,3 +18,6 @@
 ## Verify
 - engine/create.switchmem-7410.test.js: 34 pass with the change; 3 fail on today's code (the new cases).
 - Related switch and provider tests: 66 + 60 pass.
+
+## Review
+- Round 1 (sonnet): no blocker or warning. Nit fixed: switchLaterWords sat between switchCarryWords and its own description; moved below it. Accepted: the route wiring is checked by source (count of 2 and the order), not a route-level failed-restart run. CONVERGED.

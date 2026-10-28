@@ -3042,17 +3042,6 @@ function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
 }
 
 /**
- * #7455: for a switch that is saved but could not restart, said after "It is still running as before until it restarts."
- * The future tense switchCarryWords' own sentence takes when it has already started: a switch that starts a new
- * conversation says what will be lost when it does; one that keeps its conversation says nothing more.
- */
-function switchLaterWords(losesConversation) {
-  return losesConversation
-    ? ' When it does start again, it starts a new conversation, and anything it only remembered from talking will be lost.'
-    : '';
-}
-
-/**
  * #7410: the switch result's first sentences, said by the route (server.js POST /api/agent/<name>/provider).
  * A same-family switch keeps its conversation and memory, so it keeps the old sentence. A family change never says
  * everything it knows stays: it says the conversation does not come across, and what happened to its notes.
@@ -3121,6 +3110,18 @@ function switchCarryWords(label, carried, fromLabel) {
   return `${label} it is. It keeps its name, its instructions and its files, but its conversation does not come across: `
     + `${label} cannot read what it said on ${from}. ${notes}${stale}`;
 }
+
+/**
+ * #7455: for a switch that is saved but could not restart, said after "It is still running as before until it restarts."
+ * The future tense switchCarryWords' own sentence takes when it has already started: a switch that starts a new
+ * conversation says what will be lost when it does; one that keeps its conversation says nothing more.
+ */
+function switchLaterWords(losesConversation) {
+  return losesConversation
+    ? ' When it does start again, it starts a new conversation, and anything it only remembered from talking will be lost.'
+    : '';
+}
+
 
 function setModel(name, modelKey, opts) {
   const platform = opts && opts.platform;
