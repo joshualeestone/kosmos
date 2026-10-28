@@ -260,6 +260,9 @@ const LANGUAGE_END = '<!-- kosmos:language:end -->';
 // (Josh: never written raw in place of them). Defined beside the others for the same reason.
 const TEAM_START = '<!-- kosmos:team:start -->';
 const TEAM_END = '<!-- kosmos:team:end -->';
+/* #7410: after a switch off Claude, one line pointing the agent at the notes copied into its folder (engine/create.js carryClaudeNotes). */
+const CARRIED_NOTES_START = '<!-- kosmos:carried-notes:start -->';
+const CARRIED_NOTES_END = '<!-- kosmos:carried-notes:end -->';
 /** #4557: 'none', 'whole' (one start, then one end) or 'broken' (anything else: a lone marker, two, out of order). */
 function teamBlockState(text) {
   const t = String(text || '');
@@ -294,7 +297,7 @@ function teamBlockState(text) {
  */
 function ALL_MARKERS() {
   const mm = require('./messages');
-  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, mm.START, mm.END];
+  return [BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, CARRIED_NOTES_START, CARRIED_NOTES_END, mm.START, mm.END];
 }
 
 /**
@@ -4274,7 +4277,7 @@ module.exports = { exactPathStat, windowsProjectFolderOk, exactOpenedStat, exact
   changedFileTimes,
   offWriteIsQuiet, WROTE_WHY,
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
-  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
+  FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, CARRIED_NOTES_START, CARRIED_NOTES_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, needsYouReason, needsYouReasonPastUsage, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX, roleHereOf, reviewOnlyHere,
   list, get, projectsFor, namesFor, create, edit, moveFolder, rename, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,

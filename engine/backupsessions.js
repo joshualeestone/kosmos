@@ -233,4 +233,72 @@ function sessionsFor(agentDir, opts) {
   return roots.some((r) => rootNameProblem(r.name)) ? [] : roots;
 }
 
-module.exports = { sessionsFor, flatten };
+/* kosmos#7410: this agent's own Claude memory notes, for a provider switch to copy into the agent's folder.
+   ownedClaudeMemory(agentDir, claudeRoot, { others }) -> { state, dir?, files? }
+     'owned'        dir is the real memory/ folder, files its top-level regular *.md names (Claude Code's memory is flat)
+     'shared'       memory/ is beside a transcript that is not this agent's (claudeOwned), or it is a link
+     'unattributed' memory/ has notes but no transcript at all beside it, so nothing says whose they are
+     'collides'     another folder Kosmos knows (`others`: agent and project folders) is filed under the same Claude
+                    project name (the flattening is many-to-one: workers/a-b and workers/a.b), so once that folder's
+                    transcripts expire its notes would read as this agent's
+     'newer'        a note was changed after this agent's newest transcript there, so another session wrote it
+     'none'         no project folder, or no notes in it, or nothing readable
+   Review 1 (#7410) made this conservative on purpose: copying another agent's notes into this one is the failure that
+   matters, and carrying nothing is said in the result. The `projects` folder itself may be a link (a second account
+   sharing the agents' history is one, and Claude Code follows it); nothing below it may be. Never throws. */
+const fold = (s) => (process.platform === 'win32' || process.platform === 'darwin' ? String(s).toLowerCase() : String(s));
+function ownedClaudeMemory(agentDir, claudeRoot, opts) {
+  if (typeof agentDir !== 'string' || !path.isAbsolute(agentDir) || typeof claudeRoot !== 'string' || !path.isAbsolute(claudeRoot)) return { state: 'none' };
+  let projects;
+  try { projects = fs.realpathSync(path.join(claudeRoot, 'projects')); } catch { return { state: 'none' }; }
+  const canon = trust.canonicalOnDisk(agentDir);
+  const flats = [...new Set([flatten(canon), flatten(agentDir)])];
+  const belongs = belongsTo(agentDir);
+  let refused = null;
+  for (const flat of flats) {
+    const c = folderCheck(projects, flat);
+    if (c.link) { refused = refused || 'shared'; continue; }
+    if (!c.real) continue;
+    const memDir = path.join(c.real, 'memory');
+    let st;
+    try { st = fs.lstatSync(memDir); } catch { continue; }
+    if (!st.isDirectory()) { refused = refused || 'shared'; continue; }   // a link (or a file) where memory/ should be
+    let notes = [];
+    try { notes = fs.readdirSync(memDir); } catch { notes = []; }
+    if (!notes.length) continue;   // an empty memory/ is nothing to carry
+    // Another folder Kosmos knows with this same Claude project name: its notes could be here.
+    const mine = trust.canonicalOnDisk(agentDir);
+    for (const o of Array.isArray(opts && opts.others) ? opts.others : []) {
+      if (typeof o !== 'string' || !path.isAbsolute(o)) continue;
+      const oc = trust.canonicalOnDisk(o);
+      if (oc === mine || path.resolve(o) === path.resolve(agentDir)) continue;
+      // Review 2: compared case-folded where the file system folds case (Windows, macOS): there workers\a-b and ...\A.B
+      // (and a drive letter in either case) name one Claude project folder.
+      if (fold(flatten(oc)) === fold(flat) || fold(flatten(o)) === fold(flat)) return { state: 'collides' };
+    }
+    const only = claudeOwned(c.real, belongs);
+    if (!only.some((r) => r.startsWith('memory/'))) {
+      let transcripts = 0;
+      try { transcripts = fs.readdirSync(c.real).filter((n) => n.endsWith('.jsonl')).length; } catch { transcripts = 0; }
+      refused = transcripts ? 'shared' : 'unattributed';
+      continue;
+    }
+    // Every note no newer than this agent's newest transcript there (claudeOwned gives memory/ only when all are its).
+    let newest = 0;
+    for (const r of only) {
+      if (r.includes('/') || !r.endsWith('.jsonl')) continue;
+      try { newest = Math.max(newest, fs.statSync(path.join(c.real, r)).mtimeMs); } catch { /* gone meanwhile */ }
+    }
+    const files = only.filter((r) => /^memory\/[^/]+\.md$/i.test(r)).map((r) => r.slice('memory/'.length));
+    for (const f of files) {
+      let m = Infinity;
+      try { m = fs.statSync(path.join(memDir, f)).mtimeMs; } catch { m = Infinity; }
+      if (!(m <= newest)) return { state: 'newer' };
+    }
+    // Review 4: `newest` rides along so the copy can recheck each note right before it copies it.
+    return files.length ? { state: 'owned', dir: memDir, files, newest } : { state: 'none' };
+  }
+  return { state: refused || 'none' };
+}
+
+module.exports = { sessionsFor, flatten, ownedClaudeMemory };

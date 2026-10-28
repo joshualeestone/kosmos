@@ -173,6 +173,24 @@ else
   bad "the table has $rows block rows but projects.ALL_MARKERS() holds $want blocks"
 fi
 
+# #7410: CARRIED-NOTES IS SWITCH-ONLY. Entitled exactly where the folder holds carried notes
+# (memory/claude-notes/ with a plain .md); the block with no notes there is STALE, and an agent
+# that never switched is right to lack it. The row must also READ as a row: its 13-letter name
+# once ran into the count column and dropped out of the table.
+mkdir -p "$T/cn/with/memory/claude-notes" "$T/cn/without" "$T/cn/never"
+CN='<!-- kosmos:carried-notes:start -->\nx\n<!-- kosmos:carried-notes:end -->\n'
+printf "# agent\n$CN" > "$T/cn/with/CLAUDE.md"
+printf 'a note\n' > "$T/cn/with/memory/claude-notes/MEMORY.md"
+printf "# agent\n$CN" > "$T/cn/without/CLAUDE.md"
+printf '# agent\n' > "$T/cn/never/CLAUDE.md"
+cn_row="$(run "$T/cn" | grep -E '^  carried-notes +[0-9?]+/[0-9]+ ')"
+case "$cn_row" in
+  "") bad "no carried-notes row in the output (or it does not read as a row: name run into the count)" ;;
+  *UNDELIVERED*) bad "an agent that never switched read as undelivered for carried-notes ($cn_row)" ;;
+  *"STALE on without"*) ok "carried-notes: STALE only where the pointer has no notes behind it, delivered where it has ($cn_row)" ;;
+  *) bad "carried-notes verdict misread: $cn_row" ;;
+esac
+
 # 🔑 SWARM IS A ROLE, NOT UNIVERSAL: only an agent made as a swarm is entitled. Three
 # agents: a lead without the block (UNDELIVERED), a non-swarm agent with a saved
 # profile that carries it (STALE), and the same block on an agent whose profile could

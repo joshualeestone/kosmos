@@ -490,6 +490,33 @@ _text_args() {
     KOSMOS_TEXT_ARGS+=("$_a")
   done
 }
+# kosmos#7408: `kosmos task message` takes `--to <agent>` (several allowed, up to 10) to tell agents besides the task's
+# assignees. Taken out of the args before `--`; past `--` it is words. Refuses a --to with no name, an option or `--`
+# as the name, --to=<name>, and a name with a quote, backslash or control character (no agent is named so). Sets
+# KOSMOS_TO_JSON (empty, or a JSON list) and KOSMOS_TO_REST (the other words, in order).
+KOSMOS_TO_JSON=""; KOSMOS_TO_REST=()
+_take_to() {
+  local _usage="$1" _past=0 _n=0 _v; shift
+  KOSMOS_TO_JSON=""; KOSMOS_TO_REST=()
+  while [ $# -gt 0 ]; do
+    if [ "$_past" = 0 ]; then
+      case "$1" in
+        --) _past=1; KOSMOS_TO_REST+=("$1"); shift; continue ;;
+        --to=*) say "Write it as --to <agent>, with a space."; exit 2 ;;
+        --to)
+          _v="${2:-}"
+          case "$_v" in ''|-*) say "--to needs the name of an agent on the project, so nothing was sent."; say "$_usage"; exit 2 ;; esac
+          case "$_v" in *[\"\\]*|*[[:cntrl:]]*) say "--to needs the name of an agent on the project, so nothing was sent. Not: an agent name with a quote, backslash or control character in it."; exit 2 ;; esac
+          _n=$((_n + 1))
+          [ "$_n" -le 10 ] || { say "A task message can name up to 10 agents with --to."; exit 2; }
+          KOSMOS_TO_JSON="${KOSMOS_TO_JSON:+$KOSMOS_TO_JSON,}\"$_v\""
+          shift 2; continue ;;
+      esac
+    fi
+    KOSMOS_TO_REST+=("$1"); shift
+  done
+  [ -z "$KOSMOS_TO_JSON" ] || KOSMOS_TO_JSON="[$KOSMOS_TO_JSON]"
+}
 # #5970: `--body-file <path>` (or `--body-file=<path>`) gives a verb's text from a file, the same in every shell, as
 # the Windows CLI does (#5946). Taken out of the args before `--`, wherever it sits among the options, so the rest
 # parse as before; past `--` it is words. Refuses: given twice, no path, an option or `--` as the path.
@@ -5603,10 +5630,11 @@ cmd_task() {
       say "      --done \"<check>\"                                         what finished means for it; up to 3, one --done each"
       say "  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody"
       say "      --part <part-number>                                     which part, when the task has several"
-      say "  kosmos task close <project-id> <task-number>                  close one (number is from list)"
+      say "  kosmos task close <project-id> <task-number> [...]           close one, or several at once (numbers are from list)"
       say "      --replaced-by <task-number>                              a later task replaced it: closed, but not done"
       say "  kosmos task reopen <project-id> <task-number> [\"why\"]        put a done one back; it keeps its number and history"
       say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
+      say "      --to <agent>                                             tell this agent too (several allowed); else only the assignees hear it"
       say "  kosmos task activity <project-id> <task-number>              read a task's conversation, oldest first, in this computer's local time, and whether the person has viewed it"
       say "  kosmos task built <project-id> <task-number> [\"note\"]  mark it built; with checks, the note says how each went"
       say "      --clear                                                  take the built mark off"
@@ -5718,7 +5746,7 @@ cmd_task() {
         [ "$_dn" -le 3 ] || { say "A task holds up to 3 done-when checks. Quote each check, so its words stay together."; exit 2; }
       fi ;;
     close)
-      local _cusage="Usage: kosmos task close <project-id> <task-number> [--replaced-by <task-number>]   (the number is shown by kosmos task list)"
+      local _cusage="Usage: kosmos task close <project-id> <task-number> [<task-number> ...] [--replaced-by <task-number>]   (the numbers are shown by kosmos task list; --replaced-by takes one task)"
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "$_cusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       # #6923: --replaced-by <n> closes it as replaced by task n, rather than done. Nothing else may follow the number.
@@ -5726,7 +5754,17 @@ cmd_task() {
         case "${4:-}" in ''|*[!0-9]*) say "--replaced-by needs the number of the task that replaced it, from: kosmos task list <project-id>."; exit 2 ;; esac
         _no_more_words "task close" 4 "$_cusage" "$@"
       else
-        _no_more_words "task close" 2 "$_cusage" "$@"   # kosmos#4889 review 6
+        # kosmos#7412: several numbers close several tasks, each as one close is. Every word after the first number must
+        # be a number too; an option (or --replaced-by after more than one number) is refused before anything closes.
+        local _cw
+        for _cw in "${@:3}"; do
+          case "$_cw" in
+            --replaced-by) say "--replaced-by takes one task: close the others on their own."; exit 2 ;;
+            ''|*[!0-9]*) _no_more_words "task close" 2 "$_cusage" "$@" ;;   # a word that is not a number: as #4889 review 6
+          esac
+        done
+        # The board's own limit for closing several at once (server.js BULK_CLOSE_MAX), refused before anything is sent.
+        [ $(($# - 1)) -le 200 ] || { say "Close up to 200 tasks at a time: run it again with the rest."; exit 2; }
       fi ;;
     reopen)
       # #6157: put a done task back, keeping its number and history; the words after the number are why.
@@ -5743,11 +5781,12 @@ cmd_task() {
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       _no_more_words "task activity" 2 "Usage: kosmos task activity <project-id> <task-number>   (the number is shown by kosmos task list)" "$@" ;;
     message)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos task message <project-id> <task-number> \"<what to say>\""; exit 2; }
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\""; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
-      _text_args "task message" "Usage: kosmos task message <project-id> <task-number> \"<what to say>\"" "${@:3}"   # kosmos#4889
+      _take_to "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\"" "${@:3}"   # kosmos#7408
+      _text_args "task message" "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\"" ${KOSMOS_TO_REST[@]+"${KOSMOS_TO_REST[@]}"}   # kosmos#4889
       # Review 1: `message p 3 --` leaves no words once the -- is dropped; that is the usage error, not an empty send.
-      [ -n "${KOSMOS_TEXT_ARGS[*]+${KOSMOS_TEXT_ARGS[*]}}" ] || { say "Usage: kosmos task message <project-id> <task-number> \"<what to say>\""; exit 2; } ;;
+      [ -n "${KOSMOS_TEXT_ARGS[*]+${KOSMOS_TEXT_ARGS[*]}}" ] || { say "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\""; exit 2; } ;;
     built)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file's fingerprint; or --clear to take the mark off)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
@@ -6119,6 +6158,62 @@ cmd_task() {
       local _ctok=""   # #4491 slice 5: the agent's own token too (plain hex only); the board closes only for an agent on the project
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _ctok="$KOSMOS_AGENT_TOKEN" ;; esac
       local _by=""; [ "${3:-}" = "--replaced-by" ] && _by="${4:-}"   # #6923: digits only, checked before the health check
+      # kosmos#7412: several numbers: close each as one close is (the board's own route, one request each), then say what
+      # happened to each. A refusal of one task does not stop the others. A refusal for the whole project (who is asking,
+      # or which project) stops there, as does a close Kosmos did not answer: the rest are named as not tried.
+      if [ -z "$_by" ] && [ -n "${3:-}" ]; then
+        local _n _ok="" _bad="" _b _r _code _why _seen=" " _stop="" _stoprc=0 _left="" _wide=0 _l _redir=""
+        for _n in "$num" "${@:3}"; do
+          _n=$(printf '%s' "$_n" | sed 's/^0*\([0-9]\)/\1/')   # the board reads 013 as 13: one task, named as 13
+          case "$_seen" in *" $_n "*) continue ;; esac   # a number given twice is closed once
+          _seen="$_seen$_n "
+          if [ -n "$_stop" ]; then _left="${_left:+$_left, }$_n"; continue; fi
+          _r=0; _b=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -w $'\n%{http_code}' -X POST "$URL/api/project/$esc_project/task/$_n/close" 2>/dev/null) || _r=$?
+          if [ "$_r" -ne 0 ]; then
+            _stop="$_n"; _stoprc="$_r"
+            # Only the failures that send nothing are named not tried: curl could not start (1-3), find (6) or connect (5
+            # from the board check, 7), could not read its own header file (26), or kosmos_curl refused
+            # before sending (96-99, #1765) or was interrupted (130). Anything else came after the request may have gone
+            # (as the Windows command reads a failure), so that one may have closed.
+            case "$_r" in 1|2|3|5|6|7|26|96|97|98|99|130) _left="$_n" ;; esac
+            continue
+          fi
+          _code="${_b##*$'\n'}"; _b="${_b%$'\n'*}"
+          # A redirect is not the board (it never redirects an /api/ request; kosmos#6464), so the close did not reach
+          # Kosmos: not followed, named not tried, and no more sent (the Windows command stops there too).
+          case "$_code" in 3??) _redir="$_n"; _stop="$_n"; _left="$_n"; continue ;; esac
+          case "$_b" in
+            '{"task":'*) _ok="${_ok:+$_ok, }$_n"; continue ;;
+            '{"error":'*) _why=$(printf '%s' "$_b" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'); _why="${_why%.}"; _why="${_why:-it did not say why}" ;;
+            *) _why="" ;;
+          esac
+          # One line each: a reason can hold a ; or a ,. An answer we cannot read does not say it did not close.
+          if [ -n "$_why" ]; then _bad="${_bad}Could not close task $_n: $_why."$'\n'
+          else _bad="${_bad}Task $_n: Kosmos gave an answer we could not read; check kosmos task list ${project:-<project-id>}."$'\n'; fi
+          # Who is asking (401/403), a board that could not check or read its projects (500/503), no such project, or an
+          # answer that is not the board's (421): every later close would be refused the same way, so send no more.
+          case "$_code:$_why" in
+            401:*|403:*|421:*|500:*|503:*|404:*"no project by that name"*|400:*"not a name we can read"*) _wide=1; _stop="$_n" ;;
+          esac
+        done
+        case "$_ok" in '') ;; *,*) say "Closed tasks $_ok on ${project:-the project}." ;; *) say "Closed task $_ok on ${project:-the project}." ;; esac
+        while IFS= read -r _l; do [ -z "$_l" ] || say "$_l"; done <<< "$_bad"
+        if [ "$_stoprc" -ne 0 ]; then
+          case "$_stoprc" in
+            1|2|3|5|6|7|26|96|97|98|99|130) say_unreached "close task $_stop" "$_stoprc" write ;;
+            # As say_unreached's write words for 18/28/52/56, for every failure that may have closed it (never "is it running?").
+            *) say "Kosmos is running but did not answer in time, so we could not close task $_stop. It may still have happened: check before doing it again. It does not need a restart."
+               say "Task $_stop may have closed anyway: check kosmos task list ${project:-<project-id>} before closing it again." ;;
+          esac
+        elif [ -n "$_redir" ]; then
+          say "Whatever answered tried to send the close of task $_redir somewhere else, which Kosmos never does, so it did not reach Kosmos."
+        elif [ "$_wide" = 1 ] && [ -n "$_left" ]; then
+          say "That reason holds for every task on ${project:-the project}, so the rest were not sent."
+        fi
+        [ -z "$_left" ] || say "Not tried: $_left."   # never read, so not said to be open: one may be closed already
+        { [ -z "$_bad" ] && [ "$_stoprc" -eq 0 ] && [ -z "$_redir" ]; } || exit 1
+        exit 0
+      fi
       if [ -n "$_by" ]; then
         body=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/close" \
           -H 'content-type: application/json' --data "{\"replacedBy\":\"$_by\"}" 2>/dev/null) || rc=$?
@@ -6387,7 +6482,8 @@ cmd_task() {
       # (the same treatment `add` gives its detail).
       local project num text; project="${1:-}"; num="${2:-}"
       shift 2 2>/dev/null || true
-      _text_args "task message" "Usage: kosmos task message <project-id> <task-number> \"<what to say>\"" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+      _take_to "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\"" "$@"   # kosmos#7408
+      _text_args "task message" "Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] \"<what to say>\"" ${KOSMOS_TO_REST[@]+"${KOSMOS_TO_REST[@]}"}; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
       text="$*"
       local esc_text esc_pane
       esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
@@ -6400,14 +6496,22 @@ cmd_task() {
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/message" \
         -H 'content-type: application/json' \
-        --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+        --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"${KOSMOS_TO_JSON:+,\"to\":$KOSMOS_TO_JSON}}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "send that message" "$rc" write; exit 1; }
       # Success is the board's own {"ok":true,...} shape, not merely the absence of an error.
       case "$body" in
         '{"ok":'*)
           # #4540: the board's own sentence about who was told (it carries no double quote); none from an older board.
           local told; told=$(printf '%s' "$body" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
-          say "Message recorded on task $num of ${project:-the project}.${told:+ $told}" ;;
+          say "Message recorded on task $num of ${project:-the project}.${told:+ $told}"
+          # kosmos#7408: on a task nobody holds, say how to reach someone next time.
+          # Review 1: a board that answers no "to" does not know --to, so the names were not told; never the hint then.
+          # Review 2: exit 0 on purpose (the message WAS recorded; a failing exit invites a resend that records it twice).
+          if [ -n "$KOSMOS_TO_JSON" ]; then
+            case "$body" in *'"to":['*) ;; *) say "This Kosmos does not know --to yet, so the agents you named were told only if they are assigned to the task. Update Kosmos, or assign the task." ;; esac
+          else
+            case "$told" in "Nobody is assigned to it"*|"Nobody else is assigned to it"*) say "To tell an agent anyway, name it: --to <agent>." ;; esac
+          fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos refused that message: ${because:-it did not say why}."; exit 1 ;;

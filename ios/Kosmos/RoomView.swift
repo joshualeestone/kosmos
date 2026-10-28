@@ -132,6 +132,7 @@ struct RoomView: View {
         }
         .background(Palette.ground.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
+        .kosmosSolidTopBar(fade: false)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
@@ -595,6 +596,7 @@ struct RoomView: View {
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
             }
+            .kosmosTopFade()   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
             .onChange(of: rows.last?.id) { _ in
                 if !settledAtBottom {
                     // The first page: straight to the newest row, then the top may ask for older ones. A page that fits
@@ -1377,25 +1379,71 @@ struct RoomBubble: View {
     }
 }
 
-// kosmos#7080: the board's three working dots (.act i), fading in turn 0.16s apart. Grey and fade-only, as the phone's
-// chat WorkingLine (the board's are green and also rise 4px). With Reduce Motion they still fade, slower (the board's
-// work-fade, #4591: Josh read still dots as frozen; a fade is not movement). Opacity is read from the clock (review 1:
-// a repeatForever started on appear can catch layout changes in a pushed view), at 30 frames a second at most.
+// kosmos#7427 (Josh 10-27 20:56): the board's three working dots exactly (web/index.html .act i, @keyframes work): a
+// 1.1 s ease-in-out loop, each dot 0.16 s after the one before, rising 4 pt with its opacity going .45 to 1 and back,
+// so the three read as a wave, never a pulse in unison. With Reduce Motion the same stagger, opacity only (.35 to 1)
+// over 1.6 s and no movement (@keyframes work-fade, #4591: still dots read as frozen; a fade is not movement). The
+// ease is a cosine, which is the CSS ease-in-out to within a few percent. Drawn from the clock at 30 frames a second
+// at most (kosmos#7080 review 1: a repeatForever started on appear catches layout changes in a pushed view).
 struct WorkingDots: View {
+    var color: Color = Palette.pillWord(.working)   // the Working green, light and dark (the board's #2f7d5a is too dark on the dark ground)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // With the person's text size, as the line beside them (review 4).
+    // With the person's text size, as the line beside them (kosmos#7080 review 4): 4 pt at the default size where the
+    // board's are 3 px, a deliberate step up so they read on a phone; timing and rise are the board's exactly.
     @ScaledMetric(relativeTo: .footnote) private var size: CGFloat = 4
+
+    // Where dot i is in its loop at time t, 0 at rest and 1 at the top (the 50% keyframe).
+    static func phase(_ t: Double, dot i: Int, reduceMotion: Bool) -> Double {
+        let period = reduceMotion ? 1.6 : 1.1
+        return 0.5 - 0.5 * cos((t - Double(i) * 0.16) * 2 * .pi / period)
+    }
+
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
             let t = tl.date.timeIntervalSinceReferenceDate
-            let period = reduceMotion ? 1.6 : 1.1, low = reduceMotion ? 0.35 : 0.45
-            HStack(spacing: size * 0.75) {
+            let low = reduceMotion ? 0.35 : 0.45
+            HStack(alignment: .bottom, spacing: size * 0.75) {
                 ForEach(0..<3, id: \.self) { i in
-                    Circle().fill(Palette.secondary).frame(width: size, height: size)
-                        .opacity(low + (1 - low) * (0.5 - 0.5 * cos((t - Double(i) * 0.16) * 2 * .pi / period)))
+                    let p = Self.phase(t, dot: i, reduceMotion: reduceMotion)
+                    Circle().fill(color).frame(width: size, height: size)
+                        .opacity(low + (1 - low) * p)
+                        .offset(y: reduceMotion ? 0 : -4 * p)
                 }
             }
+            .frame(height: size + 4, alignment: .bottom)
         }
+        .accessibilityHidden(true)
+    }
+}
+
+// kosmos#7427 review 2 (measured on the simulator 10-27, the kosmos#7420 A/B): the same wave for a line INSIDE a scrolling
+// thread (the chat's working line). WorkingDots redraws from the clock 30 times a second, and inside the chat's lazy
+// stack that kept the thread from following new messages with the keyboard up (the newest ones sat behind the box).
+// Here each dot runs its own repeating animation, delayed 0.16 s per dot, which moves only the dot (opacity and
+// offset) and never asks the thread to lay out again. The animation is tied to this view's own switch, so nothing
+// else on the page animates with it (kosmos#7080 review 1).
+struct WaveDots: View {
+    var color: Color = Palette.pillWord(.working)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .footnote) private var size: CGFloat = 4
+    @State private var up = false
+
+    var body: some View {
+        let low = reduceMotion ? 0.35 : 0.45, half = (reduceMotion ? 1.6 : 1.1) / 2
+        HStack(alignment: .bottom, spacing: size * 0.75) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle().fill(color).frame(width: size, height: size)
+                    .opacity(up ? 1 : low)
+                    .offset(y: up && !reduceMotion ? -4 : 0)
+                    .animation(.easeInOut(duration: half).repeatForever(autoreverses: true).delay(Double(i) * 0.16), value: up)
+            }
+        }
+        .frame(height: size + 4, alignment: .bottom)
+        .onAppear { up = true }
+        // Review 3: a lazy thread keeps this state while the line is scrolled away and drops the running animation, so
+        // it goes back to rest without animating and the next appear starts the wave again (never frozen, raised).
+        .onDisappear { var t = Transaction(); t.disablesAnimations = true; withTransaction(t) { up = false } }
+        .accessibilityHidden(true)
     }
 }
 

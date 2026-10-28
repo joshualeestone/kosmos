@@ -196,6 +196,49 @@ enum PushBridge {
         return parts.url
     }
 
+    // kosmos#7420 (Josh 10-27): no banner for the conversation already on screen. The chat that is open (its computer's
+    // address and the agent's session) is set by ChatView while it shows. An agent's answer or question (replied,
+    // needs_you) from that same chat on that same computer is already in front of the person, so it shows nothing;
+    // every other notice (a room post, work ready for a look, another agent, another computer) shows as before.
+    struct OpenChat: Equatable { let host: String; let session: String }
+    static func showsBanner(_ userInfo: [AnyHashable: Any], openChat: OpenChat?) -> Bool {
+        guard let open = openChat,
+              let kind = userInfo["kind"] as? String, kind == "replied" || kind == "needs_you",
+              (userInfo["session"] as? String) == open.session,
+              (userInfo["address"] as? String)?.lowercased() == open.host.lowercased()
+        else { return true }
+        return false
+    }
+
+    // kosmos#7418 (Josh 10-27): an agent's notification (needs_you, replied, ready, or a room post the extension could
+    // not place in a room) opens that agent's chat in the native Agents tab, not the board's old agent page. Its `session`
+    // must be a plain agent name and its `address` a plain host under the relay domain, as boardURL requires; `agent`, the
+    // shown name, is only a label for the chat's title until the list has the agent.
+    struct AgentTarget: Equatable { let host: String; let session: String; let name: String }
+    // The kinds the board sends (engine/phonenotify.js KINDS); one added later opens as before until it is placed here.
+    static let agentKinds: Set<String> = ["needs_you", "replied", "ready", "posted"]
+    static func agentToOpen(fromNotification userInfo: [AnyHashable: Any], coordinator: URL) -> AgentTarget? {
+        guard let kind = userInfo["kind"] as? String, agentKinds.contains(kind),
+              let session = userInfo["session"] as? String, isAgentSession(session),
+              let raw = userInfo["address"] as? String, raw.unicodeScalars.allSatisfy({ $0.isASCII }),
+              isMacHost(raw.lowercased(), coordinator: coordinator)
+        else { return nil }
+        let shown = (userInfo["agent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // The board sends "An agent" when it has no name for it (engine/phonenotify.js payload): the session reads better.
+        let name = shown.isEmpty || shown == "An agent" || shown.count > 80 ? session.prefix(1).uppercased() + session.dropFirst() : shown
+        return AgentTarget(host: raw.lowercased(), session: session, name: name)
+    }
+
+    // Where an agent's notification opens: the native chat when it came from the computer the app is showing (by its
+    // address, without case), since the chat reads through that computer; else the board's page for that agent on the
+    // computer it came from, as a tap always did.
+    enum AgentOpening: Equatable { case native(AgentTarget), board(URL) }
+    static func agentOpening(_ t: AgentTarget, shownAddress: String?, coordinator: URL) -> AgentOpening? {
+        if let shown = shownAddress, shown.lowercased() == t.host { return .native(t) }
+        return boardURL(fromNotification: ["address": t.host, "session": t.session], coordinator: coordinator)
+            .map { .board($0) }
+    }
+
     // The board's agent-name characters (engine/create.js NAME_RE): lowercase letters,
     // digits, hyphen and underscore, starting with a letter or digit. No dots,
     // slashes, colons, percent signs, spaces or Unicode. The LENGTH is deliberately

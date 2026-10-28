@@ -9,6 +9,8 @@ struct AgentsView: View {
     @ObservedObject var client: BoardClient
     // kosmos#7222: notification permission is asked here, over a connected Mac's agents, not at launch.
     @ObservedObject var push: PushNotificationManager
+    // kosmos#7418: the chat a tapped notification asked for (ContentView.openAgentChat); opened, then cleared.
+    @Binding var agentRequest: PushBridge.AgentTarget?
     let openChat: (URL) -> Void
     let openBoard: () -> Void
     // kosmos#7266: the + at the top right, the board's own new-agent form (ContentView.openCreate).
@@ -42,10 +44,10 @@ struct AgentsView: View {
                 // kosmos#7343 (Josh 10-27, Mona Lisa's design): one bar on Agents, Projects and Tasks, no big title (the
                 // tab bar names the screen): the Kosmos mark, the computer switcher, then order and + in one capsule.
                 .navigationBarTitleDisplayMode(.inline)
+                .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
                 .toolbar {
                     ToolbarItem(placement: .principal) { ScreenHeading(title: "Agents") }
-                    ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
-                    ToolbarItem(placement: .navigationBarLeading) { MacSwitcher(client: client) }
+                    KosmosBarLeading(switcher: MacSwitcher(client: client))
                     ToolbarItemGroup(placement: .navigationBarTrailing) {
                         agentSortMenu
                         Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
@@ -61,6 +63,9 @@ struct AgentsView: View {
                             ChatView(client: client, agent: agent, openOnBoard: {
                                 if let url = client.chatURL(for: agent) { openChat(url) }
                             })
+                            // kosmos#7418 review 1: a notification for another agent while a chat is open starts that
+                            // agent's chat afresh (draft kept, reading loop ended), never the old one under a new name.
+                            .id(agent.session)
                         }
                     } label: { EmptyView() }
                     .hidden()
@@ -69,9 +74,11 @@ struct AgentsView: View {
         .navigationViewStyle(.stack)
         // Signed out, another account or another Mac: the open chat was the previous one's, so it closes.
         .onChange(of: client.chatEpoch) { _ in openAgent = nil }
+        .onChange(of: agentRequest) { _ in openRequested() }
         .onAppear {
             visible = true
             client.show(BoardClient.agentsViewer)   // kosmos#7030: Today reads the same list
+            openRequested()   // kosmos#7418: a tap on a cold launch, or while another tab showed
             // kosmos#7222: a change made in iOS Settings is seen here, and a yes given there registers (review 1).
             push.refreshPermission(registerIfAllowed: true)
             #if DEBUG
@@ -90,6 +97,15 @@ struct AgentsView: View {
             if phase == .background { wasBackground = true; client.stop() }
             else if phase == .active && wasBackground { wasBackground = false; client.start(); push.refreshPermission(registerIfAllowed: true) }
         }
+    }
+
+    // kosmos#7418: a notification's agent opens as a tap on its row would: the list's own entry when it has it (its
+    // status and picture), else one made from the notice, which the chat then follows as the list arrives.
+    private func openRequested() {
+        guard let target = agentRequest else { return }
+        agentRequest = nil
+        openAgent = client.agents.first(where: { $0.session == target.session })
+            ?? Board.Agent(session: target.session, name: target.name, role: nil, state: "idle", task: nil, needsYou: false)
     }
 
     // Whether the list is on screen, and if so whether it is marked not updating. Decided once, so the list is drawn
@@ -552,6 +568,42 @@ struct KosmosMark: View {
     }
 }
 
+// kosmos#7417 (Josh 10-27): the mark is its own circle, apart from the computer switcher. On iOS 26 the bar draws
+// neighbouring items in one glass pill, which clipped the mark's sides; so the mark draws no glass of its own and a
+// fixed gap starts a new pill for the switcher. Before iOS 26 there is no pill and the two simply sit side by side.
+struct KosmosBarLeading<S: View>: ToolbarContent {
+    let switcher: S?
+
+    var body: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }.sharedBackgroundVisibility(.hidden)
+            ToolbarSpacer(.fixed, placement: .navigationBarLeading)
+        } else {
+            ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
+        }
+        if let switcher { ToolbarItem(placement: .navigationBarLeading) { switcher } }
+    }
+}
+
+// kosmos#7346 (Josh 10-27 20:21): the top of every screen gets the bottom strip's treatment: the bar is solid in the
+// page's own colour, so a scrolled row never shows behind the mark, the switcher or the buttons, and rows fade into
+// it over a few points just below it. Drawn over the page, so it takes no room and no touches.
+extension View {
+    // `fade: false` for a page whose top is a fixed row (a banner, a search field): the fade goes on its scrolling part
+    // instead (kosmosTopFade), so it never washes over the fixed row (review 1).
+    @ViewBuilder func kosmosSolidTopBar(fade: Bool = true) -> some View {
+        let solid = toolbarBackground(Palette.ground, for: .navigationBar).toolbarBackground(.visible, for: .navigationBar)
+        if fade { solid.kosmosTopFade() } else { solid }
+    }
+
+    func kosmosTopFade() -> some View {
+        overlay(alignment: .top) {
+            LinearGradient(colors: [Palette.ground, Palette.ground.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 10).allowsHitTesting(false).accessibilityHidden(true)
+        }
+    }
+}
+
 // kosmos#7343: no title shows in the bar, but VoiceOver still hears the screen's name as its heading.
 struct ScreenHeading: View {
     let title: String
@@ -606,13 +658,11 @@ struct MacSwitcher: View {
 }
 
 // kosmos#7342: one status pill, 20 pt tall and fully round, 12 pt semibold with 8 pt sides. Working carries the board's
-// Sweep: three dots lit one after another (Josh's pick, 09-05); with Reduce Motion they stand still, the first lit.
+// three dots, the board's wave (WorkingDots, kosmos#7427), in place of the Sweep of 09-05.
 struct StatusPill: View {
     let word: String
     let pill: Board.Pill
     var wraps = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
     var body: some View {
         HStack(spacing: 5) {
             if pill == .working { sweep }
@@ -626,25 +676,7 @@ struct StatusPill: View {
         .background(Capsule().fill(Palette.pillGround(pill)))
     }
 
-    @ViewBuilder private var sweep: some View {
-        if reduceMotion {
-            dots { i in i == 0 ? 1 : 0.25 }
-        } else {
-            // 30 frames a second is smooth for a 1.2 s fade and costs less than the display's own rate.
-            TimelineView(.periodic(from: .now, by: 1.0 / 30)) { context in
-                let t = context.date.timeIntervalSinceReferenceDate
-                dots { i in Board.sweepOpacity(t - Double(i) * 0.2) }
-            }
-        }
-    }
-
-    private func dots(_ opacity: @escaping (Int) -> Double) -> some View {
-        HStack(spacing: 2.5) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle().frame(width: 4, height: 4).opacity(opacity(i)).scaleEffect(0.7 + 0.4 * (opacity(i) - 0.25) / 0.75)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
+    // kosmos#7427 (Josh 10-27 20:56): the board's wave, as everywhere else on the phone (WorkingDots), in the pill's own
+    // word colour so it reads on the pill.
+    private var sweep: some View { WorkingDots(color: Palette.pillWord(pill)) }
 }

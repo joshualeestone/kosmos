@@ -146,10 +146,10 @@ struct TasksView: View {
             // kosmos#7343 (Mona Lisa's design): the shared bar, no big title. The switcher takes the place of "All
             // projects"; choosing a project moves into the filter button, left of +, in one capsule.
             .navigationBarTitleDisplayMode(.inline)
+            .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
             .toolbar {
                 ToolbarItem(placement: .principal) { ScreenHeading(title: "Tasks") }
-                ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
-                if let switcher { ToolbarItem(placement: .navigationBarLeading) { switcher } }
+                KosmosBarLeading(switcher: switcher)
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     if let read, !read.tasks.isEmpty { picker }
                     // Not gated on the Tasks read: the sheet reads its own projects, so a failed list does not stop a new task.
