@@ -155,7 +155,7 @@ const TWO_POLLS_MS = 16000;
       // kosmos#7416 (Mona Lisa's words): "isn't answering", and "asleep, off or offline".
       chk(/Your Mac isn't answering/.test(r.note) && /asleep, off or offline/.test(r.note), 'S2: the note names the Mac and why', r.note.slice(0, 160));
       // kosmos#7416: the board answered before its routes were cut, so the note says when it last heard from it.
-      chk(/It may be asleep, off or offline\. We last heard from it [^.]+\. Wake it/.test(r.note), 'S2: the note says when this page last heard from the computer, after its first sentence', r.note.slice(0, 220));
+      chk(/It may be asleep, off or offline\. We last heard from it [^<]*?\. Wake it/.test(r.note), 'S2: the note says when this page last heard from the computer, after its first sentence', r.note.slice(0, 220));
       chk(!/Applications folder/.test(r.note), 'S2: no desktop-only remedy on a phone', r.note.slice(0, 200));
       // The card paints on its own poll: wait for it before reading what it says.
       const carded = await waitFor(page, () => /We cannot read your agents/.test(((document.getElementById('grid') || {}).textContent || '') + ((document.getElementById('alist') || {}).textContent || '')));
