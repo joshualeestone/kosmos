@@ -57,7 +57,8 @@ struct NewAgentView: View {
     @State private var markImage: UIImage?           // the mark for markName, drawn once per name, not per redraw
     @State private var markName = ""
     @State private var photoLoad = 0                 // the newest pick: an older one finishing late is not used
-    @State private var photoImage: UIImage?          // the chosen picture, decoded once
+    @State private var photoImage: UIImage?
+    @State private var sampleBottom = false   // DEBUG shots: the team screen scrolled to its foot          // the chosen picture, decoded once
     @State private var projectUnsure = false         // a new project's create got no answer: look before making another
     @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
     @State private var checkedNames: [String: String] = [:]   // the names the board checked free, by slot
@@ -97,7 +98,7 @@ struct NewAgentView: View {
     }
 
     #if DEBUG
-    // Design shots only: KOSMOS_SAMPLE_NEWAGENT=kind|role|own|setup|swarm|made|notup|team|teammade opens that screen on a sample catalogue,
+    // Design shots only: KOSMOS_SAMPLE_NEWAGENT=kind|role|own|setup|swarm|made|notup|team|teambottom|teammade opens that screen on a sample catalogue,
     // since a simulator run has no board to read the roles from.
     private func showSample() -> Bool {
         guard let at = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWAGENT"], !at.isEmpty else { return false }
@@ -119,7 +120,8 @@ struct NewAgentView: View {
         case "swarm": draft.kind = .swarm; draft.roleKey = "researcher"; draft.name = "Finch"; draft.label = "Researcher"; lastLabel = draft.label; path = [.role, .setup]
         case "made": draft.name = "Ada"; made = ("ada", "Ada"); seen = true; path = [.role, .setup, .made]
         case "notup": draft.name = "Ada"; made = ("ada", "Ada"); timedOut = true; path = [.role, .setup, .made]
-        case "team", "teammade":
+        case "team", "teammade", "teambottom":
+            sampleBottom = at == "teambottom"
             teams = NewTeam.parseTeams(Data(#"{"teams":[{"key":"marketing","label":"Marketing","blurb":"Plans and runs your campaigns","count":3},{"key":"support","label":"Customer Support","blurb":"Answers your customers","count":3}]}"#.utf8))
             detail = NewTeam.parseDetail(Data(#"{"team":{"key":"marketing","label":"Marketing","purpose":"A lead who plans the campaigns, and two who make them.","project":{"name":"Marketing"},"lead":"head"},"members":[{"slot":"head","title":"Head of Marketing","name":"Maya","reportsTo":null},{"slot":"writer","title":"Copywriter","name":"Wes","reportsTo":"lead"},{"slot":"social","title":"Social Media Manager","name":"Sol","reportsTo":"lead"}]}"#.utf8))
             teamKey = "marketing"
@@ -255,6 +257,7 @@ struct NewAgentView: View {
     // MARK: 2b. Create a Team of Agents
 
     private var teamScreen: some View {
+        ScrollViewReader { proxy in
         Form {
             Section {
                 Text(NewTeam.Words.hint).font(.subheadline).foregroundColor(Palette.secondary)
@@ -306,6 +309,7 @@ struct NewAgentView: View {
                         .labelsHidden()   // Mona Lisa: the heading says Model; the row shows only the choice
                         .disabled(teamLocked)
                     } header: { Text(NewAgent.Words.model + " " + NewTeam.Words.modelSoft) }
+                    .id("teamModel")
                 }
                 if catalogue == nil { Section { loadingRow } }   // the models come with the roles: Try again is here too
             } else if teamKey != nil {
@@ -322,6 +326,11 @@ struct NewAgentView: View {
             if teamBusy && !teamRunning {
                 Section { Text(NewTeam.Words.stillMaking).foregroundColor(Palette.secondary) }
             }
+        }
+        #if DEBUG
+        // Design shots only: the sample's team screen scrolled to its foot (Project and Model).
+        .onAppear { if sampleBottom { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { proxy.scrollTo("teamModel", anchor: .bottom) } } }
+        #endif
         }
         .navigationTitle(NewTeam.Words.title)
         .navigationBarTitleDisplayMode(.inline)
