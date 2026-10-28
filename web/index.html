@@ -7597,8 +7597,8 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 #pj-room .msg.you .msg-bd { max-width: min(78ch, 100%); }
 /* kosmos#7365 slice 3b (Mona Lisa, 04:0x): on a phone the header is a column of full-width rows, so "Archive older
    messages" there was a 44 px row of its own, and pjFitRoomPhone took that height off the thread (113 px to its 96 px
-   floor on a 375x667 phone). There it moves to the top of the thread, scrolling with it, so it costs nothing until
-   someone scrolls up. The desktop keeps it beside search. */
+   floor on a 375x667 phone). There it is the thread's last row (pjRoomEndAsk), in a room of more than one page, so it
+   costs the header nothing. The desktop keeps it beside search. */
 .pj-arch-top, .pj-arch-ask-top { display: none; }
 @media (max-width: 30rem) {
   .pjcol.pjmid { padding: 12px 8px 8px; }
@@ -76038,17 +76038,20 @@ async function pjWinRead(pid, n, cursor, archive) {
   if (!res.ok || !body || !Array.isArray(body.rows)) throw new Error((body && body.error) || 'we could not read the room');
   return body;
 }
-/* kosmos#7365 slices 3 and 3b: the thread's first row. At the start of the live history with messages archived, "Older
-   messages are archived. View archive". On a phone (CSS shows it only there, Mona Lisa), "Archive older messages" too:
-   beside that line when it shows, never a second line competing with it, else alone as the first row. Not while
-   searching, and not in an empty room (nothing to archive). */
-function pjRoomTopEdge(filtering, hasRows, archived) {
-  const ask = !filtering && hasRows
-    ? '<button type="button" class="linkish pj-arch-ctl pj-arch-ask-top" data-arch-ask="1">Archive older messages</button>' : '';
-  if (!filtering && archived) {
-    return '<div class="pj-arch-edge"><span>Older messages are archived.</span> <button type="button" class="linkish pj-arch-ctl" id="pj-arch-open">View archive</button>' + (ask ? ' ' + ask : '') + '</div>';
-  }
-  return ask ? '<div class="pj-arch-edge pj-arch-top">' + ask + '</div>' : '';
+/* kosmos#7365 slice 3: the thread's first row at the start of the live history with messages archived: "Older messages
+   are archived. View archive". Not while searching. */
+function pjRoomTopEdge(filtering, archived) {
+  if (filtering || !archived) return '';
+  return '<div class="pj-arch-edge"><span>Older messages are archived.</span> <button type="button" class="linkish pj-arch-ctl" id="pj-arch-open">View archive</button></div>';
+}
+/* kosmos#7365 3b (Mona Lisa, phone; CSS shows it only there): "Archive older messages" as the thread's LAST row, under
+   the newest message. Not at the top: in a room over one page the top is the load-earlier zone, so the link pushed
+   itself away each time it came into view (measured in review). Only in a room with more than one page of messages
+   (nothing worth archiving in a short one, and a last row is on screen every time the room opens), not while searching,
+   and not in an empty room. */
+function pjRoomEndAsk(filtering, hasRows, longRoom) {
+  if (filtering || !hasRows || !longRoom) return '';
+  return '<div class="pj-arch-edge pj-arch-top"><button type="button" class="linkish pj-arch-ctl pj-arch-ask-top" data-arch-ask="1">Archive older messages</button></div>';
 }
 /* kosmos#7365 slice 3: whether the window holds the room's live history back to its start (nothing older is unread). */
 function pjWinAtStart() {
@@ -76098,13 +76101,10 @@ function paintArch() {
   pjArchComposer(true);
   PJ_ARCH.posts = new Map(PJ_ARCH.rows.filter((r) => r && r.kind === 'post' && typeof r.id === 'string').map((r) => [r.id, r]));
   const body = PJ_ARCH.rows.map((m) => pjRoomRow(m, p, false)).join('');
-  /* kosmos#7365 3b (Mona Lisa, phone): the archive view's thread carries Archive older messages too (the header's is
-     hidden on a phone, and the desktop offers it here), beside "This is the start of the room" when that shows. */
-  const ask = '<button type="button" class="linkish pj-arch-ctl pj-arch-ask-top" data-arch-ask="1">Archive older messages</button>';
-  const start = PJ_ARCH.olderCount === 0
-    ? '<div class="pj-arch-edge"><span>This is the start of the room.</span> ' + ask + '</div>'
-    : '<div class="pj-arch-edge pj-arch-top">' + ask + '</div>';
-  box.innerHTML = start + (body || '<p class="fhint" style="margin:0;">Nothing in this room is archived now.</p>');
+  const start = PJ_ARCH.olderCount === 0 ? '<div class="pj-arch-edge">This is the start of the room.</div>' : '';
+  // kosmos#7365 3b (phone): the archive view offers Archive older messages too (the header's is hidden on a phone, and
+  // the desktop offers it here), as its last row like the live room's.
+  box.innerHTML = start + (body || '<p class="fhint" style="margin:0;">Nothing in this room is archived now.</p>') + pjRoomEndAsk(false, Boolean(body), true);
   // The header above the thread moves its top, so the phone's fit (#7196) is measured again (review 3).
   if (typeof pjFitRoomPhone === 'function') pjFitRoomPhone();
 }
@@ -78664,8 +78664,12 @@ function paintRoom(body) {
   /* kosmos#7365 slice 3: once the reader has the live history back to its start, its first row says older messages are
      archived, with the way in. Not while searching (search covers both), and not a standing notice. */
   const archived = !filtering && typeof PJ_WIN !== 'undefined' && pjWinAtStart() && PJ_WIN.archivedCount > 0;
-  const top = pjRoomTopEdge(filtering, Boolean(rows), archived);
-  const html = note + top + (rows || (archived ? '' : empty));
+  const top = pjRoomTopEdge(filtering, archived);
+  // More than one page: over a page loaded, or an earlier page of this room still to load.
+  const win = typeof PJ_WIN !== 'undefined' && PJ_WIN.pid === PJ_CURRENT && Array.isArray(PJ_WIN.newest);
+  const longRoom = allRows.length > 200 || (win && !pjWinAtStart());
+  const end = pjRoomEndAsk(filtering, Boolean(rows), longRoom);
+  const html = note + top + (rows || (archived ? '' : empty)) + end;
   /* #5800: the hold notice, written only when it changes (it holds a button the person may be focused on), and said
      aloud when the room goes on hold, so a screen-reader user hears it as a sighted person sees it appear. */
   const heldEl = document.getElementById('pj-held');

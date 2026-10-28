@@ -13,10 +13,10 @@ const vm = require('node:vm');
 const { scriptOf, liftAll, liftConst } = require('./test-support/page');
 
 const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
-const SRC = [liftConst(SCRIPT, 'PJ_WIN'), liftAll(SCRIPT, ['pjArchBefore', 'pjRoomArchWhen', 'pjArchReceipt', 'pjWinAtStart', 'pjRoomTopEdge'])].join('\n');
+const SRC = [liftConst(SCRIPT, 'PJ_WIN'), liftAll(SCRIPT, ['pjArchBefore', 'pjRoomArchWhen', 'pjArchReceipt', 'pjWinAtStart', 'pjRoomTopEdge', 'pjRoomEndAsk'])].join('\n');
 function page(extra = {}) {
   const ctx = vm.createContext({ PJ_CURRENT: 'p1', Date, Number, Array, ...extra });
-  vm.runInContext(SRC + '\nthis.PJ_WIN = PJ_WIN; this.pjArchBefore = pjArchBefore; this.pjArchReceipt = pjArchReceipt; this.pjWinAtStart = pjWinAtStart; this.pjRoomTopEdge = pjRoomTopEdge;', ctx);
+  vm.runInContext(SRC + '\nthis.PJ_WIN = PJ_WIN; this.pjArchBefore = pjArchBefore; this.pjArchReceipt = pjArchReceipt; this.pjWinAtStart = pjWinAtStart; this.pjRoomTopEdge = pjRoomTopEdge; this.pjRoomEndAsk = pjRoomEndAsk;', ctx);
   return ctx;
 }
 
@@ -142,7 +142,7 @@ function archPage({ reads }) {
     pjWinRead: (pid, n, cursor, archive) => { const r = reads.shift(); return typeof r === 'function' ? r({ pid, n, cursor, archive }) : r; },
   });
   vm.runInContext([liftConst(SCRIPT, 'PJ_WIN'), liftConst(SCRIPT, 'PJ_ARCH'),
-    liftAll(SCRIPT, ['pjArchReset', 'pjArchComposer', 'pjArchShowing', 'pjArchState', 'pjArchHead', 'paintArch', 'pjArchOpen', 'pjArchEarlier', 'pjArchClose', 'pjWinOlderLine', 'pjWinNoteReactions'])].join('\n')
+    liftAll(SCRIPT, ['pjArchReset', 'pjArchComposer', 'pjArchShowing', 'pjArchState', 'pjArchHead', 'paintArch', 'pjRoomEndAsk', 'pjArchOpen', 'pjArchEarlier', 'pjArchClose', 'pjWinOlderLine', 'pjWinNoteReactions'])].join('\n')
     + '\nthis.PJ_WIN = PJ_WIN; this.PJ_ARCH = PJ_ARCH; this.pjArchOpen = pjArchOpen; this.pjArchEarlier = pjArchEarlier; this.pjArchClose = pjArchClose; this.pjWinNoteReactions = pjWinNoteReactions;', ctx);
   el('pj-room').__lastBody = { rows: [{ text: 'live' }] };
   return { ctx, el, doc, said, toasts, painted, restored };
@@ -471,23 +471,28 @@ test('#7365 3b browser runs 2-3: Back paints the room with no scroll state measu
   }
 });
 
-test('#7365 3b (Mona Lisa, phone): the thread\'s first row carries Archive older messages, beside the archived line, never a second line', () => {
+test('#7365 3b: the thread\'s first row says older messages are archived only at the start with messages archived', () => {
   const { pjRoomTopEdge } = page();
-  const asks = (h) => (h.match(/data-arch-ask/g) || []).length;
-  const lines = (h) => (h.match(/class="pj-arch-edge/g) || []).length;
-  // Rows, nothing archived yet: one row, holding the link.
-  const a = pjRoomTopEdge(false, true, false);
-  assert.equal(lines(a), 1); assert.equal(asks(a), 1); assert.match(a, /pj-arch-top/);
-  // At the start with messages archived: ONE line, the archived sentence, View archive and the link beside them.
-  const b = pjRoomTopEdge(false, true, true);
-  assert.equal(lines(b), 1, 'two competing lines at the top of the thread');
-  assert.equal(asks(b), 1); assert.match(b, /Older messages are archived\./); assert.match(b, /id="pj-arch-open"/);
-  assert.doesNotMatch(b, /pj-arch-top/, 'the archived line is shown on every screen, not only on a phone');
-  // Searching, or an empty room: no link (nothing to archive, or the search covers both).
-  assert.equal(asks(pjRoomTopEdge(true, true, true)), 0); assert.equal(pjRoomTopEdge(true, true, false), '');
-  assert.equal(pjRoomTopEdge(false, false, false), '');
-  // CONTROL: an empty room at its start with messages archived still says so, with View archive.
-  assert.match(pjRoomTopEdge(false, false, true), /View archive/);
+  assert.match(pjRoomTopEdge(false, true), /Older messages are archived\./);
+  assert.match(pjRoomTopEdge(false, true), /id="pj-arch-open"/);
+  assert.doesNotMatch(pjRoomTopEdge(false, true), /data-arch-ask/, 'the archive link back at the top, in the load-earlier zone');
+  assert.equal(pjRoomTopEdge(true, true), '', 'not while searching');
+  assert.equal(pjRoomTopEdge(false, false), '');
+});
+
+test('#7365 3b (Mona Lisa, phone): Archive older messages is the thread\'s last row, only in a room of more than one page', () => {
+  const { pjRoomEndAsk } = page();
+  const end = pjRoomEndAsk(false, true, true);
+  assert.match(end, /data-arch-ask="1"/); assert.match(end, /pj-arch-top/);
+  assert.equal(pjRoomEndAsk(false, true, false), '', 'a short room: no line above the place you type');
+  assert.equal(pjRoomEndAsk(true, true, true), '', 'not while searching');
+  assert.equal(pjRoomEndAsk(false, false, true), '', 'not in an empty room');
+});
+
+test('#7365 3b (phone): the room paint puts the link LAST, and only for a room of more than one page', () => {
+  const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(html, /const html = note \+ top \+ \(rows \|\| \(archived \? '' : empty\)\) \+ end;/, 'the link is not after the rows');
+  assert.match(html, /const longRoom = allRows\.length > 200 \|\| \(win && !pjWinAtStart\(\)\);/, 'the more-than-one-page rule changed');
 });
 
 test('#7365 3b (phone): CSS hides the header link and shows the thread one only in the 30rem room query', () => {

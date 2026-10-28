@@ -331,26 +331,31 @@ function findUnder(dir, name) {
     chk(/^Nothing in this room is older than .+; the messages you had archived are back in the room\.$/.test(backSaid), 'a cutoff earlier than every post says the archived messages are back and claims nothing is archived', backSaid);
     const sameSaid = await archiveWith('month', /^Nothing more in this room was old enough to archive/);
     chk(/^Nothing more in this room was old enough to archive \(before .+\)\.$/.test(sameSaid), 'the same cutoff again says nothing more was old enough, not a receipt', sameSaid);
-    // Phone width (Mona Lisa, 04:0x): the header's archive link goes (it was a 44 px row that took the thread down to its
-    // floor) and the thread's first row carries it instead; nothing may push the page sideways.
+    // Phone width (Mona Lisa, 04:0x and 07:3x): the header's archive link goes (it was a 44 px row that took the thread down
+    // to its floor), and in a room of more than one page the thread's LAST row carries it, reached by scrolling to the end.
+    // Not the top: there it sat in the load-earlier zone and pushed itself away (measured in review), and a check that
+    // scrolled to the start first could not see that. So nothing here scrolls to the start.
     await p.setViewportSize({ width: 390, height: 844 });
     await p.waitForTimeout(400);
-    await scrollToStart();
+    await p.evaluate(() => { const b = document.getElementById('pj-room'); b.scrollTop = b.scrollHeight; });
+    await p.waitForTimeout(400);
     const narrow = await p.evaluate(() => {
       const head = document.getElementById('pj-arch-ask');
-      const top = document.querySelector('#pj-room [data-arch-ask]');
-      const b = top ? top.getBoundingClientRect() : { left: 0, right: 0, width: 0, height: 0 };
-      const firstRow = document.getElementById('pj-room').firstElementChild;
+      const room = document.getElementById('pj-room');
+      const top = room.querySelector('[data-arch-ask]');
+      const b = top ? top.getBoundingClientRect() : { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 };
+      const rb = room.getBoundingClientRect();
+      const last = room.lastElementChild;
       return { sw: document.documentElement.scrollWidth, vw: innerWidth, headShown: head.getClientRects().length > 0,
         left: Math.round(b.left), right: Math.round(b.right), w: Math.round(b.width), h: Math.round(b.height),
-        first: !!(top && firstRow && firstRow.contains(top)), edges: document.querySelectorAll('#pj-room > .pj-arch-edge').length };
+        inRoom: b.top >= rb.top - 1 && b.bottom <= rb.bottom + 1, last: !!(top && last && last.contains(top)),
+        count: room.querySelectorAll('[data-arch-ask]').length };
     });
     await p.screenshot({ path: path.join(OUT, 'phone-header.png') });
     chk(narrow.sw <= narrow.vw, 'at 390px the page does not scroll sideways', JSON.stringify(narrow));
     chk(!narrow.headShown, 'at 390px the header has no archive link (it would cost the thread its height)', JSON.stringify(narrow));
-    chk(narrow.first && narrow.w > 0 && narrow.left >= 0 && narrow.right <= narrow.vw && narrow.h >= 44,
-      'at 390px the thread\'s first row carries Archive older messages, inside the window, a 44 px target', JSON.stringify(narrow));
-    chk(narrow.edges === 1, 'at 390px one line at the top of the thread, not a second line competing with it', JSON.stringify(narrow));
+    chk(narrow.count === 1 && narrow.last && narrow.inRoom && narrow.w > 0 && narrow.left >= 0 && narrow.right <= narrow.vw && narrow.h >= 44,
+      'at 390px, scrolled to the end, the thread\'s last row is Archive older messages, on screen, a 44 px target', JSON.stringify(narrow));
     // And the archive view at 390px: its header above the thread must not push the newest archived post under the composer.
     await archiveWith('day', /are archived/);   // the search was cleared before the resize, so nothing to fill here (review 4)
     await scrollToStart();
