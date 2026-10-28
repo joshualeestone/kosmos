@@ -555,3 +555,34 @@ test('kosmos#7461 review 2: in a room of two, an @all asks the one other member 
     assert.equal(send('pigeonpete', '@all status?'), 1, 'a room-of-two @all is one member and goes through');
   });
 });
+
+test('kosmos#7461 review 3: a one-member post the room valve refuses under a pause spends nothing', () => {
+  withFleet(room(), (board) => {
+    pause(board);
+    seedArrivals(ROOM_BUDGET);
+    // PAIR_CAP refused posts: one that spent a slot before the valve refused it would leave the pair used up.
+    for (let i = 0; i < roomloop.PAIR_CAP; i += 1) {
+      const held = post(board, 'pigeonpete', '@monalisa my run ended, the gate is yours (' + i + ')');
+      assert.equal(held.sent.code, 'room_held', 'fixture: the valve did not refuse the post, so this proves nothing: ' + held.sent.code);
+    }
+    assert.equal(roomloop.pairCan(PROJECT, 'pigeonpete', 'monalisa'), true, 'refused posts spent the pair');
+  });
+});
+
+test('kosmos#7461 review 3: failed handoffs give back the project total too, so they cannot use up THROUGH_CAP', () => {
+  const live = ['pigeonpete', 'monalisa', 'angel', 'baron', 'kitty'];
+  const specs = live.map((n) => fleet.agent(n, { state: 'idle' })).concat([fleet.agent('ghost', { state: 'stopped' })]);
+  const members = live.concat(['ghost']);
+  withFleet(specs, (board) => {
+    const send = (from, text) => { armSender(from + '-discord'); const tmux = arm(); return { sent: messages.sendPost({ fromPane: '%7', project: PROJECT, text }, board.agents, members), tmux }; };
+    for (let i = 0; i < roomloop.LOOP_CAP; i += 1) send('angel', '@monalisa ping ' + i);
+    assert.equal(roomloop.paused(PROJECT), true, 'fixture: not paused');
+    let failed = 0;
+    for (const from of ['pigeonpete', 'monalisa', 'angel', 'baron']) {
+      for (let i = 0; i < roomloop.PAIR_CAP; i += 1) if (send(from, '@ghost handoff ' + i).sent.state === chat.DELIVERY.COULD_NOT) failed += 1;
+    }
+    assert.ok(failed > roomloop.THROUGH_CAP, 'fixture: too few failed handoffs to reach the project total: ' + failed);
+    const real = send('kitty', '@pigeonpete my run ended');
+    assert.equal(typedTo(real.tmux, 'pigeonpete').length, 1, 'failed handoffs used up the project total');
+  });
+});

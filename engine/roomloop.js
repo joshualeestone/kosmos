@@ -68,8 +68,6 @@ function pairCan(projectId, from, to) {
     return (pairWakes.get(p + '\u0000' + from + '\u0000' + to) || 0) < PAIR_CAP && (throughWakes.get(p) || 0) < THROUGH_CAP;
   } catch { return false; }
 }
-/* Spend one: called synchronously after pairCan in the same post, before any typing, so two posts cannot both spend the
-   last slot. */
 /* Give one back: the post that spent it reached nobody (review 2), so it was not a wake, and its retry must not find the
    pair spent. */
 function pairRefund(projectId, from, to) {
@@ -82,6 +80,8 @@ function pairRefund(projectId, from, to) {
     if (t > 0) throughWakes.set(p, t - 1);
   } catch { /* the slot stays spent: one fewer handoff this pause */ }
 }
+/* Spend one: called synchronously after pairCan in the same post, before any typing, so two posts cannot both spend the
+   last slot. */
 function pairTake(projectId, from, to) {
   try {
     const p = String(projectId);
