@@ -224,3 +224,18 @@ map. Fixed by moving the return to just before the rows are written.
     the archive to its top, and the room landed at its top). Back now clears the room's held scroll state first and
     sets it from the anchor (vm test; the mutation reds it). A probe of the Back step (five samples, 0 to 7 s) is
     queued to confirm, before run 4.
+12. The Back probe (five samples after Back, 0 to 7 s) answered runs 2 and 3: the page returned the reader exactly to
+    where they were when View archive was pressed (the anchor, "live post 0" 321px down, i.e. the room's top). The check
+    measured "before" ahead of Playwright's click, which first scrolled the button (at the room's top) into view and
+    moved the reader. The two page fixes made for runs 2 and 3 were not what that check was catching; both are kept,
+    since each closes a real gap (the window read the archive's box for the reader's place; Back's paint inherited the
+    archive's scroll), each with its own test. The check now starts from a place that is NOT the top (a CONTROL asserts
+    it), clicks with a DOM click as a person clicks a button they can see part of, and compares Back with that place
+    (4018dcad9a).
+13. Browser run 4 (4018dcad9a): 55 PASS, 0 FAIL ("all passed"), the Back arm included (live post 0 at 38px, before and
+    after).
+14. Full validation on 3b00ea9693 (after the rebase onto main): 25093 tests, 1 FAIL: tools.shell-shard-4317's run-tests.sh
+    arm, which runs the browser-check surface gate. The gate refused 16 surface-mapped checks whose tokens this branch's
+    web/index.html changes touch: the per-check trailers slice 2 carried sat on its own commits, now on main, so they do
+    not count for this diff. My local runs of the gate script had exited 0 silently, which proved nothing. The 16 checks
+    are run on 4018dcad9a and their results go in Browser-check-surface trailers on an empty commit.
