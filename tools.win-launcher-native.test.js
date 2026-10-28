@@ -208,7 +208,8 @@ function csharpLiteral(raw) {
 /* Every `const string` in `source` as name -> value, folding + over literals and other constants of the file. A value
    that uses anything else (a call, a non-const field) is left out, by name, in `unresolved`. kosmos#7503: so is a
    declaration the value pattern does not read at all (a verbatim @"...", an interpolated $"...", a reference such as
-   Foo.Bar, other spacing): every `const string <name> =` is counted on its own, whatever its value looks like. */
+   Foo.Bar, other spacing, the type written String or System.String, a second name after a comma): every name a
+   `const string` statement declares is counted on its own, whatever its value looks like. */
 function stringConstants(source) {
   const raw = new Map();
   for (const m of source.matchAll(/const string (\w+) =\s*((?:"(?:[^"\\]|\\.)*"|[A-Za-z_]\w*|\s|\+)+);/g)) raw.set(m[1], m[2]);
@@ -223,8 +224,12 @@ function stringConstants(source) {
       changed = true;
     }
   }
-  const declared = [...source.matchAll(/\bconst\s+string\s+(\w+)\s*=/g)].map((m) => m[1]);
-  const uncollected = declared.filter((n) => !raw.has(n));
+  const declared = new Set();
+  for (const st of source.matchAll(/\bconst\s+(?:System\s*\.\s*)?[Ss]tring\??\s+([^;]*);/g)) {
+    const body = st[1].replace(/[@$]*"(?:[^"\\]|\\.|"")*"/g, '""');   // string contents cannot add a name
+    for (const n of body.matchAll(/(?:^|,)\s*(\w+)\s*=/g)) declared.add(n[1]);
+  }
+  const uncollected = [...declared].filter((n) => !raw.has(n));
   return { values, unresolved: [...raw.keys()].filter((n) => !values.has(n)).concat(uncollected) };
 }
 // ECMA-335 II.23.2: a compressed unsigned integer, as csc writes the length in front of a blob or a user string.
@@ -264,12 +269,13 @@ test('#7492: every string constant in KosmosLauncher.cs is in the committed Kosm
   // kosmos#7503: a constant in a form the value pattern cannot read is named, not skipped (each form, in a copy).
   const close = SOURCE.lastIndexOf('}');
   for (const [form, decl] of [['verbatim', 'const string PlantedVerbatim = @"C:\\Kosmos";'], ['interpolated', 'const string PlantedInterpolated = $"Kosmos {1}";'],
-    ['reference', 'const string PlantedReference = Other.Name;'], ['spacing', 'const  string PlantedSpacing="x";']]) {
+    ['reference', 'const string PlantedReference = Other.Name;'], ['spacing', 'const  string PlantedSpacing="x";'],
+    ['String', 'const String PlantedType = "x";'], ['System.String', 'const System.String PlantedFullType = "x";'],
+    ['second name', 'const string PlantedFirst = "a", PlantedSecond = "b = c";']]) {
     const planted = SOURCE.slice(0, close) + '    ' + decl + '\n' + SOURCE.slice(close);
-    const name = /string\s+(\w+)/.exec(decl)[1];
-    assert.ok(stringConstants(planted).unresolved.includes(name), 'a ' + form + ' const string was skipped silently: ' + decl);
+    const names = [...decl.matchAll(/(Planted\w+)\s*=/g)].map((x) => x[1]);
+    assert.deepEqual(stringConstants(planted).unresolved, names, 'a ' + form + ' const string was skipped silently: ' + decl);
   }
-  assert.deepEqual(stringConstants(SOURCE).unresolved, [], 'CONTROL: the real source has none');
   // And the folded values: a page built with + is read whole (the window's starting page).
   assert.ok(stringConstants(SOURCE).values.get('StartingPage').startsWith('<!doctype html><html><head><meta charset="utf-8">'));
 });
