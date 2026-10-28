@@ -49,6 +49,11 @@
    Decided, not fixed: Moonshot Kimi and Mistral ("coming soon") are not listed on the phone, which offers what can be
    chosen; the Antigravity sign-in hint always shows (the desktop's FR_AGY_READY is set only by its first run); the
    team's OpenAI models read has no 25 s bound of its own (the client's request timeout applies).
+2. sonnet: 1 MAJOR, 5 MINOR. Fixed: a team's choice is reused only once making has begun (a refused name check left
+   it set, so the next press made the team on the old choice while the screen showed a new one); a cancelled account
+   read is neither a failure nor settled; the models read counter moves only past its guards; a models read with no
+   answer keeps the list held before, else says it could not reach OpenAI; choosing the same account again reads
+   nothing. Decided: while a team is locked a late account list can change the account shown, never the one sent.
 
 ## Not verified
 

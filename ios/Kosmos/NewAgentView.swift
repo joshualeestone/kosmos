@@ -444,7 +444,9 @@ struct NewAgentView: View {
         let typed = names.mapValues { NewProject.trimmed($0) }
         // kosmos#7502: the choice as it stands when making starts; every member is made on it (the desktop's TC.model).
         // Review 1: fixed from the first run; Try again makes the rest on what the first members were made on.
-        let choice = teamChoice ?? (onProvider, NewAgentPicker.accounts(for: onProvider, pickAccounts).choices.contains { $0.value == account } ? account : "", chosenModel)
+        // Review 2: only once making has begun (teamStarted); a refused name check leaves the choice open, so the next
+        // press takes what the screen shows.
+        let choice = (teamStarted ? teamChoice : nil) ?? (onProvider, NewAgentPicker.accounts(for: onProvider, pickAccounts).choices.contains { $0.value == account } ? account : "", chosenModel)
         teamChoice = choice
         let model = choice.model
         let teamProvider = choice.provider
@@ -774,7 +776,7 @@ struct NewAgentView: View {
         let options = NewAgentPicker.providers(pickAccounts, pickReady, swarm: draft.kind == .swarm)
         let accts = NewAgentPicker.accounts(for: p, pickAccounts)
         let row = NewAgentPicker.modelRow(p, account: account, claude: catalogue?.models ?? [], lastClaude: draft.model, openai: openaiModels)
-        let accountBinding = Binding<String>(get: { accountOf(p) }, set: { accountFor[p] = $0; if p == .openai { Task { await readOpenaiModels() } } })
+        let accountBinding = Binding<String>(get: { accountOf(p) }, set: { v in guard v != accountOf(p) else { return }; accountFor[p] = v; if p == .openai { Task { await readOpenaiModels() } } })
         let openaiBinding = Binding<String>(get: { openaiModel }, set: { openaiModelFor[account] = $0 })
         return Section {
             Menu {
@@ -856,7 +858,8 @@ struct NewAgentView: View {
         await withTaskGroup(of: Void.self) { g in
             g.addTask { @MainActor in
                 let a = await client.throughMac { NewAgentPicker.accountsRequest(mac: $0) }
-                guard epoch == client.chatEpoch else { return }
+                // Review 2: a read cancelled with the screen is no answer: neither a failure nor settled.
+                guard epoch == client.chatEpoch, !Task.isCancelled else { return }
                 if let rows = ok(a).flatMap(NewAgentPicker.parseAccounts) { pickAccounts = .init(rows: rows, known: true, failed: false) }
                 else if !pickAccounts.known { pickAccounts.failed = true }
                 accountsSettled = true
@@ -880,15 +883,20 @@ struct NewAgentView: View {
         }
     }
     private func readOpenaiModels() async {
+        let dir = account
+        guard !dir.isEmpty, onProvider == .openai else { return }   // review 2: before the count, so it never stales a live read
         openaiRead += 1
         let read = openaiRead
-        let dir = account
-        guard !dir.isEmpty, onProvider == .openai else { return }
+        let before = openaiModelsFor[dir]
         openaiModelsFor[dir] = nil
         let epoch = client.chatEpoch
         let got = await client.throughMac { NewAgentPicker.openaiModelsRequest(mac: $0, dir: dir) }
         guard epoch == client.chatEpoch, read == openaiRead else { return }
-        openaiModelsFor[dir] = NewAgentPicker.parseOpenaiModels(got.flatMap { (200...299).contains($0.1.statusCode) ? $0.0 : nil })
+        // Review 2: no answer is not "not signed in": the list held before, else the could-not-reach note.
+        guard let got, (200...299).contains(got.1.statusCode) else {
+            openaiModelsFor[dir] = before ?? .notListed(because: "could not reach OpenAI"); return
+        }
+        openaiModelsFor[dir] = NewAgentPicker.parseOpenaiModels(got.0)
     }
 
     private var swarmSection: some View {
