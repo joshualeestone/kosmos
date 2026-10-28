@@ -173,9 +173,10 @@ enum Board {
         let address: String
         let online: Bool
         let shown: Bool
-        // kosmos#7416 slice 2: when an offline computer was last seen ("at 8:12 PM", Shell.heardWhen), else nil.
+        // kosmos#7416 slice 2: when an offline computer was last heard from ("8:12 PM", Board.heardWhen), else nil.
         var seen: String? = nil
-        var status: String { online ? "Online" : seen.map { "Offline, last seen \($0)" } ?? "Offline" }
+        // Mona Lisa (#7416 card): "Not answering since 8:12 PM" where it said Offline; with no time, Offline as before.
+        var status: String { online ? "Online" : seen.map { "Not answering since \($0)" } ?? "Offline" }
     }
 
     // The computers the switcher lists: the usable ones, by name (then address, so two of one name keep their order),
@@ -191,8 +192,8 @@ enum Board {
                 let read = heard[mac.address.lowercased()]
                 let online = mac.connected || (read.map { now.timeIntervalSince($0) < 15 } ?? false)
                 return SwitcherRow(name: mac.name, address: mac.address, online: online, shown: mac.address == shown,
-                                   seen: online ? nil : Shell.heardWhen(lastHeard(listed: mac.lastSeen, heard: read, now: now),
-                                                                        now: now, calendar: calendar, locale: locale))
+                                   seen: online ? nil : heardWhen(lastHeard(listed: mac.lastSeen, heard: read, now: now),
+                                                                        now: now, calendar: calendar, locale: locale)?.words)
             }
     }
 
@@ -2366,13 +2367,53 @@ extension Board {
         return named.count == 1 ? named[0] : nil
     }
 
+    // How far ahead of this phone's clock a time may be and still be taken as now (the board's 60 s too).
+    static let clockAllowance: Double = 60
+
+    // kosmos#7416: here, not in ShellLogic.swift, because the switcher (switcherRows) uses it and the agentinfo, newtask
+    // and tasks LogicTests runners compile BoardLogic.swift without ShellLogic.swift.
+    // When a computer was last heard from, in Mona Lisa's time words (#7416 card): `words` is "8:12 PM" today,
+    // "yesterday at 8:12 PM", "Tuesday at 8:12 PM" within the week, "Oct 21" before that, as the switcher ("Not
+    // answering since 8:12 PM") and the list's line ("last heard 8:12 PM") say them; `inSentence` adds what a sentence
+    // needs ("We last heard from it at 8:12 PM", "on Tuesday at 8:12 PM", "on Oct 21"), as the board does. `lastSeen` is unix
+    // seconds, in the app the later of Kosmos+'s last_seen and the app's own last good read (Board.lastHeard). nil when
+    // there is none (0: never seen) and for a time more than clockAllowance ahead of now (Board.lastHeard already drops
+    // such a last_seen; this is the same rule for any other caller). One function for the message and the switcher.
+    struct Heard: Equatable {
+        let words: String
+        let inSentence: String
+    }
+
+    static func heardWhen(_ lastSeen: Double?, now: Date = Date(),
+                          calendar: Calendar = .current, locale: Locale = .current) -> Heard? {
+        guard let s = lastSeen, s.isFinite, s > 0 else { return nil }
+        let t = Date(timeIntervalSince1970: s)
+        guard t.timeIntervalSince(now) <= clockAllowance else { return nil }
+        func words(_ template: String) -> String {
+            let f = DateFormatter()
+            f.locale = locale
+            f.calendar = calendar
+            f.timeZone = calendar.timeZone
+            f.setLocalizedDateFormatFromTemplate(template)
+            return f.string(from: t)
+        }
+        let clock = words("jmm")
+        // Calendar days, so a clock change is not a day.
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: t), to: calendar.startOfDay(for: now)).day ?? 0
+        if days <= 0 { return Heard(words: clock, inSentence: "at \(clock)") }
+        if days == 1 { return Heard(words: "yesterday at \(clock)", inSentence: "yesterday at \(clock)") }
+        if days < 7 { let w = "\(words("EEEE")) at \(clock)"; return Heard(words: w, inSentence: "on \(w)") }
+        let d = words("MMMd")
+        return Heard(words: d, inSentence: "on \(d)")
+    }
+
     // Review 1: the list's last_seen is as of the list's last read (once a launch, a switch or a Try again), so a Mac
     // this app read every 5 s all day would say "at 7:58 AM" at night. The later of the two, as the board says the time
     // of its own last good status read. nil when neither has a time (0 is "never").
     // Review 5: last_seen is Kosmos+'s clock; one more than a minute ahead of this phone's (a phone set behind) is not
     // taken, or it would win and then be refused as a future time, losing a good read of the phone's own.
     static func lastHeard(listed: Double?, heard: Date?, now: Date = Date()) -> Double? {
-        let l = (listed ?? 0) <= now.timeIntervalSince1970 + Shell.clockAllowance ? (listed ?? 0) : 0
+        let l = (listed ?? 0) <= now.timeIntervalSince1970 + clockAllowance ? (listed ?? 0) : 0
         let t = max(l, heard?.timeIntervalSince1970 ?? 0)
         return t > 0 ? t : nil
     }

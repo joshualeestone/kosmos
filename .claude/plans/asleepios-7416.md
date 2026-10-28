@@ -124,3 +124,20 @@ nothing from it.
 - [NIT] the in-flight flag had no test and survived an account change. FIXED: a test that two refreshes send one read
   (mutation red), and the flag is cleared in forget and the signed-out branch.
 - [NIT] the heardWhen comment sat above clockAllowance. FIXED: moved.
+
+### Round 8 (0 B, 0 W, 0 C, 1 N)
+- [NIT] after an account change, an old refresh finishing clears the new account's in-flight flag, letting one duplicate
+  list read through. DEFERRED: harmless (one extra read, ordered by the ticket).
+
+### After round 8: two defects I found myself, both fixed
+1. **The wording was not Mona Lisa's.** I built from my plan comment (6460778817), not from her approved wording on the
+   card (6458409943), which says: the switcher reads "Not answering since 8:12 PM" where it said Offline; the list's
+   line reads "last heard 8:12 PM"; the bare time words are "8:12 PM", "yesterday at 8:12 PM", "Tuesday at 8:12 PM",
+   "Oct 21". FIXED: `Board.heardWhen` returns both the bare words and the in-sentence form ("We last heard from it at
+   8:12 PM", "on Tuesday at", "on Oct 21", as the board). Decided: the list's line keeps #7197's name ("Not updating.
+   Studio isn't answering, last heard 8:12 PM."); where it carries the time, Today's and the chat's "Last checked" is
+   dropped (the same moment, said twice otherwise). With no time, both lines are as before.
+2. **Three LogicTests runners did not compile.** agentinfo, newtask and tasks build BoardLogic.swift without
+   ShellLogic.swift, and switcherRows called Shell.heardWhen, so `ios.board-parity-7084.test.js` was red from my first
+   commit. None of the eight rounds ran those runners, and I had only ever run run.sh. FIXED: the time words live in
+   BoardLogic.swift. All nine runners pass and the five node tests that read the Swift sources pass (37/37, 2/2).

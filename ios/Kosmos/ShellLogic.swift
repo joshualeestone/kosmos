@@ -149,9 +149,12 @@ enum Shell {
         return "\(n) isn't answering"
     }
 
-    // The line over a list that is no longer updating.
-    static func notUpdatingLine(_ name: String?) -> String {
-        "Not updating. " + macUnreachableTitle(name) + "."
+    // The line over a list that is no longer updating. kosmos#7416 (Mona Lisa: "last heard 8:12 PM"): with when the
+    // Mac was last heard from, after its name (#7197 keeps the name).
+    static func notUpdatingLine(_ name: String?, lastHeard: Double? = nil, now: Date = Date(),
+                                calendar: Calendar = .current, locale: Locale = .current) -> String {
+        let heard = Board.heardWhen(lastHeard, now: now, calendar: calendar, locale: locale).map { ", last heard \($0.words)" } ?? ""
+        return "Not updating. " + macUnreachableTitle(name) + heard + "."
     }
 
     // kosmos#7416 slice 2 (Mona Lisa's words, as the board says them): never a claim the Mac is asleep, since from the
@@ -168,38 +171,9 @@ enum Shell {
     // lastHeardSentence (web/index.html). nil when there is no time (see heardWhen).
     static func lastHeardSentence(_ lastSeen: Double?, now: Date = Date(),
                                   calendar: Calendar = .current, locale: Locale = .current) -> String? {
-        heardWhen(lastSeen, now: now, calendar: calendar, locale: locale).map { "We last heard from it \($0)." }
+        Board.heardWhen(lastSeen, now: now, calendar: calendar, locale: locale).map { "We last heard from it \($0.inSentence)." }
     }
 
-    // How far ahead of this phone's clock a time may be and still be taken as now (the board's 60 s too).
-    static let clockAllowance: Double = 60
-
-    // When a computer was last heard from, as the end of a sentence (Mona Lisa's words): "at 8:12 PM" today,
-    // "yesterday at 8:12 PM", "on Tuesday at 8:12 PM" within the week, "on Oct 21" before that. `lastSeen` is unix
-    // seconds, in the app the later of Kosmos+'s last_seen and the app's own last good read (Board.lastHeard). nil when
-    // there is none (0: never seen) and for a time more than clockAllowance ahead of now (Board.lastHeard already drops
-    // such a last_seen; this is the same rule for any other caller). One function for the message and the switcher.
-    static func heardWhen(_ lastSeen: Double?, now: Date = Date(),
-                          calendar: Calendar = .current, locale: Locale = .current) -> String? {
-        guard let s = lastSeen, s.isFinite, s > 0 else { return nil }
-        let t = Date(timeIntervalSince1970: s)
-        guard t.timeIntervalSince(now) <= clockAllowance else { return nil }
-        func words(_ template: String) -> String {
-            let f = DateFormatter()
-            f.locale = locale
-            f.calendar = calendar
-            f.timeZone = calendar.timeZone
-            f.setLocalizedDateFormatFromTemplate(template)
-            return f.string(from: t)
-        }
-        let clock = words("jmm")
-        // Calendar days, so a clock change is not a day.
-        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: t), to: calendar.startOfDay(for: now)).day ?? 0
-        if days <= 0 { return "at \(clock)" }
-        if days == 1 { return "yesterday at \(clock)" }
-        if days < 7 { return "on \(words("EEEE")) at \(clock)" }
-        return "on \(words("MMMd"))"
-    }
 
     // Where "Choose another computer" goes: the coordinator's /account page, which lists
     // the person's computers, says which are answering and opens one from its row. Not

@@ -308,7 +308,7 @@ struct AgentsView: View {
     }
 
     private var notUpdatingWords: String {
-        if case .unreachable = client.phase { return Shell.notUpdatingLine(client.failingMacName) }   // kosmos#7197: named
+        if case .unreachable = client.phase { return Shell.notUpdatingLine(client.failingMacName, lastHeard: client.failingMacLastHeard) }   // kosmos#7197: named; #7416: when
         return "Checking for updates."
     }
 
