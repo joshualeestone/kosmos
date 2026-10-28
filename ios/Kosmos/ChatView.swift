@@ -13,6 +13,9 @@ struct ChatView: View {
     let agent: Board.Agent
     let openOnBoard: () -> Void
     // kosmos#7267: the info button opens the agent's own page (Profile | AI Settings), not the board's copy of this chat.
+    // Review 1 (kosmos#7034): the header title's cap follows the screen's width, which a rotation changes without
+    // anything else in this view redrawing; this counter makes it.
+    @State private var turned = 0
     @State private var infoOpen = false
     #if DEBUG
     static var sampleInfoOpened = false
@@ -193,6 +196,7 @@ struct ChatView: View {
         // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
         .toolbar(.hidden, for: .tabBar)
         .messageActionsHost()   // kosmos#7419: the one long-press sheet of this chat
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in turned += 1 }
         // kosmos#7034 build 11 reviews 2 and 4: the header star's stars, asked again on a switch to another computer.
         .task(id: client.chatEpoch) { await client.readStarsIfUnknown() }
         .quickLookPreview($previewURL)
@@ -389,8 +393,10 @@ struct ChatView: View {
         // and a title whose full width does not fit beside it is dropped by the system, not shortened. Capped at what is
         // left between the back button and the capsule, a long name ends in an ellipsis and the capsule keeps its size.
         // Measured (shots run 4): width - 250 fitted on an iPhone 17 (402 pt, "Maximilia...") but not on the SE (375 pt),
-        // where the title was still dropped; width - 300 leaves the SE about 75 pt.
-        .frame(maxWidth: max(60, UIScreen.main.bounds.width - 300))
+        // where the title was still dropped; width - 300 leaves the SE about 75 pt. Review 1: that is the room beside
+        // THREE buttons; with no star (two buttons) width - 250 is enough. Read on every redraw, and a rotation redraws.
+        .frame(maxWidth: max(60, UIScreen.main.bounds.width - (client.canStar ? 300 : 250)))
+        .id(turned)
         .accessibilityElement(children: .combine)
     }
 

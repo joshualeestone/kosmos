@@ -62,6 +62,7 @@ struct AgentsView: View {
         } else if let b = windows.lazy.compactMap({ findMenuButton($0) }).first {
             notes.append("menu button \(type(of: b))")
             if #available(iOS 17.4, *) { b.performPrimaryAction(); notes.append("performPrimaryAction") }
+            else { notes.append("not pressed: performPrimaryAction needs iOS 17.4") }
         } else {
             notes.append("nothing found")
         }
@@ -138,7 +139,7 @@ struct AgentsView: View {
                 openAgent = Board.Agent(session: open, name: open.prefix(1).uppercased() + open.dropFirst(), role: nil, state: "idle", task: nil, needsYou: false)
             }
             // KOSMOS_SAMPLE_SORTMENU=1 (Mona Lisa's #7421 shot): the sort menu opens by itself, since a simulator run
-            // cannot tap. It presses the bar's control whose spoken label starts "Sort:".
+            // cannot tap. It presses the bar's rightmost menu button (the sort button), on iOS 17.4 or later.
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SORTMENU"] == "1" {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { Self.pressSortControl() }
             }

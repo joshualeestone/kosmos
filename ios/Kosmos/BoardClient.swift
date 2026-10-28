@@ -90,8 +90,11 @@ final class BoardClient: ObservableObject {
     #if DEBUG
     // Design shots only: KOSMOS_SAMPLE_STARS=<agent,agent> (or an empty value) gives the sample agents stars that are
     // known, so the chat header's star shows (it waits for a known list, kosmos#7034). The sample has no computer.
-    static let sampleStars: Set<String>? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_STARS"]
-        .map { Set($0.split(separator: ",").map(String.init)) }
+    // Review 1: only with the sample agents (KOSMOS_SAMPLE_AGENTS=1), so a Debug run against a real computer never has
+    // its real stars replaced by a fixed list.
+    static let sampleStars: Set<String>? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1"
+        ? ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_STARS"].map { Set($0.split(separator: ",").map(String.init)) }
+        : nil
     #endif
     // kosmos#7034: starring from the phone. The star shows and the row moves at once, as on the board; the board's answer
     // (the whole saved list) then decides, and a star that did not save goes back, with the board's own words why. One
