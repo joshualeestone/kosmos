@@ -54,13 +54,21 @@ https://github.com/joshualeestone/kosmos/issues/2988#issuecomment-6468326726
    whose `until` has not passed, is at most 5 minutes away (HOLD_MAX_MS; a hold claiming more is ignored), and whose
    owner pid is alive. Release removes only the caller's own file, and only if it is still the hold it last wrote.
    Writing a hold removes other owners' dead or expired files. A hold that cannot be written is said: in the move's
-   result `notes` (the JSON the launcher's move prints) and in the hand-off's `holdProblem` (server.js prints it).
+   result `notes` (the JSON the launcher's move prints) and in the hand-off's `holdProblem`. server.js writes that
+   one to stderr AND, round 4, as a `board note:` line in win32-logs\board.log: a double-clicked Kosmos.exe hides
+   its console, and the launcher has no channel that carries a note from the board to the screen.
    Every caller that ends the board task, and the decision:
    - `win32relocate.relocate`, `endServingBoard` (the move from Downloads): **HOLD**, 5 minutes, taken just before the
      `/End`, refreshed before each top-level entry is copied and once more after the copy (round 3: a copy can outlast
      one hold on a slow disk or under a scanner), released in a `finally` when `relocate` returns, success or failure.
      After the copy and before anchoring, it looks at the port once more and ends a board that came up anyway (round 3).
      By then the pointer names the folder the board should start from (or, on failure, still the old one).
+     Round 4: the refresh is per top-level entry, so a single entry slower than 5 minutes can still let the hold
+     lapse mid-entry; the second look is the backstop for that. The second look acts only on a board the logon task
+     started (its own header says so, or, for a board too old to say, the task reads running), the first look's rule;
+     anything else on the port is left alone and named in a true note. The hold and the second look happen whenever
+     the pointer names the folder being moved, also when no board answered at the start (a crashed board), not only
+     when the move ended one.
    - `win32handoff.attemptHandOff`, the not-confirmed path that ends the task and serves in a window: **HOLD**,
      2 minutes, owner is the board itself; server.js releases it once that board is listening. A board that dies
      before it listens holds nothing (its pid is gone), and the hold expires anyway.
@@ -102,7 +110,7 @@ the uninstall of a build with this change do; a later boot of such a build refre
 registered and on. Likewise, with the board task switched off the watchdog stays registered and does nothing.
 
 ## Exports (round 2)
-win32boardwatch exports only `recordBoardExits` (server.js), `watchdogMain` (the shim), `holdBoard` (relocate,
+win32boardwatch exports only `recordBoardExits` and `boardLogNote` (server.js), `watchdogMain` (the shim), `holdBoard` (relocate,
 hand-off) and `watchdogRun` (the one test seam: watchdogMain with injectable deps, the shape of
 `win32board.restartHelperMain(argv, deps)`); the constants and helpers, `boardHeld` included (round 3), are tested
 through it. Two tests are WIRING CHECKS, source matches on server.js rather than behaviour, and are named so: that
@@ -135,3 +143,9 @@ Running-with-no-board state is common (then an `/End` path with a long grace is 
   owner, any live one honoured, release removes only the caller's own, dead and expired files tidied when a hold is
   written; (3) a hold that cannot be written is said in the move's notes and the hand-off's holdProblem; (4)
   `boardHeld` no longer exported, tested through `watchdogRun`; (5) the server.js source matches labelled wiring checks.
+- Round 4: fixed (1) a refresh that failed after a first write that worked was silent (holdBoard's `held`/`because`
+  were fixed at the first write; now read live); (2) the second look ended any answering board: it now ends only a
+  board the logon task started and names anything else truly; and the hold plus second look now also cover a move
+  with no board at the start when the pointer still names the folder; (3) the per-entry refresh limit stated, with the
+  second look as its backstop; (4) sentences: no nested parentheses, "Restart your computer" only when the pointer
+  moved, and the hand-off's hold problem also written to board.log (new export `boardLogNote`, used by server.js).

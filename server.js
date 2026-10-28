@@ -28096,8 +28096,14 @@ if (require.main === module) {
          board by hand). A double-clicked Kosmos.exe has a hidden console and shows
          its own box with the same advice once this board is listening. */
       process.stderr.write(`Kosmos could not move to the background (${handOff.because}), so it is running from this window instead. Keep this window open while you use Kosmos.\n`);
-      /* #2988 round 3: the hold against the board's restart check could not be written. */
-      if (handOff.holdProblem) process.stderr.write(`Kosmos could not stop its restart check from starting the background board while this window starts (${handOff.holdProblem}), so the background board may start again and this window may not get its port.\n`);
+      /* #2988 round 3: the hold against the board's restart check could not be written. Round 4: a
+         double-clicked Kosmos.exe hides this console and the launcher has no channel for such a note, so
+         it also goes to the board's own log (win32-logs\board.log), where it can be found later. */
+      if (handOff.holdProblem) {
+        const holdNote = `Kosmos could not keep its restart check from starting the background board while this window started, because ${handOff.holdProblem}. The background board may start again, and then this window cannot use its port.`;
+        process.stderr.write(holdNote + '\n');
+        require('./engine/win32boardwatch').boardLogNote(holdNote);
+      }
     }
     start().then(() => {
       /* #2988 round 2: this board now answers on the port, so the hold the hand-off took against the

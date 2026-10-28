@@ -205,14 +205,22 @@ function anchorTo(o, to) {
  */
 function boardHolder(o) {
   let hold = null;
+  let said = false;
   const notes = [];
-  const say = (h) => {
-    if (h && !h.held && !notes.length) {
-      notes.push('Kosmos could not stop its restart check from starting the board during the move (' + (h.because || 'no detail') + '), so the board may have started again from the old folder');
+  /* Round 4: read the hold's state AFTER each write (holdBoard's held and because are live), so a
+     refresh that fails after a first write that worked is said too. Said once. */
+  const say = () => {
+    if (hold && !hold.held && !said) {
+      said = true;
+      notes.push('Kosmos could not keep its restart check from starting the board during the move, because ' + (hold.because || 'it gave no reason')
+        + '. The board may have started again from the old folder.');
     }
   };
   return {
     notes,
+    /* Round 4: a board left serving from the old folder after the move, and why; worded by relocate()
+       once it knows whether the pointer moved. */
+    oldBoardLeft: null,
     take(why) {
       if (hold) { this.refresh(); return; }
       let dir = o.holdDir || null;
@@ -222,10 +230,10 @@ function boardHolder(o) {
       /* A test process with no holdDir takes no hold on purpose (see above), and says nothing about it. */
       if (!dir && liveExec.inTestProcess()) return;
       hold = require('./win32boardwatch').holdBoard(dir, why, { now: o.now });
-      say(hold);
+      say();
     },
     /* #2988 round 3: a copy can outlast one hold (HOLD_MAX_MS), so the move writes it again as it goes. */
-    refresh() { if (hold && !hold.refresh()) say(hold); },
+    refresh() { if (hold) { hold.refresh(); say(); } },
     release() { if (hold) { hold.release(); hold = null; } },
   };
 }
@@ -234,7 +242,13 @@ async function relocate(opts) {
   const holder = boardHolder(opts || {});
   try {
     const r = await moveKosmos(opts, holder);
-    return holder.notes.length ? { ...r, notes: [...(r.notes || []), ...holder.notes] } : r;
+    const notes = [...holder.notes];
+    if (holder.oldBoardLeft) {
+      const moved = r.ok && r.anchored === true;
+      notes.push('A Kosmos board started from the old folder while Kosmos was being moved, and it could not be stopped: ' + holder.oldBoardLeft + '. '
+        + (moved ? 'Restart your computer to start Kosmos from its new folder.' : 'It keeps running from the old folder.'));
+    }
+    return notes.length ? { ...r, notes: [...(r.notes || []), ...notes] } : r;
   } finally {
     holder.release();
   }
@@ -268,6 +282,8 @@ async function moveKosmos(opts, holder) {
   }
   const handoff = require('./win32handoff');
   let boardEnded = false;
+  /* #2988: the board this folder serves is held off for the move, and looked at again before re-pointing. */
+  let guarding = false;
   /* #3286: the build an install over an older, idle copy replaces (--replace-older), or null. */
   let replacing = null;
   /* The engine pointer, read once, for both questions that need it: which folder a running board serves
@@ -322,9 +338,19 @@ async function moveKosmos(opts, holder) {
         return refused('Kosmos is running from this folder right now, in a window of its own, so it was not moved. ' + KEEPS_WORKING);
       }
       holder.take('Kosmos is being moved to ' + to);
+      guarding = true;
       const ended = await endServingBoard(o, port, probe);
       if (!ended.ok) return refused('Kosmos is running from this folder right now and could not be stopped to move it (' + ended.because + '). ' + KEEPS_WORKING);
       boardEnded = true;
+    }
+  } else {
+    /* #2988 round 4: no board answers, but the logon task still starts this folder's board (the board
+       crashed, or was stopped). The board's watchdog would start it again from here during the copy, so
+       the move holds it off and takes the second look below, as when it ended the board itself. */
+    const pointer = pointerOnce();
+    if (pointer && isSameOrInside(pointer, from)) {
+      holder.take('Kosmos is being moved to ' + to);
+      guarding = true;
     }
   }
 
@@ -414,14 +440,30 @@ async function moveKosmos(opts, holder) {
      anything else that started the task) serves from the OLD folder through the old pointer. It is
      ended before the pointer moves, the way the first one was, so the moved Kosmos's hand-off starts
      the board from the new folder. */
-  if (boardEnded) {
+  /* Round 4: only a board the logon task started is this folder's board and is ended (the first look's
+     rule: its own header says so, or, for a board too old to say, the task reads running); anything else
+     on the port is left alone and named. Taken whenever the move held the board, not only when it ended one. */
+  if (guarding) {
     holder.refresh();
     let again = null;
     try { again = await probe(port); } catch { again = null; }
-    if (!again || again.answering || handoff.boardMayBeOpen(again)) {
-      const reEnded = await endServingBoard(o, port, probe);
-      if (!reEnded.ok) {
-        holder.notes.push('A Kosmos board started from the old folder while Kosmos was being moved, and it could not be stopped (' + reEnded.because + '). Restart your computer to start Kosmos from its new folder');
+    const silent = again && !again.answering && !handoff.boardMayBeOpen(again);
+    if (!silent) {
+      let byTask = again && again.answering ? again.startedByTask : null;
+      if (again && again.answering && typeof byTask !== 'boolean') {
+        try { byTask = (typeof o.boardTaskRunning === 'function' ? o.boardTaskRunning() : require('./win32board').status().running) === true; } catch { byTask = false; }
+      }
+      if (byTask === true && o.endBoardServingHere) {
+        const reEnded = await endServingBoard(o, port, probe);
+        if (!reEnded.ok) holder.oldBoardLeft = reEnded.because;
+      } else if (byTask === true) {
+        holder.oldBoardLeft = 'this move was not allowed to stop it';
+      } else if (again && again.answering) {
+        holder.notes.push('After Kosmos was copied, something that Kosmos\'s startup job did not start was answering on port ' + port
+          + ', so Kosmos was moved and that program was left alone.');
+      } else {
+        holder.notes.push('After Kosmos was copied, Kosmos could not tell what is using port ' + port
+          + ', so Kosmos was moved and whatever it is was left alone.');
       }
     }
   }

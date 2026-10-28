@@ -804,7 +804,102 @@ test('#2988 round 3: a move whose hold cannot be written says so in its result (
     anchor: () => ({ ok: true }),
   });
   assert.equal(r.ok, true);
-  assert.ok((r.notes || []).some((n) => /^Kosmos could not stop its restart check from starting the board during the move \(its hold file could not be written/.test(n)), JSON.stringify(r.notes));
+  assert.ok((r.notes || []).some((n) => /^Kosmos could not keep its restart check from starting the board during the move, because its hold file could not be written: \S+\. The board may have started again from the old folder\.$/.test(n)), JSON.stringify(r.notes));
+});
+
+test('#2988 round 4: a hold whose first write worked but whose refresh fails mid-copy is in the move\'s notes', async () => {
+  const relocator = require('./win32relocate');
+  const c = moveCase('refreshfail');
+  let stopped = false;
+  let broke = false;
+  const own = path.join(c.holdDir, 'board-hold.' + process.pid + '.json');
+  const r = await relocator.relocate({
+    ...c.base,
+    probe: async () => (stopped ? { answering: false, outcome: 'refused' } : { answering: true, identity: 'x', startedByTask: true }),
+    endBoard: () => { stopped = true; return { ok: true }; },
+    copy: (src, dst) => {
+      if (!broke) { broke = true; fs.rmSync(own, { force: true }); fs.mkdirSync(own); }   // the next refresh cannot replace a folder
+      fs.cpSync(src, dst, { recursive: true });
+    },
+    anchor: () => ({ ok: true }),
+  });
+  assert.equal(r.ok, true);
+  const said = (r.notes || []).filter((n) => /^Kosmos could not keep its restart check from starting the board during the move, because its hold file could not be written/.test(n));
+  assert.equal(said.length, 1, 'said once: ' + JSON.stringify(r.notes));
+});
+
+test('#2988 round 4: at the second look a board in a window of its own (or any other program) is left alone, and said truly', async () => {
+  const relocator = require('./win32relocate');
+  for (const [what, later, note] of [
+    ['a window board', { answering: true, identity: 'x', startedByTask: false }, /^After Kosmos was copied, something that Kosmos's startup job did not start was answering on port 9, so Kosmos was moved and that program was left alone\.$/],
+    ['an unreadable look', { answering: false, outcome: 'timed-out' }, /^After Kosmos was copied, Kosmos could not tell what is using port 9, so Kosmos was moved and whatever it is was left alone\.$/],
+  ]) {
+    const c = moveCase('secondlook');
+    let phase = 'serving';
+    const ends = [];
+    const r = await relocator.relocate({
+      ...c.base,
+      probe: async () => (phase === 'serving' ? { answering: true, identity: 'x', startedByTask: true } : phase === 'stopped' ? { answering: false, outcome: 'refused' } : later),
+      endBoard: () => { ends.push(phase); phase = 'stopped'; return { ok: true }; },
+      copy: (src, dst) => { fs.cpSync(src, dst, { recursive: true }); if (src.endsWith('runtime')) phase = 'other'; },
+      anchor: () => ({ ok: true }),
+    });
+    assert.equal(r.ok, true, what);
+    assert.deepEqual(ends, ['serving'], what + ': only the task\'s board was ended');
+    assert.ok((r.notes || []).some((n) => note.test(n)), what + ': ' + JSON.stringify(r.notes));
+    assert.ok(!(r.notes || []).some((n) => /Restart your computer/.test(n)), what);
+  }
+});
+
+test('#2988 round 4: with NO board at the start (the pointer still names this folder), the move holds the board off and ends one that comes up anyway', async () => {
+  const relocator = require('./win32relocate');
+  const c = moveCase('noboard');
+  let serving = false;
+  const events = [];
+  const held = [];
+  const r = await relocator.relocate({
+    ...c.base,
+    probe: async () => (serving ? { answering: true, identity: 'x', startedByTask: true } : { answering: false, outcome: 'refused' }),
+    endBoard: () => { events.push('end'); serving = false; return { ok: true }; },
+    copy: (src, dst) => {
+      held.push(heldAt(c.holdDir));
+      fs.cpSync(src, dst, { recursive: true });
+      if (src.endsWith('runtime')) { serving = true; events.push('a board came up'); }
+    },
+    anchor: () => { events.push('anchor'); return { ok: true }; },
+  });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  for (const p of held) assert.equal(await p, true, 'a watchdog tick mid-copy does not /Run');
+  assert.deepEqual(events, ['a board came up', 'end', 'anchor']);
+  assert.deepEqual(holdFilesIn(c.holdDir), [], 'released');
+});
+
+test('#2988 round 4: a board that cannot be stopped is named, and "restart your computer" is said only when the pointer moved', async () => {
+  const relocator = require('./win32relocate');
+  for (const [anchored, ending] of [[true, /Restart your computer to start Kosmos from its new folder\.$/], [false, /It keeps running from the old folder\.$/]]) {
+    const c = moveCase('stuck');
+    let phase = 'serving';
+    const r = await relocator.relocate({
+      ...c.base, portReleaseWaitMs: 0,
+      probe: async () => (phase === 'stopped' ? { answering: false, outcome: 'refused' } : { answering: true, identity: 'x', startedByTask: true }),
+      endBoard: () => { if (phase === 'serving') { phase = 'stopped'; return { ok: true }; } return { ok: false, because: 'access is denied' }; },
+      copy: (src, dst) => { fs.cpSync(src, dst, { recursive: true }); if (src.endsWith('runtime')) phase = 'back'; },
+      anchor: () => (anchored ? { ok: true } : { ok: false, because: 'the anchor folder is read-only' }),
+    });
+    assert.equal(r.ok, true);
+    const n = (r.notes || []).find((x) => x.startsWith('A Kosmos board started from the old folder while Kosmos was being moved, and it could not be stopped: access is denied. '));
+    assert.ok(n, JSON.stringify(r.notes));
+    assert.match(n, ending);
+  }
+});
+
+test('#2988 round 4: a board.log note is written as a note, and is never taken for an exit', async () => {
+  const dir = scratch('note');
+  fs.writeFileSync(path.join(dir, 'board.log'), '2026-10-28T11:00:00.000Z board started pid=11 parent=21\n');
+  watch.boardLogNote('Kosmos could not keep its restart check from starting the background board while this window started, because x.', { logDir: dir });
+  assert.match(lines(dir)[1], /^\S+ board note: Kosmos could not keep its restart check/);
+  await runWith(dir, deps());
+  assert.match(lines(dir)[2], /No exit was recorded/);
 });
 
 test('#2988 round 2: the hand-off that serves in a window holds the board before its /End and leaves the release to the board once it listens', async () => {
@@ -849,7 +944,7 @@ test('#2988 round 3: a hand-off whose hold cannot be written says so (server.js 
   assert.equal(r.serve, true);
   assert.match(r.holdProblem || '', /its hold file could not be written/);
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /if \(handOff\.holdProblem\) process\.stderr\.write\(`Kosmos could not stop its restart check/, 'wiring check: server.js prints it');
+  assert.match(src, /if \(handOff\.holdProblem\) \{[\s\S]{0,400}process\.stderr\.write\(holdNote[\s\S]{0,120}boardLogNote\(holdNote\)/, 'wiring check: server.js prints it and writes it to board.log');
 });
 
 test('#2988 round 2 (WIRING CHECK, a source match, not behaviour): server.js releases the hand-off\'s hold once the board is listening', () => {

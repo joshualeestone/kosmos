@@ -297,7 +297,7 @@ function holdFiles(anchorDir) {
 function holdBoard(anchorDir, why, opts) {
   const o = opts || {};
   const now = o.now || Date.now;
-  if (!anchorDir) return { held: false, because: 'Kosmos could not tell where its startup files are', refresh: () => false, release() {} };
+  if (!anchorDir) return { held: false, because: 'Kosmos could not tell where its startup files are', refresh: () => false, release() {} };   // never changes
   const pid = Number.isInteger(o.pid) ? o.pid : process.pid;
   const alive = o.pidAlive || ((p) => require('./win32orphan').pidAlive(p));
   const ttl = Math.min(HOLD_MAX_MS, Number.isFinite(o.ttlMs) && o.ttlMs > 0 ? o.ttlMs : HOLD_MAX_MS);
@@ -317,21 +317,23 @@ function holdBoard(anchorDir, why, opts) {
       return true;
     } catch (e) {
       try { fs.unlinkSync(tmp); } catch { /* best effort */ }
-      because = 'its hold file could not be written (' + oneLine(e && (e.code || e.message)) + ')';
+      because = 'its hold file could not be written: ' + oneLine(e && (e.code || e.message));
       return false;
     }
   };
-  const held = write();
+  let held = write();
   /* Opportunistic tidying: another owner's file that no longer holds anything. */
   const t = now();
   for (const other of holdFiles(anchorDir)) {
     if (other === file) continue;
     if (!holdState(other, t, alive).live) { try { fs.unlinkSync(other); } catch { /* the next writer tries again */ } }
   }
+  /* Round 4: `held` and `because` are read live, so a refresh that fails after a first write that
+     worked is seen by whoever asks next (the move's notes). */
   return {
-    held,
-    because,
-    refresh: () => write(),
+    get held() { return held; },
+    get because() { return because; },
+    refresh() { held = write(); return held; },
     release() {
       try { if (text !== null && fs.readFileSync(file, 'utf8') === text) fs.unlinkSync(file); } catch { /* gone already */ }
     },
@@ -493,7 +495,18 @@ function watchdogMain(opts) {
   });
 }
 
-/* recordBoardExits (server.js), watchdogMain (the shim) and holdBoard (win32relocate, win32handoff) are
-   production entries. watchdogRun is the one test seam: watchdogMain's run with its dependencies
-   injectable, the shape of win32board.restartHelperMain(argv, deps); boardHeld is tested through it. */
-module.exports = { recordBoardExits, watchdogMain, watchdogRun, holdBoard };
+/**
+ * Round 4: one plain note in the board's log, `<iso> board note: <text>`, for something a person
+ * should be able to find later that would otherwise go only to a console nobody sees (a double-clicked
+ * Kosmos.exe hides its console). Never read back as a start or an exit. Never throws.
+ */
+function boardLogNote(text, opts) {
+  const o = opts || {};
+  try { boardLogger(o).line(stamp(o.now || Date.now) + ' board note: ' + oneLine(text)); } catch { /* the note is a courtesy */ }
+}
+
+/* recordBoardExits and boardLogNote (server.js), watchdogMain (the shim) and holdBoard (win32relocate,
+   win32handoff) are production entries. watchdogRun is the one test seam: watchdogMain's run with its
+   dependencies injectable, the shape of win32board.restartHelperMain(argv, deps); boardHeld is tested
+   through it. */
+module.exports = { recordBoardExits, boardLogNote, watchdogMain, watchdogRun, holdBoard };
