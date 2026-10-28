@@ -607,18 +607,28 @@ test('#6734: an upload whose part file cannot be written (a full disk) is refuse
   const before = stored().length;
   const real = fs.createWriteStream;
   let failed = 0;
+  const openErrors = [];
   const full = (cb) => { failed += 1; cb(Object.assign(new Error('no space left on device'), { code: 'ENOSPC' })); };
+  /* #7509: the part file opens for real, so a machine out of descriptors (a suite of hundreds of files at once) can
+     refuse the open itself; the route then refuses before any write, which is not this arm. Such an open is recorded
+     and the upload tried again, and the guard below names what happened if no try reached a write. */
+  const open = (...a) => { const cb = a.pop(); fs.open(...a, (err, fd) => { if (err) openErrors.push(err.code || err.message); cb(err, fd); }); };
   fs.createWriteStream = function (file, opts) {
     if (!String(file).endsWith(attachments.PART)) return real.apply(this, arguments);
     // The stream's own fs hook: the part file opens and closes for real, and every write fails as on a full disk.
-    return real.call(this, file, { ...opts, fs: { open: fs.open, close: fs.close, write: (...a) => full(a[a.length - 1]), writev: (...a) => full(a[a.length - 1]) } });
+    return real.call(this, file, { ...opts, fs: { open, close: fs.close, write: (...a) => full(a[a.length - 1]), writev: (...a) => full(a[a.length - 1]) } });
   };
   let got;
   try {
-    got = await put({ 'content-type': 'application/octet-stream', 'content-length': String(64 * 1024), 'x-attachment-name': 'full-disk.bin' },
-      (req) => { req.on('error', () => {}); req.end(Buffer.alloc(64 * 1024, 3)); });
+    for (let tries = 0; tries < 3; tries += 1) {
+      const opensBefore = openErrors.length;
+      got = await put({ 'content-type': 'application/octet-stream', 'content-length': String(64 * 1024), 'x-attachment-name': 'full-disk.bin' },
+        (req) => { req.on('error', () => {}); req.end(Buffer.alloc(64 * 1024, 3)); });
+      if (failed > 0 || openErrors.length === opensBefore) break;
+      await until(() => parts().length === 0);
+    }
   } finally { fs.createWriteStream = real; }
-  assert.ok(failed > 0, 'the write was never attempted, so this tested nothing');
+  assert.ok(failed > 0, 'the write was never attempted, so this tested nothing: ' + JSON.stringify({ got, openErrors }));
   assert.equal(got.status, 400, JSON.stringify(got));
   assert.equal(JSON.parse(got.body).error, 'that file could not be kept');
   assert.ok(await until(() => stored().length === before && parts().length === 0), 'a failed write left ' + JSON.stringify(parts()));
