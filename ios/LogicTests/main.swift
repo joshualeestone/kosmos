@@ -2611,15 +2611,27 @@ section("native board loop: connecting")
         check(shown, "CONTROL: the same slow read for the account still signed in is shown")
         // Review 6: the other order: a switch's slow list read lands after a newer refresh read; the newer list stays,
         // and the switch still opens the computer from its own answer.
+        // Review 7: the newer list leaves Laptop out, so the switch opening Laptop proves it picked from its own answer.
         w.clock += 61
-        w.macsQueue = [(3000, listed(666)), (0, listed(777))]
+        let studioOnly = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":777}]}"#
+        w.macsQueue = [(3000, listed(666)), (0, studioOnly)]
         c.showMac(address: "laptop.kosmosplus.com")
         _ = await settle { w.macsAnswered >= 6 && w.macsQueue.count == 1 }   // the switch's read has been sent
         c.refreshLastSeen()
         _ = await settle { w.macsAnswered == 8 }
         let reverted = await settle { laptop() == 666 }
-        check(w.macsAnswered == 8 && !reverted && laptop() == 777 && c.switcherShown == "laptop.kosmosplus.com",
-              "a switch's older list never lands over a newer refresh, and the switch still opens its computer")
+        let opened = await settle { c.phase.macName == "Laptop" }
+        check(w.macsAnswered == 8 && !reverted && laptop() == nil && c.macs.first?.lastSeen == 777 && opened,
+              "a switch's older list never lands over a newer refresh, and the switch still opens its computer from its own answer")
+        // Review 7: a refresh already in flight is not sent twice.
+        w.clock += 61
+        let before = w.count("/v1/account/macs")
+        w.macsQueue = [(3000, listed(888))]
+        c.refreshLastSeen()
+        c.refreshLastSeen()
+        _ = await settle { w.macsAnswered == 9 }
+        _ = await settle { w.count("/v1/account/macs") > before + 1 }
+        check(w.count("/v1/account/macs") == before + 1, "a second refresh while one is in flight sends nothing")
     }
 
     section("the person's name and picture (kosmos#7266 slice B)")

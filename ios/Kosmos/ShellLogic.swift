@@ -171,14 +171,14 @@ enum Shell {
         heardWhen(lastSeen, now: now, calendar: calendar, locale: locale).map { "We last heard from it \($0)." }
     }
 
+    // How far ahead of this phone's clock a time may be and still be taken as now (the board's 60 s too).
+    static let clockAllowance: Double = 60
+
     // When a computer was last heard from, as the end of a sentence (Mona Lisa's words): "at 8:12 PM" today,
     // "yesterday at 8:12 PM", "on Tuesday at 8:12 PM" within the week, "on Oct 21" before that. `lastSeen` is unix
     // seconds, in the app the later of Kosmos+'s last_seen and the app's own last good read (Board.lastHeard). nil when
     // there is none (0: never seen) and for a time more than clockAllowance ahead of now (Board.lastHeard already drops
     // such a last_seen; this is the same rule for any other caller). One function for the message and the switcher.
-    // How far ahead of this phone's clock a time may be and still be taken as now (the board's 60 s too).
-    static let clockAllowance: Double = 60
-
     static func heardWhen(_ lastSeen: Double?, now: Date = Date(),
                           calendar: Calendar = .current, locale: Locale = .current) -> String? {
         guard let s = lastSeen, s.isFinite, s > 0 else { return nil }
