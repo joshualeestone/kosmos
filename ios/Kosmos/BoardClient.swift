@@ -61,6 +61,16 @@ final class BoardClient: ObservableObject {
 
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var agents: [Board.Agent] = []
+    // kosmos#7342 review 1: whether the Agents list is shown as not updating (one rule for the list and its tab badge).
+    // A list already read stays on screen while the app reconnects or the Mac does not answer, and a list from an
+    // earlier read is not current until the first new read.
+    var agentsListStale: Bool {
+        switch phase {
+        case .starting, .connecting, .unreachable: return true
+        case .live: return !fresh
+        default: return false
+        }
+    }
     @Published private(set) var updatedAt: Date?
     // Counts the re-sorts applied (appear, pull to refresh). Today re-takes its held order on this, never on any
     // update: a live read landing during a pull carries the old order and the old stars.
@@ -316,9 +326,12 @@ final class BoardClient: ObservableObject {
                 #"{"projectId":"p-cat","projectName":"Spring catalogue","number":2,"sentence":"Collect last year's sales figures","state":"closed","createdAt":""# + iso(50000) + #""}"#,
             ].joined(separator: ",") + "]}"
             tasksList = Board.parseTasks(Data(all.utf8))
-            let sample = #"{"counts":{"waiting":4},"agents":[{"sessionName":"cleo","name":"Cleo","role":"Project manager","state":"needs_you","dmUnread":2,"stateReportedBy":"agent","cardWord":"Question","cardTone":"asked","context":{"percent":45},"needsReason":"question","stateProjectName":"Spring catalogue","waitingSince":""# + iso(3) + #""},{"sessionName":"dana","name":"Dana","role":"Writer","state":"working","dmUnread":1,"stateProject":"springcatalogue","task":"Pages 9 to 12","cardWord":"Working","cardTone":"working","context":{"percent":72}},{"sessionName":"eli","name":"Eli","role":"Researcher","state":"needs_you","awaitingApproval":true,"cardWord":"Needs permission","cardTone":"needs_you","context":{"percent":88},"needsReason":"permission","stateProjectName":"Market study","waitingSince":""# + iso(12) + #""},{"sessionName":"farah","name":"Farah","role":"Bookkeeper","state":"idle","cardWord":"Idle","cardTone":"quiet","context":{"percent":20}},{"sessionName":"hana","name":"Hana","role":"Support","state":"auth_failed","stuckError":{"stuck":true,"state":"auth_failed"},"cardWord":"Sign-in Issue","cardTone":"needs_you","needsReason":"stuck_auth"},{"sessionName":"ivy","name":"Ivy","role":"Editor","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"gus","name":"Gus","role":"Social media","state":"stopped","running":false,"cardWord":"Not running","cardTone":"needs_you","needsReason":"other"}]}"#
+            // kosmos#7342: counts as a real board sends them (waiting = the agents' 6 + the projects' 3), so the Projects
+            // tab shows its number in shots too.
+            let sample = #"{"counts":{"waiting":9,"projectsUnread":3},"agents":[{"sessionName":"cleo","name":"Cleo","role":"Project manager","state":"needs_you","dmUnread":2,"stateReportedBy":"agent","cardWord":"Question","cardTone":"asked","context":{"percent":45},"needsReason":"question","stateProjectName":"Spring catalogue","waitingSince":""# + iso(3) + #""},{"sessionName":"dana","name":"Dana","role":"Writer","state":"working","dmUnread":1,"stateProject":"springcatalogue","task":"Pages 9 to 12","cardWord":"Working","cardTone":"working","context":{"percent":72}},{"sessionName":"eli","name":"Eli","role":"Researcher","state":"needs_you","awaitingApproval":true,"cardWord":"Needs permission","cardTone":"needs_you","context":{"percent":88},"needsReason":"permission","stateProjectName":"Market study","waitingSince":""# + iso(12) + #""},{"sessionName":"farah","name":"Farah","role":"Bookkeeper","state":"idle","cardWord":"Idle","cardTone":"quiet","context":{"percent":20}},{"sessionName":"hana","name":"Hana","role":"Support","state":"auth_failed","stuckError":{"stuck":true,"state":"auth_failed"},"cardWord":"Sign-in Issue","cardTone":"needs_you","needsReason":"stuck_auth"},{"sessionName":"ivy","name":"Ivy","role":"Editor","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"gus","name":"Gus","role":"Social media","state":"stopped","running":false,"cardWord":"Not running","cardTone":"needs_you","needsReason":"other"}]}"#
             agents = Board.sorted(Board.parseAgents(Data(sample.utf8)) ?? [])
             waitingCount = Board.waitingCount(Data(sample.utf8))
+            projectsUnread = AppTabs.projectsUnread(fromStatus: Data(sample.utf8))
             updatedAt = Date()
             fresh = true
             phase = .live(mac: Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true))

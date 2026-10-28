@@ -10518,6 +10518,13 @@ html[data-kosmos-platform="win32"] ::-webkit-scrollbar { width: 10px; height: 10
 html[data-kosmos-platform="win32"] ::-webkit-scrollbar-track { background: transparent; }
 html[data-kosmos-platform="win32"] ::-webkit-scrollbar-thumb { background: var(--k-ink-2); border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
 html[data-kosmos-platform="win32"] ::-webkit-scrollbar-thumb:hover { background: var(--k-ink); }
+/* #7497: on a long conversation the thumb fell to Chromium's own minimum, 17 lit rows in the
+   scrollbar column (a 46,000px thread in a 600px pane, measured in the Windows app), too small
+   to grab with a mouse. A floor of 40px along the bar keeps it grabbable; the bar stays 10px
+   wide. Measured in WebView2 on the Windows box: 17 lit rows before, 40 after. On a pane too
+   short for 40px the thumb fills the track instead (a 30px pane: 26 rows), it does not vanish. */
+html[data-kosmos-platform="win32"] ::-webkit-scrollbar-thumb:vertical { min-height: 40px; }
+html[data-kosmos-platform="win32"] ::-webkit-scrollbar-thumb:horizontal { min-width: 40px; }
 html[data-kosmos-platform="win32"] ::-webkit-scrollbar-corner { background: transparent; }
 /* Hide the native up/down arrow buttons Chromium can glue to a custom-width scrollbar on
    Windows, so the bar stays a clean thin thumb rather than a thin bar with wide OS buttons. */
@@ -21052,6 +21059,8 @@ function windowsCopyTable() {
     adminDetailsSummary: 'For IT admins',
     /* The switch on the autostart row (W-21a, win32-installer-native). */
     startAtSignInLabel: 'Start Kosmos when I sign in to Windows',
+    /* #7493: the same switch is the #2988 watchdog's off switch, so the row says both things it does. */
+    startAtSignInHint: 'When this is on, Kosmos also tries to start again if it closes unexpectedly. When it is off, Kosmos stays closed until you open it.',
     startAtSignInFailure: 'We could not change whether Kosmos starts when you sign in just now.',
     startAtSignInUnread: 'We could not read whether Kosmos starts when you sign in just now.',
     /* Settings > Updates, the in-app updater armed (S4). The confirm dialog: the win32 updater
@@ -27225,9 +27234,21 @@ function machineRows(report) {
        engine/machine.js puts a boolean there, and nothing when it could not look, so the switch is
        never drawn in a position nobody checked. After a click it is repainted from /api/machine. */
     + (typeof c.startAtSignIn === 'boolean'
-      ? '<div class="setrow" style="margin-top:12px;align-items:center;"><div><b>' + windowsCopy('startAtSignInLabel') + '</b></div>'
+      ? '<div class="setrow" style="margin-top:12px;align-items:center;"><div><b>' + windowsCopy('startAtSignInLabel') + '</b>'
+        + '<div class="dhint" id="start-at-sign-in-hint" style="margin:2px 0 0;">' + windowsCopy('startAtSignInHint') + '</div></div>'
         + '<button class="toggle' + (c.startAtSignIn ? ' on' : '') + '" type="button" role="switch" aria-checked="' + c.startAtSignIn + '"'
-        + ' aria-label="' + windowsCopy('startAtSignInLabel') + '" data-start-at-sign-in><i></i></button></div>'
+        + ' aria-label="' + windowsCopy('startAtSignInLabel') + '" aria-describedby="start-at-sign-in-hint" data-start-at-sign-in><i></i></button></div>'
+      : '')
+    /* kosmos#7416 slice 3: drawn only on a sleep row whose keep-awake setting the engine READ (Mac only for now).
+       Off by default; the hint is Mona Lisa's wording from the card. */
+    + (c.keepAwake && typeof c.keepAwake.on === 'boolean'
+      ? '<div class="setrow" style="margin-top:12px;align-items:center;"><div><b>Keep this computer awake while agents are working</b>'
+        + '<p class="dhint" style="margin:4px 0 0;">Uses more power while agents work. A laptop still sleeps when you close its lid, unless it&rsquo;s plugged in with a screen attached.</p>'
+        + (c.keepAwake.on && c.keepAwake.holding === true ? '<p class="dhint" style="margin:4px 0 0;" data-keep-awake-now>An agent is working, so this computer is staying awake now.</p>' : '')
+        + (c.keepAwake.on && c.keepAwake.holding !== true && c.keepAwake.because ? '<p class="dhint" style="margin:4px 0 0;" data-keep-awake-failed>We could not keep this computer awake just now.</p>' : '')
+        + '</div>'
+        + '<button class="toggle' + (c.keepAwake.on ? ' on' : '') + '" type="button" role="switch" aria-checked="' + c.keepAwake.on + '"'
+        + ' aria-label="Keep this computer awake while agents are working" data-keep-awake><i></i></button></div>'
       : ''))).join('');
 }
 /* The controls the machine rows carry, wired after every paint of `#set-machine`. */
@@ -27251,24 +27272,38 @@ function wireMachineRows(mach) {
   for (const sw of mach.querySelectorAll('[data-start-at-sign-in]')) {
     sw.addEventListener('click', () => startAtSignInClick(sw));
   }
+  for (const sw of mach.querySelectorAll('[data-keep-awake]')) {
+    sw.addEventListener('click', () => keepAwakeClick(sw));
+  }
 }
 /* "Start Kosmos when I sign in to Windows": ask for the other position, say why if Windows would
    not, then repaint from what the engine reads now. The switch never shows the position clicked. */
 async function startAtSignInClick(sw) {
+  return machineSwitchClick(sw, (want) => fetch('/api/machine/start-at-sign-in', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: want }),
+  }), { refused: windowsCopy('startAtSignInFailure'), unreachable: windowsCopy('startAtSignInFailure'), unread: windowsCopy('startAtSignInUnread') });
+}
+/* kosmos#7416 slice 3: "Keep this computer awake while agents are working", the same way. */
+async function keepAwakeClick(sw) {
+  return machineSwitchClick(sw, (want) => fetch('/api/keepawake-setting', {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: want }),
+  }), { refused: 'We could not save that setting.', unreachable: 'We could not reach Kosmos to save that.', unread: 'We could not read that setting back just now.' });
+}
+/* One switch on the machine rows: send the other position, then repaint from /api/machine, and say why
+   when the engine refused, could not be reached, or could not be read back. */
+async function machineSwitchClick(sw, send, how) {
   const failMsg = document.getElementById('set-machine-msg');
   const want = sw.getAttribute('aria-checked') !== 'true';
   sw.disabled = true;
   let said = '';
   try {
-    const r = await fetch('/api/machine/start-at-sign-in', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: want }),
-    });
+    const r = await send(want);
     const out = await r.json().catch(() => ({}));
-    if (!r.ok || typeof out.on !== 'boolean') said = (out && out.error) || windowsCopy('startAtSignInFailure');
+    if (!r.ok || typeof out.on !== 'boolean') said = (out && out.error) || how.refused;
   } catch {
-    said = windowsCopy('startAtSignInFailure');
+    said = how.unreachable;
   }
-  if (!(await refreshMachineRows())) said = said || windowsCopy('startAtSignInUnread');
+  if (!(await refreshMachineRows())) said = said || how.unread;
   failMsg.hidden = !said;
   failMsg.textContent = said;
 }
@@ -27283,6 +27318,7 @@ async function refreshMachineRows() {
     return true;
   } catch {
     for (const sw of mach.querySelectorAll('[data-start-at-sign-in]')) sw.closest('.setrow').remove();
+    for (const sw of mach.querySelectorAll('[data-keep-awake]')) sw.closest('.setrow').remove();   // kosmos#7416 slice 3
     return false;
   }
 }

@@ -362,8 +362,19 @@ enum Board {
     static func noticeCount(_ a: Agent) -> Int {
         a.isGuide ? 0 : (a.needsYou ? 1 : 0) + max(0, a.dmUnread)   // the Mac counts nothing of the guide's (server.js countAgents)
     }
-    // The count to VoiceOver, which does not see the badge.
-    static func noticeWords(_ n: Int) -> String? { n > 0 ? "\(n) waiting" : nil }
+    // The count to VoiceOver, which does not see the badge (Mona Lisa, #7342: "Dana, Working, 3 notifications").
+    static func noticeWords(_ n: Int) -> String? { n > 0 ? (n == 1 ? "1 notification" : "\(n) notifications") : nil }
+    // kosmos#7342 (Mona Lisa): the row's bubble shows the number in full to 99, then "99+" ("9+" hid exactly what Josh
+    // was looking for); nothing at 0.
+    static func noticeBubbleText(_ n: Int) -> String? { n <= 0 ? nil : (n <= 99 ? String(n) : "99+") }
+    // kosmos#7342: the Agents tab's badge is the rows' own counts added up, so the bubbles always explain it. The Mac's
+    // waiting total also counts unread project-room posts, which the Projects tab shows; counted here too they could
+    // never be found on this list (Josh: "292" with no row saying whose). nil (the person turned the count off) is none.
+    // Review 1: none while the list is shown as not updating, since its rows then show no bubbles either.
+    static func agentsTabBadge(waiting: Int?, agents: [Agent], stale: Bool = false) -> Int {
+        guard waiting != nil, !stale else { return 0 }
+        return agents.reduce(0) { $0 + noticeCount($1) }
+    }
 
     // kosmos#7354: POST /api/agent/<name>/seen, the person has this agent's DM open (server.js dmSeen, the board's
     // own read cursor); its unread replies stop counting. nil for a name the board would refuse.
@@ -463,7 +474,10 @@ enum Board {
         let p = statePill(a)
         if p == .asks { return p }
         if a.needsYou { return .problem }
-        if a.macTone == .needsYou && (p == nil || p == .working) { return .problem }
+        // kosmos#7342 review 1: a current Mac sends a blocked agent's tone as needs-you ("Waiting" is in its
+        // NEEDS_YOU_WORDS), but its needsPerson does not count it; Josh ruled Waiting off the row, so that tone alone
+        // never draws a pill for it (a blocked agent that really needs him has needsYou, checked above).
+        if a.macTone == .needsYou && (p == nil || p == .working) && a.state != "blocked" { return .problem }
         return p
     }
     private static func statePill(_ a: Agent) -> Pill? {
@@ -473,11 +487,13 @@ enum Board {
         }
         if a.crashLooping || a.restartFailed { return .problem }
         switch a.state {
-        case "idle": return nil
+        // kosmos#7342 (Josh 10-28 09:34, build 11): "Waiting" tells him nothing, so a blocked agent shows no pill, as an
+        // idle one does. One that needs him still shows the red pill (pill(_:) checks needsYou first).
+        case "idle", "blocked": return nil
         case "working": return .working
         case "needs_you": return a.reportedByAgent || a.awaitingApproval ? .asks : .problem
         case "question", "approval", "needs_trust": return .asks
-        case "rate_limited", "blocked", "connection_lost", "restarting": return .held
+        case "rate_limited", "connection_lost", "restarting": return .held
         case "auth_failed", "stopped": return .problem
         default: return .cantTell
         }
@@ -687,6 +703,9 @@ enum Board {
     // (needsPerson: a crash loop and the like, whose words the table does not list), are needs you; Working is
     // working; anything else, including a word the phone does not know, is quiet.
     static func tone(_ agent: Agent) -> Tone {
+        // kosmos#7342 review 1: a blocked agent that does not need the person is quiet on the phone (no pill, not first
+        // in "Needs you first", not on Today), whatever tone the Mac sends, so the order agrees with the row.
+        if agent.state == "blocked" && !agent.needsYou && !agent.crashLooping { return .quiet }
         if let tone = agent.macTone { return tone }
         // A state the phone does not know yet (one the Mac adds later) is quiet, never red at the top, unless the
         // board itself counts the agent as needing the person. A real "unknown" state is in the table.

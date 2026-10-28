@@ -276,6 +276,8 @@ function stampServedPlatform(pageBuffer) {
 }
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
+const pageCompress = require('./engine/pagecompress');
+const compressedPage = pageCompress.makePageCompressor();   // kosmos#7490
 /* 🛑 #1938: THE DISK SCAN IS HEAVIER THAN found() AND THE BOARD POLLS IT EVERY 5s.
    `found()` walks Claude's own records; `discover.scan()` walks a bounded slice of the
    actual disk (up to thousands of directories) AND calls found() itself. The board's
@@ -1427,6 +1429,13 @@ const autobalanceSetting = require('./engine/autobalance-setting'); // kosmos#71
 const autobalanceSweep = require('./engine/autobalance-sweep'); // kosmos#7152 slice 3: the record of what auto-balance would move
 const AUTOBALANCE_RECORD = path.join(path.dirname(autobalanceSetting.FILE), autobalanceSweep.FILE);
 let autobalanceSweepRun = null;   // the sweep, once its record has been read at start (it is off otherwise)
+const keepAwakeSetting = require('./engine/keepawake-setting'); // kosmos#7416 slice 3
+const keepAwake = require('./engine/keepawake'); // kosmos#7416 slice 3: caffeinate -i while the switch is on and a card reads working
+const KEEP_AWAKE = keepAwake.createHolder(process.env.AGENT_WORKFORCE_DRY_RUN === '1' ? { spawn: keepAwake.dryRunSpawn } : undefined);
+/* kosmos#7416 slice 3: one pass of the sweep (engine/keepawake.js pass). */
+function keepAwakeTick() {
+  keepAwake.pass({ readSetting: () => keepAwakeSetting.read(), readRoster: safeRoster, holder: KEEP_AWAKE });
+}
 const brief = require('./engine/brief'); // #3595 phase 3: a project's goal, read safely from its BRIEF.md
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
@@ -12804,6 +12813,35 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  /* kosmos#7416 slice 3: "Keep this computer awake while agents are working" (Settings > Computer). Screen-only PUT,
+     as auto-balance's. The answer carries whether caffeinate is held right now, read after the pass the save runs. */
+  if (pathname === '/api/keepawake-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = keepAwakeSetting.read();
+      const st = KEEP_AWAKE.state();
+      sendJson(res, 200, { on: r.on, ok: r.ok, supported: KEEP_AWAKE.supported, holding: st.holding, because: st.because });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/keepawake-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
+        if (!KEEP_AWAKE.supported) { sendJson(res, 409, { error: 'this computer cannot be kept awake by Kosmos yet' }); return; }
+        const saved = keepAwakeSetting.write({ on: body.on });
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        try { keepAwakeTick(); } catch { /* the next pass takes it */ }
+        const r = keepAwakeSetting.read();
+        const st = KEEP_AWAKE.state();
+        sendJson(res, 200, { on: r.on, ok: r.ok, supported: true, holding: st.holding, because: st.because });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
   /* #2619: the Assigner automation setting. Same STATUS-control contract. */
   if (pathname === '/api/assigner-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
@@ -16204,6 +16242,14 @@ const server = http.createServer(async (req, res) => {
         refused: births.filter((b) => b && b.outcome === 'refused').length,
       };
     } catch { checks.made = null; }
+    /* kosmos#7416 slice 3: the keep-awake switch rides on the sleep row, and only when its setting was READ, so the
+       switch is never drawn in a position nobody checked (as startAtSignIn's). Mac only for now. */
+    try {
+      const sleepRow = KEEP_AWAKE.supported && Array.isArray(checks.checks) ? checks.checks.find((c) => c && c.key === 'sleep') : null;
+      const ka = sleepRow ? keepAwakeSetting.read() : null;
+      const st = KEEP_AWAKE.state();
+      if (sleepRow && ka && ka.ok) sleepRow.keepAwake = { on: ka.on, holding: st.holding, because: st.because };
+    } catch { /* the row is drawn without the switch */ }
     sendJson(res, 200, checks);
     return;
   }
@@ -25867,8 +25913,11 @@ const server = http.createServer(async (req, res) => {
        on disk, and this header is that answer.
        #2973: and whether this board's logon task started it, which the hand-off needs
        before it may end the board, and which Task Scheduler cannot say reliably. */
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_IDENTITY_HEADER]: BOARD_IDENTITY, [BOARD_STARTED_BY_TASK_HEADER]: boardStartedByTaskHeaderValue() });
-    res.end(stampServedPlatform(buf));
+    /* kosmos#7490: compressed when the browser accepts it (brotli or gzip), so a phone over Kosmos+ is sent about
+       1.5 MB rather than 6. engine/pagecompress.js says why only the page, and why it is cached by content. */
+    const page = stampServedPlatform(buf);
+    pageCompress.sendPage(req, res, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_IDENTITY_HEADER]: BOARD_IDENTITY, [BOARD_STARTED_BY_TASK_HEADER]: boardStartedByTaskHeaderValue() },
+      Buffer.isBuffer(page) ? page : Buffer.from(page, 'utf8'), compressedPage);
   });
 });
 
@@ -27360,6 +27409,10 @@ function start(port = PORT) {
         } catch { /* best-effort, like the nudge sweep */ }
       }, 60000);
       if (missedTellTick && typeof missedTellTick.unref === 'function') missedTellTick.unref();
+      /* kosmos#7416 slice 3: keep this computer awake while agents are working (keepAwakeTick, above). */
+      const keepAwakeSweep = setInterval(keepAwakeTick, keepAwake.TICK_MS);
+      setImmediate(() => { try { keepAwakeTick(); } catch { /* the sweep takes it */ } });   // a board started with the switch on holds now
+      if (keepAwakeSweep && typeof keepAwakeSweep.unref === 'function') keepAwakeSweep.unref();
       /* kosmos#6209 part 3: an owner that keeps posting in a held task's project room is asked, once per hold, whether the
          hold still stands (engine/holdstale.js holds the rules and is tested there). The same gates as the missed-run tell;
          the message log is read only when some open task is on hold, Kosmos may type into agents and the Prompter is on. */
@@ -27833,6 +27886,11 @@ if (require.main === module) {
       if (r.anchor && !r.anchor.ok) {
         process.stderr.write(`Kosmos could not point its startup files at this folder, so your agents may start an older copy: ${r.anchor.because}\n`);
       }
+      /* #2988: the check that starts the board again if it stops. Not fatal, and never
+         a reason to call the startup job itself broken. */
+      if (r.watchdog && !r.watchdog.ok) {
+        process.stderr.write(`Kosmos could not set up the check that starts it again if it stops: ${r.watchdog.because}\n`);
+      }
       if (r.action === 'registered') {
         process.stdout.write(`Kosmos will now start when you log in. Task Scheduler > Kosmos > board; remove it with: ${r.removeHint}\n`);
       } else if (r.downgrade) {
@@ -27854,10 +27912,13 @@ if (require.main === module) {
        window opens that a person could close. `/End`, the first step of the
        board's own restart, then kills only that conhost, so the board leaves when
        its host does. See engine/win32orphan.js. Armed only for a task-started
-       board: a hand-started one belongs to whoever started it. */
+       board: a hand-started one belongs to whoever started it.
+       #2988: recordBoardExits arms that same watch, and writes this board's start
+       and the cause of its exit to win32-logs\board.log, which the board's
+       watchdog task reads when it has to start the board again. */
     try {
       if (require('./engine/win32board').startedByTask()) {
-        require('./engine/win32orphan').exitWhenParentGone({ onGone: () => process.exit(0) });
+        require('./engine/win32boardwatch').recordBoardExits({});
       }
     } catch (err) {
       process.stderr.write(`Kosmos could not watch the job that started it: ${String(err && err.message)}\n`);
@@ -28110,8 +28171,35 @@ if (require.main === module) {
          board by hand). A double-clicked Kosmos.exe has a hidden console and shows
          its own box with the same advice once this board is listening. */
       process.stderr.write(`Kosmos could not move to the background (${handOff.because}), so it is running from this window instead. Keep this window open while you use Kosmos.\n`);
+      /* #2988 round 3: the hold against the board's restart check could not be written. Round 4: a
+         double-clicked Kosmos.exe hides this console and the launcher has no channel for such a note, so
+         it also goes to the board's own log (win32-logs\board.log), where it can be found later. */
+      if (handOff.holdProblem) {
+        const holdNote = `Kosmos could not keep its restart check from starting the background board while this window started, because ${handOff.holdProblem}. The background board may start again, and then this window's Kosmos may not be able to start.`;
+        process.stderr.write(holdNote + '\n');
+        require('./engine/win32boardwatch').boardLogNote(holdNote);
+      }
     }
+    /* #2988 round 5: while this board is still starting, the hand-off's hold is written again every
+       minute, so a slow start cannot outlive it; stopped once the board listens or fails to start. */
+    let handOffHoldTimer = null;
+    if (typeof handOff.refreshHold === 'function') {
+      /* Round 6: at most ten refreshes (ten minutes), even if start() never settles: a board stuck starting
+         for that long should not keep the background board off for good. */
+      let handOffHoldRefreshes = 0;
+      handOffHoldTimer = setInterval(() => {
+        handOffHoldRefreshes += 1;
+        if (handOffHoldRefreshes > 10) { stopHandOffHold(); return; }
+        try { handOff.refreshHold(); } catch { /* the next tick tries again */ }
+      }, 60 * 1000);
+      if (typeof handOffHoldTimer.unref === 'function') handOffHoldTimer.unref();
+    }
+    const stopHandOffHold = () => { if (handOffHoldTimer) { clearInterval(handOffHoldTimer); handOffHoldTimer = null; } };
     start().then(() => {
+      stopHandOffHold();
+      /* #2988 round 2: this board now answers on the port, so the hold the hand-off took against the
+         board's watchdog (engine/win32handoff.js) is no longer needed. */
+      if (typeof handOff.releaseHold === 'function') { try { handOff.releaseHold(); } catch { /* it expires on its own */ } }
       // Report the port actually bound, not the one requested, or a `PORT=0` run
       // would announce itself on port 0.
       process.stdout.write(`Kosmos on http://127.0.0.1:${server.address().port}\n`);
@@ -28132,6 +28220,13 @@ if (require.main === module) {
          walks it. Not fatal: a reply that finds no ledger seeds it then. */
       try { require('./engine/replyfile').seed(); } catch { /* seeded on the first reply instead */ }
     }).catch((err) => {
+      stopHandOffHold();
+      /* #2988 round 6: this window held the background board off and still could not take the port, which
+         is the background board having started in its place (the watchdog's /Run raced the hold). Kosmos
+         is then running in the background, and the board's log says so. */
+      if (typeof handOff.releaseHold === 'function' && err && err.code === 'EADDRINUSE') {
+        try { require('./engine/win32boardwatch').boardLogNote("This window's Kosmos could not start because the background board took its place; Kosmos is running in the background."); } catch { /* the note is a courtesy */ }
+      }
       // Say what to do rather than name an exception. A raw EADDRINUSE stack is
       // exactly what start()'s promise exists to replace, and leaving this
       // uncaught made the comment above it a lie.

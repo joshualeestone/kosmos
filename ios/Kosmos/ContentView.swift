@@ -29,6 +29,8 @@ struct ContentView: View {
     // kosmos#7032: a room the Projects tab should open (a tapped room notification), cleared once it is open. Outside the
     // screenshot switch: both builds read it.
     @State private var roomRequest: PushBridge.RoomTarget?
+    // kosmos#7489: the native New project form (+ on Projects), in place of the board's slow web page.
+    @State private var newProjectOpen = false
     // kosmos#7418: an agent's chat a tapped notification asked for, handed to the Agents tab to open.
     @State private var agentRequest: PushBridge.AgentTarget?
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
@@ -160,12 +162,19 @@ struct ContentView: View {
                             // kosmos#7030: Today's badge is the board's one number, the Dock's (counts.waiting); none at 0 or off.
                             // kosmos#7032: Projects' is the board's unread room posts (counts.projectsUnread).
                             // kosmos#7252: with Today off, its number (agents waiting on you) is on Agents.
-                            .badge(which == (AppTabs.todayTab ? .today : .agents) ? (board.waitingCount ?? 0) : which == .projects ? (board.projectsUnread ?? 0) : 0)
+                            // kosmos#7342 (Mona Lisa's rule: every tab's number is the sum of what its own list shows): Agents
+                            // shows its rows' bubbles added up; Today, like the Dock, keeps the full total.
+                            .badge(which == .today && AppTabs.todayTab ? (board.waitingCount ?? 0)
+                                   : which == .agents && !AppTabs.todayTab ? Board.agentsTabBadge(waiting: board.waitingCount, agents: board.agents, stale: board.agentsListStale)
+                                   : which == .projects ? (board.projectsUnread ?? 0) : 0)
                             .tag(which)
                     }
                 }
                 // Mona Lisa's spec: the app's tint is the board's ink, so the selected tab is not system blue.
                 .tint(Palette.primary)
+                // kosmos#7266 (Josh 10-28): the tab bar shrinks while a list scrolls down and comes back on scrolling up,
+                // the system's own behaviour on iOS 26 (Instagram-style). Earlier systems keep the bar as it is.
+                .modifier(TabBarMinimizesOnScroll())
                 // kosmos#7252: with Today off, a board page (a tapped notification, an agent's info button, the board's
                 // own Settings or sign-in) opens over the tabs, with Close back to the tab underneath.
                 .overlay { if !AppTabs.todayTab && todayBoard { boardPage } }
@@ -392,7 +401,22 @@ struct ContentView: View {
             // button) opens under Today, as an agent's chat does from Agents.
             ProjectsView(client: board, roomRequest: $roomRequest, openPage: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, create: { openCreate(.project) })
+            }, create: {
+                // Review 2: the form posts to the computer this phone is connected to; before that computer has let the
+                // phone in there is none, so the board page (which waits for it) is used, as before.
+                if board.macURL != nil { newProjectOpen = true } else { openCreate(.project) }
+            })
+            #if DEBUG
+            // Design shots only: KOSMOS_SAMPLE_NEWPROJECT=1 opens the New project form, since a simulator run cannot tap +.
+            .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWPROJECT"] == "1" { newProjectOpen = true } }
+            #endif
+            .sheet(isPresented: $newProjectOpen) {
+                NewProjectView(client: board) { id in
+                    // The new project's room, on the computer the list shows.
+                    // Review 2: the computer the request went to (macURL), not the switcher's, which can differ.
+                    if let host = board.macURL?.host { roomRequest = PushBridge.RoomTarget(host: host, project: id) }
+                }
+            }
         } else if which == .tasks {
             // kosmos#7031: native Tasks. A task's page is native too (kosmos#7074, TaskPageView); its info button opens
             // the board's page under Today in the board view; a press on Tasks brings the list back.
@@ -1392,4 +1416,11 @@ enum YouFace {
         words.draw(at: CGPoint(x: (240 - size.width) / 2, y: (240 - size.height) / 2))
     }.pngData()
     #endif
+}
+
+// kosmos#7266: iOS 26's tab bar minimising on scroll, where the system offers it.
+private struct TabBarMinimizesOnScroll: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) { content.tabBarMinimizeBehavior(.onScrollDown) } else { content }
+    }
 }

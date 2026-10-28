@@ -577,6 +577,9 @@ extension Board {
         let needsYouQuestions: Int
         let working: Int
         let restarting: Int
+        // kosmos#7342 (Mona Lisa): on Mentions only or Muted (the board's notify, #7210): its count stays on its row but
+        // adds nothing to the Projects tab or the Dock, so its bubble is grey.
+        var quiet = false
     }
 
     struct ProjectList: Equatable {
@@ -743,7 +746,8 @@ extension Board {
                               paused: isTrue(p["paused"]), createdAt: isoDate(p["createdAt"] as? String), members: members,
                               folderProblem: folderProblem.flatMap { $0.isEmpty ? nil : $0 },
                               needsYou: integer(s["needsYou"]) ?? 0, needsYouQuestions: integer(s["needsYouQuestions"]) ?? 0,
-                              working: integer(s["working"]) ?? 0, restarting: integer(s["restarting"]) ?? 0)
+                              working: integer(s["working"]) ?? 0, restarting: integer(s["restarting"]) ?? 0,
+                              quiet: ["mentions", "muted"].contains(p["notify"] as? String ?? ""))
         }
         return ProjectList(projects: rows, agentsUnreadable: isTrue(obj["agentsUnreadable"]))
     }
@@ -1041,5 +1045,69 @@ extension Board {
         var next = rooms
         if partial { next.insert(project) } else { next.remove(project) }
         return next
+    }
+}
+
+// kosmos#7489 (Josh 10-28 09:41, build 11): + on Projects loaded the board's web page over Kosmos+, which took over a
+// minute behind a blank screen. A native form opens at once (as New task, #7078) and sends one request on Create:
+// POST /api/projects, the route the board's own Create project button uses. Name is enough (the board's own rule:
+// "a name is enough to start"); the description is optional. The words are the board's (web/index.html, #pj-add-).
+enum NewProject {
+    struct Draft: Equatable { var name = ""; var description = "" }
+
+    static func trimmed(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
+    static func canCreate(_ d: Draft) -> Bool { !trimmed(d.name).isEmpty }
+
+    static func body(_ d: Draft) -> [String: Any] {
+        var b: [String: Any] = ["name": trimmed(d.name)]
+        let desc = trimmed(d.description)
+        if !desc.isEmpty { b["description"] = desc }
+        return b
+    }
+
+    // The route reads whether the person's screen asked (isViaScreen); every request BoardClient sends carries that
+    // (#7075), so nothing is added here.
+    static func request(mac: URL, draft d: Draft) -> URLRequest? {
+        guard canCreate(d), let data = try? JSONSerialization.data(withJSONObject: body(d)) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/projects", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = data
+        return r
+    }
+
+    enum Result: Equatable {
+        case made(id: String)
+        case refused(String)
+        // No answer came back (none at all, or a server error with no sentence of the Mac's), so it may have been made.
+        case unknown
+    }
+
+    static let fallback = "We could not make that project."
+    static let unsureWords = "Kosmos could not tell whether that went through. Look in Projects before you try again."
+
+    // Any 2xx with the new project's id is made; otherwise the Mac's own sentence; a server error with none, or no answer,
+    // is unknown; nothing sent (no request built, or not connected) is certainly not made.
+    static func result(sent: Bool, status: Int, body: Data?) -> Result {
+        if !sent { return .refused(fallback) }
+        if status == 0 { return .unknown }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if (200...299).contains(status) {
+            if let id = obj?["id"] as? String, Board.isProjectId(id) { return .made(id: id) }
+            return .unknown   // made, by its status, but with no id to open it by: say so rather than guess
+        }
+        if let e = obj?["error"] as? String, !trimmed(e).isEmpty { return .refused(e) }
+        return status >= 500 ? .unknown : .refused(fallback)
+    }
+
+    enum Words {
+        static let title = "New project"
+        static let name = "Name"
+        static let nameExample = "Henderson lease"
+        static let description = "Description"
+        static let descriptionHint = "Up to 1000 characters."
+        static let descriptionExample = "Renewing the Henderson lease before October."
+        static let create = "Create project"
     }
 }

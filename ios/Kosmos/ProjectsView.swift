@@ -426,7 +426,7 @@ final class RoomStore: ObservableObject {
         return sampleBase.replacingOccurrences(of: #""projects":["#, with: #""projects":"# + String(sampleCrowd.dropLast()) + ",")
     }
     static let sampleCrowd = #"[{"id":"retail","name":"Retail rollout","description":"Every store, one launch day.","unread":0,"parent":null,"archived":false,"paused":false,"createdAt":"2026-10-24T10:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"},{"sessionName":"farah","name":"Farah"},{"sessionName":"gus","name":"Gus"},{"sessionName":"iris","name":"Iris"},{"sessionName":"jun","name":"Jun"},{"sessionName":"kai","name":"Kai"},{"sessionName":"lena","name":"Lena"},{"sessionName":"milo","name":"Milo"},{"sessionName":"nia","name":"Nia"},{"sessionName":"otto","name":"Otto"},{"sessionName":"pia","name":"Pia"},{"sessionName":"rex","name":"Rex"},{"sessionName":"suki","name":"Suki"}],"folderState":{"state":"readable"},"summary":{"working":3}},{"id":"signage","name":"Store signage","description":"","unread":0,"parent":"retail","archived":false,"paused":false,"createdAt":"2026-10-24T11:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{}},{"id":"training","name":"Staff training","description":"Guides and the first week.","unread":0,"parent":"retail","archived":false,"paused":false,"createdAt":"2026-10-24T12:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"},{"sessionName":"farah","name":"Farah"},{"sessionName":"gus","name":"Gus"},{"sessionName":"iris","name":"Iris"},{"sessionName":"jun","name":"Jun"},{"sessionName":"kai","name":"Kai"},{"sessionName":"lena","name":"Lena"},{"sessionName":"milo","name":"Milo"},{"sessionName":"nia","name":"Nia"},{"sessionName":"otto","name":"Otto"}],"folderState":{"state":"readable"},"summary":{"working":1}},{"id":"weekone","name":"Week one","description":"","unread":0,"parent":"training","archived":false,"paused":false,"createdAt":"2026-10-24T13:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"}],"folderState":{"state":"readable"},"summary":{}}]"#
-    static let sampleBase = #"{"agentsUnreadable":false,"projects":[{"id":"springcatalogue","name":"Spring catalogue","description":"The print catalogue for March.","unread":3,"parent":null,"archived":false,"paused":false,"createdAt":"2026-10-20T10:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo","needsYouHere":"question","needsYouKey":"question:Which cover photo should we use?","because":"Which cover photo should we use?"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli","needsYouHere":"trust","needsYouKey":"trust"}],"folderState":{"state":"readable"},"summary":{"needsYou":2,"needsYouQuestions":1,"working":1}},{"id":"covershoot","name":"Cover shoot","description":"","unread":0,"parent":"springcatalogue","archived":false,"paused":false,"createdAt":"2026-10-21T10:00:00.000Z","agents":[{"sessionName":"dana","name":"Dana"}],"folderState":{"state":"readable"},"summary":{"working":1}},{"id":"website","name":"Website","description":"Shipping and returns pages.","unread":0,"parent":null,"archived":false,"paused":true,"createdAt":"2026-10-18T10:00:00.000Z","agents":[{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{}},{"id":"oldlaunch","name":"Old launch","description":"","unread":0,"parent":null,"archived":true,"archivedAt":"2026-09-01T12:00:00.000Z","paused":false,"createdAt":"2026-08-01T10:00:00.000Z","agents":[],"folderState":{"state":"readable"},"summary":{}}]}"#
+    static let sampleBase = #"{"agentsUnreadable":false,"projects":[{"id":"springcatalogue","name":"Spring catalogue","description":"The print catalogue for March.","unread":3,"parent":null,"archived":false,"paused":false,"createdAt":"2026-10-20T10:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo","needsYouHere":"question","needsYouKey":"question:Which cover photo should we use?","because":"Which cover photo should we use?"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli","needsYouHere":"trust","needsYouKey":"trust"}],"folderState":{"state":"readable"},"summary":{"needsYou":2,"needsYouQuestions":1,"working":1}},{"id":"covershoot","name":"Cover shoot","description":"","unread":2,"notify":"mentions","parent":"springcatalogue","archived":false,"paused":false,"createdAt":"2026-10-21T10:00:00.000Z","agents":[{"sessionName":"dana","name":"Dana"}],"folderState":{"state":"readable"},"summary":{"working":1}},{"id":"website","name":"Website","description":"Shipping and returns pages.","unread":0,"parent":null,"archived":false,"paused":true,"createdAt":"2026-10-18T10:00:00.000Z","agents":[{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{}},{"id":"oldlaunch","name":"Old launch","description":"","unread":0,"parent":null,"archived":true,"archivedAt":"2026-09-01T12:00:00.000Z","paused":false,"createdAt":"2026-08-01T10:00:00.000Z","agents":[],"folderState":{"state":"readable"},"summary":{}}]}"#
     // The sample hold: one lift time for the launch, and gone for good once reopened (review 3: re-reads brought it back).
     static let sampleHeldUntil = Date().addingTimeInterval(40 * 60)
     static var sampleReopened: Set<String> = []
@@ -649,9 +649,16 @@ struct ProjectRowView: View {
                 // Review 2: at the largest sizes a sub-project's indent leaves little room, so the name may wrap.
                 Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary)
                     .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
-                if let bubble = Board.unreadBubble(project.unread) { UnreadBubble(text: bubble) }
                 Spacer(minLength: 8)
-                if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
+                // kosmos#7486 (Josh 10-28 09:35): Working is the Agents list's own animated green pill, in the same place; the
+                // other words keep their look. kosmos#7342 (Mona Lisa): the unread bubble at the right end, after the word,
+                // 6 pt apart, as the Agents list has it, so the two tabs read alike.
+                HStack(spacing: 6) {
+                    if word == .working {
+                        StatusPill(word: Board.projectWordText(.working), pill: .working, wraps: typeSize.isAccessibilitySize)
+                    } else if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
+                    if let bubble = Board.unreadBubble(project.unread) { UnreadBubble(text: bubble, quiet: project.quiet) }
+                }
             }
             if !project.description.isEmpty {
                 Text(project.description).font(.footnote).foregroundColor(Palette.secondary).lineLimit(1)
@@ -770,7 +777,7 @@ struct ProjectRowView: View {
         var parts = [project.name]
         if let parentName { parts.append("in " + parentName) }   // kosmos#7269 review 1: the nesting, said
         if let word { parts.append(Board.projectWordText(word)) }
-        if let u = project.unread, u > 0 { parts.append("\(u) unread") }
+        if let u = project.unread, u > 0 { parts.append(project.quiet ? "\(u) unread, muted" : "\(u) unread") }   // kosmos#7342 (Mona Lisa)
         if !project.description.isEmpty { parts.append(project.description) }
         // kosmos#7269: the faces are hidden from VoiceOver, so it hears the count the row no longer prints.
         parts.append(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
@@ -779,15 +786,17 @@ struct ProjectRowView: View {
 }
 
 // The board's unread bubble (.pj-unread: #d93a2f, white, 11pt bold, at least 18pt tall).
+// kosmos#7342 (Mona Lisa): a Mentions-only or Muted project's is the same capsule in the system's secondary grey.
 struct UnreadBubble: View {
     let text: String
+    var quiet = false
     var body: some View {
         Text(text)
             .font(.system(size: 11, weight: .bold))
             .foregroundColor(.white)
             .padding(.horizontal, 5)
             .frame(minWidth: 18, minHeight: 18)
-            .background(Capsule().fill(Color(red: 0xd9 / 255, green: 0x3a / 255, blue: 0x2f / 255)))
+            .background(Capsule().fill(quiet ? Color(UIColor.systemGray) : Color(red: 0xd9 / 255, green: 0x3a / 255, blue: 0x2f / 255)))
             .accessibilityHidden(true)
     }
 }
