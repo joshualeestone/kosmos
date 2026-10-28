@@ -24596,7 +24596,7 @@ const server = http.createServer(async (req, res) => {
         }
         /* #7408: `to` names agents to tell besides the assignees (a ruling on a task nobody holds reached nobody). Checked
            whole before anything is recorded: a list of 1 to 10 names, each an agent on this project (its reply into the
-           task would be refused otherwise). The stored spelling is the one told. */
+           task would be refused otherwise). Matched exactly, as the route matches its sender. */
         let toNames = [];
         if (body.to !== undefined) {
           const list = body.to;
@@ -24719,7 +24719,9 @@ const server = http.createServer(async (req, res) => {
         }
         if (!viaScreen) taskMessageValveRecord();
         const finalWord = !viaScreen && senderCard ? taskFinalWordHint(t, senderCard.sessionName, id, byKey) : '';   // #6066
-        sendJson(res, 200, { ok: true, delivered, summary: taskMessageSummary(delivered, named.length) + (finalWord ? ' ' + finalWord : '') });
+        sendJson(res, 200, { ok: true, delivered, ...(body.to !== undefined ? { to: toNames } : {}),
+          // #7408 review 1: a sender that named only itself on a task nobody holds hears "Nobody is assigned", not "Nobody else".
+          summary: taskMessageSummary(delivered, assignees.length || others.length ? named.length : 0) + (finalWord ? ' ' + finalWord : '') });
       } catch (err) {
         const msg = String((err && err.message) || '');
         // A failed append is a server-side (disk/IO) condition, not a bad request,
