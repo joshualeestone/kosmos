@@ -4094,6 +4094,14 @@ do {
         // kosmos#7342: a pill only when there is something to see; its colour follows the state the word comes from.
         func q(_ x: Board.Agent, _ f: (inout Board.Agent) -> Void) -> Board.Agent { var y = x; f(&y); return y }
         check(Board.pill(a("idle")) == nil, "kosmos#7342: Idle shows no pill (Josh: no pill means all is well)")
+        // Mona Lisa's ruling (10-27 15:4x): a red pill never says Idle or Working; it says Issue. Other words stay as sent.
+        let redIdle = q(a("idle")) { $0 = Board.Agent(session: $0.session, name: $0.name, role: nil, state: "idle", task: nil, needsYou: true) }
+        let redWorking = q(a("working")) { $0.macTone = .needsYou }
+        check(Board.pill(redIdle) == .problem && Board.pillWord(redIdle) == "Issue", "kosmos#7342: a red pill that would say Idle says Issue")
+        check(Board.pill(redWorking) == .problem && Board.pillWord(redWorking) == "Issue", "kosmos#7342: a red pill that would say Working says Issue")
+        check(Board.pillWord(a("working")) == "Working" && Board.pillWord(a("idle")) == "Idle", "CONTROL: a green Working and a plain Idle keep their words")
+        let stuckWord = q(a("working")) { $0.macTone = .needsYou; $0.macWord = "Messages stuck" }
+        check(Board.pillWord(stuckWord) == "Messages stuck", "kosmos#7342: a word the Mac sent other than Idle or Working stays as sent")
         check(Board.pill(a("working")) == .working, "working is the green pill with the Sweep")
         check(Board.pill(q(a("needs_you")) { $0.reportedByAgent = true }) == .asks, "an agent's question is blue")
         check(Board.pill(q(a("needs_you")) { $0.awaitingApproval = true }) == .asks, "a permission waiting is blue")

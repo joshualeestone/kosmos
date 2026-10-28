@@ -396,7 +396,9 @@ struct AgentRow: View {
     var starred = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var word: String { Board.statusWord(agent) }
+    // kosmos#7342: the pill's word (Issue on a red pill that would say Idle or Working); a list not updating keeps the plain
+    // word, as its pill is grey.
+    private var word: String { stale ? Board.statusWord(agent) : Board.pillWord(agent) }
     private var large: Bool { typeSize.isAccessibilitySize }
 
     var body: some View {

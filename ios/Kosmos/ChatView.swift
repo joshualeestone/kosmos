@@ -354,7 +354,7 @@ struct ChatView: View {
         return VStack(spacing: 1) {
             Text(shown.name).font(.headline).foregroundColor(Palette.primary).lineLimit(1)
             // Lost while open: the word goes quiet, since it is no longer current (spec, state 4).
-            Text(Board.statusWord(shown))
+            Text(lost ? Board.statusWord(shown) : Board.pillWord(shown))   // kosmos#7342: never a red Idle or Working
                 .font(.caption.weight(strong && !lost ? .semibold : .regular))
                 .foregroundColor(lost ? Palette.secondary : Palette.word(tone))
                 .lineLimit(1)
