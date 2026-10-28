@@ -181,7 +181,7 @@ struct ChatView: View {
             if let was = openedFile, was != now { client.closed(was); openedFile = now }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
+        .kosmosSolidTopBar(fade: false)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
         .toolbar {
             ToolbarItem(placement: .principal) { title }
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -424,6 +424,7 @@ struct ChatView: View {
                 })
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
+                .kosmosTopFade()   // kosmos#7346: rows fade under the solid top bar; the banner and search above stay clear
                 .overlay(alignment: .top) { earlierLoadingLine }
                 .onAppear {
                     // kosmos#7265: the eager stack starts at this row for as long as the chat stays open.

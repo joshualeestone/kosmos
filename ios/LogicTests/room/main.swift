@@ -317,6 +317,17 @@ if let r = manager.range(of: "PushBridge.roomToOpen("), let a = manager.range(of
 check(content.contains("PushBridge.agentOpening(target, shownAddress: board.switcherShown"), "ContentView decides through agentOpening, against the computer the app shows")
 let agentsSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentsView.swift"), encoding: .utf8)) ?? ""
 check(agentsSource.contains(".onChange(of: agentRequest) { _ in openRequested() }") && agentsSource.contains("openRequested()   // kosmos#7418"), "the Agents tab opens a request when it arrives and when the tab first shows (a cold launch)")
+// Josh 20:43: a Splinter notice must never open Shredder (neighbours by name): the session is matched whole.
+let splinterPush: [AnyHashable: Any] = ["kind": "replied", "address": "studio.kosmosplus.com", "session": "claudebot", "agent": "Splinter"]
+check(PushBridge.agentToOpen(fromNotification: splinterPush, coordinator: coordinator)?.session == "claudebot", "a notice opens exactly the agent that sent it (its session, whole)")
+check(agentsSource.contains("client.agents.first(where: { $0.session == target.session })"), "the Agents tab finds the notice's agent by its whole session, never a position or a prefix")
+var unknownKind = roomPush; unknownKind["kind"] = "someday"; unknownKind["projectId"] = nil
+check(PushBridge.agentToOpen(fromNotification: unknownKind, coordinator: coordinator) == nil, "review 1: a kind the board does not send yet opens as before, never a chat by accident")
+check(content.contains("shownAddress: board.switcherShown ?? kept?.address"), "review 1: on a cold launch (nothing shown yet, or the Face ID lock up) the kept computer decides, so the tap still opens the chat")
+check(agentsSource.contains(".id(agent.session)"), "review 1: a notice for another agent while a chat is open starts that chat afresh, not the old one renamed")
+if let a = content.range(of: ".onChange(of: pushManager.accountChanges)"), let c = content.range(of: "agentRequest = nil; roomRequest = nil") {
+    check(a.lowerBound < c.lowerBound && content.distance(from: a.lowerBound, to: c.lowerBound) < 400, "review 1: a sign-out drops a chat or room a notice asked for")
+} else { check(false, "review 1: the account-change handler drops pending notice requests") }
 
 section("files on a room post (kosmos#7062)")
 // room-files.json is the REAL route's answer too, captured from a sandboxed board: one post with a text file and a PDF,

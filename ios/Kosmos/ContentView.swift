@@ -186,6 +186,8 @@ struct ContentView: View {
         // kosmos#7008: a sign-out or another account drops the chats now, not at the next visit to the tab.
         .onChange(of: pushManager.accountChanges) { _ in
             board.accountChanged(); web.sessionChanged()
+            // kosmos#7418 review 1: a chat or room a notice asked for belonged to the account that was signed in.
+            agentRequest = nil; roomRequest = nil
             // kosmos#7042 review round 5: signed out later in the launch (on the account page, a session that ended),
             // the next sign-in is the native one too, or the web page's own device key would make this iPhone a second
             // device on the Mac. Recorded gap: the Mac's "fresh sign-in" link then lands here, not on the page.
@@ -320,7 +322,10 @@ struct ContentView: View {
     // kosmos#7418: the chat in the Agents tab when the notice came from the computer the app shows, else the board's page
     // for that agent, as a tap always did. As for a room, the native open ends a board press still waiting.
     private func openAgentChat(_ target: PushBridge.AgentTarget) {
-        switch PushBridge.agentOpening(target, shownAddress: board.switcherShown, coordinator: KosmosConfig.coordinatorOrigin) {
+        // Review 1: on a cold launch nothing is shown yet (the client starts with the first tab, and the Face ID lock
+        // draws no tab), so the computer this app keeps decides then, as for a room.
+        let kept = Board.usableSaved(SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin)
+        switch PushBridge.agentOpening(target, shownAddress: board.switcherShown ?? kept?.address, coordinator: KosmosConfig.coordinatorOrigin) {
         case .native(let t)?: agentRequest = t; tab = .agents; todayBoard = false; web.press(.agents)
         case .board(let url)?: pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
         case nil: break

@@ -63,6 +63,9 @@ struct AgentsView: View {
                             ChatView(client: client, agent: agent, openOnBoard: {
                                 if let url = client.chatURL(for: agent) { openChat(url) }
                             })
+                            // kosmos#7418 review 1: a notification for another agent while a chat is open starts that
+                            // agent's chat afresh (draft kept, reading loop ended), never the old one under a new name.
+                            .id(agent.session)
                         }
                     } label: { EmptyView() }
                     .hidden()
@@ -586,13 +589,18 @@ struct KosmosBarLeading<S: View>: ToolbarContent {
 // page's own colour, so a scrolled row never shows behind the mark, the switcher or the buttons, and rows fade into
 // it over a few points just below it. Drawn over the page, so it takes no room and no touches.
 extension View {
-    func kosmosSolidTopBar() -> some View {
-        toolbarBackground(Palette.ground, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .overlay(alignment: .top) {
-                LinearGradient(colors: [Palette.ground, Palette.ground.opacity(0)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 10).allowsHitTesting(false).accessibilityHidden(true)
-            }
+    // `fade: false` for a page whose top is a fixed row (a banner, a search field): the fade goes on its scrolling part
+    // instead (kosmosTopFade), so it never washes over the fixed row (review 1).
+    @ViewBuilder func kosmosSolidTopBar(fade: Bool = true) -> some View {
+        let solid = toolbarBackground(Palette.ground, for: .navigationBar).toolbarBackground(.visible, for: .navigationBar)
+        if fade { solid.kosmosTopFade() } else { solid }
+    }
+
+    func kosmosTopFade() -> some View {
+        overlay(alignment: .top) {
+            LinearGradient(colors: [Palette.ground, Palette.ground.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 10).allowsHitTesting(false).accessibilityHidden(true)
+        }
     }
 }
 

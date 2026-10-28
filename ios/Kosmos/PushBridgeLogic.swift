@@ -201,8 +201,11 @@ enum PushBridge {
     // must be a plain agent name and its `address` a plain host under the relay domain, as boardURL requires; `agent`, the
     // shown name, is only a label for the chat's title until the list has the agent.
     struct AgentTarget: Equatable { let host: String; let session: String; let name: String }
+    // The kinds the board sends (engine/phonenotify.js KINDS); one added later opens as before until it is placed here.
+    static let agentKinds: Set<String> = ["needs_you", "replied", "ready", "posted"]
     static func agentToOpen(fromNotification userInfo: [AnyHashable: Any], coordinator: URL) -> AgentTarget? {
-        guard let session = userInfo["session"] as? String, isAgentSession(session),
+        guard let kind = userInfo["kind"] as? String, agentKinds.contains(kind),
+              let session = userInfo["session"] as? String, isAgentSession(session),
               let raw = userInfo["address"] as? String, raw.unicodeScalars.allSatisfy({ $0.isASCII }),
               isMacHost(raw.lowercased(), coordinator: coordinator)
         else { return nil }

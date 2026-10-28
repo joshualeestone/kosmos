@@ -132,7 +132,7 @@ struct RoomView: View {
         }
         .background(Palette.ground.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
-        .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
+        .kosmosSolidTopBar(fade: false)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
@@ -596,6 +596,7 @@ struct RoomView: View {
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
             }
+            .kosmosTopFade()   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
             .onChange(of: rows.last?.id) { _ in
                 if !settledAtBottom {
                     // The first page: straight to the newest row, then the top may ask for older ones. A page that fits
