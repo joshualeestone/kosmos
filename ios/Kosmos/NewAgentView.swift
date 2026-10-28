@@ -417,6 +417,8 @@ struct NewAgentView: View {
                     projectUnsure = false
                     if let landed = projects.first(where: { $0.name == newProjectName && !$0.archived }) { madeProject = landed.id }
                 }
+                // Could not look: making another now could leave the first one empty beside it.
+                if projectUnsure { say(NewProject.unsureWords); return }
             }
         }
         // The free name, then the next ones while the board answers folder_taken (the desktop's tc-go retry).
@@ -712,12 +714,12 @@ struct NewAgentView: View {
             tellLater(session, NewAgent.addedProjects(got?.0))
         case .refused(let why):
             message = NewTeam.sentence(why)
-            UIAccessibility.post(notification: .announcement, argument: NewTeam.sentence(why))
+            announce(NewTeam.sentence(why))
         case .unknown:
             // It may have been made: the same name is not sent again until it is changed (a second agent otherwise).
             unsureName = NewProject.trimmed(sent.name)
             message = NewAgent.unsureWords
-            UIAccessibility.post(notification: .announcement, argument: NewAgent.unsureWords)
+            announce(NewAgent.unsureWords)
         }
     }
 

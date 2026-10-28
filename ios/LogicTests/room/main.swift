@@ -1194,6 +1194,8 @@ check(NewAgent.madeWarnings(Data(#"{"outcome":"created","steps":[{"label":"Its p
       == ["Its picture", "It was not added to the project: that project is archived.", "It was not added to the project."],
       "a failed step by its label, and each project not joined with the board's reason")
 check(NewAgent.madeWarnings(Data(#"{"outcome":"created","steps":[],"projects":[]}"#.utf8)).isEmpty, "a clean create warns of nothing")
+check(NewAgent.madeWarnings(Data(#"{"projects":[{"id":"a","added":false,"because":"GitHub is not connected"}]}"#.utf8)) == ["It was not added to the project: GitHub is not connected."],
+      "the reason keeps the board's own case, as the desktop shows it")
 
 // kosmos#7488 review 7: "seen" is the desktop's boardCanSeeIt, never "listed": /api/status also lists an agent with a
 // folder or job and no session yet, which a just-made agent is first.
