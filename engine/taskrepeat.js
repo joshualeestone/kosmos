@@ -232,7 +232,10 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 /* #4787 review 1: a repeating task between runs holds no work: its owner is not idle-with-open-work while it waits for
    the next scheduled time. Due again (so open work, nudged and counted) once a scheduled time after its last run (or,
    with no run yet, after it was made) has passed. A task that does not repeat is never waiting. */
-const RUN_GRACE_MS = 10 * 60 * 1000;
+/* kosmos#7413 (an outside user's report: a run at 06:15 for a 06:45 slot was taken as not done, and the agent nagged):
+   the cap is 30 minutes, not 10. The share of the period still sizes it, so an hourly job keeps its 2 minutes and a
+   late 09:55 run still leaves 10:00 due (review 3); a daily or weekly job's run up to 30 minutes early is that slot's. */
+const RUN_GRACE_MS = 30 * 60 * 1000;
 function graceFor(rule) {
   return Math.min(RUN_GRACE_MS, Math.floor(gapOf(rule) / 30));
 }
@@ -306,7 +309,16 @@ function latestAtOrBefore(rule, from, ms) {
 /* slice 2: the ONE rule for which slot a run answers, shared by missedRuns and runIsLate so a row never says two
    contradictory things (review 4): the next slot when the run is at most the miss grace before it (a job that started
    at 08:50 for 09:00), otherwise the latest slot at or before the run. `firstSlot` is the rule's first slot. */
-function answersEarly(rule, runAt, slot) { return slot !== null && runAt < slot && slot - runAt <= missGraceFor(rule); }
+/* kosmos#7413: how far BEFORE a slot a run still answers it: the smaller of 30 minutes and a quarter of the period, the
+   miss grace's share with a 30-minute cap. An hourly job keeps 15 minutes, as before; a daily or weekly job's run up to
+   30 minutes early answers that slot, so it is neither late for the one before nor followed by a missed run. The late
+   mark after a slot keeps the miss grace (15 minutes). One window for answeredSlot and firstUnanswered, so the late
+   mark and the missed line still agree. */
+const EARLY_ANSWER_MS = 30 * 60 * 1000;
+function earlyWindowFor(rule) {
+  return Math.min(EARLY_ANSWER_MS, Math.floor(gapOf(rule) / 4));
+}
+function answersEarly(rule, runAt, slot) { return slot !== null && runAt < slot && slot - runAt <= earlyWindowFor(rule); }
 function answeredSlot(rule, firstSlot, at) {
   const next = nextAfter(rule, at);
   if (answersEarly(rule, at, next)) return next;
@@ -328,8 +340,8 @@ function runIsLate(t, at) {
    recovering run records can never start from different slots. */
 function firstUnanswered(t, now) {
   let slot = dueSlot(t, now);
-  /* review 1: a run reported up to the miss grace BEFORE its slot answers that slot (a job that started at 08:50 for
-     09:00 ran; dueSlot's own early grace is smaller, for the nudge), so it is never called missed. */
+  /* review 1: a run reported up to the early window BEFORE its slot answers that slot (a job that started at 08:50 for
+     09:00 ran; kosmos#7413: up to 30 minutes for a daily job), so it is never called missed. */
   /* review 2: only a run made under THIS rule (at or after it was set) answers its first slot early. */
   const lastRun = Date.parse(t.lastRunAt || '');
   const ruleFrom = Date.parse(t.repeatSetAt || t.createdAt || '');
@@ -369,14 +381,15 @@ function skippedBefore(t, at) {
 }
 
 /* kosmos#5920 reviews 1 and 2: the time a run due at `at` must be recorded BEFORE so it answers `at`: the next slot less
-   the miss grace (a record inside that grace answers the next slot early, which would count this run as missed),
+   the early window (a record inside it answers the next slot early, which would count this run as missed; kosmos#7413:
+   the window answersEarly uses, so the two never disagree),
    rounded down to the minute, so "before 9:22am" can be read to the minute and is never past the real limit (09:22:30
    for runs at 09:00 and 09:30). null with no next slot, when that time has already passed at `now` (no deadline is left
    to meet), and when it is not after the due slot itself (two times a minute apart: the floor lands on the due slot). */
 function recordBy(rule, at, now = Date.now()) {
   const next = nextAfter(rule, at);
   if (next === null) return null;
-  const by = Math.floor((next - missGraceFor(rule)) / 60000) * 60000;
+  const by = Math.floor((next - earlyWindowFor(rule)) / 60000) * 60000;
   return by > now && by > at ? by : null;
 }
 
@@ -434,4 +447,4 @@ function roomRunLine(prev, after, said) {
   return { text: 'Task #' + after.number + ', "' + roomPlain(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + '): ' + parts.join('; '), note, reading };
 }
 
-module.exports = { roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
+module.exports = { roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, earlyWindowFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
