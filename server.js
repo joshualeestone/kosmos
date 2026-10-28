@@ -24180,11 +24180,14 @@ const server = http.createServer(async (req, res) => {
         const roster = withSubs ? safeRoster() : undefined;
         let told = tellEveryoneOn(t, roster);
         if (withSubs) {
-          const rec = (projects.readAll() || []).find((x) => x && x.id === id);   // raw: no claim join
-          const named = new Set();
-          for (const sub of t.closedWith) { const k = rec ? tasks.byNumber(rec, sub) : null; if (k) for (const one of tasks.whoOf(k)) named.add(one); }
-          for (const one of tasks.whoOf(t)) named.delete(one);   // told above
-          for (const one of named) { try { projects.syncAgent(one, roster); } catch { /* non-gating */ } }
+          // Non-gating, as the telling is: everything has closed by now, so a failed read must not answer "could not close".
+          try {
+            const rec = (projects.readAll() || []).find((x) => x && x.id === id);   // raw: no claim join
+            const named = new Set();
+            for (const sub of t.closedWith) { const k = rec ? tasks.byNumber(rec, sub) : null; if (k) for (const one of tasks.whoOf(k)) named.add(one); }
+            for (const one of tasks.whoOf(t)) named.delete(one);   // told above
+            for (const one of named) { try { projects.syncAgent(one, roster); } catch { /* non-gating */ } }
+          } catch { /* non-gating */ }
         }
         sendJson(res, 200, { task: t, told });
       } catch (err) {

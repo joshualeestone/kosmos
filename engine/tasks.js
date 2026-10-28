@@ -1035,10 +1035,16 @@ function close(projectId, n, { replacedBy = null, withBuilt = false, wantLeft = 
   const closedWith = [];
   let at = 0;
   let why = '';   // what stopped the rest, said in the answer rather than swallowed
+  // A subtask that may no longer close (held, say, after the read) keeps everything under it open too: the list is in
+  // walk order, so its own subtasks come after it and find it here (round 7: a built task under unfinished work).
+  const kept = new Set();
+  const parentOf = (num) => { const k = byNumber(snapshot, num); return k ? k.parent : null; };
   try {
     for (; at < built.length; at += 1) {
+      if (kept.has(parentOf(built[at]))) { kept.add(built[at]); continue; }
       // Re-checked inside its own write: one that may no longer close with its parent is left as it is.
       if (setClosed(projectId, built[at], new Date().toISOString(), { via: 'parent', parent: closed.number }, { onlyIfBuilt: true })) closedWith.push(built[at]);
+      else kept.add(built[at]);
     }
   } catch (err) {
     why = String((err && err.message) || err || 'it did not say why');

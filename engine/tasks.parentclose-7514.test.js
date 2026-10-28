@@ -146,6 +146,22 @@ test('kosmos#7514: a person\'s repeat set after the read is not ended by the par
   } finally { projects.readAll = real; }
 });
 
+test('kosmos#7514 round 7: a built child put on hold after the read keeps its built grandchild open too', () => {
+  const id = projects.create({ name: 'Held mid ' + Math.random().toString(36).slice(2), agents: ['rex'] }).id;
+  const top = tasks.create(id, { sentence: 'Top' });
+  const mid = tasks.create(id, { sentence: 'Mid', parent: top.number, who: 'rex' });
+  const leaf = tasks.create(id, { sentence: 'Leaf', parent: mid.number, who: 'rex' });
+  assert.equal(tasks.setBuilt(id, mid.number, { by: 'rex' }).ok, true);
+  assert.equal(tasks.setBuilt(id, leaf.number, { by: 'rex' }).ok, true);
+  const real = projects.readAll;
+  projects.readAll = () => { const all = real(); projects.readAll = real; tasks.setOnHold(id, mid.number, true); return all; };
+  let t;
+  try { t = tasks.close(id, top.number, { withBuilt: true }); } finally { projects.readAll = real; }
+  assert.equal(rowOf(id, mid.number).isClosed, false, 'premise: the held child stayed open');
+  assert.equal(rowOf(id, leaf.number).isClosed, false, 'a built task under work put on hold was closed with the top');
+  assert.deepEqual(t.closedWith, []);
+});
+
 test('kosmos#7514: a built grandchild under an open child stays open', () => {
   const id = projects.create({ name: 'Under open ' + Math.random().toString(36).slice(2), agents: ['rex'] }).id;
   const top = tasks.create(id, { sentence: 'Top' });

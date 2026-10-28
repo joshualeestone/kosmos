@@ -1384,7 +1384,7 @@ async function taskClose(ctx, args) {
   const closeBody = wb ? { withBuilt: true } : undefined;
   if (wb && args.includes('--replaced-by')) { ctx.err('--with-built and --replaced-by do not go together: a replaced task\'s subtasks are closed on their own.'); return 2; }
   // kosmos#7514: a board older than --with-built refuses the body with words about replacedBy; say what happened instead.
-  const olderBoard = (why) => wb && /takes only replacedBy|could not read that request/.test(why || '');   // #6923's own first words too
+  const olderBoard = (why) => wb && /replaced it\), so the task was not closed|that request, so the task was not closed/.test(why || '');   // #6923's own first words too; never today's catch-all
   // Round 6: a board older than #6923 ignores the body and closes it as done, sending no closedWith.
   const ignored = (task) => wb && !Array.isArray(task.closedWith);
   if (args[2] === '--replaced-by' && !/^[0-9]+$/.test(by || '')) { ctx.err('--replaced-by needs the number of the task that replaced it, from: kosmos task list <project-id>.'); return 2; }
@@ -1420,7 +1420,7 @@ async function taskClose(ctx, args) {
           // kosmos#7514: a hint never names a subtask this same command closes (it is one of `all`).
           const left = closedWithOf(one.json.task, 'builtLeft').split(', ').filter((x) => x && !all.includes(x)).join(', ');
           if (left) withs.push('Task ' + n + ' still has built subtasks open: ' + left + '. To close them: kosmos task close ' + projectSlug(project) + ' ' + left.split(', ').join(' '));
-          if (typeof one.json.task.builtLeftWhy === 'string' && one.json.task.builtLeftWhy) withs.push('Kosmos stopped closing them: ' + one.json.task.builtLeftWhy.replace(/\.$/, '') + '.');
+          if (typeof one.json.task.builtLeftWhy === 'string' && one.json.task.builtLeftWhy) bad.push('Task ' + n + ': Kosmos stopped closing its built subtasks: ' + one.json.task.builtLeftWhy.replace(/\.$/, '') + '.');   // round 7: not 0
           continue;
         }
         // As install/kosmos: an error the board left empty did not say why; anything else is an answer we could not read.
@@ -1473,7 +1473,8 @@ async function taskClose(ctx, args) {
     if (w) ctx.out('Its built subtasks closed with it: ' + w + '.');
     const left = closedWithOf(r.json.task, 'builtLeft');
     if (left) ctx.out('Its built subtasks are still open: ' + left + '. To close them: kosmos task close ' + projectSlug(project) + ' ' + left.split(', ').join(' '));
-    if (typeof r.json.task.builtLeftWhy === 'string' && r.json.task.builtLeftWhy) ctx.out('Kosmos stopped closing them: ' + r.json.task.builtLeftWhy.replace(/\.$/, '') + '.');
+    // Round 7: not all closed, so not 0.
+    if (typeof r.json.task.builtLeftWhy === 'string' && r.json.task.builtLeftWhy) { ctx.err('Kosmos stopped closing them: ' + r.json.task.builtLeftWhy.replace(/\.$/, '') + '.'); return 1; }
     return 0;
   }
   if (olderBoard(ctx.refusedBy(r))) { ctx.err('This Kosmos is older than --with-built, so task ' + num + ' was not closed. Update Kosmos, or close it and its subtasks by number.'); return 1; }

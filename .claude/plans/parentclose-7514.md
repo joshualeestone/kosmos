@@ -50,3 +50,11 @@ must list each one.
   read that, under --with-built, as older too.
 - The phone's own phrase copy (`ios/Kosmos/TaskPageLogic.swift`) reads "Marked done with task N", pinned in
   `ios/LogicTests/taskpage/main.swift`. 10 more mutants (engine, each command line's two new checks, Swift) each red.
+
+## Round 7
+- A subtask that may no longer close (held after the read, say) keeps everything under it open too, by walk order.
+- The route's lookup of the subtasks' agents runs after everything closed, so it is non-gating: a failed read there
+  no longer answers "could not close".
+- A `--with-built` close that stopped part way (`builtLeftWhy`) exits 1 in both commands, one and several.
+- The older-board match reads the two OLD sentences exactly, so today's catch-all "we could not read that request" is
+  never called an older board. 9 mutants, each red.

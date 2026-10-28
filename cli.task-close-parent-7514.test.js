@@ -282,8 +282,51 @@ for (const label of ['Windows', 'Mac']) {
     assert.match(r.text, new RegExp('Its built subtasks closed with it: ' + k1.number + '\\.'), r.text);
     assert.match(r.text, new RegExp('Its built subtasks are still open: ' + k2.number + '\\.'), r.text);
     assert.match(r.text, /Kosmos stopped closing them: the disk is full\./, r.text);
+    assert.notEqual(r.code, 0, 'a close that left built subtasks it was asked to take read as success');
+  });
+
+  test(`kosmos#7514 round 7: closing several, the ${label} command does not answer 0 when the subtasks stopped part way`, async () => {
+    const top = tasks.create(projectId, { sentence: label + ' partial many' });
+    const k1 = tasks.create(projectId, { sentence: label + ' pm1', parent: top.number, who: 'mara' });
+    const k2 = tasks.create(projectId, { sentence: label + ' pm2', parent: top.number, who: 'mara' });
+    const other = tasks.create(projectId, { sentence: label + ' partial other' });
+    assert.equal(tasks.setBuilt(projectId, k1.number, { by: 'mara' }).ok, true);
+    assert.equal(tasks.setBuilt(projectId, k2.number, { by: 'mara' }).ok, true);
+    const real = projects.mutate;
+    let calls = 0;
+    projects.mutate = (...args) => { calls += 1; if (calls === 3) throw new Error('the disk is full'); return real(...args); };
+    let r;
+    try { r = await (label === 'Mac' ? mac : win)(['task', 'close', projectId, String(top.number), String(other.number), '--with-built']); } finally { projects.mutate = real; }
+    assert.match(r.text, new RegExp('Task ' + top.number + ': Kosmos stopped closing its built subtasks: the disk is full\\.'), r.text);
+    assert.notEqual(r.code, 0, r.text);
+    assert.equal(isDone(other.number), true, 'premise: the other task closed');
+  });
+
+  test(`kosmos#7514 round 7: CONTROL: today's own "could not read that request" is not called an older board by the ${label} command`, async () => {
+    const a = round(label + 'Today');
+    const proxy = await olderBoard('we could not read that request');
+    try {
+      const one = await viaPort(label, proxy.address().port, ['task', 'close', projectId, String(a.top), '--with-built']);
+      assert.notEqual(one.code, 0, one.text);
+      assert.doesNotMatch(one.text, /older/, one.text);
+      assert.match(one.text, /could not read that request/, one.text);
+    } finally { proxy.close(); }
   });
 }
+
+test('kosmos#7514 round 7: a failed read after everything closed still answers closed', async () => {
+  const r = round('ReadFails');
+  const realClose = tasks.close;
+  const realRead = projects.readAll;
+  let armed = false;
+  tasks.close = (...a) => { const out = realClose(...a); armed = true; return out; };
+  projects.readAll = (...a) => { if (armed) { const e = new Error('the store could not be read'); e.code = 'UNREADABLE'; throw e; } return realRead(...a); };
+  let res; let j;
+  try { res = await post(r.top, { withBuilt: true }); j = await res.json(); } finally { tasks.close = realClose; projects.readAll = realRead; }
+  assert.equal(armed, true, 'premise: the route called tasks.close through the module');
+  assert.equal(res.status, 200, JSON.stringify(j));
+  assert.deepEqual(j.task.closedWith, [r.kid]);
+});
 
 test('kosmos#7514: an agent on the parent and on a closed subtask is told once', async () => {
   const top = tasks.create(projectId, { sentence: 'Both round', who: 'mara' });
