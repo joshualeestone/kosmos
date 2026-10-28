@@ -48,7 +48,6 @@ fs.writeFileSync(nodePath.join(SIGNIN, 'auth.json'), JSON.stringify({ auth_mode:
 
 const create = require('./create');
 const store = require('./store');
-const codexruntime = require('./codexruntime');
 
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -87,8 +86,7 @@ test('#7445: OpenAI <-> Qwen keeps it (one Codex home), and the #7410 rule is un
   assert.equal(create.switchLosesConversation('codex', 'codex', 'alibaba', 'openai'), false, 'Qwen -> OpenAI');
   /* The evidence for that call is the supervisor, not a function here: bin/agent-supervisor.sh (#4592, ~1016-1132)
      launches every Codex agent with CODEX_HOME set to codexruntime.forSession(SESSION), whatever its account, and only
-     links the account's sign-in (or reads the Qwen endpoint) into it. That home is not an account folder: */
-  assert.ok(!/\.codex|kosmos-qwen/.test(nodePath.basename(codexruntime.forAgent('sw7445-one'))), 'the home is an account folder');
+     links the account's sign-in (or reads the Qwen endpoint) into it. Round 4: no assertion stands in for that here. */
   assert.equal(create.switchLosesConversation('gemini', 'gemini', 'google', 'google'), false, 'same provider is not a switch');
   assert.equal(create.switchLosesConversation('claude', 'codex', 'anthropic', 'openai'), true);
   assert.equal(create.switchLosesConversation('gemini', 'claude', 'google', 'anthropic'), true);
@@ -103,9 +101,29 @@ test('#7445: Codex -> Gemini copies nothing and returns its own state; the sente
   assert.equal(fs.existsSync(notesDir(name)), false, 'something was copied');
   const w = create.switchCarryWords('Gemini', r, 'OpenAI');
   assert.equal(w, 'Gemini it is. It keeps its name, its instructions and its files, but its conversation does not come across: '
-    + 'Gemini cannot read what it said on OpenAI. Anything it only remembered from talking is lost. ');
-  assert.doesNotMatch(w, /Everything it knows|Claude|stay behind|copied/);
+    + 'Gemini cannot read what it said on OpenAI. Anything it only remembered from talking is lost. '
+    // Round 4: Codex has its own memories feature, so whatever it kept stays with it; "any", it may have none.
+    + 'Any notes OpenAI saved for it stay behind with OpenAI. ');
+  assert.doesNotMatch(w, /Everything it knows|Claude|copied/);
   assert.doesNotMatch(w, /—/, 'an em dash');
+});
+
+test('#7445 round 4: every switch leaving a runner that is not Claude Code says its own notes stay behind, back to Claude too', () => {
+  // Gemini's save_memory writes into its (account's) Gemini home; Kosmos copies none of it.
+  const back = create.carryClaudeNotes(born('sw7445-g2c'), { runner: 'gemini' }, 'claude', null, 'google', 'anthropic');
+  assert.equal(back.toClaude, true);
+  assert.equal(create.switchCarryWords('Claude', back, 'Gemini'),
+    'Claude it is. It keeps its name, its instructions and its files, but its conversation does not come across: '
+    + 'Claude cannot read what it said on Gemini. Anything it only remembered from talking is lost. '
+    + 'Any notes Gemini saved for it stay behind with Gemini. ');
+  for (const [fr, fp, word] of [['grok', 'xai', 'Grok'], ['antigravity', 'antigravity', 'Gemini (Google subscription)'], ['muse', 'meta', 'Meta Muse']]) {
+    const r = create.carryClaudeNotes(born('sw7445-l-' + fr), { runner: fr }, 'codex', null, fp, 'openai');
+    assert.match(create.switchCarryWords('OpenAI', r, word), new RegExp('Any notes ' + word.replace(/[()]/g, '\\$&') + ' saved for it stay behind with '), fr);
+  }
+  // Controls: leaving Claude never says it (Claude's own notes have their #7410 sentences), and neither does a keep.
+  const off = create.carryClaudeNotes(born('sw7445-c2o'), { runner: 'claude' }, 'codex', null, 'anthropic', 'openai');
+  assert.doesNotMatch(create.switchCarryWords('OpenAI', off, 'Claude'), /saved for it stay behind/);
+  assert.doesNotMatch(create.switchCarryWords('Qwen', null), /saved for it stay behind/);
 });
 
 test('#7445: notes an earlier switch left in its folder stay pointed at, and are said; a pointer with nothing behind it is taken out', () => {
@@ -125,7 +143,7 @@ test('#7445: notes an earlier switch left in its folder stay pointed at, and are
   assert.equal(g.pointed, true, 'the notes in its folder lost their pointer');
   assert.equal(fs.readFileSync(brief, 'utf8').split(pj.CARRIED_NOTES_START).length - 1, 1, 'the pointer is there once');
   assert.match(create.switchCarryWords('Grok', g, 'OpenAI'),
-    /Grok cannot read what it said on OpenAI\. The notes in its folder stay there for it to read, and anything it only remembered from talking is lost\. $/);
+    /Grok cannot read what it said on OpenAI\. The notes in its folder stay there for it to read, and anything it only remembered from talking is lost\. Any notes OpenAI saved for it stay behind with OpenAI\. $/);
   assert.equal(fs.readFileSync(nodePath.join(notesDir(name), 'MEMORY.md'), 'utf8'), 'kept from Claude days\n', 'a note was changed');
 
   // Nothing real behind the pointer: it is taken out, and the sentence does not mention notes.
@@ -185,7 +203,7 @@ test('#7445 round 3: reading the provider it leaves can throw, and the result st
   assert.ok(create.readJob(name, undefined, 'darwin').configDir, 'CONTROL: the job names its account folder, so isQwenHome is asked');
 
   // The seam that already exists: jobProvider reads isQwenHome off the module at call time. It throws only once the
-  // switch has recorded the new provider, so the earlier checks in setProvider pass and the carry's read is the one hit.
+  // switch has recorded the new provider, so a read AFTER that (the carry's, before round 4) is the one hit.
   const qa = require('./qwenaccounts');
   const real = qa.isQwenHome;
   let threw = 0;
@@ -198,12 +216,40 @@ test('#7445 round 3: reading the provider it leaves can throw, and the result st
   fs.writeFileSync(GEMINI_BIN, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   const sw = create.setProvider(name, 'google', { ...OPTS, geminiBin: GEMINI_BIN });
   assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
-  assert.ok(threw > 0, 'CONTROL: the stub was never reached, so this proves nothing');
   assert.ok(sw.carried, 'a throw reading the provider it left came back as a switch that keeps its conversation');
+  // Round 4: the provider it leaves is read once, before the switch is recorded, so the stub is never reached.
+  assert.equal(threw, 0, 'the provider it left was read again after the switch was recorded');
   assert.equal(sw.carried.between, true);
-  assert.equal(sw.carried.from, 'openai', 'the floor is its runner\'s own provider');
+  assert.equal(sw.carried.from, 'openai');
   const w = create.switchCarryWords('Gemini', sw.carried, 'OpenAI');
   assert.match(w, /its conversation does not come across: Gemini cannot read what it said on OpenAI\./);
+  assert.doesNotMatch(w, /Everything it knows/);
+});
+
+test('#7445 round 4: DeepSeek -> Claude with a read that would throw after the switch still says the conversation does not come across', (t) => {
+  // A DeepSeek agent: a Claude job on a vendor account folder (as create.compat-7206.test.js builds one).
+  const compat = require('./anthropiccompat');
+  const ds = nodePath.join(HOME, '.kosmos-deepseek-sw7445');
+  compat.storeAccount(ds, { vendor: 'deepseek', model: 'deepseek-chat', key: 'sk-deepseek-sw7445-0123456789' });
+  const name = born('sw7445-ds2c');
+  fs.writeFileSync(create.plistPath(name), create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, ds, 'claude'), 'utf8');
+  store.writeProfile(name, { provider: 'deepseek', vendorAccount: ds });
+  assert.equal(create.jobProvider(create.readJob(name, undefined, 'darwin')), 'deepseek', 'CONTROL: it really is a DeepSeek agent');
+
+  // vendorOfName, read off the module at call time by jobProvider, throws once the switch has recorded Claude.
+  const real = compat.vendorOfName;
+  let threw = 0;
+  compat.vendorOfName = (dir) => {
+    if ((store.readProfile(name) || {}).provider === 'anthropic') { threw += 1; throw new Error('stubbed for #7445 round 4'); }
+    return real(dir);
+  };
+  t.after(() => { compat.vendorOfName = real; });
+  const sw = create.setProvider(name, 'anthropic', OPTS);
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
+  assert.ok(sw.carried, 'DeepSeek -> Claude came back as a switch that keeps its conversation');
+  assert.deepEqual([sw.carried.from, sw.carried.rootChange, sw.carried.notes], ['deepseek', true, 'stayed']);
+  const w = create.switchCarryWords('Claude', sw.carried, 'DeepSeek');
+  assert.match(w, /its conversation does not come across: Claude cannot read what it said on DeepSeek\. Its saved notes stay behind with DeepSeek/);
   assert.doesNotMatch(w, /Everything it knows/);
 });
 

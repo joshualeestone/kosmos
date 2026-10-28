@@ -51,12 +51,37 @@ test('#7445: the warning between two non-Claude runners: the conversation does n
   // Round 1: "Any notes": an agent that was never on Claude may have none, and the result sentence then names none.
   assert.equal(s, 'Helper keeps its name, its face, its instructions and its files, and restarts. '
     + 'Its conversation does not come across: Gemini cannot read OpenAI’s history. '
-    + 'Any notes in its folder stay there; anything it only remembers from talking is lost. ');   // round 2: no "for it to read"
+    + 'Any notes in its folder stay there; anything it only remembers from talking is lost. '   // round 2: no "for it to read"
+    + 'Any notes OpenAI saved for it stay behind with OpenAI. ');   // round 4: the runner's own notes, "any"
   for (const [from, to] of [['google', 'xai'], ['xai', 'meta'], ['alibaba', 'antigravity'], ['antigravity', 'openai']]) {
     const w = fns.switchFamilyNote(from, to, SHOWN, WORD[from], WORD[to]);
-    assert.match(w, new RegExp('Its conversation does not come across: ' + WORD[to].replace(/[()]/g, '\\$&') + ' cannot read '), from + ' -> ' + to);
-    assert.doesNotMatch(w, /are copied|stay behind|everything it has done|past stays readable/);
+    const esc = (s) => s.replace(/[()]/g, '\\$&');
+    assert.match(w, new RegExp('Its conversation does not come across: ' + esc(WORD[to]) + ' cannot read '), from + ' -> ' + to);
+    assert.match(w, new RegExp('Any notes ' + esc(WORD[from]) + ' saved for it stay behind with ' + esc(WORD[from]) + '\\. $'), from + ' -> ' + to);
+    assert.doesNotMatch(w, /are copied|everything it has done|past stays readable/);
     assert.doesNotMatch(w, /—/, 'an em dash');
+  }
+});
+
+test('#7445 round 4: leaving a runner that is not Claude Code for Claude says its own notes stay behind; leaving Claude does not', () => {
+  assert.match(fns.switchFamilyNote('google', 'anthropic', SHOWN, 'Gemini', 'Claude'), /Any notes Gemini saved for it stay behind with Gemini\. $/);
+  assert.doesNotMatch(fns.switchFamilyNote('anthropic', 'google', SHOWN, 'Claude', 'Gemini'), /saved for it stay behind/, 'CONTROL: leaving Claude');
+  assert.doesNotMatch(fns.switchFamilyNote('anthropic', 'deepseek', SHOWN, 'Claude', 'DeepSeek'), /saved for it stay behind/, 'CONTROL: Claude <-> DeepSeek');
+});
+
+test('#7445 round 4: the dialog and the result sentence say the same about the runner\'s own notes, for every pair leaving one', () => {
+  for (const from of OTHERS) {
+    for (const to of ['anthropic', ...OTHERS]) {
+      if (from === to || sameRunner(from, to)) continue;
+      const dialog = fns.switchFamilyNote(from, to, SHOWN, WORD[from], 'X');
+      // The state carryClaudeNotes returns for these (engine/create.switchwords-7445.test.js checks that), given directly so
+      // this page test never reads a real agent folder.
+      const toClaude = to === 'anthropic';
+      const r = { from, toClaude, rootChange: false, notes: toClaude ? 'none' : 'none-kept-by-runner', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false, ...(toClaude ? {} : { between: true }) };
+      const result = create.switchCarryWords('X', r, WORD[from]);
+      const line = 'Any notes ' + WORD[from] + ' saved for it stay behind with ' + WORD[from] + '.';
+      assert.ok(dialog.includes(line) && result.includes(line), from + ' -> ' + to);
+    }
   }
 });
 
