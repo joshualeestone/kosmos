@@ -28109,7 +28109,14 @@ if (require.main === module) {
        minute, so a slow start cannot outlive it; stopped once the board listens or fails to start. */
     let handOffHoldTimer = null;
     if (typeof handOff.refreshHold === 'function') {
-      handOffHoldTimer = setInterval(() => { try { handOff.refreshHold(); } catch { /* the next tick tries again */ } }, 60 * 1000);
+      /* Round 6: at most ten refreshes (ten minutes), even if start() never settles: a board stuck starting
+         for that long should not keep the background board off for good. */
+      let handOffHoldRefreshes = 0;
+      handOffHoldTimer = setInterval(() => {
+        handOffHoldRefreshes += 1;
+        if (handOffHoldRefreshes > 10) { stopHandOffHold(); return; }
+        try { handOff.refreshHold(); } catch { /* the next tick tries again */ }
+      }, 60 * 1000);
       if (typeof handOffHoldTimer.unref === 'function') handOffHoldTimer.unref();
     }
     const stopHandOffHold = () => { if (handOffHoldTimer) { clearInterval(handOffHoldTimer); handOffHoldTimer = null; } };
@@ -28139,6 +28146,12 @@ if (require.main === module) {
       try { require('./engine/replyfile').seed(); } catch { /* seeded on the first reply instead */ }
     }).catch((err) => {
       stopHandOffHold();
+      /* #2988 round 6: this window held the background board off and still could not take the port, which
+         is the background board having started in its place (the watchdog's /Run raced the hold). Kosmos
+         is then running in the background, and the board's log says so. */
+      if (typeof handOff.releaseHold === 'function' && err && err.code === 'EADDRINUSE') {
+        try { require('./engine/win32boardwatch').boardLogNote("This window's Kosmos could not start because the background board took its place; Kosmos is running in the background."); } catch { /* the note is a courtesy */ }
+      }
       // Say what to do rather than name an exception. A raw EADDRINUSE stack is
       // exactly what start()'s promise exists to replace, and leaving this
       // uncaught made the comment above it a lie.

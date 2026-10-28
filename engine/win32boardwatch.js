@@ -98,6 +98,19 @@ function oneLine(text) {
   return s.length > MESSAGE_MAX ? s.slice(0, MESSAGE_MAX) + '...' : s;
 }
 
+/* Round 6: a system error in words a person reads, with its code kept in brackets. */
+const CODE_WORDS = {
+  EACCES: 'access was denied', EPERM: 'access was denied', ENOENT: 'a file was missing',
+  ENOTDIR: 'something is in the way', EISDIR: 'something is in the way', EEXIST: 'something is in the way',
+  ENOSPC: 'the disk is full',
+};
+function inWords(e) {
+  const code = e && e.code;
+  if (code && CODE_WORDS[code]) return CODE_WORDS[code] + ' (' + code + ')';
+  if (code) return 'the system said ' + code;
+  return 'the system said ' + oneLine(e && e.message);
+}
+
 function signalCode(sig) {
   const n = os.constants && os.constants.signals ? os.constants.signals[sig] : undefined;
   return 128 + (Number.isInteger(n) ? n : 1);
@@ -232,9 +245,10 @@ function updateInFlight(o) {
       .filter((r, i, all) => typeof r === 'string' && r && all.findIndex((x) => typeof x === 'string' && path.resolve(x).toLowerCase() === path.resolve(r).toLowerCase()) === i);
     if (!roots.length) return { inFlight: true, why: 'the Kosmos folder is not known' };
     for (const root of roots) {
-      const lock = update.lockHeldNow(path.join(root, update.WORK_DIRNAME, update.LOCK_NAME), o.lockHooks);
+      const at = path.join(root, update.WORK_DIRNAME, update.LOCK_NAME);
+      const lock = update.lockHeldNow(at, o.lockHooks);
       if (lock.held) return { inFlight: true, why: 'the update lock is held (' + lock.why + ')' };
-      if (lock.broken) return { inFlight: true, why: 'the update lock ' + lock.why };
+      if (lock.broken) return { inFlight: true, why: 'the update lock ' + lock.why, brokenLock: at };
     }
     return { inFlight: false };
   } catch (e) {
@@ -322,7 +336,7 @@ function holdBoard(anchorDir, why, opts) {
       return true;
     } catch (e) {
       try { fs.unlinkSync(tmp); } catch { /* best effort */ }
-      because = 'Kosmos could not save a note it needed (the system said ' + oneLine(e && (e.code || e.message)) + ')';
+      because = 'Kosmos could not save a note it needed: ' + inWords(e);
       return false;
     }
   };
@@ -382,6 +396,27 @@ function writeLoopState(file, state) {
   }
 }
 
+/* Round 6: a broken update lock (a folder, or a file that cannot be read) holds the watchdog off for good,
+   since nothing tells it whether an update is running. Said ONCE in the board's log, so a person who wonders
+   why the board did not come back can find it; the mark is cleared once the lock reads normally again. */
+function noteBrokenLock(loopAt, log, now, upd) {
+  try {
+    if (upd && upd.inFlight === true && upd.brokenLock) {
+      const loop = readLoopState(loopAt);
+      if (loop.brokenLockNoted) return;
+      loop.brokenLockNoted = true;
+      writeLoopState(loopAt, loop);
+      log.line(stamp(now) + ' board note: Kosmos is not starting the board again on its own, because a file the updater uses ('
+        + upd.brokenLock + ') cannot be read, so Kosmos cannot tell whether an update is running. If Kosmos is not updating, remove that file.');
+      return;
+    }
+    if (upd && upd.inFlight === false && fs.existsSync(loopAt)) {
+      const loop = readLoopState(loopAt);
+      if (loop.brokenLockNoted) { delete loop.brokenLockNoted; writeLoopState(loopAt, loop); }
+    }
+  } catch { /* the note is a courtesy */ }
+}
+
 /* A board answered. Once one has answered for HEALTHY_CLEAR_MS, the guard forgets the starts, and a
    back-off that was in force is said to be over in one line. Reads nothing when there is no state. */
 function noteAnswering(file, t, log, now) {
@@ -418,13 +453,14 @@ async function watchdogRun(opts) {
     const left = (why) => ({ action: 'left', why });
 
     if (!d.mayStartBoard()) return left('this computer does not run its own board');
-    const upd = d.updateInFlight();
-    if (!upd || upd.inFlight !== false) return left((upd && upd.why) || 'the update state is not known');
-    const hold = d.held();
-    if (!hold || hold.held !== false) return left((hold && hold.why) || 'a hold could not be read');
     const now = d.now || Date.now;
     const log = boardLogger(o);
     const loopAt = loopStatePath(log.file);
+    const upd = d.updateInFlight();
+    noteBrokenLock(loopAt, log, now, upd);
+    if (!upd || upd.inFlight !== false) return left((upd && upd.why) || 'the update state is not known');
+    const hold = d.held();
+    if (!hold || hold.held !== false) return left((hold && hold.why) || 'a hold could not be read');
     const first = await d.look(port);
     if (!first || !first.silent) {
       noteAnswering(loopAt, now(), log, now);
@@ -449,7 +485,7 @@ async function watchdogRun(opts) {
     let last = null;
     try { last = lastExitSinceStart(log.file); } catch { last = null; }
     const said = last
-      ? 'The last exit recorded: ' + last.replace(/^\S+ board /, '') + ' (at ' + last.split(' ')[0] + ')'
+      ? 'The last exit of the background board: ' + last.replace(/^\S+ board /, '') + ' (at ' + last.split(' ')[0] + ')'
       : 'No exit was recorded, so it was killed or crashed hard';
 
     /* The crash-loop guard (round 1, the Mac watchdog's #2955 posture): a board that dies on every
@@ -466,14 +502,15 @@ async function watchdogRun(opts) {
       writeLoopState(loopAt, loop);
       log.line(stamp(now) + ' board kept starting and stopping (' + starts.length + ' starts in ' + Math.round(LOOP_WINDOW_MS / 60000)
         + ' minutes), so it is now started at most once every ' + Math.round(BACKOFF_MS / 60000) + ' minutes. '
-        + (loop.firstExit ? 'The first exit recorded: ' + loop.firstExit : 'No exit was recorded for the first stop, so it was killed or crashed hard'));
+        + (loop.firstExit ? 'The first exit of the background board: ' + loop.firstExit : 'No exit was recorded for the first stop, so it was killed or crashed hard'));
       return left('backing off: the board kept starting and stopping');
     }
 
     /* Round 5: the holds are read once more as the very last thing before the /Run. What remains is the
        instant between this read and Task Scheduler starting the task: a hold written inside it is not
        seen. A move then meets that board at its second look and ends it; a hand-off's window board can
-       lose the port to it, and the hand-off's own stderr and board.log say why. */
+       lose the port to it, and then server.js writes a board.log note saying the background board took its
+       place (round 6). */
     const holdLast = d.held();
     if (!holdLast || holdLast.held !== false) return left((holdLast && holdLast.why) || 'a hold could not be read');
     const ran = d.board.runNow();

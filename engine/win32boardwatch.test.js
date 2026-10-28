@@ -345,7 +345,7 @@ test('#2988 the watchdog quotes the last exit recorded since the last start', as
     '',
   ].join('\n'));
   await runWith(dir, deps());
-  assert.equal(lines(dir)[4], '2026-10-28T12:05:00.000Z board was not answering; started it. The last exit recorded: exited pid=11 code=1: an uncaught error (Error: boom) (at 2026-10-28T11:59:00.000Z)');
+  assert.equal(lines(dir)[4], '2026-10-28T12:05:00.000Z board was not answering; started it. The last exit of the background board: exited pid=11 code=1: an uncaught error (Error: boom) (at 2026-10-28T11:59:00.000Z)');
 });
 
 test('#2988 an exit from an EARLIER life does not explain this one: no exit since the last start is a hard kill', async () => {
@@ -364,7 +364,7 @@ test('#2988 an exit line rotated aside (board.log.1) is still found', async () =
   const dir = scratch('rotated');
   fs.writeFileSync(path.join(dir, 'board.log.1'), '2026-10-28T11:00:00.000Z board started pid=11 parent=21\n2026-10-28T11:59:00.000Z board exited pid=11 code=130: a console signal (SIGINT)\n');
   await runWith(dir, deps());
-  assert.match(lines(dir)[0], /The last exit recorded: exited pid=11 code=130: a console signal \(SIGINT\)/);
+  assert.match(lines(dir)[0], /The last exit of the background board: exited pid=11 code=130: a console signal \(SIGINT\)/);
 });
 
 test('#2988 an agent named "board" shares board.log through its supervisor\'s own logger, and its lines are never taken for the board\'s exit', async () => {
@@ -403,7 +403,7 @@ test('#2988 round 1: a board that dies on every boot is started 3 times in 15 mi
   assert.deepEqual(startedAt, [0, 1, 2, 17, 32], 'on 7c916e1413 every one of the 40 ticks was a /Run');
   const loopLines = lines(dir).filter((l) => l.includes('kept starting and stopping'));
   assert.deepEqual(loopLines, ['2026-10-28T12:03:00.000Z board kept starting and stopping (3 starts in 15 minutes), so it is now started at most once every 15 minutes. '
-    + 'The first exit recorded: exited pid=10 code=1: an uncaught error (Error: first) (at 2026-10-28T11:59:30.000Z)']);
+    + 'The first exit of the background board: exited pid=10 code=1: an uncaught error (Error: first) (at 2026-10-28T11:59:30.000Z)']);
 });
 
 test('#2988 round 1: three starts spread over more than 15 minutes are not a loop', async () => {
@@ -561,13 +561,51 @@ test('#2988 round 5: after a move, a lock held under the RUNNING engine\'s folde
   }
 });
 
-test('#2988 round 5: the holds are read once more immediately before the /Run', async () => {
+test('#2988 round 6: a hold that appears only while the crash-loop guard runs still stops the /Run', async () => {
+  /* After the second look, the watchdog's clock is read first by the second hold check and then by the
+     crash-loop guard. The real hold is written at the guard's clock read, after both earlier checks have
+     passed: only a read after the guard can see it. */
+  const anchor = scratch('guardhold');
+  let armed = false;
   let reads = 0;
-  const d = deps({ held: () => { reads += 1; return reads >= 3 ? { held: true, why: 'the board was stopped on purpose (late)' } : { held: false }; } });
-  const r = await runWith(scratch('lastread'), d);
-  assert.equal(r.action, 'left', 'a hold written after the second check, just before the /Run, is still seen');
+  const d = deps({
+    now: () => {
+      if (armed) { reads += 1; if (reads === 2) watch.holdBoard(anchor, 'moving'); }
+      return Date.now();
+    },
+  });
+  delete d.held;   // the watchdog's own reading of the hold files
+  d.sleep = async () => { armed = true; };
+  const r = await runWith(scratch('log'), d, { anchorDir: anchor });
+  assert.equal(r.action, 'left', JSON.stringify(r));
+  assert.match(r.why, /the board was stopped on purpose \(moving\)/);
+  assert.equal(d.ran, 0, 'on cee40c8beb this /Run went ahead');
+});
+
+test('#2988 round 6: a broken update lock is said once in board.log, and the mark clears once the lock reads normally', async () => {
+  const dir = scratch('brokenlock');
+  let broken = true;
+  const d = deps({ updateInFlight: () => (broken
+    ? { inFlight: true, why: 'the update lock is a folder, not a file', brokenLock: 'C:\\Kosmos\\.kosmos-update\\prepare.lock' }
+    : { inFlight: false }) });
+  await runWith(dir, d);
+  await runWith(dir, d);
+  const said = lines(dir).filter((l) => l.includes('board note: Kosmos is not starting the board again on its own'));
+  assert.equal(said.length, 1, readLog(dir));
+  assert.match(said[0], /because a file the updater uses \(C:\\Kosmos\\\.kosmos-update\\prepare\.lock\) cannot be read, so Kosmos cannot tell whether an update is running\. If Kosmos is not updating, remove that file\.$/);
   assert.equal(d.ran, 0);
-  assert.equal(reads, 3);
+  broken = false;
+  await runWith(dir, deps({ look: async () => ({ silent: false }) }));
+  await runWith(dir, deps({ updateInFlight: d.updateInFlight, look: async () => ({ silent: false }) }));
+  broken = true;
+  await runWith(dir, d);
+  assert.equal(lines(dir).filter((l) => l.includes('board note: Kosmos is not starting the board again on its own')).length, 2, 'said again after the lock read normally once');
+});
+
+test('#2988 round 6 (WIRING CHECK, a source match, not behaviour): a window board that loses the port to the background board says so in board.log, and the hold refresh stops after ten minutes', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /err\.code === 'EADDRINUSE'\) \{\s*try \{ require\('\.\/engine\/win32boardwatch'\)\.boardLogNote\("This window's Kosmos could not start because the background board took its place; Kosmos is running in the background\."\)/);
+  assert.match(src, /if \(handOffHoldRefreshes > 10\) \{ stopHandOffHold\(\); return; \}/);
 });
 
 test('#2988 a lock left beside a FINISHED journal is still the updater\'s, and still holds', async () => {
@@ -704,7 +742,7 @@ test('#2988 round 3: a hold that cannot be written says why', () => {
   fs.writeFileSync(blocker, 'x');
   const h = watch.holdBoard(path.join(blocker, 'anchor'), 'x');
   assert.equal(h.held, false);
-  assert.match(h.because, /^Kosmos could not save a note it needed \(the system said \S+\)$/);
+  assert.match(h.because, /^Kosmos could not save a note it needed: (access was denied|a file was missing|something is in the way) \(E[A-Z]+\)$/);
 });
 
 test('#2988 round 2: a hold taken after the first look (between the two looks) still stops the /Run', async () => {
@@ -838,7 +876,7 @@ test('#2988 round 3: a move whose hold cannot be written says so in its result (
     anchor: () => ({ ok: true }),
   });
   assert.equal(r.ok, true);
-  const note = /^Kosmos could not keep its restart check from starting the board during the move, because Kosmos could not save a note it needed \(the system said \S+\)\. The board may have started again from the old folder\.$/;
+  const note = /^Kosmos could not keep its restart check from starting the board during the move, because Kosmos could not save a note it needed: (access was denied|a file was missing|something is in the way) \(E[A-Z]+\)\. The board may have started again from the old folder\.$/;
   assert.ok((r.notes || []).some((n) => note.test(n)), JSON.stringify(r.notes));
 });
 
@@ -1001,14 +1039,14 @@ test('#2988 round 3: a hand-off whose hold cannot be written says so (server.js 
   };
   const r = await handoff.handOffToTask(handOffOpts(fakeBoard, path.join(blocker, 'anchor')));
   assert.equal(r.serve, true);
-  assert.match(r.holdProblem || '', /^Kosmos could not save a note it needed \(the system said \S+\)$/);
+  assert.match(r.holdProblem || '', /^Kosmos could not save a note it needed: (access was denied|a file was missing|something is in the way) \(E[A-Z]+\)$/);
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /if \(handOff\.holdProblem\) \{[\s\S]{0,400}process\.stderr\.write\(holdNote[\s\S]{0,120}boardLogNote\(holdNote\)/, 'wiring check: server.js prints it and writes it to board.log');
 });
 
 test('#2988 round 5 (WIRING CHECK, a source match, not behaviour): server.js refreshes the hand-off\'s hold every minute, unref\'d, and stops when the board listens or fails', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /handOffHoldTimer = setInterval\(\(\) => \{ try \{ handOff\.refreshHold\(\); \}[\s\S]{0,120}60 \* 1000\);\s*if \(typeof handOffHoldTimer\.unref === 'function'\) handOffHoldTimer\.unref\(\);/);
+  assert.match(src, /handOffHoldTimer = setInterval\(\(\) => \{[\s\S]{0,200}try \{ handOff\.refreshHold\(\); \}[\s\S]{0,120}60 \* 1000\);\s*if \(typeof handOffHoldTimer\.unref === 'function'\) handOffHoldTimer\.unref\(\);/);
   assert.match(src, /start\(\)\.then\(\(\) => \{\s*stopHandOffHold\(\);/);
   assert.match(src, /\}\)\.catch\(\(err\) => \{\s*stopHandOffHold\(\);/);
 });

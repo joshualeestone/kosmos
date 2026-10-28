@@ -62,7 +62,10 @@ https://github.com/joshualeestone/kosmos/issues/2988#issuecomment-6468326726
    every move note is also written to win32-logs\board.log as a `board note:` line (round 5), and server.js writes the
    hand-off's to stderr and to board.log (round 4): a double-clicked Kosmos.exe hides its console. The hand-off's
    2-minute hold is written again every minute while its board is still starting (round 5, an unref'd timer in
-   server.js, stopped once the board listens or fails to start).
+   server.js, stopped once the board listens or fails to start, and round 6: after ten refreshes in any case, so a
+   board stuck starting for ten minutes cannot keep the background board off for good). When such a window board
+   then fails on EADDRINUSE while it holds the hold, server.js writes the board note "This window's Kosmos could not
+   start because the background board took its place; Kosmos is running in the background." (round 6).
    The holds are read once more as the very last thing before the `/Run` (round 5). What remains is the instant between
    that read and Task Scheduler starting the task: a hold written inside it is not seen. The move then meets that board
    at its second look and ends it; a hand-off's window board can lose the port to it, and its stderr and board.log say
@@ -128,6 +131,12 @@ remove hint (`schtasks /Delete /F /TN "Kosmos\board-watchdog"`). No boot removes
 the uninstall of a build with this change do; a later boot of such a build refreshes it if the board task is
 registered and on. Likewise, with the board task switched off the watchdog stays registered and does nothing.
 
+## Residual: an agent named "board" shares board.log (recorded, round 6)
+An agent named `board` is a valid agent name (create.js NAME_RE), and its supervisor log is `win32-logs\board.log`
+too. Its lines are never read as the board's (only lines that start with an ISO time and `board started` / `board
+exited` are), but the two share one file and one 256 KB rotation, so a chatty agent of that name can rotate the
+board's start and exit lines away sooner. Not fixed here.
+
 ## Exports (round 2)
 win32boardwatch exports only `recordBoardExits` and `boardLogNote` (server.js), `watchdogMain` (the shim), `holdBoard` (relocate,
 hand-off) and `watchdogRun` (the one test seam: watchdogMain with injectable deps, the shape of
@@ -176,3 +185,14 @@ Running-with-no-board state is common (then an `/End` path with a long grace is 
   remaining instant documented; (6) the hand-off's hold refreshed every minute while its board starts; (7) plain words
   ("Kosmos could not save a note it needed (the system said X)", "this window's Kosmos may not be able to start"),
   and the agent-named-board test now writes through the supervisor's real logger instead of restating the pattern.
+  Round 5 W2 ("Click OK to stop Kosmos", launcher only) and W3 (the sign-in switch also turning crash recovery off)
+  were carded as #7492 and #7493.
+- Round 6: converged, no blockers and no warnings. Nits fixed: (1) a window board that loses the port to the
+  background board while it holds the hand-off's hold now says so in board.log, so the round-5 comment is true; (2) the
+  hand-off hold refresh stops after ten minutes even if start() never settles; (3) a broken update lock, which holds
+  the watchdog off for good, is said once in board.log (a mark in board-watchdog.json, cleared once the lock reads
+  normally); (4) the watchdog's quotes say "the last exit of the background board" and "the first exit of the
+  background board"; (5) common system codes in words with the code in brackets (EACCES/EPERM "access was denied",
+  ENOENT "a file was missing", ENOTDIR/EISDIR/EEXIST "something is in the way", ENOSPC "the disk is full"); (6) the
+  round-5 read-count assertion replaced by a behaviour test (a hold that appears while the crash-loop guard runs
+  still stops the /Run); (7) the agent named "board" sharing board.log's rotation recorded as a residual.
