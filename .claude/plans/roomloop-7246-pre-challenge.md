@@ -12,7 +12,13 @@ converged: false (the round limit of 8 was reached; round 8 found no blocker, it
 
 ## [CHALLENGE-LOOP] Summary
 **Iterations:** 8 blind reviewers (opus, sonnet alternating; round 8 whole-branch with nothing settled).
-- Round 1 (opus), 2 (sonnet): see the plan.
+- Round 1 (opus): a person's post keeps its @-names alone (the header and @all are for agents' posts); @all does not
+  wake a swarm switched off in the project; rule B asks whether the answered post addressed THIS replier, so a
+  bystander's +1 wakes no one; quiet posts count as missed in the catch-up line and cost the valve nothing; the cap is
+  decided once per post so an @all never stops partway; the sending agent is told when the pause made its post quiet.
+- Round 2 (sonnet): the row keeps @-names in `mentioned` (the claim guard, owed answers and the #185 nudge read it) and
+  the wake set in `addressed`; both CLIs say when a post left members quiet and print the pause's `because`; @all
+  inside a code span, @all-hands and @everyone-else are not broadcasts.
 - Round 3 (opus): valve charge, header parsing, born wording, a person clears the pause.
 - Round 4 (sonnet): the cap counted before typing; CLI line for a paused post; "-> all:"; window tests.
 - Round 5 (opus): header names keep their member; pause note once an hour; kosmos room names who woke.
