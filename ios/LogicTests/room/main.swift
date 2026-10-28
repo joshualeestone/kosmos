@@ -1149,6 +1149,7 @@ check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"created"
 check(NewAgent.result(sent: true, status: 400, body: Data(#"{"outcome":"refused","because":"There is already an agent called Ada."}"#.utf8)) == .refused("There is already an agent called Ada."), "refused: the board's own sentence")
 check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"partial","because":"It could not start."}"#.utf8)) == .refused("It could not start."), "partial is rolled back by the engine: its sentence")
 check(NewAgent.result(sent: true, status: 0, body: nil) == .unknown && NewAgent.result(sent: true, status: 502, body: nil) == .unknown, "no answer may have made it")
+check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"partial"}"#.utf8)) == .refused(NewAgent.fallback), "a partial with no sentence is still rolled back: refused, never \"look for it\"")
 check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"created","name":"../x"}"#.utf8)) == .unknown, "a made answer with no usable session is unknown, never guessed")
 check(NewAgent.result(sent: false, status: 0, body: nil) == .refused(NewAgent.fallback), "nothing sent is certainly not made")
 
@@ -1166,6 +1167,8 @@ let ntDetail = NewTeam.parseDetail(Data(ntDetailJSON.utf8))
 check(ntDetail?.members.map(\.slot) == ["head", "writer"] && ntDetail?.members.map(\.isLead) == [true, false] && ntDetail?.projectGoal == "Grow sign-ups" && ntDetail?.caution == nil,
       "a team's members, lead first (reportsTo null), and its project")
 check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""reportsTo":"lead""#, with: #""reportsTo":null"#).utf8)) == nil, "two leads: refused, as the board refuses it")
+check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""slot":"writer""#, with: #""slot":"head""#).utf8)) == nil, "two members in one seat: refused, never a crash")
+check(boardPage.contains("'" + NewTeam.Words.nameAsTyped + "'"), "the stale-name sentence is the desktop's")
 if let d = ntDetail {
     check(NewTeam.newProjectName(d, taken: ["Website"]) == "Marketing" && NewTeam.newProjectName(d, taken: ["marketing", "Marketing 2"]) == "Marketing 3",
           "the new project takes the first free name, as tcFillProjects")
