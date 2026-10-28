@@ -119,6 +119,7 @@ const USAGE = {
     '      --replaced-by <task-number>                              a later task replaced it: closed, but not done',
     '  kosmos task reopen <project-id> <task-number> ["why"]        put a done one back; it keeps its number and history',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
+    '      --to <agent>                                             tell this agent too (several allowed); else only the assignees hear it',
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time, and whether the person has viewed it',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
@@ -1476,19 +1477,51 @@ async function taskActivity(ctx, args) {
    and close do since #4491): the route names the sender from it and leaves the
    sender off the notified list, which a Windows agent (no pane) could not
    otherwise get. */
+const TASK_MESSAGE_USAGE = 'Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] "<what to say>"';
+/* kosmos#7408, as install/kosmos _take_to: `--to <agent>` (several, up to 10) before `--` names agents to tell besides
+   the assignees; past `--` it is words. Returns { to, rest }, or null once it has said why. */
+function takeTo(ctx, args) {
+  const to = [];
+  const rest = [];
+  let past = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!past && a === '--') { past = true; rest.push(a); continue; }
+    if (!past && /^--to=/.test(a)) { ctx.err('Write it as --to <agent>, with a space.'); return null; }
+    if (!past && a === '--to') {
+      const v = args[i + 1];
+      if (!v || /^-/.test(v)) { ctx.err('--to needs the name of an agent on the project, so nothing was sent.'); ctx.err(TASK_MESSAGE_USAGE); return null; }
+      // review 4: C1 controls too, as the Mac's [[:cntrl:]] reads them in UTF-8
+      if (/["\\\u0000-\u001f\u007f-\u009f]/.test(v)) { ctx.err('--to needs the name of an agent on the project, so nothing was sent. Not: an agent name with a quote, backslash or control character in it.'); return null; }
+      to.push(v);
+      if (to.length > 10) { ctx.err('A task message can name up to 10 agents with --to.'); return null; }
+      i++;
+      continue;
+    }
+    rest.push(a);
+  }
+  return { to, rest };
+}
 async function taskMessage(ctx, args) {
   const [project, num] = args;
-  const left = textArgs(ctx, 'task message', 'Usage: kosmos task message <project-id> <task-number> "<what to say>"', args.slice(2));   // kosmos#4889
+  const took = takeTo(ctx, args.slice(2));
+  if (!took) return 2;
+  const left = textArgs(ctx, 'task message', TASK_MESSAGE_USAGE, took.rest);   // kosmos#4889
   if (!left) return 2;
   const text = left.join(' ');
-  if (!project || !num || !text) { ctx.err('Usage: kosmos task message <project-id> <task-number> "<what to say>"'); return 2; }
+  if (!project || !num || !text) { ctx.err(TASK_MESSAGE_USAGE); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/message', { text, from_pane: '' });
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/message', { text, from_pane: '', ...(took.to.length ? { to: took.to } : {}) });
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Your message may have been recorded; check the task before sending it again.') : ctx.unreachable('send that message');
   if (r.json && r.json.ok === true) {
     // #4540: the board's own sentence about who was told and who was not; none from an older board.
     const told = typeof r.json.summary === 'string' && r.json.summary.trim() ? ' ' + r.json.summary.trim() : '';
     ctx.out('Message recorded on task ' + num + ' of ' + project + '.' + told);
+    // kosmos#7408 review 1: a board that answers no "to" does not know --to, so the names were not told; never the hint then.
+    /* Review 2: on stdout, as install/kosmos says it; exit 0 on purpose (the message WAS recorded, so a failing exit would
+       invite a resend that records it twice). */
+    if (took.to.length) { if (!Array.isArray(r.json.to)) ctx.out('This Kosmos does not know --to yet, so the agents you named were told only if they are assigned to the task. Update Kosmos, or assign the task.'); }
+    else if (/^ Nobody (else )?is assigned to it/.test(told)) ctx.out('To tell an agent anyway, name it: --to <agent>.');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that message: ' + ctx.refusedBy(r) + '.'); return 1; }
