@@ -43,6 +43,7 @@ struct NewAgentView: View {
     @State private var loadingTeams = false
     @State private var teamTask: Task<Void, Never>?   // the run, ended if the sheet goes (a tab change can take it)
     @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
+    @State private var checkedNames: [String: String] = [:]   // the names the board checked free, by slot
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -240,7 +241,7 @@ struct NewAgentView: View {
                     if teams.isEmpty { Text(NewTeam.Words.none).foregroundColor(Palette.secondary) }
                     ForEach(teams) { t in
                         pickRow(title: t.label, line: t.blurb.isEmpty ? nil : t.blurb, picked: teamKey == t.key) {
-                            guard !teamRunning, teamKey != t.key else { return }
+                            guard !teamLocked, teamKey != t.key else { return }
                             teamKey = t.key
                             Task { await loadDetail(t.key) }
                         }
@@ -323,7 +324,7 @@ struct NewAgentView: View {
 
     // The desktop locks the team's choices from the click on (its review 27); a member that failed is renamed on the
     // Made screen instead.
-    private var teamLocked: Bool { teamRunning || teamStarted }
+    private var teamLocked: Bool { teamRunning || teamStarted || madeProject != nil }
 
     private func nameField(_ m: NewTeam.Member) -> some View {
         TextField(m.title, text: Binding(get: { names[m.slot] ?? "" }, set: { names[m.slot] = $0 }))
@@ -350,6 +351,7 @@ struct NewAgentView: View {
             projectChoice = .new
             madeProject = nil
             teamStarted = false
+            checkedNames = [:]
             states = [:]
         } else {
             detailFailed = true
@@ -373,7 +375,7 @@ struct NewAgentView: View {
             switch NewTeam.specsAnswer(status: check?.1.statusCode ?? 0, body: check?.0) {
             case .refused(let why): say(why); return
             case .unknown: say(NewAgent.unsureWords); return
-            case .specs: break
+            case .specs: checkedNames = typed
             }
         }
         // 2. The project.
@@ -419,7 +421,7 @@ struct NewAgentView: View {
             if s.slot != lead, let lead, !isMade(lead) { states[s.slot] = .afterLead; continue }
             // A create whose answer was lost may have landed: once that agent is on the board, it is this member (the
             // desktop's maybeMade, checked against the board's list).
-            if maybeMade[s.slot] == s.session, client.agents.contains(where: { $0.session == s.session }) {
+            if maybeMade[s.slot] == s.session, client.agents.contains(where: { $0.session == s.session && $0.boardSeesIt }) {
                 states[s.slot] = .made(session: s.session, shownAs: s.name)
                 maybeMade[s.slot] = nil
                 tellLater(s.session, teamProject.map { [$0] } ?? [])
@@ -439,7 +441,9 @@ struct NewAgentView: View {
                 states[s.slot] = .failed(NewTeam.sentence(why))
                 announce(s.name + ": " + NewTeam.sentence(why))
             case .unknown:
-                maybeMade[s.slot] = s.session   // sent, and no answer: it may be on the board soon
+                // Sent, and no answer: it may be on the board soon. Only a name checked free can be taken as this member
+                // when it turns up (the desktop's firstName rule); a renamed one may be someone else's agent.
+                if s.name == checkedNames[s.slot] { maybeMade[s.slot] = s.session }
                 states[s.slot] = .failed(NewAgent.unsureWords)
                 announce(s.name + ": " + NewAgent.unsureWords)
             }
@@ -448,7 +452,7 @@ struct NewAgentView: View {
 
     // The board's list moved: take a lost create that turned up as made, and mark a single agent seen.
     private func agentsChanged(_ rows: [Board.Agent]) {
-        let on = Set(rows.map(\.session))
+        let on = Set(rows.filter(\.boardSeesIt).map(\.session))   // the desktop's boardCanSeeIt
         for (slot, session) in maybeMade where on.contains(session) {
             if case .failed = states[slot] {
                 states[slot] = .made(session: session, shownAs: NewProject.trimmed(names[slot] ?? session))
@@ -457,7 +461,7 @@ struct NewAgentView: View {
             maybeMade[slot] = nil
         }
         if let made, !seen, on.contains(made.session) { seen = true }
-        if !draft.reportsTo.isEmpty, !on.contains(draft.reportsTo) { draft.reportsTo = "" }   // a manager no longer listed
+        if !draft.reportsTo.isEmpty, !rows.contains(where: { $0.session == draft.reportsTo }) { draft.reportsTo = "" }   // a manager no longer listed
     }
 
     private func tellLater(_ session: String, _ projects: [String]) {
@@ -612,7 +616,7 @@ struct NewAgentView: View {
         switch NewAgent.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
         case .made(let session, let shown):
             made = (session, shown)
-            seen = client.agents.contains { $0.session == session }
+            seen = client.agents.contains { $0.session == session && $0.boardSeesIt }
             timedOut = false
             path.append(.made)
             tellLater(session, NewAgent.addedProjects(got?.0))
@@ -720,7 +724,7 @@ struct NewAgentView: View {
         Button(action: action) {
             ZStack {
                 // The label in the card colour, as the app's other prominent buttons (build 13 shots: unreadable in dark).
-                Text(title).font(.headline).foregroundColor(Palette.card).opacity(busy ? 0 : 1)
+                Text(title).font(.headline).foregroundColor(enabled ? Palette.card : Palette.secondary).opacity(busy ? 0 : 1)
                 if busy { ProgressView().tint(Palette.card) }
             }
             .frame(maxWidth: .infinity, minHeight: 50)

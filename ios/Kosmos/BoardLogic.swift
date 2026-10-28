@@ -353,6 +353,9 @@ enum Board {
         // desktop's Needs you first ranks with the agents that need the person.
         var profileRole: String? = nil
         var deliveryStall = false
+        // kosmos#7488: the desktop's boardCanSeeIt (a live session that is ours, not stopped). /api/status also lists an
+        // agent whose folder or job exists with no session yet; a just-made agent is that first.
+        var boardSeesIt = false
         var id: String { session }
     }
 
@@ -437,7 +440,8 @@ enum Board {
                          createdAt: isoDate(row["createdAt"] as? String),
                          model: Board.sortModel(row),
                          profileRole: ((row["profile"] as? [String: Any])?["role"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 },
-                         deliveryStall: row["deliveryStall"] is [String: Any] || (row["deliveryStall"] as? Bool) == true)
+                         deliveryStall: row["deliveryStall"] is [String: Any] || (row["deliveryStall"] as? Bool) == true,
+                         boardSeesIt: (row["isAgentSession"] as? Bool) == true && (row["isNamedOurs"] as? Bool) == true && state != "stopped")
         }
     }
 

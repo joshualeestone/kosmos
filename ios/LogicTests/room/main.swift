@@ -1188,6 +1188,12 @@ check(NewTeam.specsAnswer(status: 400, body: Data(#"{"error":"give the Copywrite
 check(NewTeam.specsAnswer(status: 0, body: nil) == .unknown && NewTeam.specsAnswer(status: 200, body: Data(#"{"specs":[{"slot":"a","session":"../x","spec":{"name":"A"}}]}"#.utf8)) == .unknown,
       "no answer, or a spec with no usable session, is unknown")
 
+// kosmos#7488 review 7: "seen" is the desktop's boardCanSeeIt, never "listed": /api/status also lists an agent with a
+// folder or job and no session yet, which a just-made agent is first.
+let seenRows = Board.parseAgents(Data(#"{"agents":[{"sessionName":"live","isAgentSession":true,"isNamedOurs":true,"state":"idle"},{"sessionName":"offline","isAgentSession":false,"isNamedOurs":true,"running":false,"state":"stopped"},{"sessionName":"nojob","isAgentSession":false,"state":"unknown"},{"sessionName":"halted","isAgentSession":true,"isNamedOurs":true,"state":"stopped"},{"sessionName":"theirs","isAgentSession":true,"isNamedOurs":false,"state":"idle"}]}"#.utf8)) ?? []
+check(seenRows.map(\.boardSeesIt) == [true, false, false, false, false], "only a live, ours, not stopped agent counts as seen (offline, no session, stopped and not ours do not)")
+check(boardPage.contains("a.isAgentSession === true && a.isNamedOurs === true && a.state !== 'stopped'"), "the same three conditions as the desktop's boardCanSeeIt")
+
 // kosmos#7488 review 3: the caution, the project tell, the timed-out words, the project name retry, the lead.
 for w in [NewAgent.Words.labelMissing, NewAgent.Words.notUpWhy, NewAgent.Words.notUpNext] {
     check(boardPage.contains(w), "the desktop says it too: \(w)")
