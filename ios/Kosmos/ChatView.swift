@@ -210,14 +210,20 @@ struct ChatView: View {
             // that turns gold when the agent is starred, the same save as the Agents row's swipe (BoardClient.toggleStar).
             ToolbarItem(placement: .navigationBarTrailing) {
                 let starred = client.isStarred(agent.session)
-                Button { Task { await client.toggleStar(agent.session) } } label: {
+                Button {
+                    Task {
+                        await client.toggleStar(agent.session)
+                        // Review 1: a save that failed is said here, where it was pressed (the banner above the chat
+                        // shows the same words), not only later on the Agents list.
+                        if let note = client.starNote { UIAccessibility.post(notification: .announcement, argument: note) }
+                    }
+                } label: {
                     Image(systemName: starred ? "star.fill" : "star").font(.system(size: 20))
                         .foregroundColor(starred ? Palette.starGold : Palette.secondary)
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
-                .disabled(client.starring.contains(agent.session))
+                .disabled(client.starring.contains(agent.session) || !client.canStar)
                 .accessibilityLabel(starred ? "Unstar \(shown.name)" : "Star \(shown.name)")
-                .accessibilityAddTraits(starred ? .isSelected : [])
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -378,7 +384,7 @@ struct ChatView: View {
     // Above a conversation already shown: the Mac's own reason, or that it stopped answering.
     private var bannerText: String? {
         if let refusal { return refusal }
-        guard lost else { return nil }
+        guard lost else { return client.starNote }   // kosmos#7034 build 11 review 1: a star that did not save, said here too
         let time = lastRead.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
         return Shell.notUpdatingLine(client.failingMacName) + time   // kosmos#7197: named
     }
@@ -1976,6 +1982,7 @@ struct BubbleText: View {
                 }
                 .foregroundColor(mine ? Palette.personBubble : Palette.agentBubble)
             )
+            .overlay(PressedRing())   // kosmos#7419 build 11: on the bubble, before its width frame
             .frame(maxWidth: UIScreen.main.bounds.width * widthShare, alignment: mine ? .trailing : .leading)
             .fixedSize(horizontal: false, vertical: true)
     }
