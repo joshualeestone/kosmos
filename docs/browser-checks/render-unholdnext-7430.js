@@ -5,7 +5,8 @@
  *
  * What this pins, and why each line can fail:
  *  - taking off hold a task nobody is on shows the route's own `next` sentence (srv.unholdNext, read after the click,
- *    so the screen and the CLIs say the same words), with the route's last ask turned into a Choose who button,
+ *    so the screen and the CLIs say the same words), with the route's last ask turned into a Choose who button on its
+ *    own line (a bordered button, at least 44 px tall on a touch screen: the design review),
  *  - Choose who opens the picker on that task's part nobody is on (the Who is on it control), and choosing Ada stores her,
  *  - the control: a task Ada is on says "It stays with Ada." (her name, as Who is on it says it) and shows no Choose who,
  *  - putting a task ON hold says nothing about who is next (the route sends no `next` then),
@@ -72,7 +73,8 @@ function chk(ok, label, extra) {
       tasks.create(p.id, { sentence: 'Pack the boxes', who: 'ada' });      // 3: open, put on hold here
       tasks.setOnHold(p.id, 1, true, { viaScreen: true });
       tasks.setOnHold(p.id, 2, true, { viaScreen: true });
-      const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme });
+      const phone = width < 600;   // the phone pass is a touch screen, where the page's tap targets grow to 44 px
+      const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, hasTouch: phone, isMobile: phone });
       const errs = [];
       page.on('pageerror', (e) => errs.push(e.message));
       await page.goto(URL, { waitUntil: 'networkidle' });
@@ -87,8 +89,12 @@ function chk(ok, label, extra) {
       const ask = ' To choose who, assign it now.';
       chk(stored(p.id, 1).onHold !== true, `${tag} Take off hold took task 1 off hold`);
       chk(want.endsWith(ask) && want.startsWith('Nobody is on it'), `${tag} the route says nobody is on task 1 and asks for a choice (the premise)`, want);
-      chk(await text(page, '#tk-hold-msg') === want.slice(0, -ask.length) + ' Choose who' && await text(page, '#tk-hold-choose') === 'Choose who',
-        `${tag} the page shows the route's sentence, its ask as Choose who`, await text(page, '#tk-hold-msg'));
+      const said = await page.evaluate(() => { const m = document.getElementById('tk-hold-msg'); return m && m.firstChild && m.firstChild.nodeType === 3 ? m.firstChild.textContent : null; });
+      chk(said === want.slice(0, -ask.length) && await text(page, '#tk-hold-choose') === 'Choose who',
+        `${tag} the page shows the route's sentence, its ask as Choose who`, JSON.stringify([said, await text(page, '#tk-hold-choose')]));
+      // Design review (Mona Lisa): a bordered button on its own line, a full tap target on a phone.
+      const box = await page.evaluate(() => { const b = document.getElementById('tk-hold-choose'); const r = b.getBoundingClientRect(); return { h: r.height, cls: b.className, block: getComputedStyle(b).display }; });
+      chk(box.cls === 'btn' && box.block === 'block' && (!phone || box.h >= 44), `${tag} Choose who is a bordered button on its own line` + (phone ? ', at least 44 px tall on a touch screen' : ''), JSON.stringify(box));
       await page.waitForTimeout(5600);   // one five-second repaint
       chk(await text(page, '#tk-hold-choose') === 'Choose who', `${tag} the line survives the repaint`, await text(page, '#tk-hold-msg'));
 

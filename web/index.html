@@ -6789,7 +6789,7 @@ html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-tem
    Done; Done to its right. Touch screens, and any coarse pointer (a touch laptop that reports hover). */
 #tk-subadd { margin-top: 10px; }
 @media (hover: none), (pointer: coarse) {
-  #pj-task-view :is(#tk-newpart, #tk-newpart-go, #tk-say, #tk-say-go, #tk-chats-reveal, #tk-due, #tk-hold) { min-height: 44px; }
+  #pj-task-view :is(#tk-newpart, #tk-newpart-go, #tk-say, #tk-say-go, #tk-chats-reveal, #tk-due, #tk-hold, #tk-hold-choose) { min-height: 44px; }
   #pj-task-view .tkwho-pick { padding: 14px 0 14px 19px; margin: -14px 0 -14px -19px; min-width: 44px; box-sizing: border-box;
                               border-bottom: 1px solid transparent; text-decoration: underline dashed transparent; text-underline-offset: 3px; }   /* the base's 1px border kept, invisible, so the row keeps its height */
   #pj-task-view .tkwho-pick:is(:hover, :focus-visible) { text-decoration-color: var(--label-2); }
@@ -17859,7 +17859,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="dhint" id="tk-hold-takeover" style="margin:4px 0 0;" hidden>Saving makes this hold yours, so only you can take it off.</p>
         <div class="tk-repeat-actions" id="tk-hold-for-actions" hidden><button class="btn" id="tk-hold-save" type="button" aria-label="Save what this hold waits for" disabled>Save</button></div>
         <p class="fmsg" id="tk-hold-msg" aria-live="polite" style="margin:2px 0 0;"></p>
-        <p class="dhint" id="tk-hold-hint" style="margin:4px 0 0;">Kosmos does not nudge anyone about a task on hold, or hand it out.</p>
+        <p class="dhint" id="tk-hold-hint" style="margin:4px 0 0;">While a task is on hold, Kosmos does not nudge anyone about it or hand it out.</p>
         <!-- kosmos#4787 slice 1b: a task that repeats (a morning report, an hourly check). The person sets the rule here; the
              line under it is the board's own sentence (rule, last run, next run). Hourly runs on the hour from this screen;
              an agent can set another minute with kosmos task repeat. -->
@@ -69704,7 +69704,7 @@ function paintTaskPage() {
   if (holdHint) holdHint.textContent = p.paused === true
     ? 'This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out.'
     : t.onHold !== true
-      ? 'Kosmos does not nudge anyone about a task on hold, or hand it out.'
+      ? 'While a task is on hold, Kosmos does not nudge anyone about it or hand it out.'
       : t.onHoldByPerson === true
         ? 'You put this on hold, so only you can take it off, here. Kosmos does not nudge anyone about it or hand it out.'
         : 'This was put on hold outside this screen (by an agent, or with kosmos task hold), so an agent or you can take it off. Kosmos does not nudge anyone about it or hand it out.';
@@ -70963,16 +70963,19 @@ function tkHoldSay(key, words) {
   if (msg && msg.dataset.task === key && PJ_CURRENT + '#' + TK_OPEN === key) msg.textContent = words;
 }
 /* kosmos#7430: the unhold route's `next` sentence (#7407), shown where the hold words appear. When it ends by asking a
-   person to choose (TK_HOLD_ASSIGN, the route's own words), that ask becomes a Choose who button, which opens the
+   person to choose (TK_HOLD_ASSIGN, the route's own words), that ask becomes a Choose who button under it, which opens the
    picker on the task's first open part nobody is on: the same control as the name in Who is on it. */
 const TK_HOLD_ASSIGN = ' To choose who, assign it now.';
 function tkHoldSayNext(key, next) {
   const msg = document.getElementById('tk-hold-msg');
   if (!msg || msg.dataset.task !== key || PJ_CURRENT + '#' + TK_OPEN !== key) return;
   if (!next.endsWith(TK_HOLD_ASSIGN)) { msg.textContent = next; return; }
-  msg.textContent = next.slice(0, -TK_HOLD_ASSIGN.length) + ' ';
+  msg.textContent = next.slice(0, -TK_HOLD_ASSIGN.length);
+  // Design review (Mona Lisa): a bordered button on its own line, like Show me where the task conversations live,
+  // so it is a full tap target on a phone.
   const b = document.createElement('button');
-  b.type = 'button'; b.className = 'linkish'; b.id = 'tk-hold-choose'; b.textContent = 'Choose who';
+  b.type = 'button'; b.className = 'btn'; b.id = 'tk-hold-choose'; b.textContent = 'Choose who';
+  b.style.display = 'block'; b.style.marginTop = '8px';
   msg.appendChild(b);
 }
 document.getElementById('tk-hold-msg').addEventListener('click', (e) => {
