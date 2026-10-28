@@ -196,6 +196,8 @@ final class BoardClient: ObservableObject {
         return Board.lastHeard(listed: Board.lastSeen(macs, address: a, name: name), heard: a.flatMap { heardFrom[$0.lowercased()] },
                                now: env.now())
     }
+    // kosmos#7416: when the Mac a "not updating" line names was last heard from (the shown Mac first, as failingMacName).
+    var failingMacLastHeard: Double? { lastHeard(address: shownMac?.address ?? failingAddress, name: failingMacName) }
     // The Mac the .unreachable phase is about, by address (review 1: the phase carries only a name, and two Macs can
     // share one, so the time is looked up by this, never by the shown Mac's name).
     private(set) var failingAddress: String?

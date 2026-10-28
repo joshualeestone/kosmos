@@ -320,14 +320,24 @@ do {
     check(Board.switcherRows(stale, shown: nil, heard: ["studio.kosmosplus.com": readAt], now: readAt.addingTimeInterval(5), calendar: cal, locale: en).map(\.status) == ["Online"],
           "a Mac the app read 5 s ago is online, whatever the list said")
     check(Board.switcherRows(stale, shown: nil, heard: ["studio.kosmosplus.com": readAt], now: now, calendar: cal, locale: en)
-            .map { $0.status.replacingOccurrences(of: "\u{202F}", with: " ") } == ["Offline, last seen at 9:40 PM"],
+            .map { $0.status.replacingOccurrences(of: "\u{202F}", with: " ") } == ["Not answering since 9:40 PM"],
           "an offline row says the app's later read, as the screen does, not the list's older time")
     let sw = Board.switcherRows([Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true, connected: false, lastSeen: seen),
                                  Board.Mac(name: "Mini", address: "mini.kosmosplus.com", usable: true, lastSeen: seen),
                                  Board.Mac(name: "Old", address: "old.kosmosplus.com", usable: true, connected: false)],
                                 shown: nil, now: now, calendar: cal, locale: en)
-    check(sw.map { $0.status.replacingOccurrences(of: "\u{202F}", with: " ") } == ["Online", "Offline", "Offline, last seen at 8:12 PM"],
-          "the switcher: Offline with when it was last seen; Online alone; Offline alone when never seen")
+    check(sw.map { $0.status.replacingOccurrences(of: "\u{202F}", with: " ") } == ["Online", "Offline", "Not answering since 8:12 PM"],
+          "the switcher (Mona Lisa): \"Not answering since 8:12 PM\"; Online alone; Offline alone when never heard from")
+    // Mona Lisa's time words, bare (switcher, list line) and in a sentence (the message, as the board).
+    func words(_ t: Date) -> String? { Board.heardWhen(t.timeIntervalSince1970, now: now, calendar: cal, locale: en)?.words.replacingOccurrences(of: "\u{202F}", with: " ") }
+    check(words(at(2026, 10, 27, 20, 12)) == "8:12 PM" && words(at(2026, 10, 26, 20, 12)) == "yesterday at 8:12 PM"
+            && words(at(2026, 10, 22, 9, 5)) == "Thursday at 9:05 AM" && words(at(2026, 10, 20, 9, 5)) == "Oct 20",
+          "the bare time words are Mona Lisa's four: 8:12 PM, yesterday at 8:12 PM, Thursday at 9:05 AM, Oct 20")
+    check(Shell.notUpdatingLine("Studio", lastHeard: seen, now: now, calendar: cal, locale: en).replacingOccurrences(of: "\u{202F}", with: " ")
+            == "Not updating. Studio isn't answering, last heard 8:12 PM.",
+          "the list's line (Mona Lisa): the Mac named (#7197), then \"last heard 8:12 PM\"")
+    check(Shell.notUpdatingLine("Studio", lastHeard: nil) == "Not updating. Studio isn't answering." && Shell.notUpdatingLine("Studio", lastHeard: 0) == "Not updating. Studio isn't answering.",
+          "CONTROL: with no time the list's line is as before")
 }
 check(Shell.notUpdatingLine("tmnt") == "Not updating. tmnt isn't answering." && Shell.notUpdatingLine(nil) == "Not updating. Your Mac isn't answering.",
       "the banner over a list names the Mac, and keeps the old words with no name")
@@ -778,7 +788,7 @@ do {
     let twins = [Board.Mac(name: "Mac", address: "b.kosmosplus.com", usable: true), Board.Mac(name: "Mac", address: "a.kosmosplus.com", usable: true)]
     check(Board.switcherRows(twins, shown: nil).map(\.address) == ["a.kosmosplus.com", "b.kosmosplus.com"], "two of one name keep the order of their addresses")
     check(rows.filter(\.shown).map(\.address) == ["mini.kosmosplus.com"], "only the shown Mac is checked")
-    check(rows.first(where: { $0.name == "Old laptop" })?.status.hasPrefix("Offline") == true && rows.first(where: { $0.name == "Mini" })?.status == "Online", "each row says online or offline from not_connected")
+    check(rows.first(where: { $0.name == "Old laptop" })?.status != "Online" && rows.first(where: { $0.name == "Mini" })?.status == "Online", "each row says online or offline from not_connected")
     check(Board.switcherRows(heldRefused, shown: nil).isEmpty, "a held or refused Mac is not offered")
     // kosmos#7266 slice B: the person's name and picture.
     let mac0 = URL(string: "https://studio.kosmosplus.com/")!

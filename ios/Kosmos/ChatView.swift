@@ -393,8 +393,10 @@ struct ChatView: View {
         if let refusal { return refusal }
         // kosmos#7034 build 11 reviews 1-2: a star of THIS agent that did not save, said here too.
         guard lost else { return client.starNoteAgent == agent.session ? client.starNote : nil }
-        let time = lastRead.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""
-        return Shell.notUpdatingLine(client.failingMacName) + time   // kosmos#7197: named
+        // kosmos#7416: with when the Mac was last heard from, and then not "Last checked" as well (one time, not two).
+        let heard = client.failingMacLastHeard
+        let time = heard == nil ? (lastRead.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? "") : ""
+        return Shell.notUpdatingLine(client.failingMacName, lastHeard: heard) + time   // kosmos#7197: named
     }
 
     private func banner(_ text: String) -> some View {
