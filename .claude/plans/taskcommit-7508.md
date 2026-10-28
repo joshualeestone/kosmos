@@ -17,7 +17,8 @@ Design approved by Mona Lisa on the card (comment 6477647461 and her wording rep
   limit, a signal or any other failure is unknown. Git prunes unreachable objects after two weeks by default, so older
   closed tasks are not checked. Git runs with fsmonitor and hooks off, no optional locks, no lazy fetch and every
   transport refused. Bounded: 3 s per git call, 5 min cache (30 s for unknown), 10 new checks per read, and the page
-  waits at most 1.5 s for them. The page is never sent the repository path.
+  waits at most 1.5 s for them, and a check already running is shared. The Tasks view does not send the repository
+  path (other routes that return a stored task still carry it, as project records carry absolute folder paths).
 - Words (Mona Lisa): row "Saved as change abc1234" (", only on this computer so far" while no remote has it); missing
   "Kosmos cannot find the change this task was finished with (abc1234). It may not have been saved. Ask the agent that
   did it to check."; unknown "Kosmos could not check whether this task's change was saved."; CLI "Recorded commit
@@ -27,6 +28,11 @@ Design approved by Mona Lisa on the card (comment 6477647461 and her wording rep
 ## Rejected
 - A commit on every built mark (most tasks deliver no code); a check in the CLI only (the loss happens later); ancestry
   of the default branch (squash and rebase merges rewrite the sha).
+
+## Residual, named
+The repository is a path a token-holding agent names, and git reads that repository's own config. The checks only
+read, and fsmonitor, hooks, lazy fetch, transports and the system config are switched off; a config key outside that
+list that could launch a program on a read is not covered.
 
 ## Weakest premise
 A commit that was never pushed and whose worktree was removed, but whose object git has not yet pruned, still reads

@@ -21616,7 +21616,7 @@ const server = http.createServer(async (req, res) => {
     /* kosmos#7508: a row that names a commit is checked in its repository now (engine/landedcheck.js, asynchronous, at
        most `landedBudget` new checks a read): whether a remote has it replaces what the CLI saw at mark time, and a
        closed row carries 'kept' / 'missing' / 'unknown'. No answer (none recorded, the budget spent) leaves the row as
-       stored. The repository's path stays on this computer: the page never needs it. */
+       stored. The Tasks view does not send the repository's path: the page never needs it. */
     const sendRows = () => {
       for (const row of rows) delete row.landedRepo;
       /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not

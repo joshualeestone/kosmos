@@ -33,12 +33,14 @@ const UNKNOWN_TTL_MS = 30 * 1000;
 const CHECK_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 const GIT_TIMEOUT_MS = 3000;
 const cache = new Map();
+/* Review 4: a check already running is shared, so two reads at once (a poll and a second tab) start it once. */
+const pending = new Map();
 
 /** git, resolving its standard output, or rejecting with the child's status, signal and code. */
 function runGit(args) {
   return new Promise((resolve, reject) => {
     childProcess.execFile('git', ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=' + (process.platform === 'win32' ? 'NUL' : '/dev/null'), '-c', 'protocol.allow=never', ...args],
-      { encoding: 'utf8', timeout: GIT_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1' } }, (err, stdout) => {
+      { encoding: 'utf8', timeout: GIT_TIMEOUT_MS, windowsHide: true, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', GIT_NO_LAZY_FETCH: '1', GIT_CONFIG_NOSYSTEM: '1' } }, (err, stdout) => {
       if (err) reject(err); else resolve(stdout);
     });
   });
@@ -69,15 +71,20 @@ async function checkTask(t, { budget = { left: 10 }, git = runGit, exists = fs.e
   const key = t.landedRepo + '\u0000' + t.landedCommit;
   const hit = cache.get(key);
   if (hit && now() - hit.at < (hit.result.state === 'unknown' ? UNKNOWN_TTL_MS : TTL_MS)) return hit.result;
+  if (pending.has(key)) return pending.get(key);
   if (!(budget.left > 0)) return null;
   budget.left -= 1;
-  let result;
-  try { result = await answer({ repo: t.landedRepo, sha: t.landedCommit }, git, exists); } catch { result = { state: 'unknown' }; }
-  prune(now());
-  cache.set(key, { result, at: now() });
-  return result;
+  const run = (async () => {
+    let result;
+    try { result = await answer({ repo: t.landedRepo, sha: t.landedCommit }, git, exists); } catch { result = { state: 'unknown' }; }
+    prune(now());
+    cache.set(key, { result, at: now() });
+    return result;
+  })();
+  pending.set(key, run);
+  try { return await run; } finally { pending.delete(key); }
 }
 
-function resetForTests() { cache.clear(); }
+function resetForTests() { cache.clear(); pending.clear(); }
 
 module.exports = { checkTask, resetForTests, TTL_MS, UNKNOWN_TTL_MS, CHECK_WINDOW_MS };

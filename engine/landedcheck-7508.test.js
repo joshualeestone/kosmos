@@ -110,3 +110,13 @@ test('#7508 review 2: a could-not-check answer is tried again sooner than a kept
   await landedcheck.checkTask(t, { git: slow, now: () => t0 + landedcheck.UNKNOWN_TTL_MS + 1 });
   assert.ok(calls > after, 'an unknown answer was kept as long as a kept one');
 });
+
+test('#7508 review 4: two reads at once share one check of the same commit', async () => {
+  let calls = 0;
+  const slow = (args) => new Promise((resolve) => { calls += 1; setTimeout(() => resolve(args.includes('for-each-ref') ? 'refs/heads/main\n' : ''), 20); });
+  const t = { landedCommit: '4'.repeat(40), landedRepo: SANDBOX };
+  const [a, b] = await Promise.all([landedcheck.checkTask(t, { git: slow }), landedcheck.checkTask(t, { git: slow, budget: { left: 10 } })]);
+  assert.deepEqual(a, b);
+  assert.equal(a.state, 'kept');
+  assert.equal(calls, 3, 'two reads at once ran the check twice (' + calls + ' git calls)');
+});
