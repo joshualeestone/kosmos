@@ -2063,6 +2063,14 @@ section("starring from the phone (kosmos#7034)")
         await press
         await pull
         check(c.isStarred("wes"), "review 2: a pull begun while the star was saving does not take it away")
+        // Review 3: a computer switch while a save is out leaves nothing pending for the next computer.
+        w.starWriteYields = 400
+        async let late: () = c.toggleStar("dana")
+        let out2 = await settle { c.starring.contains("dana") }
+        c.showMac(address: "laptop.kosmosplus.com")
+        check(out2 && c.starring.isEmpty, "review 3: switching computers drops a save still out, so the next computer's stars are read")
+        await late
+        check(c.starring.isEmpty, "and its late answer leaves nothing behind")
         c.stop()
     }
 

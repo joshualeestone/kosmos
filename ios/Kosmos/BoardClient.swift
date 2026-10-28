@@ -92,7 +92,8 @@ final class BoardClient: ObservableObject {
         starEvents += 1
         let mine = starWrites
         starring.insert(session)
-        defer { starring.remove(session); starEvents += 1 }
+        // Review 3: a press from before a computer or account switch leaves nothing behind (forgetChats cleared it).
+        defer { if epoch == chatEpoch { starring.remove(session); starEvents += 1 } }
         starNote = nil
         showStars(setting: session, on: on, mac: mac.address)
         let answer = await throughMac { Board.starWriteRequest(mac: $0, name: session, on: on) }
@@ -921,6 +922,7 @@ final class BoardClient: ObservableObject {
     // Another Mac keeps chatsOwner (the account has not changed); forget() clears it.
     private func forgetChats() {
         starNote = nil   // kosmos#7034: a star note was about the other computer's list
+        starring = []   // kosmos#7034 review 3: a save still out was for the other computer; its answer is dropped
         pending = [:]
         sortProjects = [:]   // kosmos#7421: By project's names were the other computer's or account's
         pressing = []
