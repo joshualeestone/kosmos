@@ -172,6 +172,9 @@ struct ContentView: View {
                 }
                 // Mona Lisa's spec: the app's tint is the board's ink, so the selected tab is not system blue.
                 .tint(Palette.primary)
+                // kosmos#7266 (Josh 10-28): the tab bar shrinks while a list scrolls down and comes back on scrolling up,
+                // the system's own behaviour on iOS 26 (Instagram-style). Earlier systems keep the bar as it is.
+                .modifier(TabBarMinimizesOnScroll())
                 // kosmos#7252: with Today off, a board page (a tapped notification, an agent's info button, the board's
                 // own Settings or sign-in) opens over the tabs, with Close back to the tab underneath.
                 .overlay { if !AppTabs.todayTab && todayBoard { boardPage } }
@@ -1404,4 +1407,11 @@ enum YouFace {
         words.draw(at: CGPoint(x: (240 - size.width) / 2, y: (240 - size.height) / 2))
     }.pngData()
     #endif
+}
+
+// kosmos#7266: iOS 26's tab bar minimising on scroll, where the system offers it.
+private struct TabBarMinimizesOnScroll: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) { content.tabBarMinimizeBehavior(.onScrollDown) } else { content }
+    }
 }
