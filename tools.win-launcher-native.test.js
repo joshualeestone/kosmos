@@ -206,7 +206,9 @@ function csharpLiteral(raw) {
     : { 0: '\0', n: '\n', r: '\r', t: '\t', '"': '"', "'": "'", '\\': '\\' }[e]));
 }
 /* Every `const string` in `source` as name -> value, folding + over literals and other constants of the file. A value
-   that uses anything else (a call, a non-const field) is left out, by name, in `unresolved`. */
+   that uses anything else (a call, a non-const field) is left out, by name, in `unresolved`. kosmos#7503: so is a
+   declaration the value pattern does not read at all (a verbatim @"...", an interpolated $"...", a reference such as
+   Foo.Bar, other spacing): every `const string <name> =` is counted on its own, whatever its value looks like. */
 function stringConstants(source) {
   const raw = new Map();
   for (const m of source.matchAll(/const string (\w+) =\s*((?:"(?:[^"\\]|\\.)*"|[A-Za-z_]\w*|\s|\+)+);/g)) raw.set(m[1], m[2]);
@@ -221,7 +223,9 @@ function stringConstants(source) {
       changed = true;
     }
   }
-  return { values, unresolved: [...raw.keys()].filter((n) => !values.has(n)) };
+  const declared = [...source.matchAll(/\bconst\s+string\s+(\w+)\s*=/g)].map((m) => m[1]);
+  const uncollected = declared.filter((n) => !raw.has(n));
+  return { values, unresolved: [...raw.keys()].filter((n) => !values.has(n)).concat(uncollected) };
 }
 // ECMA-335 II.23.2: a compressed unsigned integer, as csc writes the length in front of a blob or a user string.
 function compressedLength(n) {
@@ -257,6 +261,15 @@ test('#7492: every string constant in KosmosLauncher.cs is in the committed Kosm
   const cut = SOURCE.replace(/(const string RunningHereMessage =\s*"[^"]*?) To see why, run Kosmos\.exe --console\.";/, '$1";');
   assert.notEqual(cut, SOURCE, 'the cut-sentence control did not change the source');
   assert.deepEqual(constantsMissingFromExe(cut, EXE).missing, ['RunningHereMessage']);
+  // kosmos#7503: a constant in a form the value pattern cannot read is named, not skipped (each form, in a copy).
+  const close = SOURCE.lastIndexOf('}');
+  for (const [form, decl] of [['verbatim', 'const string PlantedVerbatim = @"C:\\Kosmos";'], ['interpolated', 'const string PlantedInterpolated = $"Kosmos {1}";'],
+    ['reference', 'const string PlantedReference = Other.Name;'], ['spacing', 'const  string PlantedSpacing="x";']]) {
+    const planted = SOURCE.slice(0, close) + '    ' + decl + '\n' + SOURCE.slice(close);
+    const name = /string\s+(\w+)/.exec(decl)[1];
+    assert.ok(stringConstants(planted).unresolved.includes(name), 'a ' + form + ' const string was skipped silently: ' + decl);
+  }
+  assert.deepEqual(stringConstants(SOURCE).unresolved, [], 'CONTROL: the real source has none');
   // And the folded values: a page built with + is read whole (the window's starting page).
   assert.ok(stringConstants(SOURCE).values.get('StartingPage').startsWith('<!doctype html><html><head><meta charset="utf-8">'));
 });
