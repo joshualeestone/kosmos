@@ -154,9 +154,16 @@ test('#4926 review 1 (Opus): the held line riding a typed arrival leaves out a s
     const calls = arm();
     roomhold.forget('dee');
     const before = await postAs(roster, 'cy', 'before the stop');   // real rows, so the record reader keeps them
-    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'valve', from: 'cy', to: 'room4926', project: 'room4926', at: new Date().toISOString(), because: 'loop', stopped: true }) + '\n');
-    await new Promise((r) => setTimeout(r, 5));
+    /* kosmos#7432: reported flaky under load, assertion text not kept. staleHeld's rule is strictly-after
+       (stoppedAt > at), and a stop stamped "now" could share the earlier post's millisecond (a stop stamped AT it fails
+       every run). That tie is likelier on an idle machine than a loaded one, so it may not be the reported flake; it is
+       closed here regardless: the stop is 1 ms after the earlier post, and the later post is posted 2 ms or more past
+       the stop. The assert below names a later post at or before the stop (only a wall clock stepping back) by name. */
+    const stopAt = Date.parse(before.at) + 1;
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'valve', from: 'cy', to: 'room4926', project: 'room4926', at: new Date(stopAt).toISOString(), because: 'loop', stopped: true }) + '\n');
+    while (Date.now() <= stopAt + 1) await new Promise((r) => setTimeout(r, 2));
     const after = await postAs(roster, 'cy', 'after the stop');
+    assert.ok(Date.parse(after.at) > stopAt, 'fixture: the later post is not after the stop');
     roomhold.forget('dee');
     roomhold.hold('dee', 'room4926', before.id); roomhold.hold('dee', 'room4926', after.id);
     assert.deepEqual([...messages.staleHeld('room4926', [before.id, after.id])], [before.id], 'fixture: the stop did not make only the earlier post stale');
