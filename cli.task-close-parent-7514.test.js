@@ -186,14 +186,16 @@ for (const [name, run] of [['Windows', (a) => win(a)], ['Mac', (a) => mac(a)]]) 
 
 const http = require('node:http');
 /* A board older than --with-built: it refuses any close body with more than replacedBy, as the route did before #7514. */
-async function olderBoard() {
+async function olderBoard(refusal = 'a close takes only replacedBy (the number of the task that replaced it), so the task was not closed') {
   const proxy = http.createServer((req, res) => {
     if (req.method === 'POST' && /\/task\/\d+\/close$/.test(req.url)) {
       let raw = ''; req.on('data', (c) => { raw += c; });
       req.on('end', () => {
-        if (raw.trim() && /withBuilt/.test(raw)) { res.writeHead(400, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'a close takes only replacedBy (the number of the task that replaced it), so the task was not closed' })); return; }
-        const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
-        up.end(raw);
+        if (refusal && raw.trim() && /withBuilt/.test(raw)) { res.writeHead(400, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: refusal })); return; }
+        // refusal null: a board older than #6923, which never read the body (sent on without it, so closed as done).
+        const headers = { ...req.headers }; if (refusal === null) { delete headers['content-length']; delete headers['content-type']; }
+        const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+        up.end(refusal === null ? '' : raw);
       });
       return;
     }
@@ -225,6 +227,45 @@ for (const label of ['Windows', 'Mac']) {
       assert.match(many.text, new RegExp('Could not close task ' + a.top + ': this Kosmos is older than --with-built'), many.text);
     } finally { proxy.close(); }
     assert.equal(isDone(a.top), false);
+  });
+
+  /* Round 6: a board between #6923 and its round-8 notes refused an unknown key in its first words, and nothing closed. */
+  test(`kosmos#7514: on a board from #6923's first days the ${label} command says it is older, and nothing closed`, async () => {
+    const a = round(label + 'Mid');
+    const b = round(label + 'Mid2');
+    const proxy = await olderBoard('we could not read that request, so the task was not closed');
+    try {
+      const one = await viaPort(label, proxy.address().port, ['task', 'close', projectId, String(a.top), '--with-built']);
+      assert.notEqual(one.code, 0, one.text);
+      assert.match(one.text, new RegExp('This Kosmos is older than --with-built, so task ' + a.top + ' was not closed'), one.text);
+      const many = await viaPort(label, proxy.address().port, ['task', 'close', projectId, String(a.top), String(b.top), '--with-built']);
+      assert.match(many.text, new RegExp('Could not close task ' + a.top + ': this Kosmos is older than --with-built'), many.text);
+    } finally { proxy.close(); }
+    assert.equal(isDone(a.top), false);
+  });
+
+  /* Round 6: a board older than #6923 never read the body, so it closed the parent as done and took nothing. */
+  for (const many of [false, true]) {
+    test(`kosmos#7514: on a board that ignores the body the ${label} command says the subtasks were not closed (${many ? 'several' : 'one'})`, async () => {
+      const a = round(label + 'Ign' + many);
+      const b = round(label + 'Ign2' + many);
+      const proxy = await olderBoard(null);
+      let r;
+      try {
+        r = await viaPort(label, proxy.address().port, ['task', 'close', projectId, String(a.top), ...(many ? [String(b.top)] : []), '--with-built']);
+      } finally { proxy.close(); }
+      assert.notEqual(r.code, 0, 'an ignored --with-built read as success: ' + r.text);
+      assert.match(r.text, /older than --with-built, so its built subtasks were not closed/, r.text);
+      assert.equal(isDone(a.top), true, 'premise: the older board closed the parent');
+      assert.equal(isDone(a.kid), false, 'premise: the older board took no subtask');
+    });
+  }
+
+  test(`kosmos#7514: CONTROL: on a current board the ${label} command says nothing about an older board when none were built`, async () => {
+    const top = tasks.create(projectId, { sentence: label + ' lone' });
+    const r = await (label === 'Mac' ? mac : win)(['task', 'close', projectId, String(top.number), '--with-built']);
+    assert.equal(r.code, 0, r.text);
+    assert.doesNotMatch(r.text, /older/, r.text);
   });
 
   test(`kosmos#7514: the ${label} command says why Kosmos stopped closing the subtasks part way`, async () => {

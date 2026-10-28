@@ -42,3 +42,11 @@ must list each one.
 - `cli.task-close-parent-7514.test.js`: the route's plain and withBuilt answers, the telling (each agent once),
   refused bodies, the screen's bulk close taking none, and both command lines (hint, single, several, refusal).
 - 17 mutants (engine arms, route, each command line) each turn a test red. #3861's, #3951's and #7412's tests pass.
+
+## Older boards (round 6)
+- A close asked `withBuilt` always answers `closedWith` (empty when none went). A board older than #6923 never read
+  the body and closes the parent as done; its answer has no `closedWith`, so both commands say the subtasks were not
+  closed and exit 1. A board from #6923's first days refused the key as "we could not read that request": both commands
+  read that, under --with-built, as older too.
+- The phone's own phrase copy (`ios/Kosmos/TaskPageLogic.swift`) reads "Marked done with task N", pinned in
+  `ios/LogicTests/taskpage/main.swift`. 10 more mutants (engine, each command line's two new checks, Swift) each red.

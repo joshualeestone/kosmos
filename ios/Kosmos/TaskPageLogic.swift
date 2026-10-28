@@ -446,7 +446,10 @@ extension Board {
             return s("state") == "unconfirmed"
                 ? "Kosmos tried to send " + subject + " to " + to + " " + when + ", but could not confirm " + to + " got it"
                 : Subject + " to " + to + kept + "was sent " + when
-        case "closed": return integer(ev["replacedBy"]).map { "Closed as replaced by task \($0)" } ?? "Marked done"
+        case "closed":
+            if let r = integer(ev["replacedBy"]) { return "Closed as replaced by task \(r)" }
+            if s("via") == "parent", let p = integer(ev["parent"]) { return "Marked done with task \(p)" }   // kosmos#7514
+            return "Marked done"
         case "replaced": return integer(ev["replacedBy"]).map { "Marked as replaced by task \($0)" } ?? "Marked as replaced"
         case "undone":
             let files = count(ev["files"]) ?? 0

@@ -1384,7 +1384,9 @@ async function taskClose(ctx, args) {
   const closeBody = wb ? { withBuilt: true } : undefined;
   if (wb && args.includes('--replaced-by')) { ctx.err('--with-built and --replaced-by do not go together: a replaced task\'s subtasks are closed on their own.'); return 2; }
   // kosmos#7514: a board older than --with-built refuses the body with words about replacedBy; say what happened instead.
-  const olderBoard = (why) => wb && /takes only replacedBy/.test(why || '');
+  const olderBoard = (why) => wb && /takes only replacedBy|could not read that request/.test(why || '');   // #6923's own first words too
+  // Round 6: a board older than #6923 ignores the body and closes it as done, sending no closedWith.
+  const ignored = (task) => wb && !Array.isArray(task.closedWith);
   if (args[2] === '--replaced-by' && !/^[0-9]+$/.test(by || '')) { ctx.err('--replaced-by needs the number of the task that replaced it, from: kosmos task list <project-id>.'); return 2; }
   if (by) { if (tooManyWords(ctx, 'task close', 4, TASK_CLOSE_USAGE, args)) return 2; }   // kosmos#4889 review 6
   else {
@@ -1412,6 +1414,7 @@ async function taskClose(ctx, args) {
         if (!one.reached) { stop = i; lost = one; break; }
         if (one.json && one.json.task) {
           ok.push(n);
+          if (ignored(one.json.task)) { bad.push('Task ' + n + ' closed as done, but this Kosmos is older than --with-built, so its built subtasks were not closed: close them by number (kosmos task list ' + project + ').'); continue; }
           const w = closedWithOf(one.json.task);
           if (w) withs.push('Task ' + n + '\'s built subtasks closed with it: ' + w + '.');
           // kosmos#7514: a hint never names a subtask this same command closes (it is one of `all`).
@@ -1458,6 +1461,10 @@ async function taskClose(ctx, args) {
   if (r.json && r.json.task && by && !Number.isInteger(r.json.task.replacedBy)) {
     // An older board ignores replacedBy and closes it as done: say so, never claim a link it did not record.
     ctx.err('Closed task ' + num + ' on ' + project + ', but this Kosmos did not record what replaced it (it is older than this command). It now reads as done. To undo that: kosmos task reopen ' + projectSlug(project) + ' ' + num);
+    return 1;
+  }
+  if (r.json && r.json.task && ignored(r.json.task)) {
+    ctx.err('Closed task ' + num + ' on ' + project + ' as done, but this Kosmos is older than --with-built, so its built subtasks were not closed. Close them by number (kosmos task list ' + project + '), or update Kosmos.');
     return 1;
   }
   if (r.json && r.json.task) {

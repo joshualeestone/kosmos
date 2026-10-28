@@ -1027,7 +1027,10 @@ function close(projectId, n, { replacedBy = null, withBuilt = false, wantLeft = 
   const snapshot = asked ? (projects.readAll() || []).find((x) => x && x.id === projectId) : null;   // raw: no claim join
   const built = snapshot ? builtUnder(snapshot, Number(n)) : [];
   const closed = setClosed(projectId, n, new Date().toISOString(), {}, { replacedBy: by });
-  if (!built.length) return closed;
+  // A close asked withBuilt always answers closedWith (empty when none went), so a CLI can tell a board that never read
+  // the ask (older than #6923 ignores the body and closes it as done) from one that had nothing to take (round 6).
+  const wb = by === null && withBuilt === true ? { closedWith: [] } : {};
+  if (!built.length) return { ...closed, ...wb };
   if (withBuilt !== true) return { ...closed, builtLeft: built };
   const closedWith = [];
   let at = 0;
@@ -1045,7 +1048,7 @@ function close(projectId, n, { replacedBy = null, withBuilt = false, wantLeft = 
     if (k && progressOf(k).closed) { closedWith.push(built[at]); at += 1; }
   }
   const left = built.slice(at);
-  return { ...closed, ...(closedWith.length ? { closedWith } : {}), ...(left.length ? { builtLeft: left } : {}), ...(why ? { builtLeftWhy: why } : {}) };
+  return { ...closed, closedWith, ...(left.length ? { builtLeft: left } : {}), ...(why ? { builtLeftWhy: why } : {}) };
 }
 
 /** Reopen: the undo of the one human verb. #6157: who put it back (`by`, an agent its token named; `person`, the

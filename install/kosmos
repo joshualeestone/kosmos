@@ -6269,6 +6269,8 @@ cmd_task() {
           case "$_code" in 3??) _redir="$_n"; _stop="$_n"; _left="$_n"; continue ;; esac
           case "$_b" in
             '{"task":'*) _ok="${_ok:+$_ok, }$_n"
+              # kosmos#7514 round 6: a board older than #6923 ignores the body and closes it as done, sending no closedWith.
+              case "$_wb:$_b" in 1:*'"closedWith":'*|:*) ;; *) _bad="${_bad}Task $_n closed as done, but this Kosmos is older than --with-built, so its built subtasks were not closed: close them by number (kosmos task list $project)."$'\n' ;; esac
               # kosmos#7514: name the built subtasks closed with it (--with-built), or those still open (an older board sends neither field, and refuses --with-built: said below).
               _w=$(printf '%s' "$_b" | sed -n 's/.*"closedWith":\[\([0-9,]*\)\].*/\1/p' | sed 's/,/, /g')
               [ -z "$_w" ] || _withs="${_withs}Task $_n's built subtasks closed with it: $_w."$'\n'
@@ -6280,7 +6282,7 @@ cmd_task() {
               continue ;;
             '{"error":'*) _why=$(printf '%s' "$_b" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'); _why="${_why%.}"; _why="${_why:-it did not say why}"
               # kosmos#7514: a board older than --with-built refuses the body; say that, not its words about replacedBy.
-              case "$_wb:$_why" in 1:*"takes only replacedBy"*) _why="this Kosmos is older than --with-built, so it was not closed (update Kosmos, or close it and its subtasks by number)" ;; esac ;;
+              case "$_wb:$_why" in 1:*"takes only replacedBy"*|1:*"could not read that request"*) _why="this Kosmos is older than --with-built, so it was not closed (update Kosmos, or close it and its subtasks by number)" ;; esac ;;
             *) _why="" ;;
           esac
           # One line each: a reason can hold a ; or a ,. An answer we cannot read does not say it did not close.
@@ -6325,7 +6327,10 @@ cmd_task() {
             # An older board ignores replacedBy and closes it as done: say so, never claim a link it did not record.
             if [ -z "$_got" ]; then say "Closed task $num on ${project:-the project}, but this Kosmos did not record what replaced it (it is older than this command). It now reads as done. To undo that: kosmos task reopen $project $num"; exit 1; fi
             say "Closed task $num on ${project:-the project} as replaced by task $_got."
-          else say "Closed task $num on ${project:-the project}."
+          else
+            # kosmos#7514 round 6: a board older than #6923 ignores the body and closes it as done, sending no closedWith.
+            case "$_wb:$body" in 1:*'"closedWith":'*|:*) ;; *) say "Closed task $num on ${project:-the project} as done, but this Kosmos is older than --with-built, so its built subtasks were not closed. Close them by number (kosmos task list $project), or update Kosmos."; exit 1 ;; esac
+            say "Closed task $num on ${project:-the project}."
             # kosmos#7514: name the built subtasks closed with it (--with-built), or those still open (an older board sends neither field, and refuses --with-built: said below).
             local _w; _w=$(printf '%s' "$body" | sed -n 's/.*"closedWith":\[\([0-9,]*\)\].*/\1/p' | sed 's/,/, /g')
             [ -z "$_w" ] || say "Its built subtasks closed with it: $_w."
@@ -6335,7 +6340,7 @@ cmd_task() {
             [ -z "$_w" ] || say "Kosmos stopped closing them: ${_w%.}."; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
-          case "$_wb:$because" in 1:*"takes only replacedBy"*) say "This Kosmos is older than --with-built, so task $num was not closed. Update Kosmos, or close it and its subtasks by number."; exit 1 ;; esac
+          case "$_wb:$because" in 1:*"takes only replacedBy"*|1:*"could not read that request"*) say "This Kosmos is older than --with-built, so task $num was not closed. Update Kosmos, or close it and its subtasks by number."; exit 1 ;; esac
           say "Kosmos could not close that task: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when closing that task."; exit 1 ;;
       esac
