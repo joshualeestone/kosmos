@@ -23935,20 +23935,45 @@ const server = http.createServer(async (req, res) => {
      it keep it. One nobody is on is handed to the next idle agent on the project when the Assigner is on (a user saw an
      unrelated agent get one and did not know why), so that is said, and so is how to choose instead. */
   function unholdNext(projectId, t) {
-    const plain = (x) => String(x).replace(/["\\\u0000-\u001f\u007f]/g, ' ');
-    const who = tasks.whoOf(t);
-    if (tasks.progressOf(t).closed) return '';
-    if (who.length) return 'It stays with ' + who.map(plain).join(', ') + '.';
-    let on = false;
-    try { on = assignerSetting.read().on === true; } catch { on = false; }
-    let paused = false;
-    try { const p = projects.readAll().find((x) => x && x.id === projectId); paused = !!p && projects.isPaused(p); } catch { /* unread: said as if live */ }
-    let outable = false;
-    try { outable = require('./engine/assigner').handOutable(t) === true; } catch { outable = false; }
-    if (!outable) return 'Nobody is on it, and Kosmos does not hand this one out on its own.';
-    if (!on || paused) return 'Nobody is on it, and Kosmos will not give it to anyone until a person does.';
-    return 'Nobody is on it, so Kosmos will give it to the next idle agent on the project. To choose who, assign it now.';
+    /* Review 1: everything here runs after the unhold is recorded, so nothing in it may turn a done unhold into a
+       refusal: any failure says nothing (the CLIs print nothing for an empty next). */
+    try {
+      const plain = (x) => String(x).replace(/["\\\u0000-\u001f\u007f-\u009f]/g, ' ');
+      const prog = tasks.progressOf(t);
+      if (prog.closed) return '';
+      const assign = ' To choose who, assign it now.';
+      // Review 1: only who is on an OPEN part has it; someone who finished a part does not.
+      const holders = [...new Set(prog.parts.filter((x) => x.who && !x.closedAt).map((x) => x.who))];
+      let setting = {};
+      try { setting = assignerSetting.read() || {}; } catch { setting = {}; }
+      if (holders.length) {
+        const names = holders.map(plain).join(', ');
+        // Review 1: with failover on, the hold was what kept a limited holder's part from moving (stalledParts).
+        return 'It stays with ' + names + '.' + (setting.on === true && setting.failover === true
+          ? ' If ' + (holders.length > 1 ? 'one of them hits' : 'they hit') + ' a usage limit, Kosmos may move ' + (holders.length > 1 ? 'their part' : 'it') + ' to an idle agent.' : '');
+      }
+      if (tasks.whoOf(t).length) return 'Nobody is on its open parts, and Kosmos does not hand out a task someone has worked on.' + assign;
+      if (setting.on !== true) return 'Nobody is on it, and the Assigner is off, so it waits for a person.' + assign;
+      const p = projects.readAll().find((x) => x && x.id === projectId);
+      if (!p) return '';
+      const inP = (Array.isArray(p.tasks) ? p.tasks : []).find((x) => x && x.number === t.number);
+      if (!inP) return '';
+      const asg = require('./engine/assigner');
+      if (!asg.handOutable(inP)) return 'Nobody is on it, and Kosmos does not hand this one out on its own.' + assign;
+      if (p.archived === true) return 'Nobody is on it, and the project is archived, so Kosmos will not give it to anyone.' + assign;
+      if (projects.isPaused(p)) return 'Nobody is on it. The project is paused; when it is resumed, Kosmos will give it to an idle agent on it.' + assign;
+      // Review 1: who pick itself could give it to (its open subtasks, another builder's tree, swarm off, no agents).
+      const may = asg.whoMayGet(p, inP);
+      if (!may.length) return 'Nobody is on it, and no agent on the project can be given it now (its subtasks go first, it belongs to another builder\'s work, or no agent here takes work).' + assign;
+      const all = (Array.isArray(p.agents) ? p.agents : []).length;
+      if (may.length === 1) return 'Nobody is on it, so Kosmos will give it to ' + plain(may[0]) + ' when they are idle.' + assign;
+      if (may.length === all) return 'Nobody is on it, so Kosmos will give it to the next idle agent on the project.' + assign;
+      return 'Nobody is on it, so Kosmos will give it to the next idle one of ' + may.map(plain).join(', ') + '.' + assign;
+    } catch {
+      return '';
+    }
   }
+
   /* #4771: put a task on hold, or take it off. Body { onHold: true | false, until?: { task: <n> } | { at: <time> } }. The Prompter never nudges an agent about a
      task on hold and the Assigner never hands it out; tasks.setOnHold validates and records it in the task's activity.
      The person's own hold is lifted only from the screen (isViaScreen). That is ADVISORY, as on /built: a local process
