@@ -10148,6 +10148,22 @@ async function sessionStartedAtFromTmuxAsync(sessionName) {
   try { text = sessionSource ? sessionSource() : await tmuxSessionsAsync(); } catch { return null; }
   return sessionStartIn(text, want);
 }
+/* kosmos#7411: every session's start in ONE read without blocking the board's thread, for the restart line, which asks
+   about every running agent at once (one list-sessions, not one per agent). A Map of session name to ms; null when tmux
+   could not be read (not-knowing, as above), an empty Map when there is no server. */
+async function sessionStartsAsync() {
+  let text;
+  try { text = sessionSource ? sessionSource() : await tmuxSessionsAsync(); } catch { return null; }
+  if (text === null || text === undefined) return null;
+  const out = new Map();
+  for (const line of String(text).split('\n')) {
+    const tab = line.indexOf('\t');
+    if (tab <= 0 || out.has(line.slice(0, tab))) continue;
+    const at = sessionStartIn(line, line.slice(0, tab));
+    if (at !== null) out.set(line.slice(0, tab), at);
+  }
+  return out;
+}
 function sessionStartIn(text, want) {
   if (text === null || text === undefined) return null;
   for (const line of String(text).split('\n')) {
@@ -10178,7 +10194,7 @@ module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, split
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
   swarmField,   // #3564: exported so the meter's owner test is tested through the real folder search
-  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, paneRosterAsync, sessionStartedAtFromTmuxAsync, readPanes, isParseable, classify, isNamedOurs,
+  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, paneRosterAsync, sessionStartedAtFromTmuxAsync, sessionStartsAsync, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
   rank, paneOrder, modelDisplayName, readGeminiSession, readIdentity, transcriptFor, readCodexContext, readCodexSession, claudeAccountDirOf, ownsFor,
