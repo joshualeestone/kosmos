@@ -239,3 +239,29 @@ map. Fixed by moving the return to just before the rows are written.
     web/index.html changes touch: the per-check trailers slice 2 carried sat on its own commits, now on main, so they do
     not count for this diff. My local runs of the gate script had exited 0 silently, which proved nothing. The 16 checks
     are run on 4018dcad9a and their results go in Browser-check-surface trailers on an empty commit.
+15. Surface checks on 4018dcad9a: 15 of 16 green; render-msgref-4631's touch arm C6 red, a real regression. On a
+    375x667 phone the header's "Archive older messages" took a 44 px row of its own, and pjFitRoomPhone (#7196) took
+    that height out of the thread (113 px to its 96 px floor), so the newest message's last lines sat under the composer.
+    Probe 2 measured that reordering it beside Search still gave it its own row.
+16. Placement, with Mona Lisa (04:0x CDT): on a phone, the link leaves the header for the top of the thread. A focused
+    review then measured that a room longer than one page loads its earlier page whenever the reader is within 300 px
+    of the top, so the link pushed itself 200 messages away each time it came into view.
+17. Placement, FINAL with Mona Lisa (07:3x CDT, card comment 6469129307): on a phone (the 30rem room query) the link is
+    the thread's LAST row (pjRoomEndAsk), only in a room of more than one page (allRows > 200, or an earlier page to
+    load), not while searching or in an empty room; desktop unchanged (header). Same review: focus after Archive on a
+    phone (pjArchAfter; pjArchAskShown never returns a hidden link). Unit tests 32/32, room tests 487/487, placement
+    mutations red. The browser check reaches the link by scrolling to the END and asserts the last row, on screen,
+    44 px, header has none. Run 7 and all 16 surface checks green at e22bc4fe3e.
+18. Design shots (4a7e641b8e, ~/work/design-shots/kosmos-7365-slice3b): Mona Lisa approved with one change: the archive
+    VIEW drops its end row (everything there is already archived). c1de0f9f7a: the unit test that opens the archive
+    asserts no such link (red with the old line put back, 31 pass, 1 fail); the browser check asserts it at 390 px.
+19. One blind review of the final placement (after the 8-round cap, on the change made after it): a repaint that
+    rebuilds the thread replaced a focused end row and focus fell to the page (a post landing by poll, or the read after
+    Archive). Fixed in c1de0f9f7a and 3c3aca725e: paintRoom keeps focus on the link on screen, else the composer. My
+    first browser arm passed with the fix off (a same-shape read keeps the node); added one that can fail: focus the end
+    row, post, wait. Run 9: fix green, fix off red alone.
+    Decided, not fixed: the end row sits about 60 px under the newest message, so a reader who scrolls back only that
+    far is not "at the bottom" and new posts stop following (the bottom measure is shared by seven call sites);
+    pjArchAskShown can name a composer the archive view hides, unreachable now the archive view has no end row.
+20. Browser run 10 at 3c3aca725e (queued-heavy): render-room-archive-7365 and all 16 surface checks green; trailers in
+    cba915fb50.
