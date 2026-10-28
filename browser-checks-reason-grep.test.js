@@ -494,6 +494,7 @@ const SITE_COUNTS = {
   'render-richtext-room-2239.js': [1, 0],
   'render-role-limit.js': [1, 0],
   'render-role-order.js': [1, 0],
+  'render-room-archive-7365.js': [2, 1],
   'render-room-busy-scope-2882.js': [1, 1],
   'render-room-reply-3745.js': [2, 1],
   'render-room-scroll.js': [1, 0],

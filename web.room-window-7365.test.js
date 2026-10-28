@@ -52,7 +52,7 @@ function fakeRoom(n) {
   return { rows, add, remove, calls, fetch };
 }
 
-function harness(room, project = 'proj') {
+function harness(room, project = 'proj', extra = {}) {
   // On the floor unless a test scrolls it up (the live position loadRoom measures before anchoring a gap).
   const box = { __lastBody: undefined, clientHeight: 500, scrollHeight: 10000, scrollTop: 9500 };
   const msg = { textContent: '' };   // #pj-room-msg
@@ -67,6 +67,7 @@ function harness(room, project = 'proj') {
     threadAnchor: () => { anchors.taken += 1; return { mid: 'x' }; },
     restoreThreadAnchor: () => { anchors.restored += 1; return true; },
     convPause: () => {},
+    ...extra,
   };
   vm.createContext(ctx);
   vm.runInContext('var PJ_CURRENT = ' + JSON.stringify(project) + '; var PJ_ROOM_GEN = 0; var PJ_ROOM_QUERY = "";\n' + SRC
@@ -80,7 +81,8 @@ test('#7365: a poll reads only the newest page, and paints it', async () => {
   const room = fakeRoom(1000);
   const h = harness(room);
   await h.api.loadRoom();
-  assert.match(room.calls[0], /\/room\?n=200$/, 'the poll asks for the newest page, not the whole room');
+  // kosmos#7365 slice 3: and of the live part only (archive=0), as every window read is.
+  assert.match(room.calls[0], /\/room\?n=200&archive=0$/, 'the poll asks for the newest page of the live room, not the whole room');
   assert.deepEqual(ids(h.painted.at(-1)), range(801, 1000));
   assert.equal(h.api.PJ_WIN.olderCount, 800);
 });
@@ -92,7 +94,7 @@ test('#7365: scrolling back reads each earlier page by cursor, anchors the reade
   for (let k = 0; k < 10 && h.api.PJ_WIN.olderCount > 0; k++) await h.api.pjWinEarlier(true);
   const last = h.painted.at(-1);
   assert.deepEqual(ids(last), range(1, 1000), 'every post, in order, once');
-  assert.ok(room.calls.slice(1).every((u) => /\?n=200&cursor=/.test(u)), 'earlier pages are read by cursor');
+  assert.ok(room.calls.slice(1).every((u) => /\?n=200&archive=0&cursor=/.test(u)), 'earlier pages are read by cursor');
   assert.equal(h.anchors.taken, 4, 'one anchor per earlier page');
   assert.equal(h.anchors.restored, 4);
   const before = room.calls.length;
@@ -109,7 +111,7 @@ test('#7365: a poll after scrolling back keeps the earlier pages, and reads a ga
   for (let i = 0; i < 50; i++) room.add();   // 50 new posts: the newest page now starts at 851, a gap of 801 to 850
   await h.api.loadRoom();
   assert.deepEqual(ids(h.painted.at(-1)), range(601, 1050), 'the earlier pages, the gap and the newest page, contiguous');
-  assert.ok(room.calls.some((u) => /\?n=51&cursor=/.test(u)), 'the gap is read by the newest page\'s cursor');
+  assert.ok(room.calls.some((u) => /\?n=51&archive=0&cursor=/.test(u)), 'the gap is read by the newest page\'s cursor');
   assert.equal(h.anchors.restored, 2, 'the scrolled-up reader is anchored when the gap lands above them');
   // CONTROL: with no new rows, a poll reads one page and adds nothing.
   const n = room.calls.length;
@@ -322,7 +324,7 @@ test('#7365 review 6: an earlier page whose cursor moved while it was read is dr
   await h.api.pjWinEarlier(false);   // a self-read page: 601 to 800
   let release; const gate = new Promise((r) => { release = r; });
   const real = room.fetch;
-  room.fetch = async (u) => { if (/n=200&cursor=/.test(u)) { const resp = await real(u); await gate; return resp; } return real(u); };
+  room.fetch = async (u) => { if (/n=200&archive=0&cursor=/.test(u)) { const resp = await real(u); await gate; return resp; } return real(u); };
   const second = h.api.pjWinEarlier(false);   // 401 to 600, held back
   for (let i = 0; i < 10; i++) room.add();
   await h.api.loadRoom();   // the gap trims the self-read front and moves the cursor
@@ -426,4 +428,17 @@ test('#7365 review 8: a hidden room box neither keeps rows nor lets go of held p
   Object.assign(h2.box, { clientHeight: 0, scrollHeight: 0, scrollTop: 0 });
   await h2.api.loadRoom();
   assert.equal(h2.api.PJ_WIN.older.length, 0, 'a hidden room keeps no rows pushed out of the newest page');
+});
+
+test('#7365 3b browser run 2: with the archive open, a poll keeps the rows of the reader\'s place in the room, wherever the archive is scrolled', async () => {
+  for (const open of [true, false]) {
+    const room = fakeRoom(1000);
+    const h = harness(room, 'proj', open ? { PJ_ARCH: { readAs: null }, pjArchShowing: () => true } : {});
+    await h.api.loadRoom();
+    h.box.scrollTop = 9500;   // the box is at its bottom: where the archive opens, or a reader on the newest row
+    for (let i = 0; i < 20; i++) room.add();
+    await h.api.loadRoom();
+    if (open) assert.deepEqual(ids(h.painted.at(-1)), range(801, 1020), 'with the archive open, the rows pushed out are kept for Back');
+    else assert.deepEqual(ids(h.painted.at(-1)), range(821, 1020), 'CONTROL: a reader really on the newest row follows it');
+  }
 });

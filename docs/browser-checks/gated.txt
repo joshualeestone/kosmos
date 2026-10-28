@@ -242,6 +242,7 @@ render-restore-refused-4976
 render-reviewerptr-6817
 render-richtext-2067
 render-richtext-room-2239
+render-room-archive-7365
 render-room-busy-scope-2882
 render-room-msgbox-2806
 render-room-reply-3745
