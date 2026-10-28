@@ -36,10 +36,41 @@ final class RoomStore: ObservableObject {
     // Each room's newest-page reads in the order they started, and the read count when a reopen landed: a read started
     // before the reopen never writes the hold back (review 1: an older poll landing late brought the notice back).
     private var roomReads: [String: Int] = [:]
+    // kosmos#7365 slice 3c review 6: the newest live read applied, by project.
+    private var roomLanded: [String: Int] = [:]
     private var reopenedAt: [String: Int] = [:]
     @Published private(set) var loadingOlder: Set<String> = []
     // Rooms whose last older-page read failed: the top of the room offers it again rather than spinning.
     @Published private(set) var olderFailed: Set<String> = []
+    // kosmos#7365 slice 3c: how many of each room's messages are archived, from its latest live read.
+    @Published private(set) var archivedCount: [String: Int] = [:]
+    // The archive view, by project, its own state as the board's PJ_ARCH: its rows (newest at the bottom), its earlier
+    // pages' cursor and count, whether its first page is on its way, and whether an earlier page failed. While a room
+    // shows its archive, the live reads go on (the working line, the unread counts) and the live rows stay as they were.
+    struct ArchiveView: Equatable {
+        var rows: [Board.RoomRow] = []
+        var older: (count: Int, cursor: String?) = (0, nil)
+        var opening = true
+        var loading = false
+        var olderFailed = false
+        // Review 1: the archive read's own count, which the header says (the board's PJ_ARCH.count), so a live poll
+        // cannot put a new count over the old rows.
+        var count = 0
+        static func == (l: ArchiveView, r: ArchiveView) -> Bool {
+            l.rows == r.rows && l.older.count == r.older.count && l.older.cursor == r.older.cursor && l.opening == r.opening
+                && l.loading == r.loading && l.olderFailed == r.olderFailed && l.count == r.count
+        }
+    }
+    @Published private(set) var archive: [String: ArchiveView] = [:]
+    // Said once when opening the archive did not work (the board's toast): the room shows it for a few seconds and
+    // clears it (review 1), and the next open clears it too.
+    @Published var archiveNote: [String: String] = [:]
+    // Review 2: each note's number, so a timer clears only the note it was started for.
+    @Published private(set) var archiveNoteId: [String: Int] = [:]
+    // Review 2 and 3: the count a refresh last failed to read and when, so a failing read is asked again every 30 s, not
+    // on every poll and not never (the board's next poll catches a failed re-read).
+    private var archiveRefreshFailed: [String: (count: Int, at: Date)] = [:]
+    static let archiveRetry: TimeInterval = 30
     // A post in the air or one that did not go, by project: its words, the line under it once answered, and the ids of
     // the person's posts already in the room when Post was pressed (so an earlier post with the same words never
     // settles it).
@@ -72,6 +103,10 @@ final class RoomStore: ObservableObject {
     private var ownAsk: [String: Board.OwnAsk] = [:]
     static let ownEvery: TimeInterval = 10
     static let pageSize = 50
+    #if DEBUG
+    // kosmos#7365 slice 3c: the sample room's archive (KOSMOS_SAMPLE_ARCHIVE=1), a Debug build only.
+    static let sampleArchive = #"{"rows":[{"kind":"post","id":"a1","text":"Kickoff: the spring catalogue goes to print on 3 March.","from":null,"at":"2026-08-20T15:00:00.000Z"},{"kind":"post","id":"a2","text":"Noted. I will draft the page plan this week.","from":"cleo","at":"2026-08-20T15:04:00.000Z"},{"kind":"post","id":"a3","text":"The page plan is in the project folder: 48 pages, 6 sections.","from":"cleo","at":"2026-08-22T10:12:00.000Z"},{"kind":"post","id":"a4","text":"Looks right. Go ahead with the copy for section one.","from":null,"at":"2026-08-22T10:30:00.000Z"}],"olderCount":0,"olderCursor":null,"archivedCount":1240}"#
+    #endif
 
     private let client: BoardClient
     init(client: BoardClient) { self.client = client }
@@ -81,8 +116,9 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
+        archivedCount = [:]; archive = [:]; archiveNote = [:]; archiveNoteId = [:]; archiveOpens = [:]; archiveRefreshing = []; archiveRefreshFailed = [:]   // kosmos#7365 slice 3c
         returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAsk = [:]
-        held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
+        held = [:]; roomReads = [:]; roomLanded = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0
@@ -160,7 +196,10 @@ final class RoomStore: ObservableObject {
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HELD"] == "1", !Self.sampleReopened.contains(project) {
                 held[project] = .some(Self.sampleHeldUntil)
             }
-            older[project] = (0, nil); return true
+            older[project] = (0, nil)
+            // kosmos#7365 slice 3c: KOSMOS_SAMPLE_ARCHIVE=1 gives the sample room an archive, for its screenshots.
+            archivedCount[project] = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ARCHIVE"] == "1" ? 1240 : 0
+            return true
         }
         #endif
         Task { await self.loadOwnCompare(project) }   // kosmos#7137: with each room read, landed or not (at most every 10 s)
@@ -175,7 +214,21 @@ final class RoomStore: ObservableObject {
         roomFailed.remove(project)
         roomPartial = Board.partialRooms(roomPartial, project: project, partial: page.unread)
         if Board.readMayWriteHold(read: read, reopenedAt: reopenedAt[project]) { if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil } }
-        let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)
+        // Review 3: the archive moved under the rows shown. Only rows that reach the start of the live part (no earlier
+        // live page) can now be archived, so only then: k more archived drops the first k rows shown, the oldest (the
+        // board's pjRoomDropArchived drops the leading run); fewer archived (an undo) takes the page and its cursor, so
+        // the rows given back are reachable above. Otherwise the pages already read are kept, as the board's poll keeps
+        // them (the automatic rule moves the count with every post in a room past 1,000).
+        // Review 6: a read older than one already applied is dropped (it would put back rows a newer read took out).
+        if read < (roomLanded[project] ?? 0) { return true }
+        roomLanded[project] = read
+        // Review 5: only the newest read started counts a move; an older one landing late must not read as an undo.
+        let newest = read == roomReads[project]
+        // Review 7: a read a newer one has overtaken, at another count than the rows shown, writes nothing (its rows and
+        // its cursor are of another archive); the newer read will say.
+        if !newest, let was = archivedCount[project], was != page.archivedCount { return true }
+        let fresh = (newest ? Board.archiveMoved(rows[project], older: older[project], was: archivedCount[project], page: page) : nil)
+            ?? Board.refreshRoom(rows[project], older: older[project], page: page)
         // Stamped before the rows are replaced: `before` must be what the room held until this read. The phone's clock,
         // as BoardClient.updatedAt is (its env.now() is Date() outside the tests).
         let stamped = Board.stampSpeakers(spokeAt[project] ?? [:], baselined: spokeBaseline.contains(project), before: rows[project],
@@ -184,12 +237,88 @@ final class RoomStore: ObservableObject {
         if stamped.baselined { spokeBaseline.insert(project) }
         rows[project] = fresh.rows
         older[project] = fresh.older
+        if newest { archivedCount[project] = page.archivedCount }
+        // Review 1: an archive set or undone elsewhere while this one shows: read it again, as the board's poll does
+        // when the count it sees changes.
+        let failed = archiveRefreshFailed[project]
+        if let a = archive[project], !a.opening, a.count != page.archivedCount,
+           !(failed?.count == page.archivedCount && Date().timeIntervalSince(failed!.at) < Self.archiveRetry) {
+            let want = page.archivedCount
+            Task { await self.refreshArchive(project, want: want) }
+        }
         settle(project)
         return true
     }
 
+    // kosmos#7365 slice 3c: the archive view, as the board's View archive: its newest page first, the room's live rows
+    // left as they are. A failed first read leaves the room as it was and says so once. Each open is numbered, so a
+    // read from an archive closed (or opened again) meanwhile is dropped.
+    private var archiveOpens: [String: Int] = [:]
+    func openArchive(_ project: String) async {
+        archiveOpens[project, default: 0] += 1
+        let open = archiveOpens[project]!
+        archiveNote[project] = nil
+        archive[project] = ArchiveView()
+        #if DEBUG
+        if Self.sample {
+            archive[project] = ArchiveView(rows: Board.parseRoom(Data(Self.sampleArchive.utf8), names: names)?.rows ?? [], older: (0, nil), opening: false,
+                                           count: archivedCount[project] ?? 0)
+            return
+        }
+        #endif
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, part: .archive) }
+        guard same(epoch), archiveOpens[project] == open, archive[project] != nil else { return }
+        guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
+            archive[project] = nil; archiveNote[project] = Board.Archive.couldNotOpen; archiveNoteId[project, default: 0] += 1; return
+        }
+        // Review 3: the archive's count stays the archive's; the live count is the live read's (it is what a move is
+        // measured against).
+        archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
+    }
+    // The archive's newest page again, in place of what it showed (its count changed under it). Kept as it was when the
+    // read fails; dropped when the archive was closed or opened again meanwhile.
+    private var archiveRefreshing: Set<String> = []
+    func refreshArchive(_ project: String, want: Int) async {
+        guard archive[project] != nil, !archiveRefreshing.contains(project) else { return }
+        archiveRefreshing.insert(project)
+        defer { archiveRefreshing.remove(project) }
+        let open = archiveOpens[project]
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, part: .archive) }
+        guard same(epoch), archiveOpens[project] == open, archive[project] != nil else { return }
+        guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
+            archiveRefreshFailed[project] = (want, Date()); return
+        }
+        archiveRefreshFailed[project] = nil
+        archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
+    }
+    // Back to the room: the archive's rows go, and a read still on its way for it is dropped.
+    func closeArchive(_ project: String) {
+        archiveOpens[project, default: 0] += 1
+        archive[project] = nil
+        archiveRefreshFailed[project] = nil
+    }
+    // The archive's page before the oldest one shown.
+    func loadArchiveOlder(_ project: String) async {
+        guard var view = archive[project], !view.opening, !view.loading, let cursor = view.older.cursor else { return }
+        let open = archiveOpens[project]
+        view.loading = true; view.olderFailed = false
+        archive[project] = view
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, cursor: cursor, part: .archive) }
+        guard same(epoch), archiveOpens[project] == open, var now = archive[project], now.older.cursor == cursor else { return }
+        now.loading = false
+        guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
+            now.olderFailed = true; archive[project] = now; return
+        }
+        now.rows = Board.mergeRoom(page.rows, with: now.rows)
+        now.older = (page.olderCount, page.olderCursor)
+        archive[project] = now
+    }
+
     // The page before the oldest one shown, by the computer's own cursor.
-    func loadOlder(_ project: String) async {
+    func loadOlder(_ project: String, retried: Bool = false) async {
         guard let cursor = older[project]?.cursor, !loadingOlder.contains(project) else { return }
         loadingOlder.insert(project)
         olderFailed.remove(project)
@@ -200,8 +329,21 @@ final class RoomStore: ObservableObject {
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
             olderFailed.insert(project); return
         }
+        // Review 7: a page read at another archived count than the rows shown were is not merged: the archive moved
+        // between the two reads, and only the newest page can say where the live part now starts. That read reconciles
+        // (Board.archiveMoved, on the cursor kept), then this read is tried once more on whatever cursor it left.
+        if page.archivedCount != (archivedCount[project] ?? page.archivedCount) {
+            loadingOlder.remove(project)
+            await loadRoom(project)
+            // Review 8: not when the room was left; and a retry used up shows the top's Try again, never a spinner that
+            // nothing is loading.
+            if !retried, same(epoch), !Task.isCancelled { await loadOlder(project, retried: true) }
+            else if retried { olderFailed.insert(project) }
+            return
+        }
         rows[project] = Board.mergeRoom(page.rows, with: rows[project] ?? [])
         older[project] = (page.olderCount, page.olderCursor)
+        archivedCount[project] = page.archivedCount
     }
 
     // Posts the words. Kept: the room is re-read, then the bubble goes (so the post never blinks out). Otherwise, as the

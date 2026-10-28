@@ -76,6 +76,9 @@ extension Board {
         // The computer's cursor for the page before this one; nil at the start of the room.
         let olderCursor: String?
         let held: Bool
+        // kosmos#7365 slice 3c: how many of the room's messages are archived (the route's archivedCount; 0 when the
+        // computer did not say, so an older computer draws no boundary row).
+        var archivedCount = 0
         // kosmos#7072: when the hold should lift on its own (the route's held.until), nil when it did not say.
         var heldUntil: Date? = nil
         // The route's `unanswered` for the WHOLE room (messages.unanswered is not filtered by page), names shown; nil
@@ -88,11 +91,15 @@ extension Board {
         var unread = false
     }
 
+    // kosmos#7365 slice 3c: which part of the room a page is drawn from. The phone reads the live part, as agents do
+    // (the board's pjWinRead sends archive=0); the archive view reads the archive (archive=1). The cursors are shared.
+    enum RoomPart: String { case live = "0", archive = "1" }
+
     // The newest page (no cursor) or the page before a cursor the computer gave.
-    static func roomRequest(mac: URL, project: String, n: Int, cursor: String? = nil) -> URLRequest? {
+    static func roomRequest(mac: URL, project: String, n: Int, cursor: String? = nil, part: RoomPart = .live) -> URLRequest? {
         guard isProjectId(project), (1...200).contains(n) else { return nil }
         var parts = URLComponents(url: URL(string: "/api/project/\(project)/room", relativeTo: mac)!.absoluteURL, resolvingAgainstBaseURL: true)
-        var items = [URLQueryItem(name: "n", value: String(n))]
+        var items = [URLQueryItem(name: "n", value: String(n)), URLQueryItem(name: "archive", value: part.rawValue)]
         if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
         parts?.queryItems = items
         guard let url = parts?.url else { return nil }
@@ -100,6 +107,35 @@ extension Board {
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
+    }
+
+    // kosmos#7365 slice 3c: the archive, in the board's words (web/index.html, slice 3b). The boundary row shows only
+    // once the reader has reached the start of the live part (no earlier page to read) and something is archived, as
+    // the board's paintRoom draws it; never while searching, which shortens the room.
+    enum Archive {
+        static let boundary = "Older messages are archived."
+        static let view = "View archive"
+        static let title = "Archive"
+        static let back = "Back to the room"
+        static let start = "This is the start of the room."
+        static let opening = "Opening the archive\u{2026}"
+        static let couldNotOpen = "We could not open the archive just now."
+        static let couldNotReadEarlier = "We could not read the earlier archived messages."
+        static let backAnnouncement = "Back in the room."
+        // Review 1: the composer's place while the archive shows ("You are reading the archive. Back to the room to write."),
+        // an empty archive, and a reply whose original is not in the live part once its start is reached.
+        static let readingFirst = "You are reading the archive."
+        static let readingLast = "to write."
+        static let nothing = "Nothing in this room is archived now."
+        static let originalMayBe = "Original message may be in the archive"
+        static func count(_ n: Int) -> String {
+            let f = NumberFormatter(); f.numberStyle = .decimal; f.locale = Locale(identifier: "en_US")
+            return (f.string(from: NSNumber(value: n)) ?? String(n)) + (n == 1 ? " message" : " messages")
+        }
+        static func showing(_ n: Int) -> String { "Showing the archive, " + count(n) + "." }
+        static func boundaryShown(olderCursor: String?, archivedCount: Int, searching: Bool) -> Bool {
+            olderCursor == nil && archivedCount > 0 && !searching
+        }
     }
 
     // kosmos#7072: a held room (#5800), as the board says it above its composer (web/index.html pjHeldNotice), word for
@@ -300,6 +336,7 @@ extension Board {
         var page = RoomPage(rows: rows, olderCount: max(0, integer(obj["olderCount"]) ?? 0), olderCursor: cursor,
                             held: obj["held"] is [String: Any])
         page.heldUntil = isoDate((obj["held"] as? [String: Any])?["until"] as? String)
+        page.archivedCount = max(0, integer(obj["archivedCount"]) ?? 0)
         if obj["unanswered"] is [String: Any] { page.silent = silent.mapValues { $0.map(shown) } }
         page.unread = (obj["ok"] as? Bool) == false
         return page
@@ -365,6 +402,42 @@ extension Board {
     // (it still points before the oldest row shown). When it shares no row with them and the computer says older rows
     // exist, more than a page arrived while the room was away: merging would hide a gap no cursor can reach, so the
     // page replaces what was shown and its own cursor takes over.
+    // kosmos#7365 slice 3c (reviews 3 to 5): the newest live page when the archived count moved since the rows shown
+    // were read; nil means merge as usual. The first read (was nil) is never a move.
+    // - Fewer archived (an undo): at the live start the page and its cursor replace the rows, so the rows given back are
+    //   reachable above; with earlier pages still unread, the earlier-page read finds them.
+    // - More archived, and the page reaches the live start (olderCount 0): the page holds the whole live part, so every
+    //   row shown before its first row is archived, found by the row itself (its id), or by time when the phone does not
+    //   hold that row. The page's nil cursor is taken.
+    // - More archived, the live start off the page: the earlier rows still unread were archived first; only the rest of
+    //   the move (beyond older.count) reaches the rows shown, the first ones, and then nothing earlier is left to read.
+    // Review 6: every move keeps older.count (the earlier live rows still unread) in step, a move that stops short of the
+    // rows shown included, so the next one is measured against the truth.
+    static func archiveMoved(_ shown: [RoomRow]?, older: (count: Int, cursor: String?)?, was: Int?, page: RoomPage)
+        -> (rows: [RoomRow], older: (count: Int, cursor: String?))? {
+        guard let was, was != page.archivedCount, let shown, let older else { return nil }
+        let start = (count: 0, cursor: String?.none)
+        if page.archivedCount < was {
+            if older.cursor == nil { return (page.rows, (page.olderCount, page.olderCursor)) }
+            return refreshRoom(shown, older: (older.count + (was - page.archivedCount), older.cursor), page: page)
+        }
+        let kept: [RoomRow]
+        if page.olderCount == 0 {
+            guard let first = page.rows.first else { return (page.rows, start) }
+            if let i = shown.firstIndex(where: { $0.id == first.id }) { kept = Array(shown[i...]) }
+            else if let cut = first.at { kept = shown.filter { ($0.at ?? .distantFuture) > cut } }
+            else { kept = [] }
+        } else {
+            let unread = older.cursor == nil ? 0 : older.count
+            let k = page.archivedCount - was - unread
+            guard k > 0 else { return refreshRoom(shown, older: (unread - (page.archivedCount - was), older.cursor), page: page) }
+            kept = Array(shown.dropFirst(k))
+        }
+        // Nothing shown is still live: the page and its own cursor, so the live rows before it stay reachable.
+        if kept.isEmpty { return (page.rows, (page.olderCount, page.olderCursor)) }
+        return refreshRoom(kept, older: start, page: page)
+    }
+
     static func refreshRoom(_ shown: [RoomRow]?, older: (count: Int, cursor: String?)?, page: RoomPage)
         -> (rows: [RoomRow], older: (count: Int, cursor: String?)) {
         guard let shown, let older else { return (page.rows, (page.olderCount, page.olderCursor)) }

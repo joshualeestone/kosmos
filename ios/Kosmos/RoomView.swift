@@ -88,7 +88,17 @@ struct RoomView: View {
     // The row open or words in it: no older pages (the chat's rule, #7089, from the board's earlierNearTop).
     private var searchMode: Bool { searchOpen || searching }
 
-    private var rows: [Board.RoomRow] { store.rows[project.id] ?? [] }
+    // kosmos#7365 slice 3c: the archive view, when open (the board's PJ_ARCH); its rows replace the live ones on screen.
+    private var archiveView: RoomStore.ArchiveView? { store.archive[project.id] }
+    // The archive once its first page is in; while it opens, the live room stays painted (review 1, as the board).
+    private var archiveShown: RoomStore.ArchiveView? { archiveView.flatMap { $0.opening ? nil : $0 } }
+    private var rows: [Board.RoomRow] { archiveShown?.rows ?? (store.rows[project.id] ?? []) }
+    @AccessibilityFocusState private var archiveBackFocused: Bool
+    // Review 1: the archive was showing (its rows in), so Back can put the reader back at the boundary row.
+    @State private var archiveWasShown = false
+    // Review 2 and 3: which part the new-row scroll last saw; a change of part is the archive's handler's to place, read
+    // here rather than from a flag the other handler sets (their order in one update is not documented).
+    @State private var rowsPart = false
     // The rows the search keeps, before refusals fold (as the board filters before its fold).
     private var shownRows: [Board.RoomRow] {
         guard searching else { return rows }
@@ -109,6 +119,7 @@ struct RoomView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16).padding(.vertical, 8)
             }
+            if let arch = archiveShown { archiveHead(arch) }
             thread
                 .messagesVisibleArea()   // kosmos#7419 review 4: the lit message's hole stays in the posts' own area
                 .background(GeometryReader { g in Color.clear.onAppear { threadHeight = g.size.height }
@@ -118,6 +129,17 @@ struct RoomView: View {
             if hiddenBySearch {
                 Text(Board.roomHiddenBySearch).font(.footnote).foregroundColor(Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 4)
+            } else if let note = store.archiveNote[project.id] {
+                // The board's toast when the archive would not open: said once, shown for a few seconds (review 1).
+                Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
+                    .id(store.archiveNoteId[project.id] ?? 0)   // review 3: each note its own appearance and timer
+                    .onAppear {
+                        Self.say(note)
+                        let id = store.archiveNoteId[project.id]
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                            if store.archiveNoteId[project.id] == id { store.archiveNote[project.id] = nil }
+                        }
+                    }
             } else if let note = store.notes[project.id] {
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
             } else if sentWhileSearching {
@@ -127,9 +149,22 @@ struct RoomView: View {
                     // Spoken, as the chat's line is: the search field keeps VoiceOver's focus.
                     .onAppear { Self.say(Board.chatSentWhileSearching) }
             }
-            workingLine
-            heldNotice
-            composer
+            // The archive is for reading: no composer, held notice or working line while it shows (the board hides its
+            // composer in the archive view).
+            if archiveShown == nil {
+                workingLine
+                heldNotice
+                composer
+            } else {
+                // The board's line in the composer's place (pj-arch-note).
+                HStack(spacing: 4) {
+                    Text(Board.Archive.readingFirst).foregroundColor(Palette.secondary)
+                    Button(Board.Archive.back) { backToRoom() }.frame(minHeight: 44)
+                    Text(Board.Archive.readingLast).foregroundColor(Palette.secondary)
+                }
+                .font(.footnote).frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 6)
+                .accessibilityElement(children: .contain)
+            }
         }
         .background(Palette.ground.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
@@ -198,6 +233,8 @@ struct RoomView: View {
             // scroll again, as putting it away does.
             if filteredInMode { settledAtBottom = false }
             clears += 1   // a clear's delayed steps belong to this visit
+            // kosmos#7365 slice 3c: the archive is a reading posture too: coming back shows the live room.
+            if archiveView != nil { store.closeArchive(project.id); archiveWasShown = false }
             filteredInMode = false
             query = ""
             searchOpen = false
@@ -207,7 +244,11 @@ struct RoomView: View {
             hiddenBySearch = false
             spokeEmpty = false
         }
-        .onChange(of: searching) { now in if now { filteredInMode = true } }
+        .onChange(of: searching) { now in
+            if now { filteredInMode = true }
+            // Review 1: a search is of the live room; the board closes the archive when one starts.
+            if now && archiveView != nil { store.closeArchive(project.id); archiveWasShown = false }
+        }
         .onChange(of: query) { _ in sentWhileSearching = false; hiddenBySearch = false }
         .onChange(of: searching && shownRows.isEmpty) { empty in if !empty { spokeEmpty = false } }
         // A post that did not go says so on its own line; the search's line is not about it.
@@ -265,11 +306,80 @@ struct RoomView: View {
                 // earlier visit included), or one that finished after the person left, is not the person seeing it.
                 if Task.isCancelled { break }
                 // By the newest row, not the count: a re-read that replaced 50 rows with 50 newer ones is still new.
-                if read, let shown = store.rows[project.id], !seenOnce || shown.last?.id != lastSeen {
+                // Review 1: not while the archive shows, where a new live post is not on screen (the board marks seen
+                // when the archive closes; the next read after Back does here).
+                if read, store.archive[project.id] == nil, let shown = store.rows[project.id], !seenOnce || shown.last?.id != lastSeen {
                     seenOnce = true; lastSeen = shown.last?.id
                     await store.markSeen(project.id)
                 }
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+    }
+
+    // kosmos#7365 slice 3c: the boundary row at the start of the live part (the board's pjRoomTopEdge).
+    private var archiveBoundary: some View {
+        HStack(spacing: 6) {
+            Text(Board.Archive.boundary).foregroundColor(Palette.secondary)
+            if archiveView?.opening == true {
+                Text(Board.Archive.opening).foregroundColor(Palette.secondary).frame(minHeight: 44)
+            } else {
+                Button(Board.Archive.view) {
+                    Task {
+                        await store.openArchive(project.id)
+                        if let a = store.archive[project.id], !a.opening { Self.say(Board.Archive.showing(a.count)) }
+                    }
+                }
+                .frame(minHeight: 44)
+            }
+        }
+        .font(.footnote).frame(maxWidth: .infinity).padding(.vertical, 4)
+    }
+    // The archive's header, as the board's pj-arch-head: Archive, how many, and the way back.
+    private func archiveHead(_ arch: RoomStore.ArchiveView) -> some View {
+        HStack(spacing: 8) {
+            Text(Board.Archive.title).font(.subheadline.weight(.semibold))
+            Text(Board.Archive.count(arch.count)).font(.subheadline).foregroundColor(Palette.secondary)
+            Spacer()
+            Button(Board.Archive.back) { backToRoom() }
+                .font(.subheadline).frame(minHeight: 44)
+                .accessibilityFocused($archiveBackFocused)
+        }
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .contain)
+    }
+    // Back to the room, said, with VoiceOver's focus on the message box (the board focuses its composer).
+    private func backToRoom() {
+        store.closeArchive(project.id)
+        Self.say(Board.Archive.backAnnouncement)
+        Task { await store.markSeen(project.id) }   // review 2: seen on Back, as the board's pjArchClose, not at the next poll
+        DispatchQueue.main.async { composerFocused = true }
+    }
+    // The archive's top: opening, its earlier pages on reaching the top (as the live part's), or the start of the room.
+    @ViewBuilder private func archiveTop(_ arch: RoomStore.ArchiveView, _ proxy: ScrollViewProxy) -> some View {
+        if arch.older.cursor != nil && !searchMode {
+            if arch.olderFailed {
+                Button(Board.Archive.couldNotReadEarlier) { loadArchiveOlder(proxy) }
+                    .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
+            } else {
+                HStack { Spacer(); ProgressView(); Spacer() }
+                    .onAppear { olderShowing = true; if settledAtBottom { loadArchiveOlder(proxy) } }
+                    .onDisappear { olderShowing = false }
+            }
+        } else if arch.older.cursor == nil {
+            Text(Board.Archive.start).font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity).padding(.vertical, 4)
+        }
+    }
+    private func loadArchiveOlder(_ proxy: ScrollViewProxy) {
+        guard !searchMode else { return }
+        let anchor = items.first(where: { if case let .row(r, _, _) = $0.kind { return r.kind == .post } else { return false } })?.id
+        Task {
+            let before = store.archive[project.id]?.older.cursor
+            await store.loadArchiveOlder(project.id)
+            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            let after = store.archive[project.id]?.older.cursor
+            if olderShowing, after != nil, after != before, store.archive[project.id]?.olderFailed == false {
+                DispatchQueue.main.async { if olderShowing { loadArchiveOlder(proxy) } }
             }
         }
     }
@@ -560,7 +670,9 @@ struct RoomView: View {
                     // row happened, even if the end marker was not reached (estimated row heights; ChatView's rule).
                     Color.clear.frame(height: 1)
                         .onDisappear { if !rows.isEmpty { settledAtBottom = true } }
-                    if store.older[project.id]?.cursor != nil && !searchMode {
+                    if let arch = archiveShown {
+                        archiveTop(arch, proxy)
+                    } else if store.older[project.id]?.cursor != nil && !searchMode {
                         if store.olderFailed.contains(project.id) {
                             Button("We could not load earlier messages. Try again") { loadOlder(proxy) }
                                 .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
@@ -570,7 +682,19 @@ struct RoomView: View {
                                 .onDisappear { olderShowing = false }
                         }
                     }
-                    if store.rows[project.id] != nil && rows.isEmpty { emptyRoom }
+                    // kosmos#7365 slice 3c: the start of the live part with messages archived: the board's boundary row.
+                    if archiveShown == nil, store.rows[project.id] != nil,
+                       Board.Archive.boundaryShown(olderCursor: store.older[project.id]?.cursor,
+                                                   archivedCount: store.archivedCount[project.id] ?? 0, searching: searchMode) {
+                        archiveBoundary.id("archiveBoundary")
+                    }
+                    // Review 1: with messages archived, an empty live part is not "nothing here yet" (the board's
+                    // `rows || (archived ? '' : empty)`); an empty archive says so, as the board's.
+                    if let arch = archiveShown {
+                        if arch.rows.isEmpty {
+                            Text(Board.Archive.nothing).font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity).padding(.top, 8)
+                        }
+                    } else if store.rows[project.id] != nil && rows.isEmpty && (store.archivedCount[project.id] ?? 0) == 0 { emptyRoom }
                     // On a read that could not read all of the room, what matches may be in the part it missed: the
                     // board's partial-read line there, not its no-match sentence (paintRoom on body.ok === false).
                     else if searching && shownRows.isEmpty && !rows.isEmpty {
@@ -582,8 +706,8 @@ struct RoomView: View {
                         } else { noMatch }
                     }
                     ForEach(items) { item in itemView(item).id(item.id).accessibilityFocused($focusedPost, equals: item.id) }
-                    ForEach(store.pending[project.id] ?? []) { p in pendingView(p) }
-                    if store.roomFailed.contains(project.id) {
+                    if archiveShown == nil { ForEach(store.pending[project.id] ?? []) { p in pendingView(p) } }   // review 1: the live room's only
+                    if archiveShown == nil && store.roomFailed.contains(project.id) {
                         Text("We cannot read this room right now. What is shown may be behind.")
                             .font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity).padding(.top, 8)
                     }
@@ -600,6 +724,7 @@ struct RoomView: View {
             }
             .kosmosTopFade()   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
             .onChange(of: rows.last?.id) { _ in
+                if rowsPart != (archiveShown != nil) { rowsPart = archiveShown != nil; return }   // the archive's handler places the reader
                 if !settledAtBottom {
                     // The first page: straight to the newest row, then the top may ask for older ones. A page that fits
                     // on one screen moves neither marker, so settle here when the end is already showing.
@@ -649,7 +774,10 @@ struct RoomView: View {
                 pendingCount = n
             }
             // The first scroll has happened and the top is already showing (a room shorter than the screen).
-            .onChange(of: settledAtBottom) { done in if done && olderShowing { loadOlder(proxy) } }
+            .onChange(of: settledAtBottom) { done in
+                guard done && olderShowing else { return }
+                if archiveShown != nil { loadArchiveOlder(proxy) } else { loadOlder(proxy) }   // review 2: the part on screen
+            }
             // The magnifier opened the row over a reader at the newest post: back there once the keyboard is up too (the
             // room has no other keyboard rule; the chat's keepNewestInView does this there).
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
@@ -678,6 +806,25 @@ struct RoomView: View {
                 DispatchQueue.main.async { if !searchMode && visible && clears == clear { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     if !searchMode && visible && clears == clear && !settledAtBottom && !rows.isEmpty { settledAtBottom = true }
+                }
+            }
+            // kosmos#7365 slice 3c: the archive's first page in: at its newest message, and the top asks for earlier pages
+            // only once that scroll has settled, as on opening the room (review 1). Back: the reader is put back at the
+            // boundary row they left from, as the board's PJ_ARCH.anchor. A failed open never moved them.
+            .onChange(of: archiveShown != nil) { shown in
+                if shown {
+                    archiveWasShown = true
+                    settledAtBottom = false
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                    DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { if archiveShown != nil && !settledAtBottom { settledAtBottom = true } }
+                    archiveBackFocused = true
+                } else if archiveWasShown {
+                    archiveWasShown = false
+                    // The boundary row, when it is still drawn; else the newest post (an Undo on the computer took it).
+                    let back = Board.Archive.boundaryShown(olderCursor: store.older[project.id]?.cursor,
+                                                           archivedCount: store.archivedCount[project.id] ?? 0, searching: searchMode)
+                    DispatchQueue.main.async { if back { proxy.scrollTo("archiveBoundary", anchor: .top) } else { proxy.scrollTo("bottom", anchor: .bottom) } }
                 }
             }
             .onAppear {
@@ -788,7 +935,10 @@ struct RoomView: View {
                            replied: row.replyTo.flatMap { id in rows.first { $0.id == id && $0.kind != .kosmos } },
                            // Only once the whole room is loaded can an original be said to be gone; before that it may
                            // simply be on an older page.
-                           roomComplete: store.older[project.id]?.cursor == nil, nameOf: { displayName($0) },
+                           roomComplete: (archiveShown.map { $0.older.cursor } ?? store.older[project.id]?.cursor) == nil,
+                           // Review 1: the start of the live part reached with messages archived (the board's words).
+                           mayBeArchived: archiveShown == nil && (store.archivedCount[project.id] ?? 0) > 0 && !searching,
+                           nameOf: { displayName($0) },
                            react: { emoji in Task { await store.react(emoji, to: row, in: project.id) } },
                            reply: {
                                replying = row
@@ -801,6 +951,7 @@ struct RoomView: View {
                            jump: { if let id = row.replyTo { jumpTo = id } }, flashing: flashed == row.id,
                            mentionNames: row.mentioned.compactMap { store.names[$0] },
                            thumbnails: client.thumbnails, fileStates: fileStates, openFile: openFile)
+                    .modifier(ArchivedBubble(on: archiveShown != nil))
                     .padding(.top, first ? 6 : 0)
                     .task { for f in row.attachments { await client.loadThumbnail(f) } }
             }
@@ -1170,6 +1321,17 @@ struct RoomView: View {
 
 // One post in a room: the sender's picture and name on the first of a run, the board's bubble colours, a reply header,
 // reactions and the silence line under it.
+// kosmos#7365 slice 3c: an archived post is read, not answered (the archive view has no composer), and drawn a shade
+// quieter, as the board's archive bubbles. Copy stays (the bubble's own actions are limited by `archived`).
+struct ArchivedBubble: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View { content.opacity(on ? 0.85 : 1).environment(\.roomArchived, on) }
+}
+private struct RoomArchivedKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var roomArchived: Bool { get { self[RoomArchivedKey.self] } set { self[RoomArchivedKey.self] = newValue } }
+}
+
 struct RoomBubble: View {
     let row: Board.RoomRow
     let first: Bool
@@ -1178,6 +1340,7 @@ struct RoomBubble: View {
     let picture: UIImage?
     let replied: Board.RoomRow?
     let roomComplete: Bool
+    var mayBeArchived = false   // kosmos#7365 slice 3c review 1: the original may be in the archive
     let nameOf: (Board.RoomRow) -> String
     let react: (String) -> Void
     let reply: () -> Void
@@ -1191,7 +1354,9 @@ struct RoomBubble: View {
     // kosmos#7062: the words shown beside the post's files (Board.roomWords, tested).
     private var words: String { Board.roomWords(row) }
     // Reply and reactions only on a post of this room: the board's route takes neither for an outside message.
-    private var answerable: Bool { row.kind == .post }
+    // kosmos#7365 slice 3c: nor on an archived one, which the archive view shows for reading.
+    @Environment(\.roomArchived) private var archived
+    private var answerable: Bool { row.kind == .post && !archived }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
@@ -1281,7 +1446,7 @@ struct RoomBubble: View {
                 // Read as the board's label (review 1), as words in the post; the jump is the post's double-tap (below).
                 .accessibilityRepresentation { Text(Board.replyJumpLabel(who: nameOf(replied), gist: gist)) }
             } else if row.replyTo != nil && roomComplete {
-                Text("Original message unavailable").font(.footnote).foregroundColor(Palette.tertiary)
+                Text(mayBeArchived ? Board.Archive.originalMayBe : "Original message unavailable").font(.footnote).foregroundColor(Palette.tertiary)
             }
             if !words.isEmpty || row.attachments.isEmpty {
                 Text(row.kind == .external ? AttributedString(words) : Self.withMentions(Board.messageText(words), mentioned: row.mentioned, names: mentionNames))

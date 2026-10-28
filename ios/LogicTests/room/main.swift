@@ -171,9 +171,92 @@ check(Board.mentionRanges("@eli.x", "eli").isEmpty, "CONTROL: a dot inside a lon
 section("the request: the newest page, or the page before the computer's cursor")
 let mac = URL(string: "https://studio.kosmosplus.com")!
 let r1 = Board.roomRequest(mac: mac, project: "spring-catalogue", n: 50)
-check(r1?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50", "the newest page: \(r1?.url?.absoluteString ?? "nil")")
+check(r1?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50&archive=0", "the newest page of the live part: \(r1?.url?.absoluteString ?? "nil")")
 let r2 = Board.roomRequest(mac: mac, project: "spring-catalogue", n: 50, cursor: "2026-10-22T15:00:00.000Z|0")
-check(r2?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50&cursor=2026-10-22T15:00:00.000Z%7C0", "the cursor, escaped: \(r2?.url?.absoluteString ?? "nil")")
+check(r2?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50&archive=0&cursor=2026-10-22T15:00:00.000Z%7C0", "the cursor, escaped: \(r2?.url?.absoluteString ?? "nil")")
+// kosmos#7365 slice 3c: the archive view reads the archive, with the same cursors.
+let r3 = Board.roomRequest(mac: mac, project: "spring-catalogue", n: 50, cursor: "2026-10-01T09:00:00.000Z|2", part: .archive)
+check(r3?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50&archive=1&cursor=2026-10-01T09:00:00.000Z%7C2", "the archive's page: \(r3?.url?.absoluteString ?? "nil")")
+check(boardPage.contains("const q = 'n=' + n + '&archive=' + (archive ? '1' : '0')"), "the board's window reads send archive=0 and 1, as the phone does")
+section("the archive (kosmos#7365 slice 3c)")
+let archPage = Board.parseRoom(Data(#"{"rows":[{"kind":"post","id":"m9","text":"x","at":"2026-10-22T15:03:00.000Z"}],"olderCount":0,"olderCursor":null,"archivedCount":1234}"#.utf8))
+check(archPage?.archivedCount == 1234 && archPage?.olderCursor == nil, "a page says how many messages are archived")
+check(Board.parseRoom(Data(#"{"rows":[],"olderCount":0}"#.utf8))?.archivedCount == 0 && Board.parseRoom(Data(#"{"rows":[],"archivedCount":-3}"#.utf8))?.archivedCount == 0,
+      "a computer that does not say has nothing archived")
+check(Board.Archive.boundaryShown(olderCursor: nil, archivedCount: 3, searching: false), "the boundary row: at the start of the live part, with messages archived")
+check(!Board.Archive.boundaryShown(olderCursor: "c", archivedCount: 3, searching: false), "not while there is an earlier live page to read")
+check(!Board.Archive.boundaryShown(olderCursor: nil, archivedCount: 0, searching: false), "not when nothing is archived")
+check(!Board.Archive.boundaryShown(olderCursor: nil, archivedCount: 3, searching: true), "not while searching, as the board's pjRoomTopEdge")
+// Review 3: a move of the archived count changes the rows shown only when they reach the start of the live part.
+func archPg(_ ids: [Int], archived: Int, older: Int = 0, cursor: String? = nil) -> Board.RoomPage {
+    let rows = ids.map { #"{"kind":"post","id":"m\#($0)","text":"t\#($0)","at":"2026-10-22T15:\#(String(format: "%02d", $0)):00.000Z"}"# }.joined(separator: ",")
+    let c = cursor.map { #","olderCursor":"\#($0)""# } ?? ""
+    return Board.parseRoom(Data(#"{"rows":[\#(rows)],"olderCount":\#(older)\#(c),"archivedCount":\#(archived)}"#.utf8))!
+}
+let shownStart = archPg([1, 2, 3, 4], archived: 10).rows
+check(Board.archiveMoved(shownStart, older: (0, nil), was: nil, page: archPg([3, 4, 5], archived: 12)) == nil, "the first read is never a move")
+check(Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([3, 4, 5], archived: 10)) == nil, "the same count is no move")
+let notReached = Board.archiveMoved(shownStart, older: (5, "c"), was: 10, page: archPg([3, 4, 5], archived: 12, older: 5, cursor: "c2"))
+check(notReached?.rows.map(\.id) == ["m1", "m2", "m3", "m4", "m5"] && notReached?.older.count == 3,
+      "a move no larger than the earlier live rows still unread: nothing shown goes, 3 left unread")
+// Review 5: the archive grows past the earlier rows still unread (an "Archive older messages" on the computer): the new
+// live start falls inside the rows shown. Rows 21 to 30 shown, 5 earlier live rows unread, 10 archived.
+let deepShown = archPg(Array(21...30), archived: 10).rows
+let onPage = Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([28, 29, 30], archived: 27))
+check(onPage?.rows.map(\.id) == ["m28", "m29", "m30"] && onPage?.older.cursor == nil && onPage?.older.count == 0,
+      "the live start on the page: every row shown before it goes, and nothing earlier is left to read: \(onPage?.rows.map(\.id) ?? [])")
+// A row with no time before the live start (an older log line): found by its place, not by a time it does not have.
+let untimed = Board.parseRoom(Data(#"{"rows":[{"kind":"post","id":"m1","text":"a","at":"2026-10-22T15:01:00.000Z"},{"kind":"post","id":"mx","text":"b","at":null},{"kind":"post","id":"m3","text":"c","at":"2026-10-22T15:03:00.000Z"}],"olderCount":0,"archivedCount":10}"#.utf8))!.rows
+let untimedMoved = Board.archiveMoved(untimed, older: (0, nil), was: 10, page: archPg([3, 4], archived: 12))
+check(untimedMoved?.rows.map(\.id) == ["m3", "m4"], "a row with no time before the live start goes too: \(untimedMoved?.rows.map(\.id) ?? [])")
+// Review 6: two reads in a row. A move that stops short of the rows shown still counts down the rows unread, so the next
+// move is measured against the truth; an undo with earlier pages unread counts them up.
+let short = Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([29, 30], archived: 12, older: 8, cursor: "d"))
+check(short?.rows.map(\.id) == deepShown.map(\.id) + [] && short?.older.count == 3 && short?.older.cursor == "c",
+      "a move of 2 with 5 unread: the rows stay, 3 left unread: \(short.map { "\($0.older)" } ?? "nil")")
+if let short {
+    let second = Board.archiveMoved(short.rows, older: short.older, was: 12, page: archPg([29, 30], archived: 16, older: 4, cursor: "e"))
+    check(second?.rows.first?.id == "m22" && second?.older.cursor == nil, "then +4: the 3 unread and m21 went: \(second?.rows.first?.id ?? "nil")")
+}
+let undoUnread = Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([29, 30], archived: 5, older: 13, cursor: "d"))
+check(undoUnread?.older.count == 10 && undoUnread?.older.cursor == "c", "an undo of 5 with earlier pages unread: 10 now unread")
+let offPage = Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([29, 30], archived: 18, older: 10, cursor: "d"))
+check(offPage?.rows.first?.id == "m24" && offPage?.rows.count == 7 && offPage?.older.cursor == nil,
+      "the live start off the page: the 5 unread went first, then the first 3 shown: \(offPage?.rows.map(\.id) ?? [])")
+check(Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([28, 29, 30], archived: 8, older: 20, cursor: "u"))?.older.cursor == "c",
+      "an undo with earlier pages unread: the rows given back are read as the reader scrolls up, on the cursor held")
+let moved2 = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([3, 4, 5], archived: 12))
+check(moved2?.rows.map(\.id) == ["m3", "m4", "m5"], "two more archived: the first two shown go, the rest merge with the page: \(moved2?.rows.map(\.id) ?? [])")
+// Review 4: the page reaches the live start: the cut is its first row's time, whatever the phone did not draw.
+let byTime = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([2, 3, 4, 5], archived: 13))
+check(byTime?.rows.map(\.id) == ["m2", "m3", "m4", "m5"], "the cut is the page's first row when the page reaches the live start: \(byTime?.rows.map(\.id) ?? [])")
+// A row this phone does not draw was archived too (the count moved 1, two drawn rows went): the time cut is right where
+// a count would keep m2.
+let undrawn = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([3, 4, 5], archived: 11))
+check(undrawn?.rows.map(\.id) == ["m3", "m4", "m5"], "an undrawn archived row does not shift the cut: \(undrawn?.rows.map(\.id) ?? [])")
+let byCount = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([4, 5], archived: 12, older: 1, cursor: "z"))
+check(byCount?.rows.map(\.id) == ["m3", "m4", "m5"] && byCount?.older.cursor == nil,
+      "the live start off the page: the first k shown go, the rest merge: \(byCount?.rows.map(\.id) ?? [])")
+let allGone = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([7, 8], archived: 16, older: 3, cursor: "q"))
+check(allGone?.rows.map(\.id) == ["m7", "m8"] && allGone?.older.cursor == "q" && allGone?.older.count == 3,
+      "nothing shown still live: the page and its own cursor, so the earlier live rows stay reachable")
+let undone = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([1, 2, 3, 4, 5], archived: 4, older: 6, cursor: "k"))
+check(undone?.rows.map(\.id) == ["m1", "m2", "m3", "m4", "m5"] && undone?.older.cursor == "k" && undone?.older.count == 6,
+      "fewer archived: the page and its cursor, so the rows given back are reachable above")
+check(Board.Archive.count(1) == "1 message" && Board.Archive.count(5500) == "5,500 messages", "the count, as the board's toLocaleString")
+check(Board.Archive.showing(2) == "Showing the archive, 2 messages.", "the archive is announced as the board announces it")
+check(boardPage.contains("<span>" + Board.Archive.boundary + "</span> <button type=\"button\" class=\"linkish pj-arch-ctl\" id=\"pj-arch-open\">" + Board.Archive.view + "</button>"),
+      "the boundary row's words are the board's")
+check(boardPage.contains("'<div class=\"pj-arch-edge\">" + Board.Archive.start + "</div>'"), "the start of the room, as the board")
+for w in [Board.Archive.back, Board.Archive.couldNotOpen, Board.Archive.couldNotReadEarlier, "'" + Board.Archive.backAnnouncement + "'",
+          "<b>" + Board.Archive.title + "</b>"] {
+    check(boardPage.contains(w), "the board's words: " + w)
+}
+check(boardPage.contains(Board.Archive.readingFirst + " <button type=\"button\" class=\"linkish pj-arch-ctl\" id=\"pj-arch-note-back\">" + Board.Archive.back + "</button> " + Board.Archive.readingLast),
+      "the composer's place while the archive shows, as the board's pj-arch-note")
+check(boardPage.contains(">" + Board.Archive.nothing + "</p>"), "an empty archive, as the board")
+check(boardPage.contains("<span class=\"msg-replyto gone\">" + Board.Archive.originalMayBe + "</span>"), "a reply's original that may be archived, as the board")
+check(boardPage.contains("'Opening the archive\\u2026'") && Board.Archive.opening == "Opening the archive\u{2026}", "opening, with the board's ellipsis")
 check(Board.roomRequest(mac: mac, project: "../x", n: 50) == nil && Board.roomRequest(mac: mac, project: "Spring", n: 50) == nil, "a project id the board cannot have is refused")
 check(Board.roomRequest(mac: mac, project: "p", n: 0) == nil && Board.roomRequest(mac: mac, project: "p", n: 201) == nil, "n outside 1 to 200 is refused")
 
