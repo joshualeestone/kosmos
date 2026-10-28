@@ -25533,16 +25533,14 @@ function paintOfflineNote(down, deviceIsOffline) {
        means nothing to the person, so the remedy is to wait or look from the sign-in page. */
     const cloud = (typeof onCloudMachine === 'function' && onCloudMachine());
     /* kosmos#7416 (Mona Lisa's words): the computer by its own name when Kosmos+ has told the page (THIS_COMPUTER_NAME,
-       from Your computers), and when this page last heard from it, after the sentence's first clause. Never a claim it
+       from Your computers), and when this page last heard from it, after its first sentence. Never a claim it
        is asleep: from here asleep, off and offline look the same. */
     /* Review 3: a cloud machine keeps seam H's note exactly (the person never named it, and Mona Lisa's words cover the
        board note only), so neither its name nor a time; and a time is said only when this page was still asking when
        the computer stopped answering (lastHeardTrusted). */
     const named = !cloud && typeof THIS_COMPUTER_NAME === 'string' && THIS_COMPUTER_NAME.trim() ? esc(THIS_COMPUTER_NAME.trim()) : hostMachineCap();
     const said = cloud ? CLOUD_ASLEEP_SENTENCE : MAC_ASLEEP_SENTENCE + at;
-    // typeof-guarded: tests lift paintOfflineNote alone (without lastHeardTrusted it says the time whenever there is one).
-    const trusted = typeof lastHeardTrusted === 'function' ? lastHeardTrusted() : typeof LAST_STATUS_OK_AT === 'number';
-    const heard = !cloud && trusted ? lastHeardSentence(LAST_STATUS_OK_AT, Date.now()) : '';
+    const heard = !cloud && lastHeardTrusted() ? lastHeardSentence(LAST_STATUS_OK_AT, Date.now()) : '';
     const first = said.search(/[.!?] /);   // the end of the first sentence; the time goes after it, or at the end
     const cut = first >= 0 ? first + 1 : said.length;
     const html = '<div class="utoast stale" role="status">'
@@ -25801,14 +25799,14 @@ let LAST_STATUS_OK_AT = null;
    locked phone or a hidden tab stops polling (Safari suspends it), and the computer can go on answering for hours. */
 let STATUS_FIRST_MISS_AT = null;
 const HEARD_GAP_MS = 2 * 60 * 1000;   // a throttled hidden tab still asks about once a minute
-/* Whether "We last heard from it at ..." is true: the page heard from the computer, and its first unanswered poll went
-   out within HEARD_GAP_MS of that, so nothing was missed in between. Otherwise the sentence is left out (Mona Lisa:
-   with no time known, drop it rather than guess). */
 /* A good answer: the page heard from the computer now, and any first miss before it is over. */
 function statusHeard(now) {
   LAST_STATUS_OK_AT = now;
   STATUS_FIRST_MISS_AT = null;
 }
+/* Whether "We last heard from it at ..." is true: the page heard from the computer, and its first unanswered poll went
+   out within HEARD_GAP_MS of that, so nothing was missed in between. Otherwise the sentence is left out (Mona Lisa:
+   with no time known, drop it rather than guess). */
 function lastHeardTrusted() {
   if (typeof LAST_STATUS_OK_AT !== 'number') return false;
   if (typeof STATUS_FIRST_MISS_AT !== 'number') return true;
@@ -26081,7 +26079,6 @@ async function tick() {
        AbortController, not AbortSignal.timeout: Safari before 16 lacks the latter (as at the first-run
        fetch); where neither exists the poll goes out with no limit, as before. */
     const statusAbort = typeof AbortController === 'function' ? new AbortController() : null;
-
     if (statusAbort) statusCut = setTimeout(() => { statusTimedOut = true; statusAbort.abort(); }, statusLimit);
     const res = await fetch('/api/status', statusAbort ? { cache: 'no-store', signal: statusAbort.signal } : { cache: 'no-store' });
     /* 🛑 THE SERVER'S SENTENCE WAS NEVER READ. This threw `status 500` and the

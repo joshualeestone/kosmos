@@ -54,7 +54,7 @@ test('#7416: "we last heard from it" says the time today, "yesterday", the weekd
   // Nothing that is not a real past time.
   assert.equal(ctx.heard(NaN, now), '');
   assert.equal(ctx.heard(now + 10 * 60 * 1000, now), '');
-  // A clock up to a minute ahead (another device's time) still reads as now.
+  // This device's clock stepping back up to a minute (LAST_STATUS_OK_AT is this page's own Date.now()) still reads as now.
   assert.equal(ctx.heard(now + 30 * 1000, now), 'We last heard from it at ' + clock(now + 30 * 1000) + '.');
 });
 
