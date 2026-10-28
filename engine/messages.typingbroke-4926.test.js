@@ -154,9 +154,10 @@ test('#4926 review 1 (Opus): the held line riding a typed arrival leaves out a s
     const calls = arm();
     roomhold.forget('dee');
     const before = await postAs(roster, 'cy', 'before the stop');   // real rows, so the record reader keeps them
-    /* kosmos#7432: the stop is stamped 1 ms after the earlier post, and the later post waits until the clock is past
-       it. A stop stamped "now" could share the earlier post's millisecond, and staleHeld's rule is strictly-after
-       (stoppedAt > at), so the earlier post then read as fresh and the fixture failed about 1 run in 3 under load. */
+    /* kosmos#7432: reported flaky under load. staleHeld's rule is strictly-after (stoppedAt > at), and a stop stamped
+       "now" could share the earlier post's millisecond (the suspected cause; a stop stamped AT it fails every run), or
+       the 5 ms timer could fire early and leave the later post at the stop. So the stop is stamped 1 ms after the
+       earlier post, and the later post waits until the clock is past it: both orderings are fixed by construction. */
     const stopAt = Date.parse(before.at) + 1;
     fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'valve', from: 'cy', to: 'room4926', project: 'room4926', at: new Date(stopAt).toISOString(), because: 'loop', stopped: true }) + '\n');
     while (Date.now() <= stopAt + 1) await new Promise((r) => setTimeout(r, 2));
