@@ -94,6 +94,8 @@ const text = (pg, sel) => pg.evaluate((s) => { const el = document.querySelector
     const { pg, errs, posts } = await open(b, { width: 1400, height: 800 }, state);
     say(await text(pg, '#rline-slot .utxt b') === 'Ada, Kai and 3 more need a restart to get: Hooks fix.', 'words: who, and what they get', JSON.stringify(await text(pg, '#rline-slot .utxt b')));
     say(await text(pg, '#rline-slot .utxt > small:last-of-type') === 'Restarting stops what they are doing now.', 'words: the cost, once');
+    const live = await pg.evaluate(() => { const el = document.getElementById('rline-say'); return el ? { role: el.getAttribute('role'), text: el.textContent, inToast: !!el.closest('#rline-slot') } : null; });
+    say(Boolean(live) && live.role === 'status' && !live.inToast && live.text === 'Ada, Kai and 3 more need a restart to get: Hooks fix. Restarting stops what they are doing now.', 'words: a live region that stays in place carries them, as separate sentences', JSON.stringify(live));
     const acts = await pg.$$eval('#rline-slot .uacts button', (x) => x.map((e) => e.textContent.trim()).join('|'));
     say(acts === 'Restart all|Show who|Not now', 'buttons: Restart all, Show who and Not now on the line', JSON.stringify(acts));
     say(!(await pg.$('#rline-slot [data-rl-one]')), 'show who: no per-agent buttons before the list opens');

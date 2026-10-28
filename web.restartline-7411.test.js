@@ -11,7 +11,15 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 
 function page() {
   const slot = { innerHTML: '', dataset: {}, contains: () => false };
-  const document = { getElementById: (id) => (id === 'rline-slot' ? slot : null), activeElement: null };
+  const say = { textContent: '' };
+  // The toast's words block, as the page reads it: its child elements' text (b and small; no nested blocks inside).
+  slot.querySelector = (sel) => {
+    const m = sel === '.utxt' && /<div class="utxt">([\s\S]*?)<\/div>/.exec(slot.innerHTML);
+    if (!m) return null;
+    const children = [...m[1].matchAll(/<(b|small)[^>]*>([\s\S]*?)<\/\1>/g)].map((c) => ({ textContent: c[2].replace(/<[^>]*>/g, '') }));
+    return { children };
+  };
+  const document = { getElementById: (id) => (id === 'rline-slot' ? slot : id === 'rline-say' ? say : null), activeElement: null };
   const start = PAGE.indexOf('let RLINE = ');
   const end = PAGE.indexOf('\n}\n', PAGE.indexOf('function paintRestartLine()')) + 2;
   assert.ok(start > 0 && end > start, 'the restart line block is not in the page');
@@ -22,7 +30,7 @@ function page() {
   const at = PAGE.indexOf('function asSentence(s) {');
   const asSentence = new Function(PAGE.slice(at, PAGE.indexOf('\n}\n', at) + 2) + '\nreturn asSentence;')();
   const api = new Function('document', 'esc', 'rebootFocusAway', 'asSentence', PAGE.slice(start, end) + '\nreturn { RLINE, rlineNames, rlineHead, paintRestartLine };')(document, esc, () => {}, asSentence);
-  return { api, slot };
+  return { api, slot, say };
 }
 const agents = (...labels) => labels.map((l) => ({ name: l.toLowerCase(), label: l }));
 const fix = (title) => ({ version: '0.7.73', title });
@@ -70,7 +78,8 @@ test('#7411: one agent gets one button named for it and no list; no line paints 
 
 test('#7411: after restarts the wake result is said on the line, or in its place with a close button once the line goes', () => {
   const { api, slot } = page();
-  api.RLINE.woke = { said: ['Ada'], manual: ['Kai', 'Lee'], held: [], missed: [] };
+  const who = (l) => ({ name: l.toLowerCase(), label: l });
+  api.RLINE.woke = { said: [who('Ada')], manual: [who('Kai'), who('Lee')], held: [], missed: [] };
   api.RLINE.line = { version: '0.7.73', notes: [fix('A')], agents: agents('Mo', 'Ty') };
   api.paintRestartLine();
   assert.match(slot.innerHTML, /<small class="rlwoke">Restarted Ada, and said hello to wake them\. Say hello to Kai and Lee to wake them\.<\/small>/);
@@ -88,18 +97,30 @@ test('#7411: after restarts the wake result is said on the line, or in its place
 test('#7411: a held hello keeps its reason; a failed restart keeps the engine\'s; one agent\'s progress names it', () => {
   const { api, slot } = page();
   api.RLINE.line = null;
-  api.RLINE.woke = { said: [], manual: [], held: [{ label: 'Kai', why: ' It is waiting for an answer on its screen, so Kosmos sent nothing.' }],
-    missed: [{ label: 'Lee', why: 'kosmos could not find its window' }] };
+  api.RLINE.woke = { said: [], manual: [], held: [{ name: 'kai', label: 'Kai', why: ' It is waiting for an answer on its screen, so Kosmos sent nothing.' }],
+    missed: [{ name: 'lee', label: 'Lee', why: 'kosmos could not find its window' }] };
   api.paintRestartLine();
   assert.match(slot.innerHTML, /<b>Say hello to Kai to wake them\. It is waiting for an answer on its screen, so Kosmos sent nothing\. Lee did not restart: Kosmos could not find its window\.<\/b>/);
   api.RLINE.woke = { said: [], manual: [], held: [], missed: [] };
   api.RLINE.line = { version: '0.7.73', notes: [fix('A')], agents: agents('Ada') };
-  api.RLINE.progress = { key: 'all', text: 'Restarting Ada' };
+  api.RLINE.progress = { all: true, name: 'ada', text: 'Restarting Ada' };
   api.paintRestartLine();
   assert.match(slot.innerHTML, /data-rl-all aria-disabled="true">Restarting Ada<\/button>/);
   api.RLINE.line = { version: '0.7.73', notes: [fix('A')], agents: agents('Ada', 'Kai') };
   api.RLINE.open = true;
-  api.RLINE.progress = { key: 'kai', text: 'Restarting Kai' };
+  api.RLINE.progress = { all: false, name: 'kai', text: 'Restarting Kai' };
   api.paintRestartLine();
   assert.match(slot.innerHTML, /data-rl-one="kai" aria-label="Restart Kai" aria-disabled="true">Restarting<\/button>/);
+});
+
+test('#7411: the words go to a live region that stays in place; the toast itself is not one', () => {
+  const { api, slot, say } = page();
+  api.RLINE.line = { version: '0.7.73', notes: [fix('Hooks fix')], agents: agents('Ada') };
+  api.paintRestartLine();
+  assert.doesNotMatch(slot.innerHTML, /role="status"/, 'the toast is inserted filled, which a reader often does not announce');
+  assert.equal(say.textContent, 'Ada needs a restart to get: Hooks fix. Restarting stops what they are doing now.');
+  api.RLINE.line = null;
+  api.paintRestartLine();
+  assert.equal(say.textContent, '', 'the live region kept words for a line that has gone');
+  assert.match(PAGE, /<div id="rline-say" class="vh" role="status"><\/div>/, 'the live region is not in the page');
 });

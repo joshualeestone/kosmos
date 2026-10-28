@@ -86,6 +86,16 @@ test('#7411: start keeps this version\'s first start; the line names running age
   await stale.text();
   assert.equal((await fetch(`${base}/api/restart-line/not-now`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{' })).status, 400);
 
+  const bad = await fetch(`${base}/api/restart-line/not-now`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: 'x' }) });
+  assert.equal(bad.status, 400, 'a body that names no version was not refused');
+  await bad.text();
+  const kept = fs.readFileSync(RECORD);
+  fs.rmSync(RECORD);
+  const none = await fetch(`${base}/api/restart-line/not-now`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version }) });
+  assert.equal(none.status, 500, 'Not now answered success with no record to write');
+  await none.text();
+  fs.writeFileSync(RECORD, kept);
+
   const ok = await fetch(`${base}/api/restart-line/not-now`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version }) });
   assert.equal(ok.status, 200);
   assert.deepEqual(await ok.json(), { hidden: true });
