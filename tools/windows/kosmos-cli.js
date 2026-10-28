@@ -1858,7 +1858,6 @@ async function projectRemoveMember(ctx, args) {
   const ms = ov && Array.isArray(ov.members) ? ov.members.filter((m) => m && typeof m.sessionName === 'string') : null;
   if (!ms) { ctx.err('Kosmos gave an answer we could not read when asked about ' + project + '.'); return 1; }
   // Every member the name could mean, by sessionName or display name, ignoring case; more than one sends nothing.
-  const want = who.toLowerCase();
   const means = (x) => { const v = String(x).toLowerCase(); return ms.filter((m) => m.sessionName.toLowerCase() === v || (typeof m.name === 'string' && m.name.toLowerCase() === v)); };
   const hit = means(who);
   const pj = one(ov.name || ov.id || project) || one(ov.id || project);
