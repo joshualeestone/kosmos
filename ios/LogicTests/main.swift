@@ -4125,11 +4125,14 @@ do {
         check(Board.pillWord(stuckWord) == "Messages stuck", "kosmos#7342: a word the Mac sent other than Idle or Working stays as sent")
         // Review 1: the word and its colour never disagree, by either rule, over every red route found.
         let routes: [Board.Agent] = [redIdle, redWorking, q(a("idle")) { $0.crashLooping = true }, q(a("working")) { $0.crashLooping = true },
-                                     a("idle", failed: true), q(a("idle")) { $0.macTone = .quiet; $0 = Board.Agent(session: $0.session, name: $0.name, role: nil, state: "idle", task: nil, needsYou: true, macTone: .quiet) },
+                                     a("idle", failed: true), q(a("idle")) { $0 = Board.Agent(session: $0.session, name: $0.name, role: nil, state: "idle", task: nil, needsYou: true, macTone: .quiet) },
                                      a("working"), a("idle"), stuckWord]
         check(routes.allSatisfy { r in (Board.pillWord(r) == "Issue") == (Board.pill(r) == .problem && ["Idle", "Working"].contains(Board.statusWord(r)))
                                     && (Board.toneWord(r) == "Issue") == (Board.tone(r) == .needsYou && ["Idle", "Working"].contains(Board.statusWord(r))) },
               "review 1: Issue appears exactly where its colour is red, for the pill and for the tone (\(routes.count) routes)")
+        let quietTone = Board.Agent(session: "z", name: "Z", role: nil, state: "idle", task: nil, needsYou: true, macTone: .quiet)
+        check(Board.pillWord(quietTone) == "Issue" && Board.toneWord(quietTone) == "Idle" && Board.tone(quietTone) == .quiet,
+              "review 2: a red pill (Issue) on the row, and the Mac's quiet tone (Idle, grey) on Today and the header: each word matches its own colour")
         check(Board.pill(a("working")) == .working, "working is the green pill with the Sweep")
         check(Board.pill(q(a("needs_you")) { $0.reportedByAgent = true }) == .asks, "an agent's question is blue")
         check(Board.pill(q(a("needs_you")) { $0.awaitingApproval = true }) == .asks, "a permission waiting is blue")
