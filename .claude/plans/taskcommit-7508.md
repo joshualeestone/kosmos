@@ -39,6 +39,12 @@ The repository is a path a token-holding agent names, and git reads that reposit
 read, and fsmonitor, hooks, lazy fetch, transports and the system config are switched off; a config key outside that
 list that could launch a program on a read is not covered.
 
+## Costs, named (review 8)
+- A slow repository delays the Tasks view by up to 1.5 s on each read while its 'unknown' is re-checked (every 30 s).
+- engine/doctrine-past.js carries a second version-42 row: tools/doctrine-past.js reads every commit on main that
+  touched engine/defaults.js, including a merged branch's unreleased intermediate text (its own header says such a row
+  "matches nothing"). Main's table was generated before that branch merged; the rows are the tool's output, not edits.
+
 ## Weakest premise
 A commit that was never pushed and whose worktree was removed, but whose object git has not yet pruned, still reads
 kept: the check proves it was committed, not that it is safe. The row then says "only on this computer so far", which
