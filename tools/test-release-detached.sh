@@ -81,6 +81,10 @@ out="$(release_bundle_matches_tree "$T/notes.tgz" "$BUILD")" && ok "a bundle who
 sed -i.bak 's/A fix/A different fix/' "$T/bundle/app/release-notes.json"; bundle notesbad.tgz
 out="$(release_bundle_matches_tree "$T/notesbad.tgz" "$BUILD")" && bad "edited release notes were called matching" || { printf '%s' "$out" | grep -q "differs from the release notes the tree makes for 1.0.0: app/release-notes.json" && ok "edited release notes are caught, and the red names the file" || bad "the red did not name the notes: $out"; }
 mv "$T/bundle/app/release-notes.json.bak" "$T/bundle/app/release-notes.json"
+# A tool that fails (here, a pool it cannot read) refuses, and says why: never a silent pass.
+cp "$BUILD/release/whats-new-pool.json" "$T/pool.good"; echo 'not json' > "$BUILD/release/whats-new-pool.json"
+out="$(release_bundle_matches_tree "$T/notes.tgz" "$BUILD")" && bad "notes the tree's tool failed to make were called matching" || { printf '%s' "$out" | grep -q "could not make the release notes for 1.0.0 to compare: app/release-notes.json: ." && ok "a tool that fails refuses, with its own reason" || bad "the red did not carry the tool's reason: $out"; }
+mv "$T/pool.good" "$BUILD/release/whats-new-pool.json"
 mv "$BUILD/tools/whats-new-pool.js" "$T/pool-tool.js"; bundle notesnotool.tgz
 out="$(release_bundle_matches_tree "$T/notesnotool.tgz" "$BUILD")" && bad "notes a tree without the tool cannot make were called matching" || { printf '%s' "$out" | grep -q "the tree cannot make" && ok "a tree without the tool cannot vouch for release notes" || bad "the red did not say the tree cannot make them: $out"; }
 # Back to the fixture the cases below expect: no notes, no tool, no extra engine modules.
