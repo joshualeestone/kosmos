@@ -6138,14 +6138,16 @@ cmd_task() {
       # kosmos#7412: more numbers after the first: close each the same way, one request each, then one summary. Each task
       # is closed exactly as a single close is (the board's own route); a refusal of one does not stop the others.
       if [ -z "$_by" ] && [ -n "${3:-}" ]; then
-        local _all=("$num" "${@:3}") _n _ok="" _bad="" _b _r _why _seen=" " _first=1
+        local _all=("$num" "${@:3}") _n _ok="" _bad="" _b _r _why _seen=" " _first=1 _lost="" _lostrc=0 _left=""
         for _n in "${_all[@]}"; do
+          if [ -n "$_lost" ]; then _n=$(printf '%s' "$_n" | sed 's/^0*\([0-9]\)/\1/'); case "$_seen" in *" $_n "*) ;; *) _seen="$_seen$_n "; _left="${_left:+$_left, }$_n" ;; esac; continue; fi
           _n=$(printf '%s' "$_n" | sed 's/^0*\([0-9]\)/\1/')   # the board reads 013 as 13: one task, named as 13
           case "$_seen" in *" $_n "*) _first=0; continue ;; esac   # a number given twice is closed once
           _seen="$_seen$_n "
           if [ "$_first" = 1 ]; then _b="$body"; _r=$rc; _first=0
           else _r=0; _b=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$_n/close" 2>/dev/null) || _r=$?; fi
-          if [ "$_r" -ne 0 ]; then _bad="${_bad:+$_bad; }$_n (Kosmos did not answer)"; continue; fi
+          # Unanswered: it may have closed (a timeout), so say it as a single close does, and send no more.
+          if [ "$_r" -ne 0 ]; then _lost="$_n"; _lostrc="$_r"; continue; fi
           case "$_b" in
             '{"task":'*) _ok="${_ok:+$_ok, }$_n" ;;
             '{"error":'*) _why=$(printf '%s' "$_b" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p'); _bad="${_bad:+$_bad; }$_n (${_why:-it did not say why})" ;;
@@ -6153,7 +6155,13 @@ cmd_task() {
           esac
         done
         case "$_ok" in '') ;; *,*) say "Closed tasks $_ok on ${project:-the project}." ;; *) say "Closed task $_ok on ${project:-the project}." ;; esac
-        [ -z "$_bad" ] || { say "Could not close: $_bad."; exit 1; }
+        [ -z "$_bad" ] || say "Could not close: $_bad."
+        if [ -n "$_lost" ]; then
+          say_unreached "close task $_lost" "$_lostrc" write
+          [ -z "$_left" ] || say "Not tried, so still open: $_left."
+          exit 1
+        fi
+        [ -z "$_bad" ] || exit 1
         exit 0
       fi
       # Success is the board's own {"task":...} shape (server.js), not merely the absence of an error.

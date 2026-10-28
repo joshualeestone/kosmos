@@ -185,3 +185,37 @@ test('#7412: both commands refuse an option-shaped word after the numbers with t
   }
   for (const w of Object.keys(texts)) assert.equal(texts[w].Mac, texts[w].Windows, w + ': the two commands disagree');
 });
+
+test('#7412: a close Kosmos does not answer stops the run: the ones before are said, the rest are not tried', async () => {
+  const http = require('node:http');
+  for (const [label] of BOTH) {
+    const [a, b, c] = open('lost ' + label);
+    // A board that drops the connection on task b's close and passes everything else through to the real one.
+    const proxy = http.createServer((req, res) => {
+      if (req.method === 'POST' && new RegExp('/task/' + b + '/close$').test(req.url)) { req.socket.destroy(); return; }
+      const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+      up.on('error', () => { res.statusCode = 502; res.end(); });
+      req.pipe(up);
+    });
+    await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+    const pbase = 'http://127.0.0.1:' + proxy.address().port;
+    try {
+      let r;
+      const argv = ['task', 'close', projectId, String(a), String(b), String(c)];
+      if (label === 'Mac') r = await mac(argv, token('mara'), proxy.address().port);
+      else {
+        const out = []; const err = [];
+        const code = await cli.main(argv, { env: {}, url: pbase, hook: { resolveUrl: () => pbase, readBoardToken: () => null, agentToken: () => token('mara') }, out: (s) => out.push(s), err: (s) => err.push(s) });
+        r = { code, text: out.concat(err).join('\n') };
+      }
+      assert.notEqual(r.code, 0, label + ': ' + r.text);
+      assert.match(r.text, new RegExp('^\\s*Closed task ' + a + ' on ', 'm'), label + ': ' + r.text);
+      assert.match(r.text, new RegExp('close task ' + b), label + ': names the one it could not confirm: ' + r.text);
+      assert.match(r.text, new RegExp('^\\s*Not tried, so still open: ' + c + '\\.$', 'm'), label + ': ' + r.text);
+      assert.doesNotMatch(r.text, /Could not close/, label + ': an unanswered close is not said as refused: ' + r.text);
+      assert.equal(isDone(a), true, label); assert.equal(isDone(c), false, label + ': sent after an unanswered close');
+    } finally {
+      proxy.close();
+    }
+  }
+});
