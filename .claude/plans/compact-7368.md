@@ -21,7 +21,8 @@ Card: kosmos#7368 (merged in #7379 and #7423). Test only; no code change.
   raw capture is not committed (it carries this machine's paths).
 - Limits of the measurement: one forced run (the override at 1%); compaction before a turn's FIRST call was not seen.
   `--replay-user-messages` was used to see when a message was taken; production does not pass it
-  (engine/win32launch.js), so replay events are not part of the fixture.
+  (engine/win32launch.js), so replay events are not part of the fixture. The events go straight to the publisher
+  (pub.event), as in the sibling seam tests, not through the line parser.
 
 ## Change
 - `engine/deliverystreak.turn-7368.test.js`: one replay test of that stream: a message written in the gap stays
@@ -31,6 +32,9 @@ Card: kosmos#7368 (merged in #7379 and #7423). Test only; no code change.
 
 ## Mutation checks (run by hand, code restored after each)
 - Any main-agent user event emptying the queue when no call is open: the test goes red.
-- System events not counted as activity: the test goes red (and the older review-4 test). Before review 1's change
+- No system event counted as activity: the test goes red (and the older review-4 test). The test fires the three
+  compaction events together before one check, so it pins the group, not each one: dropping only the status events,
+  or only compact_boundary, leaves it green (review 2). Accepted: the engine's rule is per type (`system`), not per
+  subtype, and the older review-4 test pins a lone status event. Before review 1's change
   this claim was false: only the older test went red.
-  Both run 2026-10-27 22:4x, engine restored byte for byte after each.
+  Both run 2026-10-27 22:3x, engine restored byte for byte after each.

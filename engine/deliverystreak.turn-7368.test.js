@@ -375,7 +375,7 @@ test('#7368 seam: compaction mid-turn, as Claude Code 2.1.312 streams it, does n
   r.pub.event({ type: 'system', subtype: 'status', status: 'compacting', compact_output_chars: 0 });
   r.pub.event({ type: 'system', subtype: 'status', status: null, compact_result: 'success' });
   r.pub.event({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto' } });
-  r.pub.wrote();   // a write lands the state on disk without any other event (review 1: check before the summary)
+  r.pub.wrote();   // a write flushes now, so the check reads the compaction events alone (review 1: before the summary)
   assert.notEqual(r.last().stepSince, before, 'the compaction events, before any summary, counted as activity');
   r.pub.event({ type: 'user', isSynthetic: true, parent_tool_use_id: null, message: { content: [{ type: 'text', text: 'This session is being continued from a previous conversation.' }] } });
   assert.equal(r.last().queued, 2, 'compaction and its summary did not empty the queue, so both messages still wait');
