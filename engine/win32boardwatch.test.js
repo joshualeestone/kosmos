@@ -106,6 +106,48 @@ for (const sig of watch.SIGNALS) {
   });
 }
 
+test('#2988 round 1: with another SIGINT handler already there (engine/remote.js), ours runs FIRST, writes the line, and leaves the exit to it', () => {
+  const dir = scratch('sigfirst');
+  const p = fakeProc(111, 222);
+  const order = [];
+  /* remote.js's shape: it runs, then (on Windows) the process is gone, so nothing after it would run. */
+  p.on('SIGINT', () => { order.push('remote, with the line ' + (readLog(dir).includes('exited') ? 'already written' : 'NOT written')); });
+  watch.recordBoardExits({ proc: p, logDir: dir, watch: capturedWatch().arm });
+  p.emit('SIGINT');
+  assert.deepEqual(order, ['remote, with the line already written']);
+  assert.deepEqual(p.exits, [], 'another handler owns the exit, so ours does not seize it');
+  assert.match(lines(dir).pop(), /board exited pid=111 signal=SIGINT: a console signal \(SIGINT\)$/);
+});
+
+test('#2988 round 1: our signal handler is prepended ahead of one registered earlier', () => {
+  const p = fakeProc(111, 222);
+  const remote = () => {};
+  p.on('SIGTERM', remote);
+  watch.recordBoardExits({ proc: p, logDir: scratch('prepend'), watch: capturedWatch().arm });
+  assert.notEqual(p.listeners('SIGTERM')[0], remote, 'the earlier handler would run first and end the process on Windows');
+  assert.equal(p.listeners('SIGTERM')[1], remote);
+});
+
+test('#2988 round 1: a REAL process with engine/remote loaded first still writes the SIGINT line', () => {
+  /* A real signal cannot be sent to a child here (on Windows, child.kill('SIGINT') is TerminateProcess,
+     which runs no handler at all). So the child emits SIGINT to itself with process.emit: that runs
+     the real listener chain in its real order (our handler, then remote.js's, which reaps, removes
+     itself and re-raises with process.kill). It proves the order and the line; it does not prove how
+     Windows delivers a console Ctrl+C to a headless board. */
+  const dir = scratch('realsig');
+  const script = [
+    "require(" + JSON.stringify(path.join(__dirname, 'remote.js')) + ");",
+    'const w = require(' + JSON.stringify(path.join(__dirname, 'win32boardwatch.js')) + ');',
+    'w.recordBoardExits({ logDir: ' + JSON.stringify(dir) + ', watch: () => ({ armed: true }) });',
+    "process.emit('SIGINT');",
+    'setTimeout(() => {}, 2000);',
+  ].join('\n');
+  const r = cp.spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 30000 });
+  const got = lines(dir);
+  assert.equal(got.length, 2, 'start and exit lines: ' + JSON.stringify(got) + ' status ' + r.status + ' ' + r.stderr);
+  assert.match(got[1], new RegExp('board exited pid=' + r.pid + ' signal=SIGINT: a console signal \\(SIGINT\\)$'));
+});
+
 test('#2988 an uncaught error is recorded with its first line, through the monitor (no behaviour change)', () => {
   const dir = scratch('uncaught');
   const p = fakeProc(111, 222);
@@ -331,6 +373,64 @@ test('#2988 lines that are not the board\'s own (an agent sharing the name) are 
   const file = path.join(dir, 'board.log');
   fs.writeFileSync(file, '2026-10-28T11:00:00.000Z board started pid=11 parent=21\nturn-failed: board exited pid=4 code=1\n');
   assert.equal(watch.lastExitSinceStart(file), null);
+});
+
+// ── the crash-loop guard (round 1) ──────────────────────────────────────────
+
+const MIN = 60 * 1000;
+const T0 = Date.parse('2026-10-28T12:00:00.000Z');
+/* One tick a minute from T0, with a board that is silent (or answering) as `silentAt(minute)` says. */
+async function ticks(dir, minutes, silentAt) {
+  const clock = { t: T0 };
+  const d = deps({ now: () => clock.t, look: async () => ({ silent: silentAt(Math.round((clock.t - T0) / MIN)) }) });
+  const startedAt = [];
+  for (let m = 0; m < minutes; m += 1) {
+    clock.t = T0 + m * MIN;
+    const before = d.ran;
+    await runWith(dir, d);
+    if (d.ran > before) startedAt.push(m);
+  }
+  return startedAt;
+}
+
+test('#2988 round 1: a board that dies on every boot is started 3 times in 15 minutes, then once every 15, with ONE line saying so', async () => {
+  const dir = scratch('loop');
+  fs.writeFileSync(path.join(dir, 'board.log'), '2026-10-28T11:59:00.000Z board started pid=10 parent=20\n2026-10-28T11:59:30.000Z board exited pid=10 code=1: an uncaught error (Error: first)\n');
+  const startedAt = await ticks(dir, 40, () => true);
+  assert.deepEqual(startedAt, [0, 1, 2, 17, 32], 'on 7c916e1413 every one of the 40 ticks was a /Run');
+  const loopLines = lines(dir).filter((l) => l.includes('kept starting and stopping'));
+  assert.deepEqual(loopLines, ['2026-10-28T12:03:00.000Z board kept starting and stopping (3 starts in 15 minutes), so it is now started at most once every 15 minutes. '
+    + 'The first exit recorded: exited pid=10 code=1: an uncaught error (Error: first) (at 2026-10-28T11:59:30.000Z)']);
+});
+
+test('#2988 round 1: three starts spread over more than 15 minutes are not a loop', async () => {
+  const dir = scratch('spread');
+  const startedAt = await ticks(dir, 30, (m) => m % 8 === 0);
+  assert.deepEqual(startedAt, [0, 8, 16, 24]);
+  assert.ok(!readLog(dir).includes('kept starting'));
+});
+
+test('#2988 round 1: the back-off clears once a board has answered for 10 minutes, and a later death is started at once', async () => {
+  const dir = scratch('clear');
+  /* dead 0-3 (loop), answering 4-15, dead again from 16 */
+  const startedAt = await ticks(dir, 20, (m) => m < 4 || m >= 16);
+  assert.deepEqual(startedAt, [0, 1, 2, 16, 17, 18], 'a new run of starts, counted afresh (a fourth at 19 would be a new loop)');
+  assert.ok(lines(dir).some((l) => /board has answered for 10 minutes, so it is started again whenever it stops$/.test(l)), readLog(dir));
+  assert.equal(fs.existsSync(path.join(dir, 'board-watchdog.json')), true, 'a fresh state for the new start');
+});
+
+test('#2988 round 1: a board that answered only briefly does not clear the back-off', async () => {
+  const dir = scratch('brief');
+  /* dead 0-3 (loop), answering 4-6, dead from 7: the back-off from the start at 2 holds until 17 */
+  const startedAt = await ticks(dir, 20, (m) => m < 4 || m >= 7);
+  assert.deepEqual(startedAt, [0, 1, 2, 17]);
+});
+
+test('#2988 round 1: a torn guard file starts fresh rather than holding a back-off', async () => {
+  const dir = scratch('torn');
+  fs.writeFileSync(path.join(dir, 'board-watchdog.json'), '{ torn');
+  const startedAt = await ticks(dir, 1, () => true);
+  assert.deepEqual(startedAt, [0]);
 });
 
 // ── the port the watchdog asks ──────────────────────────────────────────────

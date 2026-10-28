@@ -17,8 +17,9 @@ https://github.com/joshualeestone/kosmos/issues/2988#issuecomment-6468326726
    root read before any named world (worlds.preWorldEnv) so the board and the watchdog agree on the file:
    - `<iso> board started pid=<pid> parent=<ppid>`
    - `<iso> board exited pid=<pid> code=<code>: <cause>`, the cause being
-     `its host process (pid N) was gone` | `a console signal (SIGINT)` (and SIGHUP, SIGBREAK, SIGTERM, each exiting
-     128+n) | `an uncaught error (<Name>: <first line>)` (uncaughtExceptionMonitor, only when no uncaughtException
+     `its host process (pid N) was gone` | `a console signal (SIGINT)` (and SIGHUP, SIGBREAK, SIGTERM; written in the
+     prepended signal handler, as `signal=SIG` when another handler such as engine/remote.js owns the exit, else
+     `code=128+n`) | `an uncaught error (<Name>: <first line>)` (uncaughtExceptionMonitor, only when no uncaughtException
      handler will catch it) | `it exited by itself`.
 2. **Watchdog** `Kosmos\board-watchdog`: TimeTrigger, StartBoundary 2020-01-01T00:00:00, Repetition PT1M with
    StopAtDurationEnd false and no Duration, IgnoreNew, InteractiveToken, LeastPrivilege, PT0S, headless conhost, always
@@ -33,14 +34,16 @@ https://github.com/joshualeestone/kosmos/issues/2988#issuecomment-6468326726
       read-only export of takeLock's own `readLock` judgement) neither held nor broken;
    c. the port is silent: `win32handoff.probeBoardOnEveryAddress` + `boardMayBeOpen` (only refused is silent);
    d. `win32board.status()`: known, registered, enabled, and not already shown running;
-   e. after 5 s, the port is still silent and (b) still holds.
+   e. after 5 s, the port is still silent and (b) still holds;
+   f. (round 1) not crash-looping: 3 starts in 15 minutes, then at most one every 15 minutes, until a board has
+      answered for 10 minutes.
    On `/Run` it writes `<iso> board was not answering; started it. The last exit recorded: <exit line> (at <iso>)` or
    `... started it. No exit was recorded, so it was killed or crashed hard`. Every other run writes nothing.
 
 ## Rejected
 - A repetition on the board task itself: a LogonTrigger repetition does not fire before the next logon (measured), and
   a TimeTrigger one would run BOOT_JS every minute, including inside an update's stop-swap-start window.
-- Task Scheduler RestartOnFailure: keys on a failed start, not a process exit.
+- Task Scheduler RestartOnFailure: as understood, it keys on a failed start, not a process exit. UNMEASURED.
 - A respawn loop in a wrapper: makes the board a child, which BOOT_JS's header forbids.
 - `/End` then `/Run` when the task reads Running but nothing answers: it could end a board that is slow to boot or
   recovering an update. The watchdog leaves that case alone (see weakest point).
@@ -54,9 +57,25 @@ real update while a watchdog ticked. A stuck unfinished journal also keeps the w
 board by hand, which is the behaviour before this change. Second: a task that reads Running while no board answers
 (the 10-17 report) is not fixed by `/Run` (IgnoreNew), so the watchdog does nothing there.
 
+## Residual: a rollback to a build without the watchdog
+After a downgrade or a user rollback to a build that predates this change, `Kosmos\board-watchdog` stays registered.
+It keeps running its shim, which loads the pointer's engine; that engine has no `win32boardwatch.js`, so the shim
+exits 0 and does nothing (inert). That older build's uninstall classifies the task as unrecognised and names it
+instead of removing it (and so keeps the folders it keeps for any task left). The task's Description carries the
+remove hint (`schtasks /Delete /F /TN "Kosmos\board-watchdog"`), and the next boot of a build with this change
+refreshes or removes it as usual.
+
 ## What would change my mind
 A box measurement that `/Run` during an update is harmless (the watchdog could drop gate b), or that the
 Running-with-no-board state is common (then an `/End` path with a long grace is worth its risk).
 
 ## Rounds
 - Round 0 (build)
+- Round 1: live check passed on the box (kill back in 55 s, disabled stays down, re-enabled back in 58 s). Fixed:
+  (1) the signal line was never written in a real board, because engine/remote.js's SIGINT/SIGTERM handler runs first
+  and re-raises with process.kill, which on Windows ends the process with no 'exit' event; our handler is now
+  prepended, writes the line synchronously, and leaves the exit to any other handler
+  (`exited pid=N signal=SIGINT: a console signal (SIGINT)`), exiting itself (`code=128+n`) only when it is alone;
+  (2) a crash-loop guard: 3 starts in 15 minutes, then at most one start every 15 minutes with one line quoting the
+  first exit, cleared once a board has answered for 10 minutes (state in `board-watchdog.json` beside the log, so
+  rotation cannot lose it); (3) the rollback residual above; (4) RestartOnFailure marked unmeasured.
