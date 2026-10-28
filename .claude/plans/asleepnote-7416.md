@@ -41,3 +41,13 @@ person knows.
    - NITs: a fixed clock in the tests; the weekday variable named for Wednesday; a 30 s future case; the body says "If it
      is on", so a named title never names a second machine; the splice looks for any sentence end ([.!?] ).
    - Not done: a daylight-saving test (the runner's zone is fixed at start; the calendar-day count is by local dates).
+2. (sonnet, 23:2x CDT) 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 2 NITs; the WARNINGs, the CONVENTION and NIT 1 applied.
+   - (W) the "no re-announce" assertion compared words, so deleting the guard (which writes the same words) passed: the
+     slot is marked before the unchanged paint and must still be marked after, also after the midnight change.
+   - (W) the guard's other paths were untested on the remote arm: a test runs remote, recovery, remote again, device
+     offline, remote again. The remote view turning local is not covered there (the local arm needs most of the page);
+     its key is the plain "which end" one the offline-note tests pin.
+   - (C) the README row for render-phone-offline-718 describes the new copy and the heard assertion.
+   - NIT 1: the "never claims asleep" regex catches "is probably asleep" too. NIT 2 (the check's time patterns assume
+     no dot in the time, as an es locale writes "p. m."): to loosen once the queued check run is done, since it reads
+     that file. NIT (the key is the whole html in a data attribute): kept, it is a few hundred bytes and exact.

@@ -64,7 +64,7 @@ test('#7416: the note names the computer, says it is not answering, and when it 
   assert.match(slot.innerHTML, /<small>It may be asleep, off or offline\. We last heard from it at [^.<]+\. Wake it/);
   assert.match(slot.innerHTML, /If it is on, check this phone/, 'the body says "it", not a second machine, under a named title');
   assert.match(slot.innerHTML, /Nothing answered at studio\.kosmosplus\.com\./, 'the rest of the remote sentence stays');
-  assert.doesNotMatch(slot.innerHTML, /is asleep/, 'it never claims the computer is asleep');
+  assert.doesNotMatch(slot.innerHTML, /\b(is|was|went)\b[^.]*\basleep/, 'it never claims the computer is asleep');
 });
 
 test('#7416: with no name from Kosmos+ it says the generic one, and a name is escaped', () => {
@@ -94,13 +94,33 @@ test('#7416 review 1: a note left up overnight moves to "yesterday", and a name 
   h.ctx.paint(true, false);
   assert.match(h.slot.innerHTML, /<b>Your Mac isn't answering<\/b>/);
   assert.match(h.slot.innerHTML, /We last heard from it at /);
-  const first = h.slot.innerHTML;
-  h.ctx.paint(true, false);   // the next poll, nothing changed: nothing repainted (no re-announcement)
-  assert.equal(h.slot.innerHTML, first);
+  // The next poll, nothing changed: nothing is written (a write would re-announce the live region). Marked, so a
+  // repaint of the same words shows (review 2: comparing the words could not fail).
+  h.slot.innerHTML = 'MARKED';
+  h.ctx.paint(true, false);
+  assert.equal(h.slot.innerHTML, 'MARKED', 'an unchanged note was written again');
   h.clock.now = at(28, 8, 0);   // the morning
   h.ctx.paint(true, false);
   assert.match(h.slot.innerHTML, /We last heard from it yesterday at /, 'the time\'s words did not follow the day');
+  h.slot.innerHTML = 'MARKED';
+  h.ctx.paint(true, false);
+  assert.equal(h.slot.innerHTML, 'MARKED', 'the new words were written again on the next poll');
   vm.runInContext('THIS_COMPUTER_NAME = "Studio"', h.ctx);   // Kosmos+ answered with the name
   h.ctx.paint(true, false);
   assert.match(h.slot.innerHTML, /<b>Studio isn't answering<\/b>/, 'a name that arrived later never showed');
+});
+
+test('#7416 review 2: the remote note paints again after a recovery and after the device was offline', () => {
+  const remote = { v: true };
+  const h = page({ THIS_COMPUTER_NAME: 'Studio', LAST_STATUS_OK_AT: at(27, 21, 59), offlineRemoteView: () => remote.v,
+    bakedVersion: () => '0.7.72', hostMachine: () => 'your Mac', onLinux: () => false, onWindows: () => false });
+  const says = (want, label) => { assert.match(h.slot.innerHTML, want, label + ': ' + h.slot.innerHTML.slice(0, 160)); };
+  h.ctx.paint(true, false); says(/Studio isn't answering/, 'the first outage');
+  h.ctx.paint(false, false); assert.equal(h.slot.innerHTML, '', 'a recovery clears it');
+  h.slot.innerHTML = 'MARKED';
+  h.ctx.paint(true, false); says(/Studio isn't answering/, 'a second outage after the recovery');
+  h.ctx.paint(true, true); says(/You are offline/, 'then this device went offline');
+  h.ctx.paint(true, false); says(/Studio isn't answering/, 'and came back online with the computer still silent');
+  // Not covered here: the remote view turning local (the local arm needs most of the page); its key is the plain
+  // "which end" one the earlier offline-note tests already pin.
 });
