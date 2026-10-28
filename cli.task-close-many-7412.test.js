@@ -351,3 +351,37 @@ test('#7412 review 6: a redirect and a timeout read the same on both commands, a
     assert.equal(texts.Windows, texts.Mac, mode + ': the two commands disagree');
   }
 });
+
+test('#7412 review 8: a board that cannot check (503) is said once and stops the run, on both commands; an unreadable answer is not said as refused', async () => {
+  const http = require('node:http');
+  for (const [label] of BOTH) for (const mode of ['503', 'unreadable']) {
+    const [a, b, c] = open(mode + ' ' + label);
+    const isB = (u) => new RegExp('/task/' + b + '/close$').test(u);
+    const proxy = http.createServer((req, res) => {
+      if (req.method === 'POST' && isB(req.url)) {
+        if (mode === '503') { res.writeHead(503, { 'content-type': 'application/json' }); res.end('{"error":"we could not check that agent just now, so the task was not closed"}'); }
+        else { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<html>not the board</html>'); }
+        return;
+      }
+      const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+      up.on('error', () => { res.statusCode = 502; res.end(); });
+      req.pipe(up);
+    });
+    await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+    try {
+      const r = await runVia(label, proxy.address().port, ['task', 'close', projectId, String(a), String(b), String(c)], token('mara'));
+      assert.equal(r.code, 1, label + ' ' + mode + ': ' + r.text);
+      assert.match(r.text, new RegExp('^\\s*Closed task' + (mode === '503' ? ' ' + a : 's ' + a + ', ' + c) + ' on ', 'm'), label + ' ' + mode + ': ' + r.text);
+      if (mode === '503') {
+        assert.match(r.text, new RegExp('^\\s*Could not close task ' + b + ': we could not check that agent just now', 'm'), label + ': ' + r.text);
+        assert.match(r.text, new RegExp('^\\s*Not tried: ' + c + '\\.$', 'm'), label + ': the run stops at a 503: ' + r.text);
+        assert.equal(isDone(c), false, label + ': sent after a 503');
+      } else {
+        assert.doesNotMatch(r.text, /Could not close/, label + ': an unreadable answer is not a refusal: ' + r.text);
+        assert.match(r.text, new RegExp('^\\s*Task ' + b + ': Kosmos gave an answer we could not read; check kosmos task list ', 'm'), label + ': ' + r.text);
+      }
+    } finally {
+      proxy.close();
+    }
+  }
+});
