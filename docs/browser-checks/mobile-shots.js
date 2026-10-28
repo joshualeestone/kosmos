@@ -754,8 +754,7 @@ async function keepAwakeShot(page, on) {
 }
 
 /* kosmos#7411: the restart line in one of its shapes, naming agents that are on the board behind it. 'four': the
-   board's four running agents, one fix ("Ada, Basil, Cleo and Dmitri..."; Esme is not running, and the board leaves
-   such agents out, which server.restartline-7411.test.js covers), the list opened with Show who when `open`.
+   board's four running agents (not Esme, who is not running), one fix, the list opened with Show who when `open`.
    'one': one agent, two fixes (its own Restart button, the fixes listed). */
 async function restartLineGo(page, shape, open) {
   const four = [['ada', 'Ada'], ['basil', 'Basil'], ['cleo', 'Cleo'], ['dmitri', 'Dmitri Alexandrovich-Longname']];

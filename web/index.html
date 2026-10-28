@@ -12917,6 +12917,9 @@ window.kosmosMeasureScrollbarWidth();
     <!-- kosmos#7411 step 4: running agents that need a restart to get a fix in this update. It offers a choice (Restart
          all, Show who, Not now), so it sits above the facts; its own slot so it co-occurs with them. -->
     <div id="rline-slot"></div>
+    <!-- kosmos#7411: the restart line's words for a screen reader, in a live region that stays in place (only its text
+         changes), since a region inserted already filled is often not announced. -->
+    <div id="rline-say" class="vh" role="status"></div>
     <!-- #5359: the computer restarted while Kosmos was running and Kosmos came back by itself. A fact, so it sits
          below the notices that need action (update, login); its own slot so it co-occurs with them (Mona Lisa). -->
     <div id="reboot-slot"></div>
@@ -24203,8 +24206,8 @@ const RLINE_SAID = 'said';
 function rlineWokeWords() {
   const w = RLINE.woke;
   return [
-    w.said.length ? 'Restarted ' + rlineList(w.said) + ', and said hello to wake them.' : '',
-    w.manual.length ? 'Say hello to ' + rlineList(w.manual) + ' to wake them.' : '',
+    w.said.length ? 'Restarted ' + rlineList(w.said.map((a) => a.label)) + ', and said hello to wake them.' : '',
+    w.manual.length ? 'Say hello to ' + rlineList(w.manual.map((a) => a.label)) + ' to wake them.' : '',
     ...w.held.map((h) => 'Say hello to ' + esc(h.label) + ' to wake them.' + esc(h.why)),
     ...w.missed.map((m) => esc(m.label) + ' did not restart: ' + esc(asSentence(m.why))),
   ].filter(Boolean).join(' ');
@@ -24213,8 +24216,14 @@ function rlineHead(line) {
   const what = line.notes.length === 1 ? ': ' + esc(line.notes[0].title) : ' ' + line.notes.length + ' fixes in this update';
   return rlineNames(line.agents) + (line.agents.length === 1 ? ' needs' : ' need') + ' a restart to get' + what + '.';
 }
+/* The live region's words, written only when they change, so the minute's re-check does not repeat them. */
+function rlineAnnounce(words) {
+  const say = document.getElementById('rline-say');
+  if (say && say.textContent !== words) say.textContent = words;
+}
 function rlineSay(where, words) {
   if (!where) return;
+  rlineAnnounce(words);
   const old = where.querySelector(':scope > .rerr');
   if (old) old.remove();   // removed and added again, so a second failure is announced too
   where.insertAdjacentHTML('beforeend', '<small class="rerr">' + esc(words) + '</small>');
@@ -24225,23 +24234,23 @@ function paintRestartLine() {
   const line = RLINE.line;
   const held = slot.contains(document.activeElement);
   const woke = rlineWokeWords();
-  if (!line && !woke) { slot.innerHTML = ''; delete slot.dataset.v; if (held) rebootFocusAway(); return; }
+  if (!line && !woke) { slot.innerHTML = ''; delete slot.dataset.v; rlineAnnounce(''); if (held) rebootFocusAway(); return; }
   const one = line && line.agents.length === 1;
   const html = !line
     ? '<div class="utoast rline rldone"><span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt" role="status"><b>' + woke + '</b></div>'
+      + '<div class="utxt"><b>' + woke + '</b></div>'
       + '<button type="button" class="ux" data-rl-close aria-label="Close this notice" title="Close this notice">&times;</button></div>'
     : '<div class="utoast rline"><span class="udot" aria-hidden="true"></span>'
-    + '<div class="utxt" role="status"><b>' + rlineHead(line) + '</b>'
+    + '<div class="utxt"><b>' + rlineHead(line) + '</b>'
     + (line.notes.length > 1 ? line.notes.map((x) => '<small class="rlfix">' + esc(x.title) + '</small>').join('') : '')
     + '<small>Restarting stops what they are doing now.</small>'
     + (woke ? '<small class="rlwoke">' + woke + '</small>' : '') + '</div>'
     + '<div class="uacts">'
-    + '<button type="button" class="uprime" data-rl-all' + (RLINE.progress && RLINE.progress.key === 'all' ? ' aria-disabled="true">' + esc(RLINE.progress.text) : '>' + (one ? 'Restart ' + esc(line.agents[0].label) : 'Restart all')) + '</button>'
+    + '<button type="button" class="uprime" data-rl-all' + (RLINE.progress && RLINE.progress.all ? ' aria-disabled="true">' + esc(RLINE.progress.text) : '>' + (one ? 'Restart ' + esc(line.agents[0].label) : 'Restart all')) + '</button>'
     + (one ? '' : '<button type="button" data-rl-who aria-expanded="' + (RLINE.open ? 'true' : 'false') + '" aria-controls="rl-who">' + (RLINE.open ? 'Hide who' : 'Show who') + '</button>')
     + '<button type="button" data-rl-later>Not now</button></div>'
     + (!one && RLINE.open ? '<ul class="rlwho" id="rl-who" aria-label="Agents that need a restart">' + line.agents.map((a) =>
-      '<li class="rlrow"><span>' + esc(a.label) + '</span><button type="button" data-rl-one="' + esc(a.name) + '" aria-label="Restart ' + esc(a.label) + '"' + (RLINE.progress && RLINE.progress.key === a.name ? ' aria-disabled="true">Restarting' : '>Restart') + '</button></li>').join('') + '</ul>' : '')
+      '<li class="rlrow"><span>' + esc(a.label) + '</span><button type="button" data-rl-one="' + esc(a.name) + '" aria-label="Restart ' + esc(a.label) + '"' + (RLINE.progress && !RLINE.progress.all && RLINE.progress.name === a.name ? ' aria-disabled="true">Restarting' : '>Restart') + '</button></li>').join('') + '</ul>' : '')
     + '</div>';
   // The same words do not repaint, so the minute's re-check never takes focus off a button or drops a refusal.
   if (slot.dataset.v === html) return;
@@ -24250,6 +24259,8 @@ function paintRestartLine() {
   const focusMore = held && document.activeElement && document.activeElement.classList.contains('rlmore');
   slot.dataset.v = html;
   slot.innerHTML = html;
+  const words = slot.querySelector('.utxt');   // each part said as its own sentence, not run together
+  rlineAnnounce(words ? [...words.children].map((c) => c.textContent.trim()).filter(Boolean).join(' ') : '');
   if (held) {
     const back = focusMore ? slot.querySelector('.rlmore') || slot.querySelector('.uacts [data-rl-who]')
       : focusOne ? [...slot.querySelectorAll('[data-rl-one]')].find((b) => b.getAttribute('data-rl-one') === focusOne)
@@ -24299,26 +24310,23 @@ async function rlineClick(e) {
   // The results so far stay on screen (a wake report still to come lands here too); only the agents being restarted
   // again lose their old result. A late report for one of them is dropped by autoHelloAfterRestart's own newer-restart check.
   const batch = RLINE.woke;
-  const again = new Set(names.map(labelOf));
-  batch.said = batch.said.filter((l) => !again.has(l));
-  batch.manual = batch.manual.filter((l) => !again.has(l));
-  batch.held = batch.held.filter((h) => !again.has(h.label));
-  batch.missed = batch.missed.filter((m) => !again.has(m.label));
+  const again = new Set(names);   // by name: two agents can share a label
+  for (const k of ['said', 'manual', 'held', 'missed']) batch[k] = batch[k].filter((a) => !again.has(a.name));
   RLINE.busy = true;
   RLINE.gen++;
   try {
     for (let i = 0; i < names.length; i++) {
-      RLINE.progress = { key: one || 'all', text: names.length > 1 ? 'Restarting ' + (i + 1) + ' of ' + names.length : 'Restarting ' + labelOf(names[i]) };
+      RLINE.progress = { all: !one, name: names[i], text: names.length > 1 ? 'Restarting ' + (i + 1) + ' of ' + names.length : 'Restarting ' + labelOf(names[i]) };
       paintRestartLine();
       const why = await rlineRestartOne(names[i]);
       // Each agent with its own reason, kept in the batch so it is said even after the line has gone.
-      if (why) { batch.missed.push({ label: labelOf(names[i]), why }); continue; }
+      if (why) { batch.missed.push({ name: names[i], label: labelOf(names[i]), why }); continue; }
       // Woken as every other restart wakes an agent. A held hello comes back as 'manual' plus the reason it was held.
-      const label = labelOf(names[i]);
+      const who = { name: names[i], label: labelOf(names[i]) };
       autoHelloAfterRestart(names[i], (said) => {
-        if (said === RLINE_SAID) batch.said.push(label);
-        else if (said === 'manual') batch.manual.push(label);
-        else batch.held.push({ label, why: String(said).replace(/^manual/, '') });
+        if (said === RLINE_SAID) batch.said.push(who);
+        else if (said === 'manual') batch.manual.push(who);
+        else batch.held.push({ ...who, why: String(said).replace(/^manual/, '') });
         if (batch === RLINE.woke) paintRestartLine();
       }, RLINE_SAID, 'manual');
     }

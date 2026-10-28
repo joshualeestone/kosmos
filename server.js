@@ -6092,12 +6092,18 @@ function taskFinalWordHint(t, senderName, projectId, byKey) {
   return `If that is your final word on it, kosmos task built ${pid} ${t.number} 'what you decided' marks it done, so nothing waits on it.`;
 }
 
+/* One line of plain text from a name or a typed value: quotes, backslashes, control characters and line separators
+   become spaces, runs of space collapse. One definition for every caller (taskMessageSummary, #7430's names, the
+   restart line), so a change to the character set reaches all of them. */
+function oneLinePlain(x) {
+  return String(x == null ? '' : x).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+}
 const TASK_MESSAGE_TO_MAX = 10;   // #7408: how many agents one task message may name with --to
 /* #6359: `kind` 'built' is a built mark's answer (`kosmos task built`): a kept line there is the built notice, not a
    message the marker sent. The same mark again tells nobody, and a new note replaces the kept notice, so the marker is
    not told not to send it again. */
 function taskMessageSummary(delivered, assigned, kind) {
-  const plain = (x) => String(x == null ? '' : x).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+  const plain = oneLinePlain;
   const list = Array.isArray(delivered) ? delivered : [];
   if (!assigned) return 'Nobody is assigned to it, so no agent was told.';
   if (!list.length) return 'Nobody else is assigned to it, so no agent was told.';
@@ -6562,7 +6568,7 @@ function unholdNext(projectId, t, rosterOf) {
     const nameOf = (n) => {
       let id = null;
       try { id = readIdentity(n); } catch { id = null; }
-      const shown = String(id && id.displayName ? id.displayName : n).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+      const shown = oneLinePlain(id && id.displayName ? id.displayName : n);
       return shown || plain(n);
     };
     // Review 5: whose part failover can take is limitedCard's test (ours, limited), with no swarm condition.
@@ -20386,8 +20392,7 @@ const server = http.createServer(async (req, res) => {
         .map((c) => {
           let id = null;
           try { id = readIdentity(c.sessionName); } catch { id = null; }
-          // Cleaned as #7430's nameOf cleans it, so a control character or line break in a name never reaches the page.
-          const shown = String(id && id.displayName ? id.displayName : '').toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+          const shown = oneLinePlain(id && id.displayName ? id.displayName : '');
           return { name: c.sessionName, label: shown || c.sessionName, startedAt: starts.has(c.session) ? starts.get(c.session) : null };
         });
       return rl.lineFor({ record, notes, agents });
@@ -25143,7 +25148,7 @@ const server = http.createServer(async (req, res) => {
         if (parts.length !== 1) {
           /* No double quote, backslash or control character in it (as taskMessageSummary): the Mac CLI reads `error`
              with sed, and an escaped quote would cut the list short there. Ten parts at most, then a count. */
-          const plain = (v) => String(v == null ? '' : v).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
+          const plain = oneLinePlain;
           const shown = parts.slice(0, 10).map((x) => x.id + ' ' + plain(x.sentence).slice(0, 60) + ' (' + (plain(x.who) || 'nobody') + ')');
           const more = parts.length > 10 ? '; and ' + (parts.length - 10) + ' more' : '';
           sendJson(res, 400, { error: 'task ' + task.number + ' has ' + parts.length + ' parts: ' + shown.join('; ') + more + '. Name one with --part <number>' }); return;
