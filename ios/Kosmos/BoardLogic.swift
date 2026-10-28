@@ -629,6 +629,28 @@ enum Board {
         return r
     }
 
+    // kosmos#7034 (Josh 10-27 20:38: "Where do I star them on the phone"): star or unstar one agent, as the board's own
+    // star does (PUT /api/agent-stars { name, on }); the answer is the whole list as now saved ({ names, ok }).
+    static func starWriteRequest(mac: URL, name: String, on: Bool) -> URLRequest? {
+        guard let body = try? JSONSerialization.data(withJSONObject: ["name": name, "on": on]) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent-stars", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "PUT"
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.httpBody = body
+        r.timeoutInterval = starsTimeout
+        return r
+    }
+
+    // The board's words when a star does not save (web/index.html STAR_MSG and saveStar), by its answer: a refusal no
+    // retry fixes says so; anything else asks to try again.
+    static func starFailure(on: Bool, status: Int, data: Data?) -> String {
+        let error = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["error"] as? String
+        if status == 400 { return error == "too many starred agents" ? "That star could not be saved: 500 agents are starred already. Unstar one first." : "That agent cannot be starred." }
+        if status == 500, error == "we could not save that star" { return "Stars cannot be changed right now: Kosmos cannot read or save its list of starred agents." }
+        return on ? "That star could not be saved. Try again in a moment." : "That star could not be removed. Try again in a moment."
+    }
+
     // nil for an answer the board could not read its list for (`ok` false) or one not in that shape: then no order
     // changes.
     static func parseStars(_ data: Data) -> Set<String>? {
