@@ -2713,46 +2713,61 @@ function setTaskMsgCapForTests(n) {
 }
 const TASK_MSG_WINDOW_MS = AGENT_RUNAWAY_WINDOW_MS; // the breaker's own window
 let taskMessageSends = [];
+let taskMessageOnly = [];   // #7408 review 7: one per message (taskMessageSends also holds one per agent `to` added), for the words
 /* null to allow, or { because, retryAfterSecs }. The sentence names the limit, that it is shared
    by all agents, and when it lifts; a cap of 0 says the messages are switched off instead. */
-function taskMessageRefusal(now = Date.now(), extra = 0) {
+function taskMessageRefusal(now = Date.now(), extra = 0, hasTo = extra > 0) {
   taskMessageSends = taskMessageSends.filter((t) => t >= now - TASK_MSG_WINDOW_MS);
+  taskMessageOnly = taskMessageOnly.filter((t) => t >= now - TASK_MSG_WINDOW_MS);
   if (TASK_MSG_CAP_PER_HOUR === 0) {
     // No retry time: waiting does not help while the cap is 0, so none is offered. It stays a 429,
     // not a 403, on purpose: both kosmos CLIs print the error text either way, and a 403 reads as
     // "your token was refused", which would send the agent to fix its sign-in instead.
-    // #7408 review 6: a message that names agents is told the screen cannot do that either (it names nobody).
-    return { because: extra > 0
+    // #7408 review 6/7: a message that names agents is told the screen cannot do that either (it names nobody).
+    return { because: hasTo
       ? 'task messages that name agents are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); send it without naming agents from the screen, or assign the task'
       : 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: null };
   }
-  /* #7408 review 4-6: a message that adds agents with `to` costs 1 + extra, all counted before it is sent, so one
+  const cap = TASK_MSG_CAP_PER_HOUR;
+  const sent = taskMessageSends.length;
+  /* #7408 review 7: what the count holds, said truly: messages alone when no message named agents, otherwise both. */
+  const counted = sent === taskMessageOnly.length ? null
+    : sent + ' counted in the last hour (' + taskMessageOnly.length + (taskMessageOnly.length === 1 ? ' message' : ' messages') + ', and ' + (sent - taskMessageOnly.length) + ' for the agents they named)';
+  /* #7408 review 4-7: a message that adds agents with `to` costs 1 + extra, all counted before it is sent, so one
      message cannot pass the limit by its own list. Said in its own words, whether or not the limit is already reached,
      so a wait it is given is the wait for ITS cost (never one slot's, then a second refusal), and a list bigger than the
-     whole limit is told it can never fit rather than to wait. Rounded as runawayRefusal rounds: up, at most the hour. */
+     whole limit is told it can never fit rather than to wait. Rounded as runawayRefusal rounds: up, at most the hour.
+     The limit is shared by all agents, and it says so, as every runaway refusal must (engine/runaway.js). */
   if (extra > 0) {
     const cost = 1 + extra;
-    const adds = 'that message adds ' + extra + (extra === 1 ? ' agent' : ' agents') + ' to tell';
-    if (cost > TASK_MSG_CAP_PER_HOUR) {
-      return { because: adds + ', and each counts toward the limit of ' + TASK_MSG_CAP_PER_HOUR + ' task messages an hour, so it can never fit; name fewer agents', retryAfterSecs: null };
+    const costs = 'that message and the ' + extra + (extra === 1 ? ' agent' : ' agents') + ' it adds to tell count ' + cost
+      + ' toward the limit of ' + cap + ' task messages an hour, shared by all agents together (one per message, and one per agent a message names)';
+    if (cost > cap) {
+      return { because: costs + ', so it can never fit; name at most ' + (cap - 1) + (cap - 1 === 1 ? ' agent' : ' agents'), retryAfterSecs: null };
     }
-    const sent = taskMessageSends.length;
-    if (sent + cost <= TASK_MSG_CAP_PER_HOUR) return null;
+    if (sent + cost <= cap) return null;
     const oldest = taskMessageSends.slice().sort((a, b) => a - b);
-    const freeAt = oldest[sent + cost - TASK_MSG_CAP_PER_HOUR - 1] + TASK_MSG_WINDOW_MS;
+    const freeAt = oldest[sent + cost - cap - 1] + TASK_MSG_WINDOW_MS;
     const secs = Math.min(TASK_MSG_WINDOW_MS / 1000, Math.max(1, Math.ceil((freeAt - now) / 1000)));
     const mins = Math.max(1, Math.ceil(secs / 60));
-    return { because: adds + ', and with the ' + sent + (sent === 1 ? ' task message' : ' task messages') + ' sent in the last hour that would pass the limit of ' + TASK_MSG_CAP_PER_HOUR + '; name fewer agents, or send it again in about ' + mins + (mins === 1 ? ' minute' : ' minutes'), retryAfterSecs: secs };
+    return { because: costs + ', and ' + (counted || (sent + (sent === 1 ? ' task message was' : ' task messages were') + ' sent in the last hour'))
+      + ', so it would pass the limit; name fewer agents, or send it again in about ' + mins + (mins === 1 ? ' minute' : ' minutes'), retryAfterSecs: secs };
   }
-  const plain = runawayRefusal(taskMessageSends, { noun: 'task messages', did: 'sent',
-    pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: TASK_MSG_CAP_PER_HOUR });
-  return plain && { because: plain.because, retryAfterSecs: plain.retryAfterSecs };
+  const plain = runawayRefusal(taskMessageSends, counted
+    ? { noun: 'of the hourly task-message count (one per message, and one per agent a message named with --to)', did: 'used',
+      pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }
+    : { noun: 'task messages', did: 'sent', pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: cap });
+  if (!plain) return null;
+  // Review 7: a message that names agents was not sent from the screen, and the screen names nobody: no screen tail.
+  const because = hasTo ? plain.because.replace(/; the person can still send them from the screen$/, '') : plain.because;
+  return { because, retryAfterSecs: plain.retryAfterSecs };
 }
 /* #7408 review 3: `count` is how many agents the message reaches beyond its assignees plus one, so a message naming
    agents with `to` spends the limit per agent it adds (a looping sender reaches no more agents through `to` than the
    limit allows). Checked before sending with every name in `to` counted (taskMessageRefusal's `extra`, review 4). */
 function taskMessageValveRecord(count = 1) {
   const now = Date.now();
+  taskMessageOnly.push(now);
   for (let i = 0; i < count; i += 1) taskMessageSends.push(now);
 }
 
@@ -24669,7 +24684,7 @@ const server = http.createServer(async (req, res) => {
         catch { preAssignees = []; }   // unknown: every name counts, the safe direction
         const toExtra = toNames.filter((n) => !(senderCard && sameAgentName(n, senderCard.sessionName, byKey))
           && !preAssignees.some((a) => sameAgentName(a, n, false))).length;
-        const msgRefusal = viaScreen && body.to === undefined ? null : taskMessageRefusal(Date.now(), toExtra);
+        const msgRefusal = viaScreen && body.to === undefined ? null : taskMessageRefusal(Date.now(), toExtra, body.to !== undefined);
         if (msgRefusal) {
           if (msgRefusal.retryAfterSecs !== null) {
             res.setHeader('retry-after', String(msgRefusal.retryAfterSecs));
@@ -27989,6 +28004,13 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
   taskMessageSendCountForTests: () => taskMessageSends.filter((t) => t >= Date.now() - TASK_MSG_WINDOW_MS).length,   // #7408 review 3
   taskMessageRefusal,   // #7408 review 5: so a test can reach the never-fits words (a list bigger than the limit)
+  /* #7408 review 7: replace the counted times (entries, and one per message) for a test that pins the wait; returns a
+     function that puts the real ones back. */
+  seedTaskMessageSendsForTests: (entries, messages) => {
+    const was = [taskMessageSends, taskMessageOnly];
+    taskMessageSends = entries.slice(); taskMessageOnly = messages.slice();
+    return () => { [taskMessageSends, taskMessageOnly] = was; };
+  },
   setBuiltTellWaitForTests, // #6330: how long one built line may hold the answer (test seam)
   get taskMessageSendCount() { return taskMessageSends.length; }, // #6330: lines on the task-message valve (tests read the change)
   resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests

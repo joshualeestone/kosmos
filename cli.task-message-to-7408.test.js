@@ -289,7 +289,7 @@ test('#7408 review 4: the limit counts every agent to names before the message i
     const oj = await over.json();
     assert.equal(over.status, 429, 'refused before it is sent: ' + JSON.stringify(oj));
     // Review 5: its own words, with the real count (not one that includes the names), and when it fits again.
-    assert.match(oj.error, new RegExp('^that message adds 2 agents to tell, and with the ' + c + ' task messages sent in the last hour that would pass the limit of ' + (c + 2) + ';'), oj.error);
+    assert.match(oj.error, new RegExp('^that message and the 2 agents it adds to tell count 3 toward the limit of ' + (c + 2) + ' task messages an hour, shared by all agents together .*, and ' + c + ' (counted in the last hour|task messages were sent)'), oj.error);
     assert.ok(Number(oj.retry_after_secs) > 0, 'says when it fits');
     assert.equal(said(n).length, before, 'nothing recorded');
     assert.equal(taskMessageSendCountForTests(), c, 'nothing counted');
@@ -322,7 +322,7 @@ test('#7408 review 5: naming an assignee costs nothing at the edge of the limit,
     setTaskMsgCapForTests(c2 + 1);
     const never = taskMessageRefusal(Date.now(), c2 + 5);
     assert.ok(never, 'refused');
-    assert.match(never.because, /can never fit; name fewer agents/, never.because);
+    assert.match(never.because, new RegExp('count ' + (c2 + 6) + ' toward the limit of ' + (c2 + 1) + ' .*, so it can never fit; name at most ' + c2 + ' agent'), never.because);
     assert.equal(never.retryAfterSecs, null, 'no retry time: waiting does not help');
     assert.equal(taskMessageRefusal(Date.now(), 0), null, 'CONTROL: a plain message still fits');
   } finally {
@@ -341,7 +341,7 @@ test('#7408 review 6: at the limit, a message with to is told the wait for its o
     const r = await post(n, { text: 'two more', to: ['otto', 'kai'] });
     const j = await r.json();
     assert.equal(r.status, 429);
-    assert.match(j.error, /^that message adds 2 agents to tell, /, 'its own words, not the plain limit: ' + j.error);
+    assert.match(j.error, /^that message and the 2 agents it adds to tell count 3 /, 'its own words, not the plain limit: ' + j.error);
     assert.ok(Number(j.retry_after_secs) > 0, j.error);
     // A screen claim WITHOUT to is never limited (CONTROL for the screen arm), and records once.
     const before = said(n).length;
@@ -359,10 +359,43 @@ test('#7408 review 6: at the limit, a message with to is told the wait for its o
     const big = await post(n, { text: 'too many', to: ['otto', 'kai'] });
     const bj = await big.json();
     assert.equal(big.status, 429);
-    assert.match(bj.error, /can never fit; name fewer agents/, bj.error);
+    assert.match(bj.error, /count 3 toward the limit of 2 .*, so it can never fit; name at most 1 agent$/, bj.error);
     assert.equal(big.headers.get('retry-after'), null, 'no retry-after: waiting does not help');
   } finally {
     setTaskMsgCapForTests();
     projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'kai') }));
+  }
+});
+
+test('#7408 review 7: the wait for a message with to is exact, and the count is said as what it holds', () => {
+  const { seedTaskMessageSendsForTests, taskMessageRefusal, setTaskMsgCapForTests } = require('./server');
+  const now = Date.now();
+  const min = 60000;
+  // Five entries at known ages (oldest first): 50, 40, 30, 20 and 10 minutes ago; three messages, two named agents.
+  const entries = [50, 40, 30, 20, 10].map((m) => now - m * min);
+  const restore = seedTaskMessageSendsForTests(entries, [entries[0], entries[2], entries[4]]);
+  try {
+    setTaskMsgCapForTests(6);
+    // Cost 2 (one agent): 5 + 2 = 7, one over, so the oldest must leave: 50 minutes ago + 60 = in 10 minutes.
+    const two = taskMessageRefusal(now, 1);
+    assert.equal(two.retryAfterSecs, 10 * 60, two.because);
+    assert.match(two.because, /about 10 minutes$/);
+    assert.match(two.because, /, and 5 counted in the last hour \(3 messages, and 2 for the agents they named\)/, two.because);
+    // Cost 3 (two agents): two over, so the 2nd oldest must leave: 40 minutes ago + 60 = in 20 minutes.
+    const three = taskMessageRefusal(now, 2);
+    assert.equal(three.retryAfterSecs, 20 * 60, three.because);
+    // The plain path, once the count is reached, says what it counts (not "sent 6 task messages").
+    setTaskMsgCapForTests(5);
+    const plain = taskMessageRefusal(now, 0);
+    assert.match(plain.because, /^agents have used 5 of the hourly task-message count \(one per message, and one per agent a message named with --to\)/, plain.because);
+    // CONTROL: with no agents named, the plain words are unchanged.
+    restore();
+    const restore2 = seedTaskMessageSendsForTests(entries, entries);
+    try {
+      assert.match(taskMessageRefusal(now, 0).because, /^agents have sent 5 task messages in the last hour/);
+    } finally { restore2(); }
+  } finally {
+    setTaskMsgCapForTests();
+    restore();
   }
 });
