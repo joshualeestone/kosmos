@@ -91,6 +91,9 @@ struct ChatView: View {
     @State private var diagDone = false   // once per open chat, even after the line is dismissed
     @State private var diagWideDone = false   // review 2: a width finding has its own once, so it cannot use up the blank one
     @State private var diagShownOnce = false   // review 2: the record starts at the chat's first showing, not each return
+    // Review 4: when this conversation's messages arrived, and whether any row has drawn since, for the never-drawn case.
+    @State private var diagThreadAt: Date?
+    @State private var diagEverDrew = false
     @State private var diagTick = 0   // bumped when the last row leaves the screen (review 1)
     private var diagWide: Bool { diagViewport.width > 0 && diagContentWidth > diagViewport.width + 1 }
     // kosmos#7016 part 2: each file card's state, and the file open in Quick Look.
@@ -304,6 +307,7 @@ struct ChatView: View {
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: client.chatEpoch) { now in
             diagDone = false; diagWideDone = false; diagReport = nil   // kosmos#7420 review 1: another account or computer is a new chat
+            diagThreadAt = nil; diagEverDrew = false   // review 4
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
@@ -382,7 +386,7 @@ struct ChatView: View {
         itemView(item).id(item.id)
             // Which rows are on screen, so a page landing above keeps the one the reader is on. The eager rows all
             // appear and go together (kosmos#7265), so they count as on screen while any of them shows.
-            .onAppear { onScreen.insert(item.id) }
+            .onAppear { onScreen.insert(item.id); if !diagEverDrew { diagEverDrew = true } }
             .onDisappear {
                 onScreen.remove(item.id)
                 if onScreen.isEmpty { diagTick &+= 1 }   // kosmos#7420: the diagnostic's check, only when the last row leaves
@@ -465,6 +469,12 @@ struct ChatView: View {
                 })
                 // Review 1: driven by a tick bumped only when the last row leaves (row()), never by reading onScreen here,
                 // which would redraw the whole chat on every row that scrolls in or out. Checked at 0.5 s and again at 1.5 s.
+                // Review 4: the messages arriving start the never-drawn clock, and a check runs once it has passed.
+                .onChange(of: thread == nil) { none in
+                    guard !none else { return }
+                    diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { diagTick &+= 1 }
+                }
                 .onChange(of: diagTick) { _ in
                     for wait in [0.5, 1.5] { DispatchQueue.main.asyncAfter(deadline: .now() + wait) { diagCheck(proxy, count: items.count) } }
                 }
@@ -650,7 +660,10 @@ struct ChatView: View {
     private func diagCheck(_ proxy: ScrollViewProxy, count: Int) {
         // Review 1: only for the chat on screen with the app in front: under the info page, another tab or Quick Look every
         // row leaves too, and that is not a fault.
-        guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible || !endSeen, !topVisible, count > 0, thread != nil else { return }   // review 3: a list never drawn never moved the end marker
+        // Review 3 and 4: a list never drawn never moved the end marker, so that arm needs no row drawn since the messages
+        // arrived more than 2 s ago (never the moment after an account or computer change, before its rows appear).
+        let neverDrew = !endSeen && !diagEverDrew && (diagThreadAt.map { Date().timeIntervalSince($0) > 2 } ?? false)
+        guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible || neverDrew, !topVisible, count > 0, thread != nil else { return }
         diagCapture(proxy, why: "no message on screen", count: count)
     }
 
