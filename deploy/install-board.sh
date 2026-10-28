@@ -231,6 +231,7 @@ say "  engine/service-keys.json and its .sig when present (checked first, #6587)
 say "  web/ (whole)"
 say "  bin/agent-supervisor.sh, bin/codex-report-bridge.js, bin/gemini-report-bridge.js, bin/grok-report-bridge.js, bin/agy-report-bridge.js, bin/board-watchdog.sh"
 say "  assets/Kosmos.icns when present"
+say "  release-notes.json, written for this version (kosmos#7411)"
 echo
 
 stage_app() {
@@ -273,6 +274,12 @@ stage_app() {
   if [ -f "$REPO/assets/Kosmos.icns" ]; then
     mkdir -p "$_d/assets" && cp "$REPO/assets/Kosmos.icns" "$_d/assets/" || return 1
   fi
+  # kosmos#7411: the release notes this build ships, written as the release bundle writes them (the board deploy and
+  # the bundle must stage the same app files, tools/test-board-deploy-manifest.sh). Outside a git tree a board has no
+  # pool to fall back on, so without this \`kosmos whats-new\` would find no notes.
+  _plat=linux; [ "$(uname -s)" = Darwin ] && _plat=mac
+  _ver="$("$NODE" -e 'process.stdout.write(String(require(process.argv[1]).version))' "$REPO/package.json")" || return 1
+  "$NODE" "$REPO/tools/whats-new-pool.js" notes "$_ver" --platform="$_plat" --out="$_d/release-notes.json" >/dev/null || return 1
   # Bake the version, exactly as the bundle does. Without this the served page
   # shows the literal marker to a person, which is a visible regression rather
   # than a cosmetic one, so it is VERIFIED rather than assumed.
