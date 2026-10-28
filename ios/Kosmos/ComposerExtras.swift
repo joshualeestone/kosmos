@@ -459,7 +459,9 @@ struct PressedBubbleKey: PreferenceKey {
 extension View {
     /// The area a chat's or room's messages are seen in, for the lit message's cut-out (kosmos#7419).
     func messagesVisibleArea() -> some View {
-        anchorPreference(key: PressedBubbleKey.self, value: .bounds) { PressedBubble(bubble: nil, visible: $0) }
+        // Review 5: a transform, so the rows' bubble inside this area is kept (a plain anchorPreference here would
+        // replace their value, and no hole would be cut).
+        transformAnchorPreference(key: PressedBubbleKey.self, value: .bounds) { $0.visible = $1 }
     }
 }
 struct PressedBubbleMark: View {
