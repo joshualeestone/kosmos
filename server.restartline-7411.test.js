@@ -29,7 +29,7 @@ const RECORD = path.join(store.ROOT, 'version-start.json');
 // An update a minute ago, from the version before this one.
 const AT = Date.now() - 60000;
 fs.mkdirSync(path.dirname(RECORD), { recursive: true });
-fs.writeFileSync(RECORD, JSON.stringify({ version, previous: '0.0.1', at: AT }));
+fs.writeFileSync(RECORD, JSON.stringify({ history: [{ version: '0.0.1', at: AT - 86400000 }, { version, at: AT }] }));
 
 /* The roster through the real producers (test-support/fleet), and the session starts through status's own seam, as
    tmux's list-sessions answers (seconds). Only the notes are replaced: the repo's pool marks no fix yet. */
@@ -46,7 +46,7 @@ test('#7411: start keeps this version\'s first start; the line names running age
   const base = `http://127.0.0.1:${server.address().port}`;
   const line = async () => (await (await fetch(`${base}/api/restart-line`)).json()).line;
 
-  assert.equal(rl.read().at, AT, 'starting the board again on the same version moved its first start');
+  assert.deepEqual(rl.read().history.map((h) => h.at), [AT - 86400000, AT], 'starting the board again on the same version changed the record');
 
   const world = fleet.install([
     fleet.agent('claudebot'),         // named by its name (readIdentity: Splinter)
