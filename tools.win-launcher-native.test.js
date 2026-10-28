@@ -312,6 +312,9 @@ test('#7492: every string constant in KosmosLauncher.cs is in the committed Kosm
   const readable = SOURCE.slice(0, close) + '    const string PlantedReadable = "a;b, c = d";\n' + SOURCE.slice(close);
   assert.deepEqual(stringConstants(readable).unresolved, [], 'a readable constant was flagged');
   assert.equal(stringConstants(readable).values.get('PlantedReadable'), 'a;b, c = d');
+  // CONTROL: a declaration written only in a comment is not a constant, so it is not flagged.
+  const commented = SOURCE.slice(0, close) + '    // const string PlantedInComment = @"x";\n    /* const string PlantedInBlock = $"y"; */\n' + SOURCE.slice(close);
+  assert.deepEqual(stringConstants(commented).unresolved, [], 'a declaration in a comment was flagged');
   // And the folded values: a page built with + is read whole (the window's starting page).
   assert.ok(stringConstants(SOURCE).values.get('StartingPage').startsWith('<!doctype html><html><head><meta charset="utf-8">'));
 });
