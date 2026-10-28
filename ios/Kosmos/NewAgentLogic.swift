@@ -208,8 +208,7 @@ enum NewAgent {
     static let fallback = "We could not make it, and we cannot tell you why."
     static let unsureWords = "Kosmos could not tell whether that went through. Look in Agents before you try again."
 
-    // created is made; refused and partial (the engine rolls a partial back) are the board's own sentence; an error
-    // with a sentence is that sentence; no answer, or a 5xx with none, is unknown.
+    // A partial is rolled back by the engine, so it is a refusal, as refused is.
     static func result(sent: Bool, status: Int, body: Data?) -> Result {
         if !sent { return .refused(fallback) }
         if status == 0 { return .unknown }
@@ -221,6 +220,7 @@ enum NewAgent {
             return .made(session: session, shownAs: shown)
         }
         if let said { return .refused(said) }
+        if ["refused", "partial"].contains(obj?["outcome"] as? String ?? "") { return .refused(fallback) }
         return status >= 500 || (200...299).contains(status) ? .unknown : .refused(fallback)
     }
 }
@@ -249,6 +249,7 @@ enum NewTeam {
         static let made = "Made"
         static let afterLead = "Made once the lead is made."
         static let tryAgain = "Try again"
+        static let nameAsTyped = "Kosmos could not use that name as it is typed. Change it and try again."
     }
 
     struct Team: Equatable, Identifiable {
@@ -313,7 +314,8 @@ enum NewTeam {
             return Member(slot: slot, title: title, name: m["name"] as? String ?? "", isLead: m["reportsTo"] is NSNull || m["reportsTo"] == nil)
         }
         // The board refuses a team without exactly one lead; so does the phone, rather than make one Create would refuse.
-        guard !members.isEmpty, members.filter(\.isLead).count == 1, members.first?.isLead == true else { return nil }
+        guard !members.isEmpty, members.filter(\.isLead).count == 1, members.first?.isLead == true,
+              Set(members.map(\.slot)).count == members.count else { return nil }
         let project = team["project"] as? [String: Any]
         return Detail(key: key, label: team["label"] as? String ?? key, purpose: team["purpose"] as? String ?? "",
                       caution: (team["caution"] as? String).flatMap { NewProject.trimmed($0).isEmpty ? nil : $0 },

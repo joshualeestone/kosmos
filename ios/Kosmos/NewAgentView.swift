@@ -32,6 +32,7 @@ struct NewAgentView: View {
     @State private var projectChoice: NewTeam.ProjectChoice = .new
     @State private var newProjectName = ""
     @State private var madeProject: String?      // the project this team's run made, kept for a Try again
+    @State private var teamStarted = false       // the desktop's TC.started: the names were checked and making began
     @State private var states: [String: NewTeam.State] = [:]
     @State private var teamRunning = false
     @State private var teamMessage: String?
@@ -121,6 +122,7 @@ struct NewAgentView: View {
 
     private func choose(_ kind: NewAgent.Kind) {
         if kind == .team {
+            draft.kind = .single
             path = [.team]
             if teams == nil { Task { await loadTeams() } }
             return
@@ -307,10 +309,11 @@ struct NewAgentView: View {
         guard teamKey == key else { return }   // another team picked meanwhile
         if let got, (200...299).contains(got.1.statusCode), let d = NewTeam.parseDetail(got.0) {
             detail = d
-            names = Dictionary(uniqueKeysWithValues: d.members.map { ($0.slot, $0.name) })
+            names = Dictionary(d.members.map { ($0.slot, $0.name) }, uniquingKeysWith: { first, _ in first })
             newProjectName = NewTeam.newProjectName(d, taken: projects.map(\.name))
             projectChoice = .new
             madeProject = nil
+            teamStarted = false
             states = [:]
         } else {
             detailFailed = true
@@ -326,13 +329,16 @@ struct NewAgentView: View {
         let epoch = client.chatEpoch
         let typed = names.mapValues { NewProject.trimmed($0) }
         let model = draft.model
-        // 1. The names, checked against this computer, before anything is made.
-        let check = await client.throughMac { NewTeam.specsRequest(mac: $0, key: d.key, names: typed, project: nil, model: model, check: true) }
-        guard epoch == client.chatEpoch else { return }
-        switch NewTeam.specsAnswer(status: check?.1.statusCode ?? 0, body: check?.0) {
-        case .refused(let why): say(why); return
-        case .unknown: say(NewAgent.unsureWords); return
-        case .specs: break
+        // 1. The names, checked against this computer, before anything is made. Only before: on Try again the members
+        // already made hold their own names, which the check would refuse (the desktop's tcRunOnce reads without it).
+        if !teamStarted {
+            let check = await client.throughMac { NewTeam.specsRequest(mac: $0, key: d.key, names: typed, project: nil, model: model, check: true) }
+            guard epoch == client.chatEpoch else { return }
+            switch NewTeam.specsAnswer(status: check?.1.statusCode ?? 0, body: check?.0) {
+            case .refused(let why): say(why); return
+            case .unknown: say(NewAgent.unsureWords); return
+            case .specs: break
+            }
         }
         // 2. The project.
         var project: String?
@@ -359,10 +365,13 @@ struct NewAgentView: View {
         }
         for s in specs where states[s.slot].map({ if case .made = $0 { return false } else { return true } }) ?? true { states[s.slot] = .waiting }
         if path.last != .teamMade { path.append(.teamMade) }
+        teamStarted = true
         let lead = d.members.first?.slot
         for s in specs {
             if case .made = states[s.slot] { continue }
             if s.slot != lead, let lead, !isMade(lead) { states[s.slot] = .afterLead; continue }
+            // The desktop's stale-spec guard: never make a member under a name that is not the one on its row.
+            if s.name != typed[s.slot] { states[s.slot] = .failed(NewTeam.Words.nameAsTyped); continue }
             states[s.slot] = .making
             let got = await client.throughMac { NewTeam.memberRequest(mac: $0, spec: s) }
             guard epoch == client.chatEpoch else { return }
@@ -518,7 +527,7 @@ struct NewAgentView: View {
     private var madeScreen: some View {
         VStack(spacing: 20) {
             Spacer()
-            if seen, let made {
+            if seen, made != nil {
                 Text(NewAgent.Words.hello).font(.body).multilineTextAlignment(.center).foregroundColor(Palette.primary)
             } else {
                 ProgressView().controlSize(.large)
@@ -533,6 +542,7 @@ struct NewAgentView: View {
         .onChange(of: client.agents) { rows in if let made, rows.contains(where: { $0.session == made.session }) { seen = true } }
         .task {
             try? await Task.sleep(nanoseconds: 30_000_000_000)
+            guard !Task.isCancelled else { return }
             seen = true
         }
         .safeAreaInset(edge: .bottom) {
