@@ -276,17 +276,23 @@ enum NewTeam {
         let members: [Member]     // lead first, as served
     }
 
-    static func get(_ path: String, mac: URL) -> URLRequest {
-        var r = URLRequest(url: URL(string: path, relativeTo: mac)!.absoluteURL)
+    static func teamsRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/teams/seeded", relativeTo: mac)!.absoluteURL)
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
     }
-    static func teamsRequest(mac: URL) -> URLRequest { get("/api/teams/seeded", mac: mac) }
+    // The route's own key pattern ([a-z0-9-]{1,64}), so a key it would refuse is never sent.
     static func isKey(_ k: String) -> Bool {
         !k.isEmpty && k.count <= 64 && k.unicodeScalars.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }
     }
-    static func detailRequest(mac: URL, key: String) -> URLRequest? { isKey(key) ? get("/api/teams/seeded/" + key, mac: mac) : nil }
+    static func detailRequest(mac: URL, key: String) -> URLRequest? {
+        guard isKey(key) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/teams/seeded/\(key)", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
 
     static func parseTeams(_ data: Data) -> [Team]? {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -337,7 +343,7 @@ enum NewTeam {
         if let project { b["project"] = project }
         if !model.isEmpty { b["model"] = model }
         guard let data = try? JSONSerialization.data(withJSONObject: b) else { return nil }
-        var r = URLRequest(url: URL(string: "/api/teams/seeded/" + key + "/specs", relativeTo: mac)!.absoluteURL)
+        var r = URLRequest(url: URL(string: "/api/teams/seeded/\(key)/specs", relativeTo: mac)!.absoluteURL)
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
