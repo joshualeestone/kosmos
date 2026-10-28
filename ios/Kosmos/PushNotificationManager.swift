@@ -22,6 +22,9 @@ final class PushNotificationManager: NSObject, ObservableObject {
     // kosmos#7032: a room a tapped notification asked to open in the native Projects tab (ContentView decides whether it
     // can, else it opens the board's room page through boardToOpen).
     @Published var roomToOpen: PushBridge.RoomTarget?
+    // kosmos#7418: an agent a tapped notification asked to open in the native Agents tab (ContentView decides whether it
+    // can, else it opens the board's page for that agent through boardToOpen).
+    @Published var agentToOpen: PushBridge.AgentTarget?
 
     // kosmos#7008: bumped by a sign-out or a sign-in as someone else, so the Agents tab drops its chats at once. A
     // Keychain read that briefly finds no session is not one of these and keeps them.
@@ -241,6 +244,13 @@ extension PushNotificationManager: UNUserNotificationCenterDelegate {
                                                 coordinator: KosmosConfig.coordinatorOrigin) {
                 NSLog("[Push] tapped room notification opens a room on \(room.host)")
                 DispatchQueue.main.async { self.roomToOpen = room }
+                break
+            }
+            // kosmos#7418: every other notification names an agent; its chat opens natively, as from the Agents list.
+            if let agent = PushBridge.agentToOpen(fromNotification: response.notification.request.content.userInfo,
+                                                  coordinator: KosmosConfig.coordinatorOrigin) {
+                NSLog("[Push] tapped agent notification opens a chat on \(agent.host)")
+                DispatchQueue.main.async { self.agentToOpen = agent }
                 break
             }
             // Only the coordinator's `address` field decides where a tap goes, and
