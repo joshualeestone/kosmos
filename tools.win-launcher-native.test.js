@@ -194,6 +194,35 @@ test('W-07: Kosmos.exe is a GUI-subsystem exe, so a double-click opens no consol
     'the committed Kosmos.exe is not a GUI exe (subsystem 3 is the console window W-07 removed); rebuild it with /target:winexe');
 });
 
+/* #7492: the committed exe carries the source's words. Every non-empty `const string` in KosmosLauncher.cs is stored in
+   the compiled exe as UTF-16, so a source text change committed with an exe built from the previous text (the exe is
+   rebuilt and signed on the Windows box, by hand) fails here, on any machine, where verify-launcher.ps1 runs only on
+   Windows. It reads text, not bytes: verify-launcher.ps1 still owns the full comparison. */
+function csharpLiteral(raw) {
+  return raw.replace(/\\(u[0-9a-fA-F]{4}|[0nrt"'\\])/g, (_, e) => (e[0] === 'u' ? String.fromCharCode(parseInt(e.slice(1), 16))
+    : { 0: '\0', n: '\n', r: '\r', t: '\t', '"': '"', "'": "'", '\\': '\\' }[e]));
+}
+function constantsMissingFromExe(source, exe) {
+  const missing = [];
+  let count = 0;
+  for (const m of source.matchAll(/const string (\w+) =\s*"((?:[^"\\]|\\.)*)";/g)) {
+    const value = csharpLiteral(m[2]);
+    if (!value) continue;
+    count++;
+    if (exe.indexOf(Buffer.from(value, 'utf16le')) < 0) missing.push(m[1]);
+  }
+  return { count, missing };
+}
+test('#7492: every string constant in KosmosLauncher.cs is in the committed Kosmos.exe (no exe built from older text)', () => {
+  const { count, missing } = constantsMissingFromExe(SOURCE, EXE);
+  assert.ok(count >= 50, 'found only ' + count + ' string constants in the source: the pattern no longer reads it');
+  assert.deepEqual(missing, [], 'Kosmos.exe was built from different words than KosmosLauncher.cs: rebuild and sign it on the Windows box (tools/windows/README.md)');
+  // CONTROL: one changed word in the source must be caught, so a pass above is the exe agreeing, not a check that cannot fail.
+  const changed = SOURCE.replace('const string RunningHereMessage =\n        "Kosmos', 'const string RunningHereMessage =\n        "Kosmox');
+  assert.notEqual(changed, SOURCE, 'the control did not change the source');
+  assert.deepEqual(constantsMissingFromExe(changed, EXE).missing, ['RunningHereMessage']);
+});
+
 test('W-08: Kosmos.exe carries the Kosmos icon at 16, 32, 48 and 256, byte for byte from assets/kosmos.ico', () => {
   const leaves = resources(EXE);
   const groups = leaves.filter((r) => r.type === RT_GROUP_ICON);
