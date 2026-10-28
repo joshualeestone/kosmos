@@ -326,8 +326,14 @@ do {
                                  Board.Mac(name: "Mini", address: "mini.kosmosplus.com", usable: true, lastSeen: seen),
                                  Board.Mac(name: "Old", address: "old.kosmosplus.com", usable: true, connected: false)],
                                 shown: nil, now: now, calendar: cal, locale: en)
-    check(sw.map { $0.status.replacingOccurrences(of: "\u{202F}", with: " ") } == ["Online", "Offline", "Not answering since 8:12 PM"],
-          "the switcher (Mona Lisa): \"Not answering since 8:12 PM\"; Online alone; Offline alone when never heard from")
+    check(sw.map { $0.status.replacingOccurrences(of: "\u{202F}", with: " ") } == ["Online", "Not answering", "Not answering since 8:12 PM"],
+          "the switcher (Mona Lisa): \"Not answering since 8:12 PM\"; Online alone; \"Not answering\" alone when never heard from")
+    // Focused review: "Last checked" (how old the screen is) stays unless it says the same minute as "last heard".
+    let checkedAt = at(2026, 10, 27, 20, 12)
+    check(!Shell.saysLastChecked(checkedAt.addingTimeInterval(20), lastHeard: seen) && Shell.saysLastChecked(at(2026, 10, 27, 19, 40), lastHeard: seen),
+          "Last checked is left out only when it is the same minute as last heard; an older list still says how old it is")
+    check(Shell.saysLastChecked(checkedAt, lastHeard: nil) && !Shell.saysLastChecked(nil, lastHeard: seen),
+          "no last heard: Last checked as before; nothing checked: no Last checked")
     // Mona Lisa's time words, bare (switcher, list line) and in a sentence (the message, as the board).
     func words(_ t: Date) -> String? { Board.heardWhen(t.timeIntervalSince1970, now: now, calendar: cal, locale: en)?.words.replacingOccurrences(of: "\u{202F}", with: " ") }
     check(words(at(2026, 10, 27, 20, 12)) == "8:12 PM" && words(at(2026, 10, 26, 20, 12)) == "yesterday at 8:12 PM"

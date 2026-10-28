@@ -175,8 +175,9 @@ enum Board {
         let shown: Bool
         // kosmos#7416 slice 2: when an offline computer was last heard from ("8:12 PM", Board.heardWhen), else nil.
         var seen: String? = nil
-        // Mona Lisa (#7416 card): "Not answering since 8:12 PM" where it said Offline; with no time, Offline as before.
-        var status: String { online ? "Online" : seen.map { "Not answering since \($0)" } ?? "Offline" }
+        // Mona Lisa (#7416 card): "Not answering since 8:12 PM" where it said Offline; with no time, "Not answering" (as
+        // her board note drops only the time it does not have), so one list never mixes Offline and Not answering.
+        var status: String { online ? "Online" : seen.map { "Not answering since \($0)" } ?? "Not answering" }
     }
 
     // The computers the switcher lists: the usable ones, by name (then address, so two of one name keep their order),

@@ -298,7 +298,9 @@ struct AgentsView: View {
     // Lost while open (spec frames 5 and 6): the time of the last good read, in the system's time format.
     private var notUpdating: some View {
         // "Isn't answering" only when that is what happened; while reconnecting or checking it says it is checking.
-        Text(notUpdatingWords + (client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""))
+        // kosmos#7416: "Last checked" unless it says the same minute as "last heard" (Shell.saysLastChecked).
+        Text(notUpdatingWords + (Shell.saysLastChecked(client.updatedAt, lastHeard: notUpdatingHeard)
+                                 ? client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? "" : ""))
             .font(.footnote)
             .foregroundColor(Palette.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -307,8 +309,9 @@ struct AgentsView: View {
             .background(RoundedRectangle(cornerRadius: 10).fill(Palette.banner))
     }
 
+    private var notUpdatingHeard: Double? { client.phase.isUnreachable ? client.failingMacLastHeard : nil }
     private var notUpdatingWords: String {
-        if case .unreachable = client.phase { return Shell.notUpdatingLine(client.failingMacName, lastHeard: client.failingMacLastHeard) }   // kosmos#7197: named; #7416: when
+        if case .unreachable = client.phase { return Shell.notUpdatingLine(client.failingMacName, lastHeard: notUpdatingHeard) }   // kosmos#7197: named; #7416: when
         return "Checking for updates."
     }
 

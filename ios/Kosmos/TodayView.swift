@@ -194,11 +194,12 @@ struct TodayView: View {
     }
 
     private var notUpdating: some View {
-        // kosmos#7416: not answering, the line says when the Mac was last heard from, and then not "Last checked" too.
-        Text(client.phase.isUnreachable && client.failingMacLastHeard != nil
-             ? Shell.notUpdatingLine(client.failingMacName, lastHeard: client.failingMacLastHeard)
-             : (client.phase.isUnreachable ? Shell.notUpdatingLine(client.failingMacName) : "Checking for updates.")
-                + (client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""))
+        // kosmos#7416: not answering, the line says when the Mac was last heard from; "Last checked" stays unless it
+        // says the same minute (Shell.saysLastChecked).
+        let heard = client.phase.isUnreachable ? client.failingMacLastHeard : nil
+        return Text((client.phase.isUnreachable ? Shell.notUpdatingLine(client.failingMacName, lastHeard: heard) : "Checking for updates.")
+             + (Shell.saysLastChecked(client.updatedAt, lastHeard: heard)
+                ? client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? "" : ""))
             .font(.footnote)
             .foregroundColor(Palette.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)

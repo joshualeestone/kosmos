@@ -141,3 +141,17 @@ nothing from it.
    ShellLogic.swift, and switcherRows called Shell.heardWhen, so `ios.board-parity-7084.test.js` was red from my first
    commit. None of the eight rounds ran those runners, and I had only ever run run.sh. FIXED: the time words live in
    BoardLogic.swift. All nine runners pass and the five node tests that read the Swift sources pass (37/37, 2/2).
+
+### Focused review of 25a6503380 (0 B, 2 W, 1 C, 2 N)
+- Confirmed: Mona Lisa's words are in place, the build-structure fix holds (no file a BoardLogic-only runner compiles
+  uses Shell), and the list line keeping #7197's name is accepted.
+- [WARNING] the Agents tab still added "Last checked" after "last heard" (the same minute twice). [WARNING] the chat's
+  "Last checked" is the chat's own last read, not "last heard", so dropping it could say "last heard" = now while the
+  conversation had been stale for minutes. [CONCERN] Today could lose how old its list is when Kosmos+'s last_seen is
+  newer than the app's read. ALL FIXED by one rule, `Shell.saysLastChecked`: "Last checked" stays unless it is within
+  a minute of "last heard"; the chat uses "last heard" only while the Mac itself is not answering. Tested both ways.
+  My earlier decision (drop "Last checked" wherever the time shows) is withdrawn.
+- [NIT] a switcher row with no time said "Offline" beside "Not answering since ...". FIXED: "Not answering".
+- [NIT] the list lines have no minute redraw over midnight. Not changed: the old "Last checked" had the same, and the
+  lines redraw with the 5 s reads.
+All nine LogicTests runners pass (run.sh 1501/1501); the six node tests that read the Swift pass (39/39).
