@@ -1110,13 +1110,6 @@ struct ChatView: View {
         #if DEBUG
         // KOSMOS_SAMPLE_EMOJI=open (with the agent samples): the panel open, for the design shots.
         .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
-        // kosmos#7420: KOSMOS_SAMPLE_FOCUS=<seconds> taps the box that long after opening (the keyboard rises), as a person
-        // would (nothing in the simulator can tap here).
-        .onAppear {
-            if let s = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUS"].flatMap(Double.init), s > 0 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + s) { composerFocused = true }
-            }
-        }
         #endif
         // Leaving the conversation lets go of the microphone and closes the panel (the board's: the panel belongs to the
         // composer being left).
@@ -1851,10 +1844,6 @@ struct BubbleTail: Shape {
 }
 
 // "··· <name> is working": the dots pulse gently, and stay still with Reduce Motion on; VoiceOver hears the words only.
-// kosmos#7420 (Josh 10-27): the pulse is read from a clock, never a repeatForever started on appear. That animation
-// can catch the chat's own layout changes (a message arriving, the keyboard rising) and replay them back and forth for
-// ever: bubbles slid to the screen edge, the list jumped and left a gap. RoomView's WorkingDots learned the same in
-// kosmos#7080 review 1.
 struct WorkingLine: View {
     let name: String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -1862,29 +1851,19 @@ struct WorkingLine: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if reduceMotion { dots(1) }
-            else if ChatView.sampleOldDots { dots(bright ? 1 : 0.35) }
-            else {
-                TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
-                    // 0.35 to 1 and back over 2.4 s, as the old easeInOut took 1.2 s each way.
-                    dots(0.35 + 0.65 * (0.5 - 0.5 * cos(tl.date.timeIntervalSinceReferenceDate * 2 * .pi / 2.4)))
-                }
-            }
+            Text("\u{00B7}\u{00B7}\u{00B7}")
+                .opacity(reduceMotion ? 1 : (bright ? 1 : 0.35))
+                .accessibilityHidden(true)
             Text("\(name) is working")
         }
         .font(.footnote)
         .foregroundColor(Palette.secondary)
         .onAppear {
-            // Debug control only (KOSMOS_SAMPLE_OLDDOTS=1): the old repeatForever, to show both arms in one build.
-            guard ChatView.sampleOldDots, !reduceMotion else { return }
+            guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { bright = true }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(name) is working")
-    }
-
-    private func dots(_ opacity: Double) -> some View {
-        Text("\u{00B7}\u{00B7}\u{00B7}").opacity(opacity).accessibilityHidden(true)
     }
 }
 
@@ -1920,11 +1899,8 @@ extension ChatView {
     #if DEBUG
     static let sampleNoFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFIX"] == "1"
     // kosmos#7265 (10-27): KOSMOS_SAMPLE_NOKEEP=1 turns off only carryDropped and the kept eager start, the control for them.
-    // kosmos#7420: KOSMOS_SAMPLE_OLDDOTS=1 runs the working line's old repeatForever, the control for its fix.
-    static let sampleOldDots = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OLDDOTS"] == "1"
     static let sampleNoKeep = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOKEEP"] == "1"
     #else
-    static let sampleOldDots = false
     static let sampleNoFix = false
     static let sampleNoKeep = false
     #endif
