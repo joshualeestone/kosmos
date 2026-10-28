@@ -1117,7 +1117,7 @@ async function pressRememberedNow(target, card) {
   if (!Array.isArray(roster) || !card || !card.sessionName) return 'gate';
   const name = card.sessionName;
   try {
-    if (menuHeldVerdict(name, roster) || accountHeldVerdict(name, roster) || quotaHeldVerdict(name, roster, typedLineCap(name, roster))) return 'gate';
+    if (menuHeldVerdict(name, roster) || accountHeldVerdict(name, roster) || quotaHeldVerdict(name, roster)) return 'gate';
   } catch { return 'gate'; }
   const gate = typingGate(name, kept.wire, roster, '', '', new Date().toISOString());
   if (!gate.ok) return 'gate';
@@ -1299,7 +1299,7 @@ async function recoverStuckInput(card, since) {
     if (!Array.isArray(roster)) return { outcome: 'waiting', because: 'gate' };
     const name = card.sessionName;
     try {
-      if (menuHeldVerdict(name, roster) || accountHeldVerdict(name, roster) || quotaHeldVerdict(name, roster, typedLineCap(name, roster))) return { outcome: 'waiting', because: 'gate' };
+      if (menuHeldVerdict(name, roster) || accountHeldVerdict(name, roster) || quotaHeldVerdict(name, roster)) return { outcome: 'waiting', because: 'gate' };
     } catch { return { outcome: 'waiting', because: 'gate' }; }
     const allowed = addressable(name, roster);
     if (!allowed.ok) return { outcome: 'waiting', because: 'gate' };
@@ -2822,15 +2822,6 @@ function deliver(sessionName, raw, roster, envelope, trailer, opts) {
   return deliverystreak.noted(streakKey(sessionName, card), movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, false)));
 }
 
-/* kosmos#7406 review 1: an Enter for a line already in an agent's box (a remembered unsent line, which may be the
-   person's own: nothing records whose) is not held by the per-account cap: the text is already in the box, and a
-   person's line is never held (an automatic one was counted when it was typed). A Gemini (Antigravity) agent keeps its
-   own cap's behaviour here, unchanged. */
-function typedLineCap(sessionName, roster) {
-  let card = null;
-  try { card = resolveCard(roster, sessionName); } catch { card = null; }
-  return card && card.runner === 'antigravity' ? {} : { cap: false };
-}
 /**
  * #4588 PR B: deliver for a TIMER, never for a person. While the shared Google quota of this machine's Antigravity
  * agents is out, a line typed into any of them spends a turn against the empty pool, so it is not typed. The verdict is
@@ -2853,7 +2844,7 @@ function quotaHeldVerdict(sessionName, roster, opts = {}) {
     // #4588 ask 3: the person's cap on how many Antigravity agents work at once (Settings > Automation). Not for a
     // send that follows the person's own click (opts.cap false: the restart wake and the handoff pickup).
     if (opts.cap === false) return null;
-    try { until = require('./agyquota').heldForCap(sessionName, roster, now); } catch { until = null; }
+    try { until = require('./agyquota').heldForCap(sessionName, roster, now, undefined, undefined, undefined, opts.workCap === true); } catch { until = null; }
     if (until === null) return null;
     // kosmos#7406: any other agent of ours is held by the per-account cap (engine/workcap-setting.js).
     because = 'held: ' + require('./agyquota').capWords(sessionName, roster) + '; looking again at ' + new Date(until).toISOString();
@@ -3003,7 +2994,7 @@ function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), held);
   // #4588 ask 3 review 1: reserve the cap slot before the keystroke; a line that reached nothing gives it back.
-  const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now());
+  const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now(), undefined, undefined, undefined, opts.workCap === true);
   let v;
   try { v = deliver(sessionName, raw, roster, envelope, trailer); }
   catch (err) { require('./agyquota').releaseCapStart(slot); throw err; }   // review 4: a throw reached nothing either
@@ -3029,7 +3020,7 @@ async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer
   const held = quotaHeldVerdict(sessionName, roster, opts);
   if (held) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), held);
   // Reserved synchronously, before the first await, so a parallel fan-out's next call already counts it.
-  const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now());
+  const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now(), undefined, undefined, undefined, opts.workCap === true);
   let v;
   try { v = await deliverAsync(sessionName, raw, roster, envelope, trailer); }
   catch (err) { require('./agyquota').releaseCapStart(slot); throw err; }
@@ -5260,7 +5251,7 @@ module.exports = {
   composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS, stuckShrunk,   // kosmos#6717
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, typedLineCap, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,

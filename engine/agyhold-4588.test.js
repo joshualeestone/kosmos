@@ -875,17 +875,3 @@ test('#5805 firstreply and agentnudge: a usage-limit hold is logged as limit-hel
   } finally { w.restore(); }
 });
 
-test('kosmos#7406 review 6: the nudge about the PERSON\'s unanswered ask is sent with { cap: false } (never held by a working-at-once cap)', () => {
-  const to = 'agyholdmara';
-  const roster = [{ ...realCard(to), target: 'kt-agyhold-nonexistent:9.9' }];
-  messages.setUnansweredAfterForTests(0);
-  const real = chat.deliverAutomatic;
-  const seen = [];
-  chat.deliverAutomatic = (...args) => { seen.push(args); return { state: DELIVERY.PLACED }; };
-  try {
-    seedUnanswered(to);
-    messages.sweepUnanswered(roster, Date.now());
-  } finally { chat.deliverAutomatic = real; messages.setUnansweredAfterForTests(); }
-  assert.equal(seen.length, 1, 'fixture: the nudge was not attempted');
-  assert.deepEqual(seen[0][5], { cap: false });
-});

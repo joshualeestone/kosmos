@@ -290,14 +290,10 @@ function personsIn(name) {
 function sweepHooks({ chat, messages }) {
   retryRows(chat);
   return {
-    /* kosmos#7406: a person's kept message never waits on a working-at-once cap (review 1: a kept DM; review 2: a task
-       message the person typed on the screen, person: true). An agent's kept lines DO (review 3: a usage limit resets
-       for a whole account at once, which is exactly the burst the cap is for), except while the same agent's queue also
-       holds a person's message: the queue is in order and one held entry stops it, so that agent's whole run goes. */
-    deliver: (n, env, r, e) => {
-      const opts = personsIn(n) ? { cap: false } : {};
-      return e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e), opts) : chat.deliverAutomaticAsync(n, env, r, undefined, undefined, opts);
-    },
+    /* kosmos#7406: an agent's kept lines ask for the per-account cap (a usage limit resets a whole account at once, the
+       burst the cap is for), except while the same agent's queue holds a person's message: the queue is in order and
+       one held entry stops it. A person's own entry never asks for it. */
+    deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r, undefined, undefined, (e && e.person === true) || personsIn(n) ? {} : { workCap: true })),
     resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
     /* #6774: a queue holding a message kept for a stuck input box waits for the box to read empty as well (the #6256
        rule: an unreadable box keeps them waiting). */

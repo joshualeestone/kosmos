@@ -680,10 +680,10 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
     try { heldUntil = agyq.heldForQuota(who, r, now); } catch { heldUntil = null; }
     if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + " is held until " + new Date(heldUntil).toISOString() + ": its Google account's shared quota is out" };
     // #4588 ask 3: the person's cap on how many Gemini agents work at once.
-    try { heldUntil = agyq.heldForCap(who, r, now); } catch { heldUntil = null; }
+    try { heldUntil = agyq.heldForCap(who, r, now, undefined, undefined, undefined, true); } catch { heldUntil = null; }   // kosmos#7406: the Assigner asks for the per-account cap too
     if (heldUntil !== null) return { ok: false, status: 409, held: true, because: who + ' waits: ' + agyq.capWords(who, r).replace('the limit you set', 'the limit set') };   // kosmos#7406: either cap
     // Reserve now, before the part is assigned and told, so the next givePart in this same tick counts it.
-    try { capSlot = agyq.noteCapStart(who, r, now); } catch { capSlot = null; }
+    try { capSlot = agyq.noteCapStart(who, r, now, undefined, undefined, undefined, true); } catch { capSlot = null; }
   }
   /* #5382: a failover move (`from`: the rate-limited agent the Assigner takes the part from) is refused unless the part is
      still on that agent and still open, not held and not built, at the moment of the write (tasks.assignPart). */

@@ -69,37 +69,37 @@ test('fixture: real cards; claude and codex ours, accounts from the stubbed job'
 
 test('at the cap: another idle agent on the SAME account is held, until one minute ahead', () => {
   const r = world({ ...ALL_IDLE, 'cl-a': 'working', 'cl-b': 'working' });
-  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(2)), NOW + q.CAP_RECHECK_MS);
+  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(2), true), NOW + q.CAP_RECHECK_MS);
   assert.equal(q.heldForAgy('cl-c', r, NOW, q.POOL_MEMO, NOENV, NOCAP), null, 'CONTROL: the Gemini cap is not this one');
 });
 
 test('CONTROL: another account, another runner on the same folder, under the cap, or no limit: nothing is held', () => {
   const r = world({ ...ALL_IDLE, 'cl-a': 'working', 'cl-b': 'working' });
-  assert.equal(q.heldForCap('cl-d', r, NOW, NOCAP, NOENV, cap(2)), null, 'another account');
-  assert.equal(q.heldForCap('cx-e', r, NOW, NOCAP, NOENV, cap(2)), null, 'codex on the same folder');
-  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(4)), null, 'under the cap');
-  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(0)), null, 'no limit');
-  assert.equal(q.heldForCap('cl-a', r, NOW, NOCAP, NOENV, cap(1)), null, 'already working: a line to it starts no new turn');
-  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, { AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF: '1' }, cap(2)), null, 'the brake lifts this cap too');
+  assert.equal(q.heldForCap('cl-d', r, NOW, NOCAP, NOENV, cap(2), true), null, 'another account');
+  assert.equal(q.heldForCap('cx-e', r, NOW, NOCAP, NOENV, cap(2), true), null, 'codex on the same folder');
+  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(4), true), null, 'under the cap');
+  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(0), true), null, 'no limit');
+  assert.equal(q.heldForCap('cl-a', r, NOW, NOCAP, NOENV, cap(1), true), null, 'already working: a line to it starts no new turn');
+  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, { AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF: '1' }, cap(2), true), null, 'the brake lifts this cap too');
 });
 
 test('a fan-out from one roster: each reservation counts, so the third same-account agent is held', () => {
   const r = world(ALL_IDLE);   // everyone reads idle: only the reservations can say who was just started
   for (const name of ['cl-a', 'cl-b']) {
-    assert.equal(q.heldForCap(name, r, NOW, NOCAP, NOENV, cap(2)), null, name + ' held before the cap was reached');
-    assert.ok(q.noteCapStart(name, r, NOW, NOCAP, NOENV, cap(2)), name + ' was not reserved');
+    assert.equal(q.heldForCap(name, r, NOW, NOCAP, NOENV, cap(2), true), null, name + ' held before the cap was reached');
+    assert.ok(q.noteCapStart(name, r, NOW, NOCAP, NOENV, cap(2), true), name + ' was not reserved');
   }
-  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(2)), NOW + q.CAP_RECHECK_MS);
-  assert.equal(q.heldForCap('cl-d', r, NOW, NOCAP, NOENV, cap(2)), null, 'CONTROL: another account is not counted');
+  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(2), true), NOW + q.CAP_RECHECK_MS);
+  assert.equal(q.heldForCap('cl-d', r, NOW, NOCAP, NOENV, cap(2), true), null, 'CONTROL: another account is not counted');
   // A reservation lapses after CAP_START_MS, so the cap frees once the started agents stop reading as busy.
-  assert.equal(q.heldForCap('cl-c', r, NOW + q.CAP_START_MS + 1, NOCAP, NOENV, cap(2)), null);
+  assert.equal(q.heldForCap('cl-c', r, NOW + q.CAP_START_MS + 1, NOCAP, NOENV, cap(2), true), null);
 });
 
 test('no reservation while the cap is off, and none for an Antigravity agent under this cap', () => {
   const r = world(ALL_IDLE);
-  assert.equal(q.noteCapStart('cl-a', r, NOW, NOCAP, NOENV, NOCAP), null);
+  assert.equal(q.noteCapStart('cl-a', r, NOW, NOCAP, NOENV, NOCAP, true), null);
   assert.equal(q.CAP_STARTS.size, 0);
-  assert.equal(q.noteCapStart('agy-f', r, NOW, NOCAP, NOENV, cap(2)), null, 'the work cap reserved a Gemini agent');
+  assert.equal(q.noteCapStart('agy-f', r, NOW, NOCAP, NOENV, cap(2), true), null, 'the work cap reserved a Gemini agent');
 });
 
 test('the held reason names the cap that holds it', () => {
@@ -129,54 +129,6 @@ test('a cap-held post is noted, and only while it is still held', () => {
   roomhold.forget('cl-c');
 });
 
-test('reviews 1-3: an agent\'s kept queue goes through the cap, but never while it holds a person\'s own message', () => {
-  const chat = require('./chat');
-  const limitqueue = require('./limitqueue');
-  const real = chat.deliverAutomaticAsync;
-  const seen = [];
-  chat.deliverAutomaticAsync = (...args) => { seen.push(args); return Promise.resolve({ state: 'placed' }); };
-  const at = new Date(NOW).toISOString();
-  try {
-    const hooks = limitqueue.sweepHooks({ chat, messages: require('./messages') });
-    // Only an agent's line kept: the cap applies (review 3: a usage limit resets a whole account at once).
-    assert.ok(limitqueue.add('cl-a', { id: 'x1', from: 'cl-b', envelope: 'e', at, reset: at }));
-    hooks.deliver('cl-a', 'an agent line', [], { kind: 'msg' });
-    // A person's DM joins the same queue: the whole run goes with the cap off (it is in order and one held entry stops it).
-    assert.ok(limitqueue.add('cl-a', { id: 'x2', kind: 'dm', from: 'you', text: 'hi', envelope: 'e', at, reset: at }));
-    hooks.deliver('cl-a', 'an agent line', [], { kind: 'msg' });
-    hooks.deliver('cl-a', 'env', [], { kind: 'dm', text: 'hi', envelope: '', trailer: '' });
-    // A task line the person typed counts the same.
-    assert.ok(limitqueue.add('cl-b', { id: 'x3', kind: limitqueue.TASK_KIND, person: true, from: 'you', envelope: 'e', at, reset: at }));
-    hooks.deliver('cl-b', 'a task line', [], { kind: limitqueue.TASK_KIND, person: true });
-  } finally {
-    chat.deliverAutomaticAsync = real;
-    for (const n of ['cl-a', 'cl-b']) for (const e of limitqueue.list(n)) limitqueue.remove(n, e.id);
-  }
-  assert.deepEqual(seen[0][5], {}, 'CONTROL: an agent-only queue skipped the cap (the reset burst)');
-  assert.deepEqual(seen[1][5], { cap: false }, 'an agent line ahead of a person\'s DM went through the cap (it could stop the DM)');
-  assert.deepEqual(seen[2][5], { cap: false }, 'a person\'s kept DM went through the cap');
-  assert.deepEqual(seen[3][5], { cap: false }, 'a person\'s kept task message went through the cap');
-});
-
-test('review 3: the note of the person\'s own post from another computer is never held by the cap', () => {
-  const chat = require('./chat');
-  const messages = require('./messages');
-  const real = chat.deliverAutomatic;
-  const seen = [];
-  chat.deliverAutomatic = (...args) => { seen.push(args); return { state: 'placed' }; };
-  try {
-    const r = world(ALL_IDLE).map((c) => ({ ...c, target: c.target || 'x:0.0' }));
-    messages.nudgeOwnComputerPost('proj7406', 'Proj', 'm1', ['cl-a'], r, NOW);
-  } finally { chat.deliverAutomatic = real; }
-  assert.equal(seen.length, 1, 'fixture: nothing was nudged');
-  assert.deepEqual(seen[0][5], { cap: false });
-});
-
-test('review 3: both Enter retries pass the typed-line rule (an Enter on a remembered line is never capped)', () => {
-  const src = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
-  assert.equal(src.split('quotaHeldVerdict(name, roster, typedLineCap(name, roster))').length - 1, 2, 'an Enter retry calls the cap without the typed-line rule');
-});
-
 test('review 3: a turn-end line the cap held is noted for the retry, for a Claude member, not a Gemini one', async () => {
   const r = world(ALL_IDLE);
   for (const name of ['cl-c', 'agy-f']) {
@@ -190,21 +142,14 @@ test('review 3: a turn-end line the cap held is noted for the retry, for a Claud
   roomhold.forget('cl-c'); roomhold.forget('agy-f');
 });
 
-test('review 1: an Enter for a line already in the box is not held by the per-account cap; a Gemini agent keeps its own rule', () => {
-  const chat = require('./chat');
-  const r = world(ALL_IDLE);
-  assert.deepEqual(chat.typedLineCap('cl-a', r), { cap: false });
-  assert.deepEqual(chat.typedLineCap('agy-f', r), {}, 'the Gemini cap\'s Enter rule changed');
-});
-
 test('review 1: with no limit set, the gate reads no launch job (the default costs no disk)', () => {
   const r = world({ ...ALL_IDLE, 'cl-a': 'working', 'cl-b': 'working' });
   let reads = 0;
   create.readJob = () => { reads += 1; return null; };
-  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, NOCAP), null);
-  assert.equal(q.noteCapStart('cl-c', r, NOW, NOCAP, NOENV, NOCAP), null);
+  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, NOCAP, true), null);
+  assert.equal(q.noteCapStart('cl-c', r, NOW, NOCAP, NOENV, NOCAP, true), null);
   assert.equal(reads, 0, 'a launch job was read with the cap off');
-  q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(2));
+  q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(2), true);
   assert.ok(reads > 0, 'CONTROL: with a limit the account is read');
 });
 
@@ -222,21 +167,56 @@ test('review 1: a cap note is kept on disk, so a board restart does not lose it'
   roomhold.forget('cl-d');
 });
 
-test('review 4: at the cap, a line sent with { cap: false } is typed, and the same line without it is held (the real gate)', () => {
+test('review 7 (the opt-in): only a sender that asks for the per-account cap is held by it; anything else is not, at the cap', () => {
+  const r = world({ ...ALL_IDLE, 'cl-a': 'working', 'cl-b': 'working' });
+  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(2), true), NOW + q.CAP_RECHECK_MS, 'CONTROL: a burst sender was not held');
+  assert.equal(q.heldForCap('cl-c', r, NOW, NOCAP, NOENV, cap(2)), null, 'a sender that did not ask was held by the per-account cap');
+  assert.equal(q.noteCapStart('cl-c', r, NOW, NOCAP, NOENV, cap(2)), null, 'a sender that did not ask reserved a slot');
+  assert.equal(q.CAP_STARTS.size, 0);
+});
+
+test('review 7: through the real gate, at the cap an automatic line asking for the cap is held, and the same line without it is typed', () => {
   const chat = require('./chat');
   const r = world({ ...ALL_IDLE, 'cl-a': 'working', 'cl-b': 'working' });
   assert.equal(workcap.set({ maxWorking: 2 }).ok, true);
   chat.setRunner((args) => (args[0] === 'display-message' ? { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' } : { ran: true, spawnFailed: false, status: 0, out: '', err: '' }));
   chat.setDryRun(false);
   try {
-    const held = chat.deliverAutomatic('cl-c', 'an automatic line', r);
-    assert.equal(held.held, true, 'CONTROL: the gate did not hold an automatic line at the cap: ' + JSON.stringify(held));
+    const held = chat.deliverAutomatic('cl-c', 'an agent\'s room post', r, undefined, undefined, { workCap: true });
+    assert.equal(held.held, true, 'CONTROL: the gate did not hold a burst sender at the cap: ' + JSON.stringify(held));
     assert.equal(held.heldBy, 'cap');
     q.CAP_STARTS.clear();
-    const sent = chat.deliverAutomatic('cl-c', 'a person\'s line', r, undefined, undefined, { cap: false });
-    assert.notEqual(sent.held, true, 'a { cap: false } line was held: ' + JSON.stringify(sent));
+    const sent = chat.deliverAutomatic('cl-c', 'a nudge about the person\'s ask', r);
+    assert.notEqual(sent.held, true, 'a line that did not ask for the cap was held: ' + JSON.stringify(sent));
   } finally {
     fs.rmSync(workcap.FILE, { force: true });
     chat.resetForTests();
   }
+});
+
+test('review 7: the usage-limit queue asks for the cap only for an agent-only queue', () => {
+  const chat = require('./chat');
+  const limitqueue = require('./limitqueue');
+  const real = chat.deliverAutomaticAsync;
+  const seen = [];
+  chat.deliverAutomaticAsync = (...args) => { seen.push(args); return Promise.resolve({ state: 'placed' }); };
+  const at = new Date(NOW).toISOString();
+  try {
+    const hooks = limitqueue.sweepHooks({ chat, messages: require('./messages') });
+    assert.ok(limitqueue.add('cl-a', { id: 'x1', from: 'cl-b', envelope: 'e', at, reset: at }));
+    hooks.deliver('cl-a', 'an agent line', [], { kind: 'msg' });
+    assert.ok(limitqueue.add('cl-a', { id: 'x2', kind: 'dm', from: 'you', text: 'hi', envelope: 'e', at, reset: at }));
+    hooks.deliver('cl-a', 'an agent line', [], { kind: 'msg' });
+    hooks.deliver('cl-a', 'env', [], { kind: 'dm', text: 'hi', envelope: '', trailer: '' });
+    assert.ok(limitqueue.add('cl-b', { id: 'x3', kind: limitqueue.TASK_KIND, person: true, from: 'you', envelope: 'e', at, reset: at }));
+    hooks.deliver('cl-b', 'a task line', [], { kind: limitqueue.TASK_KIND, person: true });
+  } finally {
+    chat.deliverAutomaticAsync = real;
+    for (const n of ['cl-a', 'cl-b']) for (const e of limitqueue.list(n)) limitqueue.remove(n, e.id);
+  }
+  const asked = (call) => Boolean(call[5] && call[5].workCap === true);
+  assert.equal(asked(seen[0]), true, 'CONTROL: an agent-only queue did not ask for the cap (the reset burst)');
+  assert.equal(asked(seen[1]), false, 'an agent line ahead of a person\'s DM asked for the cap (it could stop the DM)');
+  assert.equal(asked(seen[2]), false, 'a person\'s kept DM asked for the cap');
+  assert.equal(asked(seen[3]), false, 'a person\'s kept task message asked for the cap');
 });

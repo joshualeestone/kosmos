@@ -574,7 +574,9 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     let capped = false;
     let limitUntil = null;
     try {
-      const sent = await deliver(name, clauseFor(projectId, shown, ids, { digest: due }), roster);
+      // kosmos#7406: telling a member the posts kept for it is a burst source (a turn end, a digest, the retry): it asks
+      // for the per-account cap. These are other agents' posts; a person's post is never held, so never here.
+      const sent = await deliver(name, clauseFor(projectId, shown, ids, { digest: due }), roster, undefined, undefined, { workCap: true });
       state = sent && sent.state;
       capped = !!(sent && sent.held === true && sent.heldBy === 'cap');
       if (sent && sent.held === true && sent.heldBy === 'limit') limitUntil = sent.limitReset;
@@ -657,7 +659,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
            repeat every minute (#4797), so those wait too, as the input-box path above does. */
         if (chatMod.addressable(inName, roster).ok === true && !chatMod.accountHeldVerdict(inName, roster) && !chatMod.menuHeld(inName, roster)
           && (String(card.runner || 'claude') !== 'claude' || typeof boxEmpty !== 'function' || boxEmpty(card) === true)   // review 3: only a Claude box can be read; any other reads never-empty
-          && require('./agyquota').heldForCap(inName, roster, now, undefined, env || process.env) === null) {
+          && require('./agyquota').heldForCap(inName, roster, now, undefined, env || process.env, undefined, true) === null) {
           const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: capIn, modeOf, now });
           capProjects(inName);   // drop the notes for posts now told
           for (const d of done) out.push({ name: inName, why: 'cap', ...d });

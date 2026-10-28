@@ -1809,14 +1809,12 @@ function logHeldDropped(entry) {
 }
 /* A dropped message's sender was told it was accepted, so it is told, in its own pane, that it never arrived. Through
    the automatic gate (held or refused there, the dropped row still records it). */
-/* kosmos#7406 review 4: a once-only notice that a kept message was dropped is not held by a working-at-once cap (nothing
-   retries it, so a held notice would leave the sender never knowing). */
 async function tellHeldDropped(entry, roster) {
   logHeldDropped(entry);
   unspill(entry.spill);   // a long message's file, kept only for the line that was never typed
   const line = '[from Kosmos] Your message ' + entry.id + ' to ' + entry.to + ' was never delivered: Kosmos kept it for a'
     + ' day and could not type it. Send it again, or to someone else, if it still matters.';
-  try { return await chat.deliverAutomaticAsync(entry.from, line, roster, undefined, undefined, { cap: false }); } catch { return null; }
+  try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }
 }
 
 /* #5805: a task message's line (`kosmos task message`, or the person's from the screen) for an agent out of usage is
@@ -1925,7 +1923,7 @@ async function tellTaskLineDropped(entry, roster) {
         + ' and could not send it within a day. To tell ' + entry.to + ' now, use kosmos msg ' + entry.to + '.'
       : '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it ' + kept
         + ' and could not send it within a day. Send it again if it still matters.';
-    try { v = await chat.deliverAutomaticAsync(entry.from, line, roster, undefined, undefined, { cap: false }); } catch { v = null; }
+    try { v = await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { v = null; }
     told = entry.from + ', delivery=' + ((v && v.state) || 'could_not');
   }
   // The board's own record of the drop (a task line has no message-log row), whether or not the tell was typed.
@@ -3126,7 +3124,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       ? deliverToPane : (deliverAutomaticToPane || deliverToPane);
     let sent;
     typingStarted.add(name);
-    try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
+    // kosmos#7406: an agent's room post asks for the per-account cap (a person's goes through deliverToPane, ungated).
+    try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined, typeInto === deliverToPane ? undefined : { workCap: true }); }
     catch (err) { putBack(err); }
     return sent && typeof sent.then === 'function' ? sent.then(finish, putBack) : finish(sent);
   };
@@ -3539,7 +3538,7 @@ function sweepUnanswered(roster, now) {
         if (!card || !card.target) continue;
         const line = '[the room has not seen an answer to ' + postId
           + '; to answer, run: kosmos post --in-reply-to ' + postId + ' ' + projectId + ']';
-        const sent = chat.deliverAutomatic(name, line, roster, undefined, undefined, { cap: false })   /* kosmos#7406 review 6: the person's own unanswered ask is never held by a working-at-once cap */;
+        const sent = chat.deliverAutomatic(name, line, roster);
         /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen, or #5805 a usage limit), nothing typed. No row, so the pair's one nudge is still unspent, and
            unanswered() has only a lower age bound (UNANSWERED_AFTER_MS), so the post is still due after a long pause. */
         if (sent && sent.held === true) continue;
@@ -4452,8 +4451,7 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
     const card = roster.find((c) => c && c.sessionName === name);
     if (!card || !card.target) continue;   // only an addressable card, as the #185 sweep
     let sent;
-    // kosmos#7406 review 3: this tells the member of the PERSON's own post, so no working-at-once cap holds it.
-    try { sent = chat.deliverAutomatic(name, line, roster, undefined, undefined, { cap: false }); } catch { continue; }   // one failing pane does not skip the rest
+    try { sent = chat.deliverAutomatic(name, line, roster); } catch { continue; }   // one failing pane does not skip the rest
     // Held (a shared quota, a usage limit, or a Claude screen waiting on its menu or a permission prompt), or not typed
     // at all: nothing reached the agent, so the gap is not spent and the next post can try.
     if (sent && (sent.held === true || sent.state === chat.DELIVERY.COULD_NOT)) continue;

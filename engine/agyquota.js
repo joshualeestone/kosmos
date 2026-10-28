@@ -196,11 +196,13 @@ function capWords(session, roster) {
   return isOurAgy(card) ? 'the Gemini subscription agents on this computer are at the limit you set for working at once'
     : 'the agents on its account are at the limit you set for working at once';
 }
-function heldForCap(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env, readWorkCap = () => require('./workcap-setting').read()) {
+function heldForCap(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env, readWorkCap = () => require('./workcap-setting').read(), workCap = false) {
   if (quotaHoldOff(env)) return null;
   let card = null;
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
-  if (card && !isOurAgy(card)) return heldForWorkCap(card, roster, now, readWorkCap);   // kosmos#7406
+  // kosmos#7406: the per-account cap holds only a sender that asks for it (workCap): the burst sources, never a line
+  // about the person's own message (an opt-in, so no such line can be missed).
+  if (card && !isOurAgy(card)) return workCap === true ? heldForWorkCap(card, roster, now, readWorkCap) : null;
   if (!isOurAgy(card) || busyAgy(card, now)) return null;   // review 13: before the Gemini setting is read
   let max = 0;
   try { max = Number(readCap().maxWorking) || 0; } catch { max = 0; }
@@ -213,13 +215,14 @@ function heldForCap(session, roster, now, readCap = () => require('./agycap-sett
 /* Reserve `session`'s slot for an automatic line about to be typed (our agents, under whichever cap applies to them, and
    only while that cap is set). Returns a token for
    releaseCapStart, or null. */
-function noteCapStart(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env, readWorkCap = () => require('./workcap-setting').read()) {
+function noteCapStart(session, roster, now, readCap = () => require('./agycap-setting').read(), env = process.env, readWorkCap = () => require('./workcap-setting').read(), workCap = false) {
   if (quotaHoldOff(env)) return null;   // the brake lifts the cap, so nothing is reserved under it either
   let card = null;
   try { card = require('./chat').resolveCard(roster, session); } catch { card = null; }
   // kosmos#7406: one of our other agents is reserved under the per-account cap, read the same way. The setting is read
   // first (review 1), so with no limit no launch job is read.
   const agy = isOurAgy(card);
+  if (!agy && workCap !== true) return null;   // only a sender that asked for the per-account cap reserves under it
   let max = 0;
   try { max = Number((agy ? readCap : readWorkCap)().maxWorking) || 0; } catch { max = 0; }
   if (max <= 0) return null;
