@@ -753,6 +753,25 @@ async function keepAwakeShot(page, on) {
   await page.$eval('[data-keep-awake]', (el) => el.closest('.setrow').scrollIntoView({ block: 'center' }));
 }
 
+/* kosmos#7411: the restart line in one of its shapes. 'five': five agents, one fix ("Ada, Kai and 3 more"), the list
+   opened with Show who when `open`. 'one': one agent, two fixes (its own Restart button, the fixes listed). */
+async function restartLineGo(page, shape, open) {
+  const agents = (shape === 'one' ? ['Ada'] : ['Ada', 'Kai', 'Lee', 'Mo', 'Ty']).map((l) => ({ name: l.toLowerCase(), label: l }));
+  const notes = shape === 'one'
+    ? [{ version: '0.7.73', title: 'Agents read what changed in an update' }, { version: '0.7.73', title: 'Hooks see a finished turn' }]
+    : [{ version: '0.7.73', title: 'Agents read what changed in an update' }];
+  await page.route('**/api/restart-line', async (r) => {
+    try { await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ line: { version: '0.7.73', notes, agents } }) }); }
+    catch { /* the page closed at teardown (#6022) */ }
+  });
+  await at(page, '');
+  await page.waitForSelector('#rline-slot .rline', { state: 'visible', timeout: 8000 });
+  if (open) {
+    await page.click('#rline-slot .uacts [data-rl-who]');
+    await page.waitForSelector('#rline-slot .rlrow', { state: 'visible', timeout: 4000 });
+  }
+  await page.mouse.move(1, 1);
+}
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -1069,6 +1088,11 @@ const SCREENS = [
     await page.waitForSelector('#damaged-slot .dmg', { state: 'visible', timeout: 8000 });
     await page.mouse.move(1, 1);
   } },
+  /* kosmos#7411 step 4 (Mona Lisa's design review): the line naming running agents that need a restart to get a fix.
+     The board's answer is stood in on the way to the page; nothing is restarted and nothing is written to the board. */
+  { name: 'restart-line-7411', owner: 'Baron Draxum', noServiceWorker: true, go: (page) => restartLineGo(page, 'five', false) },
+  { name: 'restart-line-7411-who', owner: 'Baron Draxum', noServiceWorker: true, go: (page) => restartLineGo(page, 'five', true) },
+  { name: 'restart-line-7411-one', owner: 'Baron Draxum', noServiceWorker: true, go: (page) => restartLineGo(page, 'one', false) },
   { name: 'agent-perm-card', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, null) },
   { name: 'agent-perm-card-allowed', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Allow') },
   { name: 'agent-perm-card-denied', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Deny') },
