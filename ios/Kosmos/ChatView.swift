@@ -650,7 +650,7 @@ struct ChatView: View {
     private func diagCheck(_ proxy: ScrollViewProxy, count: Int) {
         // Review 1: only for the chat on screen with the app in front: under the info page, another tab or Quick Look every
         // row leaves too, and that is not a fault.
-        guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible, !topVisible, count > 0, thread != nil else { return }
+        guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible || !endSeen, !topVisible, count > 0, thread != nil else { return }   // review 3: a list never drawn never moved the end marker
         diagCapture(proxy, why: "no message on screen", count: count)
     }
 
