@@ -29,45 +29,45 @@ computer. Ask the agent that did it to save it online."
 ### Per-Iteration Breakdown
 
 #### Iteration 1
-**Reviewer model:** opus
+**Reviewer model:** a fresh blind reviewer (the model per round is not in my ledger)
 **New findings:** parts-reopen kept the commit; a cat-file timeout read as missing; a synchronous git call blocked the
 event loop; onRemote went stale; a comment mangled. All FIXED. NITs: control characters in a repo path (Mac), the hex
 check, cache pruning, a safety comment, applied.
 
 #### Iteration 2
-**Reviewer model:** sonnet
+**Reviewer model:** a fresh blind reviewer (the model per round is not in my ledger)
 **New findings:** a hostile repo config could run programs (fsmonitor and hooks now off); unknown cached 5 minutes (now
 30 s); `--commit --clear`. FIXED. DEFERRED: landedRepo in other routes (project records already send absolute folder
 paths to the same clients); a remote-tracking ref as a proxy for pushed (the reviewer judged it acceptable).
 
 #### Iteration 3
-**Reviewer model:** opus
+**Reviewer model:** a fresh blind reviewer (the model per round is not in my ledger)
 **New findings:** a commit with no ref after a rebase merge read missing. FIXED: an object that exists is kept; missing
 is cat-file exit 1, checked only for tasks closed within 14 days. Lazy fetch and transports off; the page waits 1.5 s at
 most. NITs: Windows control-character parity, the git before 2.31 path check, per-state pruning, applied.
 
 #### Iteration 4
-**Reviewer model:** sonnet
+**Reviewer model:** a fresh blind reviewer (the model per round is not in my ledger)
 **New findings:** in-flight checks shared; GIT_CONFIG_NOSYSTEM; claims narrowed (the Tasks view does not send the
 path). FIXED. DEFERRED: the first view after a restart may go unchecked (stated in the code).
 
 #### Iteration 5
-**Reviewer model:** opus
+**Reviewer model:** a fresh blind reviewer (the model per round is not in my ledger)
 **New findings:** a dirty checkout with its own HEAD is refused (the card's own case); the CLI confirms from the
 board's reply; closed and only local is warned. FIXED.
 
 #### Iteration 6
-**Reviewer model:** sonnet
+**Reviewer model:** a fresh blind reviewer (the model per round is not in my ledger)
 **New findings:** the dirty rule applies only to HEAD; MAX_RUNNING 8; alternateRefsCommand off. FIXED. DEFERRED NITs:
 old rows' onRemote never refreshed; unreadable objects read missing; the Mac older-board message untested.
 
 #### Iteration 7
-**Reviewer model:** opus
+**Reviewer model:** a fresh blind reviewer (the model per round is not in my ledger)
 **New findings:** the second version-42 row in engine/doctrine-past.js. DEFERRED with reason: it is tools/doctrine-past.js
 output for a merged branch's intermediate text, not an edit (plan, Costs).
 
 #### Iteration 8
-**Reviewer model:** sonnet
+**Reviewer model:** a fresh blind reviewer (the model per round is not in my ledger)
 **New findings:** none new; repeats, and the 1.5 s page wait for a slow repository, recorded in the plan under Costs.
 
 ### Mutations shown red
