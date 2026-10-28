@@ -865,6 +865,22 @@ struct NewAgentView: View {
     // never a confident "not here" from a read that did not answer (museCreateAsk, agyAsk).
     private func loadPicker(team: Bool = false) async {
         pickerOnTeam = team
+        #if DEBUG
+        // kosmos#7502: design shots (KOSMOS_SAMPLE_NEWAGENT) draw the picker from sample accounts, as there is no board:
+        // two Claude accounts on one email (so the Account row shows) and an OpenAI key; KOSMOS_SAMPLE_PROVIDER=openai
+        // opens on OpenAI with a listed model.
+        if let _ = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWAGENT"] {
+            let json = #"{"accounts":[{"dir":"/s/.claude","provider":"anthropic","email":"you@example.com","isDefault":true,"memoryShared":true,"connection":{"badge":"connected"}},{"dir":"/s/.claude-work","provider":"anthropic","email":"you@example.com","label":"work","memoryShared":true,"connection":{"badge":"connected"}},{"dir":"/s/.codex","provider":"openai","keyTail":"4f2a","isDefault":true,"connection":{"state":"connected"}}]}"#
+            pickAccounts = .init(rows: NewAgentPicker.parseAccounts(Data(json.utf8)) ?? [], known: true, failed: false)
+            pickReady = .init(agy: (true, false), muse: (false, false, false), compat: false)
+            accountsSettled = true
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PROVIDER"] == "openai" {
+                provider = .openai; providerTouched = true
+                openaiModelsFor["/s/.codex"] = .listed([NewAgent.Model(key: "gpt-5", label: "GPT-5", isDefault: true)])
+            }
+            return
+        }
+        #endif
         let epoch = client.chatEpoch
         pickGoneWhy = nil   // review 5: an undone pick is said on the screen it happened on, not carried to the next
         let ok = { (x: (Data, HTTPURLResponse)?) -> Data? in x.flatMap { (200...299).contains($0.1.statusCode) ? $0.0 : nil } }
