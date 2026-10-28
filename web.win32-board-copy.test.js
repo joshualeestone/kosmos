@@ -70,7 +70,9 @@ test('the server stamps the page with ITS platform, per request, and leaves an u
   assert.match(stampWith('linux', false)(buf), /<meta name="kosmos-cloud-machine" content="0">/, 'CONTROL');
   const unmarked = Buffer.from('<html>no marker</html>');
   assert.equal(stampWith('win32')(unmarked), unmarked, 'a page without the marker was rewritten');
-  assert.ok(SERVER.includes('res.end(stampServedPlatform(buf));'), 'the page route no longer stamps what it serves');
+  // kosmos#7490: the stamped page is what the route sends (compressed or not, engine/pagecompress.js).
+  assert.match(SERVER, /const page = stampServedPlatform\(buf\);\s*pageCompress\.sendPage\([\s\S]{0,400}?Buffer\.isBuffer\(page\) \? page : Buffer\.from\(page, 'utf8'\)/,
+    'the page route no longer stamps what it serves');
   assert.match(PAGE, /<meta name="kosmos-platform" content="__KOSMOS_PLATFORM__">/, 'the marker left the page head');
   assert.ok(PAGE.indexOf('name="kosmos-platform"') < PAGE.indexOf('</head>'));
 });
