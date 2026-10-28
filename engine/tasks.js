@@ -484,6 +484,9 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
       changed = withoutBuilt(changed);
       droppedForWork = forWork && !closedNow;
     }
+    /* #7508: new work, or a task its parts reopened, is not the fix the old commit landed, so the commit goes. Not tied
+       to the built mark: a task closed by its parts has already lost that mark (review 1). */
+    if (!closedNow && (forWork || progressOf(t).closed)) changed = withoutLanded(changed);
     /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
        with the control hidden while it was closed). */
     if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; heldDropped = true; }
@@ -828,6 +831,29 @@ const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtF
    thing delivered. The CLI hashes the file; the board only checks the shape (the algorithm is named in the value).
    #7213: a PDF's fingerprint says pdf-normalized:, so it is never read as the plain sha256 an approval cites. */
 const FINGERPRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
+/* #7508: the commit a code fix landed as, from `kosmos task built --commit <ref>`. Its own fields, not built ones:
+   closing keeps them (the check on a closed task needs them), while a clear, a reopen or new work drops them. The CLI
+   resolved the ref in the agent's checkout; the board checks the shape. The repository is its shared git directory,
+   which outlives a removed worktree. */
+const LANDED_FIELDS = ['landedCommit', 'landedRepo', 'landedOnRemote', 'landedBy', 'landedAt'];
+const COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const LANDED_REPO_MAX = 1024;
+function withoutLanded(t) {
+  if (!t || !LANDED_FIELDS.some((k) => k in t)) return t;
+  const rest = { ...t };
+  for (const k of LANDED_FIELDS) delete rest[k];
+  return rest;
+}
+/** The commit a built mark sends, checked: { sha, repo, onRemote }, or null when the shape is wrong. */
+function landedValue(c) {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
+  const { sha, repo, onRemote } = c;
+  if (typeof sha !== 'string' || !COMMIT_SHA_RE.test(sha)) return null;
+  if (typeof repo !== 'string' || !repo || repo.length > LANDED_REPO_MAX || /[\u0000-\u001f\u007f]/.test(repo)) return null;
+  if (!(repo.startsWith('/') || /^[A-Za-z]:[\\/]/.test(repo))) return null;
+  if (typeof onRemote !== 'boolean') return null;
+  return { sha, repo, onRemote };
+}
 function withoutBuilt(t) {
   if (!t || !BUILT_FIELDS.some((k) => k in t)) return t;
   const rest = { ...t };
@@ -855,8 +881,10 @@ function withoutBuilt(t) {
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
  */
-function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null } = {}) {
+function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null, commit = null } = {}) {
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+  const landed = commit == null ? null : landedValue(commit);
+  if (commit != null && !landed) return { ok: false, because: 'a commit is its full sha (40 or 64 lowercase hex characters), the absolute path of its repository, and whether a remote has it' };
   const print = fingerprint == null ? '' : fingerprint;
   // Only a string of the shape: String() would make ['sha256:...'] one (review 1), and '' is not one (review 3).
   if (fingerprint != null && !(typeof print === 'string' && FINGERPRINT_RE.test(print))) return { ok: false, because: 'a fingerprint is "sha256:" or "pdf-normalized:" followed by 64 lowercase hex characters' };
@@ -894,7 +922,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       const kept = print || (keep ? t.builtFingerprint : '');
       const keptBy = print ? who : (keep ? t.builtFingerprintBy || null : null);
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
-        && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who)) {
+        && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who)
+        && (!landed || (t.landedCommit === landed.sha && t.landedRepo === landed.repo && t.landedOnRemote === landed.onRemote))) {
         same = true; changed = t; throw NO_WRITE;
       }
       const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
@@ -905,6 +934,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
         ...(kept ? { builtFingerprint: kept, builtFingerprintBy: keptBy } : {}),
+        // #7508: a mark without --commit keeps a commit already recorded (a checker's mark is not new work).
+        ...(landed ? { landedCommit: landed.sha, landedRepo: landed.repo, landedOnRemote: landed.onRemote, landedBy: who, landedAt: new Date().toISOString() } : {}),
       };
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
@@ -936,7 +967,7 @@ function clearBuilt(projectId, n, { by = null, person = false, refusePersonMark 
       if (!t) throw new Error('there is no task by that number on this project');
       if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
       had = !!t.builtAt;
-      changed = withoutBuilt(t);
+      changed = withoutLanded(withoutBuilt(t));   // #7508: taking the mark off says the work is not done
       if (!had) throw NO_WRITE;
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
@@ -1012,6 +1043,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null } = {}
     if (before !== after) transition = after ? 1 : -1;
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
     if (after) changed = withoutBuilt(changed);
+    if (before && !after) changed = withoutLanded(changed);   // #7508: a reopen is new work, so the old commit goes
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
     if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
@@ -2448,4 +2480,4 @@ module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, c
   taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

@@ -1431,6 +1431,7 @@ const AUTOBALANCE_RECORD = path.join(path.dirname(autobalanceSetting.FILE), auto
 let autobalanceSweepRun = null;   // the sweep, once its record has been read at start (it is off otherwise)
 const keepAwakeSetting = require('./engine/keepawake-setting'); // kosmos#7416 slice 3
 const keepAwake = require('./engine/keepawake'); // kosmos#7416 slice 3: caffeinate -i while the switch is on and a card reads working
+const landedcheck = require('./engine/landedcheck'); // kosmos#7508 slice 2: is a code fix's commit still kept, and on a remote
 const KEEP_AWAKE = keepAwake.createHolder(process.env.AGENT_WORKFORCE_DRY_RUN === '1' ? { spawn: keepAwake.dryRunSpawn } : undefined);
 /* kosmos#7416 slice 3: one pass of the sweep (engine/keepawake.js pass). */
 function keepAwakeTick() {
@@ -21634,6 +21635,7 @@ const server = http.createServer(async (req, res) => {
       if (!x || !x.id) continue;
       membersOf.set(x.id, [...new Set([...(membersOf.get(x.id) || []), ...(x.agents || [])])]);
     }
+    const landedBudget = { left: 10 };   // kosmos#7508: new checks this read may start (each at most four 3 s git calls, run in parallel and off the event loop)
     const rows = scoped.filter((t) => !t.projectArchived || t.projectId === withArchived).map((t) => {
       let claim = claims.get(t.projectId + '\u0000' + t.number) || null;
       /* The same rule as the join: a claim is about the agent still holding open work (claimWho),
@@ -21663,9 +21665,35 @@ const server = http.createServer(async (req, res) => {
         ...repeatFields(t),   // review 1: only the added fields, never the task again over the computed ones
       });
     });
-    /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
-       read its "false" as "nobody needs you". It says it could not tell. */
-    sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope, rosterUnreadable: !Array.isArray(roster) });
+    /* kosmos#7508: a row that names a commit is checked in its repository now (engine/landedcheck.js, asynchronous, at
+       most `landedBudget` new checks a read): whether a remote has it replaces what the CLI saw at mark time, and a
+       closed row carries 'kept' / 'missing' / 'unknown'. No answer (none recorded, the budget spent) leaves the row as
+       stored. The Tasks view does not send the repository's path: the page never needs it. */
+    const sendRows = () => {
+      for (const row of rows) delete row.landedRepo;
+      /* #3949 (review round 9): with no roster, waitingOnPerson cannot see a question, so the page must not
+         read its "false" as "nobody needs you". It says it could not tell. */
+      sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope, rosterUnreadable: !Array.isArray(roster) });
+    };
+    /* Review 3: the page waits at most LANDED_WAIT_MS for the checks; a row whose check is still running goes as stored
+       (its answer is cached for the next read). A later push only ever upgrades "only on this computer": a remote
+       branch pruned after a merge never turns a pushed fix back into a local one. A closed task is checked only within
+       landedcheck.CHECK_WINDOW_MS of closing. */
+    let sent = false;
+    const sendOnce = () => { if (!sent) { sent = true; sendRows(); } };
+    const LANDED_WAIT_MS = 1500;
+    const timer = setTimeout(sendOnce, LANDED_WAIT_MS);
+    if (timer && typeof timer.unref === 'function') timer.unref();
+    Promise.all(rows.map(async (row) => {
+      if (!row.landedCommit) return;
+      const closed = row.state === 'closed';
+      const closedAt = closed ? Date.parse(tasks.closedAtOf(row) || '') : NaN;
+      if (closed && !(Number.isFinite(closedAt) && Date.now() - closedAt < landedcheck.CHECK_WINDOW_MS)) return;
+      const c = await landedcheck.checkTask(row, { budget: landedBudget });
+      if (!c || sent) return;
+      if (c.state === 'kept' && c.onRemote === true) row.landedOnRemote = true;
+      if (closed) row.landedCheck = c.state;
+    })).then(() => { clearTimeout(timer); sendOnce(); }, () => { clearTimeout(timer); sendOnce(); });
     return;
   }
 
@@ -24773,7 +24801,9 @@ const server = http.createServer(async (req, res) => {
         ? tasks.clearBuilt(id, taskBuilt[2], as)
         : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '',
           // #6330 slice 2: an agent's mark may carry the deliverable's fingerprint; the screen sends none.
-          fingerprint: !viaScreen && body.fingerprint != null ? body.fingerprint : null });
+          fingerprint: !viaScreen && body.fingerprint != null ? body.fingerprint : null,
+          // #7508: an agent's mark may name the commit a code fix landed as (the CLI resolved it); the screen sends none.
+          commit: !viaScreen && body.commit != null ? body.commit : null });
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);

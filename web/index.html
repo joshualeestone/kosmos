@@ -4598,6 +4598,8 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-row .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
 /* kosmos#4787 slice 2: a repeating task's line turns the error red while a run is missed (row and task page alike). */
 .tsk-row .why.tsk-repeat.missed, #tk-repeat-line.missed { color: var(--danger); }
+.why.tsk-landed-missing { color: var(--danger); }   /* kosmos#7508: a closed fix whose change cannot be found */
+.why.tsk-landed-local { color: var(--warn-ink); }   /* kosmos#7508: a closed fix that is only on this computer (Mona Lisa: amber, not red) */
 .tsk-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 120px; }
 .tsk-who { display: inline-flex; align-items: center; gap: 6px; font: 600 .8125rem var(--font-ui); color: var(--k-ink); padding: 2px 9px;
   border-radius: 999px; border: 1px solid var(--k-rule); background: var(--k-surface); cursor: pointer; }
@@ -69427,6 +69429,22 @@ function tskRow(t, at) {
       + (t.builtNote ? ': ' + esc(t.builtNote) : '')
       /* Review round 1: the person can take a mistaken mark off without closing the task. */
       + ' <button type="button" class="tsk-unbuild" data-unbuild="' + esc(tskKey(t)) + '" aria-label="Mark task ' + Number(t.number) + ' of ' + esc(pjChainSpoken(rowChain)) + ' not built yet">Not built yet</button></div>';
+  /* #7508 (Mona Lisa's words): the commit a code fix was saved as, from the agent's built mark, on open and closed rows
+     alike, in the row's quiet text; the short sha stays, for whoever checks it. A closed row also carries the board's
+     check of that commit now (landedCheck): 'missing' says it plainly in place of the saved line, 'unknown' says what
+     could not be checked, and no answer (not checked this read) is the saved line. */
+  const landedSha = typeof t.landedCommit === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(t.landedCommit) ? t.landedCommit.slice(0, 7) : '';
+  const landedLine = !landedSha ? ''
+    : t.state === 'closed' && t.landedCheck === 'missing'
+      ? '<div class="why tsk-landed tsk-landed-missing">Kosmos cannot find the change this task was finished with (' + esc(landedSha)
+        + '). It may not have been saved. Ask the agent that did it to check.</div>'
+      : t.state === 'closed' && t.landedCheck === 'unknown'
+        ? '<div class="why tsk-landed">Kosmos could not check whether this task\u2019s change was saved.</div>'
+        /* Review 5 and Mona Lisa: closed and still only on this computer is the risk that is left, so that row says it in
+           amber (red is for a change that may be gone) and says what to do. An open row keeps the quiet words. */
+        : t.state === 'closed' && t.landedOnRemote === false
+          ? '<div class="why tsk-landed tsk-landed-local">Saved as change ' + esc(landedSha) + ', but only on this computer. Ask the agent that did it to save it online.</div>'
+          : '<div class="why tsk-landed">Saved as change ' + esc(landedSha) + (t.landedOnRemote === false ? ', only on this computer so far' : '') + '</div>';
   /* #6923: a task closed as replaced says so under its row, so it does not read as delivered among the done ones. */
   const replacedLine = t.state === 'closed' && Number.isInteger(t.replacedBy) ? '<div class="why tsk-replaced">Replaced by task ' + t.replacedBy + '</div>' : '';
   /* kosmos#4787: a recurring job's row says how often it runs, when it last ran and who ran it, and when it runs next,
@@ -69457,7 +69475,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + waitLine + whoLine + repeatLine + builtLine + replacedLine + '</div>'
+    + '</div>' + cannot + waitLine + whoLine + repeatLine + builtLine + landedLine + replacedLine + '</div>'
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */
