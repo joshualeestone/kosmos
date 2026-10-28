@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: restartline-7411
-diff_hash: f1d29131eb272a3142f1edc22bdc290eee5f045dd2a2767cd32714a38e52d892
+diff_hash: 56935ad08dbe87bef41d2fe076627686202586a6f568583a6e04076786a7217a
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-28T17:56:00Z
+timestamp: 2026-10-28T19:15:00Z
 iterations: 8
 converged: false
 ---
@@ -17,7 +17,10 @@ converged: false
 **Total findings:** 37 (1 BLOCKER, 17 WARNINGs, 1 CONVENTION, 18 NITs)
 **Fixed:** 27 | **Deferred:** 10 | **Asked (awaiting user):** 0
 
-Final validation (6j): the full suite at bc7bff7c11, 25342 tests, 0 failed, subdir audit clean. Two earlier full runs
+Final validation (6j): the full suite at bc7bff7c11, 25342 tests, 0 failed, subdir audit clean. PR #7505's merge was
+refused on a conflict after main moved (#7416 slice 3 added a screen beside mine in mobile-shots.js); rebased onto
+ad3250e431 keeping both screens, no change to this branch's own code, and the full suite re-run at c27a1f5929: 25467
+tests, 0 failed, audit clean. Proof rehashed for the rebased diff. Two earlier full runs
 failed: the first on 5 checks this branch broke (install gate EXPECTED_ADDS, browser-check wiring, the empty-slot rule,
 the forced theme, a route handler outside a try), all fixed; the second on the surface gate (trailers for the shared
 slot rule) plus two timing tests that passed alone (two suites had overlapped on this Mac).
