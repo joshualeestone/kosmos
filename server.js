@@ -23956,7 +23956,8 @@ const server = http.createServer(async (req, res) => {
       /* Review 2/3: the agents the Assigner can reach: run by this board (its roster) with their swarm not paused, as
          idleCard requires. null when the roster cannot be read (then nobody is ruled out by it). */
       const roster = safeRoster();
-      const running = Array.isArray(roster)
+      // Review 4: an empty roster is a board that has not scanned yet, not one with nobody running: read as unknown.
+      const running = Array.isArray(roster) && roster.length
         ? new Set(roster.filter((c) => c && c.isNamedOurs === true && !(c.swarm && c.swarm.active === false)).map((c) => c.sessionName)) : null;
       const reachable = (n) => !running || running.has(n);
       // Review 1: only who is on an OPEN part has it; someone who finished a part does not.
@@ -23970,7 +23971,7 @@ const server = http.createServer(async (req, res) => {
         /* Review 1-3: with failover on, a limited holder's part may move, but only where failover looks (a live, unpaused
            project, a task it moves) and only if another agent here could take it (a reachable member not switched off). */
         const someoneElse = (Array.isArray(p.agents) ? p.agents : []).some((n) => !holders.includes(n) && !projects.isSwarmOff(p, n) && reachable(n));
-        const may = setting.on === true && setting.failover === true && p.archived !== true && !projects.isPaused(p) && asg.stallable(inP) && someoneElse
+        const may = setting.on === true && setting.failover === true && p.archived !== true && !projects.isPaused(p) && asg.stallable(inP) && someoneElse && holders.some(reachable)
           ? ' If ' + (many ? 'one of them hits' : 'they hit') + ' a usage limit, Kosmos may move ' + (many ? 'their part' : 'it') + ' to an idle agent.' : '';
         return 'It stays with ' + names + '.' + loose + may;
       }
@@ -23982,6 +23983,13 @@ const server = http.createServer(async (req, res) => {
          Assigner reads): a member that is not running here is never given work. A paused project is asked as if
          resumed, so the resume promise passes the same rules. */
       const paused = projects.isPaused(p);
+      /* Review 4: a task tree someone holds busy is that builder's: pick gives it only to them (busy now) and to anyone
+         once they are done there, so neither a name nor "an idle agent" is promised. */
+      const held = asg.treeHeldBy(p, inP);
+      if (held.holders.length) {
+        return 'Nobody is on it. It is part of work ' + held.holders.map(plain).join(', ') + (held.holders.length > 1 ? ' are' : ' is')
+          + ' doing on task ' + held.root + ' (one builder per task tree), so Kosmos will not give it out until they are done there.' + assign;
+      }
       const may = asg.whoMayGet(paused ? { ...p, paused: false } : p, inP).filter(reachable);
       const lead = paused ? 'Nobody is on it. The project is paused; when it is resumed, Kosmos will give it to ' : 'Nobody is on it, so Kosmos will give it to ';
       if (!may.length) {
@@ -23989,9 +23997,9 @@ const server = http.createServer(async (req, res) => {
           + ' agent on the project can be given it now (its subtasks go first, it belongs to another builder\'s work, or no running agent here takes work).' + assign;
       }
       const all = (Array.isArray(p.agents) ? p.agents : []).length;
-      if (may.length === 1) return lead + plain(may[0]) + ' when they are idle,' + turn + '.' + assign;
+      if (may.length === 1) return lead + plain(may[0]) + ' when they are free,' + turn + '.' + assign;   // review 4: free, as commitments count too
       if (may.length === all) return lead + 'an idle agent on the project' + turn + '.' + assign;
-      return lead + 'an idle one of ' + may.map(plain).join(', ') + turn + '.' + assign;
+      return lead + 'whichever of ' + may.map(plain).join(', ') + ' is free first,' + turn + '.' + assign;
     } catch {
       return '';
     }

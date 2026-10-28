@@ -212,7 +212,7 @@ test('#7407 review 2: one agent, a subset, archived, a paused project nobody cou
   try {
     const n = make('one');
     const next = await unholdNext(n);
-    assert.match(next, /^Nobody is on it, so Kosmos will give it to mara when they are idle, in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/, next);
+    assert.match(next, /^Nobody is on it, so Kosmos will give it to mara when they are free, in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/, next);
     assert.equal((assigner.pick('mara', [{ ...projectNow(), tasks: [taskOf(n)] }], new Set()) || {}).n, n, 'CONTROL: pick gives mara it');
     assert.equal(assigner.pick('otto', [{ ...projectNow(), tasks: [taskOf(n)] }], new Set()), null, 'CONTROL: and never otto');
   } finally {
@@ -260,7 +260,7 @@ test('#7407 review 3: a subset, archived, a sole holder, and the nobody-can-take
   projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'otto', 'kai'], swarmOff: ['otto'] }));
   try {
     const n = make('subset');
-    assert.match(await unholdNext(n), /^Nobody is on it, so Kosmos will give it to an idle one of mara, kai in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/);
+    assert.match(await unholdNext(n), /^Nobody is on it, so Kosmos will give it to whichever of mara, kai is free first, in its turn \(soonest due first, then oldest\)\. To choose who, assign it now\.$/);
   } finally {
     projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'otto'], swarmOff: [] }));
   }
@@ -302,4 +302,20 @@ test('#7407 review 3: a subset, archived, a sole holder, and the nobody-can-take
   } finally {
     projects.mutate(projectId, (p) => ({ ...p, swarmOff: [] }));
   }
+});
+
+test('#7407 review 4: a subtask of a tree someone holds is said as waiting on their work, and pick agrees both ways', async () => {
+  const parent = make('tree parent', 'mara');
+  const child = make('tree child');
+  tasks.setParent(projectId, child, parent);
+  const next = await unholdNext(child);
+  assert.doesNotMatch(next, /give it to mara/, next);
+  assert.match(next, new RegExp('^Nobody is on it\\. It is part of work mara is doing on task ' + parent + ' \\(one builder per task tree\\), so Kosmos will not give it out until they are done there\\. To choose who, assign it now\\.$'), next);
+  // CONTROL against pick: while mara holds the tree, otto is not given the subtask...
+  const scope = () => ({ ...projectNow(), tasks: [taskOf(parent), taskOf(child)] });
+  assert.notEqual((assigner.pick('otto', [scope()], new Set()) || {}).n, child, 'otto is not given a subtask of mara\'s tree');
+  // ...and once mara's part closes, the tree is open and otto is.
+  const part = tasks.progressOf(taskOf(parent)).parts.find((x) => x.who === 'mara');
+  tasks.setPartClosed(projectId, parent, part.id, new Date().toISOString());
+  assert.equal((assigner.pick('otto', [scope()], new Set()) || {}).n, child, 'once mara is done there, anyone may be given it');
 });
