@@ -1317,15 +1317,9 @@ struct RoomBubble: View {
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Self.flashGold, lineWidth: 2).padding(-4)
             .opacity(flashing ? 1 : 0).animation(reduceMotionHere ? nil : .easeOut(duration: 0.3), value: flashing))
         .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
-        .contextMenu {
-            if answerable {
-                Button { react("👍") } label: { Text("👍") }
-                Button { react("❤️") } label: { Text("❤️") }
-                Button { react("🔥") } label: { Text("🔥") }
-                Button(action: reply) { Label("Reply", systemImage: "arrowshape.turn.up.left") }
-            }
-            Button { UIPasteboard.general.string = row.text } label: { Label("Copy", systemImage: "doc.on.doc") }
-        }
+        // kosmos#7419: the long-press sheet, as in a direct message (Reply and reactions only on a post of this room).
+        .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: answerable ? react : nil,
+                        reply: answerable ? reply : nil, text: row.text)
     }
 
     var mentionNames: [String] = []
