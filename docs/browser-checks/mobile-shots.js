@@ -742,6 +742,17 @@ async function stallRoute(page, data, kind) {
     } catch { /* the page closed at teardown (#6022) */ }
   });
 }
+/* kosmos#7416 slice 3: "Keep this computer awake while agents are working", under the sleep row in Settings >
+   Computer. Each screen sets its own position first, so the order the two are shot in does not matter; the shot
+   board runs dry, so switching it on starts no caffeinate. */
+async function keepAwakeShot(page, on) {
+  await at(page, '?tab=settings&sec=mac');
+  await page.evaluate((want) => fetch('/api/keepawake-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: want }) }), on);
+  await at(page, '?tab=settings&sec=mac');
+  await page.waitForSelector('[data-keep-awake]', { state: 'visible', timeout: 8000 });
+  await page.$eval('[data-keep-awake]', (el) => el.closest('.setrow').scrollIntoView({ block: 'center' }));
+}
+
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
   { name: 'home', owner: 'Raiden', go: async () => {} },
@@ -1698,6 +1709,9 @@ const SCREENS = [
     await page.waitForSelector('#diag-save', { state: 'visible', timeout: 8000 });
     await page.$eval('#diag-row', (el) => el.scrollIntoView({ block: 'center' }));
   } },
+  /* kosmos#7416 slice 3: the keep-awake switch, off and on (keepAwakeShot, above SCREENS). */
+  { name: 'settings-keepawake-off', owner: 'Renet Tilley', go: async (page) => keepAwakeShot(page, false) },
+  { name: 'settings-keepawake-on', owner: 'Renet Tilley', go: async (page) => keepAwakeShot(page, true) },
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });

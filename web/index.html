@@ -27182,6 +27182,17 @@ function machineRows(report) {
         + '<div class="dhint" id="start-at-sign-in-hint" style="margin:2px 0 0;">' + windowsCopy('startAtSignInHint') + '</div></div>'
         + '<button class="toggle' + (c.startAtSignIn ? ' on' : '') + '" type="button" role="switch" aria-checked="' + c.startAtSignIn + '"'
         + ' aria-label="' + windowsCopy('startAtSignInLabel') + '" aria-describedby="start-at-sign-in-hint" data-start-at-sign-in><i></i></button></div>'
+      : '')
+    /* kosmos#7416 slice 3: drawn only on a sleep row whose keep-awake setting the engine READ (Mac only for now).
+       Off by default; the hint is Mona Lisa's wording from the card. */
+    + (c.keepAwake && typeof c.keepAwake.on === 'boolean'
+      ? '<div class="setrow" style="margin-top:12px;align-items:center;"><div><b>Keep this computer awake while agents are working</b>'
+        + '<p class="dhint" style="margin:4px 0 0;">Uses more power while agents work. A laptop still sleeps when you close its lid, unless it&rsquo;s plugged in with a screen attached.</p>'
+        + (c.keepAwake.on && c.keepAwake.holding === true ? '<p class="dhint" style="margin:4px 0 0;" data-keep-awake-now>An agent is working, so this computer is staying awake now.</p>' : '')
+        + (c.keepAwake.on && c.keepAwake.holding !== true && c.keepAwake.because ? '<p class="dhint" style="margin:4px 0 0;" data-keep-awake-failed>We could not keep this computer awake just now.</p>' : '')
+        + '</div>'
+        + '<button class="toggle' + (c.keepAwake.on ? ' on' : '') + '" type="button" role="switch" aria-checked="' + c.keepAwake.on + '"'
+        + ' aria-label="Keep this computer awake while agents are working" data-keep-awake><i></i></button></div>'
       : ''))).join('');
 }
 /* The controls the machine rows carry, wired after every paint of `#set-machine`. */
@@ -27205,24 +27216,38 @@ function wireMachineRows(mach) {
   for (const sw of mach.querySelectorAll('[data-start-at-sign-in]')) {
     sw.addEventListener('click', () => startAtSignInClick(sw));
   }
+  for (const sw of mach.querySelectorAll('[data-keep-awake]')) {
+    sw.addEventListener('click', () => keepAwakeClick(sw));
+  }
 }
 /* "Start Kosmos when I sign in to Windows": ask for the other position, say why if Windows would
    not, then repaint from what the engine reads now. The switch never shows the position clicked. */
 async function startAtSignInClick(sw) {
+  return machineSwitchClick(sw, (want) => fetch('/api/machine/start-at-sign-in', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: want }),
+  }), { refused: windowsCopy('startAtSignInFailure'), unreachable: windowsCopy('startAtSignInFailure'), unread: windowsCopy('startAtSignInUnread') });
+}
+/* kosmos#7416 slice 3: "Keep this computer awake while agents are working", the same way. */
+async function keepAwakeClick(sw) {
+  return machineSwitchClick(sw, (want) => fetch('/api/keepawake-setting', {
+    method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: want }),
+  }), { refused: 'We could not save that setting.', unreachable: 'We could not reach Kosmos to save that.', unread: 'We could not read that setting back just now.' });
+}
+/* One switch on the machine rows: send the other position, then repaint from /api/machine, and say why
+   when the engine refused, could not be reached, or could not be read back. */
+async function machineSwitchClick(sw, send, how) {
   const failMsg = document.getElementById('set-machine-msg');
   const want = sw.getAttribute('aria-checked') !== 'true';
   sw.disabled = true;
   let said = '';
   try {
-    const r = await fetch('/api/machine/start-at-sign-in', {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: want }),
-    });
+    const r = await send(want);
     const out = await r.json().catch(() => ({}));
-    if (!r.ok || typeof out.on !== 'boolean') said = (out && out.error) || windowsCopy('startAtSignInFailure');
+    if (!r.ok || typeof out.on !== 'boolean') said = (out && out.error) || how.refused;
   } catch {
-    said = windowsCopy('startAtSignInFailure');
+    said = how.unreachable;
   }
-  if (!(await refreshMachineRows())) said = said || windowsCopy('startAtSignInUnread');
+  if (!(await refreshMachineRows())) said = said || how.unread;
   failMsg.hidden = !said;
   failMsg.textContent = said;
 }
@@ -27237,6 +27262,7 @@ async function refreshMachineRows() {
     return true;
   } catch {
     for (const sw of mach.querySelectorAll('[data-start-at-sign-in]')) sw.closest('.setrow').remove();
+    for (const sw of mach.querySelectorAll('[data-keep-awake]')) sw.closest('.setrow').remove();   // kosmos#7416 slice 3
     return false;
   }
 }

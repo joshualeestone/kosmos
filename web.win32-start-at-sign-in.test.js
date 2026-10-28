@@ -22,7 +22,7 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const SCRIPT = page.scriptOf(PAGE);
 const LAYER = page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS);
 const ROW_FNS = ['esc', 'chkRow', 'machineRows'];
-const CLICK_FNS = [...ROW_FNS, 'wireMachineRows', 'startAtSignInClick', 'refreshMachineRows'];
+const CLICK_FNS = [...ROW_FNS, 'wireMachineRows', 'startAtSignInClick', 'keepAwakeClick', 'machineSwitchClick', 'refreshMachineRows'];
 const CHK = { CHK_CLASS: { ok: 'ok', attention: 'att', unknown: 'unk' }, CHK_MARK: { ok: '✓', attention: '!', unknown: '?' } };
 
 function docFor(platform, byId) {
