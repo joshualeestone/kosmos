@@ -32,6 +32,7 @@ struct ContentView: View {
     // kosmos#7489: the native New project form (+ on Projects), in place of the board's slow web page.
     @State private var newProjectOpen = false
     @State private var newAgentOpen = false   // kosmos#7488
+    @State private var newTeamBusy = false    // kosmos#7488: a team still being made, after its sheet closed
     // kosmos#7488: new agents' projects to tell once the board's list shows them (the desktop's tell after create), kept
     // here so closing New Agent early drops none.
     @State private var pendingTells: [String: (host: String, projects: [String])] = [:]   // by session
@@ -254,6 +255,8 @@ struct ContentView: View {
         .onChange(of: board.tasksTab) { earned in if earned == true { web.earnTasks() } }
         // A sheet shown from a tab goes with it; a tab change must not leave it set to come back by itself.
         .onChange(of: tab) { _ in newProjectOpen = false }
+        // kosmos#7488: another computer: the sheet's roles, managers and projects were the last one's.
+        .onChange(of: board.chatEpoch) { _ in newAgentOpen = false }
         // kosmos#7488: New Agent is shown from here, above the tabs, so a tab change (a notification's room, say) never
         // takes it away in the middle of making a team.
         .sheet(isPresented: $newAgentOpen) {
@@ -269,7 +272,7 @@ struct ContentView: View {
                 guard let host = board.macURL?.host else { return }
                 pendingTells[session] = (host, projects)
                 sendTells(board.agents)
-            })
+            }, teamBusy: $newTeamBusy)
         }
         .onChange(of: board.agents) { rows in sendTells(rows) }
         .onChange(of: web.tasksTab) { shown in

@@ -1099,7 +1099,7 @@ check(boardPage.contains("The lead agent brings in up to ${max} helpers when par
       && NewAgent.Words.swarmExplain(3) == "The lead agent brings in up to 3 helpers when parts of a task can be done at the same time. Otherwise, it works alone.",
       "the swarm explanation is the desktop's, following the helpers")
 check(boardPage.contains("'Say Hello to ' + shown") && NewAgent.Words.sayHello("Ada") == "Say Hello to Ada", "Say Hello to <name>, as the desktop")
-check(boardPage.contains("min=\"2\" max=\"10\" step=\"1\" value=\"3\"") && NewAgent.helpersRange == 2...10 && NewAgent.helpersStart == 3, "helpers 2 to 10, starting at 3, as the desktop's slider")
+check(boardPage.contains("id=\"create-swarm-max\" min=\"2\" max=\"10\" step=\"1\" value=\"3\"") && NewAgent.helpersRange == 2...10 && NewAgent.helpersStart == 3, "helpers 2 to 10, starting at 3, as the desktop's slider")
 check(NewAgent.capWords(6) == "6,000,000 tokens a day", "the limit reads in tokens a day, as the desktop's token mode")
 let naRoles = Data(#"""
 {"models":[{"key":"opus","provider":"anthropic","label":"Opus","default":false},{"key":"sonnet","provider":"anthropic","label":"Sonnet","default":true},{"key":"gpt-5","provider":"openai","label":"GPT-5"}],
