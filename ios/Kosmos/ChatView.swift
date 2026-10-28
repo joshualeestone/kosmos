@@ -231,6 +231,8 @@ struct ChatView: View {
         .onAppear {
             visible = true
             epoch = client.chatEpoch
+            // kosmos#7420: this conversation gets no banner while it shows.
+            if let host = client.switcherShown { PushNotificationManager.chatOnScreen = PushBridge.OpenChat(host: host, session: agent.session) }
             lastPendingCount = pending.count
             // Only into an empty box: if SwiftUI shows the chat again without having hidden it, the words being typed stay.
             if draftText.isEmpty { draftText = client.drafts[agent.session] ?? "" }
@@ -238,6 +240,7 @@ struct ChatView: View {
         }
         .onDisappear {
             visible = false
+            if PushNotificationManager.chatOnScreen?.session == agent.session { PushNotificationManager.chatOnScreen = nil }
             armed = nil
             // A reading posture, not the chat's state: coming back shows the whole conversation (the board clears its
             // search on opening another agent). What the search changed goes with it here, not in onChange(of: query),
@@ -1114,6 +1117,13 @@ struct ChatView: View {
         #if DEBUG
         // KOSMOS_SAMPLE_EMOJI=open (with the agent samples): the panel open, for the design shots.
         .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
+        // kosmos#7420: KOSMOS_SAMPLE_FOCUS=<seconds> taps the box that long after opening (the keyboard rises), as a person
+        // would (nothing in the simulator can tap here).
+        .onAppear {
+            if let s = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FOCUS"].flatMap(Double.init), s > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + s) { composerFocused = true }
+            }
+        }
         #endif
         // Leaving the conversation lets go of the microphone and closes the panel (the board's: the panel belongs to the
         // composer being left).
@@ -1847,14 +1857,19 @@ struct BubbleTail: Shape {
     }
 }
 
-// "<dots> <name> is working": the board's wave (WorkingDots, kosmos#7427); VoiceOver hears the words only.
+// "<dots> <name> is working": the board's wave (WaveDots, kosmos#7427); VoiceOver hears the words only.
 struct WorkingLine: View {
     let name: String
 
     var body: some View {
-        // kosmos#7427: the board's wave (WorkingDots), not three dots pulsing together.
+        // kosmos#7427: the board's wave (WaveDots), not three dots pulsing together.
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            WorkingDots()
+            #if DEBUG
+            // kosmos#7427 review 2 debug: KOSMOS_SAMPLE_CLOCKDOTS=1 draws the clock-drawn dots here, as the control.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_CLOCKDOTS"] == "1" { WorkingDots() } else { WaveDots() }
+            #else
+            WaveDots()   // review 2: inside the thread, never the clock-drawn WorkingDots
+            #endif
             Text("\(name) is working")
         }
         .font(.footnote)

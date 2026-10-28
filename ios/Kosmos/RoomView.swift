@@ -1416,6 +1416,34 @@ struct WorkingDots: View {
     }
 }
 
+// kosmos#7427 review 2 (measured on the simulator 10-27, the kosmos#7420 A/B): the same wave for a line INSIDE a scrolling
+// thread (the chat's working line). WorkingDots redraws from the clock 30 times a second, and inside the chat's lazy
+// stack that kept the thread from following new messages with the keyboard up (the newest ones sat behind the box).
+// Here each dot runs its own repeating animation, delayed 0.16 s per dot, which moves only the dot (opacity and
+// offset) and never asks the thread to lay out again. The animation is tied to this view's own switch, so nothing
+// else on the page animates with it (kosmos#7080 review 1).
+struct WaveDots: View {
+    var color: Color = Palette.pillWord(.working)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .footnote) private var size: CGFloat = 4
+    @State private var up = false
+
+    var body: some View {
+        let low = reduceMotion ? 0.35 : 0.45, half = (reduceMotion ? 1.6 : 1.1) / 2
+        HStack(alignment: .bottom, spacing: size * 0.75) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle().fill(color).frame(width: size, height: size)
+                    .opacity(up ? 1 : low)
+                    .offset(y: up && !reduceMotion ? -4 : 0)
+                    .animation(.easeInOut(duration: half).repeatForever(autoreverses: true).delay(Double(i) * 0.16), value: up)
+            }
+        }
+        .frame(height: size + 4, alignment: .bottom)
+        .onAppear { up = true }
+        .accessibilityHidden(true)
+    }
+}
+
 // kosmos#7101: the double-tap of a reply's post is the jump (a modifier, so posts that are not replies are untouched).
 private struct ReplyJumpDefault: ViewModifier {
     let on: Bool
