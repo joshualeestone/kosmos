@@ -775,3 +775,21 @@ test('kosmos#7406 review 3: a cap-held post to an idle Codex member is told by t
     roomhold.forget('cx'); roomhold.forget('kit');
   });
 });
+
+test('kosmos#7406 review 5: a cap retry that reached nothing is not tried again for ten minutes (no rewrite every minute)', async () => {
+  const room = [fleet.agent('leo', { state: 'idle' }), fleet.agent('cx', { state: 'unknown', runner: 'codex', command: 'codex', screen: '' })];
+  agyquota.CAP_STARTS.clear();
+  await withFleetAsync(room, async (board) => {
+    const r = rosterOf(board, null);
+    roomhold.forget('cx');
+    assert.ok(roomhold.hold('cx', PROJECT, roomhold.addressedId('m7407')));
+    roomhold.noteCap('cx', PROJECT, roomhold.addressedId('m7407'));
+    arm();
+    const t0 = Date.now();
+    const first = await roomhold.flushReleased(r, releasedDeps(r, t0));
+    assert.deepEqual(first.map((d) => [d.name, d.why, d.state]), [['cx', 'cap', chat.DELIVERY.COULD_NOT]], 'fixture: the first try should be refused here');
+    assert.deepEqual(await roomhold.flushReleased(r, releasedDeps(r, t0 + 60e3)), [], 'tried again a minute later');
+    assert.deepEqual((await roomhold.flushReleased(r, releasedDeps(r, t0 + 11 * 60e3))).map((d) => d.name), ['cx'], 'CONTROL: never tried again');
+    roomhold.forget('cx');
+  });
+});

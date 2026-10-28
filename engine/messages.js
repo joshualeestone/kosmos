@@ -3084,7 +3084,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         /* #4926 review 1 (Opus): an answer to this member's OWN post (--in-reply-to, no @) asks for its attention too, so it
            is kept marked like an @: a stale-post drop at the flush never removes it (and its line says it is asked). */
         const asksIt = asksMember(name);
-        /* #4588 ask 3 (review 13): a post the Gemini cap held is marked too, so roomhold.flushReleased retries it once the
+        /* #4588 ask 3 (review 13): a post the Gemini cap (kosmos#7406: or the per-account cap) held is marked too, so roomhold.flushReleased retries it once the
            cap lets the member through (a cap hold has no wake coming); an unmarked one waits for the next wake. */
         if (roomhold.hold(name, projectId, asksIt ? roomhold.addressedId(id) : sent.heldBy === 'cap' ? roomhold.cappedId(id) : id)) {
           outcomes[name] = roomhold.HELD;

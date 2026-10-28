@@ -9,6 +9,7 @@
  * OFF BY DEFAULT (no limit), as the Gemini cap is: a cap slows a team down, and it is for a person who would rather
  * go slower than be rate-limited. A person's own message is never held by it (chat.deliver is not gated).
  * Same file rules as agycap-setting.js (one function makes both): a missing or unreadable file reads no limit.
+ * The brake AGENT_WORKFORCE_AGY_QUOTA_HOLD_OFF=1 (engine/agyquota.js quotaHoldOff) lifts this cap too.
  */
 const path = require('node:path');
 const store = require('./store');

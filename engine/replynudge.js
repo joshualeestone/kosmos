@@ -368,7 +368,7 @@ async function sweepOnce(o) {
          would hold it (no try counted), so it would fill a slot every pass until the reset and starve later agents. */
       if (typeof o.quotaHeld === 'function') {
         let q = false; try { q = o.quotaHeld(session, o.roster) === true; } catch { q = false; }   // review 6: the pass's roster, no new snapshot
-        if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: 'its machine\'s shared Google quota is out, or ' + require('./agyquota').capWords(session, o.roster).replace('the limit you set', 'the limit set') }); continue; }
+        if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: (card.runner === 'antigravity' ? 'its machine\'s shared Google quota is out, or ' : '') + require('./agyquota').capWords(session, o.roster).replace('the limit you set', 'the limit set') }); continue; }
       }
       prune();   // review 8: the hour's log ages out during a long pass too
       // Review 1: the hour's cap met reads no further for the regular comments; #5623: a person's comment takes no slot, so

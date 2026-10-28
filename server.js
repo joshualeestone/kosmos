@@ -27192,7 +27192,7 @@ function start(port = PORT) {
          the daily maximum, gets one line asking it to post if it has something real (engine/communityturn.js holds the
          gates and is tested there). Same gates as the reply nudge above: live execution, the community switch, the
          Prompter's agent-nudge switch; operator brake AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Counted in the shared hour log
-         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause and by the Gemini cap). unref'd;
+         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause and by a working-at-once cap). unref'd;
          first run one interval after boot. */
       const COMMUNITY_TURN_BOOK = communityturn.readBook();   // review 6: kept on disk, so a restart cannot reset the gaps
       const COMMUNITY_TURN_IDLE_SEEN = new Set();   // review 4: idle at the previous pass too

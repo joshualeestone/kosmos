@@ -2829,8 +2829,9 @@ function deliver(sessionName, raw, roster, envelope, trailer, opts) {
  * keep the try for after the reset. A person's own message goes through deliver() and is never held.
  */
 /* kosmos#7406 review 1: an Enter for a line already in an agent's box (a remembered unsent line, which may be the
-   person's own: nothing records whose) is not held by the per-account cap; the line was let through, and counted, when
-   it was typed. A Gemini (Antigravity) agent keeps its own cap's behaviour here, unchanged. */
+   person's own: nothing records whose) is not held by the per-account cap: the text is already in the box, and a
+   person's line is never held (an automatic one was counted when it was typed). A Gemini (Antigravity) agent keeps its
+   own cap's behaviour here, unchanged. */
 function typedLineCap(sessionName, roster) {
   let card = null;
   try { card = resolveCard(roster, sessionName); } catch { card = null; }

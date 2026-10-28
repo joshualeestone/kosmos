@@ -159,6 +159,12 @@ function forgetInput(name) { inputHeld.delete(String(name)); }
    which other holds use too, so the cap's own posts are noted here and flushReleased retries exactly those once the cap
    lets the member through. Kept beside the held file, as the usage-limit notes are (review 1): no wake comes for an
    idle member, so a note lost to a board restart would leave its ask unsaid. */
+const CAP_RETRY_MS = 10 * 60 * 1000;
+const capTried = new Map();   // name -> when a cap retry last reached nothing (in memory: a restart tries at once)
+function capBackingOff(name, now) {
+  const at = capTried.get(String(name));
+  return at !== undefined && now - at >= 0 && now - at < CAP_RETRY_MS;
+}
 function capFileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '.cap'); }
 function readCaps(name) {
   try {
@@ -207,14 +213,14 @@ function capProjects(name) {
 function agyCard(name, roster) {
   try { const c = require('./chat').resolveCard(roster, name); return Boolean(c && c.runner === 'antigravity'); } catch { return false; }
 }
-function forgetCap(name) { try { fs.rmSync(capFileFor(name), { force: true }); } catch { /* nothing to remove */ } }
+function forgetCap(name) { capTried.delete(String(name)); try { fs.rmSync(capFileFor(name), { force: true }); } catch { /* nothing to remove */ } }
 
 /* #4588 PR B: a post held because the member is an Antigravity agent paused on the shared Google quota may @-name
    the member (an agent's post is an automatic sender there, addressed or not). Its id is kept with this mark, so the
    line that later tells the member says which of the held posts ask for an answer. Board ids never start with it. */
 const ADDRESSED = '@';
 function addressedId(id) { return ADDRESSED + String(id); }
-/* #4588 ask 3 (review 13): a post the Gemini cap held, that asks nothing of the member, is kept with this mark instead.
+/* #4588 ask 3 (review 13): a post the Gemini cap held (kosmos#7406: or the per-account cap), that asks nothing of the member, is kept with this mark instead.
    The cap holds it while the member is idle, when no wake is coming, so flushReleased retries it; a post the ordinary
    #4624 idle hold kept is unmarked and waits for the member's next wake, cap or no cap. Board ids never start with it. */
 const CAPPED = '^';
@@ -573,7 +579,7 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
       capped = !!(sent && sent.held === true && sent.heldBy === 'cap');
       if (sent && sent.held === true && sent.heldBy === 'limit') limitUntil = sent.limitReset;
     } catch { state = DELIVERY.COULD_NOT; }
-    /* #4588 ask 3 (review 14): the Gemini cap held this turn-end line, so the member is idle with no wake coming; its
+    /* #4588 ask 3 (review 14): a working-at-once cap held this turn-end line, so the member is idle with no wake coming; its
        posts are put back with the cap's mark (an asked one keeps @), so flushReleased tells them once the cap frees. */
     // #5805: a usage limit held this flush: its ids keep their marks, and the reset is recorded for withoutStale.
     if (limitUntil) noteLimit(name, projectId, ids.filter(isAddressed), limitUntil);
@@ -645,7 +651,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
          the member is not in a fresh working turn, can be typed into, no usage limit or sign-out holds it, and the cap
          lets it through; until then they wait, untouched. Antigravity members are left to their own path below. */
       const capIn = isAgy(card) ? [] : capProjects(inName);
-      if (capIn.length && !workingNow(readReport, inName, now, decayMs)) {
+      if (capIn.length && !workingNow(readReport, inName, now, decayMs) && !capBackingOff(inName, now)) {
         const chatMod = require('./chat');
         /* Review 1: a menu up or text in the box would hold the line again, and the take, put-back and log line would
            repeat every minute (#4797), so those wait too, as the input-box path above does. */
@@ -655,6 +661,9 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
           const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: capIn, modeOf, now });
           capProjects(inName);   // drop the notes for posts now told
           for (const d of done) out.push({ name: inName, why: 'cap', ...d });
+          // Review 5: a member that refused every line (a non-Claude pane on its own prompt reads none of the checks
+          // above) is not tried again for CAP_RETRY_MS, rather than every minute (#4797).
+          if (done.length && done.every((d) => !d.state || d.state === DELIVERY.COULD_NOT)) capTried.set(inName, now); else capTried.delete(inName);
           // Review 4: only a minute that told something skips the rest; a note left for a digest room's quiet post must
           // not keep this member from the usage-limit path below.
           if (done.length) continue;
