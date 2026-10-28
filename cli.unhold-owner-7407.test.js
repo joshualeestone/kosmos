@@ -365,3 +365,31 @@ test('#7407 review 6: the unhold answer reads the roster (a snapshot of every pa
   unholdNext(projectId, taskOf(m), rosterOf);
   assert.equal(reads, 1, 'read once where needed');
 });
+
+test('#7407 review 7: subtasks-first and a held tree promise nothing when nobody else here could take it', async () => {
+  // Everyone switched off: a parent with an open child does not promise a hand-out after its subtasks.
+  const parent = make('p-off');
+  const child = make('c-off');
+  tasks.setParent(projectId, child, parent);
+  projects.mutate(projectId, (p) => ({ ...p, swarmOff: ['mara', 'otto'] }));
+  try {
+    const pn = await unholdNext(parent);
+    assert.doesNotMatch(pn, /once they are done, Kosmos can give it/, pn);
+    assert.match(pn, /^Nobody is on it, and no agent on the project can be given it now/, pn);
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, swarmOff: [] }));
+  }
+  // A tree mara holds, with otto switched off: only mara can be given it.
+  const tp = make('held-only', 'mara');
+  const tc = make('held-only-child');
+  tasks.setParent(projectId, tc, tp);
+  projects.mutate(projectId, (p) => ({ ...p, swarmOff: ['otto'] }));
+  try {
+    const next = await unholdNext(tc);
+    assert.match(next, /\(one builder per task tree\), so only they can be given it, when they are free\. To choose who, assign it now\.$/, next);
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, swarmOff: [] }));
+  }
+  // CONTROL: otto switched on again, the held tree says it waits until mara is done there.
+  assert.match(await unholdNext(tc), /so Kosmos will not give it out until they are done there\./);
+});

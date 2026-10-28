@@ -6577,19 +6577,23 @@ function unholdNext(projectId, t, rosterOf) {
     const paused = projects.isPaused(p);
     /* Review 4: a task tree someone holds busy is that builder's: pick gives it only to them (busy now) and to anyone
        once they are done there, so neither a name nor "an idle agent" is promised. */
+    // Review 7: anyone besides `except` who takes work here and this board runs (switched on, reachable).
+    const takersBesides = (except) => (Array.isArray(p.agents) ? p.agents : []).some((n) => !except.includes(n) && !projects.isSwarmOff(p, n) && reachable(n));
     const held = asg.treeHeldBy(p, inP);
     if (held.holders.length) {
       // Review 5: name where the work is (its own subtasks when it is the root), and say a pause.
       const where = held.root === inP.number ? 'on its subtasks' : 'on task ' + held.root + "'s tree";
       return 'Nobody is on it.' + (paused ? ' The project is paused.' : '') + ' It is part of work ' + held.holders.map(plain).join(', ')
-        + (held.holders.length > 1 ? ' are' : ' is') + ' doing ' + where + ' (one builder per task tree), so Kosmos will not give it out until they are done there.' + assign;
+        + (held.holders.length > 1 ? ' are' : ' is') + ' doing ' + where + ' (one builder per task tree), so '
+        // Review 7: "until they are done" implies a hand-out after; only true when someone else here could be given it.
+        + (takersBesides(held.holders) ? 'Kosmos will not give it out until they are done there.' : 'only they can be given it, when they are free.') + assign;
     }
     const may = asg.whoMayGet(paused ? { ...p, paused: false } : p, inP).filter(reachable);
     const lead = paused ? 'Nobody is on it. The project is paused; when it is resumed, Kosmos will give it to ' : 'Nobody is on it, so Kosmos will give it to ';
     if (!may.length) {
       /* Review 6: its own open subtasks going first resolves on its own: said as such, not grouped with reasons that
          never do. (Another builder's tree is said above, so it is not a reason here.) */
-      if (asg.subtasksFirst(p, inP)) {
+      if (asg.subtasksFirst(p, inP) && takersBesides([])) {   // review 7: only when someone could take it after
         return 'Nobody is on it.' + (paused ? ' The project is paused.' : '') + ' Its open subtasks go first; once they are done, Kosmos can give it to a free agent here' + turn + '.' + assign;
       }
       return (paused ? 'Nobody is on it, and the project is paused. Even resumed, no' : 'Nobody is on it, and no')
@@ -24024,9 +24028,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-
-
-
   /* #4771: put a task on hold, or take it off. Body { onHold: true | false, until?: { task: <n> } | { at: <time> } }. The Prompter never nudges an agent about a
      task on hold and the Assigner never hands it out; tasks.setOnHold validates and records it in the task's activity.
      The person's own hold is lifted only from the screen (isViaScreen). That is ADVISORY, as on /built: a local process
@@ -28075,8 +28076,8 @@ if (require.main === module) {
 // re-implementation of it. Testing the path helper in isolation would not have
 // caught the routing bug, because the helper was never the broken part -- the
 // routes reading `req.url` around it were.
-module.exports = {
-  unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
+module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
+  unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
   _autobalanceSweepDepsForTest: autobalanceSweepDeps, // kosmos#7152 slice 3: the sweep's wiring, for its test
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
