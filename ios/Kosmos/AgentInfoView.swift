@@ -56,6 +56,7 @@ struct AgentInfoView: View {
         .scrollContentBackground(.hidden)
         .background(Palette.ground)
         .navigationBarTitleDisplayMode(.inline)
+        .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
         .navigationTitle(live.name)
         .toolbar(.hidden, for: .tabBar)
         .task { await load() }

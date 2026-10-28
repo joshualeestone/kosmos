@@ -30,6 +30,7 @@ struct NewTaskView: View {
             content
                 .navigationTitle("New task")
                 .navigationBarTitleDisplayMode(.inline)
+                .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(sending) }
                     ToolbarItem(placement: .confirmationAction) {

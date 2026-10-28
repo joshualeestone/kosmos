@@ -47,6 +47,7 @@ struct TaskPageView: View {
             .background(Palette.ground.ignoresSafeArea())
             .navigationTitle("Task \(ref.number)")
             .navigationBarTitleDisplayMode(.inline)
+            .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     // Not for a task the computer no longer has: its board page would be gone too.

@@ -465,6 +465,7 @@ struct ProjectsView: View {
             content
                 .navigationTitle("Projects")
                 .navigationBarTitleDisplayMode(.inline)   // kosmos#7343: the shared bar, no big title
+                .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
                 .toolbar {
                     ToolbarItem(placement: .principal) { ScreenHeading(title: "Projects") }
                     KosmosBarLeading(switcher: MacSwitcher(client: client))
