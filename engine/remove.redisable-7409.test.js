@@ -238,3 +238,29 @@ test('#7409 review 4: a launchctl that does not answer stops the sweep, and ever
   assert.deepEqual(out, { ok: false, reapplied: ['a'], failed: ['b', 'c'], unsure: [] });
   assert.ok(!calls.some((c) => c.endsWith('/' + labelOf('c'))), 'it went on waiting on launchd after it stopped answering: ' + calls.join(' | '));
 });
+
+/* ── kosmos#7409 review 5 ─────────────────────────────────────────────────────── */
+const liveExecution = require('./live-execution');
+
+test('#7409 review 5: a live board in dry-run mode reads nothing real and claims nothing (the DRY_RUN half of the guard)', () => {
+  removedList([removedRow('a')]);
+  roster([]);
+  remove.setRunner(null);              // no runner: DRY_RUN is on
+  liveExecution.allowLiveExecution();  // and live execution allowed, as on a real board started with the flag
+  try {
+    assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: true, reapplied: [], failed: [], unsure: [] });
+  } finally { liveExecution.resetForTests(); }
+});
+
+test('#7409 review 5: a roster tmux cannot give is unsure, not "nothing running", after the jobs are stopped', () => {
+  removedList([removedRow('casey')]);
+  roster([]);
+  const calls = machine([]);
+  const status = require('./status');
+  const real = status.paneRoster;
+  status.paneRoster = () => { throw new Error('tmux did not answer'); };
+  try {
+    assert.deepEqual(remove.reapplyRemovedDisables({ platform: 'darwin', uid: 501 }), { ok: false, reapplied: [], failed: [], unsure: ['casey'] });
+  } finally { status.paneRoster = real; }
+  assert.ok(calls.indexOf('bootout gui/501/' + labelOf('casey')) >= 0, 'the job was not stopped before the roster read');
+});

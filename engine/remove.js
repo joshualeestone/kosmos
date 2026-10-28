@@ -503,9 +503,28 @@ function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}
     const m = /^\s*"([^"]+)"\s*=>\s*(disabled|true)\s*$/.exec(line);
     if (m) off.add(m[1]);
   }
-  // One roster read for every agent; a roster tmux cannot give is an unknown for each, never "nothing running".
+  const out = { ok: true, reapplied: [], failed: [], unsure: [] };
+  // A launchctl that gave no answer at all (no exit code: a timeout) stops the sweep: the rest would each wait as long.
+  const silent = (r) => !r || (r.ok === false && r.code == null);
+  // First every job step, as removeInner: disable (if launchd does not hold it disabled), then bootout (3 is launchd for
+  // "not loaded", the end state wanted).
+  const stopped = [];
+  for (let i = 0; i < owned.length; i += 1) {
+    const { name, label } = owned[i];
+    if (!off.has(label)) {
+      const dis = run('/bin/launchctl', ['disable', `gui/${id}/${label}`]);
+      if (silent(dis)) { out.failed.push(...owned.slice(i).map((o) => o.name)); break; }
+      if (dis.ok === false) { out.failed.push(name); continue; }
+    }
+    const boot = run('/bin/launchctl', ['bootout', `gui/${id}/${label}`]);
+    if (silent(boot)) { out.failed.push(...owned.slice(i).map((o) => o.name)); break; }
+    if (!(boot.ok !== false || boot.code === 3)) { out.failed.push(name); continue; }
+    stopped.push({ name, label, changed: !off.has(label) || boot.ok !== false });
+  }
+  /* Then ONE roster read, after the jobs are unloaded (review 5: read before, a supervisor starting its session at login
+     could slip past the snapshot). A roster tmux cannot give is an unknown for each agent, never "nothing running". */
   let cards = null;
-  try { cards = status.paneRoster(); } catch { cards = null; }
+  if (stopped.length) { try { cards = status.paneRoster(); } catch { cards = null; } }
   const tie = (name) => {
     if (!Array.isArray(cards)) return { kind: FOUND.UNKNOWN, session: null };
     const card = cards.find((c) => c && c.sessionName === name);
@@ -513,27 +532,14 @@ function reapplyRemovedDisables({ platform = process.platform, uid = null } = {}
     if (!card.session) return { kind: FOUND.UNKNOWN, session: null };
     return card.isNamedOurs ? { kind: FOUND.OURS, session: card.session } : { kind: FOUND.UNTIED, session: card.session };
   };
-  const out = { ok: true, reapplied: [], failed: [], unsure: [] };
-  for (const { name, label } of owned) {
-    // A launchctl that gave no answer at all (no exit code: a timeout) stops the sweep: the rest would each wait as long.
-    const silent = (r) => !r || (r.ok === false && r.code == null);
-    if (!off.has(label)) {
-      const dis = run('/bin/launchctl', ['disable', `gui/${id}/${label}`]);
-      if (silent(dis)) { out.failed.push(...owned.slice(owned.findIndex((o) => o.label === label)).map((o) => o.name)); break; }
-      if (dis.ok === false) { out.failed.push(name); continue; }
-    }
-    // 3 is launchd for "not loaded", which is the end state wanted; anything else refused is a failed step.
-    const boot = run('/bin/launchctl', ['bootout', `gui/${id}/${label}`]);
-    if (silent(boot)) { out.failed.push(...owned.slice(owned.findIndex((o) => o.label === label)).map((o) => o.name)); break; }
-    if (!(boot.ok !== false || boot.code === 3)) { out.failed.push(name); continue; }
-    const unloaded = boot.ok !== false;   // it was loaded and is not now: a change, even for a job already disabled
+  for (const { name, label, changed } of stopped) {
     const found = tie(name);
     if (found.kind === FOUND.OURS) {
       if (!sessionOps('darwin').end(found.session)) { out.failed.push(name); continue; }
     } else if (found.kind === FOUND.UNKNOWN || (found.kind === FOUND.UNTIED && !off.has(label))) {
       out.unsure.push(name);   // left alone, as a removal leaves it; an untied session a removal already left is not news
       continue;
-    } else if (off.has(label) && !unloaded) {
+    } else if (!changed) {
       continue;   // already disabled, not loaded and not running: nothing was changed, nothing to say
     }
     out.reapplied.push(name);
@@ -550,7 +556,8 @@ function reapplyAtBoardStart({ enforcing, afterMs = 2000, retryMs = 30000, setTi
   // Review 2: once more, 30 s on, when the first run was not clean (a board up before the login session answers).
   const runOnce = (again) => {
     try {
-      const kept = reapplyRemovedDisables();
+      let kept;
+      try { kept = reapplyRemovedDisables(); } catch (e) { kept = { ok: false, reapplied: [], failed: [], unsure: [], because: String(e && e.message) }; }
       if (!kept.ok && again) { const t2 = setTimer(() => runOnce(false), retryMs); if (t2 && typeof t2.unref === 'function') t2.unref(); }
       if (kept.reapplied.length) out(`Kosmos: removed agents switched off again (their startup job unloaded, and their session ended where it was running): ${kept.reapplied.join(', ')}\n`);
       if (kept.failed.length) err(`Kosmos: could not stop every removed agent starting again: ${kept.failed.join(', ')}\n`);

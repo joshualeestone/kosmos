@@ -19,8 +19,8 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
   - takes only a label removal itself would record for the record's own name: create.serviceLabel(name, this Kosmos),
     or in the default Kosmos the legacy com.<name>.discord. removed.json is a file a person can edit, so any other
     label is never touched;
-  - asks `launchctl print-disabled gui/<uid>` once and reads the board's roster once (not once per agent, which would
-    block the board's thread at start); for each such label launchd does not hold disabled (`=> disabled` or
+  - asks `launchctl print-disabled gui/<uid>` once, runs every job step first, and only then reads the board's roster
+    once (review 5: read before, a supervisor starting its session at login could slip past the snapshot); for each such label launchd does not hold disabled (`=> disabled` or
     `=> true`), runs `disable` and `bootout` (code 3, "not loaded", counts as done), then ends the agent's session only
     when the roster ties it to the agent (FOUND.OURS), as removeInner does;
   - for a label launchd already holds disabled, still runs `bootout` (review 3: a session ended while its job is still
@@ -62,7 +62,7 @@ plist loads at login, enabled, and its supervisor starts the agent's session aga
 ## Mutation checks (run by hand, code restored after each)
 - The session not ended: the moved-agent case goes red.
 - Any launchd-shaped label accepted (no ownership check): the hand-edited-list case goes red.
-- No dry-run guard: the dry-run case goes red.
+- No dry-run guard: the review-5 dry-run case goes red (live execution armed, no runner).
 - No real-board gate: the board-start case goes red.
 - An already-disabled agent's session not looked at: the review-2 recheck case goes red.
 - No second try: the board-start case goes red.
