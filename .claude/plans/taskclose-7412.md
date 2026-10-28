@@ -39,7 +39,7 @@ Not done: Ctrl+C mid-run prints no summary of what already closed (accepted; `ko
   refused).
 - Focused set (cli.task-close-many-7412, cli.unknown-flag-4889, tools.windows-kosmos-cli-unknown-flag-4889,
   cli.task-replaced-6923, cli.agent-token-verbs-4491, tools.windows-kosmos-cli-{writes,token-only}-4491,
-  tools.windows-kosmos-cli-570): 324/324 at e1f198adf4.
+  tools.windows-kosmos-cli-570): 325/325 at 52ad2040e4 (the code; the plan commit follows it).
 - Mutants, each confirmed applied before the run, each turned exactly one test red: curl 7 named as may-have-closed;
   the Windows project-wide stop removed; the Mac limit raised to 1000; the Windows reset wording put back to
   "is it running?"; the Mac 404 project stop removed; the Windows redirect sentence removed; the Windows timeout sent
