@@ -237,7 +237,7 @@ async function runVia(label, port, argv, agentToken, winFetch) {
   return { code, text: out.concat(err).join('\n') };
 }
 
-test('#7412 review 4: a close whose connection is refused sent nothing, so it is named as still open, never as maybe closed', async () => {
+test('#7412 review 4: a close whose connection is refused sent nothing, so it is named as not tried, never as maybe closed', async () => {
   const http = require('node:http');
   for (const [label] of BOTH) {
     const [a, b, c] = open('refusedconn ' + label);

@@ -1365,7 +1365,8 @@ async function taskClose(ctx, args) {
         const one = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + n + '/close');
         if (!one.reached) { stop = i; lost = one; break; }
         if (one.json && one.json.task) { ok.push(n); continue; }
-        const why = ctx.refusedBy(one) || 'Kosmos gave an answer we could not read';
+        // As install/kosmos: an error the board left empty did not say why; anything else is an answer we could not read.
+        const why = ctx.refusedBy(one) || (one.json && typeof one.json.error === 'string' ? 'it did not say why' : 'Kosmos gave an answer we could not read');
         bad.push('Could not close task ' + n + ': ' + why + '.');   // one line each: a reason can hold a ; or a ,
         /* Who is asking (401/403), a board that could not check or read its projects (500/503), no such project, or an
            answer that is not the board's (421): every later close would be refused the same way, so send no more. */

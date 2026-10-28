@@ -6142,10 +6142,11 @@ cmd_task() {
           _r=0; _b=$(kosmos_curl "$_bt" "$_ctok" -sS -m 15 -w $'\n%{http_code}' -X POST "$URL/api/project/$esc_project/task/$_n/close" 2>/dev/null) || _r=$?
           if [ "$_r" -ne 0 ]; then
             _stop="$_n"; _stoprc="$_r"
-            # Only the failures that send nothing are named not tried: curl could not start (1-3), find (6) or connect (7),
-            # or kosmos_curl refused before sending (96-98, #1765) or was interrupted (130). Anything else came after the
-            # request may have gone (as the Windows command reads a failure), so that one may have closed.
-            case "$_r" in 1|2|3|6|7|96|97|98|130) _left="$_n" ;; esac
+            # Only the failures that send nothing are named not tried: curl could not start (1-3), find (6) or connect (5
+            # from the board check, 7), could not read its own header or body file (26, 27, 43), or kosmos_curl refused
+            # before sending (96-99, #1765) or was interrupted (130). Anything else came after the request may have gone
+            # (as the Windows command reads a failure), so that one may have closed.
+            case "$_r" in 1|2|3|5|6|7|26|27|43|96|97|98|99|130) _left="$_n" ;; esac
             continue
           fi
           _code="${_b##*$'\n'}"; _b="${_b%$'\n'*}"
@@ -6168,7 +6169,7 @@ cmd_task() {
         while IFS= read -r _l; do [ -z "$_l" ] || say "$_l"; done <<< "$_bad"
         if [ "$_stoprc" -ne 0 ]; then
           case "$_stoprc" in
-            1|2|3|6|7|96|97|98|130) say_unreached "close task $_stop" "$_stoprc" write ;;
+            1|2|3|5|6|7|26|27|43|96|97|98|99|130) say_unreached "close task $_stop" "$_stoprc" write ;;
             # As say_unreached's write words for 18/28/52/56, for every failure that may have closed it (never "is it running?").
             *) say "Kosmos is running but did not answer in time, so we could not close task $_stop. It may still have happened: check before doing it again. It does not need a restart."
                say "Task $_stop may have closed anyway: check kosmos task list ${project:-<project-id>} before closing it again." ;;
