@@ -6574,7 +6574,7 @@ cmd_project() {
           // Shown text goes through projectview.one (control, bidi and invisible characters), as project show prints it;
           // the sessionName that builds the DELETE path is sent raw, URL-encoded here, never cleaned (review 4).
           let clean = null; try { clean = require(process.env.KOSMOS_RMM_VIEW).one; } catch { /* the fallback below */ }
-          const one = (v) => (clean ? clean(v) : String(v == null ? "" : v)).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g, " ");
+          const one = (v) => (clean ? clean(v) : String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g, " "));   // the fallback only: projectview.one keeps ZWJ and ZWNJ
           let j; try { j = JSON.parse(s); } catch { process.exit(1); }
           if (!j || typeof j !== "object") process.exit(1);
           if (j.error) { console.log(["error", "", "", "", one(j.error)].join("\t")); return; }
@@ -6592,7 +6592,7 @@ cmd_project() {
           if (!hit.length) { console.log(["none", "", "", pj, j.agentsUnreadable === true ? "unread" : ""].join("\t")); return; }
           // Only names that mean exactly one member are offered, so the answer never sends the person in a circle.
           if (hit.length > 1) {
-            const offer = hit.map((m) => [m.sessionName, m.name].find((n) => typeof n === "string" && n && means(n).length === 1)).filter(Boolean);
+            const offer = hit.map((m) => [m.sessionName, m.name].find((n) => typeof n === "string" && n && one(n) === n && means(n).length === 1)).filter(Boolean);   // only a name that can be typed back as shown
             console.log(["many", "", "", pj, offer.map(one).join(", ")].join("\t")); return;
           }
           console.log(["ok", encodeURIComponent(hit[0].sessionName), one(hit[0].name) || one(hit[0].sessionName), pj].join("\t"));
@@ -6643,7 +6643,7 @@ cmd_project() {
           // Shown text goes through projectview.one (control, bidi and invisible characters), as project show prints it;
           // the sessionName that builds the DELETE path is sent raw, URL-encoded here, never cleaned (review 4).
           let clean = null; try { clean = require(process.env.KOSMOS_RMM_VIEW).one; } catch { /* the fallback below */ }
-          const one = (v) => (clean ? clean(v) : String(v == null ? "" : v)).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g, " ");
+          const one = (v) => (clean ? clean(v) : String(v == null ? "" : v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g, " "));   // the fallback only: projectview.one keeps ZWJ and ZWNJ
           let j; try { j = JSON.parse(s); } catch { process.exit(1); }
           if (!j || typeof j !== "object") process.exit(1);
           if (j.error) { console.log(["error", one(j.error)].join("\t")); return; }

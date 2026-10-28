@@ -24,6 +24,9 @@ const run = promisify(execFile);
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-pjrm-')));
 fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
 fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+// The board's own engine beside the command, as an install has it, so the Mac cleans names with projectview.one and
+// not its fallback (kosmos_engine_module looks in $KOSMOS_HOME/engine).
+fs.symlinkSync(path.join(__dirname, 'engine'), path.join(HOME, 'engine'));
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
@@ -370,4 +373,13 @@ test('#7405 review 5: when the board could not read its agents, a missed name sa
   const w = await winRun(port, ['project', 'remove-member', 'launch', 'Nobody', '--yes']);
   assert.match(w.err, /Kosmos could not read its agents just now/);
   assert.equal(deletes(seen).length, 0);
+}));
+
+/* ── kosmos#7405 review 6: a joiner in a display name is kept, as project show keeps it ─────────────── */
+test('#7405 review 6: a ZWJ family emoji in a display name is printed whole, on both', () => withStub(overviewWith((ms) => { ms[1].name = 'Ada \u{1F468}‍\u{1F469}‍\u{1F467}'; }), GONE, async (port) => {
+  const m = await cli(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
+  assert.equal(m.code, 0, m.out);
+  assert.match(m.out, /Ada \u{1F468}‍\u{1F469}‍\u{1F467} is off Launch/u, 'the Mac split the joined emoji: ' + JSON.stringify(m.out));
+  const w = await winRun(port, ['project', 'remove-member', 'launch', 'ada', '--yes']);
+  assert.match(w.out, /Ada \u{1F468}‍\u{1F469}‍\u{1F467} is off Launch/u, 'Windows split the joined emoji');
 }));

@@ -28,7 +28,9 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
     "may be off", exit 3. The DELETE waits 120 s on both, as agent remove.
   - Every name and reason the board sends goes through projectview.one before it is shown (control, bidi and
     invisible characters, as project show prints them), so a display name cannot rewrite the y/N prompt; the
-    sessionName that builds the DELETE path is sent raw, URL-encoded, never cleaned.
+    sessionName that builds the DELETE path is sent raw, URL-encoded, never cleaned. Its own fallback (no engine
+    found) strips the same controls and keeps ZWJ and ZWNJ, as projectview.one does. The ambiguity answer offers a
+    name only when it prints exactly as it is stored, so it can be typed back.
   - A member stored as "." or ".." is refused, as agent remove refuses those names, but with exit 1 after the
     overview read: here it is the board's data, not a typed argument.
 - `cli.project-remove-member-7405.test.js`: both commands against a stub board whose overview is the board's own
@@ -50,7 +52,11 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
 - Weakest premise: that the person or agent knows a name that means one member. `kosmos project show` lists display
   names (a sessionName only for a member with no card), so a sessionName is learned from the ambiguity answer, and a
   pair no name tells apart is taken off on the board.
-- Deliberately not word for word with the screen: the result names the project ("is off Launch" where the screen,
+- Deliberately different between the two commands, as agent remove is: the Mac names the board's address where it
+  says to look at the board (the ambiguity, may-be-off and could-not-read sentences) and Windows does not; the Mac
+  says its refusals on stdout (say) and Windows on stderr.
+- Deliberately not word for word with the screen: the confirm line's apostrophe is straight, as all the command's
+  text is (the screen's is curly); the result names the project ("is off Launch" where the screen,
   showing one project, says "this project"), and the confirm says "at the top of the project" (the screen says "at the
   top"), since a terminal shows no project around the words.
 - Kept as agent remove has them: the Mac's "may be off" names the board's address and Windows' does not, and the Mac
@@ -68,6 +74,8 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
 - An unreadable answer after the DELETE back to exit 1: the not-JSON case goes red.
 - The old match (an exact sessionName first, display names only if none): the collision and case cases go red.
 - Every match's sessionName offered again (no exactly-one filter): the circle and collision cases go red.
+- projectview.one replaced by a function that cleans nothing: the escape-sequence case goes red (the test links the
+  repo's engine into the sandbox, so the Mac uses projectview.one and not its fallback).
 - The Mac's not-a-member arm sending anyway: the not-a-member case goes red.
 - The Windows not-a-member check removed: the Windows not-a-member case goes red.
 - The Mac's no-terminal guard removed: the no-terminal case goes red.
