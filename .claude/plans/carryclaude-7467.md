@@ -10,7 +10,7 @@ A switch to Claude whose picked Claude account could not be applied, but whose r
 2. server.js, POST /api/agent/<name>/provider: the #5091 partial branch, when the restart worked, puts `switchCarryDetail` before "It is starting again now." One `carriedFrom` helper names the old provider for both answers.
 3. Tests: engine (the split, and the same-family control) and route (Gemini to Claude partial, and a partial with nothing carried).
 
-Stacked on switchlose-7455 (#7462, same answers, not yet merged): rebase onto main once it merges.
+Built on switchlose-7455 (#7462, same answers), now merged: rebased onto main.
 
 ## Decided
 
