@@ -1822,6 +1822,8 @@ async function projectRole(ctx, args) {
     ctx.out(r.json.role === null
       ? 'Cleared your role on ' + project + '. kosmos project show ' + project + ' lists your own role again.'
       : 'Set your role on ' + project + '. kosmos project show ' + project + ' prints it beside your name.');
+    // #7429, as install/kosmos: the role reads as review only, so the Assigner hands this agent none of its tasks.
+    if (r.json.reviewOnly === true) ctx.out('It says you only review, so the automatic Assigner hands you none of this project\'s tasks (your person still can).');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos did not set that role: ' + ctx.refusedBy(r) + '.'); return 1; }

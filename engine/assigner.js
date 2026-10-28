@@ -167,6 +167,9 @@ function hasOpenWork(session, projects) {
    already left out closed tasks and paused projects, hasOpenWork's other two checks (review 7). */
 function busyHold(p, t, who) {
   if (tasks.isOnHold(t) || require('./taskrepeat').waitingForNextRun(t)) return false;
+  /* #7429 review 1: a review-only member holding a part (a "review" subtask a person gave it) never takes the tree's
+     other tasks, so it does not lock the tree away from builders, as a member switched off does not. */
+  if (require('./projects').reviewOnlyHere(p, who)) return false;
   if (t.builtAt && (t.builtFreesAll === true || (Array.isArray(t.builtWho) && t.builtWho.includes(who)))) return false;
   return !isSwarmOff(p, who);
 }
@@ -390,6 +393,9 @@ function saveMemory(mem, last) {
 function goalProject(session, projects, goals, asked, now, askedSig) {
   for (const p of projects) {
     if (!(Array.isArray(p.agents) && p.agents.includes(session)) || isSwarmOff(p, session) || aloneOnItsOwn(p, session)) continue;
+    /* #7429 review 1: a review-only member is not asked to draft tasks: it would never be handed them, and it would
+       use up the project's one ask for the day before a builder is asked. */
+    if (require('./projects').reviewOnlyHere(p, session)) continue;
     /* #4771: a paused project is not asked about. (A task on hold still counts as open work here: the project is
        not empty, the person parked it, so its goal is not put to an agent.) */
     if (require('./projects').isPaused(p)) continue;

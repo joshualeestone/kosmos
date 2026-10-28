@@ -24230,7 +24230,11 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 500, { error: 'Kosmos could not save that role just now' });
         return;
       }
-      sendJson(res, 200, { ok: true, role: out.role });
+      // #7429: say when the words take this member out of the Assigner's hand-outs, so it is never a silent effect.
+      let reviewOnly = false;
+      try { reviewOnly = projects.reviewOnlyHere(projects.readAll().find((x) => x && x.id === id) || null, name); }
+      catch { reviewOnly = false; }
+      sendJson(res, 200, { ok: true, role: out.role, ...(reviewOnly ? { reviewOnly: true } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });

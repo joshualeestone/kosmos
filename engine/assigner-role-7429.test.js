@@ -1,6 +1,6 @@
 'use strict';
-/* #7429: the Assigner hands no task to an agent whose role on the project is review only, and moves no stalled part to
- * one. Real cards, commitments and projects, as engine/assigner.test.js builds them; every rule with the arm that
+/* #7429: the Assigner hands no task to an agent whose role on the project is review only, moves no stalled part to
+ * one, asks it to draft none, and its held part does not lock a task tree. Real cards, commitments and projects, as engine/assigner.test.js builds them; every rule with the arm that
  * must fire and the arm that must not.
  *
  *   node --test engine/assigner-role-7429.test.js
@@ -58,24 +58,27 @@ function afterIdle(w) {
   return a.step({ prev: first.next, ...base, now: T0 + a.IDLE_MS });
 }
 
-test('reviewOnlyHere: a review word and no making word; free text read case-blind', () => {
+test('reviewOnlyHere: only an explicit form counts (review 1: a wrong yes costs more than a wrong no)', () => {
   const p = (role) => ({ rolesHere: { s: role } });
-  for (const role of ["reviews the builders' work", 'Code reviewer', 'QA', 'REVIEW ONLY', 'reviewing PRs and designs']) {
+  for (const role of ['reviewer', 'Code reviewer', 'QA', 'reviews', 'Review only', 'QA only.', 'only reviews',
+    'reviews PRs, review only', 'reviewer  only']) {
     assert.equal(projects.reviewOnlyHere(p(role), 's'), true, role);
   }
-  for (const role of ['builds and reviews', 'builder and reviewer', 'reviewer who also develops', 'builder',
-    'reviews and fixes what it finds', 'writes the release notes',
-    'previews the site', 'implements the API', '']) {
+  // Review 1's false positives under the first rule, and roles that also make something.
+  for (const role of ["reviews the builders' work", 'design review and copy', 'designs, then reviews', 'reviews and drafts',
+    'reviews and rebuilds', 'reviewer, refactors', 'QA engineer', 'reviews builds', 'builds and reviews',
+    'builder and reviewer', 'previews the site', 'Researcher', '']) {
     assert.equal(projects.reviewOnlyHere(p(role), 's'), false, JSON.stringify(role));
   }
   assert.equal(projects.reviewOnlyHere({}, 's'), false, 'no role at all');
+  assert.equal(projects.reviewOnlyHere(null, 's'), false, 'no project');
   assert.equal(projects.reviewOnlyHere(p('reviewer'), 'other'), false, 'another member\'s role');
 });
 
 test('an agent whose role here is review only is not handed a task; with the role cleared it is (control)', () => {
   const w = world(['rvwr', 'bldr']);
   try {
-    projects.setRoleHere(w.pid, w.key.rvwr, "reviews the builders' work");
+    projects.setRoleHere(w.pid, w.key.rvwr, 'review only');
     addTask(w.pid, 'task one'); addTask(w.pid, 'task two');
     assert.deepEqual(afterIdle(w).toAssign.map((x) => x.session), [w.key.bldr], 'the reviewer was handed a task');
     projects.setRoleHere(w.pid, w.key.rvwr, '');
@@ -83,7 +86,7 @@ test('an agent whose role here is review only is not handed a task; with the rol
   } finally { w.restore(); }
 });
 
-test('a reviewer with every other agent busy still gets nothing, and a role that also builds does (control)', () => {
+test('a lone QA agent gets nothing, and a role that also builds does (control)', () => {
   const w = world(['solo']);
   try {
     addTask(w.pid, 'the only task');
@@ -92,6 +95,25 @@ test('a reviewer with every other agent busy still gets nothing, and a role that
     projects.setRoleHere(w.pid, w.key.solo, 'builds and reviews');
     assert.deepEqual(afterIdle(w).toAssign.map((x) => x.session), [w.key.solo]);
   } finally { w.restore(); }
+});
+
+test('review 1: a reviewer holding a review subtask does not lock the tree from a builder; any other holder does (control)', () => {
+  const proj = (role) => [{ id: 'pt', agents: ['rev', 'bld'], rolesHere: role ? { rev: role } : {}, tasks: [
+    { number: 1, sentence: 'Feature' },
+    { number: 2, sentence: 'Review it', parent: 1, who: 'rev' },
+    { number: 3, sentence: 'Build it', parent: 1 },
+  ] }];
+  const got = a.pick('bld', proj('reviewer'), new Set());
+  assert.ok(got && got.n === 3, 'the reviewer\'s part locked the tree: ' + JSON.stringify(got));
+  assert.equal(a.pick('bld', proj(null), new Set()), null, 'CONTROL: a builder holding a part keeps the tree');
+});
+
+test('review 1: a review-only member is not asked to draft tasks toward the goal; a builder is (control)', () => {
+  const proj = [{ id: 'pg', agents: ['rev', 'bld'], rolesHere: { rev: 'QA only' }, tasks: [] }];
+  const goals = new Map([['pg', 'ship the beta']]);
+  assert.equal(a.goalProject('rev', proj, goals, new Map(), T0), null, 'a reviewer was asked to draft tasks');
+  const asked = a.goalProject('bld', proj, goals, new Map(), T0);
+  assert.ok(asked && asked.projectId === 'pg', 'CONTROL: the builder is asked: ' + JSON.stringify(asked));
 });
 
 test('failoverPick moves no stalled part to a reviewer; to a builder it does (control)', () => {

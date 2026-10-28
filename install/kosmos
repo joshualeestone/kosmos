@@ -6547,7 +6547,10 @@ cmd_project() {
       [ "$rc" -eq 0 ] || { say_unreached "set your role there" "$rc" write; exit 1; }
       case "$body" in
         '{"ok":true,"role":null}'*) say "Cleared your role on $1. kosmos project show $1 lists your own role again." ;;
-        '{"ok":true'*) say "Set your role on $1. kosmos project show $1 prints it beside your name." ;;
+        '{"ok":true'*)
+          say "Set your role on $1. kosmos project show $1 prints it beside your name."
+          # #7429: the role reads as review only, so the automatic Assigner hands this agent none of the project's tasks.
+          case "$body" in *'"reviewOnly":true'*) say "It says you only review, so the automatic Assigner hands you none of this project's tasks (your person still can)." ;; esac ;;
         '{"error":'*)
           because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos did not set that role: ${because:-it did not say why}."; exit 1 ;;

@@ -688,16 +688,19 @@ function roleHereOf(p, key) {
   return typeof r === 'string' && r.trim() ? r : null;
 }
 
-/* #7429: does this member's role here say it only reviews? A review word and no word for making something. The
-   Assigner reads it so an agent that set "reviews the builders' work" is not handed build tasks nobody gave it; a
-   person can still give it any task by hand. The role is free text, so the rule is words: "builds and reviews" and
-   "builder and reviewer" are builders; "code reviewer" stays a reviewer (code is not a making word here), and so does
-   "reviews the builders' work" (a PLURAL noun names other people, so builders and developers do not count). */
-const REVIEW_WORD = /\b(?:review(?:s|er|ers|ing)?|qa)\b/i;
-const MAKE_WORD = /\b(?:build(?:s|er|ing)?|implement(?:s|er|ing)?|develop(?:s|er|ing)?|fix(?:es|ing)?|writ(?:e|es|er|ing))\b/i;
+/* #7429: does this member's role here say it only reviews? Only an explicit form counts, because a wrong yes costs
+   more than a wrong no: a yes takes the agent out of the Assigner's hand-outs in this project (a person can still give
+   it any task), a no keeps today's behaviour. So the whole role is a bare review word ("reviewer", "code reviewer",
+   "QA", "reviews"), or it says so ("review only", "QA only", "only reviews"). "reviews the builders' work" and "design
+   review and copy" are not review only. The project instructions name these forms, and `kosmos project role` says
+   when a role is read this way (review 1). */
+const REVIEW_ONLY_BARE = /^(?:code\s+)?(?:reviews?|reviewer|reviewing|qa)$/i;
+const REVIEW_ONLY_SAID = /\b(?:reviews?|reviewer|reviewing|qa)\s+only\b|\bonly\s+(?:reviews?|reviewing|qa)\b/i;
 function reviewOnlyHere(p, key) {
   const r = roleHereOf(p, key);
-  return r !== null && REVIEW_WORD.test(r) && !MAKE_WORD.test(r);
+  if (r === null) return false;
+  const words = r.trim().replace(/[.!]+$/, '').replace(/\s+/g, ' ');
+  return REVIEW_ONLY_BARE.test(words) || REVIEW_ONLY_SAID.test(words);
 }
 
 /* #4557: the profile's reportsTo, read like profileRole (the profile is a bag; an absent key means none). */
@@ -3878,9 +3881,10 @@ function blockRules(sessionName, cliShown) {
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
       `\`${cliShown} project role <project-id> "what you do here"\` (an empty "" clears it).`,
-      /* #7429: say what the role changes, in the words reviewOnlyHere matches. */
-      'A role here that names reviewing (or QA) and none of build, implement, develop, fix or write tells the automatic',
-      'Assigner you only review: it then hands you none of this project\'s tasks; your person still can.',
+      /* #7429: say what the role changes, in the forms reviewOnlyHere matches. */
+      'If you only review on a project, say so: a role of just "reviewer" (or "code reviewer", "QA"), or one that says',
+      '"review only" or "QA only", means the automatic Assigner hands you none of that project\'s tasks; your person',
+      'still can.',
     ],
   };
 }
