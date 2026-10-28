@@ -26,16 +26,43 @@ Simulator A/B (keyboard up, messages arriving): the clock-drawn dots let the new
 behind the box; WaveDots keep the list following (~/work/design-shots/kosmos-7427-wave/).
 
 ### Per-Iteration Breakdown
-- #7346 bottom (solidbox, 3 rounds): r1 end marker and New messages button against the fade; r2 one fadeHeight
-  constant and more clearance; r3 nits only.
-- Stack r1 (opus): 2 blockers (a different agent's notice reused the open chat, fixed with .id(session); a cold launch
-  decided on an unstarted client, fixed with the kept computer), 2 warnings (fade over banner/search; request survived
-  sign-out), fixed.
-- Stack r2 (sonnet): 3 warnings (string checks labelled as wiring guards; fade placement checked in shots; iOS 16
-  compile verified); 3 nits accepted.
-- Stack r3 (sonnet, #7424): tap target under 44 pt fixed; title tappable while search is open accepted (as the (i)).
-- #7427 r1 (sonnet): dead Sweep code and its test removed; comments corrected.
-- #7427 r2 (from the #7420 simulator A/B, measured): clock-drawn dots inside the chat's lazy thread stopped it following
-  with the keyboard up; WaveDots (self-animating) for the chat line.
-- #7427/#7420 r3 (opus): dots restart after scrolling back; tests check the shipped dots; the open-chat clear kept by
-  session on purpose (a stale value must never hide banners).
+
+#### Iteration 1 (opus, #7346 bottom strip)
+- [WARNING] the newest message could sit under the fade at the end of the list; the New messages button sat in it. Fixed.
+
+#### Iteration 2 (sonnet, #7346 bottom strip)
+- [WARNING] two magic numbers kept the marker clear of the fade; now one fadeHeight constant. Fixed.
+- [WARNING] 1 pt clearance; now fade + 8 pt. Fixed.
+
+#### Iteration 3 (sonnet, #7346 bottom strip)
+- [NIT] only (redundant backgrounds, banding). No new findings of substance.
+
+#### Iteration 4 (opus, stack: #7418 #7417 #7346 top)
+- [BLOCKER] a different agent's notice while a chat was open reused the old chat under the new name. Fixed (.id by session).
+- [BLOCKER] a cold launch decided on a client not yet started, so the tap opened the board page. Fixed (the kept computer).
+- [WARNING] the top fade washed the chat's banner and search. Fixed (fade on the scroll content).
+- [WARNING] a pending request survived a sign-out. Fixed.
+
+#### Iteration 5 (sonnet, stack)
+- [WARNING] source-string checks are wiring guards, not behaviour: labelled.
+- [WARNING] fade placement unverified: checked in the simulator shots (visible under the bar).
+- [WARNING] iOS 16 compile of the toolbar availability branch: verified clean.
+
+#### Iteration 6 (sonnet, #7424)
+- [WARNING] title tap target under 44 pt. Fixed.
+- [WARNING] title tappable while search is open: accepted, the (i) button already behaves so.
+
+#### Iteration 7 (sonnet, #7427)
+- [WARNING] dead Board.sweepOpacity and its test: removed.
+- [NIT] comments described the old dots: corrected.
+
+#### Iteration 8 (measured, #7427 and #7420 simulator A/B)
+- [BLOCKER] clock-drawn dots inside the chat's lazy thread stopped it following new messages with the keyboard up. Fixed (WaveDots, self-animating); the A/B shows the fix.
+
+#### Iteration 9 (opus, #7427 and #7420 banner)
+- [WARNING] dots froze after the line scrolled away and back. Fixed.
+- [WARNING] tests checked the control, not the shipped dots. Fixed.
+- [NIT] the open-chat clear by session only: kept on purpose (a stale value must never hide banners).
+
+## Final ledger
+No open BLOCKER or WARNING. Converged.
