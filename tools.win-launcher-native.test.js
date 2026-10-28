@@ -214,22 +214,37 @@ function csharpLiteral(raw) {
    Review 6: what it does not model is pushed onto `problems` (a line number and what it was) rather than guessed at,
    because a guess that loses its place swallows the code after it, and an unreadable constant swallowed that way is
    lost from every count at once: a regular or interpolated string still open at the end of its line (C# cannot
-   continue one there), a quote inside an interpolation hole, and a raw """ string. A # directive line is a comment. */
+   continue one there), a quote inside an interpolation hole, and a raw """ string. A # directive line is a comment.
+   Review 7: the result is as long as the source, character for character (what is dropped becomes spaces, newlines
+   kept), so a position in one reading is the same position in the other and in the source. */
 function blankCSharpLiterals(src, { keepStrings = false, problems = [] } = {}) {
   let out = '';
   const lineAt = (at) => src.slice(0, at).split('\n').length;
+  const pad = (t) => t.replace(/[^\n]/g, ' ');
+  // A literal with its contents blanked: its opening (prefix and quote) and its closing quote kept, the rest spaces.
+  const hollow = (t, head, closed) => t.slice(0, head) + pad(t.slice(head, closed ? -1 : undefined)) + (closed ? t.slice(-1) : '');
   for (let i = 0; i < src.length;) {
     const c = src[i];
-    if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i += 1; out += ' '; continue; }
-    if (c === '#' && /(^|\n)[ \t]*$/.test(src.slice(Math.max(0, i - 200), i))) { while (i < src.length && src[i] !== '\n') i += 1; out += ' '; continue; }
-    if (c === '/' && src[i + 1] === '*') { const end = src.indexOf('*/', i + 2); i = end < 0 ? src.length : end + 2; out += ' '; continue; }
-    if (c === "'") { const at = i; i += 1; while (i < src.length && src[i] !== "'" && src[i] !== '\n') i += src[i] === '\\' ? 2 : 1; if (src[i] === "'") i += 1; out += keepStrings ? src.slice(at, i) : "''"; continue; }
+    const from = i;
+    if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i += 1; out += pad(src.slice(from, i)); continue; }
+    if (c === '#' && /(^|\n)[ \t]*$/.test(src.slice(Math.max(0, i - 200), i))) { while (i < src.length && src[i] !== '\n') i += 1; out += pad(src.slice(from, i)); continue; }
+    if (c === '/' && src[i + 1] === '*') { const end = src.indexOf('*/', i + 2); i = end < 0 ? src.length : end + 2; out += pad(src.slice(from, i)); continue; }
+    if (c === "'") {
+      i += 1;
+      while (i < src.length && src[i] !== "'" && src[i] !== '\n') i += src[i] === '\\' ? 2 : 1;
+      const closed = src[i] === "'";
+      if (closed) i += 1;
+      i = Math.min(i, src.length);
+      out += keepStrings ? src.slice(from, i) : hollow(src.slice(from, i), 1, closed);
+      continue;
+    }
     const m = /^[@$]{0,2}"/.exec(src.slice(i, i + 3));
     if (m) {
       const verbatim = m[0].includes('@');
       const interpolated = m[0].includes('$');
       const at = i;
-      if (src.startsWith('""', i + m[0].length)) problems.push('a raw """ string at line ' + lineAt(at));
+      // Review 7: only without @: in a verbatim string @"""q" opens with an escaped quote.
+      if (!verbatim && src.startsWith('""', i + m[0].length)) problems.push('a raw """ string at line ' + lineAt(at));
       i += m[0].length;
       let hole = 0;
       let ended = '';   // 'closed', 'hole' (a quote in a hole, said already) or '' (the line or the file ran out)
@@ -245,7 +260,7 @@ function blankCSharpLiterals(src, { keepStrings = false, problems = [] } = {}) {
         i += 1;
       }
       if (!ended) problems.push('a string not closed on its line at line ' + lineAt(at));
-      out += keepStrings ? src.slice(at, i) : '""';
+      out += keepStrings ? src.slice(at, i) : hollow(src.slice(at, i), m[0].length, ended === 'closed');
       continue;
     }
     out += c;
@@ -263,7 +278,13 @@ function stringConstants(source) {
   let readings = 0;
   // kosmos#7503 review 3: read with comments dropped, so a commented-out old value cannot stand in for a live declaration.
   const code = blankCSharpLiterals(source, { keepStrings: true });
-  for (const m of code.matchAll(/const string (\w+) =\s*((?:"(?:[^"\\]|\\.)*"|[A-Za-z_]\w*|\s|\+)+);/g)) { raw.set(m[1], m[2]); readings += 1; }
+  const problems = [];
+  const blanked = blankCSharpLiterals(source, { problems });
+  // Review 7: a match counts only where it starts in code, not inside a string literal that spells a declaration (the
+  // blanked reading has spaces there, and the two readings are the same length).
+  for (const m of code.matchAll(/const string (\w+) =\s*((?:"(?:[^"\\]|\\.)*"|[A-Za-z_]\w*|\s|\+)+);/g)) {
+    if (blanked.startsWith('const string', m.index)) { raw.set(m[1], m[2]); readings += 1; }
+  }
   const values = new Map();
   for (let changed = true; changed;) {
     changed = false;
@@ -279,12 +300,13 @@ function stringConstants(source) {
   let declarations = 0;
   // String and char contents are blanked and comments dropped first, so a ; or a comma or an = inside a value can neither
   // end a statement nor add a name, and a declaration written in a comment is not counted.
-  const problems = [];
-  const blanked = blankCSharpLiterals(source, { problems });
   // Review 6: a name the value pattern's \w+ cannot spell (@default, a non-ASCII letter) is still a name here, so it is
   // counted and named rather than missed by both scans alike.
   for (const st of blanked.matchAll(/\bconst\s+(?:global\s*::\s*)?(?:System\s*\.\s*)?[Ss]tring\??\s+([^;]*);/g)) {
-    for (const n of st[1].matchAll(/(?:^|,)\s*(@?[\p{L}_][\p{L}\p{N}_]*)\s*=/gu)) { declared.add(n[1]); declarations += 1; }
+    const names = [...st[1].matchAll(/(?:^|,)\s*(@?[\p{L}_][\p{L}\p{N}_]*)\s*=/gu)];
+    for (const n of names) { declared.add(n[1]); declarations += 1; }
+    // Review 7: a statement whose name neither scan can spell (a combining mark, a \uXXXX escape) is said, not lost.
+    if (!names.length) problems.push('a const string with a name this test cannot read at line ' + source.slice(0, st.index).split('\n').length);
   }
   const uncollected = [...declared].filter((n) => !raw.has(n));
   return { values, unresolved: [...raw.keys()].filter((n) => !values.has(n)).concat(uncollected, problems.map((p) => '(not read: ' + p + ')')),
@@ -373,7 +395,12 @@ test('#7492: every string constant in KosmosLauncher.cs is in the committed Kosm
     ['a string left open at the end of its line', ['var s = "open', 'const string PlantedU = Foo.Bar;'],
       ['PlantedU', notRead('a string not closed on its line', at)]],
     ['an @ name', ['const string @PlantedAt = "x";'], ['@PlantedAt']],
-    ['a non-ASCII name', ['const string PlantedGröße = "x";'], ['PlantedGröße']]]) {
+    ['a non-ASCII name', ['const string PlantedGröße = "x";'], ['PlantedGröße']],
+    // Review 7: a name no scan can spell; a declaration spelled inside a string standing in for the live one; and a
+    // verbatim string opening with an escaped quote, which is not a raw string.
+    ['a name with a combining mark', ['const string Planted̈X = @"v";'], [notRead('a const string with a name this test cannot read', at)]],
+    ['a declaration inside a string', ['var s = "const string PlantedR = PlantedO;"; const string PlantedR = @"v"; const string PlantedO = "o";'], ['PlantedR']],
+    ['@"""', ['const string PlantedV = @"""q";'], ['PlantedV']]]) {
     const planted = SOURCE.slice(0, close) + lines.map((l) => '    ' + l + '\n').join('') + SOURCE.slice(close);
     assert.deepEqual(stringConstants(planted).unresolved, want, form + ' was not said as expected');
   }
