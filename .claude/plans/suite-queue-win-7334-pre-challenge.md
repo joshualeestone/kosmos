@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: suite-queue-win-7334
-diff_hash: 6fae35e6d51926fe7873d12beaea8f535316c3b726f1cceea17edea564890823
-validation: windows: test-win-proctable-7334 31 arms 0 failed; policy tests 67/67; two npm test runs measured queueing
+diff_hash: 53cc2a7f017bc751fe314107d21d8c02fd419b8bb848fea5c84f1faded360b3a
+validation: windows: test-win-proctable-7334 31 arms 0 failed (after rebase on main); policy tests 67/67; two npm test runs measured queueing
 subdir_audit: passed
-timestamp: 2026-10-28T00:04:48Z
+timestamp: 2026-10-28T00:09:16Z
 iterations: 4
 converged: true
 ---
