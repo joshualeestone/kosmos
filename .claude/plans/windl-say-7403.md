@@ -137,3 +137,11 @@ checks and verify-launcher.ps1 pass.
 - The 204 sentence cannot name the board's exact reason (gone, too big, busy, not allowed).
 - A download Chromium interrupts that WebView2 can resume is still said as not saved (true at that moment).
 - `OutputDebugString` is not a log a person can send; the launcher has no log file.
+
+### Review 2 (no blocker, no warning: converged)
+- NIT, accepted: download-start pruning (3.5 s) assumes the 1.5 s tick is on time; a late tick plus a second download at that moment could prune the download that came of this navigation and say a refusal about a saved file. Needs both at once; a rebuild + re-sign of Kosmos.exe for it is not worth the churn now.
+- NIT, accepted: "proved" means the board answers now, not that it sent the 204; a board back within the quick check (supervisor restarts take ~5.8 s here) would get the refusal sentence.
+
+### Round summary (for the proof)
+- Round 1: no blocker (COM vtables, GUIDs, enums, threading, the committed exe and its signer verified). [WARNING] download matched to the navigation by exact address --> FIXED: any download started in the window. [WARNING] a board that died during the request was told as a refusal --> FIXED: the existing quick board check first, else the not-confirmed path (gap: a board with no board.token is not contacted). [NIT] pause comment / downloadsWatched --> FIXED. [NIT] unpruned starts --> FIXED.
+- Round 2: no blocker, no warning. [NIT] x2 --> ACCEPTED (above).
