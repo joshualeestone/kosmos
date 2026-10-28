@@ -452,3 +452,20 @@ test('#7365 3b review 8: after Archive the live room drops only the leading run 
   assert.deepEqual(ctx.PJ_WIN.older.map((r) => r.id), ['o2', 'o3'], 'an undated row stops the run');
   assert.deepEqual(ctx.PJ_WIN.newest.map((r) => r.id), ['n1'], 'the held pages did not end the run, so the newest page keeps its rows');
 });
+
+test('#7365 3b browser runs 2-3: Back paints the room with no scroll state measured on the archive, so the anchor decides', async () => {
+  for (const anchored of [true, false]) {
+    const h = archPage({ reads: [page1] });
+    Object.assign(h.ctx.PJ_WIN, { pid: 'p1' });
+    await h.ctx.pjArchOpen();
+    if (!anchored) h.ctx.PJ_ARCH.anchor = null;
+    const box = h.el('pj-room');
+    // What the archive's own paints left: rows, a pixel top, and "on the floor" (the archive opens at its bottom).
+    Object.assign(box, { __roomHadRows: true, __roomHeldTop: 0, __roomHeldAtBottom: true });
+    let seen = null;
+    h.ctx.paintRoom = () => { seen = { had: box.__roomHadRows, top: box.__roomHeldTop, bottom: box.__roomHeldAtBottom }; };
+    h.ctx.pjArchClose();
+    assert.deepEqual(seen, { had: false, top: undefined, bottom: !anchored },
+      anchored ? 'with a place to return to, nothing pins or restores a pixel top' : 'with none, the room lands on the newest post');
+  }
+});

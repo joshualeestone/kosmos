@@ -76190,6 +76190,11 @@ function pjArchClose(quiet, hadFocusIn, forSearch, cutBefore) {
      archived, so they are dropped before it is painted (review 6), never painted as live and never left blank (review 7:
      a blank room under a failed read said it could not look while showing nothing). loadRoom then paints the fresh read. */
   if (cutBefore && box) pjRoomDropArchived(box, cutBefore);
+  /* The paint below measures where the reader is on the box as it stands, and the box still shows the ARCHIVE: its
+     floor and pixel top would carry into the room (browser runs 2 and 3: the archive scrolled to its top threw the room
+     to its top). The room's held scroll is set from the anchor instead: with a place to return to, the paint neither
+     pins nor restores a pixel offset and the anchor puts the reader back; with none, it lands on the newest post. */
+  if (box) { box.__roomHadRows = false; box.__roomHeldTop = undefined; box.__roomHeldAtBottom = anchor ? false : true; }
   if (box && box.__lastBody) { box.__lastRoom = undefined; paintRoom(box.__lastBody); }
   if (box && anchor) restoreThreadAnchor(box, anchor);
   if (hadFocus) { const post = document.getElementById('pj-post'); if (post) post.focus({ preventScroll: true }); }

@@ -218,3 +218,9 @@ map. Fixed by moving the return to just before the rows are written.
     window and Back fell to the top. offFloorNow now counts the reader as off the newest row while the archive is open
     (their place is the anchor). Test in web.room-window-7365.test.js with a control (no archive: the rows go);
     mutation reds it.
+11. Browser run 3 (1ae86106fc): the same one FAIL, so run 2's fix (offFloorNow) was not the cause, or not all of it. Read
+    from the code: paintThreadInto measures the reader's floor and pixel top on the box as it stands just before the
+    write, and on Back the box still shows the archive, so the archive's scroll carried into the room (the check scrolls
+    the archive to its top, and the room landed at its top). Back now clears the room's held scroll state first and
+    sets it from the anchor (vm test; the mutation reds it). A probe of the Back step (five samples, 0 to 7 s) is
+    queued to confirm, before run 4.
