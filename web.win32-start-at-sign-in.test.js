@@ -59,7 +59,7 @@ test('a row the engine read as on draws the switch on, labelled, as a real switc
 /* #7493: the switch is also the #2988 watchdog's off switch, so the row says so, on and off alike, and
    the switch points at that sentence for a screen reader. */
 test('the switch row says it also restarts Kosmos, and the switch is described by that sentence (#7493)', () => {
-  const hint = 'This also restarts Kosmos if it closes unexpectedly. Turned off, Kosmos stays closed until you open it.';
+  const hint = 'When this is on, Kosmos also tries to start again if it closes unexpectedly. When it is off, Kosmos stays closed until you open it.';
   for (const startAtSignIn of [true, false]) {
     const html = rows('win32', { checks: [{ ...AUTOSTART_ON, startAtSignIn }] });
     assert.ok(html.includes('<div class="dhint" id="start-at-sign-in-hint" style="margin:2px 0 0;">' + hint + '</div>'), 'no hint when ' + startAtSignIn);
