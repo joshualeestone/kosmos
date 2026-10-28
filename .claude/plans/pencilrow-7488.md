@@ -11,3 +11,7 @@
 ## Not verified
 
 - Not run on a device; shown in simulator shots, light and dark, both phone sizes.
+
+## Reviews
+
+One blind round (Sonnet), nits only: converged. Its notes (two stacked comments; `.disabled` now spans the line too, which plain Text with an explicit colour does not show) were not changed after convergence.
