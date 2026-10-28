@@ -1364,6 +1364,20 @@ body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display:
   border-radius: 8px; padding: .4em .7em; border: 1px solid var(--separator); background: var(--bg-elevated); color: var(--label); }   /* as .uacts buttons */
 .utoast.dmg .dmgput[aria-disabled="true"] { opacity: .5; cursor: default; }
 @media (pointer: coarse) { .utoast.dmg .dmgput { min-height: 44px; } }
+.utoast.rline { --utone: var(--label-2); align-items: flex-start; flex-wrap: wrap; }   /* kosmos#7411: a choice, not an alarm */
+.utoast.rline .utxt { flex: 1 1 260px; min-width: 0; }
+.utoast.rline .utxt b { color: var(--label); }
+.utoast.rline .utxt small.rlfix { display: block; margin-top: 2px; }
+.utoast.rline .rlmore { font: inherit; font-weight: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; }
+.utoast.rline .uacts { flex-wrap: wrap; }
+.utoast.rline .uacts button[aria-disabled="true"], .utoast.rline .rlrow button[aria-disabled="true"] { opacity: .5; cursor: default; }
+.utoast.rline .rlwho { flex: 1 1 100%; margin: 4px 0 0 19px; padding: 0; list-style: none; max-height: 40vh; overflow: auto; }
+.utoast.rline .rlrow { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: .8125rem; }
+.utoast.rline .rlrow span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.utoast.rline .rlrow button { font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer;
+  border-radius: 8px; padding: .4em .7em; border: 1px solid var(--separator); background: var(--bg-elevated); color: var(--label); }
+.utoast.rline .rlrow small.rerr { flex: 1 1 100%; }
+@media (pointer: coarse) { .utoast.rline .uacts button, .utoast.rline .rlrow button { min-height: 44px; } }
 /* #6160: the streak's daily note. A celebration, so its edge and dot are gold; restated in each theme block below. */
 .utoast.streak { --utone: var(--gold-edge); }
 .utoast.streak .utxt b { color: var(--label); }
@@ -1555,6 +1569,11 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   .utoast.reviewer-note .utxt { flex: 1 1 0; min-width: 0; }
   .utoast.reviewer-note .ux { order: 2; }
   .utoast.reviewer-note .uacts { order: 3; flex: 1 0 100%; margin-left: 19px; }
+  /* kosmos#7411: the restart line's small lines are the fixes and what a restart costs, the honest half of it; a phone
+     keeps them, and its buttons take their own row beneath the words, as the reviewer notice's do. */
+  .utoast.rline .utxt small { display: block; }
+  .utoast.rline { row-gap: 8px; }
+  .utoast.rline .uacts { flex: 1 0 100%; margin-left: 19px; }
   /* kosmos#6613: the certificate notice's small line says whether the check is still on; a phone keeps it. */
   .utoast.cwnote .utxt small { display: block; }
 }
@@ -9493,6 +9512,7 @@ svg { display: block; }
   :root:not([data-theme="light"]) .utoast.login-adv.warn { --utone: var(--warn-ink); }
   :root:not([data-theme="light"]) .utoast.survival { --utone: var(--warn-ink); }
   :root:not([data-theme="light"]) .utoast.reviewer-note { --utone: var(--label-2); }
+  :root:not([data-theme="light"]) .utoast.rline { --utone: var(--label-2); }   /* kosmos#7411 */
   :root:not([data-theme="light"]) .utoast.survival.done, :root:not([data-theme="light"]) .utoast.survival.unknown { --utone: var(--label-2); }
   :root:not([data-theme="light"]) .utoast.login-adv.urgent { --utone: #ff8c82; }
 }
@@ -11765,6 +11785,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-theme="dark"] .utoast.login-adv.warn { --utone: var(--warn-ink); }
 :root[data-theme="dark"] .utoast.survival { --utone: var(--warn-ink); }
 :root[data-theme="dark"] .utoast.reviewer-note { --utone: var(--label-2); }
+:root[data-theme="dark"] .utoast.rline { --utone: var(--label-2); }   /* kosmos#7411 */
 :root[data-theme="dark"] .utoast.survival.done, :root[data-theme="dark"] .utoast.survival.unknown { --utone: var(--label-2); }
 :root[data-theme="dark"] .utoast.login-adv.urgent { --utone: #ff8c82; }
 
@@ -12891,6 +12912,9 @@ window.kosmosMeasureScrollbarWidth();
     <!-- kosmos#6817: someone in this person's company (or family) was made a reviewer. One notice, cleared on its x or
          when the Settings reviewers list is in view; See who only takes the person there. Its own slot. -->
     <div id="reviewer-slot"></div>
+    <!-- kosmos#7411 step 4: running agents that need a restart to get a fix in this update. It offers a choice (Restart
+         all, Show who, Not now), so it sits above the facts; its own slot so it co-occurs with them. -->
+    <div id="rline-slot"></div>
     <!-- #5359: the computer restarted while Kosmos was running and Kosmos came back by itself. A fact, so it sits
          below the notices that need action (update, login); its own slot so it co-occurs with them (Mona Lisa). -->
     <div id="reboot-slot"></div>
@@ -24147,6 +24171,120 @@ function paintRebootNote(note) {
     delete slot.dataset.shown;
     rebootFocusAway();
   });
+}
+/* kosmos#7411 step 4: the running agents that need a restart to get a fix in this update (engine/restartline.js), with
+   Mona Lisa's design review (2026-10-28, on the card): say what they get and what a restart costs, once; Restart all and
+   Show who on the line, each agent's own Restart in the list; Not now hides it until the next update. Kosmos never
+   restarts anyone by itself: a restart stops what an agent is doing, and only the person can see whether that is fine.
+   The line goes by itself once nobody named is still on an old session (asked again each minute). */
+let RLINE = { line: null, open: false, busy: false };
+/* "Ada", "Ada and Kai", "Ada, Kai and Lee", "Ada, Kai and 3 more" (the last two words a button that opens the list). */
+function rlineNames(agents) {
+  const n = agents.map((a) => esc(a.label));
+  if (n.length <= 1) return n.join('');
+  if (n.length <= 3) return n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1];
+  return n.slice(0, 2).join(', ') + ' and <button type="button" class="rlmore" data-rl-who>' + (n.length - 2) + ' more</button>';
+}
+function rlineHead(line) {
+  const what = line.notes.length === 1 ? ': ' + esc(line.notes[0].title) : ' ' + line.notes.length + ' fixes in this update';
+  return rlineNames(line.agents) + (line.agents.length === 1 ? ' needs' : ' need') + ' a restart to get' + what + '.';
+}
+function rlineSay(where, words) {
+  if (!where) return;
+  const old = where.querySelector(':scope > .rerr');
+  if (old) old.remove();   // removed and added again, so a second failure is announced too
+  where.insertAdjacentHTML('beforeend', '<small class="rerr">' + esc(words) + '</small>');
+}
+function paintRestartLine() {
+  const slot = document.getElementById('rline-slot');
+  if (!slot) return;
+  const line = RLINE.line;
+  const held = slot.contains(document.activeElement);
+  if (!line) { slot.innerHTML = ''; delete slot.dataset.v; if (held) rebootFocusAway(); return; }
+  const one = line.agents.length === 1;
+  const html = '<div class="utoast rline"><span class="udot" aria-hidden="true"></span>'
+    + '<div class="utxt" role="status"><b>' + rlineHead(line) + '</b>'
+    + (line.notes.length > 1 ? line.notes.map((x) => '<small class="rlfix">' + esc(x.title) + '</small>').join('') : '')
+    + '<small>Restarting stops what they are doing now.</small></div>'
+    + '<div class="uacts">'
+    + '<button type="button" class="uprime" data-rl-all>' + (one ? 'Restart ' + esc(line.agents[0].label) : 'Restart all') + '</button>'
+    + (one ? '' : '<button type="button" data-rl-who aria-expanded="' + (RLINE.open ? 'true' : 'false') + '" aria-controls="rl-who">' + (RLINE.open ? 'Hide who' : 'Show who') + '</button>')
+    + '<button type="button" data-rl-later>Not now</button></div>'
+    + (!one && RLINE.open ? '<ul class="rlwho" id="rl-who" aria-label="Agents that need a restart">' + line.agents.map((a) =>
+      '<li class="rlrow"><span>' + esc(a.label) + '</span><button type="button" data-rl-one="' + esc(a.name) + '" aria-label="Restart ' + esc(a.label) + '">Restart</button></li>').join('') + '</ul>' : '')
+    + '</div>';
+  // The same words do not repaint, so the minute's re-check never takes focus off a button or drops a refusal.
+  if (slot.dataset.v === html) return;
+  const focusKey = held && document.activeElement ? ['data-rl-all', 'data-rl-who', 'data-rl-later', 'data-rl-one'].find((k) => document.activeElement.hasAttribute(k)) : null;
+  const focusOne = focusKey === 'data-rl-one' ? document.activeElement.getAttribute('data-rl-one') : null;
+  slot.dataset.v = html;
+  slot.innerHTML = html;
+  if (held) {
+    const back = focusOne ? [...slot.querySelectorAll('[data-rl-one]')].find((b) => b.getAttribute('data-rl-one') === focusOne)
+      : focusKey ? slot.querySelector('.uacts [' + focusKey + ']') || slot.querySelector('[' + focusKey + ']') : null;
+    (back || slot.querySelector('[data-rl-all]')).focus();
+  }
+}
+/* One agent's restart through the ordinary route. Resolves to null when it took, else the engine's sentence. */
+async function rlineRestartOne(name) {
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
+    const out = await res.json().catch(() => null);
+    return restartTook(res.ok, out) ? null : String((out && (out.because || out.error)) || 'It did not restart.');
+  } catch { return 'This computer could not reach its own engine.'; }
+}
+async function rlineClick(e) {
+  const slot = document.getElementById('rline-slot');
+  const btn = e.target.closest('button');
+  if (!slot || !btn || !slot.contains(btn) || !RLINE.line) return;
+  if (btn.hasAttribute('data-rl-who')) { RLINE.open = !RLINE.open; delete slot.dataset.v; paintRestartLine(); if (RLINE.open) { const f = slot.querySelector('[data-rl-one]'); if (f) f.focus(); } return; }
+  // Busy, not disabled: a disabled button drops keyboard focus to the page.
+  if (RLINE.busy || btn.getAttribute('aria-disabled') === 'true') return;
+  if (btn.hasAttribute('data-rl-later')) {
+    RLINE.busy = true;
+    let ok = false, why = '';
+    try {
+      const r = await fetch('/api/restart-line/not-now', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: RLINE.line.version }) });
+      const out = await r.json().catch(() => null);
+      ok = r.ok; why = (out && out.error) || '';
+    } catch { ok = false; }
+    RLINE.busy = false;
+    if (!ok) { rlineSay(slot.querySelector('.utxt'), why || 'Kosmos could not record that just now. Try again in a moment.'); return; }
+    RLINE.line = null; RLINE.open = false;
+    paintRestartLine();
+    return;
+  }
+  const one = btn.getAttribute('data-rl-one');
+  const names = one ? [one] : RLINE.line.agents.map((a) => a.name);
+  const labelOf = (n) => { const a = RLINE.line.agents.find((x) => x.name === n); return a ? a.label : n; };
+  RLINE.busy = true;
+  btn.setAttribute('aria-disabled', 'true');
+  const wasText = btn.textContent;
+  const misses = [];
+  for (let i = 0; i < names.length; i++) {
+    if (!one && names.length > 1) btn.textContent = 'Restarting ' + (i + 1) + ' of ' + names.length;
+    const why = await rlineRestartOne(names[i]);
+    if (why) misses.push({ name: names[i], why });
+  }
+  RLINE.busy = false;
+  btn.textContent = wasText;
+  btn.removeAttribute('aria-disabled');
+  await restartLineCheck();   // whoever restarted drops off the line; the line goes when nobody is left
+  if (!misses.length) return;
+  const words = misses.length === 1 ? labelOf(misses[0].name) + ' did not restart: ' + misses[0].why
+    : misses.map((m) => labelOf(m.name)).join(', ') + ' did not restart. ' + misses[0].why;
+  const row = one && slot.querySelector('[data-rl-one="' + CSS.escape(one) + '"]');
+  rlineSay(row ? row.closest('.rlrow') : slot.querySelector('.utxt'), asSentence(words));
+}
+async function restartLineCheck() {
+  try {
+    const res = await fetch('/api/restart-line', { cache: 'no-store' });
+    const got = await res.json().catch(() => null);   // read the body either way (an unread one holds the connection open)
+    if (!res.ok || !got) return;   // a failed re-check leaves what is on screen
+    RLINE.line = got.line && Array.isArray(got.line.agents) && got.line.agents.length && Array.isArray(got.line.notes) && got.line.notes.length ? got.line : null;
+    if (!RLINE.line) RLINE.open = false;
+    paintRestartLine();
+  } catch { /* a courtesy: kosmos whats-new says the same */ }
 }
 /* kosmos#7248: the files of Kosmos's own that this start found damaged (engine/storecheck.js). Each says what it holds
    and that Kosmos has not changed it; a good copy goes back only on its button; the X hides the note until the next
@@ -47007,6 +47145,9 @@ async function whatsNewCheck() {
 whatsNewCheck();
 rebootNoteCheck();   // #5359
 damagedFilesCheck();   // kosmos#7248
+restartLineCheck();   // kosmos#7411
+setInterval(() => { if (!RLINE.busy) restartLineCheck(); }, 60 * 1000);
+document.addEventListener('click', (e) => { if (e.target && e.target.closest && e.target.closest('#rline-slot')) rlineClick(e); });
 /* Asked again every ten minutes, so its time words stay true across midnight ("at 11:30 PM" becomes "yesterday at"),
    and a note gone stale or dismissed elsewhere goes. */
 setInterval(rebootNoteCheck, 10 * 60 * 1000);

@@ -20367,6 +20367,48 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, { dismissed: true });
     return;
   }
+  /* kosmos#7411 step 4: the running agents that need a restart to get a fix in this update (engine/restartline.js says
+     which). Named by their name (readIdentity), as #7430 names them. Never restarts anyone: the page's buttons use the
+     ordinary per-agent restart. A roster or tmux that cannot be read shows no line rather than a guessed one. */
+  if (pathname === '/api/restart-line' && (req.method === 'GET' || req.method === 'HEAD')) {
+    (async () => {
+      const rl = require('./engine/restartline');
+      const record = rl.read();
+      if (!record || !record.previous || record.notNow) return null;
+      let notes;
+      try { notes = require('./engine/releasenotes').readNotes(__dirname).notes; } catch { return null; }
+      const st = require('./engine/status');
+      const [roster, starts] = await Promise.all([st.paneRosterAsync(), st.sessionStartsAsync()]);
+      if (!Array.isArray(roster) || !starts) return null;
+      const agents = roster
+        .filter((c) => c && c.isNamedOurs === true && c.session && c.sessionName && !(c.swarm && c.swarm.active === false))
+        .map((c) => {
+          let id = null;
+          try { id = readIdentity(c.sessionName); } catch { id = null; }
+          return { name: c.sessionName, label: id && id.displayName ? String(id.displayName) : c.sessionName, startedAt: starts.has(c.session) ? starts.get(c.session) : null };
+        });
+      return rl.lineFor({ record, notes, agents });
+    })().then((line) => sendJson(res, 200, { line }), () => sendJson(res, 200, { line: null }));
+    return;
+  }
+  if (pathname === '/api/restart-line/not-now' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const v = String(body.version || '');
+        if (!/^\d+\.\d+\.\d+$/.test(v)) { sendJson(res, 400, { error: 'that is not a version we can record' }); return; }
+        const rl = require('./engine/restartline');
+        const now = rl.read();
+        if (now && now.version !== v) { sendJson(res, 409, { error: 'Kosmos has been updated again since this page loaded. Reload to see what is new.' }); return; }
+        let ok = false;
+        try { ok = rl.notNow(v); } catch { ok = false; }
+        if (!ok) { sendJson(res, 500, { error: 'Kosmos could not record that just now. Try again in a moment.' }); return; }
+        sendJson(res, 200, { hidden: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
   /* kosmos#7248: the stores this start found damaged (engine/storecheck.js). Read once by the page; a good copy goes back
      only when the person asks; dismissed for this start by the person. */
   if (pathname === '/api/board/damaged-files' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -26443,6 +26485,9 @@ function start(port = PORT) {
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
   try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }
+  /* kosmos#7411 step 4: the version this board runs and when it first started on it, so the restart line can name the
+     agents started before an update. Best effort: a courtesy, never a reason not to start. */
+  try { require('./engine/restartline').atStart(version); } catch { /* best effort */ }
   /* #5531: an enrolled work Kosmos asks its company on start and hourly (#6232) whether it is still the enrolled world, and
      stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
   try { require('./engine/orgenroll').onEnrollmentEnded(orgEnrollmentEnded); } catch { /* best effort */ }   // #6232 review 10
