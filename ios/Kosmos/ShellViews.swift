@@ -107,11 +107,11 @@ struct LoadFailureView: View {
         }
     }
 
-    private var message: String {
+    private func message(at now: Date) -> String {
         switch failure {
         case .offline: return "Kosmos opens again as soon as your phone is back online."
         case .unreachable: return "Your phone is online, but Kosmos+ didn't reply. Try again in a moment."
-        case .macUnreachable: return Shell.macUnreachableMessage(macName, lastSeen: lastSeen)
+        case .macUnreachable: return Shell.macUnreachableMessage(macName, lastSeen: lastSeen, now: now)
         case .other: return detail.isEmpty ? "Something stopped the page from loading." : detail
         }
     }
@@ -127,11 +127,14 @@ struct LoadFailureView: View {
                 Text(title)
                     .font(.title3.weight(.semibold))
                     .foregroundColor(KosmosColor.ink)
-                Text(message)
-                    .font(.body)
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(KosmosColor.muted)
-                    .fixedSize(horizontal: false, vertical: true)
+                // kosmos#7416 review 1: redrawn each minute, so a screen left up over midnight says "yesterday at".
+                TimelineView(.everyMinute) { context in
+                    Text(message(at: context.date))
+                        .font(.body)
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(KosmosColor.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Button(action: onRetry) {
                     HStack(spacing: 8) {
                         if retrying { ProgressView().tint(.white) }

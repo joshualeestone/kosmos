@@ -433,7 +433,7 @@ struct ContentView: View {
                 .ignoresSafeArea(.keyboard)
             if let failure = shell.failure {
                 LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer, macName: shell.failureMac,
-                                lastSeen: Board.lastSeen(board.macs, address: shell.failureAddress, name: shell.failureMac))
+                                lastSeen: board.lastHeard(address: shell.failureAddress, name: shell.failureMac))
             }
             // kosmos#7389 (Mona Lisa): a file that takes more than a second says so, with Cancel, so a big file never looks like
             // a tap that did nothing.

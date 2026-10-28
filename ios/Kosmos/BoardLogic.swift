@@ -2346,12 +2346,24 @@ extension Board {
     // list. By address when the screen knows it (a failed page's host, the shown computer), else by name, and by name
     // only when one listed computer has it: two of one name give no time rather than the other one's.
     static func lastSeen(_ macs: [Mac], address: String?, name: String?) -> Double? {
-        if let a = address?.lowercased(), !a.isEmpty, let m = macs.first(where: { $0.address.lowercased() == a }) {
-            return m.lastSeen
+        listedMac(macs, address: address, name: name)?.lastSeen
+    }
+
+    static func listedMac(_ macs: [Mac], address: String?, name: String?) -> Mac? {
+        if let a = address?.lowercased(), !a.isEmpty {
+            return macs.first(where: { $0.address.lowercased() == a })
         }
         guard let n = name, !n.isEmpty else { return nil }
         let named = macs.filter { $0.name == n }
-        return named.count == 1 ? named[0].lastSeen : nil
+        return named.count == 1 ? named[0] : nil
+    }
+
+    // Review 1: the list's last_seen is as of the list's last read (once a launch, a switch or a Try again), so a Mac
+    // this app read every 5 s all day would say "at 7:58 AM" at night. The later of the two, as the board says the time
+    // of its own last good status read. nil when neither has a time (0 is "never").
+    static func lastHeard(listed: Double?, heard: Date?) -> Double? {
+        let t = max(listed ?? 0, heard?.timeIntervalSince1970 ?? 0)
+        return t > 0 ? t : nil
     }
 }
 
