@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: scrollthumb-7497
-diff_hash: c16f1f31d645296183ae3b91926bb31f316d6f8f1a3c652fb359354d1853456f
-validation: policy tests green (fixture-discipline 20, no-name-refs 4, engine.reachable 8, windows-tests-1777 23, separator-guard 4, coupling-audit 8); browser-check gate test green; thumb probe in real WebView2: 36 rows with floor, 13 without; short panes 30/45/60px measured
+diff_hash: 8edeb19e583c6f3519747d2c1c51e0c3198b95c3edaa942fd30550ba8cc988e0
+validation: policy tests green; browser-checks-selectors 4/4; browser-check gate green; CI browser-checks: new arm passed (36 / 16); thumb probe in real WebView2: 36 / 13
 subdir_audit: passed
-timestamp: 2026-10-28T16:59:55Z
+timestamp: 2026-10-28T17:31:10Z
 iterations: 1
 converged: true
 ---
@@ -36,3 +36,6 @@ converged: true
 ## Box evidence
 - Real Kosmos window (WebView2, 0.7.72), 46,321px thread in a 599px pane: 17 lit rows before, 40 after (dark).
 - The browser check's probe over CDP in the same WebView2: 36 with the floor, 13 without (600px pane, light).
+
+## CI
+- First CI run: browser-checks PASSED the new arm (36 rows with the floor, 16 without, on CI Linux Chromium). The node suite failed browser-checks-selectors.test.js (#758): the probe was looked up by an id the page does not have. Fixed by holding a reference instead (fails 3/4 before, 4/4 after).
