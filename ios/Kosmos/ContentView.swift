@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var roomRequest: PushBridge.RoomTarget?
     // kosmos#7489: the native New project form (+ on Projects), in place of the board's slow web page.
     @State private var newProjectOpen = false
+    @State private var newAgentOpen = false   // kosmos#7488
     // kosmos#7418: an agent's chat a tapped notification asked for, handed to the Agents tab to open.
     @State private var agentRequest: PushBridge.AgentTarget?
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
@@ -395,7 +396,24 @@ struct ContentView: View {
         if which == .agents {
             AgentsView(client: board, push: pushManager, agentRequest: $agentRequest, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, openBoard: { showBoardToday() }, create: { openCreate(.agent) })
+            }, openBoard: { showBoardToday() }, create: {
+                // kosmos#7488: the native New Agent flow posts to the computer this phone is connected to; before that
+                // computer has let the phone in there is none, so the board page is used, as New project does.
+                if board.macURL != nil { newAgentOpen = true } else { openCreate(.agent) }
+            })
+            #if DEBUG
+            // Design shots only: KOSMOS_SAMPLE_NEWAGENT (any screen name) opens New Agent, since a simulator run cannot tap +.
+            .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWAGENT"].map({ !$0.isEmpty }) == true { newAgentOpen = true } }
+            #endif
+            .sheet(isPresented: $newAgentOpen) {
+                NewAgentView(client: board, opened: { session, shown in
+                    // Say hello: the new agent's chat, natively, as a notification's agent opens (kosmos#7418).
+                    if let host = board.macURL?.host { agentRequest = PushBridge.AgentTarget(host: host, session: session, name: shown) }
+                }, openTeam: {
+                    // Until the native Team slice: the board's own New Agent, where Team is the second card.
+                    openCreate(.agent)
+                })
+            }
         } else if which == .projects {
             // kosmos#7032: the native Projects list and a project's room; the board's own project page (the room's info
             // button) opens under Today, as an agent's chat does from Agents.
