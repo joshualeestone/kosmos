@@ -129,7 +129,7 @@ test('#7408: --to an agent not on the project is refused and nothing is recorded
     const n = make('off ' + label);
     const r = await run(['task', 'message', projectId, String(n), '--to', 'kai', 'hello'], token('mara'));
     assert.equal(r.code, 1, label + ': ' + r.text);
-    assert.match(r.text, /kai is not on this project, so that message was not recorded/, label + ': ' + r.text);
+    assert.match(r.text, /kai is not on this project \(name agents on it, or add them first\), so that message was not recorded/, label + ': ' + r.text);
     assert.equal(said(n).length, 0, label + ': recorded anyway');
   }
 });
@@ -224,7 +224,7 @@ test('#7408 review 1: against an older board that ignores to, both commands say 
     const out = []; const err = [];
     await cli.main(argv, { env: {}, url: obase, hook: { resolveUrl: () => obase, readBoardToken: () => null, agentToken: () => token('mara') }, out: (s) => out.push(s), err: (s) => err.push(s) });
     for (const [label, text] of [['Mac', m.text], ['Windows', out.concat(err).join('\n')]]) {
-      assert.match(text, /This Kosmos does not know --to yet, so the agents you named were not told\./, label + ': ' + text);
+      assert.match(text, /This Kosmos does not know --to yet, so the agents you named were told only if they are assigned to the task\./, label + ': ' + text);
       assert.doesNotMatch(text, /name it: --to/, label + ': never tells them to do what they did: ' + text);
     }
   } finally {
@@ -289,7 +289,7 @@ test('#7408 review 4: the limit counts every agent to names before the message i
     const oj = await over.json();
     assert.equal(over.status, 429, 'refused before it is sent: ' + JSON.stringify(oj));
     // Review 5: its own words, with the real count (not one that includes the names), and when it fits again.
-    assert.match(oj.error, new RegExp('^that message names 2 agents to tell, and with the ' + c + ' task messages sent in the last hour that would pass the limit of ' + (c + 2) + ';'), oj.error);
+    assert.match(oj.error, new RegExp('^that message adds 2 agents to tell, and with the ' + c + ' task messages sent in the last hour that would pass the limit of ' + (c + 2) + ';'), oj.error);
     assert.ok(Number(oj.retry_after_secs) > 0, 'says when it fits');
     assert.equal(said(n).length, before, 'nothing recorded');
     assert.equal(taskMessageSendCountForTests(), c, 'nothing counted');
@@ -325,6 +325,42 @@ test('#7408 review 5: naming an assignee costs nothing at the edge of the limit,
     assert.match(never.because, /can never fit; name fewer agents/, never.because);
     assert.equal(never.retryAfterSecs, null, 'no retry time: waiting does not help');
     assert.equal(taskMessageRefusal(Date.now(), 0), null, 'CONTROL: a plain message still fits');
+  } finally {
+    setTaskMsgCapForTests();
+    projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'kai') }));
+  }
+});
+
+test('#7408 review 6: at the limit, a message with to is told the wait for its own cost; a screen claim without to is never limited; a list that can never fit has no retry time', async () => {
+  const { taskMessageSendCountForTests, setTaskMsgCapForTests } = require('./server');
+  projects.mutate(projectId, (p) => ({ ...p, agents: [...p.agents, 'kai'] }));
+  try {
+    const n = make('atlimit');
+    const c = taskMessageSendCountForTests();
+    setTaskMsgCapForTests(c);   // the limit is already reached
+    const r = await post(n, { text: 'two more', to: ['otto', 'kai'] });
+    const j = await r.json();
+    assert.equal(r.status, 429);
+    assert.match(j.error, /^that message adds 2 agents to tell, /, 'its own words, not the plain limit: ' + j.error);
+    assert.ok(Number(j.retry_after_secs) > 0, j.error);
+    // A screen claim WITHOUT to is never limited (CONTROL for the screen arm), and records once.
+    const before = said(n).length;
+    const screenPlain = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'the person' }) });
+    assert.equal(screenPlain.status, 200, 'the screen is not limited');
+    assert.equal(said(n).length, before + 1);
+    // A screen claim WITH to is limited, and records and counts nothing.
+    const c2 = taskMessageSendCountForTests();
+    const screenTo = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'as the screen', to: ['otto'] }) });
+    assert.equal(screenTo.status, 429);
+    assert.equal(said(n).length, before + 1, 'nothing recorded');
+    assert.equal(taskMessageSendCountForTests(), c2, 'nothing counted');
+    // Never fits, end to end: a limit of 2 and a list adding 2 (cost 3).
+    setTaskMsgCapForTests(2);
+    const big = await post(n, { text: 'too many', to: ['otto', 'kai'] });
+    const bj = await big.json();
+    assert.equal(big.status, 429);
+    assert.match(bj.error, /can never fit; name fewer agents/, bj.error);
+    assert.equal(big.headers.get('retry-after'), null, 'no retry-after: waiting does not help');
   } finally {
     setTaskMsgCapForTests();
     projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'kai') }));

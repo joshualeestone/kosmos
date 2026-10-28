@@ -1520,7 +1520,7 @@ async function taskMessage(ctx, args) {
     // kosmos#7408 review 1: a board that answers no "to" does not know --to, so the names were not told; never the hint then.
     /* Review 2: on stdout, as install/kosmos says it; exit 0 on purpose (the message WAS recorded, so a failing exit would
        invite a resend that records it twice). */
-    if (took.to.length) { if (!Array.isArray(r.json.to)) ctx.out('This Kosmos does not know --to yet, so the agents you named were not told. Update Kosmos, or assign the task.'); }
+    if (took.to.length) { if (!Array.isArray(r.json.to)) ctx.out('This Kosmos does not know --to yet, so the agents you named were told only if they are assigned to the task. Update Kosmos, or assign the task.'); }
     else if (/^ Nobody (else )?is assigned to it/.test(told)) ctx.out('To tell an agent anyway, name it: --to <agent>.');
     return 0;
   }

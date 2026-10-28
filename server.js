@@ -2721,25 +2721,32 @@ function taskMessageRefusal(now = Date.now(), extra = 0) {
     // No retry time: waiting does not help while the cap is 0, so none is offered. It stays a 429,
     // not a 403, on purpose: both kosmos CLIs print the error text either way, and a 403 reads as
     // "your token was refused", which would send the agent to fix its sign-in instead.
-    return { because: 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: null };
+    // #7408 review 6: a message that names agents is told the screen cannot do that either (it names nobody).
+    return { because: extra > 0
+      ? 'task messages that name agents are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); send it without naming agents from the screen, or assign the task'
+      : 'agent task messages are switched off on this computer (AGENT_WORKFORCE_TASK_MSG_CAP is 0); the person can still send from the screen', retryAfterSecs: null };
+  }
+  /* #7408 review 4-6: a message that adds agents with `to` costs 1 + extra, all counted before it is sent, so one
+     message cannot pass the limit by its own list. Said in its own words, whether or not the limit is already reached,
+     so a wait it is given is the wait for ITS cost (never one slot's, then a second refusal), and a list bigger than the
+     whole limit is told it can never fit rather than to wait. Rounded as runawayRefusal rounds: up, at most the hour. */
+  if (extra > 0) {
+    const cost = 1 + extra;
+    const adds = 'that message adds ' + extra + (extra === 1 ? ' agent' : ' agents') + ' to tell';
+    if (cost > TASK_MSG_CAP_PER_HOUR) {
+      return { because: adds + ', and each counts toward the limit of ' + TASK_MSG_CAP_PER_HOUR + ' task messages an hour, so it can never fit; name fewer agents', retryAfterSecs: null };
+    }
+    const sent = taskMessageSends.length;
+    if (sent + cost <= TASK_MSG_CAP_PER_HOUR) return null;
+    const oldest = taskMessageSends.slice().sort((a, b) => a - b);
+    const freeAt = oldest[sent + cost - TASK_MSG_CAP_PER_HOUR - 1] + TASK_MSG_WINDOW_MS;
+    const secs = Math.min(TASK_MSG_WINDOW_MS / 1000, Math.max(1, Math.ceil((freeAt - now) / 1000)));
+    const mins = Math.max(1, Math.ceil(secs / 60));
+    return { because: adds + ', and with the ' + sent + (sent === 1 ? ' task message' : ' task messages') + ' sent in the last hour that would pass the limit of ' + TASK_MSG_CAP_PER_HOUR + '; name fewer agents, or send it again in about ' + mins + (mins === 1 ? ' minute' : ' minutes'), retryAfterSecs: secs };
   }
   const plain = runawayRefusal(taskMessageSends, { noun: 'task messages', did: 'sent',
     pausing: 'agent task messages', again: 'send task messages', screen: 'send them' }, { now, limit: TASK_MSG_CAP_PER_HOUR });
-  if (plain) return { because: plain.because, retryAfterSecs: plain.retryAfterSecs };
-  /* #7408 review 4/5: the `extra` agents a message adds with `to` count before it is sent, so one message cannot pass
-     the limit by its own list. Said in its own words: the limit is not reached, this message is too big for what is left. */
-  const cost = 1 + extra;
-  if (extra > 0 && taskMessageSends.length + cost > TASK_MSG_CAP_PER_HOUR) {
-    const named = 'that message names ' + extra + (extra === 1 ? ' agent' : ' agents') + ' to tell';
-    if (cost > TASK_MSG_CAP_PER_HOUR) {
-      return { because: named + ', and each counts toward the limit of ' + TASK_MSG_CAP_PER_HOUR + ' task messages an hour, so it can never fit; name fewer agents', retryAfterSecs: null };
-    }
-    const oldest = taskMessageSends.slice().sort((a, b) => a - b);
-    const freeAt = oldest[taskMessageSends.length + cost - TASK_MSG_CAP_PER_HOUR - 1] + TASK_MSG_WINDOW_MS;
-    const secs = Math.max(1, Math.ceil((freeAt - now) / 1000));
-    return { because: named + ', and with the ' + taskMessageSends.length + ' task messages sent in the last hour that would pass the limit of ' + TASK_MSG_CAP_PER_HOUR + '; name fewer agents, or send it again in about ' + Math.max(1, Math.round(secs / 60)) + ' minutes', retryAfterSecs: secs };
-  }
-  return null;
+  return plain && { because: plain.because, retryAfterSecs: plain.retryAfterSecs };
 }
 /* #7408 review 3: `count` is how many agents the message reaches beyond its assignees plus one, so a message naming
    agents with `to` spends the limit per agent it adds (a looping sender reaches no more agents through `to` than the
@@ -24638,13 +24645,13 @@ const server = http.createServer(async (req, res) => {
             if (!hit) (keyed.length > 1 ? twoWays : notOn).push(n.trim());
             else if (!toNames.includes(hit)) toNames.push(hit);
           }
-          const plainName = (x) => String(x).replace(/[\u0000-\u001f\u007f"\\]/g, ' ');
-          if (twoWays.length) {   // review 3: two agents on it share that name's key, so say which is meant
-            sendJson(res, 400, { error: twoWays.map(plainName).join(', ') + ' could be more than one agent on this project, so that message was not recorded. Use the exact name' });
-            return;
-          }
-          if (notOn.length) {
-            sendJson(res, 400, { error: notOn.map(plainName).join(', ') + (notOn.length > 1 ? ' are' : ' is') + ' not on this project, so that message was not recorded. Name agents on the project, or add them to it first' });
+          const plainName = (x) => String(x).replace(/[\u0000-\u001f\u007f-\u009f"\\]/g, ' ');   // review 6: C1 too
+          // Review 3 and 6: a name two agents share by key, and a name not on the project, said together in one answer.
+          const why = [];
+          if (twoWays.length) why.push(twoWays.map(plainName).join(', ') + ' could be more than one agent on this project (use the exact name)');
+          if (notOn.length) why.push(notOn.map(plainName).join(', ') + (notOn.length > 1 ? ' are' : ' is') + ' not on this project (name agents on it, or add them first)');
+          if (why.length) {
+            sendJson(res, 400, { error: why.join('; ') + ', so that message was not recorded' });
             return;
           }
         }
