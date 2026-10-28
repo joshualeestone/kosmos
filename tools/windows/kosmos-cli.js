@@ -1852,8 +1852,9 @@ async function projectRemoveMember(ctx, args) {
   const ov = o.json && o.json.project;   // the route answers { project: <overview>, agentsUnreadable }
   const ms = ov && Array.isArray(ov.members) ? ov.members.filter((m) => m && typeof m.sessionName === 'string') : null;
   if (!ms) { ctx.err('Kosmos gave an answer we could not read when asked about ' + project + '.'); return 1; }
-  let hit = ms.filter((m) => m.sessionName === who);
-  if (!hit.length) hit = ms.filter((m) => typeof m.name === 'string' && m.name.toLowerCase() === who.toLowerCase());
+  // Every member the name could mean, by sessionName or display name, ignoring case; more than one sends nothing.
+  const want = who.toLowerCase();
+  const hit = ms.filter((m) => m.sessionName.toLowerCase() === want || (typeof m.name === 'string' && m.name.toLowerCase() === want));
   const pj = ov.name || ov.id || project;
   if (!hit.length) { ctx.err(who + ' is not on ' + pj + ', so nothing was changed.'); return 1; }
   if (hit.length > 1) { ctx.err('More than one member of ' + pj + ' is called ' + who + ', so nothing was changed. Use one of these names instead: ' + hit.map((m) => m.sessionName).join(', ') + '.'); return 1; }
@@ -2881,7 +2882,7 @@ const DESCRIBE = {
   room: 'read a project room',
   notice: "a job on this computer writes a line in a room, in Kosmos's voice",
   task: "a project's tasks: list, add, close, reopen, message, mark built",
-  project: 'list, show, create or pause projects, or say your role on one',
+  project: 'list, show, create or pause projects, say your role on one, or take a member off one',
   records: "a project's records (accounts, leads, vendors): list, set, remove, label",
   agent: 'make or remove an agent, or list the roles one can have',
   feedback: 'write or read the daily feedback report',

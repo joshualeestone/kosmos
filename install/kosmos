@@ -5320,7 +5320,7 @@ kosmos_command_list() {
   printf '  kosmos feedback      write or read the daily feedback report\n'
   printf '  kosmos community     post to or read the Kosmos+ community\n'
   printf '  kosmos task          a project'"'"'s tasks: list, add, close, reopen, message, mark built\n'
-  printf '  kosmos project       list, show, create or pause projects, or say your role on one\n'
+  printf '  kosmos project       list, show, create or pause projects, say your role on one, or take a member off one\n'
   printf '  kosmos records       a project'"'"'s records (accounts, leads, vendors): list, set, remove, label\n'
   printf '  kosmos agent         make or remove an agent, or list the roles one can have\n'
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
@@ -6580,8 +6580,9 @@ cmd_project() {
           const want = process.env.KOSMOS_RMM_WHO;
           const ms = Array.isArray(p.members) ? p.members.filter((m) => m && typeof m.sessionName === "string") : null;
           if (!ms) process.exit(1);
-          let hit = ms.filter((m) => m.sessionName === want);
-          if (!hit.length) hit = ms.filter((m) => typeof m.name === "string" && m.name.toLowerCase() === want.toLowerCase());
+          // Every member the name could mean, by sessionName or display name, ignoring case; more than one sends nothing.
+          const w = want.toLowerCase();
+          const hit = ms.filter((m) => m.sessionName.toLowerCase() === w || (typeof m.name === "string" && m.name.toLowerCase() === w));
           const pj = one(p.name || p.id);
           if (!hit.length) { console.log(["none", "", "", pj].join("\t")); return; }
           if (hit.length > 1) { console.log(["many", "", "", pj, hit.map((m) => one(m.sessionName)).join(", ")].join("\t")); return; }
@@ -6640,7 +6641,7 @@ cmd_project() {
         ok) say "$mm_who is off $mm_pj and still on your computer." ;;
         unread) say "Kosmos made the change but could not read the project back. $mm_who is most likely off $mm_pj; look at the project on the board: $URL/"; exit 3 ;;
         # The screen's could-not sentence (Mona Lisa's ruling on #130): the frame names no noun the reason carries.
-        could_not) say "$mm_who is off $mm_pj. We could not update them, so this project may still be named in what they were told. $(printf '%s' "${mm_why:0:1}" | tr '[:lower:]' '[:upper:]')${mm_why:1}${mm_end}" ;;
+        could_not) say "$mm_who is off $mm_pj. We could not update them, so this project may still be named in what they were told.${mm_why:+ $(printf '%s' "${mm_why:0:1}" | tr '[:lower:]' '[:upper:]')${mm_why:1}${mm_end}}" ;;
         *) say "Kosmos did not take $mm_who off $mm_pj: ${mm_why:-it did not say why}${mm_end}"; exit 1 ;;
       esac
       exit 0

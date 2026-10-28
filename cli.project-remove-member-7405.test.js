@@ -5,8 +5,10 @@
  * /api/project/<id>/agent/<sessionName>. A name not on the project sends nothing (the route answers a non-member as
  * success). A person confirms at a terminal; a script says --yes, and with neither nothing is sent. Run against a stub
  * board in a sandboxed KOSMOS_HOME for install/kosmos, and in process for the Windows CLI, as
- * cli.agent-remove-7362.test.js does. Every case that sends nothing has a control showing the same stub records a
- * DELETE when one is sent.
+ * cli.agent-remove-7362.test.js does. The overview is the board's own (projects.describe and projectview.overviewOf);
+ * the DELETE answers are written to the route's shape, and the valve's words are engine/projects.js memberValve's.
+ * The tests that check a refusal sends nothing are paired, in the same test or the one after it, with a run against
+ * the same stub that does send.
  */
 require('./test-support/tmpscope');
 const test = require('node:test');
@@ -54,7 +56,8 @@ const NO_PROJECT = [404, { error: 'there is no project by that name' }];
 const GONE = [200, { project: SHOWN, told: { state: 'told' }, said: null }];
 const COULD_NOT = [200, { project: SHOWN, told: { state: 'could_not', because: 'it keeps its instructions somewhere we cannot safely change' }, said: null }];
 const UNREAD = [200, { project: null, told: { state: 'told' }, said: null }];
-const VALVE = [429, { error: 'agents have changed project members 60 times in the last hour, so Kosmos is pausing agent-made changes for 12 minutes', retry_after_secs: 700 }];
+// engine/projects.js memberValve's own sentence, at its limit.
+const VALVE = [429, { error: 'agents have changed who is on projects 60 times in the last hour, so Kosmos is pausing agent-made membership changes for 12 minutes; the person can still change them from the screen', retry_after_secs: 700 }];
 
 /* A stub board: the overview and the member route answer from `overview` and `done`; every request is recorded. */
 function withStub(overview, done, fn) {
@@ -131,7 +134,7 @@ test('#7405 Mac: could not update the member is the screen\'s sentence, and stil
 test('#7405 Mac: the board\'s refusal (the members valve) is said in its own words and exits 1', () => withStub(OVERVIEW, VALVE, async (port) => {
   const r = await cli(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
   assert.equal(r.code, 1, r.out);
-  assert.match(r.out, /Kosmos did not take Ada off Launch: agents have changed project members 60 times in the last hour, so Kosmos is pausing agent-made changes for 12 minutes\./);
+  assert.match(r.out, /Kosmos did not take Ada off Launch: agents have changed who is on projects 60 times in the last hour, so Kosmos is pausing agent-made membership changes for 12 minutes; the person can still change them from the screen\./);
 }));
 
 test('#7405 Mac: a project the board does not have is said and nothing is removed', () => withStub(NO_PROJECT, GONE, async (port, seen) => {
@@ -214,7 +217,7 @@ test('#7405 Windows: could-not and the valve read as on the Mac', () => withStub
 }).then(() => withStub(OVERVIEW, VALVE, async (port) => {
   const r = await winRun(port, ['project', 'remove-member', 'launch', 'Ada', '--yes']);
   assert.equal(r.code, 1);
-  assert.match(r.err, /Kosmos did not take Ada off Launch: agents have changed project members 60 times in the last hour, so Kosmos is pausing agent-made changes for 12 minutes\./);
+  assert.match(r.err, /Kosmos did not take Ada off Launch: agents have changed who is on projects 60 times in the last hour, so Kosmos is pausing agent-made membership changes for 12 minutes; the person can still change them from the screen\./);
 })));
 
 test('#7405 Windows: no --yes and no terminal, an option-shaped word, or an extra word is refused before any request', () => withStub(OVERVIEW, GONE, async (port, seen) => {
@@ -268,15 +271,43 @@ function cliAtTerminal(port, args, answer) {
     + '; sleep 1; } | /usr/bin/script -q /dev/null ' + [CLI, ...args].map(q).join(' ') + ' > ' + q(out) + ' 2>&1';
   const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME, KOSMOS_HOME: HOME, KOSMOS_PORT: String(port), TMPDIR: os.tmpdir(),
     AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'), KOSMOS_AGENT_TOKEN: 'abc123' };
-  return run('/bin/sh', ['-c', sh], { env, timeout: 30000 }).catch(() => null)
-    .then(() => { let t = ''; try { t = fs.readFileSync(out, 'utf8'); } catch { /* none */ } return { out: t.replace(/\r/g, '') }; });
+  return run('/bin/sh', ['-c', sh], { env, timeout: 30000 }).then(() => false, (e) => Boolean(e && e.killed))
+    .then((timedOut) => { let t = ''; try { t = fs.readFileSync(out, 'utf8'); } catch { /* none */ } return { out: t.replace(/\r/g, ''), timedOut }; });
 }
 test('#7405 review 2 Mac: at a terminal, y takes the member off and n cancels with nothing sent (control: y sends)', { skip: process.platform !== 'darwin' }, () => withStub(OVERVIEW, GONE, async (port, seen) => {
   const no = await cliAtTerminal(port, ['project', 'remove-member', 'launch', 'Ada'], 'n');
+  assert.equal(no.timedOut, false, 'the terminal run timed out: ' + no.out);
   assert.match(no.out, /Remove Ada from Launch\? \[y\/N\]/, 'the prompt was not shown: ' + no.out);
   assert.match(no.out, /Cancelled\. Nothing was changed\./);
   assert.equal(deletes(seen).length, 0, 'a cancelled run still sent the change');
   const yes = await cliAtTerminal(port, ['project', 'remove-member', 'launch', 'Ada'], 'y');
   assert.match(yes.out, /Ada is off Launch and still on your computer\./, yes.out);
   assert.equal(deletes(seen).length, 1, 'CONTROL: y did not send');
+}));
+
+/* kosmos#7405 review 3: a name that is one member's sessionName and another's display name means either, so nothing is
+   sent. The board's own overview again, with b7 shown as "ada". */
+const FLEET2 = fleet.install([fleet.agent('ada', { displayName: 'Ada Lovelace' }), fleet.agent('b7', { displayName: 'ada' })]);
+const RAW2 = { id: 'lab', name: 'Lab', folder: '/p/lab', agents: ['ada', 'b7'], tasks: [] };
+const SHOWN2 = view.overviewOf(projects.describe(RAW2, FLEET2.agents, [RAW2]), [], { folderOf: () => null, readBrief: () => ({ goal: null, done: null, found: false }) });
+FLEET2.restore();
+const OVERVIEW2 = [200, { project: SHOWN2, agentsUnreadable: false }];
+
+test('#7405 review 3: a sessionName that is another member\'s display name sends nothing, on both (control: an unambiguous name does)', () => withStub(OVERVIEW2, GONE, async (port, seen) => {
+  assert.deepEqual(SHOWN2.members.map((m) => [m.name, m.sessionName]), [['Ada Lovelace', 'ada'], ['ada', 'b7']], 'CONTROL: the fixture does not collide');
+  const m = await cli(port, ['project', 'remove-member', 'lab', 'ada', '--yes']);
+  assert.equal(m.code, 1, m.out);
+  assert.match(m.out, /More than one member of Lab is called ada, so nothing was changed\. Use one of these names instead: ada, b7\./);
+  const w = await winRun(port, ['project', 'remove-member', 'lab', 'ADA', '--yes']);
+  assert.equal(w.code, 1, w.err);
+  assert.match(w.err, /Use one of these names instead: ada, b7\./);
+  assert.equal(deletes(seen).length, 0, 'an ambiguous name was sent');
+  assert.equal((await cli(port, ['project', 'remove-member', 'lab', 'b7', '--yes'])).code, 0);
+  assert.equal(deletes(seen)[0].url, '/api/project/lab/agent/b7', 'CONTROL: the unambiguous name was not sent');
+}));
+
+test('#7405 review 3: a sessionName typed in another case finds its member, on both', () => withStub(OVERVIEW, GONE, async (port, seen) => {
+  assert.equal((await cli(port, ['project', 'remove-member', 'launch', 'SALLY-SALES', '--yes'])).code, 0);
+  assert.equal((await winRun(port, ['project', 'remove-member', 'launch', 'Sally-Sales', '--yes'])).code, 0);
+  assert.deepEqual(deletes(seen).map((d) => d.url), ['/api/project/launch/agent/sally-sales', '/api/project/launch/agent/sally-sales']);
 }));

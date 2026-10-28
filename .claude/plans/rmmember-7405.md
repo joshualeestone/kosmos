@@ -12,8 +12,8 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
 ## Change
 - `install/kosmos` cmd_project and `tools/windows/kosmos-cli.js` projectRemoveMember:
   - GET /api/project/<id>/overview first (the route answers { project: <overview>, agentsUnreadable }). The typed
-    name matches a member's sessionName exactly, else its display name ignoring case; none or more than one sends
-    nothing and says which.
+    name is checked against every member's sessionName and display name, ignoring case; none, or more than one member
+    (a shared display name, or one member's sessionName that is another's display name), sends nothing and says which.
   - The screen's confirm line (openMemModal, with a straight apostrophe as all the command's text has), then "Remove <who> from <project>? [y/N]" at a terminal; --yes skips it,
     and no terminal without --yes refuses before anything is sent (as kosmos agent remove, #7362).
   - DELETE /api/project/<id>/agent/<sessionName> (what the screen's Remove sends), with the board token and the agent's
@@ -31,11 +31,16 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
 
 ## Decided
 - No server change. The route already serves non-screen callers under the members valve (60 changes an hour), and an
-  agent token alone is refused there as before (it is not on AGENT_TOKEN_ROUTE_PATTERNS), so the rules are the screen's.
+  agent token alone is refused there as before (it is not on AGENT_TOKEN_ROUTE_PATTERNS). One real difference from the
+  screen's Remove: a command carries no browser headers, so isViaScreen is false and the board treats it as not from the
+  screen even when a person typed it: it counts toward the members valve, is recorded via 'process', and what it left
+  behind is noted "(not from the screen)". Accepted: the board cannot tell a person at a terminal from a script.
 - A name not on the project is checked BEFORE the DELETE, because the route answers a non-member as success; without
   the check the command would report a removal that never happened.
 - Rejected: matching a display name loosely (a prefix, a contains). Removing a member is not undone by the command,
-  so only an exact sessionName or a whole display name matches, and a shared display name asks for the sessionName.
+  so only a whole sessionName or display name matches, and any name that could mean two members asks for a
+  sessionName. Rejected: preferring an exact sessionName over a display name (a --yes script meaning one member by its
+  display name would remove another without a word).
 - Weakest premise: that the person or agent knows the member's display name or sessionName. `kosmos project show`
   lists both.
 - Kept as agent remove has them: the Mac's "may be off" names the board's address and Windows' does not, and the Mac
@@ -50,6 +55,7 @@ Card: kosmos#7405 (an outside user's issue list, 0.7.70, about 35 agents). Claim
 - A 200 with no project treated as unreadable: the "most likely off" case goes red.
 - The Mac refusing every answer: the terminal case goes red.
 - An unreadable answer after the DELETE back to exit 1: the not-JSON case goes red.
+- The old match (an exact sessionName first, display names only if none): the collision and case cases go red.
 - The Mac's not-a-member arm sending anyway: the not-a-member case goes red.
 - The Windows not-a-member check removed: the Windows not-a-member case goes red.
 - The Mac's no-terminal guard removed: the no-terminal case goes red.
