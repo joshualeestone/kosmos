@@ -1050,7 +1050,7 @@ check(bubbleSource.components(separatedBy: "Board.unverifiedLine").count == 2, "
 // Review 2: both Copy paths, VoiceOver's action and the long press's (kosmos#7419: the sheet's Copy text, handed row.text),
 // and no other pasteboard write in the bubble.
 check(bubbleSource.contains("Button(\"Copy\") { UIPasteboard.general.string = row.text }")
-      && bubbleSource.contains("reply: answerable ? reply : nil, text: row.text)")
+      && bubbleSource.contains("reply: answerable ? reply : nil, text: Board.roomWords(row))")
       && bubbleSource.components(separatedBy: "UIPasteboard.general.string =").count == 2,
       "both Copy paths (VoiceOver's action and the long-press sheet) take the row's words, never the line")
 
