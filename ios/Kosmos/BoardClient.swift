@@ -206,12 +206,16 @@ final class BoardClient: ObservableObject {
     // comes up (at most once a minute), and says the fresher time. The Mac's own standing report keeps last_seen
     // current on Kosmos+.
     func refreshLastSeen() {
-        guard let session = sessionStore.load() else { return }
+        // Review 3: the session this client runs under, as run() reads with, never another account's stored meanwhile.
+        guard let session = admitted?.session ?? sessionStore.load() else { return }
+        if let owner = shownOwner, owner != Board.owner(of: session) { return }
         if let at = lastSeenReadAt, env.now().timeIntervalSince(at) < 60 { return }
         lastSeenReadAt = env.now()
         let gen = generation
         Task { await self.readMacs(session: session, gen) }
     }
+    // Review 3: only the list read that started last is shown, so an older answer never lands over a newer one.
+    private var macsTicket = 0
 
     private let coordinator: URL
     private let sessionStore: SessionStore
@@ -1350,13 +1354,17 @@ final class BoardClient: ObservableObject {
     private var macsReadGen = -1
     // The switcher's list only: a failure here changes nothing on screen (the shown computer is already open).
     private func readMacs(session: String, _ gen: Int) async {
+        macsTicket += 1
+        let ticket = macsTicket
         let result = await env.send(Board.macsRequest(coordinator: coordinator, session: session))
-        guard gen == generation, let (data, answer) = result, (200...299).contains(answer.statusCode),
+        guard gen == generation, ticket == macsTicket, let (data, answer) = result, (200...299).contains(answer.statusCode),
               let macs = Board.parseMacs(data) else { return }
         self.macs = Board.reachableMacs(macs, coordinator: coordinator)
+        lastSeenReadAt = env.now()   // kosmos#7416: a list this fresh needs no second read for its time
     }
 
     private func chooseMac(session: String, _ gen: Int) async -> Board.Mac? {
+        macsTicket += 1
         let result = await env.send(Board.macsRequest(coordinator: coordinator, session: session))
         let status = result?.1.statusCode ?? 0
         guard (200...299).contains(status), let data = result?.0, let macs = Board.parseMacs(data) else {
@@ -1366,6 +1374,7 @@ final class BoardClient: ObservableObject {
         guard gen == generation else { return nil }
         self.macs = Board.reachableMacs(macs, coordinator: coordinator)
         macsReadGen = gen
+        lastSeenReadAt = env.now()   // kosmos#7416
         guard let mac = Board.pickMac(self.macs, remembered: env.defaults.string(forKey: Board.rememberedMacKey),
                                       chosen: chosenMac) else {
             set(.noMac, gen); return nil

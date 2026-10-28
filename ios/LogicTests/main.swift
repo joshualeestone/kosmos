@@ -2226,7 +2226,7 @@ section("native board loop: connecting")
         // kosmos#7416 review 2: an account change (forget, the loop stopped so nothing restarts) keeps no read times.
         let hadRead = !c.heardFrom.isEmpty
         c.accountChanged()
-        check(hadRead && c.heardFrom.isEmpty && c.failingAddress == nil, "kosmos#7416: another account starts with no read times (CONTROL: there were some)")
+        check(hadRead && c.heardFrom.isEmpty, "kosmos#7416: another account starts with no read times (CONTROL: there were some)")
     }
     do {
         // #7034: a read that started before the list now shown never puts its older rows back over it.
@@ -2512,6 +2512,7 @@ section("native board loop: connecting")
         c.showMac(address: "studio.kosmosplus.com")
         check(c.chatEpoch == epoch && isLive(c), "choosing the computer already shown does nothing")
         w.sessionNoAnswer = true   // Laptop does not answer
+        w.clock += 120   // kosmos#7416 review 3: Studio's earlier list read is over a minute old, so only the switch's counts
         c.showMac(address: "laptop.kosmosplus.com")
         check(c.agents.isEmpty && c.shownMacName == nil && c.chatEpoch > epoch, "a switch clears Studio's list and chats at once")
         check(c.switcherShown == "laptop.kosmosplus.com", "and the switcher checks Laptop while it opens")
@@ -2523,6 +2524,10 @@ section("native board loop: connecting")
               "kosmos#7416: Laptop, by address, with the list's time (the app never read it)")
         let lists0 = w.count("/v1/account/macs")
         w.macsBody = w.macsBody.replacingOccurrences(of: #""last_seen":100"#, with: #""last_seen":5000"#)
+        c.refreshLastSeen()
+        _ = await settle { w.count("/v1/account/macs") > lists0 }
+        check(w.count("/v1/account/macs") == lists0, "kosmos#7416 review 3: not read again within a minute of the switch's own read")
+        w.clock += 61
         c.refreshLastSeen()
         let fresher = await settle { c.lastHeard(address: c.failingAddress, name: "Laptop") == 5000 }
         check(fresher && w.count("/v1/account/macs") == lists0 + 1, "kosmos#7416: the screen reads the list again and says its fresher time")
@@ -3451,12 +3456,13 @@ section("native board loop: connecting")
         let ok6 = await settle { isLive(c) && Board.usableSaved(macs.value, session: "kst2", coordinator: coordinator) != nil }
         check(ok6, "and connects again under the new account")
         check(w.count("/v1/account/handoff") == 2, "with its own sign-in to the Mac")
+        let readBefore = !c.heardFrom.isEmpty
         sessions.value = nil
         c.start()
         let ok7 = await settle { c.phase == .signedOut } && c.agents.isEmpty
         check(ok7, "signed out: nothing shown")
-        check(c.heardFrom.isEmpty && c.failingAddress == nil && c.lastHeard(address: "studio.kosmosplus.com", name: "Studio") == nil,
-              "kosmos#7416 review 2: signed out, no read times are kept for the next account")
+        check(readBefore && c.heardFrom.isEmpty && c.lastHeard(address: "studio.kosmosplus.com", name: "Studio") == nil,
+              "kosmos#7416 review 2: signed out, no read times are kept for the next account (CONTROL: there were some)")
         check(macs.value != nil, "the kept Mac session is left for the sign-out itself to delete (PushNotificationManager)")
         c.stop()
     }

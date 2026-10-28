@@ -257,6 +257,8 @@ struct ContentView: View {
             if newPhase == .background { tabsBackgrounded = true }
             // kosmos#7050 slice C: here, not on the sign-in screen, so it runs even when the lock takes the screen away.
             if newPhase == .background { signIn.appLeft() }
+            // kosmos#7416 review 3: a not-answering screen left up overnight says this morning's time on the return.
+            if newPhase == .active, shell.failure == .macUnreachable { board.refreshLastSeen() }
             // kosmos#7042 review round 2: a launch before the phone's first unlock reads no session, so the sign-in may
             // be showing to someone signed in. Still on its first step, it goes once the session can be read.
             if newPhase == .active, nativeSignIn, signIn.step == .email, signIn.issued == nil,
@@ -434,7 +436,10 @@ struct ContentView: View {
             if let failure = shell.failure {
                 LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer, macName: shell.failureMac,
                                 lastSeen: board.lastHeard(address: shell.failureAddress, name: shell.failureMac))
-                    .onAppear { if failure == .macUnreachable { board.refreshLastSeen() } }   // kosmos#7416 review 2
+                    // kosmos#7416 review 3: keyed on the failure, not on the view appearing: this screen stays up across a
+                    // Try again and a change of failure in place, so onAppear would miss both (the return to the app is
+                    // below, in onChange(of: scenePhase)).
+                    .task(id: failure) { if failure == .macUnreachable { board.refreshLastSeen() } }
             }
             // kosmos#7389 (Mona Lisa): a file that takes more than a second says so, with Cancel, so a big file never looks like
             // a tap that did nothing.
