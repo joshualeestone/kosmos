@@ -340,6 +340,13 @@ var unknownKind = roomPush; unknownKind["kind"] = "someday"; unknownKind["projec
 check(PushBridge.agentToOpen(fromNotification: unknownKind, coordinator: coordinator) == nil, "review 1: a kind the board does not send yet opens as before, never a chat by accident")
 check(content.contains("shownAddress: board.switcherShown ?? kept?.address"), "review 1: on a cold launch (nothing shown yet, or the Face ID lock up) the kept computer decides, so the tap still opens the chat")
 let chatSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
+// kosmos#7420 diagnostic (source checks): the record holds numbers and event names, never what was written. Every trace
+// line is checked for the fields that carry words (a message's text, a name, the draft).
+let traceLines = chatSource.components(separatedBy: "\n").filter { $0.contains("Self.trace(") }
+check(traceLines.count >= 10 && traceLines.allSatisfy { l in ![".text", "name", "draftText", "query", "shown."].contains { l.contains($0) } },
+      "kosmos#7420: the diagnostic's events carry no message text, names, draft or search words (\(traceLines.count) trace lines)")
+check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("guard onScreen.isEmpty, !endVisible, !topVisible, count > 0, thread != nil") && chatSource.contains("ShareLink(item: report"),
+      "kosmos#7420: a bounded record, the blank check, and a share the person chooses (nothing sent by itself)")
 check(chatSource.contains("Button { infoOpen = true } label: { title"), "kosmos#7424: the DM header's name and status open the info page, as the (i) button does")
 let roomSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
 check(roomSource.contains("let low = reduceMotion ? 0.35 : 0.45, half = (reduceMotion ? 1.6 : 1.1) / 2") && roomSource.contains(".delay(Double(i) * 0.16), value: up)") && roomSource.contains(".offset(y: up && !reduceMotion ? -4 : 0)"), "kosmos#7427: the chat's dots (WaveDots) are the board's wave (1.1 s, 0.16 s apart, 4 pt rise; Reduce Motion 1.6 s, no rise)")
