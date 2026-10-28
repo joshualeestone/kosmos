@@ -359,6 +359,14 @@ enum Board {
     // (a word the phone does not map, such as Messages stuck), a pill that would be Working or missing is red too.
     // Grey stays grey (the Mac counts Can't tell as needs you; the design keeps it grey).
     // So a Working pill or no pill never hides what the board counts as needing the person.
+    // kosmos#7342 (Mona Lisa's ruling, 10-27 15:4x): a red pill never says Idle or Working, which contradicts its colour; it
+    // says Issue, the Mac's own red word for needs you (stateCopy). Any other word the Mac sent (Messages stuck, Keeps
+    // stopping) stays as sent. Rejected: "Needs you", which is blue's meaning on this screen.
+    static func pillWord(_ a: Agent) -> String {
+        let word = statusWord(a)
+        return pill(a) == .problem && (word == "Idle" || word == "Working") ? "Issue" : word
+    }
+
     static func pill(_ a: Agent) -> Pill? {
         let p = statePill(a)
         if p == .asks { return p }
