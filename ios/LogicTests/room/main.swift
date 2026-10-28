@@ -1188,6 +1188,13 @@ check(NewTeam.specsAnswer(status: 400, body: Data(#"{"error":"give the Copywrite
 check(NewTeam.specsAnswer(status: 0, body: nil) == .unknown && NewTeam.specsAnswer(status: 200, body: Data(#"{"specs":[{"slot":"a","session":"../x","spec":{"name":"A"}}]}"#.utf8)) == .unknown,
       "no answer, or a spec with no usable session, is unknown")
 
+// kosmos#7488 review 9: what a made agent did not get, as the desktop's team rows say it.
+check(boardPage.contains("'" + NewAgent.notAdded + "' + (pr.because ?"), "the not-added words are the desktop's")
+check(NewAgent.madeWarnings(Data(#"{"outcome":"created","steps":[{"label":"Its picture","ok":false},{"label":"Its folder","ok":true}],"projects":[{"id":"a","added":false,"because":"that project is archived"},{"id":"b","added":false},{"id":"c","added":true}]}"#.utf8))
+      == ["Its picture", "It was not added to the project: that project is archived.", "It was not added to the project."],
+      "a failed step by its label, and each project not joined with the board's reason")
+check(NewAgent.madeWarnings(Data(#"{"outcome":"created","steps":[],"projects":[]}"#.utf8)).isEmpty, "a clean create warns of nothing")
+
 // kosmos#7488 review 7: "seen" is the desktop's boardCanSeeIt, never "listed": /api/status also lists an agent with a
 // folder or job and no session yet, which a just-made agent is first.
 let seenRows = Board.parseAgents(Data(#"{"agents":[{"sessionName":"live","isAgentSession":true,"isNamedOurs":true,"state":"idle"},{"sessionName":"offline","isAgentSession":false,"isNamedOurs":true,"running":false,"state":"stopped"},{"sessionName":"nojob","isAgentSession":false,"state":"unknown"},{"sessionName":"halted","isAgentSession":true,"isNamedOurs":true,"state":"stopped"},{"sessionName":"theirs","isAgentSession":true,"isNamedOurs":false,"state":"idle"}]}"#.utf8)) ?? []

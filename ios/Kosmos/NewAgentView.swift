@@ -23,6 +23,8 @@ struct NewAgentView: View {
     @State private var made: (session: String, shownAs: String)?
     @State private var seen = false
     @State private var timedOut = false          // 30 s and the board still cannot see it (the desktop's "has not come up")
+    @State private var madeWarnings: [String] = []      // what the single agent did not get (NewAgent.madeWarnings)
+    @State private var memberWarnings: [String: [String]] = [:]   // the same, per team member
     @State private var helloTimer: Task<Void, Never>?   // started by the create, not by the screen, so a redraw cannot restart it
     @State private var lastLabel = ""     // the role title the Role field was last filled with (still untouched if equal)
     // The Team path (NewTeam).
@@ -301,7 +303,7 @@ struct NewAgentView: View {
         .safeAreaInset(edge: .bottom) {
             let n = detail?.members.count ?? 0
             let named = detail.map { $0.key == teamKey && $0.members.allSatisfy { !NewProject.trimmed(names[$0.slot] ?? "").isEmpty } } ?? false
-            pinned(NewTeam.Words.create(max(n, 1)), enabled: !teamRunning && n > 0 && named, busy: teamRunning) {
+            pinned(n > 0 ? NewTeam.Words.create(n) : NewAgent.Words.create, enabled: !teamRunning && n > 0 && named, busy: teamRunning) {
                 runTeam()
             }
         }
@@ -353,6 +355,7 @@ struct NewAgentView: View {
             madeProject = nil
             teamStarted = false
             checkedNames = [:]
+            memberWarnings = [:]
             states = [:]
         } else {
             detailFailed = true
@@ -435,6 +438,7 @@ struct NewAgentView: View {
             switch NewAgent.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
             case .made(let session, let shown):
                 states[s.slot] = .made(session: session, shownAs: shown)
+                memberWarnings[s.slot] = NewAgent.madeWarnings(got?.0)
                 maybeMade[s.slot] = nil
                 tellLater(session, NewAgent.addedProjects(got?.0))
                 announce(shown + ": " + NewTeam.Words.made)
@@ -455,10 +459,10 @@ struct NewAgentView: View {
     private func agentsChanged(_ rows: [Board.Agent]) {
         let on = Set(rows.filter(\.boardSeesIt).map(\.session))   // the desktop's boardCanSeeIt
         for (slot, session) in maybeMade where on.contains(session) {
-            if case .failed = states[slot] {
-                states[slot] = .made(session: session, shownAs: NewProject.trimmed(names[slot] ?? session))
-                tellLater(session, teamProject.map { [$0] } ?? [])
-            }
+            // Only a row still failed is taken; a row being made again keeps its mark until its own answer lands.
+            guard case .failed = states[slot] else { continue }
+            states[slot] = .made(session: session, shownAs: NewProject.trimmed(names[slot] ?? session))
+            tellLater(session, teamProject.map { [$0] } ?? [])
             maybeMade[slot] = nil
         }
         if let made, !seen, on.contains(made.session) { seen = true; helloTimer?.cancel() }
@@ -499,6 +503,7 @@ struct NewAgentView: View {
                             }
                             Text(m.title).font(.footnote).foregroundColor(Palette.secondary)
                             if case .failed(let why) = states[m.slot] { Text(why).font(.footnote).foregroundColor(Palette.dangerWord) }
+                            ForEach(memberWarnings[m.slot] ?? [], id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
                             if states[m.slot] == .afterLead { Text(NewTeam.Words.afterLead).font(.footnote).foregroundColor(Palette.secondary) }
                         }
                         Spacer(minLength: 8)
@@ -549,7 +554,10 @@ struct NewAgentView: View {
             Section {
                 TextField(NewAgent.Words.role, text: $draft.label)
                     .accessibilityLabel(NewAgent.Words.role)
-            } header: { Text(NewAgent.Words.role) }
+            } header: { Text(NewAgent.Words.role) } footer: {
+                // Why Create is off when the Role is blank ("Describe it yourself" leaves it blank on purpose).
+                if NewProject.trimmed(draft.label).isEmpty { Text(NewAgent.Words.labelMissing) }
+            }
             Section {
                 Picker(NewAgent.Words.reportsTo, selection: $draft.reportsTo) {
                     Text(NewAgent.Words.you).tag("")
@@ -617,6 +625,7 @@ struct NewAgentView: View {
         switch NewAgent.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
         case .made(let session, let shown):
             made = (session, shown)
+            madeWarnings = NewAgent.madeWarnings(got?.0)
             seen = client.agents.contains { $0.session == session && $0.boardSeesIt }
             timedOut = false
             helloTimer?.cancel()
@@ -646,6 +655,7 @@ struct NewAgentView: View {
             if seen {
                 Text(NewAgent.Words.running(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
                 Text(NewAgent.Words.hello).font(.body).foregroundColor(Palette.primary)
+                ForEach(madeWarnings, id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
             } else if timedOut {
                 Text(NewAgent.Words.notUp(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
                 Text(NewAgent.Words.notUpWhy + " " + NewAgent.Words.notUpNext).font(.body).foregroundColor(Palette.secondary)

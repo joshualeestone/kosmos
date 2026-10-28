@@ -189,6 +189,22 @@ enum NewAgent {
             return id
         }
     }
+    // What a made agent did not get, from its create answer, as the desktop's team rows say it (tcRunOnce): each step
+    // that failed, by its label, and each project it was not added to, with the board's reason.
+    static func madeWarnings(_ body: Data?) -> [String] {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        var out = ((obj?["steps"] as? [[String: Any]]) ?? []).compactMap { st -> String? in
+            guard st["ok"] as? Bool == false, let label = st["label"] as? String, !NewProject.trimmed(label).isEmpty else { return nil }
+            return label
+        }
+        for p in (obj?["projects"] as? [[String: Any]]) ?? [] where p["added"] as? Bool == false {
+            let why = NewProject.trimmed(p["because"] as? String ?? "")
+            out.append(notAdded + (why.isEmpty ? "." : ": " + (".!?".contains(why.last!) ? why : why + ".")))
+        }
+        return out
+    }
+    static let notAdded = "It was not added to the project"
+
     static func tellRequest(mac: URL, project: String, session: String) -> URLRequest? {
         guard Board.isProjectId(project), Board.isAgentSession(session) else { return nil }
         var r = URLRequest(url: URL(string: "/api/project/\(project)/agent/\(session)", relativeTo: mac)!.absoluteURL)
