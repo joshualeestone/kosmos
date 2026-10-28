@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: asleepios-7416
-diff_hash: 90d7487573f692000738c4476a72ef2bc9a8be029d53a6ba32e42927a0f3b428
+diff_hash: cfc2150f6720056e0f8bf83b54288e0b78faf415da1c70623c38805ac90a470e
 validation: full validation via queued-heavy at c5ee673dc1: 25099 tests, 0 failed (an earlier run at b6c53efdb4 had 6 reds, all in four supervisor launch files, which passed alone through the queue: contention); all nine ios/LogicTests runners pass; iOS simulator build BUILD SUCCEEDED at c5ee673dc1
 subdir_audit: passed (no subdir CLAUDE.md in the diff)
-timestamp: 2026-10-28T10:59:28Z
+timestamp: 2026-10-28T11:39:59Z
 iterations: 8
 converged: true
 ---
@@ -82,6 +82,13 @@ rebuilt until its mutant went red.
 - [CONCERN] Today could lose how old its list is when Kosmos+'s last_seen is newer than the app's read --> FIXED (same rule)
 - [NIT] a switcher row with no time said Offline beside Not answering --> FIXED ("Not answering")
 - [BLOCKER] the simulator build failed: AgentsView and ChatView used Phase.isUnreachable, fileprivate to TodayView.swift --> FIXED (if case .unreachable)
+
+#### Rebased onto main
+Main had moved (PR #7476 conflicted): rebased onto origin/main de26cc17c7. Two conflicts, both resolved by keeping main's lines
+and this branch's: the LogicTests fake fetch (main's agent-stars write branch, then this branch's macs queue) and the
+chat banner (main's star note in the guard, then this branch's heard and Last checked lines). After it, all nine
+ios/LogicTests runners pass (run.sh 1664/1664 with main's tests) and the six node tests that read the Swift (39/39).
+The full validation above was on the pre-rebase base; CI runs on the rebased head.
 
 ### Deferred
 - A DateFormatter per call; weekday and month names in the phone's language (as the board); the switcher's words without a minute timer; Board.lastSeen kept as a named wrapper; one possible duplicate list read after an account change. None changes what the person sees.
