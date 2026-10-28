@@ -93,6 +93,16 @@ test('#7411: atStart keeps each version\'s first start; Not now holds until the 
   assert.equal(rl.atStart('0.7.73', 20000).notNow, false, 'the next update stayed hidden');
   assert.equal(rl.atStart('not a version', 1), null);
   assert.equal(rl.read().version, '0.7.73', 'a bad version overwrote the record');
+  // The first start with no record, on a computer that ran an older version (the What's New record says so): an update.
+  fs.rmSync(RECORD, { force: true });
+  assert.deepEqual(rl.atStart('0.7.72', 50000, '0.7.70').history, [{ version: '0.7.70', at: 0 }, { version: '0.7.72', at: 50000 }]);
+  const seeded = rl.lineFor({ record: rl.read(), notes: [fix('0.7.72', 'Hooks fix'), fix('0.7.70', 'Old')], agents: [before('ada', 'Ada', 40000)] });
+  assert.deepEqual(seeded.notes, [{ version: '0.7.72', title: 'Hooks fix' }], 'the update that brings this file said nothing');
+  // CONTROL: a true install (no What's New record), or one that saw the same or a newer version, is not an update.
+  for (const seen of [null, '0.7.72', '0.7.73', 'bogus']) {
+    fs.rmSync(RECORD, { force: true });
+    assert.deepEqual(rl.atStart('0.7.72', 50000, seen).history, [{ version: '0.7.72', at: 50000 }], 'seen ' + seen + ' made an install an update');
+  }
   for (let i = 0; i < 60; i++) rl.atStart('1.0.' + i, 30000 + i);
   assert.equal(rl.read().history.length, 50, 'the history grew without bound');
 });

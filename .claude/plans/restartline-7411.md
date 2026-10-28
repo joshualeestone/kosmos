@@ -35,6 +35,10 @@ session. Kosmos never restarts anyone by itself.
   Rejected: comparing only against the version before (it forgot an earlier update's fix, review round 4).
 - A rollback below a fix and back up counts from the update back up (agents started during the rollback lack it); a
   rollback that stays below a fix says nothing for it, since the running version does not carry it.
+- The first start with no record seeds the version before from the page's What's New record (seen-version.json), so
+  the update that ships this file speaks for its own marked fixes. No such record means a true install: silent.
+- Known limit: the history keeps the last 50 version changes; past that, a fix whose run started before the oldest
+  kept entry goes silent (it fails quiet, never naming agents wrongly).
 - Kosmos versions are x.y.z only (releasenotes.js holds the same rule); anything else records nothing.
 
 ## Weakest premise
