@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits (#4273: CI fails a run that leaves them)
 
 /**
  * kosmos#7514: a close asked `withBuilt` also closes the parent's BUILT subtasks (and theirs in turn), so a coordinator's
