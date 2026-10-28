@@ -71,8 +71,10 @@ function chk(ok, label, extra) {
       tasks.create(p.id, { sentence: 'Order the parts' });                  // 1: nobody on it, held
       tasks.create(p.id, { sentence: 'Book the courier', who: 'ada' });     // 2: Ada on it, held (the control)
       tasks.create(p.id, { sentence: 'Pack the boxes', who: 'ada' });      // 3: open, put on hold here
+      tasks.create(p.id, { sentence: 'Label the crates' });                 // 4: nobody on it, held, then given to Ada elsewhere
       tasks.setOnHold(p.id, 1, true, { viaScreen: true });
       tasks.setOnHold(p.id, 2, true, { viaScreen: true });
+      tasks.setOnHold(p.id, 4, true, { viaScreen: true });
       const phone = width < 600;   // the phone pass is a touch screen, where the page's tap targets grow to 44 px
       const page = await browser.newPage({ viewport: { width, height: 1000 }, colorScheme: theme, hasTouch: phone, isMobile: phone });
       const errs = [];
@@ -84,19 +86,23 @@ function chk(ok, label, extra) {
       await openTask(page, p.id, 1);
       await page.click('#tk-hold');
       await settle(page);
-      await page.waitForSelector('#tk-hold-choose', { timeout: 6000 }).catch(() => {});
+      await page.waitForSelector('#tk-hold-choose-row:not([hidden])', { timeout: 6000 }).catch(() => {});
       const want = routeSays(p.id, 1);
       const ask = ' To choose who, assign it now.';
       chk(stored(p.id, 1).onHold !== true, `${tag} Take off hold took task 1 off hold`);
       chk(want.endsWith(ask) && want.startsWith('Nobody is on it'), `${tag} the route says nobody is on task 1 and asks for a choice (the premise)`, want);
-      const said = await page.evaluate(() => { const m = document.getElementById('tk-hold-msg'); return m && m.firstChild && m.firstChild.nodeType === 3 ? m.firstChild.textContent : null; });
-      chk(said === want.slice(0, -ask.length) && await text(page, '#tk-hold-choose') === 'Choose who',
-        `${tag} the page shows the route's sentence, its ask as Choose who`, JSON.stringify([said, await text(page, '#tk-hold-choose')]));
+      const said = await text(page, '#tk-hold-msg');
+      const rowShown = () => page.evaluate(() => !document.getElementById('tk-hold-choose-row').hidden);
+      chk(said === want.slice(0, -ask.length) && await rowShown() && await text(page, '#tk-hold-choose') === 'Choose who',
+        `${tag} the page shows the route's sentence, its ask as Choose who`, JSON.stringify([said, await rowShown()]));
+      // Review 1: the button is outside the live region, so a screen reader reads the sentence, not a button in it.
+      chk(await page.evaluate(() => !document.getElementById('tk-hold-msg').contains(document.getElementById('tk-hold-choose'))),
+        `${tag} Choose who is outside the hold line's live region`);
       // Design review (Mona Lisa): a bordered button on its own line, a full tap target on a phone.
-      const box = await page.evaluate(() => { const b = document.getElementById('tk-hold-choose'); const r = b.getBoundingClientRect(); return { h: r.height, cls: b.className, block: getComputedStyle(b).display }; });
-      chk(box.cls === 'btn' && box.block === 'block' && (!phone || box.h >= 44), `${tag} Choose who is a bordered button on its own line` + (phone ? ', at least 44 px tall on a touch screen' : ''), JSON.stringify(box));
+      const box = await page.evaluate(() => { const b = document.getElementById('tk-hold-choose').getBoundingClientRect(); const m = document.getElementById('tk-hold-msg').getBoundingClientRect(); return { h: b.height, cls: document.getElementById('tk-hold-choose').className, below: b.top >= m.bottom }; });
+      chk(box.cls === 'btn' && box.below && (!phone || box.h >= 44), `${tag} Choose who is a bordered button on its own line` + (phone ? ', at least 44 px tall on a touch screen' : ''), JSON.stringify(box));
       await page.waitForTimeout(5600);   // one five-second repaint
-      chk(await text(page, '#tk-hold-choose') === 'Choose who', `${tag} the line survives the repaint`, await text(page, '#tk-hold-msg'));
+      chk(await text(page, '#tk-hold-msg') === said && await rowShown(), `${tag} the line survives the repaint`, await text(page, '#tk-hold-msg'));
 
       // Choose who opens the part's picker; choosing Ada stores her.
       await page.click('#tk-hold-choose');
@@ -108,7 +114,20 @@ function chk(ok, label, extra) {
         await page.selectOption('#tk-who .tkwho-sel', 'ada');
         await page.waitForFunction(() => /Ada/.test(document.getElementById('tk-who').textContent), null, { timeout: 5000 }).catch(() => {});
         chk(tasks.whoOf(stored(p.id, 1)).includes('ada'), `${tag} choosing Ada puts her on task 1`, JSON.stringify(tasks.whoOf(stored(p.id, 1))));
+        // Review 1: the line was about nobody being on it; once Ada is, it goes (with Choose who) within a repaint.
+        await page.waitForFunction(() => document.getElementById('tk-hold-msg').textContent === '' && document.getElementById('tk-hold-choose-row').hidden, null, { timeout: 7000 }).catch(() => {});
+        chk(await text(page, '#tk-hold-msg') === '' && !(await rowShown()), `${tag} after the choice the stale line and Choose who are gone`, JSON.stringify([await text(page, '#tk-hold-msg'), await rowShown()]));
       }
+
+      // Review 1: someone else (the Assigner) puts Ada on a task whose unhold line is showing: the line goes too.
+      await openTask(page, p.id, 4);
+      await page.click('#tk-hold');
+      await settle(page);
+      await page.waitForSelector('#tk-hold-choose-row:not([hidden])', { timeout: 6000 }).catch(() => {});
+      chk(await rowShown(), `${tag} task 4 shows Choose who after its unhold (the premise)`, await text(page, '#tk-hold-msg'));
+      tasks.assignPart(p.id, 4, 1, 'ada');
+      await page.waitForFunction(() => document.getElementById('tk-hold-msg').textContent === '' && document.getElementById('tk-hold-choose-row').hidden, null, { timeout: 7000 }).catch(() => {});
+      chk(await text(page, '#tk-hold-msg') === '' && !(await rowShown()), `${tag} once the task is given out elsewhere, the line and Choose who go within a repaint`, JSON.stringify([await text(page, '#tk-hold-msg'), await rowShown()]));
 
       // The control: Ada is on task 2, so it stays with her and nothing asks for a choice.
       await openTask(page, p.id, 2);
@@ -116,7 +135,7 @@ function chk(ok, label, extra) {
       await settle(page);
       await page.waitForFunction(() => document.getElementById('tk-hold-msg').textContent !== '', null, { timeout: 6000 }).catch(() => {});
       const want2 = routeSays(p.id, 2);
-      chk(want2 === 'It stays with Ada.' && await text(page, '#tk-hold-msg') === want2 && !(await page.$('#tk-hold-choose')),
+      chk(want2 === 'It stays with Ada.' && await text(page, '#tk-hold-msg') === want2 && !(await rowShown()),
         `${tag} a task Ada is on: "It stays with Ada." (her name, as Who is on it says it), no Choose who`, JSON.stringify([want2, await text(page, '#tk-hold-msg')]));
 
       // Putting a task ON hold says nothing about who is next.

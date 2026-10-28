@@ -13,8 +13,12 @@ given it, which is the case the card came from.
   button. It opens the existing Who is on it picker on the task's first open part nobody is on (the name button
   that already assigns a part), so there is one way to assign, not two.
 - A hold sends no `next`, so putting a task on hold says nothing about who is next.
+- The line is about who was on the task when it was shown. The repaint takes it (and Choose who) down once that changes,
+  whether by Choose who or by the Assigner (review 1). Choose who opens only a part nobody is on, never a held one.
+- Choose who sits in its own row under the line, outside the live region (review 1), as a bordered button on a touch
+  screen's 44 px list (design review).
 - Found in the design shots: the route named agents by machine name ("It stays with ada.") beside a column that says
-  Ada. `unholdNext` now names them with `readIdentity` (the card name's own source), else the machine name. It is a
+  Ada. `unholdNext` now names them (holders, who it may go to, and a tree's builder) with `readIdentity` (the card name's own source), else the machine name. It is a
   file read, so #7407 review 6 (no pane snapshot for a kept task) still holds; a test asserts it.
 
 Rejected: building the sentence on the page from the task and the Assigner setting (two derivations drift; the

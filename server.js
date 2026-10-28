@@ -6589,7 +6589,7 @@ function unholdNext(projectId, t, rosterOf) {
     if (held.holders.length && held.holders.some(reachable)) {
       // Review 5: name where the work is (its own subtasks when it is the root), and say a pause.
       const where = held.root === inP.number ? 'on its subtasks' : 'on task ' + held.root + "'s tree";
-      return 'Nobody is on it.' + (paused ? ' The project is paused.' : '') + ' It is part of work ' + held.holders.map(plain).join(', ')
+      return 'Nobody is on it.' + (paused ? ' The project is paused.' : '') + ' It is part of work ' + held.holders.map(nameOf).join(', ')
         + (held.holders.length > 1 ? ' are' : ' is') + ' doing ' + where + ' (one builder per task tree), so '
         // Review 7: "until they are done" implies a hand-out after; only true when someone else here could be given it.
         + (takersBesides(held.holders) ? 'Kosmos will not give it out until they are done there' : 'only they can be given it, when they are free')
