@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: cutwaiter-7512
-diff_hash: 3039db67b706712831aff6c420879a61ff30b3a5027f29003ba61e49ae6182a1
+diff_hash: 64c17349663cb576dd34982adf95c060a9e2cac32f4188e1e1eb12018a6ca77f
 validation: tools/test-cut-guard.sh 203 pass, 0 fail (25 #7512 arms), after the rebase onto current main; every test that reads cut-guard.sh, run serially after the marker change: 4 JS files (133 pass, 0 fail) and 13 shell tests (0 FAIL each). Each fix mutation-checked on the worktree with the file restored from a copy (16 mutants, each red on its own arm). Full suite left to CI.
 subdir_audit: passed (no subdir CLAUDE.md in the diff)
 timestamp: 2026-10-28T21:59:58Z
@@ -47,3 +47,6 @@ converged: true
 - No BLOCKER, no WARNING: races, marker line 7 against every reader, the wrapper shape under set -uo pipefail, old checkouts, and each arm's ability to fail were all checked
 - [NIT] a failing shard pgrep printed "shell shards running" --> FIXED (says could not tell; its arm and a mutant)
 Converged.
+
+### After convergence
+- CI red on suite (shell 1/2): test-sleep-control-guard-6710 flagged the round-5 ancestor-walk stand-in's bare `sleep 60 &`. Test-only fix: perl select (the sanctioned form). The guard and test-cut-guard.sh (203 pass) green locally.
