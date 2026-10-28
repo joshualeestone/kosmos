@@ -26,3 +26,12 @@
 - A photo whose upload got no answer is taken as maybe set, so the mark is not put over it; on a flaky link the agent can end up with no picture and nothing says so. Untested on a real network.
 - Settings on iOS 16 was not shot (the simulators run iOS 26); it keeps the row spacing it had before.
 - The drawing half (the letter's mask, its orientation and centring, the photo fitting) has no unit test: the scatter is tested against the desktop's code, and the letter was checked by eye in the shots ("Finch": an upright, centred F).
+
+## Reviews
+
+Seventeen blind rounds, alternating Sonnet and Opus; converged at round 17 (its two warnings were a recorded gap and a spacing Mona Lisa approved in the shots). The largest catches:
+- The ink test could not fail; the mark was redrawn on every redraw; the letter mask relied on a colour key CoreText may not read, then on two bitmap formats not documented for iOS (now RGBA, checked by eye after each change).
+- A picture could be sent to another computer's agent of the same name after a switch; a lost answer could let the mark overwrite a photo; a send that never left counted as maybe-set.
+- Every catalogue portrait (WebP) was flattened on white; transparency was read from the format, not the pixels.
+- A photo pick could finish after Create, after a role change, or on the main thread; the Settings change also moved iOS 16.
+
