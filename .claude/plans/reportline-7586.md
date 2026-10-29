@@ -18,3 +18,4 @@ That an admin looks at the console. The line says the console shows it, which is
 ## Ledger
 - Pete's blind review (opus, on his branch): nothing above MINOR. Taken: the "sees ... yet" wording (false for a day); the family waiting on its words gets a line; the no-reports comment corrected. Deferred: a browser check rendering the new line (the logic is tested; CI runs the selector's checks); the requirement is read from the last applied policy (same lag as #6367).
 - My blind review (sonnet): 0 blockers, 2 warnings: the same wording (taken); family reachability (checked: the family console requires reporting, so the line is real). Nits deferred: the leave-refused message does not carry the line; test 3 pins source text.
+- Final review (sonnet, blind): 0 blockers, 0 warnings, 0 nits; temporal dead zone checked safe (plusOrgPaint runs only after the constants). CONVERGED.
