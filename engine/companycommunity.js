@@ -3,13 +3,14 @@
  * kosmos#7541 (slice 3 of #7538): an agent's calls to its company's own community space on the community site, per
  * Renet Tilley's contract on #7538 (comment 6486502056).
  *
- * - The org pass comes from the coordinator (April's #7540: POST /v1/mac/org/community-pass, signed by this computer
- *   through the tunnel; a single-use KST1 token living 300 s). It is fetched right before a join and never kept.
+ * - The org pass comes from the coordinator (April's #7540: POST /v1/mac/org/community-pass { agent }, signed by this
+ *   computer through the tunnel; a single-use KST1 token living 300 s, good only for that agent's key). It is fetched
+ *   for one agent right before its join and never kept or shared.
  * - POST /spaces/join { pass } (the agent's own community key as Bearer) makes the agent a member for a while and
  *   answers { space, until }. Membership is kept per agent until then.
  * - Space routes are /spaces/{space}/..., with bodies and answers as the public ones. A 403 space_join_needed gets a
- *   fresh pass, a join and ONE retry; 403 not_in_space (another org's space) and 404 (spaces off on the site) are
- *   answered as they are.
+ *   fresh pass, a join and ONE retry (review 3: the contract dropped not_in_space; any call without a live membership
+ *   in that space answers space_join_needed); 404 on a route (spaces off on the site) makes the call wait.
  *
  * `call(method, path, body)` is the caller's authenticated request for one agent (communitysend's asAgent), so this
  * file holds no keys and sends nothing on its own. Nothing here throws.
@@ -18,6 +19,7 @@
 const PASS_ROUTE = '/v1/mac/org/community-pass';
 const SPACE_ID = /^[A-Za-z0-9_-]{1,64}$/;   // goes into a URL path, so a bounded plain shape only
 const PASS_MAX = 8192;
+const AGENT_ID = /^[A-Za-z0-9_-]{1,64}$/;   // the agent's community id, sent in the pass request
 
 let remoteOverride = null;   // tests only: the stand-in coordinator for the sweep's calls (setRemote)
 function setRemote(r) { remoteOverride = r || null; }
@@ -38,12 +40,14 @@ function codeOf(json) {
   return null;
 }
 
-/* A fresh org pass from the coordinator: { ok: true, pass } | { ok: false, because }. */
+/* A fresh org pass for one agent (`opts.agent`, its community id) from the coordinator: { ok: true, pass } |
+   { ok: false, because }. An agent with no community id yet gets none. */
 async function fetchPass(opts = {}) {
+  if (typeof opts.agent !== 'string' || !AGENT_ID.test(opts.agent)) return { ok: false, because: 'this agent is not registered with the community yet' };
   const remote = remoteFor(opts);
   if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: 'Kosmos+ is not available here' };
   let r;
-  try { r = await remote.macRequest('POST', PASS_ROUTE, {}); } catch (e) { return { ok: false, because: String(e && e.message || e) }; }
+  try { r = await remote.macRequest('POST', PASS_ROUTE, { agent: opts.agent }); } catch (e) { return { ok: false, because: String(e && e.message || e) }; }
   if (!r || r.ok !== true) return { ok: false, because: (r && r.because) || 'no answer' };
   const d = r.data && typeof r.data === 'object' ? r.data : {};
   const pass = typeof d.token === 'string' ? d.token : typeof d.pass === 'string' ? d.pass : null;
@@ -88,12 +92,10 @@ async function spaceCall(agentKey, call, method, sub, body, { members, now = Dat
     if (!j.ok) return { status: j.status, json: null, notSent: true, because: j.because };
     r = await call(method, '/spaces/' + m.space + sub, body);
   }
-  /* Review 1: another company's space (this computer moved company while a membership was kept), or a site that stopped
-     having spaces: nothing was stored, so the caller waits and tries again rather than marking the post refused. */
-  if (r.status === 403 && codeOf(r.json) === 'not_in_space') {
-    members.delete(agentKey);
-    return { status: 403, json: null, notSent: true, because: 'not a member of this company community' };
-  }
+  /* Review 1: a site that stopped having spaces answers a space ROUTE with 404: nothing was stored, so the caller waits
+     and tries again rather than marking the post refused. Under /posts/{id} a 404 is the site's answer about that one
+     post (gone, or someone else's), so it is passed on as it is. */
+  if (r.status === 403 && codeOf(r.json) === 'space_join_needed') members.delete(agentKey);
   if (r.status === 404 && !sub.startsWith('/posts/')) return { status: 404, json: null, notSent: true, because: 'the community site does not have company spaces' };
   return { ...r, space: m.space };
 }
