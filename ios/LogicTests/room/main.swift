@@ -404,7 +404,10 @@ check(!agentsSrc.contains("Section(footer:") && !agentsSrc.contains("set up on y
 // Wiring guards (source checks, not behaviour): the order reaches the list with the person's stars, re-sorted only where
 // the list re-sorts, so starred agents stay on top and rows never move under a thumb (review 1 blocker).
 check(clientSrc.contains("Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known)") && clientSrc.contains("Board.agentOrder(agents, sort: sort, projects: projects, stars: shownStars)"), "kosmos#7421: the chosen order is applied with the stars, on a re-sort and when picked")
-check(!agentsSrc.contains("Circle().fill(Color.accentColor.opacity(pressed") && agentsSrc.contains(".font(.body.weight(pressed ? .semibold : .regular))"), "kosmos#7532: the sort button has no circle behind it; a non-default sort shows in the heavier arrows")
+// kosmos#7532: nothing drawn behind the arrows (SortButtonLabel's body, up to the next struct), only the heavier weight.
+let sortLabelBody = agentsSrc.components(separatedBy: "struct SortButtonLabel: View {").dropFirst().first?.components(separatedBy: "\nstruct ").first ?? ""
+check(!sortLabelBody.isEmpty && !sortLabelBody.contains(".background(") && !sortLabelBody.contains("Circle(") && sortLabelBody.contains(".font(.body.weight(pressed ? .semibold : .regular))"), "kosmos#7532: the sort button has no circle behind it; a non-default sort shows in the heavier arrows")
+check(clientSrc.contains("agents = Board.agentOrder(Board.sorted(Board.parseAgents(Data(sample.utf8)) ?? []), sort: agentSort, projects: sortProjects, stars: shownStars)"), "kosmos#7532 (Mona Lisa): the Debug sample agents come in the chosen order, as a real read does, so a shot shows the sort")
 check(agentsSrc.contains("client.setAgentSort(sortChoice, projects: projectNames)") && agentsSrc.contains("ForEach(client.agents)"), "kosmos#7421: the Agents list shows the client's order and hands it the person's pick")
 // kosmos#7034 wiring guards (source checks): the row stars by a swipe, a long press and a VoiceOver action, and shows it.
 check(agentsSrc.contains(".swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent) }") && agentsSrc.contains(".contextMenu { starButton(agent) }") && agentsSrc.contains("starred: client.isStarred(agent.session)"),

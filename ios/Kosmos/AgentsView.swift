@@ -758,7 +758,7 @@ extension View {
 }
 
 // kosmos#7343: no title shows in the bar, but VoiceOver still hears the screen's name as its heading.
-// kosmos#7343 / #7421 (Mona Lisa): the ⇅ button on Agents and Projects looks pressed while a non-default order is on,
+// kosmos#7343 / #7421 (Mona Lisa): the ⇅ button on Agents and Projects is drawn heavier while a non-default order is on,
 // so a person who chose another order last week can see the list is not in its usual one: the symbol in a heavier
 // weight (the soft circle behind it went, #7532). The same size either way, so the bar does not shift.
 struct SortButtonLabel: View {
