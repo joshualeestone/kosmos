@@ -1,8 +1,8 @@
 'use strict';
 /**
  * kosmos#7586: when the company's policy requires reports and this computer cannot send them yet, the joined view says
- * the company requires them and sees it is not reporting. The line for each state, and that the joined view's sentence
- * carries it.
+ * the company requires them and that its console shows a computer not reporting. The line for each state, and that the
+ * joined view's sentence carries it; the family whose words are not accepted yet gets the family's own line (Pete's review).
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -37,7 +37,7 @@ test('#7586: the line shows only when reports are required and this computer is 
   const c = load();
   for (const wait of [null, 'print', 'printError']) {
     assert.equal(c.plusOrgRequiredWait({ reporting: false, reportingWait: wait, reportingRequired: true }),
-      ' Your company requires this computer to report, and sees that it is not reporting yet.', String(wait));
+      ' Your company requires this computer to report, and its console shows a computer that is not reporting.', String(wait));
   }
   for (const st of [null, {}, { reporting: true, reportingRequired: true }, { reporting: false, reportingRequired: false },
     { reporting: false }, { reporting: false, reportingRequired: 'true' },
@@ -49,7 +49,7 @@ test('#7586: the line shows only when reports are required and this computer is 
 test('#7586: a family reads it as its family', () => {
   const c = load();
   const line = c.plusOrgIn({ kind: 'family' }, '.' + c.plusOrgRequiredWait({ reporting: false, reportingRequired: true }));
-  assert.equal(line, '. Your family requires this computer to report, and sees that it is not reporting yet.');
+  assert.equal(line, '. Your family requires this computer to report, and its console shows a computer that is not reporting.');
 });
 
 test('#7586: the joined view\'s sentence carries the line, inside its not-reporting branch', () => {
@@ -57,4 +57,13 @@ test('#7586: the joined view\'s sentence carries the line, inside its not-report
   const lines = PAGE.split('\n').filter((l) => /^\s*else if \(here\) document\.getElementById\('plus-org-say'\)\.textContent = /.test(l));
   assert.equal(lines.length, 1, 'the joined view sentence moved: ' + lines.length);
   assert.match(lines[0], /st\.reporting === false \? \(.*\) \+ plusOrgRequiredWait\(st\) : ''\)\);$/);
+});
+
+test('#7586 review: a family whose words are not accepted, with reporting required, is told too; without it, not', () => {
+  const m = PAGE.match(/const PLUS_ORG_REQUIRED_WAIT_FAMILY = '([^']*)';/);
+  assert.ok(m, 'PLUS_ORG_REQUIRED_WAIT_FAMILY is gone');
+  assert.equal(m[1], ' Your family requires this computer to report, and its console shows a computer that is not reporting.');
+  const lines = PAGE.split('\n').filter((l) => /^\s*else if \(here && st\.wordsNeeded === true\) document\.getElementById\('plus-org-say'\)\.textContent = /.test(l));
+  assert.equal(lines.length, 1, 'the family words-needed sentence moved: ' + lines.length);
+  assert.match(lines[0], /reads and accepts them\.' \+ \(st\.reportingRequired === true \? PLUS_ORG_REQUIRED_WAIT_FAMILY : ''\);/);
 });
