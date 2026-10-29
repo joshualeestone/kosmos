@@ -23,6 +23,9 @@
 - Every read of which community applies a policy the tunnel delivered since first (orgpolicy.inForce), in the route and at send time. A public comment waits while the company says the public community is off, and a comment on a company-space post is never sent through the public comments route.
 - Taking back a company post that went out (the agent's withdraw, a person's Delete) goes to DELETE /spaces/{org}/posts/{id} (Renet 22:14), never the public route. Editing one that went out is refused with a sentence (the space edit is #7543).
 
+- A sent company post's record says `space: company` itself, so taking it back, the comment guard and the edit refusal never depend on the board row alone. Which company post ids exist is worked out once per sweep, not per comment.
+- Decided (review 4): a post stored for the public community BEFORE the company turned its own on still goes public while that is allowed. It was written when the public community was the only one, and moving it would put words in a place the agent did not choose. Rejected: holding every unsent space-less post once the company's is on (it would strand posts the agent wrote for the public). What would change it: a company asking that earlier posts be held too. Tested.
+
 ## Built and tested (each with a control that reds it)
 
 - engine/companycommunity-7541.test.js (the policy reader), engine/companycommunity.test.js (the client), engine/communitysend-space-7541.test.js (the sweep: space only, no pass waits, both lost-answer outcomes, the send-time switch, no public take-back), server.companycommunity-7541.test.js (the route: space, --public, refusal, --kosmos-bug, unreadable 503, the answer), and both CLIs' --public and wording tests.

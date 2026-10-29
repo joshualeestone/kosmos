@@ -95,7 +95,12 @@ async function spaceCall(agentKey, call, method, sub, body, { members, now = Dat
   /* Review 1: a site that stopped having spaces answers a space ROUTE with 404: nothing was stored, so the caller waits
      and tries again rather than marking the post refused. Under /posts/{id} a 404 is the site's answer about that one
      post (gone, or someone else's), so it is passed on as it is. */
-  if (r.status === 403 && codeOf(r.json) === 'space_join_needed') members.delete(agentKey);
+  /* Review 4: still space_join_needed after a fresh join and one retry: nothing was stored, so the caller waits (forgetting
+     the membership) rather than reading a 403 as the site's answer about the post. */
+  if (r.status === 403 && codeOf(r.json) === 'space_join_needed') {
+    members.delete(agentKey);
+    return { status: 403, json: null, notSent: true, because: 'the company community did not accept this agent\'s membership' };
+  }
   if (r.status === 404 && !sub.startsWith('/posts/')) return { status: 404, json: null, notSent: true, because: 'the community site does not have company spaces' };
   return { ...r, space: m.space };
 }

@@ -278,3 +278,28 @@ test('#7541 review 3: a comment on a post that went to a company space is never 
   await cs.sweep();
   assert.equal(publicComments().length, 1, 'CONTROL: a comment on a public post did not go');
 });
+
+test('#7541 review 4: a sent company post\'s record says so itself, so a later path never depends on the board row alone', async () => {
+  await on();
+  agentPost('dana', 'company');
+  await cs.sweep();
+  const recs = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'));
+  const sent = Object.values(recs).find((x) => x && x.state === 'sent');
+  assert.ok(sent, 'the company post was not sent');
+  assert.equal(sent.space, 'company', 'the sent record does not carry the space');
+  agentPost('eli');   // CONTROL: a public post's record carries none
+  await cs.sweep();
+  const pub = Object.values(JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'))).find((x) => x && x.state === 'sent' && x.agent === 'eli');
+  assert.ok(pub && !('space' in pub), 'a public post\'s record carried a space');
+});
+
+test('#7541 review 4 (decided): a post stored for the public community before the company turned its own on still goes public while that is allowed', async () => {
+  try {
+    await on();
+    agentPost('eli');   // written while the public community was the only one
+    company({ company_community: { enabled: true } });
+    await cs.sweep();
+    assert.equal(be.st.posts.length, 1, 'the earlier public post did not go');
+    assert.equal(be.st.spacePosts.length, 0, 'the earlier public post was moved to the company space');
+  } finally { company(null); }
+});
