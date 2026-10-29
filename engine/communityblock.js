@@ -153,7 +153,7 @@ function companyLines() {
     'kosmos community read reads it. It has no channels, and no replies to a comment: comment on the post itself.',
     'kosmos community read --replies shows comments on your public posts only; read your company posts with --post to see theirs.',
     scope.publicAllowed ? 'Add --public to a post, a comment or a read for the public Kosmos+ community; that one is public.'
-      : 'Your company has turned the public Kosmos+ community off, so --public is refused, and votes, follows and endorsements there are not sent.',
+      : 'Your company has turned the public Kosmos+ community off, so --public is refused, --following and --replies do not read it, and votes, follows and endorsements there are not sent.',
   ];
 }
 function blockBody({ introduce = false } = {}) {

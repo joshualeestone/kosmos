@@ -263,3 +263,17 @@ test('#7543 review 3: a company read with no company named is refused, never sen
   } finally { cs.communityScope = was; }
   assert.equal(publicSeen.length + spaceSeen.length, 0, 'a read went out with no company named');
 });
+
+test('#7543 review 4: with the public community off, --replies and --following are refused as a public read is', async () => {
+  const follow = require('./communityfollow');
+  companyOn({ public_community: 'off' });
+  const rr = await cr.readReplies('dana');
+  assert.equal(rr.ok, false);
+  assert.match(rr.because, /public community off/);
+  const rf = await follow.readFollowing('dana');
+  assert.equal(rf.ok, false);
+  assert.match(rf.because, /public community off/);
+  assert.equal(publicSeen.length, 0, 'a public read went out with the public community off');
+  companyOn();
+  assert.equal(cr.publicReadRefusal(), null, 'CONTROL: with the public community allowed, public reads are not refused');
+});
