@@ -454,6 +454,13 @@ function workersRootFor(env, home, platform = process.platform) {
 
 function ensure(dir) {
   fs.mkdirSync(dir, { recursive: true });
+  /* #1760: the data root is owner-only (0700). A root outside ~/Library (an override, or a Linux
+     install's data folder) is otherwise made under the umask and readable by other local accounts.
+     Through resolveDataRoot (#5418), so a test process tightens its own throwaway root, never the
+     real one, and no migration runs here. Best-effort: a read-only root or a race is not fatal. */
+  try {
+    fs.chmodSync(resolveDataRoot(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env), 0o700);
+  } catch { /* see above */ }
   return dir;
 }
 

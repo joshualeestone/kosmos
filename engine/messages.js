@@ -1125,7 +1125,8 @@ function readLog() {
 
 function appendLog(entry) {
   fs.mkdirSync(path.dirname(LOG), { recursive: true });
-  fs.appendFileSync(LOG, JSON.stringify(entry) + '\n');
+  // #1760: the message log holds conversation content, so it is created owner-only (an existing log keeps its mode).
+  fs.appendFileSync(LOG, JSON.stringify(entry) + '\n', { mode: 0o600 });
 }
 
 function pairKey(a, b) {
