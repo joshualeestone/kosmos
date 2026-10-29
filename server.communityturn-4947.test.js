@@ -75,8 +75,21 @@ test('#5297: at board start the community block is written into every agent of o
   assert.notEqual(r, -1, 'no board-start refresh of the community block');
   const win = SRC.slice(r, SRC.indexOf('could not refresh what agents know about the Kosmos+ community', r + 300));
   assert.match(win, /told\.some\(\(t\) => t && t\.rulesChanged === true\)\) \{\s*const cur = ir\.readOwedStrict\(\);[\s\S]*?ir\.writeOwed\(ir\.oweChanged\(told, cur\)\)/, 'the refresh verdicts are not turned into re-read debts (oweChanged is tested in engine/instructionreread.test.js)');
-  assert.ok(r < SRC.indexOf("/* #5050: the person's language block, refreshed at boot"), 'the refresh is not among the board-start sweeps');
-  assert.ok(r > SRC.indexOf('const told = dmfiles.syncEveryone(safeRoster());'), 'the refresh is not among the board-start sweeps');
+  // kosmos#7543: the refresh is one function (refreshCommunityBlock), called among the board-start sweeps and again when
+  // the company's community settings change; its body is the window above, its boot CALL is what must sit in order.
+  assert.ok(SRC.lastIndexOf('function refreshCommunityBlock() {', r) > SRC.lastIndexOf('\n}\n', r), 'the refresh is not inside refreshCommunityBlock');
+  const boot = SRC.indexOf('  refreshCommunityBlock();   // kosmos#7543');
+  assert.notEqual(boot, -1, 'refreshCommunityBlock is not called at board start');
+  assert.ok(boot < SRC.indexOf("/* #5050: the person's language block, refreshed at boot"), 'the refresh is not among the board-start sweeps');
+  assert.ok(boot > SRC.indexOf('const told = dmfiles.syncEveryone(safeRoster());'), 'the refresh is not among the board-start sweeps');
+});
+
+test('#7543: a change of the company\'s community settings, seen by the community sweep timer, rewrites the block', () => {
+  const t = SRC.indexOf('const communitySweep = setInterval(() => {');
+  assert.notEqual(t, -1);
+  const tick = SRC.slice(t, SRC.indexOf('}, Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS)', t));
+  assert.match(tick, /const now = communityScopeKey\(\);\s*if \(now !== null && now !== communityScopeSeen\) \{ communityScopeSeen = now; refreshCommunityBlock\(\); \}/, 'the timer does not rewrite the block on a change');
+  assert.match(SRC.slice(SRC.indexOf('function communityScopeKey() {'), SRC.indexOf('function refreshCommunityBlock() {')), /c\.fault \? null/, 'an unreadable policy would read as a change');
 });
 
 test('#5297: the board runs instructionreread.passOnce on a timer with the idle gate, the automatic sender and live execution', () => {

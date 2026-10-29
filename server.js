@@ -2870,6 +2870,37 @@ function roomPostClaim(projectId, postId, reactions) {
   } catch { return null; }
 }
 
+/* kosmos#5297 (moved into a function by kosmos#7543): the community block, written into every agent of ours, and the
+   re-read line owed to each agent whose rules changed. Run at boot, and again when the company's community settings
+   change while the board runs (the sweep timer notices), since those change what the block says. Never fatal. */
+/* kosmos#7543: the company community settings the block depends on, as one string; null when they cannot be read. */
+function communityScopeKey() {
+  try {
+    const c = communitysend.communityScope();
+    return c.fault ? null : [c.company ? 'company' : '', c.org || '', c.publicAllowed ? 'public' : ''].join('|');
+  } catch { return null; }
+}
+
+function refreshCommunityBlock() {
+  try {
+    const told = require('./engine/communityblock').refreshEveryone(safeRoster(), communityswitch.participating());
+    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
+    if (stuck.length) {
+      const why = (stuck[0] && stuck[0].because) || 'no reason given';
+      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about the Kosmos+ community; they keep the text they have. First: ${(stuck[0] && stuck[0].agent) || 'the list of agents'} - ${why}\n`);
+    }
+    const ir = require('./engine/instructionreread');
+    if (told.some((t) => t && t.rulesChanged === true)) {
+      const cur = ir.readOwedStrict();   // null: the debt file is unreadable, and replacing it would drop every debt in it
+      if (cur === null || !ir.writeOwed(ir.oweChanged(told, cur))) {
+        process.stderr.write('Kosmos refreshed the Kosmos+ community section but could not record which running agents to tell; they read it at their next start\n');
+      }
+    }
+  } catch (err) {
+    process.stderr.write(`Kosmos could not refresh what agents know about the Kosmos+ community: ${String(err && err.message)}\n`);
+  }
+}
+
 function safeRoster() {
   try {
     const board = snapshot();
@@ -27357,8 +27388,15 @@ function start(port = PORT) {
          community backend, sends the deletes the owner asked for, and reads take-downs back.
          Gated inside communitysend on the #4288 switch (read at send time) and on the test
          runner; sweep() joins one already in flight and never throws. Own timer, unref'd. */
+      let communityScopeSeen = communityScopeKey();   // kosmos#7543: what the block was written for at boot
       const communitySweep = setInterval(() => {
         try { communitysend.sweep(); } catch { /* best-effort, like the sweeps above */ }
+        /* kosmos#7543: a company that turns its own community on or off, or the public one, changes what every agent's
+           community block says; it is rewritten (and the agents told to read it) when the sweep sees the change. */
+        try {
+          const now = communityScopeKey();
+          if (now !== null && now !== communityScopeSeen) { communityScopeSeen = now; refreshCommunityBlock(); }
+        } catch { /* best-effort */ }
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_COMMUNITY_SWEEP_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (communitySweep && typeof communitySweep.unref === 'function') communitySweep.unref();
       // One sweep soon after boot, so a switch turned on just before a restart does not
@@ -28251,23 +28289,7 @@ if (require.main === module) {
      report found five running agents still told "at most one post a day" three days after Josh's 2026-10-02 rules.
      An agent reads its file once, so each agent whose rules changed (refreshEveryone's rulesChanged) is also owed a
      line telling it to read the section (engine/instructionreread.js). Never removes the block; never fatal. */
-  try {
-    const told = require('./engine/communityblock').refreshEveryone(safeRoster(), communityswitch.participating());
-    const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
-    if (stuck.length) {
-      const why = (stuck[0] && stuck[0].because) || 'no reason given';
-      process.stderr.write(`Kosmos could not refresh what ${stuck.length} of ${told.length} agent(s) know about the Kosmos+ community; they keep the text they have. First: ${(stuck[0] && stuck[0].agent) || 'the list of agents'} - ${why}\n`);
-    }
-    const ir = require('./engine/instructionreread');
-    if (told.some((t) => t && t.rulesChanged === true)) {
-      const cur = ir.readOwedStrict();   // null: the debt file is unreadable, and replacing it would drop every debt in it
-      if (cur === null || !ir.writeOwed(ir.oweChanged(told, cur))) {
-        process.stderr.write('Kosmos refreshed the Kosmos+ community section but could not record which running agents to tell; they read it at their next start\n');
-      }
-    }
-  } catch (err) {
-    process.stderr.write(`Kosmos could not refresh what agents know about the Kosmos+ community: ${String(err && err.message)}\n`);
-  }
+  refreshCommunityBlock();   // kosmos#7543: one function, so a change of the company's community settings can run it too
   /* kosmos#5635 F1: the working rules, brought current at boot for every agent of ours whose rules are Kosmos's own
      text, unedited (doctrine.refreshUnedited says which, and leaves the rest for the click). Each one changed is owed a
      re-read line, as a click is. Josh's 2026-10-07 feedback found agents still on a line fixed five days earlier. */
