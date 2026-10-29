@@ -476,32 +476,9 @@ function secureRoot() {
   try { return fs.statSync(r).mode & 0o777; } catch { return null; }
 }
 
-/* #7554: ensure() runs on every store write, and currentDataRoot() resolves the root each time (in a test process, a
-   real-path check too). The root depends only on these inputs (dataRootFor, os.homedir, and the test-process rules in
-   isRealRootInTests), so the root is cached per their values: a write is a Map lookup until one of them changes. A
-   variable left out of this list would let a changed root reuse a stale answer, so every input dataRootFor or the
-   test rules read must be named here (engine/store.ensure-cost-7554.test.js holds the list to that). */
-// Review 1: SystemRoot and windir are the temp folder's Windows fallback when TEMP and TMP are both unset. (Review 2:
-// this note sits above the list, not in it: tools/check-frozen-roots.js reads the declaration and a call spelt in it.)
-const ROOT_ENV_INPUTS = ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_HOME', 'APPDATA', 'HOME', 'USERPROFILE',
-  'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_ALLOW_REAL_ROOT', 'TMPDIR', 'TEMP', 'TMP', 'SystemRoot', 'windir'];
-const rootByEnvKey = new Map();
-function rootForEnsure() {
-  const env = process.env;
-  // Review 1: set-but-empty and unset differ (os.homedir() answers '' for HOME='', the account's home with no HOME).
-  const key = ROOT_ENV_INPUTS.map((n) => (n in env ? '=' + env[n] : '')).join('\0');
-  let r = rootByEnvKey.get(key);
-  if (r === undefined) {
-    r = currentDataRoot();
-    if (rootByEnvKey.size > 64) rootByEnvKey.clear();   // a test that flips variables many times keeps this bounded
-    rootByEnvKey.set(key, r);
-  }
-  return r;
-}
-
 function ensure(dir) {
   fs.mkdirSync(dir, { recursive: true });
-  if (!securedRoots.has(rootForEnsure())) secureRoot();
+  if (!securedRoots.has(currentDataRoot())) secureRoot();
   return dir;
 }
 
@@ -930,7 +907,7 @@ function writeSettings(patch) {
  * that names a gone pid on this host). Its test and test-support/data-root-sandbox.js are the
  * callers; nothing in the product calls it but the store itself.
  */
-module.exports = { secureRoot /* #1760 */, _ensureRootCacheSizeForTest: () => rootByEnvKey.size /* #7554 */, saveFlushed /* #5434 slice 17 */, isTestProcess /* #6726: replyfile's test seam gates on it */, APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { secureRoot /* #1760 */, saveFlushed /* #5434 slice 17 */, isTestProcess /* #6726: replyfile's test seam gates on it */, APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers
