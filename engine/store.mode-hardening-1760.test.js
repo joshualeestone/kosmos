@@ -22,6 +22,7 @@ const skip = process.platform === 'win32';
 const modeOf = (p) => fs.statSync(p).mode & 0o777;
 
 test('#1760: a store write (writeProfile -> ensure) tightens a loose data root to 0700', { skip }, () => {
+  assert.ok(store.ROOT.startsWith(SB), 'the data root is not in this test\'s sandbox: ' + store.ROOT);
   // The precondition is set here (0755), so the result does not depend on the ambient umask.
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.chmodSync(store.ROOT, 0o755);
@@ -56,7 +57,7 @@ test('#1760: an existing 0644 log (an upgraded install) is tightened by secureLo
   fs.unlinkSync(messages.LOG);
   fs.symlinkSync(target, messages.LOG);
   messages.secureLog();
-  assert.equal(modeOf(target), 0o644, 'secureLog followed a link to a file it does not own');
+  assert.equal(modeOf(target), 0o644, 'secureLog followed a link and changed its target');
 });
 
 test('#1760: the board calls secureRoot and secureLog at start, for a real board', () => {
@@ -65,5 +66,5 @@ test('#1760: the board calls secureRoot and secureLog at start, for a real board
   const at = src.indexOf('removal.reapplyAtBoardStart({ enforcing: boardAuthState.on });');
   assert.ok(at > 0, 'the board-start block moved');
   const after = src.slice(at, at + 1500);
-  assert.match(after, /if \(boardAuthState\.on\) \{\s*try \{[\s\S]*store\.secureRoot\(\)[\s\S]*\.secureLog\(\)[\s\S]*\} catch/);
+  assert.match(after, /if \(boardAuthState\.on\) \{\s*try \{[\s\S]*store\.secureRoot\(\)[\s\S]*messages\.secureLog\(\)[\s\S]*\} catch/);
 });

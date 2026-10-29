@@ -24,5 +24,9 @@ link's target alone; a source check that the board-start block makes both calls.
 with its own change removed.
 
 ## Weakest premise
-A data root that someone shares on purpose (group-readable) gets closed. Nothing in Kosmos does that, and a person
-who wants it shared sets its mode after the board runs, which ensure() would then undo on the next write.
+A data root that someone loosens on purpose (group-readable) is closed again at the next board start, or by the next
+separate process that writes to the store. Nothing in Kosmos shares that folder: the chmod is on the app's own folder
+inside AGENT_WORKFORCE_DATA, never the folder a person names.
+
+## Known limits
+The board-start test is a source check: it proves both calls sit in the gated block, not that they run.

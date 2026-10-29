@@ -26662,7 +26662,7 @@ function start(port = PORT) {
       if (boardAuthState.on) {
         try {
           const mode = store.secureRoot();
-          require('./engine/messages').secureLog();
+          messages.secureLog();
           if (process.platform !== 'win32' && typeof mode === 'number' && (mode & 0o077)) {
             process.stderr.write(`Kosmos: the data folder ${store.ROOT} could not be made owner-only (mode ${mode.toString(8)}), so other accounts on this computer may read it.\n`);
           }
