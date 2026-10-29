@@ -5598,7 +5598,7 @@ _kosmos_cloud_join() {
   # the same token and key, so a retry is safe. The log is cleared once per run; each try then appends, numbered.
   # A usage error (exit 2: the tunnel refused the call itself) is not retried: it would fail the same way.
   if [ "$_kcj_registered" = no ]; then
-    if [ ! -x "$KOSMOS_HOME/app/bin/kosmos-tunnel" ]; then
+    if ! { [ -f "$KOSMOS_HOME/app/bin/kosmos-tunnel" ] && [ -x "$KOSMOS_HOME/app/bin/kosmos-tunnel" ]; }; then
       info "This cloud machine has no Kosmos+ connector to join with ($KOSMOS_HOME/app/bin/kosmos-tunnel)."
       return 1
     fi
