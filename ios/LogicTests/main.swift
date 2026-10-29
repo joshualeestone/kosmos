@@ -4868,6 +4868,9 @@ do {
     check(snaps == 2, "review 1: a smaller shift takes no snapshot (the rows are not walked)")
     r.add(offset: 40, isNew: false, dragging: false) { snaps += 1; return (402, 480, true, ["file": 1]) }
     check(r.shifts == 3 && r.largest == 40 && r.contentWidth == 480 && snaps == 3, "review 1: a shift growing past the largest is its peak, not a new shift")
+    var early = Board.ChatShiftReport()
+    early.add(offset: 30, isNew: false, dragging: true) { (402, 450, false, ["message": 1]) }
+    check(early.shifts == 0 && early.largest == 0 && !early.whileDragging, "review 2: a shift that began before the count does not enter it")
     let body = r.body(app: "1.4 (18)", ios: "27.0", model: "iPhone17,1", openSeconds: 41.5)
     check(Set(body.keys) == ["app", "ios", "model", "shifts", "largest", "whileDragging", "listWidth", "contentWidth", "keyboardUp", "openSeconds", "rows"],
           "the body holds only the fields the board keeps (engine/chatshifts.js)")

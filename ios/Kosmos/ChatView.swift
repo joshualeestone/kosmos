@@ -297,7 +297,7 @@ struct ChatView: View {
             startReading()
             markDmSeen()
             // kosmos#7575 review 1: a return from the info page is the same open (its report goes on); a new open starts one.
-            if !shifts.open || shifts.sent { shifts.start(epoch: client.chatEpoch) }
+            if !shifts.open || shifts.sent { shifts.start(send: shiftSender()) }
         }
         // kosmos#7354: on every read of the list while the chat is open, unread replies are marked read again, as the board's
         // paintTalk does on each poll; so one that failed is sent again, and replies landing while it is open are read.
@@ -355,7 +355,7 @@ struct ChatView: View {
         .onChange(of: client.chatEpoch) { now in
             diagDone = false; diagWideDone = false; diagReport = nil   // kosmos#7420 review 1: another account or computer is a new chat
             diagThreadAt = nil; diagEverDrew = false   // review 4
-            shifts.start(epoch: now)   // kosmos#7575 review 1: what one computer saw is never sent to another's board
+            shifts.start(send: shiftSender())   // kosmos#7575 review 1: what one computer saw is never sent to another's board
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
@@ -385,9 +385,9 @@ struct ChatView: View {
         }
         .onChange(of: scenePhase) { phase in
             Self.trace("app \(phase == .active ? "active" : phase == .background ? "background" : "inactive")")   // kosmos#7420
-            if phase == .background { loop?.cancel(); loop = nil; sendShiftReport() } else if phase == .active, visible, loop == nil { startReading() }
-            // kosmos#7575 review 1: back from the background, the chat open is counted afresh (its first report went).
-            if phase == .active, visible, shifts.sent { shifts.start(epoch: client.chatEpoch) }
+            // kosmos#7575 review 2: the next count starts as the report goes, so a shift laid out while away is kept.
+            if phase == .background { loop?.cancel(); loop = nil; sendShiftReport(); if visible { shifts.start(send: shiftSender()) } }
+            else if phase == .active, visible, loop == nil { startReading() }
         }
     }
 
@@ -767,17 +767,26 @@ struct ChatView: View {
 
     // kosmos#7575: when this chat open had a sideways shift, one report to the person's board (numbers and kind words,
     // never text), then nothing more until the chat opens again. One try, nothing kept on the phone.
-    // One try: going to the background, the request may be cut off before it lands, and it is not tried again.
-    private func sendShiftReport() {
-        guard shifts.open, !shifts.sent else { return }
-        shifts.sent = true
-        guard shifts.report.shifts > 0, shifts.epoch == client.chatEpoch else { return }   // review 1: same computer only
-        let info = Bundle.main.infoDictionary
-        let app = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
-        let body = shifts.report.body(app: app, ios: UIDevice.current.systemVersion, model: Board.deviceModel(),
-                                      openSeconds: Date().timeIntervalSince(shifts.openedAt))
-        Self.trace("shift report sent")
-        Task { _ = await client.throughMac { Board.chatShiftRequest(mac: $0, body: body) } }
+    private func sendShiftReport() { shifts.flush() }
+
+    // What sends a box's report: only to the computer it was counted on (review 1), with a little background time asked
+    // of iOS so a report sent as the app goes away can land (review 2); still one try. Held by the box, so a chat closed
+    // under its info page still sends (review 2).
+    private func shiftSender() -> (Board.ChatShiftReport, Date) -> Void {
+        let client = self.client, epoch = client.chatEpoch
+        return { report, openedAt in
+            Task { @MainActor in
+                guard report.shifts > 0, epoch == client.chatEpoch else { return }
+                let info = Bundle.main.infoDictionary
+                let app = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+                let body = report.body(app: app, ios: UIDevice.current.systemVersion, model: Board.deviceModel(),
+                                       openSeconds: Date().timeIntervalSince(openedAt))
+                ChatView.trace("shift report sent")
+                let task = UIApplication.shared.beginBackgroundTask(withName: "chat-shift")
+                _ = await client.throughMac { Board.chatShiftRequest(mac: $0, body: body) }
+                if task != .invalid { UIApplication.shared.endBackgroundTask(task) }
+            }
+        }
     }
 
     private func announceDiag() { UIAccessibility.post(notification: .announcement, argument: "This conversation did not draw properly. A Share button above the messages sends the details, if you choose.") }
@@ -2193,6 +2202,7 @@ struct SideScrollLock: UIViewRepresentable {
         let off: Bool
         var onShift: ((CGFloat, Bool, Bool) -> Void)?
         private var peak: CGFloat = 0   // kosmos#7575 review 1: this shift's largest offset so far
+        private var resumed = false     // kosmos#7575 review 2: the first reading after moving window, maybe a shift already counted
         // Review 5: tried again every 0.35 s while the list is dragged or flinging, so a fling that ends with no further
         // offset change still gets it back.
         private func putBack(_ sv: UIScrollView) {
@@ -2224,6 +2234,7 @@ struct SideScrollLock: UIViewRepresentable {
             super.didMoveToWindow()
             watch = nil; shifted = false; fixing = false; quick = 0; generation &+= 1
             guard window != nil else { return }
+            resumed = true
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
             guard let scroll = up as? UIScrollView else { ChatView.trace("side lock: no scroll view"); return }
@@ -2245,7 +2256,11 @@ struct SideScrollLock: UIViewRepresentable {
             watch = scroll.observe(\.contentOffset, options: [.initial, .new]) { [weak self] sv, _ in
                 guard let self else { return }
                 let x = sv.contentOffset.x + sv.adjustedContentInset.left
+                let resumed = self.resumed; self.resumed = false
                 guard abs(x) > 0.5 else { self.shifted = false; return }
+                // Review 2: back in a window still at the offset already counted (the info page, pushed and popped), the
+                // shift is the same one: not counted again, still put back.
+                if !self.shifted, resumed, self.peak > 0, abs(abs(x) - self.peak) <= 0.5 { self.shifted = true }
                 if self.shifted, abs(x) > self.peak + 0.5 {
                     self.peak = abs(x); self.onShift?(x, sv.isDragging || sv.isDecelerating, false)
                 }
@@ -2300,9 +2315,19 @@ struct PositionById: ViewModifier {
 // kosmos#7575: one chat open's shift report and whether it went. A class, so counting a shift mid-layout redraws nothing.
 final class ShiftBox {
     var report = Board.ChatShiftReport()
-    var openedAt = Date()
-    var open = false
-    var sent = false
-    var epoch = 0
-    func start(epoch: Int) { report = Board.ChatShiftReport(); openedAt = Date(); open = true; sent = false; self.epoch = epoch }
+    private(set) var openedAt = Date()
+    private(set) var open = false
+    private(set) var sent = false
+    private var send: ((Board.ChatShiftReport, Date) -> Void)?
+    func start(send: @escaping (Board.ChatShiftReport, Date) -> Void) {
+        report = Board.ChatShiftReport(); openedAt = Date(); open = true; sent = false; self.send = send
+    }
+    // Sends this open's report once (the sender drops an empty one or one from another computer).
+    func flush() {
+        guard open, !sent else { return }
+        sent = true
+        send?(report, openedAt)
+    }
+    // Review 2: a chat taken off the screen under its info page never shows again; its report goes as the box does.
+    deinit { flush() }
 }
