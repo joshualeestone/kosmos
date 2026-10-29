@@ -2156,7 +2156,7 @@ struct SideScrollLock: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            watch = nil
+            watch = nil; shifted = false   // review 3: a new watch records its first shift
             guard window != nil else { return }
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
