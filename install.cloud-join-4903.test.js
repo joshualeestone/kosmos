@@ -74,7 +74,8 @@ exit ${tunnelRc}
 }
 
 function join(b, extraEnv = {}) {
-  const script = `info() { printf '%s\\n' "$*"; }\n${BLOCK}\n_kosmos_cloud_join; echo "rc=$?"\n`;
+  // Under set -eu, as setup.sh runs it (review 3); the call is guarded so its own rc is printed.
+  const script = `set -eu\ninfo() { printf '%s\\n' "$*"; }\n${BLOCK}\nrc=0; _kosmos_cloud_join || rc=$?; echo "rc=$rc"\n`;
   return spawnSync('/bin/sh', ['-c', script], {
     encoding: 'utf8',
     env: { PATH: `${b.bin}:/usr/bin:/bin`, HOME: b.user, KOSMOS_HOME: b.home, KOSMOS_CLOUD: '1',
@@ -213,4 +214,15 @@ test('#4903 a box registered by a run that stopped before its latch is not regis
   const c = box();
   assert.equal(rcOf(join(c)), '0');
   assert.ok(read(path.join(c.root, 'tunnel-args')), 'an unregistered box did not ask the tunnel');
+});
+
+test('#4903 a box whose registration is still pending (its pending key kept) is asked to finish it', () => {
+  const b = box();
+  fs.mkdirSync(b.state, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(b.state, 'mac_id'), 'mac-1\n');
+  fs.writeFileSync(path.join(b.state, 'cloud_pending_key'), 'k');   // the tunnel keeps it until registration completes
+  const r = join(b);
+  assert.equal(rcOf(r), '0', r.stdout + r.stderr);
+  assert.ok(read(path.join(b.root, 'tunnel-args')), 'an unfinished registration was taken as done');
+  assert.equal(read(path.join(b.root, 'tunnel-stdin')), TOKEN, 'the retry did not carry the same token');
 });

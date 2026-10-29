@@ -5565,7 +5565,8 @@ _kosmos_cloud_join() {
     info "This cloud machine could not find which Kosmos+ service to join ($_kcj_remote)."
     return 1
   fi
-  if [ -f "$_kcj_state/hosted" ] && [ ! -L "$_kcj_state/hosted" ] && [ -s "$_kcj_state/mac_id" ]; then
+  if [ -f "$_kcj_state/hosted" ] && [ ! -L "$_kcj_state/hosted" ] && [ -s "$_kcj_state/mac_id" ] && [ ! -e "$_kcj_state/cloud_pending_key" ]; then
+    unset KOSMOS_PROVISIONING_TOKEN
     # A run that joined and latched but stopped before switching remote on finishes that step now (setOn is a no-op
     # when it is already on).
     if ! "$_kcj_node" -e 'const r = require(process.argv[1]).setOn(true); if (!r || r.ok === false) process.exit(1);' "$_kcj_remote" >/dev/null 2>&1; then
@@ -5575,10 +5576,12 @@ _kosmos_cloud_join() {
     info "This cloud machine has already joined its Kosmos+ account."
     return 0
   fi
-  # Registered by an earlier run that stopped before its latch (mac_id written, no latch): the token is spent, so
-  # the tunnel is not asked again; this run finishes the latch, remote access and the token's removal (review 2).
+  # Registered by an earlier run that stopped before its latch: the token is spent, so the tunnel is not asked again,
+  # and this run finishes the latch, remote access and the token's removal (review 2). Registered means mac_id is
+  # written AND the tunnel's cloud_pending_key is gone: the tunnel keeps that key until the registration is complete, so
+  # that a retry with the same token and key can finish it (review 3), and while it is there the tunnel is asked again.
   _kcj_registered=no
-  [ -s "$_kcj_state/mac_id" ] && [ ! -L "$_kcj_state/mac_id" ] && _kcj_registered=yes
+  [ -s "$_kcj_state/mac_id" ] && [ ! -L "$_kcj_state/mac_id" ] && [ ! -e "$_kcj_state/cloud_pending_key" ] && _kcj_registered=yes
   if [ "$_kcj_registered" = no ] && [ -z "${KOSMOS_PROVISIONING_TOKEN:-}" ]; then
     info "This cloud machine has no setup token, so it cannot join its Kosmos+ account."
     return 1
@@ -5595,6 +5598,10 @@ _kosmos_cloud_join() {
   # the same token and key, so a retry is safe. The log is cleared once per run; each try then appends, numbered.
   # A usage error (exit 2: the tunnel refused the call itself) is not retried: it would fail the same way.
   if [ "$_kcj_registered" = no ]; then
+    if [ ! -x "$KOSMOS_HOME/app/bin/kosmos-tunnel" ]; then
+      info "This cloud machine has no Kosmos+ connector to join with ($KOSMOS_HOME/app/bin/kosmos-tunnel)."
+      return 1
+    fi
     : > "$KOSMOS_HOME/logs/cloud-join.log"
     _kcj_try=1
     while :; do
