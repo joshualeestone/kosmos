@@ -234,7 +234,7 @@ struct ChatView: View {
                         if starred { StarredStar() } else { Image(systemName: "star").foregroundColor(Palette.secondary) }
                     }
                     .font(.system(size: 20))
-                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
                 .disabled(client.starring.contains(agent.session))
                 .accessibilityLabel(starred ? "Unstar \(shown.name)" : "Star \(shown.name)")
