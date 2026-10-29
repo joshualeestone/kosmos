@@ -78,6 +78,15 @@ function backend() {
         if (st.members.get(a.id) !== 'acme') return send(403, { detail: 'space_join_needed' });
         return send(200, st.spacePosts.filter((p) => p.agent === a.id).map((p) => ({ id: p.id, channel: p.channel, sub_channel: p.sub_channel ?? null, title: p.title, body: p.body })));
       }
+      // Renet's contract (review 3): an agent withdrawing its own space post.
+      if (req.method === 'DELETE' && req.url.startsWith('/spaces/acme/posts/')) {
+        if (st.members.get(a.id) !== 'acme') return send(403, { detail: 'space_join_needed' });
+        const id = decodeURIComponent(req.url.slice('/spaces/acme/posts/'.length));
+        const i = st.spacePosts.findIndex((p) => p.id === id && p.agent === a.id);
+        if (i < 0) return send(404, { detail: 'not found' });
+        st.spacePosts.splice(i, 1);
+        return send(204);
+      }
       if (req.method === 'GET' && req.url === '/agents/me/posts') return send(200, []);
       return send(404, { detail: 'not found' });
     });
@@ -91,6 +100,7 @@ function backend() {
 let be;
 let coordinatorAnswer;
 const passCalls = [];
+const passBodies = [];
 let SW = { on: false, ok: true };
 async function on() { SW = { on: true, ok: true }; await cs.sweep(); }
 test.beforeEach(async () => {
@@ -102,7 +112,8 @@ test.beforeEach(async () => {
   cs.resetPauses();
   coordinatorAnswer = { ok: true, data: { token: PASS } };
   passCalls.length = 0;
-  companycommunity.setRemote({ macRequest: async (m, route) => { passCalls.push(route); return coordinatorAnswer; } });
+  passBodies.length = 0;
+  companycommunity.setRemote({ macRequest: async (m, route, body) => { passCalls.push(route); passBodies.push(body); return coordinatorAnswer; } });
   be = await backend();
 });
 test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.setSender(null); cs.setSwitch(null); companycommunity.setRemote(null); });
@@ -125,6 +136,9 @@ test('#7541: a company post goes to the company space with a fresh pass, never t
   assert.equal(be.st.spacePosts.length, 1, 'the company post did not reach its space');
   assert.deepEqual(passCalls, ['/v1/mac/org/community-pass'], 'the pass is fetched from the coordinator, once, for the join');
   assert.equal(be.st.seen.find((s) => s.url === '/spaces/join').body.pass, PASS);
+  // Review 3 (Renet's contract change): the pass is asked for THIS agent, by its community id from registration.
+  const registered = [...be.st.agents.values()].find((x) => x.name);
+  assert.deepEqual(passBodies, [{ agent: registered.id }], 'the pass was not asked for the posting agent');
   const rec = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'));
   assert.ok(Object.values(rec).some((x) => x && x.state === 'sent' && x.remoteId), 'the record does not read as sent');
 });
@@ -212,17 +226,18 @@ test('#7541 review 1: a public post queued before the company turned the public 
   } finally { company(null); }
 });
 
-test('#7541 review 1: a sent company post cannot be taken back or edited through the public routes, and says so', async () => {
+test('#7541 review 3: a sent company post is taken back in its space, never through the public route; an edit says it is not built yet', async () => {
   await on();
   const r = agentPost('dana', 'company');
   await cs.sweep();
   assert.equal(be.st.spacePosts.length, 1);
-  const w = cs.withdrawFor('dana', 'post', r.id);
-  assert.equal(w.ok, false);
-  assert.match(w.because, /company's own community/);
   const e = await cs.editFor('dana', 'post', r.id, { body: 'new words here' });
   assert.equal(e.ok, false);
   assert.match(e.because, /company's own community/);
+  const w = cs.withdrawFor('dana', 'post', r.id);
+  assert.equal(w.ok, true, JSON.stringify(w));
   await cs.sweep();
-  assert.ok(!be.st.seen.some((x) => x.method === 'DELETE' || x.method === 'PATCH'), 'a company post was sent to a public take-back or edit route');
+  assert.equal(be.st.spacePosts.length, 0, 'the company post was not taken down in its space');
+  assert.ok(be.st.seen.some((x) => x.method === 'DELETE' && x.url.startsWith('/spaces/acme/posts/')), 'no space take-down was sent');
+  assert.ok(!be.st.seen.some((x) => (x.method === 'DELETE' || x.method === 'PATCH') && x.url.startsWith('/posts/')), 'a company post went to a PUBLIC take-back or edit route');
 });
