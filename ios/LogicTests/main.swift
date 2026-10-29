@@ -4891,6 +4891,41 @@ do {
     check(Board.ChatShiftReport.kinds.contains("other") && Set(Board.chatRowKinds(items, onScreen: ["d", "m", "r", "q"], working: true).keys).isSubset(of: Set(Board.ChatShiftReport.kinds)),
           "every kind it names is one the board keeps")
     check(!Board.deviceModel().isEmpty, "a device model is read")
+
+    // Review 3: the lock's decision, reading by reading.
+    var st = (shifted: false, peak: 0.0, event: Board.ShiftEvent.none)
+    func step(_ x: Double, resumed: Bool = false, was: Bool = false) -> Board.ShiftEvent {
+        st = Board.sideShiftStep(x: x, shifted: st.shifted, wasShifted: was, resumed: resumed, peak: st.peak); return st.event
+    }
+    check(step(16) == .new && step(16) == .none && step(30) == .grew && step(0) == .none && step(16) == .new,
+          "a shift is new once, grows past its peak, and after going back a shift is new again")
+    st = (false, 0, .none); _ = step(16); _ = step(0)
+    check(step(16, resumed: true, was: false) == .new, "review 3: a fresh 16 pt shift after the info page is counted (the old one had gone back)")
+    st = (true, 16, .none)
+    st = (false, 16, .none)   // the window move clears shifted; the lock remembered it as wasShifted
+    check(step(16, resumed: true, was: true) == .none && st.shifted, "review 2: the same shift still in place after the info page is not counted again")
+    check(Board.sideShiftStep(x: 0.4, shifted: true, wasShifted: false, resumed: false, peak: 16) == (false, 0, .none), "back at rest clears the shift and its peak")
+
+    // Review 3: the box over a chat's life.
+    var sends: [Int] = []
+    var box: Board.ShiftBox? = Board.ShiftBox()
+    let t0 = Date(timeIntervalSince1970: 1000)
+    box!.add(offset: 16, isNew: true, dragging: false) { (402, 434, false, [:]) }   // before the chat appears
+    box!.attach { r, _ in sends.append(r.shifts) }                                  // onAppear: the count is kept
+    box!.add(offset: 16, isNew: true, dragging: false) { (402, 434, false, [:]) }
+    box!.flush(now: t0)                                                             // background
+    check(sends == [2], "review 3: a shift before onAppear is in the first report")
+    box!.flush(now: t0)                                                             // close with nothing new
+    check(sends == [2], "nothing more is sent for a count with no shift")
+    box!.add(offset: 16, isNew: true, dragging: false) { (402, 434, false, [:]) }   // under the info page, then torn down
+    box = nil
+    check(sends == [2, 1], "review 2: a box thrown away sends what it counted")
+    let other = Board.ShiftBox(); var otherSends = 0
+    other.attach { _, _ in otherSends += 1 }
+    other.add(offset: 16, isNew: true, dragging: false) { (402, 434, false, [:]) }
+    other.reset()                                                                  // another computer
+    other.flush()
+    check(otherSends == 0, "review 1: a count dropped on a computer switch is never sent")
 }
 
 print("")
