@@ -453,9 +453,11 @@ check(firsts["a"] == "beta" && firsts["c"] == "beta" && firsts["z"] == nil, "an 
 // widen the whole thread, pushing every bubble off its margin. Wiring guards (source checks).
 func after(_ src: String, _ marker: String) -> String { src.range(of: marker).map { String(src[$0.upperBound...].prefix(900)) } ?? "" }
 let chatPills = after(sheetChat, "struct ReactionPills: View {"), roomPills = after(sheetRoom, "private var reactions: some View {")
-check(chatPills.contains("FlowLayout(spacing: 6, trailing: trailing)") && !chatPills.contains("HStack(spacing: 6)") && roomPills.contains("FlowLayout(spacing: 6, trailing: mine)") && !roomPills.contains("HStack(spacing: 6)") && sheetChat.components(separatedBy: "trailing: mine)").count - 1 == 2,
+check(chatPills.contains("FlowLayout(spacing: 6, trailing: trailing, rowSpacing: toggle == nil ? 6 : 0)") && !chatPills.contains("HStack(spacing: 6)") && roomPills.contains("FlowLayout(spacing: 6, trailing: mine)") && !roomPills.contains("HStack(spacing: 6)") && sheetChat.components(separatedBy: "trailing: mine)").count - 1 == 2,
       "kosmos#7420: the chat's and the room's reactions wrap, never one row wider than the screen; under your own messages each line sits right (review 1)")
 let flowSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatChoices.swift"), encoding: .utf8)) ?? ""
+let pillsStruct = sheetChat.range(of: "struct ReactionPills: View {").map { String(sheetChat[$0.upperBound...].prefix(2500)) } ?? ""
+check(flowSrc.contains("row.y + row.height + (rowSpacing ?? spacing)") && pillsStruct.contains(".frame(minWidth: 44, minHeight: 44)"), "kosmos#7420 (Mona Lisa 10-29): tappable reaction lines touch at their 44 pt tap areas, with no gap added on top; the tap area stays 44 pt")
 check(flowSrc.contains("x + w > width + 0.5"), "kosmos#7420 review 2: a row wraps only past half a point of slack, so rounded bounds never push its last item onto an uncounted line")
 
 section("an agent's notification opens its chat natively (kosmos#7418)")
