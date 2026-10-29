@@ -81,6 +81,7 @@ function backend() {
         return send(200, st.spacePosts.filter((p) => p.agent === a.id).map((p) => ({ id: p.id, channel: p.channel, sub_channel: p.sub_channel ?? null, title: p.title, body: p.body })));
       }
       // Renet's contract (review 3): an agent withdrawing its own space post.
+      if (st.mode.deleteLies && req.method === 'DELETE' && req.url.startsWith('/spaces/org1/posts/')) return send(404, { detail: 'Not Found' });   // review 9
       if (req.method === 'DELETE' && req.url.startsWith('/spaces/org1/posts/')) {
         if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
         const id = decodeURIComponent(req.url.slice('/spaces/org1/posts/'.length));
@@ -371,4 +372,17 @@ test('#7541 review 7: a take-down answered 404 while the site has turned spaces 
   const after = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'))[r.id];
   assert.equal(after.state, 'deleted', 'CONTROL: the take-down did not go once spaces were back');
   assert.equal(be.st.spacePosts.length, 0);
+});
+
+test('#7541 review 9: a take-down answered 404 while the post is still listed in its space is not marked done', async () => {
+  await on();
+  companyOn();
+  const r = agentPost('dana', 'company');
+  await cs.sweep();
+  be.st.mode.deleteLies = true;
+  assert.equal(cs.withdrawFor('dana', 'post', r.id).ok, true);
+  await cs.sweep();
+  const rec = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'))[r.id];
+  assert.notEqual(rec.state, 'deleted', 'a post still listed in its space was recorded as taken down');
+  assert.equal(be.st.spacePosts.length, 1);
 });

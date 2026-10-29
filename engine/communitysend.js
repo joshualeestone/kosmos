@@ -109,8 +109,10 @@ function companyRemoteIds(now) {
   if (now !== undefined && companyIdsMemo.at === now && companyIdsMemo.ids) return companyIdsMemo.ids;
   const ids = new Set();
   const recs = loadJson(sentFile()) || {};
+  // Review 9: the board's company rows read once, not one whole-file read per sent record.
+  const companyRows = new Set(communitystore.publishedPosts().filter((p) => p.space === 'company').map((p) => p.id));
   for (const [id, rec] of Object.entries(recs)) {
-    if (rec && rec.remoteId && wentToCompany(id, rec)) ids.add(String(rec.remoteId));
+    if (rec && rec.remoteId && (rec.space === 'company' || companyRows.has(id))) ids.add(String(rec.remoteId));
   }
   companyIdsMemo = { at: now === undefined ? null : now, ids };
   return ids;
@@ -121,13 +123,15 @@ const spacePauseUntil = new Map();   // review 7: agentKey -> ms, after a pass o
 const SPACE_PAUSE_MS = 10 * 60 * 1000;
 async function spaceAs(agentKey, keys, method, sub, body, org) {
   const k = keys[agentKey];
-  if ((spacePauseUntil.get(agentKey) || 0) > Date.now()) return { status: 0, json: null, notSent: true, because: 'waiting a few minutes after the company community could not be joined' };
+  const pauseKey = agentKey + '\n' + String(org || '');   // review 9: per agent and company, as the membership is
+  if ((spacePauseUntil.get(pauseKey) || 0) > Date.now()) return { status: 0, json: null, notSent: true, because: 'waiting a few minutes after the company community could not be joined' };
   // Review 5: membership is per agent AND company, so one kept from another company is never reused; review 7: the
   // space joined must be that company's.
   const r = await companycommunity.spaceCall(agentKey + '\n' + String(org || ''), (m, p, x) => asAgent(agentKey, keys, m, p, x), method, sub, body,
     { members: spaceMembers, agent: k && typeof k.remoteId === 'string' ? k.remoteId : null, expectSpace: org || null });
-  if (r.notSent && r.status !== 404) spacePauseUntil.set(agentKey, Date.now() + SPACE_PAUSE_MS);
-  else if (!r.notSent) spacePauseUntil.delete(agentKey);
+  // Review 9: a site without spaces pauses too, so it does not cost a fresh pass per agent per sweep.
+  if (r.notSent) spacePauseUntil.set(pauseKey, Date.now() + SPACE_PAUSE_MS);
+  else spacePauseUntil.delete(pauseKey);
   return r;
 }
 
@@ -1030,7 +1034,9 @@ async function sweepDeletes(keys, sent, deletes) {
        spaces off answers 404 to every route, and the post would be marked taken down while still there. */
     if (company && r.status === 404) {
       const check = await spaceAs(rec.agent, keys, 'GET', '/agents/me/posts', undefined, corg);
-      if (check.status !== 200) { logWaitOnce('delete:' + id, `take-down of ${id}: the company community did not answer; trying again on each pass`); continue; }
+      if (check.status !== 200 || !Array.isArray(check.json)) { logWaitOnce('delete:' + id, `take-down of ${id}: the company community did not answer; trying again on each pass`); continue; }
+      // Review 9: and the post must really be absent from the agent's own posts there, not merely the route answering.
+      if (check.json.some((p) => p && String(p.id) === String(rec.remoteId))) { logWaitOnce('delete:' + id, `take-down of ${id}: the company community still lists it; trying again on each pass`); continue; }
     }
     if (r.status === 204 || r.status === 404) sent[id] = settle(rec, { state: 'deleted' });
     else {
