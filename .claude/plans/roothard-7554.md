@@ -70,6 +70,17 @@ All store tests: 111/111.
 
 Tests: 7/7; store suite 114/114; frozen-roots guard exit 0.
 
+## Review 3
+
+- [BLOCKER] engine.reachable.test.js: the new export `_ensureRootCacheSizeForTest` had no EXCUSED entry -> FIXED (an
+  entry with its reason, as the other `*ForTest` seams).
+- [BLOCKER] engine/windows-tests-1777.test.js: the new test file branches on a win32 host but nothing ran it on Windows
+  -> FIXED: added to tools/windows-tests.js ALSO (its key audit reads source and runs anywhere; its POSIX-mode arms
+  skip there).
+- The change itself: no BLOCKER or WARNING.
+- Lesson, as in review 2: a new export, a new test file and a new comment can each trip a repo-wide guard the diff
+  never names. Run those guards before the PR, not after.
+
 ## Rejected
 
 - Not recording EPERM/EACCES either: a failing chmod on every write for a root that will never change.
