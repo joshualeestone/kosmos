@@ -26743,6 +26743,18 @@ function start(port = PORT) {
       /* kosmos#7409: a removed agent stays off after a machine move (engine/remove.js reapplyAtBoardStart); a real board
          only, never a sandboxed fixture. */
       removal.reapplyAtBoardStart({ enforcing: boardAuthState.on });
+      // #1760: an existing install's data root and message log are made owner-only (a real board only, as above).
+      if (boardAuthState.on) {
+        try {
+          const mode = store.secureRoot();
+          messages.secureLog();
+          if (process.platform !== 'win32' && typeof mode === 'number' && (mode & 0o077)) {
+            process.stderr.write(`Kosmos: the data folder ${store.ROOT} could not be made owner-only (mode ${mode.toString(8)}), so other accounts on this computer may read it.\n`);
+          }
+        } catch (err) {
+          process.stderr.write(`Kosmos: could not make the data folder owner-only: ${String(err && err.message)}\n`);
+        }
+      }
       // Keep a listener attached for the life of the process. Without one, an
       // error after a successful bind is uncaught and exits with a raw stack.
       server.on('error', (err) => {
