@@ -3,7 +3,7 @@
 ## Finished looks like
 
 - In a DM, the agent's bubbles, their times and the working line keep their 16 pt left margin through a new reply, the composer growing a line, and the keyboard rising (Josh, builds 13 to 15, 10-28 18:53 to 19:04).
-- A sideways offset of the chat's list, whatever causes it, is put back to its rest (minus the list's left inset: 0 in portrait) at once and written in the diagnostic's record, once per shift, so a Share from the phone says whether it happened.
+- A sideways offset of the chat's list, whatever causes it, is put back to its rest (minus the list's left inset: 0 in portrait) about 0.35 s later, or once the person stops scrolling, and written in the diagnostic's record, once per shift, so a Share from the phone says whether it happened.
 
 ## What the evidence says
 
@@ -21,6 +21,8 @@
 - Review 3 (sonnet): the once-per-shift flag resets when the probe moves window. Not changed: which scroll view the probe finds (nearest UIScrollView ancestor of a view inside the chat's own ScrollView content is that list; an outer container is farther up); putting the offset back can interrupt a fling in progress, but only when the list is already shifted, which is the bug.
 
 - Review 4 (opus): shifts are counted and recorded only at the 1st, 2nd, 4th, 8th... with the count, so a cause that comes back every frame adds a handful of lines, not 80; the put-back waits 0.35 s and is skipped while the list is dragged or flinging, so it cannot cut a scroll in progress short (the next offset change tries again); the watch also reads the offset when it starts; the Debug shift is given once. Not measured: whether 0.35 s outlasts every SwiftUI scroll animation; one still running then would be cut short, as before review 4. The card stays open until a Share from Josh's phone shows the shift gone or put back.
+
+- Review 5 (sonnet): while the list is dragged or flinging the put-back is tried again every 0.35 s (a fling ending with no further offset change left it shifted). Stated plainly: the lock shortens the shift, it does not prevent it; a shift can show for about 0.35 s, or for the length of a scroll the person is making.
 
 ## Weakest premise
 

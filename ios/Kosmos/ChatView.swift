@@ -2149,10 +2149,21 @@ struct SideScrollLock: UIViewRepresentable {
 
     final class Probe: UIView {
         let off: Bool
+        // Review 5: tried again every 0.35 s while the list is dragged or flinging, so a fling that ends with no further
+        // offset change still gets it back.
+        private func putBack(_ sv: UIScrollView) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, weak sv] in
+                guard let self, let sv, self.window != nil else { self?.fixing = false; return }
+                if sv.isDragging || sv.isDecelerating { self.putBack(sv); return }
+                self.fixing = false
+                let rest = -sv.adjustedContentInset.left
+                if abs(sv.contentOffset.x - rest) > 0.5 { sv.contentOffset.x = rest }
+            }
+        }
         private var watch: NSKeyValueObservation?
         private var shifted = false
         private var shifts = 0          // review 4: shifts so far; recorded at the 1st, 2nd, 4th, 8th..., so a cause that
-                                        // comes back every frame cannot fill the record
+                                        // comes back every frame cannot fill the record (kept across windows on purpose)
         private var fixing = false
         #if DEBUG
         static var sampleShifted = false   // KOSMOS_SAMPLE_SIDEWAYS gives one shift, not one per window
@@ -2192,13 +2203,7 @@ struct SideScrollLock: UIViewRepresentable {
                 }
                 guard !off, !self.fixing else { return }
                 self.fixing = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, weak sv] in
-                    guard let self, let sv else { return }
-                    self.fixing = false
-                    guard !sv.isDragging, !sv.isDecelerating else { return }   // the next offset change tries again
-                    let rest = -sv.adjustedContentInset.left
-                    if abs(sv.contentOffset.x - rest) > 0.5 { sv.contentOffset.x = rest }
-                }
+                self.putBack(sv)
             }
         }
     }
