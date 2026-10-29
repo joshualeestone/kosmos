@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: roothard-7554
-diff_hash: 983ddd80e62c92e9f6a5301514b61a332b3512d6eee851fe345caa0799946af8
+diff_hash: b03b03ce08c104b77a109cf46a33a39a2b9211cef2a755d19553fbba4d96b88f
 validation: on kosmos main 77f0dd3a85 (storemode-1760 merged as #7562): engine/store.chmod-retry-7554.test.js, every engine/store*.test.js, engine.reachable.test.js and engine/windows-tests-1777.test.js 141/141; tools/check-frozen-roots.js engine exit 0; earlier a related and guard set of 337 files (7935 tests, 0 fail) on the dropped-cache version. Full suite left to CI.
 subdir_audit: passed (no subdir CLAUDE.md in the diff)
 timestamp: 2026-10-29T12:26:03Z
@@ -44,3 +44,6 @@ Item 1 (an env-keyed root cache in ensure()) was built in rounds 1-3 and DROPPED
 - Checked, no defect: guards 141/141; frozen-roots exit 0; no non-ASCII in added lines
 - [NIT] the plan still described the dropped cache -> FIXED
 Converged.
+
+### After convergence
+- Windows CI red: the test file was in tools/windows-tests.js ALSO, where all 3 arms skip (a POSIX-mode test), which the Windows runner calls NEW RED. Moved to HOST_BRANCH_EXCLUDED with its reason, as #1760's own test is. windows-tests-1777 23/23.
