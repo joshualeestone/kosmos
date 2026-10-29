@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: reportline-7586
-diff_hash: 7a819975e505df2a904a63317242919f2c5a4ad05b188a06b962d6ac8536db69
+diff_hash: 860023d7a5c3c7364a02aff016dec15c60085d00b8ccb9edd203f42fe6e42b7a
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-29T19:03:42Z
+timestamp: 2026-10-29T19:29:59Z
 iterations: 4
 converged: true
 ---
@@ -17,7 +17,7 @@ converged: true
 **Total findings:** 0 BLOCKERs, 5 WARNINGs (3 of them MINORs from PigeonPete's review), 0 CONVENTIONs, 6 NITs
 **Fixed:** 4 | **Deferred:** 7 (reasons in the plan) | **Asked (awaiting user):** 0
 
-**Validation of record (HEAD 2b6a3fb1ac, on origin/main e717c1e998):** web.joined-required-7586.test.js 4/4; the 11 tests that read the joined view and reporting code 86/86. CI's browser-check selector picks render-orgenroll-5531 and render-org-family-6239 (selector plus-org-say) and four page checks.
+**Validation of record (HEAD 2b6a3fb1ac, on origin/main e717c1e998):** web.joined-required-7586.test.js 4/4; the 11 tests that read the joined view and reporting code 86/86. render-orgenroll-5531.js now asserts the line (O15r: company, family, the family waiting on its words; controls), run headless on the real page: all pass, and O15r fails with the line removed. Both browser-check gates (#1720, surface) pass locally.
 
 ### Per-Iteration Breakdown
 
@@ -34,7 +34,7 @@ converged: true
 **Reviewer model:** sonnet (blind)
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 3 NITs
 - Fixed: the same wording finding. Checked: family reachability (the family console requires reporting).
-- Deferred: the leave-refused message does not carry the line; test 3 pins source text; no rendered check.
+- Deferred: the leave-refused message does not carry the line; test 3 pins source text. (The rendered check was added after CI's #1720 gate asked for it.)
 
 #### Iteration 4
 **Reviewer model:** sonnet (blind)
