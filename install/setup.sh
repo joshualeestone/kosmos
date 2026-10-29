@@ -5575,7 +5575,11 @@ _kosmos_cloud_join() {
     info "This cloud machine has already joined its Kosmos+ account."
     return 0
   fi
-  if [ -z "${KOSMOS_PROVISIONING_TOKEN:-}" ]; then
+  # Registered by an earlier run that stopped before its latch (mac_id written, no latch): the token is spent, so
+  # the tunnel is not asked again; this run finishes the latch, remote access and the token's removal (review 2).
+  _kcj_registered=no
+  [ -s "$_kcj_state/mac_id" ] && [ ! -L "$_kcj_state/mac_id" ] && _kcj_registered=yes
+  if [ "$_kcj_registered" = no ] && [ -z "${KOSMOS_PROVISIONING_TOKEN:-}" ]; then
     info "This cloud machine has no setup token, so it cannot join its Kosmos+ account."
     return 1
   fi
@@ -5590,20 +5594,22 @@ _kosmos_cloud_join() {
   # box. kosmos-tunnel keeps the same identity key across re-runs, and the coordinator answers the same registration to
   # the same token and key, so a retry is safe. The log is cleared once per run; each try then appends, numbered.
   # A usage error (exit 2: the tunnel refused the call itself) is not retried: it would fail the same way.
-  : > "$KOSMOS_HOME/logs/cloud-join.log"
-  _kcj_try=1
-  while :; do
-    printf 'try %s\n' "$_kcj_try" >> "$KOSMOS_HOME/logs/cloud-join.log"
-    _kcj_rc=0
-    printf '%s' "$KOSMOS_PROVISIONING_TOKEN" | "$KOSMOS_HOME/app/bin/kosmos-tunnel" setup cloud --coordinator "$_kcj_coord" --state-dir "$_kcj_state" >> "$KOSMOS_HOME/logs/cloud-join.log" 2>&1 || _kcj_rc=$?
-    [ "$_kcj_rc" -eq 0 ] && break
-    if [ "$_kcj_rc" -eq 2 ] || [ "$_kcj_try" -ge 3 ]; then
-      info "This cloud machine could not join its Kosmos+ account. What happened is in $KOSMOS_HOME/logs/cloud-join.log"
-      return 1
-    fi
-    _kcj_try=$((_kcj_try + 1))
-    sleep "${KOSMOS_CLOUD_JOIN_RETRY_SECS:-10}"
-  done
+  if [ "$_kcj_registered" = no ]; then
+    : > "$KOSMOS_HOME/logs/cloud-join.log"
+    _kcj_try=1
+    while :; do
+      printf 'try %s\n' "$_kcj_try" >> "$KOSMOS_HOME/logs/cloud-join.log"
+      _kcj_rc=0
+      printf '%s' "$KOSMOS_PROVISIONING_TOKEN" | "$KOSMOS_HOME/app/bin/kosmos-tunnel" setup cloud --coordinator "$_kcj_coord" --state-dir "$_kcj_state" >> "$KOSMOS_HOME/logs/cloud-join.log" 2>&1 || _kcj_rc=$?
+      [ "$_kcj_rc" -eq 0 ] && break
+      if [ "$_kcj_rc" -eq 2 ] || [ "$_kcj_try" -ge 3 ]; then
+        info "This cloud machine could not join its Kosmos+ account. What happened is in $KOSMOS_HOME/logs/cloud-join.log"
+        return 1
+      fi
+      _kcj_try=$((_kcj_try + 1))
+      sleep "${KOSMOS_CLOUD_JOIN_RETRY_SECS:-10}"
+    done
+  fi
   unset KOSMOS_PROVISIONING_TOKEN
   if ! ( umask 077 && : > "$_kcj_state/hosted" ) || ! chmod 600 "$_kcj_state/hosted"; then
     info "This cloud machine joined its account but could not mark itself as a cloud machine ($_kcj_state/hosted)."

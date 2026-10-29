@@ -16,7 +16,7 @@ decision m1170: Baron rebases, merges, cuts 0.7.74 to staging; Kitty reads the r
   token with `cloud_token_from_stdin()`; the cut rebuilds the connector from relay main.
 
 ## Tests
-install.cloud-join-4903.test.js (6), run as shipped against stand-ins: does nothing off a Linux cloud box; joins and
+install.cloud-join-4903.test.js (9), run as shipped against stand-ins: does nothing off a Linux cloud box; joins and
 latches; a lost answer retried with the same token; a failed join writes no latch, leaves remote off and says where
 to look; no token, a refused switch or a link where the latch goes each refuse.
 
