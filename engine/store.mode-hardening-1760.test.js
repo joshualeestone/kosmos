@@ -22,13 +22,22 @@ const skip = process.platform === 'win32';
 const modeOf = (p) => fs.statSync(p).mode & 0o777;
 
 test('#1760: a store write (writeProfile -> ensure) tightens a loose data root to 0700', { skip }, () => {
-  assert.ok(store.ROOT.startsWith(SB), 'the data root is not in this test\'s sandbox: ' + store.ROOT);
-  // The precondition is set here (0755), so the result does not depend on the ambient umask.
-  fs.mkdirSync(store.ROOT, { recursive: true });
-  fs.chmodSync(store.ROOT, 0o755);
-  assert.equal(modeOf(store.ROOT), 0o755, 'precondition: the root starts at 0755');
-  store.writeProfile('modeprobe', { dir: path.join(SB, 'work', 'modeprobe'), provider: 'anthropic' });
-  assert.equal(modeOf(store.ROOT), 0o700, `ensure() did not tighten the root (got ${modeOf(store.ROOT).toString(8)})`);
+  // Its own data folder, so no earlier ensure() in this process can have tried this root already.
+  const own = fs.mkdtempSync(path.join(os.tmpdir(), 'storemode-1760-write-'));
+  const was = process.env.AGENT_WORKFORCE_DATA;
+  process.env.AGENT_WORKFORCE_DATA = own;
+  try {
+    assert.ok(store.ROOT.startsWith(own), 'the data root is not in this test\'s folder: ' + store.ROOT);
+    // The precondition is set here (0755), so the result does not depend on the ambient umask.
+    fs.mkdirSync(store.ROOT, { recursive: true });
+    fs.chmodSync(store.ROOT, 0o755);
+    assert.equal(modeOf(store.ROOT), 0o755, 'precondition: the root starts at 0755');
+    store.writeProfile('modeprobe', { dir: path.join(own, 'work', 'modeprobe'), provider: 'anthropic' });
+    assert.equal(modeOf(store.ROOT), 0o700, `ensure() did not tighten the root (got ${modeOf(store.ROOT).toString(8)})`);
+  } finally {
+    process.env.AGENT_WORKFORCE_DATA = was;
+    fs.rmSync(own, { recursive: true, force: true });
+  }
 });
 
 test('#1760: a root that does not exist yet is not marked secured, so the first write after it is made tightens it', { skip }, () => {
@@ -49,7 +58,7 @@ test('#1760: a root that does not exist yet is not marked secured, so the first 
 
 test('#1760: secureRoot (the board-start call) tightens a loose root every time, and returns the mode', { skip }, () => {
   fs.mkdirSync(store.ROOT, { recursive: true });
-  fs.chmodSync(store.ROOT, 0o755);   // loosened again after the test above already secured this root
+  fs.chmodSync(store.ROOT, 0o755);
   assert.equal(store.secureRoot(), 0o700);
   assert.equal(modeOf(store.ROOT), 0o700);
 });
@@ -90,17 +99,20 @@ test('#1760: a test process allowed to read the real root (KOSMOS_ALLOW_REAL_ROO
   const { spawnSync } = require('node:child_process');
   // The child keeps this process's test markers (NODE_TEST_CONTEXT), so it is a test process too.
   const env = { ...process.env, KOSMOS_ALLOW_REAL_ROOT: '1' };
-  delete env.AGENT_WORKFORCE_DATA; delete env.AGENT_WORKFORCE_HOME;
+  // The real home by name, so a runner that sandboxes HOME cannot make this resolve somewhere else and pass vacuously.
+  delete env.AGENT_WORKFORCE_DATA; env.AGENT_WORKFORCE_HOME = os.userInfo().homedir;
   const code = `
     const fs = require('fs'); const calls = [];
     fs.chmodSync = (p) => { calls.push(String(p)); };
     const store = require(${JSON.stringify(path.join(__dirname, 'store.js'))});
     const real = store.realDefaultRoot(process.platform, store.APP);
+    const resolved = store.resolveDataRoot(process.platform, process.env.AGENT_WORKFORCE_HOME, process.env);
     store.secureRoot();
-    process.stdout.write(JSON.stringify({ real, touched: calls.filter((p) => p === real).length }));`;
+    process.stdout.write(JSON.stringify({ real, resolved, touched: calls.filter((p) => p === real).length }));`;
   const r = spawnSync(process.execPath, ['-e', code], { env, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const out = JSON.parse(r.stdout);
   assert.ok(out.real, 'no real root to compare against');
+  assert.equal(out.resolved, out.real, 'the child did not resolve the real root, so this test would prove nothing');
   assert.equal(out.touched, 0, 'secureRoot asked to chmod the real data root from a test process');
 });
