@@ -398,6 +398,7 @@ check(NewProject.result(sent: false, status: 0, body: nil) == .refused(NewProjec
 let firsts = Board.firstProjects(Board.parseProjects(Data(#"{"projects":[{"id":"z","name":"Zeta","agents":[{"sessionName":"a"}]},{"id":"b","name":"beta","agents":[{"sessionName":"a"},{"sessionName":"c"}]}]}"#.utf8)))
 let agentsSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentsView.swift"), encoding: .utf8)) ?? ""
 let clientSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardClient.swift"), encoding: .utf8)) ?? ""
+check(!agentsSrc.contains("Section(footer:") && !agentsSrc.contains("set up on your computer"), "kosmos#7528: the Agents list has no footer line (Josh 10-28)")
 // Wiring guards (source checks, not behaviour): the order reaches the list with the person's stars, re-sorted only where
 // the list re-sorts, so starred agents stay on top and rows never move under a thumb (review 1 blocker).
 check(clientSrc.contains("Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known)") && clientSrc.contains("Board.agentOrder(agents, sort: sort, projects: projects, stars: shownStars)"), "kosmos#7421: the chosen order is applied with the stars, on a re-sort and when picked")
