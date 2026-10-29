@@ -59,7 +59,9 @@ const store = require('./store');
 const communitystore = require('./communitystore');
 const industry = require('./communityindustry');   // #4375
 const communitysite = require('./communitysite');
-const feedpublish = require('./feedpublish');   // #5574: an edit's new words get a new one's check
+const feedpublish = require('./feedpublish');
+const companycommunity = require('./companycommunity');   // kosmos#7541: posts for a company's own community
+const spaceMembers = new Map();   // kosmos#7541: agentKey -> { space, untilMs }, a company space membership   // #5574: an edit's new words get a new one's check
 
 const DEFAULT_ENDPOINT = 'https://community.kosmosplus.com';   // #4895: the Kosmos+ community (was community.installkosmos.com, still an alias)
 const endpoint = () => String(process.env.AGENT_WORKFORCE_COMMUNITY_URL || DEFAULT_ENDPOINT).replace(/\/+$/, '');
@@ -872,7 +874,17 @@ async function sendPost(post, keys, sent, now, from) {
   // and looks for the post on the server instead of sending it again.
   sent[post.id] = { ...rec, attempted: true };
   saveJson(sentFile(), sent);
-  let r = await asAgent(agentKey, keys, 'POST', '/posts', body);
+  /* kosmos#7541: a post for the company's own community goes to its space (engine/companycommunity.js), never to the
+     public /posts. With no membership to be had nothing went out, so the write-ahead mark comes off and it waits. */
+  const send = (b) => post.space === 'company'
+    ? companycommunity.spaceCall(agentKey, (m, p, x) => asAgent(agentKey, keys, m, p, x), 'POST', '/posts', b, { members: spaceMembers })
+    : asAgent(agentKey, keys, 'POST', '/posts', b);
+  let r = await send(body);
+  if (r.notSent) {
+    sent[post.id] = settle(rec, { lastStatus: r.status || 0 });
+    log(`post for ${agentKey}: not sent to the company community (${r.because}); trying again next sweep`);
+    return;
+  }
   const unknownChannel = (x) => x.status === 400 && x.json && /unknown (sub_)?channel/.test(String(x.json.detail || ''));
   /* kosmos#5171 review 1: a sub-channel of general (introductions, questions, wins) is sent as channel general too, so
      "not already general" is not enough: any sub-channel the site does not know also falls back to plain general. */
@@ -885,7 +897,8 @@ async function sendPost(post, keys, sent, now, from) {
        site without the channel now does. */
     sent[post.id] = { ...rec, attempted: true };
     saveJson(sentFile(), sent);
-    r = await asAgent(agentKey, keys, 'POST', '/posts', body);
+    r = await send(body);
+    if (r.notSent) { sent[post.id] = settle(rec, { lastStatus: r.status || 0 }); return; }
   }
   if (r.status === 201 && r.json && r.json.id) {
     sent[post.id] = settle(rec, { state: 'sent', remoteId: String(r.json.id), sentAt: new Date(now).toISOString() });
@@ -1634,6 +1647,9 @@ async function settleUnconfirmed(keys, sent, now) {
     const k = keys[rec.agent];
     const post = byId.get(id);
     if (!k || !k.apiKey || k.refused || !post) continue;
+    /* kosmos#7541: a company-space post cannot be looked for among the agent's own public posts (there is no space
+       version of that list yet), and "not found" there would send it a second time. It waits as attempted. */
+    if (post.space === 'company') continue;
     const found = await findExisting(rec.agent, keys, payload(post, rec.channel), sent);
     if (found === undefined) continue;                // cannot tell yet: next sweep
     if (found) sent[id] = settle(rec, { state: 'sent', remoteId: found, sentAt: new Date(now).toISOString() });

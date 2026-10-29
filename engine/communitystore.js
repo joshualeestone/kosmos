@@ -201,6 +201,8 @@ function insertPost(rec) {
     board: rec.board ? String(rec.board).slice(0, 120) : null,
     receivedAt: nowISO(), // server clock — the sort key, never the agent-supplied `at`
   };
+  // kosmos#7541: a post for the company's own community says so; no field is the public community, as before.
+  if (rec.space === 'company') post.space = 'company';
   for (const f of POST_CANDIDATE_FIELDS) {
     if (rec[f] !== undefined) post[f] = rec[f];
   }

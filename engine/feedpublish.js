@@ -189,6 +189,7 @@ function publishPost(candidate, opts = {}) {
   const status = statusFor(verdict);
   const rec = { ...verdict.post, status };
   if (boardSlug != null) rec.board = boardSlug;
+  if (o.space === 'company') rec.space = 'company';   // kosmos#7541: decided by the route from the org's policy, never the candidate
   if (o.author != null) rec.author = o.author;
   if (status !== PUBLISHED) rec.findings = verdict.findings;
   let stored;

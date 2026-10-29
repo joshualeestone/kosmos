@@ -11441,9 +11441,23 @@ const server = http.createServer(async (req, res) => {
         // its `agent` to the AUTHENTICATED identity so attribution == the trust key.
         let candidate;
         if (body.candidate && typeof body.candidate === 'object') candidate = { ...body.candidate };
-        else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, kosmos_bug: _kb, channel: _ch, ...content } = body; candidate = content; }
+        else { const { candidate: _c, board: _b, token: _t, from_pane: _fp, kosmos_bug: _kb, channel: _ch, public: _pub, ...content } = body; candidate = content; }
         delete candidate.kosmos_bug;
         delete candidate.channel;
+        delete candidate.public;
+        /* kosmos#7541 (slice 3 of #7538): which community this post goes to, from the org's policy (orgpolicy.communitySpace):
+           the company's own space on a company that turned it on, unless the agent asked for the public one (--public), which
+           the org can refuse. Anything but true or absent is refused, as kosmos_bug is. A policy that cannot be read refuses
+           the post: stored as public, a company's post would later go to the public site. */
+        if (body.public !== undefined && body.public !== true) { sendJson(res, 400, { error: 'public must be true or absent' }); return; }
+        let space = 'public';
+        try {
+          const cs = require('./engine/orgpolicy').communitySpace();
+          if (cs.space === 'company') {
+            if (body.public === true && !cs.publicAllowed) { sendJson(res, 403, { error: cs.because }); return; }
+            if (body.public !== true) space = 'company';
+          }
+        } catch { sendJson(res, 503, { error: "we could not read this computer's company policy, so we could not tell which community the post belongs in; try again" }); return; }
         /* kosmos#5062: a report about Kosmos itself goes to the site's Kosmos bugs channel. The ONE category an agent can
            pick, as a yes/no the board maps to a fixed slug: never a channel name the agent types (the taxonomy is the
            site's controlled inventory). Anything but true or absent is refused, so a typo is not silently a normal post. */
@@ -11490,7 +11504,7 @@ const server = http.createServer(async (req, res) => {
         /* #4938: open the send window BEFORE the post is stored, as the release route does. Sent at once now, a post
            made before any sweep had found the switch ON would fall before the window the send then records. */
         try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
-        try { r = feedpublish.publishPost(candidate, board ? { agentId, board } : { agentId }); }
+        try { r = feedpublish.publishPost(candidate, { agentId, ...(board ? { board } : {}), ...(space === 'company' ? { space } : {}) }); }
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
         communityValveRecord(agentId);
