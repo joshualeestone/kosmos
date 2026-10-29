@@ -950,7 +950,7 @@ async function sendPost(post, keys, sent, now, from) {
   let r = await send(body);
   if (r.notSent) {
     sent[post.id] = settle(rec, { lastStatus: r.status || 0 });
-    log(`post for ${agentKey}: not sent to the company community (${r.because}); trying again next sweep`);
+    logWaitOnce(post.id, `post for ${agentKey}: not sent to the company community (${r.because}); trying again on each pass`);   // review 6: once, not every sweep
     return;
   }
   const unknownChannel = (x) => x.status === 400 && x.json && /unknown (sub_)?channel/.test(String(x.json.detail || ''));
@@ -1015,10 +1015,10 @@ async function sweepDeletes(keys, sent, deletes) {
     const company = wentToCompany(id, rec);   // review 4: the record says so even if the board's row is gone
     // Review 5: a take-down goes only to the company it was written for, while that is this computer's; else it waits.
     const corg = company ? (rec.org || (communitystore.rowOf('post', id) || {}).org) : null;
-    if (company && !companyPostGoesNow({ org: corg }, Date.now())) continue;
+    if (company && !companyPostGoesNow({ org: corg }, Date.now())) { logWaitOnce('delete:' + id, `take-down of ${id}: held, it is in a company community that is not this computer's now`); continue; }
     const r = company ? await spaceAs(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId), undefined, corg)
       : await asAgent(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId));
-    if (r.notSent) continue;
+    if (r.notSent) { logWaitOnce('delete:' + id, `take-down of ${id}: not sent to the company community (${r.because}); trying again on each pass`); continue; }
     if (r.status === 204 || r.status === 404) sent[id] = settle(rec, { state: 'deleted' });
     else {
       sent[id] = { ...rec, deleteStatus: r.status };
