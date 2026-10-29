@@ -2176,7 +2176,7 @@ struct SideScrollLock: UIViewRepresentable {
                                         // comes back every frame cannot fill the record (kept across windows on purpose)
         private var fixing = false
         private var writing = false     // kosmos#7420 review 1: inside our own immediate write (below), never a second one
-        private var quick = 0           // kosmos#7420 review 2: immediate writes in the current 0.35 s; past 4, the delayed put-back
+        private var quick = 0           // kosmos#7420 review 2: immediate writes in a 0.35 s window from its first; past 4, the delayed put-back
         private var generation = 0      // review 6: a retry from before the probe moved window ends itself
         #if DEBUG
         static var sampleShifted = false   // KOSMOS_SAMPLE_SIDEWAYS gives one shift, not one per window
@@ -2226,7 +2226,7 @@ struct SideScrollLock: UIViewRepresentable {
                 // a fling, so a shift landing during one is written at once too, which may end that scroll early.
                 // Review 1: one write at a time. If the write does not land at rest (something answers it with another
                 // shift inside the same change), the nested call does not write again: it falls to the delayed put-back.
-                // Review 2: at most 4 immediate writes per 0.35 s. A cause that shifts it again on every layout would
+                // Review 2: at most 4 immediate writes per 0.35 s window (8 across a window edge). A cause that shifts it again on every layout would
                 // otherwise trade writes with it each pass; past the cap it gets the delayed put-back, the old behaviour.
                 if ChatView.idAnchor, !sv.isDragging, !sv.isDecelerating, !self.writing, self.quick < 4 {
                     if self.quick == 0 {
