@@ -56,13 +56,21 @@ final class SignInUITests: XCTestCase {
             // yet", come only from the board's own answer (AgentsView: every other state is a connection message).
             let noComputer = { app.buttons["Continue to the app"].exists && app.staticTexts["Signed in"].exists }
             let askedAllow = { app.staticTexts["Allow this iPhone on your Mac"].exists }
-            let boardAnswered = { app.tabBars.buttons["Agents"].exists && (app.staticTexts["No agents yet"].exists || app.cells.count > 0) }
+            // Review 2: the app opens on Today, so the test opens Agents itself, and waits on the two names AgentsView gives
+            // only what the board's answer draws ("agents-list", or "agents-empty" for no agents).
+            let agentsTab = app.tabBars.buttons["Agents"]
+            let named = { (id: String) in app.descendants(matching: .any).matching(identifier: id).firstMatch.exists }
+            let boardAnswered = { agentsTab.isSelected && (named("agents-list") || named("agents-empty")) }
             let deadline = Date().addingTimeInterval(120)
-            while Date() < deadline && !boardAnswered() && !noComputer() && !askedAllow() { Thread.sleep(forTimeInterval: 1) }
+            while Date() < deadline && !boardAnswered() && !noComputer() && !askedAllow() {
+                if agentsTab.exists && !agentsTab.isSelected { agentsTab.tap() }
+                Thread.sleep(forTimeInterval: 1)
+            }
             XCTAssertFalse(askedAllow(), "the computer asked for an Allow: a hosted box should let its own account in")
             XCTAssertFalse(noComputer(), "signed in, but this account has no computer connected, so there is no board to load")
             XCTAssertTrue(app.tabBars.buttons["Agents"].exists, "signed in, but the app did not move past sign-in within 120 s")
-            XCTAssertTrue(boardAnswered(), "the app is past sign-in but the board did not answer within 120 s (no agents list, no \"No agents yet\")")
+            XCTAssertTrue(agentsTab.isSelected, "the Agents tab could not be opened")
+            XCTAssertTrue(boardAnswered(), "the app is past sign-in but the board did not answer within 120 s (no agents list, no \"No agents yet\" on Agents)")
             XCTAssertFalse(app.staticTexts["One more step"].exists)
         }
     }
@@ -84,7 +92,7 @@ final class SignInUITests: XCTestCase {
         while Date() < deadline {
             if let s = try? String(contentsOfFile: path, encoding: .utf8) {
                 let code = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                if code.count == 6, code.allSatisfy(\.isNumber) { return code }
+                if code.count == 6, code.allSatisfy({ $0.isASCII && $0.isNumber }) { return code }   // review 2: ASCII digits only
             }
             Thread.sleep(forTimeInterval: 1)
         }
@@ -124,6 +132,25 @@ final class SignInUITests: XCTestCase {
             if bits >= 8 { out.append(UInt8((value >> (bits - 8)) & 0xff)); bits -= 8 }
         }
         return out
+    }
+}
+
+// Review 2: the board check itself, against the Debug build's sample board (no account, no network): on Today the agents
+// list is not found (the control: the check cannot pass on the tab it starts on), and once Agents is opened it is.
+final class BoardCheckTests: XCTestCase {
+    func testTheBoardCheckFindsTheAgentsListOnlyOnAgents() {
+        let app = XCUIApplication()
+        app.launchEnvironment["KOSMOS_SAMPLE_AGENTS"] = "1"
+        app.launch()
+        let agentsTab = app.tabBars.buttons["Agents"]
+        XCTAssertTrue(agentsTab.waitForExistence(timeout: 30), "the sample board did not open")
+        let list = app.descendants(matching: .any).matching(identifier: "agents-list").firstMatch
+        // The app opens on Today (AppTabs.todayTab), so the control always runs; if that ever changes, this says so.
+        XCTAssertFalse(agentsTab.isSelected, "setup: the app no longer opens on Today, so the control below cannot run")
+        XCTAssertFalse(list.exists, "CONTROL: the agents list was found while Agents was not the open tab")
+        agentsTab.tap()
+        XCTAssertTrue(agentsTab.isSelected, "the Agents tab could not be opened")
+        XCTAssertTrue(list.waitForExistence(timeout: 15), "the agents list (agents-list) was not found on Agents")
     }
 }
 
