@@ -398,6 +398,8 @@ check(NewProject.result(sent: false, status: 0, body: nil) == .refused(NewProjec
 let firsts = Board.firstProjects(Board.parseProjects(Data(#"{"projects":[{"id":"z","name":"Zeta","agents":[{"sessionName":"a"}]},{"id":"b","name":"beta","agents":[{"sessionName":"a"},{"sessionName":"c"}]}]}"#.utf8)))
 let agentsSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentsView.swift"), encoding: .utf8)) ?? ""
 let clientSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardClient.swift"), encoding: .utf8)) ?? ""
+// kosmos#7529: a starred star is the bright gold under a starGold outline (light), and the row's small star draws the same.
+check(agentsSrc.contains("static let starFill = pair(0xe3b341, 0xe3b341)") && agentsSrc.contains("Image(systemName: \"star.fill\").foregroundColor(Palette.starFill)") && agentsSrc.contains("Image(systemName: \"star\").foregroundColor(Palette.starGold)") && agentsSrc.contains("if starred { StarredStar().font(.caption2)"), "kosmos#7529: the starred star is filled bright gold with a deep gold outline, in the header and beside a name")
 check(!agentsSrc.contains("Section(footer:") && !agentsSrc.contains("set up on your computer"), "kosmos#7528: the Agents list has no footer line (Josh 10-28)")
 // Wiring guards (source checks, not behaviour): the order reaches the list with the person's stars, re-sorted only where
 // the list re-sorts, so starred agents stay on top and rows never move under a thumb (review 1 blocker).
@@ -413,7 +415,7 @@ let composerLogicSrc = (try? String(contentsOf: repo.appendingPathComponent("ios
 check(!composerLogicSrc.isEmpty && Board.quickReactions.allSatisfy { composerLogicSrc.contains("\"\($0)\"") }, "kosmos#7419: each quick reaction is one of the board's 80 (More offers the same list)")
 let sheetChat = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
 // kosmos#7034 build 11 (Mona Lisa): a visible star in the chat header, outline or gold, the same save as the row swipe.
-check(sheetChat.contains("Image(systemName: starred ? \"star.fill\" : \"star\")") && sheetChat.contains("await client.toggleStar(agent.session)") && sheetChat.contains("await client.readStarsIfUnknown()") && sheetChat.contains("starred ? \"Unstar \\(shown.name)\" : \"Star \\(shown.name)\""),
+check(sheetChat.contains("if starred { StarredStar() } else { Image(systemName: \"star\")") && sheetChat.contains("await client.toggleStar(agent.session)") && sheetChat.contains("await client.readStarsIfUnknown()") && sheetChat.contains("starred ? \"Unstar \\(shown.name)\" : \"Star \\(shown.name)\""),
       "kosmos#7034: the chat header has a star, gold when starred, saved as the row swipe saves it")
 let sheetRoom = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
 let sheetSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ComposerExtras.swift"), encoding: .utf8)) ?? ""
