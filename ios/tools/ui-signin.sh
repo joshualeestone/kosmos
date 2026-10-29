@@ -33,7 +33,7 @@ otpauth="$(secrets-map.sh value "$totp_target" 2>/dev/null)" || otpauth=""
 case "$otpauth" in
   otpauth://*) ;;
   *) if printf '%s' "$otpauth" | grep -qE '^[A-Z2-7]{16,}=*$'; then otpauth="otpauth://totp/Kosmos?secret=$otpauth&algorithm=SHA1&digits=6&period=30"
-     else unset otpauth; echo "FAIL  ui-signin: the secrets map has no authenticator (an otpauth URL or a base32 secret) for $totp_target" >&2; exit 1; fi ;;
+     else unset otpauth; echo "FAIL  ui-signin: the authenticator filed for $totp_target is not an otpauth URL or an upper-case base32 secret (none filed, or another form)" >&2; exit 1; fi ;;
 esac
 
 work="$(mktemp -d)"; chmod 700 "$work"

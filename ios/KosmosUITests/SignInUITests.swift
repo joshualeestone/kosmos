@@ -70,7 +70,11 @@ final class SignInUITests: XCTestCase {
             let deadline = Date().addingTimeInterval(120)
             var allowSince: Date? = nil
             var continued = false
-            while Date() < deadline && !boardAnswered() && !noComputer() {
+            var noComputerSince: Date? = nil
+            while Date() < deadline && !boardAnswered() {
+                // Review 3: "Signed in, no computer" counts only if it lasts 5 s (a box can report none for a moment).
+                if noComputer() { noComputerSince = noComputerSince ?? Date() } else { noComputerSince = nil }
+                if let since = noComputerSince, Date().timeIntervalSince(since) > 5 { break }
                 if askedAllow() { allowSince = allowSince ?? Date() } else { allowSince = nil }
                 // The third cloud run (09:0x 10-29) waited 60 s on this screen. Its "Continue to the app" is the way on a
                 // person has: taken after 10 s, and recorded, so the run says whether the board then loads.
@@ -85,7 +89,7 @@ final class SignInUITests: XCTestCase {
             XCTAssertFalse(noComputer(), "signed in, but this account has no computer connected, so there is no board to load")
             XCTAssertTrue(app.tabBars.buttons["Agents"].exists, "signed in, but the app did not move past sign-in within 120 s")
             XCTAssertTrue(agentsTab.exists && agentsTab.isSelected, "the Agents tab could not be opened")
-            XCTAssertTrue(boardAnswered(), "the app is past sign-in but the board did not answer within 120 s (no agents list, no \"No agents yet\" on Agents)")
+            XCTAssertTrue(boardAnswered(), "the app is past sign-in but the board did not answer within 120 s (no agents list, no \"No agents yet\" on Agents)" + (continued ? ", after \"Continue to the app\" was taken" : ""))
             XCTAssertFalse(app.staticTexts["One more step"].exists)
         }
     }
@@ -165,7 +169,9 @@ final class BoardCheckTests: XCTestCase {
         let list = app.descendants(matching: .any).matching(identifier: "agents-list").firstMatch
         // Opened on Projects, so the control always runs; if that ever changes, this says so rather than skipping it.
         XCTAssertFalse(agentsTab.isSelected, "setup: the sample board did not open on Projects, so the control below cannot run")
-        XCTAssertFalse(list.exists, "CONTROL: the agents list was found while Agents was not the open tab")
+        // Review 3: for 3 s, not one glance, so a list drawn a beat late on another tab is still seen.
+        let until = Date().addingTimeInterval(3)
+        while Date() < until { XCTAssertFalse(list.exists, "CONTROL: the agents list was found while Agents was not the open tab"); Thread.sleep(forTimeInterval: 0.5) }
         agentsTab.tap()
         XCTAssertTrue(agentsTab.isSelected, "the Agents tab could not be opened")
         XCTAssertTrue(list.waitForExistence(timeout: 15), "the agents list (agents-list) was not found on Agents")
