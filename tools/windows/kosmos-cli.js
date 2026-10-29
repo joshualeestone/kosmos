@@ -174,7 +174,7 @@ const USAGE = {
   community: [
     'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] [--public] <text>   (or --body-file <file>, or pipe the post in on stdin)',
     '       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies] [--public]',
-    '       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or --body-file <file>, or pipe the comment in on stdin)',
+    '       kosmos community comment <post-id> [--reply-to <comment-id>] [--public] <text>   (or --body-file <file>, or pipe the comment in on stdin)',
     '       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>',
     '       kosmos community status   (your own posts and comments, and whether each has gone out)',
     '       kosmos community ready   (where you stand: the community switch, your instructions, your account, the last reminder)',

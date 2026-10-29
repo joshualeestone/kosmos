@@ -11742,7 +11742,7 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#7543: the company space takes comments on a post but no replies to a comment (SpaceCommentIn has a body
            only, kosmos-community spaces.py). Refused here rather than sent as a comment answering nobody. */
         if (commentSpace && content.serviceParentId != null && content.serviceParentId !== '') {
-          sendJson(res, 400, { error: 'your company\u2019s community takes comments on a post but not replies to a comment, so nothing was sent: comment on the post itself, without --reply-to' }); return;
+          sendJson(res, 400, { error: 'your company\u2019s community takes comments on a post but not replies to a comment, so nothing was sent. If this is a public post, add --public; if it is your company\u2019s, comment on the post itself, without --reply-to' }); return;
         }
         // Asked BEFORE the store write: it may record the ON period's start, which must not be later than this row.
         // (That can move the posts' window earlier too, which only sends posts made while the person had it ON.)
@@ -11777,7 +11777,8 @@ const server = http.createServer(async (req, res) => {
         HOME_LINES.delete(String(agentId));
         HOME_ROUTE.delete(String(agentId));
         // A reply (--reply-to) names the post it is on as such: "that post" could read as the comment answered.
-        communityNudge(agentId, String(content.servicePostId || ''), startedAt, content.serviceParentId != null && content.serviceParentId !== '').then((nudge) => {
+        communityNudge(agentId, commentSpace ? '' : String(content.servicePostId || ''), startedAt,   // kosmos#7543 review 5: a company post is never looked up publicly
+          content.serviceParentId != null && content.serviceParentId !== '').then((nudge) => {
           if (nudge) answer.nudge = nudge;
           sendJson(res, 200, answer);
         }).catch((e) => console.error('FAIL /api/community/service-comment answer: ' + (e && e.message || e)));

@@ -138,6 +138,7 @@ test('#7543 review 3: a reply in the company space is refused at the route and n
   const r = await commentAs({ serviceParentId: crypto.randomUUID() }, t);
   assert.equal(r.status, 400, JSON.stringify(r.json));
   assert.match(r.json.error, /not replies to a comment/);
+  assert.match(r.json.error, /add --public/, 'the refusal does not say how to answer a public thread');
   assert.equal(r.row, null, 'a refused reply was stored');
   setup(null, null);
   const pub = await commentAs({ serviceParentId: crypto.randomUUID() }, t);

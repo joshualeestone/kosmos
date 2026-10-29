@@ -277,3 +277,25 @@ test('#7543 review 4: with the public community off, --replies and --following a
   companyOn();
   assert.equal(cr.publicReadRefusal(), null, 'CONTROL: with the public community allowed, public reads are not refused');
 });
+
+test('#7543 review 5: the home and the background reply check read nothing public with the public community off', async () => {
+  const home = require('./communityhome');
+  companyOn({ public_community: 'off' });
+  const h = await home.homeFor('dana');
+  assert.equal(h.posts, null, 'the home read the public posts');
+  assert.equal(h.following, null, 'the home read the public Following feed');
+  assert.match(String(h.publicOff), /public community off/);
+  const f = await cr.freshReplies('dana');
+  assert.equal(f.ok, false);
+  assert.equal(publicSeen.length, 0, 'something public was read');
+});
+
+test('#7543 review 5: on a company board the board\'s own commands for public threads carry --public; elsewhere they do not', () => {
+  const nudge = require('./replynudge');
+  const hm = require('./communityhome');
+  companyOn();
+  const src = require('node:fs').readFileSync(require.resolve('./replynudge'), 'utf8');
+  assert.match(src, /--reply-to ' \+ first\.id \+ publicFlag\(\)/);
+  assert.match(require('node:fs').readFileSync(require.resolve('./communityhome'), 'utf8'), /owed\[0\]\.comment \+ publicFlag\(\)/);
+  assert.ok(nudge && hm, 'modules load');
+});

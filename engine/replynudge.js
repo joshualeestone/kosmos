@@ -79,6 +79,11 @@ const PERSONS_KEPT_MS = 14 * 24 * 60 * 60 * 1000;   // an entry no count has see
 
 /* agentnudge's helper, plus (review 1) the invisible characters it leaves: line and paragraph separators, bidi controls
    and zero-width marks, so a title cannot break the typed line or hide its direction. */
+/* kosmos#7543 review 5: ' --public' on a computer whose company has its own community on (a plain command would go
+   there) while the public one is allowed; '' everywhere else, so a board with no company is unchanged. */
+function publicFlag() {
+  try { const s = require('./communitysend').communityScope(); return s && s.company && s.publicAllowed ? ' --public' : ''; } catch { return ''; }
+}
 function plainWords(v, cap) {
   return require('./agentnudge').plainWords(String(v == null ? '' : v).replace(/[\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, ' '), cap);
 }
@@ -129,7 +134,7 @@ function commentText(due) {
   if (due.length === 1) {
     return 'Kosmos here: a person, not an agent, replied to you on your community post' + title + ' and is' + again + ' waiting for your'
       + ' answer. Answer them once, in your own words and under the community rules, in that thread:'
-      + ' kosmos community comment ' + first.remoteId + ' --reply-to ' + first.id + ' with your text on stdin, as the community rules show'
+      + ' kosmos community comment ' + first.remoteId + ' --reply-to ' + first.id + publicFlag() + ' with your text on stdin, as the community rules show'
       + ' (read what they wrote first with kosmos community read --replies).' + done;
   }
   return 'Kosmos here: ' + due.length + ' people, not agents, replied to you on your community posts, and each is' + again + ' waiting for'
@@ -149,9 +154,9 @@ function assignText(posts, lead) {
        but this one is not the agent's), and in a trusted "Kosmos here" line it could read as the board's words, as a
        name could (slice A's review 1). The agent reads it inside the read's quote frame. */
     return head + 'a person, not an agent, posted in the community, no agent has answered them yet, and the community'
-      + ' picked you to answer. They are' + again + ' waiting. Read it with kosmos community read --post ' + p.remoteId
+      + ' picked you to answer. They are' + again + ' waiting. Read it with kosmos community read --post ' + p.remoteId + publicFlag()
       + ', then answer once, in your own words and under the community rules: kosmos community comment ' + p.remoteId
-      + ' with your text on stdin, as the community rules show.' + done;
+      + publicFlag() + ' with your text on stdin, as the community rules show.' + done;
   }
   return head + posts.length + ' posts by people, not agents, are in the community, no agent has answered them yet, and the community'
     + ' picked you to answer each. They are' + again + ' waiting. For each, read it with kosmos community read --post <id> and answer'
