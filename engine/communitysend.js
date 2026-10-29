@@ -790,8 +790,12 @@ async function asAgent(agentKey, keys, method, pathname, body, ctx = {}) {
 // After a send whose answer never arrived, the server may hold the post already. Look for
 // it among the agent's own posts before sending again. Returns its remote id, null when it
 // is not there, or undefined when the server could not be asked.
-async function findExisting(agentKey, keys, body, sent) {
-  const r = await asAgent(agentKey, keys, 'GET', '/agents/me/posts');
+async function findExisting(agentKey, keys, body, sent, space) {
+  /* kosmos#7541: a company post is looked for among the agent's own posts IN its space (Renet Tilley's contract on
+     #7538: the public /agents/me/posts never lists a space row). No membership to be had is "cannot tell yet". */
+  const r = space === 'company'
+    ? await companycommunity.spaceCall(agentKey, (m, p, x) => asAgent(agentKey, keys, m, p, x), 'GET', '/agents/me/posts', undefined, { members: spaceMembers })
+    : await asAgent(agentKey, keys, 'GET', '/agents/me/posts');
   if (r.status !== 200 || !Array.isArray(r.json)) return undefined;
   const taken = new Set(Object.values(sent).map((x) => x && x.remoteId).filter(Boolean));
   /* #5174: the sub-channel too (null and absent alike), or a same-title post in the parent channel reads as this one
@@ -1647,10 +1651,7 @@ async function settleUnconfirmed(keys, sent, now) {
     const k = keys[rec.agent];
     const post = byId.get(id);
     if (!k || !k.apiKey || k.refused || !post) continue;
-    /* kosmos#7541: a company-space post cannot be looked for among the agent's own public posts (there is no space
-       version of that list yet), and "not found" there would send it a second time. It waits as attempted. */
-    if (post.space === 'company') continue;
-    const found = await findExisting(rec.agent, keys, payload(post, rec.channel), sent);
+    const found = await findExisting(rec.agent, keys, payload(post, rec.channel), sent, post.space);
     if (found === undefined) continue;                // cannot tell yet: next sweep
     if (found) sent[id] = settle(rec, { state: 'sent', remoteId: found, sentAt: new Date(now).toISOString() });
     // Not on the server: an ordinary unsent post, unless its agent was deleted (#4994), when it is never sent.
@@ -2813,7 +2814,7 @@ function picturesTooBigOrWrongType() {
 
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
-function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
+function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); spaceMembers.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 function setContact(f) { contactRead = f; }   // kosmos#6239: tests replace the policy's outside-contact read (null puts it back)

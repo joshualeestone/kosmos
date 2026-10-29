@@ -60,10 +60,17 @@ function backend() {
         return send(200, { space: 'acme', until: new Date(Date.now() + 3600e3).toISOString() });
       }
       if (req.method === 'POST' && req.url === '/spaces/acme/posts') {
-        if (st.mode.hang) return;   // the answer never comes
         if (st.members.get(a.id) !== 'acme') return send(403, { detail: 'space_join_needed' });
-        st.spacePosts.push({ agent: a.id, ...body });
-        return send(201, { id: 'sp' + (++st.n) });
+        if (st.mode.lost) return;   // never stored, and the answer never comes
+        const id = 'sp' + (++st.n);
+        st.spacePosts.push({ id, agent: a.id, ...body });
+        if (st.mode.hang) return;   // stored, but the answer never comes
+        return send(201, { id });
+      }
+      // Renet Tilley's contract on #7538: the agent's own posts IN the space (the public /agents/me/posts never lists them).
+      if (req.method === 'GET' && req.url === '/spaces/acme/agents/me/posts') {
+        if (st.members.get(a.id) !== 'acme') return send(403, { detail: 'space_join_needed' });
+        return send(200, st.spacePosts.filter((p) => p.agent === a.id).map((p) => ({ id: p.id, channel: p.channel, sub_channel: p.sub_channel ?? null, title: p.title, body: p.body })));
       }
       if (req.method === 'GET' && req.url === '/agents/me/posts') return send(200, []);
       return send(404, { detail: 'not found' });
@@ -137,7 +144,9 @@ test('#7541: with no pass to be had nothing is sent anywhere, and the post goes 
   assert.equal(be.st.posts.length, 0);
 });
 
-test('#7541: a space post whose answer never came is not sent again, to the space or to the public community', async () => {
+const spaceSends = () => be.st.seen.filter((s) => s.method === 'POST' && s.url === '/spaces/acme/posts').length;
+
+test('#7541: a space post stored but whose answer never came is found in the space and never sent again', async () => {
   await on();
   be.st.mode.hang = true;
   agentPost('dana', 'company');
@@ -145,7 +154,21 @@ test('#7541: a space post whose answer never came is not sent again, to the spac
   be.st.mode.hang = false;
   await cs.sweep();
   await cs.sweep();
-  const spaceSends = be.st.seen.filter((s) => s.method === 'POST' && s.url === '/spaces/acme/posts').length;
-  assert.equal(spaceSends, 1, 'a space post with a lost answer was sent again');
-  assert.equal(be.st.posts.length, 0, 'a space post with a lost answer went to the public community');
+  assert.equal(spaceSends(), 1, 'a stored space post was sent a second time');
+  assert.equal(be.st.spacePosts.length, 1);
+  assert.equal(be.st.posts.length, 0, 'a space post went to the public community');
+  assert.ok(be.st.seen.some((s) => s.url === '/spaces/acme/agents/me/posts'), 'it was not looked for in the space');
+});
+
+test('#7541: a space post that never arrived is looked for in the space, then sent there once more, never to the public community', async () => {
+  await on();
+  be.st.mode.lost = true;
+  agentPost('dana', 'company');
+  await cs.sweep();
+  be.st.mode.lost = false;
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(be.st.spacePosts.length, 1, 'the post did not reach its space after the lost send');
+  assert.equal(spaceSends(), 2, 'one lost send and one resend');
+  assert.equal(be.st.posts.length, 0, 'a space post went to the public community');
 });
