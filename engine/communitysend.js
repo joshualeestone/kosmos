@@ -72,16 +72,25 @@ function publicAllowedNow() {
     return op.communitySpace().publicAllowed === true;
   } catch { return false; }
 }
-/* kosmos#7541 review 3: the service ids of posts that went to a company space, so a comment on one is never sent through
-   the PUBLIC comments route (company-space comments are #7543). */
-function companyRemoteIds() {
+/* kosmos#7541 review 4: a post went to a company space when its sent record says so (written when it was sent), or its
+   board row does; the record alone is enough, so a row purged later cannot turn a company post into a public one. */
+function wentToCompany(id, rec) {
+  if (rec && rec.space === 'company') return true;
+  const row = communitystore.rowOf('post', id);
+  return Boolean(row && row.space === 'company');
+}
+/* kosmos#7541 review 3 and 4: the service ids of posts that went to a company space, so a comment on one is never sent
+   through the PUBLIC comments route (company-space comments are #7543). Worked out once per sweep (keyed on its `now`),
+   not once per comment. */
+let companyIdsMemo = { at: null, ids: null };
+function companyRemoteIds(now) {
+  if (now !== undefined && companyIdsMemo.at === now && companyIdsMemo.ids) return companyIdsMemo.ids;
   const ids = new Set();
   const recs = loadJson(sentFile()) || {};
   for (const [id, rec] of Object.entries(recs)) {
-    if (!rec || !rec.remoteId) continue;
-    const row = communitystore.rowOf('post', id);
-    if (row && row.space === 'company') ids.add(String(rec.remoteId));
+    if (rec && rec.remoteId && wentToCompany(id, rec)) ids.add(String(rec.remoteId));
   }
+  companyIdsMemo = { at: now === undefined ? null : now, ids };
   return ids;
 }
 /* kosmos#7541 review 3 (Renet's contract change): one agent's company space call. The org pass is per agent, so the
@@ -935,7 +944,7 @@ async function sendPost(post, keys, sent, now, from) {
     if (r.notSent) { sent[post.id] = settle(rec, { lastStatus: r.status || 0 }); return; }
   }
   if (r.status === 201 && r.json && r.json.id) {
-    sent[post.id] = settle(rec, { state: 'sent', remoteId: String(r.json.id), sentAt: new Date(now).toISOString() });
+    sent[post.id] = settle(rec, { state: 'sent', remoteId: String(r.json.id), sentAt: new Date(now).toISOString(), ...(post.space === 'company' ? { space: 'company' } : {}) });
   } else if (r.status === 201) {
     sent[post.id] = { ...rec, attempted: true };      // stored, but no id came back: adopt it next sweep
   } else if (r.status === 422) {
@@ -978,8 +987,7 @@ async function sweepDeletes(keys, sent, deletes) {
     if (knownOtherRegistration(rec, k)) continue;
     // kosmos#7541 review 3: a company-space post is taken down in its space (DELETE /spaces/{org}/posts/{id}, Renet's
     // contract), never through the public route; no membership to be had leaves it asked for, tried next sweep.
-    const row = communitystore.rowOf('post', id);
-    const company = row && row.space === 'company';
+    const company = wentToCompany(id, rec);   // review 4: the record says so even if the board's row is gone
     const r = company ? await spaceAs(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId))
       : await asAgent(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId));
     if (r.notSent) continue;
@@ -1062,7 +1070,7 @@ async function sendComment(c, keys, csent, now, from) {
   if (!stillSending(from)) return;                   // #4939 review 4: switched off (or a new ON period) while registering
   /* kosmos#7541 review 3: a comment goes to the PUBLIC community (company-space comments are #7543), so none goes while
      the company says the public one is off (it waits), and none on a post that went to a company space. */
-  if (!publicAllowedNow() || companyRemoteIds().has(String(c.remotePostId))) return;
+  if (!publicAllowedNow() || companyRemoteIds(now).has(String(c.remotePostId))) return;
   const body = { body: String(c.body || '') };
   // #4833: a reply goes into the thread of the comment it answers. Never dropped: a reply sent without its parent
   // would land as a top-level comment answering nobody, so a reply either goes as a reply or is refused there.
@@ -1692,7 +1700,7 @@ async function settleUnconfirmed(keys, sent, now) {
     if (!k || !k.apiKey || k.refused || !post) continue;
     const found = await findExisting(rec.agent, keys, payload(post, rec.channel), sent, post.space);
     if (found === undefined) continue;                // cannot tell yet: next sweep
-    if (found) sent[id] = settle(rec, { state: 'sent', remoteId: found, sentAt: new Date(now).toISOString() });
+    if (found) sent[id] = settle(rec, { state: 'sent', remoteId: found, sentAt: new Date(now).toISOString(), ...(post.space === 'company' ? { space: 'company' } : {}) });
     // Not on the server: an ordinary unsent post, unless its agent was deleted (#4994), when it is never sent.
     // #5636 follow-up (review 2): "not there" under a NEW registration says nothing about the old account's posts, so
     // the record keeps that doubt (unverified) for status and a repeat take-back to say.
@@ -2420,7 +2428,7 @@ async function editNow(who, kind, raw, words, deadline) {
   if (!row) return { ok: false, missing: true, because: 'you have no ' + w + ' with that id' };
   if (row.notSent === true) return no('This ' + w + ' was never sent, so there is nothing to edit');
   // kosmos#7541 review 1 and 3: editing a post that went to the company's own community is not built yet (#7543).
-  if (row.space === 'company' && recs[local] && (recs[local].state === 'sent' || recs[local].attempted)) return no(COMPANY_NOT_YET('edit'));
+  if (kind === 'post' && recs[local] && (recs[local].state === 'sent' || recs[local].attempted) && wentToCompany(local, recs[local])) return no(COMPANY_NOT_YET('edit'));
   const dels = loadJson(kind === 'post' ? deletesFile() : commentDeletesFile());
   if (!dels) return retry('Kosmos could not read its list of taken-back ' + w + 's just now');
   if (Object.prototype.hasOwnProperty.call(dels, local)) return no('You took this ' + w + ' back, so it cannot be edited');
