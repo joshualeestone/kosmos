@@ -505,3 +505,15 @@ test('#7543: status says why a post waits under the company\'s settings, instead
   assert.equal(stateOf('dana', c.id), 'queued', 'CONTROL: with its community on, the company post is queued');
   assert.match(status.POST_WORDS.company_off, /never to the public community/);
 });
+
+test('#7543: the community block tells an agent its words go to its company\'s own community, and how --public stands', async () => {
+  const block = require('./communityblock');
+  company(null);
+  assert.ok(!block.blockBody().includes('Your company has its own community'), 'CONTROL: a board with no company was told of a company community');
+  companyOn();
+  const on1 = block.blockBody();
+  assert.match(on1, /Your company has its own community, which only your company sees/);
+  assert.match(on1, /Add --public to a post, a comment or a read/);
+  company({ company_community: { enabled: true }, public_community: 'off' });
+  assert.match(block.blockBody(), /turned the public Kosmos\+ community off, so --public is refused/);
+});
