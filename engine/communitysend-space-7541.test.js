@@ -66,7 +66,7 @@ function backend() {
         st.members.set(a.id, space);
         return send(200, { space, until: new Date(Date.now() + 3600e3).toISOString() });
       }
-      if (st.mode.spacesOff && req.url.startsWith('/spaces/org1/')) return send(404, { detail: 'Not Found' });   // review 7: every space route
+      if (st.mode.spacesOff && req.url.startsWith('/spaces/org1/')) return send(404, { detail: 'not found' });   // review 7: every space route (spaces.py _on's own detail)
       if (req.method === 'POST' && req.url === '/spaces/org1/posts') {
         if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
         // kosmos#7543: as the real site (SpacePostIn, extra fields forbidden): a title, a body and held, nothing else.
@@ -89,7 +89,7 @@ function backend() {
         if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
         const id = decodeURIComponent(req.url.slice('/spaces/org1/posts/'.length));
         const i = st.spacePosts.findIndex((p) => p.id === id && p.agent === a.id);
-        if (i < 0) return send(404, { detail: 'not found' });
+        if (i < 0) return send(404, { detail: 'post not found' });   // kosmos#7543: the real site's detail (spaces.py delete_post)
         st.spacePosts.splice(i, 1);
         return send(204);
       }
@@ -100,6 +100,19 @@ function backend() {
         const id = crypto.randomUUID();
         st.spaceComments.push({ id, agent: a.id, url: req.url, ...body });
         return send(201, { id });
+      }
+      // kosmos#7543 review 1: an agent taking back its own space comment, and its own comments listed (wrapped, as the site).
+      if (req.method === 'DELETE' && req.url.startsWith('/spaces/org1/comments/')) {
+        if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
+        const id = decodeURIComponent(req.url.slice('/spaces/org1/comments/'.length));
+        const i = st.spaceComments.findIndex((c) => c.id === id && c.agent === a.id);
+        if (i < 0 || st.mode.commentGoneLater) return send(404, { detail: 'comment not found' });
+        st.spaceComments.splice(i, 1);
+        return send(204);
+      }
+      if (req.method === 'GET' && req.url === '/spaces/org1/agents/me/comments') {
+        if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
+        return send(200, { comments: st.spaceComments.filter((c) => c.agent === a.id).map((c) => ({ id: c.id, body: c.body })) });
       }
       if (req.method === 'POST' && /^\/posts\/[^/]+\/comments$/.test(req.url)) return send(201, { id: 'c' + (++st.n) });
       if (req.method === 'GET' && req.url === '/agents/me/posts') return send(200, []);
@@ -542,4 +555,74 @@ test('#7543: the owner\'s list marks a company post as in the company\'s own com
   assert.equal(item.state, 'sent');
   assert.ok(pub.link && pub.link.startsWith('https://community.example/post/'), 'CONTROL: a sent public post has no public link: ' + JSON.stringify(pub));
   assert.ok(!item.link, 'a company post was given a link to the public site, where it is not: ' + item.link);
+});
+
+// kosmos#7543 review 1: taking back a company comment, in its space.
+async function sentCompanyComment() {
+  await on();
+  companyOn();
+  const r = companyComment('dana', crypto.randomUUID());
+  await cs.sweep();
+  assert.equal(be.st.spaceComments.length, 1, 'setup: the company comment did not go');
+  fs.writeFileSync(cs._paths.commentDeletesFile(), JSON.stringify({ [r.id]: { at: new Date().toISOString() } }));
+  return r;
+}
+const commentRec = (id) => JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'))[id];
+const spaceDeletes = () => be.st.seen.filter((x) => x.method === 'DELETE' && x.url.startsWith('/spaces/org1/comments/')).length;
+
+test('#7543 review 1: a company comment is taken back in its space, never through the public route', async () => {
+  const r = await sentCompanyComment();
+  await cs.sweep();
+  assert.equal(spaceDeletes(), 1, 'the take-back did not go to the space');
+  assert.ok(!be.st.seen.some((x) => x.method === 'DELETE' && /^\/posts\/[^/]+\/comments\//.test(x.url)), 'a company comment was taken back through the PUBLIC route');
+  assert.equal(be.st.spaceComments.length, 0);
+  assert.equal(commentRec(r.id).state, 'deleted');
+});
+
+test('#7543 review 1: a company comment already gone ("comment not found") and no longer listed settles as taken back', async () => {
+  const r = await sentCompanyComment();
+  be.st.spaceComments.length = 0;   // removed already (an earlier take-back whose answer was lost, or a company admin)
+  await cs.sweep();
+  assert.equal(commentRec(r.id).state, 'deleted', 'a take-back of a comment already gone never settles');
+});
+
+test('#7543 review 1: a 404 while the site has spaces off is not read as taken back', async () => {
+  const r = await sentCompanyComment();
+  be.st.mode.spacesOff = true;
+  await cs.sweep();
+  assert.equal(commentRec(r.id).state, 'sent', 'a company comment read as taken back while the site merely had spaces off');
+  assert.equal(be.st.spaceComments.length, 1);
+});
+
+test('#7543 review 1: "comment not found" while the space still lists it is not read as taken back', async () => {
+  const r = await sentCompanyComment();
+  be.st.mode.commentGoneLater = true;
+  await cs.sweep();
+  assert.equal(commentRec(r.id).state, 'sent', 'a comment the space still lists read as taken back');
+});
+
+test('#7543 review 1: the sent record says a comment went to the company, so a lost board row cannot turn its take-back public', async () => {
+  const r = await sentCompanyComment();
+  assert.equal(commentRec(r.id).space, 'company');
+  fs.writeFileSync(communitystore._paths.commentsFile(), '[]');   // the board's comment rows are gone
+  assert.equal(communitystore.rowOf('comment', r.id), null, 'setup: the board row is still there');
+  await cs.sweep();
+  assert.ok(!be.st.seen.some((x) => x.method === 'DELETE' && /^\/posts\/[^/]+\/comments\//.test(x.url)), 'the take-back went to the PUBLIC route');
+  assert.equal(spaceDeletes(), 1);
+});
+
+test('#7543 review 1: a company comment whose post the site answers with a bare "not found" (spaces off) waits, it is not refused', async () => {
+  await on();
+  companyOn();
+  agentPost('dana', 'company');
+  await cs.sweep();   // a membership is held now
+  be.st.mode.spacesOff = true;
+  const r = companyComment('dana', crypto.randomUUID());
+  await cs.sweep();
+  const rec = commentRec(r.id);
+  assert.ok(!rec || (rec.state !== 'refused' && !rec.attempted), 'a comment was refused or marked attempted while the site merely had spaces off: ' + JSON.stringify(rec));
+  be.st.mode.spacesOff = false;
+  cs.resetPauses();
+  await cs.sweep();
+  assert.equal(commentRec(r.id).state, 'sent', 'it did not go once spaces were back');
 });

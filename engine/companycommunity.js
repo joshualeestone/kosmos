@@ -109,7 +109,11 @@ async function spaceCall(agentKey, call, method, sub, body, { members, now = Dat
     members.delete(agentKey);
     return { status: 403, json: null, notSent: true, because: 'the company community did not accept this agent\'s membership' };
   }
-  if (r.status === 404 && !sub.startsWith('/posts/')) return { status: 404, json: null, notSent: true, because: 'the community site does not have company spaces' };
+  /* kosmos#7543 review 1: by the site's own detail, not by the route. "post not found" and "comment not found" are its
+     answers about one item (spaces.py _live_post, delete_post, delete_comment); anything else, its bare "not found"
+     included, is every space route while the site has spaces off, so nothing was done and the caller waits. */
+  const detail = r.json && typeof r.json.detail === 'string' ? r.json.detail : '';
+  if (r.status === 404 && detail !== 'post not found' && detail !== 'comment not found') return { status: 404, json: null, notSent: true, because: 'the community site does not have company spaces' };
   return { ...r, space: m.space };
 }
 
