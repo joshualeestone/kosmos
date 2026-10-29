@@ -2202,6 +2202,7 @@ struct SideScrollLock: UIViewRepresentable {
             // where it goes back to, and a difference from it is what is recorded.
             // Review 4: put back 0.35 s after a shift and only while nobody is dragging or flinging, so a scroll in progress
             // (the person's, or the hold on the newest message) finishes first; still shifted after that, it goes back.
+            // kosmos#7420 10-29: that wait is now only for a scroll in progress; with none, it goes back at once (below).
             watch = scroll.observe(\.contentOffset, options: [.initial, .new]) { [weak self] sv, _ in
                 guard let self else { return }
                 let x = sv.contentOffset.x + sv.adjustedContentInset.left
@@ -2212,7 +2213,18 @@ struct SideScrollLock: UIViewRepresentable {
                         ChatView.trace("side offset \(Int(x.rounded()))" + (off ? " (left)" : ", put back") + ", shift \(self.shifts)")
                     }
                 }
-                guard !off, !self.fixing else { return }
+                guard !off else { return }
+                // kosmos#7420 (Josh 10-29 11:40, build 16 or 17: "jumping back and forth horizontal ... every few seconds and
+                // sometime multiple times a second"): put back 0.35 s later, a cause that keeps shifting the chat was drawn
+                // shifted, then back, then shifted again. With nobody scrolling it goes back now, inside this same change, so
+                // the shift is never drawn. Only under the id anchor (iOS 17+), where the move to the newest message is not
+                // animated: on iOS 16 that move is animated, and writing the offset under it could stop it partway.
+                if ChatView.idAnchor, !sv.isDragging, !sv.isDecelerating {
+                    let rest = -sv.adjustedContentInset.left
+                    sv.contentOffset = CGPoint(x: rest, y: sv.contentOffset.y)   // observed again at rest: shifted is cleared
+                    return
+                }
+                guard !self.fixing else { return }
                 self.fixing = true
                 self.putBack(sv)
             }
