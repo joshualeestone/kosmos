@@ -466,7 +466,13 @@ function secureRoot() {
   const r = currentDataRoot();
   if (isTestProcess(process.env) && isRealRoot(r, process.platform)) { securedRoots.add(r); return null; }
   // Recorded once tried, so ensure() does not retry a root it could not change; not when the root does not exist yet.
-  try { fs.chmodSync(r, 0o700); securedRoots.add(r); } catch (err) { if (!err || err.code !== 'ENOENT') securedRoots.add(r); }
+  // #7554: nor after EBUSY, which is transient by nature, so the next write tries again. EPERM and EACCES (a root this
+  // user cannot change, usually for good) stay recorded: retrying them would cost a failing chmod on every write. The
+  // board's own start call always tries again, whatever is recorded, and says so.
+  try { fs.chmodSync(r, 0o700); securedRoots.add(r); } catch (err) {
+    const code = err && err.code;
+    if (code !== 'ENOENT' && code !== 'EBUSY') securedRoots.add(r);
+  }
   try { return fs.statSync(r).mode & 0o777; } catch { return null; }
 }
 
