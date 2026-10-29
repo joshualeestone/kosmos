@@ -66,7 +66,23 @@ const COMPANY_NOT_YET = (what) => 'Kosmos cannot ' + what + ' a post in your com
 /* kosmos#7541 review 1: whether a post may go to the PUBLIC community now (orgpolicy.communitySpace); false when it
    cannot be read, so a policy fault never lets a post out. */
 function publicAllowedNow() {
-  try { return require('./orgpolicy').communitySpace().publicAllowed === true; } catch { return false; }
+  try {
+    const op = require('./orgpolicy');
+    op.inForce();   // review 3: apply a newer policy the tunnel delivered first, as every other strict reader does
+    return op.communitySpace().publicAllowed === true;
+  } catch { return false; }
+}
+/* kosmos#7541 review 3: the service ids of posts that went to a company space, so a comment on one is never sent through
+   the PUBLIC comments route (company-space comments are #7543). */
+function companyRemoteIds() {
+  const ids = new Set();
+  const recs = loadJson(sentFile()) || {};
+  for (const [id, rec] of Object.entries(recs)) {
+    if (!rec || !rec.remoteId) continue;
+    const row = communitystore.rowOf('post', id);
+    if (row && row.space === 'company') ids.add(String(rec.remoteId));
+  }
+  return ids;
 }
 /* kosmos#7541 review 3 (Renet's contract change): one agent's company space call. The org pass is per agent, so the
    coordinator is asked for this agent's (its community id from registration); an agent not registered yet joins nothing. */
@@ -1044,6 +1060,9 @@ async function sendComment(c, keys, csent, now, from) {
   if (!cdel) return;
   if (Object.prototype.hasOwnProperty.call(cdel, c.id)) { csent[c.id] = settle(rec, { state: 'withheld' }); return; }
   if (!stillSending(from)) return;                   // #4939 review 4: switched off (or a new ON period) while registering
+  /* kosmos#7541 review 3: a comment goes to the PUBLIC community (company-space comments are #7543), so none goes while
+     the company says the public one is off (it waits), and none on a post that went to a company space. */
+  if (!publicAllowedNow() || companyRemoteIds().has(String(c.remotePostId))) return;
   const body = { body: String(c.body || '') };
   // #4833: a reply goes into the thread of the comment it answers. Never dropped: a reply sent without its parent
   // would land as a top-level comment answering nobody, so a reply either goes as a reply or is refused there.

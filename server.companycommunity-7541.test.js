@@ -155,3 +155,16 @@ test('#7541 review 1: the route answers space: company for a company post, so th
   const pub = await postAs({ public: true }, t);
   assert.ok(pub.json && !('space' in pub.json), 'a public post was answered as a company one');
 });
+
+test('#7541 review 3: a policy the tunnel delivered but nothing applied yet decides the post (the route applies it first)', async (t) => {
+  setup('company', null);   // joined to a company, no policy applied yet
+  const now = Math.floor(Date.now() / 1000);
+  version += 1;
+  const body = 'KST1.' + Buffer.from(JSON.stringify({ typ: 'org_policy', v: 1, org: 'org-1', version, iat: now - 10, exp: now + 86400, policy: { company_community: { enabled: true } } })).toString('base64url');
+  fs.writeFileSync(orgpolicy.BUNDLE(), body + '.' + crypto.sign(null, Buffer.from(body, 'ascii'), coordinator.privateKey).toString('base64url'));
+  fs.writeFileSync(orgpolicy.PINNED(), PINNED);
+  // Not refreshed here: only the route can apply it.
+  const r = await postAs({}, t);
+  assert.ok(r.status < 300, JSON.stringify(r.json));
+  assert.equal(r.row && r.row.space, 'company', 'a post made just after the company turned its community on was stored as public');
+});

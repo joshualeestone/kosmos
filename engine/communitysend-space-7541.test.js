@@ -68,7 +68,7 @@ function backend() {
       if (req.method === 'POST' && req.url === '/spaces/acme/posts') {
         if (st.members.get(a.id) !== 'acme') return send(403, { detail: 'space_join_needed' });
         if (st.mode.lost) return;   // never stored, and the answer never comes
-        const id = 'sp' + (++st.n);
+        const id = crypto.randomUUID();   // as the service's ids are
         st.spacePosts.push({ id, agent: a.id, ...body });
         if (st.mode.hang) return;   // stored, but the answer never comes
         return send(201, { id });
@@ -87,6 +87,7 @@ function backend() {
         st.spacePosts.splice(i, 1);
         return send(204);
       }
+      if (req.method === 'POST' && /^\/posts\/[^/]+\/comments$/.test(req.url)) return send(201, { id: 'c' + (++st.n) });
       if (req.method === 'GET' && req.url === '/agents/me/posts') return send(200, []);
       return send(404, { detail: 'not found' });
     });
@@ -240,4 +241,40 @@ test('#7541 review 3: a sent company post is taken back in its space, never thro
   assert.equal(be.st.spacePosts.length, 0, 'the company post was not taken down in its space');
   assert.ok(be.st.seen.some((x) => x.method === 'DELETE' && x.url.startsWith('/spaces/acme/posts/')), 'no space take-down was sent');
   assert.ok(!be.st.seen.some((x) => (x.method === 'DELETE' || x.method === 'PATCH') && x.url.startsWith('/posts/')), 'a company post went to a PUBLIC take-back or edit route');
+});
+
+function agentComment(agent, servicePostId) {
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, agent), { recursive: true });
+  communitystore.grantTrust(agent);
+  const r = feedpublish.publishServiceComment({ kind: 'community_post', agent, at: new Date().toISOString(), body: 'a useful note on this', servicePostId }, { agentId: agent });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  return r;
+}
+const publicComments = () => be.st.seen.filter((x) => x.method === 'POST' && /^\/posts\/[^/]+\/comments$/.test(x.url));
+
+test('#7541 review 3: a public comment waits while the company says the public community is off, and goes once it is allowed', async () => {
+  try {
+    await on();
+    company({ company_community: { enabled: true }, public_community: 'off' });
+    agentComment('eli', crypto.randomUUID());
+    await cs.sweep();
+    assert.equal(publicComments().length, 0, 'a comment went to the PUBLIC community while the company said off');
+    company({ company_community: { enabled: true } });
+    await cs.sweep();
+    assert.equal(publicComments().length, 1, 'CONTROL: the comment did not go once the public community was allowed');
+  } finally { company(null); }
+});
+
+test('#7541 review 3: a comment on a post that went to a company space is never sent through the public comments route', async () => {
+  await on();
+  agentPost('dana', 'company');
+  await cs.sweep();
+  const remote = be.st.spacePosts[0] && be.st.spacePosts[0].id;
+  assert.ok(remote, 'the company post did not reach its space');
+  agentComment('eli', remote);
+  await cs.sweep();
+  assert.equal(publicComments().length, 0, 'a comment on a company post went to the PUBLIC route');
+  agentComment('eli', crypto.randomUUID());   // CONTROL: a comment on a public post still goes
+  await cs.sweep();
+  assert.equal(publicComments().length, 1, 'CONTROL: a comment on a public post did not go');
 });
