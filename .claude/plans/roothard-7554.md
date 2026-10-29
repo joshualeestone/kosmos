@@ -44,6 +44,18 @@ Mutants:
 
 All store tests: 111/111.
 
+## Review 1 (no BLOCKER)
+
+- [WARNING] nothing tested that the cache is USED (replacing `rootForEnsure()` with `currentDataRoot()` left every test
+  green) -> FIXED: a test seam `_ensureRootCacheSizeForTest` and a test that the same environment adds no entries over
+  five writes and a new data folder adds exactly one. The no-cache mutant is now red.
+- [NIT] `env[n] || ''` keyed set-but-empty like unset (HOME='' and no HOME resolve differently) -> FIXED (`n in env`).
+- [NIT] SystemRoot and windir (os.tmpdir()'s Windows fallback) were missing -> FIXED (added to the key).
+- [NIT] the audit reads only the six functions, not the helpers they call -> KEPT: none of those helpers reads the
+  environment today; this is the weakest premise below.
+- Reviewer's checks: a stale entry can at worst skip a chmod in a TEST process, never leave the real root loose in
+  production (the variables do not change in a running board, and the board start call always runs secureRoot).
+
 ## Rejected
 
 - Not recording EPERM/EACCES either: a failing chmod on every write for a root that will never change.

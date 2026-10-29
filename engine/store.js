@@ -482,11 +482,14 @@ function secureRoot() {
    variable left out of this list would let a changed root reuse a stale answer, so every input dataRootFor or the
    test rules read must be named here (engine/store.ensure-cost-7554.test.js holds the list to that). */
 const ROOT_ENV_INPUTS = ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_HOME', 'APPDATA', 'HOME', 'USERPROFILE',
-  'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_ALLOW_REAL_ROOT', 'TMPDIR', 'TEMP', 'TMP'];
+  'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_ALLOW_REAL_ROOT', 'TMPDIR', 'TEMP', 'TMP',
+  // Review 1: os.tmpdir()'s Windows fallback when TEMP and TMP are both unset.
+  'SystemRoot', 'windir'];
 const rootByEnvKey = new Map();
 function rootForEnsure() {
   const env = process.env;
-  const key = ROOT_ENV_INPUTS.map((n) => env[n] || '').join('\0');
+  // Review 1: set-but-empty and unset differ (os.homedir() answers '' for HOME='', the account's home with no HOME).
+  const key = ROOT_ENV_INPUTS.map((n) => (n in env ? '=' + env[n] : '')).join('\0');
   let r = rootByEnvKey.get(key);
   if (r === undefined) {
     r = currentDataRoot();
@@ -927,7 +930,7 @@ function writeSettings(patch) {
  * that names a gone pid on this host). Its test and test-support/data-root-sandbox.js are the
  * callers; nothing in the product calls it but the store itself.
  */
-module.exports = { secureRoot /* #1760 */, saveFlushed /* #5434 slice 17 */, isTestProcess /* #6726: replyfile's test seam gates on it */, APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { secureRoot /* #1760 */, _ensureRootCacheSizeForTest: () => rootByEnvKey.size /* #7554 */, saveFlushed /* #5434 slice 17 */, isTestProcess /* #6726: replyfile's test seam gates on it */, APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

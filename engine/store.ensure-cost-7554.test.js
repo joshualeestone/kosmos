@@ -116,3 +116,18 @@ test('#7554: a lasting failure (EPERM) is not retried by ensure() on every write
     assert.equal(store.secureRoot(), 0o700, 'the board start call (secureRoot) did not try again once the root could be changed');
   } finally { process.env.AGENT_WORKFORCE_DATA = was; }
 });
+
+test('#7554 review 1: ensure() resolves the root once per environment, not once per write (the cache is used)', { skip }, () => {
+  const was = process.env.AGENT_WORKFORCE_DATA;
+  try {
+    const e = looseRoot('cache');
+    write(e.dir, 'cache1');
+    const after1 = store._ensureRootCacheSizeForTest();
+    assert.ok(after1 >= 1, 'premise: the first write under this folder filled the cache');
+    for (let i = 2; i <= 6; i += 1) write(e.dir, 'cache' + i);
+    assert.equal(store._ensureRootCacheSizeForTest(), after1, 'the same environment added entries: the cache is not keyed as it should be');
+    const f = looseRoot('cache2');
+    write(f.dir, 'cache7');
+    assert.equal(store._ensureRootCacheSizeForTest(), after1 + 1, 'a new data folder did not get its own entry, so ensure() is not using the cache');
+  } finally { process.env.AGENT_WORKFORCE_DATA = was; }
+});
