@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: agentpicker-7502
-diff_hash: 2a0ff27d37944354b4ab5a03e4a08547fef14d6f995f6b20315861f2a3412352
+diff_hash: 95d1e811bee0c7bbac65f7a76124ed6c8a5b02ab11c02906a525b138da1cf0b7
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-29T00:27:57Z
@@ -20,11 +20,17 @@ applied after it and are not reviewed (the picker stops settling only on the tea
 **Fixed:** every BLOCKER and MAJOR; MINORs fixed or decided as the plan's "Review rounds (ledger)" records |
 **Asked (awaiting user):** 0
 
-Validation: full local validation of this diff hash through the local heavy queue, passed 19:2x CDT 2026-10-28 (node
+Validation: full local validation of this diff hash through the local heavy queue, passed 20:2x CDT 2026-10-28
+(re-run after the Release fix below; the first run, at 19:2x, passed for the head before it) (node
 25538 tests, 25131 pass, 0 fail, the rest skipped; the shell part green; the subdir CLAUDE.md audit green).
 server.ios-routes-6838.test.js also run on its own: 5/5 (round 5's BLOCKER was that it could not read the new routes).
 iOS: Debug builds; all nine LogicTests runners green (room 676/676). Phone shots on the smallest iPhone this Xcode has,
 light and dark, are described on #7502.
+
+### After the loop
+CI's Release build of the iPhone app went red on the PR: the setupbottom shot scroll used a Debug-only property
+outside #if DEBUG. Fixed in 22d2976aa8 (inside #if DEBUG, as teambottom is); Debug and Release both build here, and
+CI's logic tests + simulator build is green on it. I had built only Debug for this branch.
 
 ### Weakest premise
 The view's state (NewAgentView: the account per provider, the OpenAI model per account, the team's fixed choice) has
