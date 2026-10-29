@@ -486,7 +486,7 @@ let traceLines = chatSource.components(separatedBy: "\n").filter { $0.contains("
 let allowedInTrace: Set<String> = ["atBottom", "earlier.filling", "earlier.loading", "earlier.open", "earlier.rows.count", "endSeen",
     "endVisible", "fresh.olderCount", "fresh.rows.count", "Int(diagKeyboard)", "Int(now.height)", "Int(now.width)", "mine",
     "personScrolling", "phase == .active ? \"active\" : phase == .background ? \"background\" : \"inactive\"", "pinned", "settledAtEnd", "why",
-    "Int(w)", "Int(x.rounded())"]   // build 16: the stack's width and a sideways offset, both numbers
+    "Int(w)", "Int(x.rounded())", "self.shifts"]   // build 16: the stack's width and a sideways offset, both numbers
 var tracedValues: [String] = []
 for l in traceLines {
     var rest = Substring(l)
@@ -508,7 +508,7 @@ check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, on
 check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("onScreen.isEmpty, !endVisible || neverDrew, !topVisible, count > 0, thread != nil") && chatSource.contains("ShareLink(item: report"),
       "kosmos#7420: a bounded record, the blank check, and a share the person chooses (nothing sent by itself)")
 // kosmos#7420 (Josh 10-28, builds 13 to 15): the chat's list is locked against a sideways offset (every row 16 pt left).
-check(chatSource.contains(".background(SideScrollLock(off: Self.sampleNoLock))") && chatSource.contains("watch = scroll.observe(\\.contentOffset") && chatSource.contains("let x = sv.contentOffset.x + sv.adjustedContentInset.left") && chatSource.contains("if abs(sv.contentOffset.x - rest) > 0.5 { sv.contentOffset.x = rest }") && chatSource.contains("static let sampleNoLock = false"), "kosmos#7420: a sideways scroll of the chat is put back to its rest (minus the left inset) and recorded (the lock is on in Release)")
+check(chatSource.contains(".background(SideScrollLock(off: Self.sampleNoLock))") && chatSource.contains("watch = scroll.observe(\\.contentOffset") && chatSource.contains("let x = sv.contentOffset.x + sv.adjustedContentInset.left") && chatSource.contains("if abs(sv.contentOffset.x - rest) > 0.5 { sv.contentOffset.x = rest }") && chatSource.contains("if self.shifts & (self.shifts - 1) == 0 {") && chatSource.contains("guard !sv.isDragging, !sv.isDecelerating else { return }") && chatSource.contains("static let sampleNoLock = false"), "kosmos#7420: a sideways scroll of the chat is put back to its rest (minus the left inset) and recorded (the lock is on in Release)")
 check(chatSource.contains("Button { infoOpen = true } label: { title"), "kosmos#7424: the DM header's name and status open the info page, as the (i) button does")
 let roomSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
 check(roomSource.contains("let low = reduceMotion ? 0.35 : 0.45, half = (reduceMotion ? 1.6 : 1.1) / 2") && roomSource.contains(".delay(Double(i) * 0.16), value: up)") && roomSource.contains(".offset(y: up && !reduceMotion ? -4 : 0)"), "kosmos#7427: the chat's dots (WaveDots) are the board's wave (1.1 s, 0.16 s apart, 4 pt rise; Reduce Motion 1.6 s, no rise)")
