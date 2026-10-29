@@ -90,7 +90,7 @@ function communityNow(now) {
    on: a computer that moved company, or a community switched off, leaves it waiting (never another company's space). */
 function companyPostGoesNow(post, now) {
   const c = communityNow(now);
-  return c.company && typeof post.org === 'string' && post.org === c.org;
+  return c.company && typeof post.org === 'string' && companycommunity.sameOrg(post.org, c.org);   // review 8: one comparison, as the join's
 }
 const waitSaid = new Set();   // kosmos#7541 review 5: post ids whose wait has been logged once
 function logWaitOnce(id, why) { if (!waitSaid.has(id)) { waitSaid.add(id); log(why); } }
@@ -1111,7 +1111,8 @@ async function sendComment(c, keys, csent, now, from) {
   if (!stillSending(from)) return;                   // #4939 review 4: switched off (or a new ON period) while registering
   /* kosmos#7541 review 3: a comment goes to the PUBLIC community (company-space comments are #7543), so none goes while
      the company says the public one is off (it waits), and none on a post that went to a company space. */
-  if (!publicAllowedNow(now) || companyRemoteIds(now).has(String(c.remotePostId))) return;
+  if (!publicAllowedNow(now)) { logWaitOnce('comment:' + c.id, `comment ${c.id} for ${agentKey}: held, the company says its agents do not comment in the public community`); return; }
+  if (companyRemoteIds(now).has(String(c.remotePostId))) { logWaitOnce('comment:' + c.id, `comment ${c.id} for ${agentKey}: held, comments on a company community post are not built yet (#7543)`); return; }   // review 8
   const body = { body: String(c.body || '') };
   // #4833: a reply goes into the thread of the comment it answers. Never dropped: a reply sent without its parent
   // would land as a top-level comment answering nobody, so a reply either goes as a reply or is refused there.

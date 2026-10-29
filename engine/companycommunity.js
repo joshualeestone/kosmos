@@ -113,4 +113,4 @@ async function spaceCall(agentKey, call, method, sub, body, { members, now = Dat
   return { ...r, space: m.space };
 }
 
-module.exports = { PASS_ROUTE, fetchPass, join, spaceCall, codeOf, setRemote };
+module.exports = { PASS_ROUTE, fetchPass, join, spaceCall, codeOf, setRemote, sameOrg };
