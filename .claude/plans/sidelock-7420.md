@@ -23,3 +23,8 @@ That Josh's jitter is the lock's delayed put-back. If his chat's jump is not a s
 
 ## Ledger
 - Validation 1: above.
+- Review 1 (blind): 0 blockers, 2 warnings (no re-entrancy guard: TAKEN, writing flag + fall to the delayed path; app-started animated scrolls not excluded on iOS 17+: ACCEPTED and documented, no public API tells them apart), 3 nits (wording, taken). Re-measured: 0 of 30 shifted in 3 runs; trace shows the shift counted and keepAtEnd still following new messages.
+- Review 2 (blind): 0 blockers, 1 warning (a cause that reshifts on every layout pass could trade writes with us every pass: TAKEN, at most 4 immediate writes per 0.35 s window, then the old delayed put-back), 2 nits (wording, taken). Re-measured: 0 of 30 in 3 runs.
+- Review 3 (blind): 0 blockers, 0 warnings; quick cannot stick (window moves, generation, weak self checked). Nits: the cap is per window, not sliding (comment reworded); shift counts are not comparable with builds 16 and 17 (a recurring cause now counts each recurrence), noted here, no code change.
+- Release build: OK at the review-1 commit; Debug rebuilt and measured at each round.
+- CONVERGED at review 3 (no new blocker or warning).
