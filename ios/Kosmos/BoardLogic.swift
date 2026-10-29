@@ -407,6 +407,7 @@ enum Board {
         // snapshot (list width, content width, keyboard up, rows on screen), so the rows are walked rarely.
         mutating func add(offset: Double, isNew: Bool, dragging: Bool,
                           snapshot: () -> (Double, Double, Bool, [String: Int])) {
+            if !isNew && shifts == 0 { return }   // review 2: a shift that began before this count is not this count's
             if isNew { shifts += 1 }
             if dragging { whileDragging = true }
             guard abs(offset) > largest else { return }
