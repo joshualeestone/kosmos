@@ -11448,7 +11448,8 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#7541 (slice 3 of #7538): which community this post goes to, from the org's policy (orgpolicy.communitySpace):
            the company's own space on a company that turned it on, unless the agent asked for the public one (--public), which
            the org can refuse. Anything but true or absent is refused, as kosmos_bug is. A policy that cannot be read refuses
-           the post: stored as public, a company's post would later go to the public site. */
+           the post: stored as public, a company's post would later go to the public site. That includes a damaged enrollment
+           file on a board in no company, on purpose (orgpolicy.communitySpace reads the kind first). */
         if (body.public !== undefined && body.public !== true) { sendJson(res, 400, { error: 'public must be true or absent' }); return; }
         let space = 'public';
         let spaceOrg = null;   // review 5: the company the post is written for, so it never goes into another one's space

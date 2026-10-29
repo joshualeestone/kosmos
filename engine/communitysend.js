@@ -69,14 +69,14 @@ function publicAllowedNow(now) { return communityNow(now).publicAllowed; }
 /* kosmos#7541 review 3 and 5: the community policy in force, read once per sweep (keyed on its `now`): a newer policy
    the tunnel delivered is applied first (orgpolicy.inForce), as every other strict reader does. A policy that cannot
    be read allows nothing (no public send, no company send) and is said once in the log until it reads again. */
-let communityMemo = { at: null, v: null };
+let appliedAt = null;   // review 7: the sweep `now` a delivered policy was last applied at (inForce once per sweep)
 let communityFaultSaid = false;
 function communityNow(now) {
-  if (now !== undefined && communityMemo.at === now && communityMemo.v) return communityMemo.v;
   let v;
   try {
     const op = require('./orgpolicy');
-    op.inForce();
+    if (now === undefined || appliedAt !== now) { op.inForce(); appliedAt = now === undefined ? null : now; }
+    // Read for each item, never kept across a sweep: a company that turns the public community off mid-sweep is obeyed.
     const cs = op.communitySpace();
     v = { publicAllowed: cs.publicAllowed === true, company: cs.space === 'company', org: cs.space === 'company' ? op.appliedOrg() : null };
     communityFaultSaid = false;
@@ -84,7 +84,6 @@ function communityNow(now) {
     v = { publicAllowed: false, company: false, org: null };
     if (!communityFaultSaid) { communityFaultSaid = true; log('the company policy could not be read, so nothing is sent to the community until it can: ' + (e && e.message || e)); }
   }
-  communityMemo = { at: now === undefined ? null : now, v };
   return v;
 }
 /* kosmos#7541 review 5: a company post goes only into the company it was written for, while that company's community is
@@ -118,11 +117,18 @@ function companyRemoteIds(now) {
 }
 /* kosmos#7541 review 3 (Renet's contract change): one agent's company space call. The org pass is per agent, so the
    coordinator is asked for this agent's (its community id from registration); an agent not registered yet joins nothing. */
-function spaceAs(agentKey, keys, method, sub, body, org) {
+const spacePauseUntil = new Map();   // review 7: agentKey -> ms, after a pass or join that could not be had
+const SPACE_PAUSE_MS = 10 * 60 * 1000;
+async function spaceAs(agentKey, keys, method, sub, body, org) {
   const k = keys[agentKey];
-  // Review 5: membership is per agent AND company, so one kept from another company is never reused.
-  return companycommunity.spaceCall(agentKey + '\n' + String(org || ''), (m, p, x) => asAgent(agentKey, keys, m, p, x), method, sub, body,
-    { members: spaceMembers, agent: k && typeof k.remoteId === 'string' ? k.remoteId : null });
+  if ((spacePauseUntil.get(agentKey) || 0) > Date.now()) return { status: 0, json: null, notSent: true, because: 'waiting a few minutes after the company community could not be joined' };
+  // Review 5: membership is per agent AND company, so one kept from another company is never reused; review 7: the
+  // space joined must be that company's.
+  const r = await companycommunity.spaceCall(agentKey + '\n' + String(org || ''), (m, p, x) => asAgent(agentKey, keys, m, p, x), method, sub, body,
+    { members: spaceMembers, agent: k && typeof k.remoteId === 'string' ? k.remoteId : null, expectSpace: org || null });
+  if (r.notSent && r.status !== 404) spacePauseUntil.set(agentKey, Date.now() + SPACE_PAUSE_MS);
+  else if (!r.notSent) spacePauseUntil.delete(agentKey);
+  return r;
 }
 
 const DEFAULT_ENDPOINT = 'https://community.kosmosplus.com';   // #4895: the Kosmos+ community (was community.installkosmos.com, still an alias)
@@ -999,6 +1005,7 @@ async function sendPost(post, keys, sent, now, from) {
 }
 
 async function sweepDeletes(keys, sent, deletes) {
+  const sweepNow = Date.now();
   for (const id of Object.keys(deletes)) {
     const rec = sent[id];
     if (!rec || rec.state !== 'sent' || !rec.remoteId) continue;
@@ -1015,10 +1022,16 @@ async function sweepDeletes(keys, sent, deletes) {
     const company = wentToCompany(id, rec);   // review 4: the record says so even if the board's row is gone
     // Review 5: a take-down goes only to the company it was written for, while that is this computer's; else it waits.
     const corg = company ? (rec.org || (communitystore.rowOf('post', id) || {}).org) : null;
-    if (company && !companyPostGoesNow({ org: corg }, Date.now())) { logWaitOnce('delete:' + id, `take-down of ${id}: held, it is in a company community that is not this computer's now`); continue; }
+    if (company && !companyPostGoesNow({ org: corg }, sweepNow)) { logWaitOnce('delete:' + id, `take-down of ${id}: held, it is in a company community that is not this computer's now`); continue; }
     const r = company ? await spaceAs(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId), undefined, corg)
       : await asAgent(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId));
     if (r.notSent) { logWaitOnce('delete:' + id, `take-down of ${id}: not sent to the company community (${r.because}); trying again on each pass`); continue; }
+    /* Review 7: a 404 from a company space means "already gone" only if the space still answers: a site that turned its
+       spaces off answers 404 to every route, and the post would be marked taken down while still there. */
+    if (company && r.status === 404) {
+      const check = await spaceAs(rec.agent, keys, 'GET', '/agents/me/posts', undefined, corg);
+      if (check.status !== 200) { logWaitOnce('delete:' + id, `take-down of ${id}: the company community did not answer; trying again on each pass`); continue; }
+    }
     if (r.status === 204 || r.status === 404) sent[id] = settle(rec, { state: 'deleted' });
     else {
       sent[id] = { ...rec, deleteStatus: r.status };
@@ -2893,7 +2906,7 @@ function picturesTooBigOrWrongType() {
 
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
-function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); spaceMembers.clear(); companyIdsMemo = { at: null, ids: null }; communityMemo = { at: null, v: null }; waitSaid.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
+function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); spaceMembers.clear(); spacePauseUntil.clear(); companyIdsMemo = { at: null, ids: null }; appliedAt = null; waitSaid.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
 function setContact(f) { contactRead = f; }   // kosmos#6239: tests replace the policy's outside-contact read (null puts it back)
