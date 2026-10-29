@@ -389,6 +389,73 @@ enum Board {
         return r
     }
 
+    // kosmos#7575 (follow-up to #7420): the chat's own report of being shifted sideways, sent to the person's board once
+    // per chat open so an agent on that Mac can find the cause (server.js /api/phone/chat-shift, engine/chatshifts.js).
+    // Numbers, versions and row-kind words only: never message text, an agent's name or an address.
+    struct ChatShiftReport: Equatable {
+        static let kinds = ["message", "reactions", "file", "choice", "working", "day", "other"]
+        var shifts = 0
+        var largest: Double = 0
+        var whileDragging = false
+        // At the largest shift: the list's width, the widest the content was, the keyboard, and the rows on screen.
+        var listWidth: Double = 0
+        var contentWidth: Double = 0
+        var keyboardUp = false
+        var rows: [String: Int] = [:]
+
+        mutating func add(offset: Double, dragging: Bool, listWidth: Double, contentWidth: Double, keyboardUp: Bool,
+                          rows: [String: Int]) {
+            shifts += 1
+            if dragging { whileDragging = true }
+            guard abs(offset) >= largest else { return }
+            largest = abs(offset)
+            self.listWidth = listWidth; self.contentWidth = contentWidth; self.keyboardUp = keyboardUp; self.rows = rows
+        }
+
+        func body(app: String, ios: String, model: String, openSeconds: Double) -> [String: Any] {
+            ["app": app, "ios": ios, "model": model, "shifts": shifts, "largest": largest, "whileDragging": whileDragging,
+             "listWidth": listWidth, "contentWidth": contentWidth, "keyboardUp": keyboardUp, "openSeconds": openSeconds,
+             "rows": rows]
+        }
+    }
+
+    // The kind of each row on screen, counted. A message with reactions counts as reactions, one with files as file, a
+    // question or permission as choice; the working line and day lines by their own words.
+    static func chatRowKinds(_ items: [ChatItem], onScreen: Set<String>, working: Bool) -> [String: Int] {
+        var out: [String: Int] = [:]
+        for item in items where onScreen.contains(item.id) {
+            let kind: String
+            switch item.kind {
+            case .day: kind = "day"
+            case .row(let row, _, _):
+                if !row.reactions.isEmpty { kind = "reactions" }
+                else if !row.attachments.isEmpty { kind = "file" }
+                else if row.wayThrough == .question || row.wayThrough == .permission { kind = "choice" }
+                else { kind = "message" }
+            }
+            out[kind, default: 0] += 1
+        }
+        if working { out["working", default: 0] += 1 }
+        return out
+    }
+
+    // POST /api/phone/chat-shift with the report. nil when the body cannot be made.
+    static func chatShiftRequest(mac: URL, body: [String: Any]) -> URLRequest? {
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/phone/chat-shift", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.httpBody = data
+        return r
+    }
+
+    // The device model (for example "iPhone17,1"), from the system, not the person's name for the phone.
+    static func deviceModel() -> String {
+        var info = utsname(); uname(&info)
+        return withUnsafeBytes(of: &info.machine) { raw in String(decoding: raw.prefix(while: { $0 != 0 }), as: UTF8.self) }
+    }
+
     // kosmos#7488: the desktop's SWARMS_ON, which offers New Agent's Swarm: the board says so, or a row already carries
     // a swarm.
     static func swarmsOn(fromStatus data: Data) -> Bool {

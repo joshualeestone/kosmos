@@ -4855,6 +4855,37 @@ do {
           "Mona Lisa's words")
 }
 
+section("kosmos#7575: the chat's sideways-shift report")
+do {
+    var r = Board.ChatShiftReport()
+    r.add(offset: 8, dragging: false, listWidth: 402, contentWidth: 410, keyboardUp: false, rows: ["message": 3])
+    r.add(offset: -16, dragging: true, listWidth: 402, contentWidth: 434, keyboardUp: true, rows: ["reactions": 1, "working": 1])
+    r.add(offset: 4, dragging: false, listWidth: 300, contentWidth: 300, keyboardUp: false, rows: ["day": 1])
+    check(r.shifts == 3 && r.largest == 16 && r.whileDragging, "every shift counted; the largest kept by size; any shift while scrolling marked")
+    check(r.listWidth == 402 && r.contentWidth == 434 && r.keyboardUp && r.rows == ["reactions": 1, "working": 1],
+          "the widths, keyboard and rows are those at the largest shift, not the last")
+    let body = r.body(app: "1.4 (18)", ios: "27.0", model: "iPhone17,1", openSeconds: 41.5)
+    check(Set(body.keys) == ["app", "ios", "model", "shifts", "largest", "whileDragging", "listWidth", "contentWidth", "keyboardUp", "openSeconds", "rows"],
+          "the body holds only the fields the board keeps (engine/chatshifts.js)")
+    let req = Board.chatShiftRequest(mac: URL(string: "https://studio.kosmosplus.com")!, body: body)
+    check(req?.httpMethod == "POST" && req?.url?.absoluteString == "https://studio.kosmosplus.com/api/phone/chat-shift", "POST /api/phone/chat-shift")
+    let sent = (req?.httpBody).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check((sent?["shifts"] as? Int) == 3 && (sent?["rows"] as? [String: Int]) == ["reactions": 1, "working": 1], "the body is sent as JSON")
+
+    let msg = Board.ChatRow(id: "m", atRaw: "A1", at: nil, text: "hi", who: .agent)
+    var reacted = Board.ChatRow(id: "r", atRaw: "A2", at: nil, text: "hi", who: .agent); reacted.reactions = [Board.ChatReaction(emoji: "x", count: 1, mine: false)]
+    var asked = Board.ChatRow(id: "q", atRaw: "A3", at: nil, text: "pick", who: .agent); asked.wayThrough = .question
+    let items = [Board.ChatItem(id: "d", kind: .day("Today")), Board.ChatItem(id: "m", kind: .row(msg, firstOfRun: true, lastOfRun: true)),
+                 Board.ChatItem(id: "r", kind: .row(reacted, firstOfRun: true, lastOfRun: true)),
+                 Board.ChatItem(id: "q", kind: .row(asked, firstOfRun: true, lastOfRun: true))]
+    check(Board.chatRowKinds(items, onScreen: ["d", "m", "r", "q"], working: true) == ["day": 1, "message": 1, "reactions": 1, "choice": 1, "working": 1],
+          "each row on screen by its kind, and the working line")
+    check(Board.chatRowKinds(items, onScreen: ["m"], working: false) == ["message": 1], "CONTROL: rows off screen are not counted")
+    check(Board.ChatShiftReport.kinds.contains("other") && Set(Board.chatRowKinds(items, onScreen: ["d", "m", "r", "q"], working: true).keys).isSubset(of: Set(Board.ChatShiftReport.kinds)),
+          "every kind it names is one the board keeps")
+    check(!Board.deviceModel().isEmpty, "a device model is read")
+}
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
