@@ -43,6 +43,7 @@ exports.setupEnv = () => {
 };
 exports.setOn = (on) => {
   fs.writeFileSync(${JSON.stringify(path.join(root, 'seton'))}, String(on));
+  fs.writeFileSync(${JSON.stringify(path.join(root, 'seton-keys'))}, process.env.KOSMOS_EXPECT_COORDINATOR_KEYS ?? '<unset>');
   // As the real setOn's standing refresh (askAfterFlip): work left running that would hold node open (kosmos#7550).
   if (${setOnLingers}) setTimeout(() => {}, 60000);
   return ${setOnFails} ? { ok: false, because: 'refused in the test' } : { ok: true };
@@ -239,6 +240,7 @@ test('#7550 the join pins the coordinator keys the board pins, for the tunnel on
   const r = join(b);
   assert.equal(rcOf(r), '0', r.stdout + r.stderr);
   assert.equal(read(path.join(b.root, 'tunnel-keys')), 'k1,k2', 'the tunnel was not handed the board\'s keys');
+  assert.equal(read(path.join(b.root, 'seton-keys')), '<unset>', 'the pin leaked past the tunnel into the rest of the install');
 });
 
 test('#7550 with no pin from the board, an inherited KOSMOS_EXPECT_COORDINATOR_KEYS is removed, as setupEnv does', () => {
@@ -253,6 +255,7 @@ test('#7550 an engine that cannot say which keys to trust stops the join before 
   const r = join(b);
   assert.equal(rcOf(r), '1', r.stdout + r.stderr);
   assert.match(r.stdout, /could not find which Kosmos\+ keys to trust/);
+  assert.match(read(path.join(b.home, 'logs', 'cloud-join.log')) || '', /no key set in the test/, 'the reason did not reach the log');
   assert.equal(read(path.join(b.root, 'tunnel-stdin')), null, 'the tunnel ran anyway');
 });
 
@@ -268,6 +271,6 @@ test('#7550 work setOn leaves running does not hold the installer open', () => {
 });
 function spawnSyncTimed(b) {
   const script = `set -eu\ninfo() { printf '%s\\n' "$*"; }\n${BLOCK}\nrc=0; _kosmos_cloud_join || rc=$?; echo "rc=$rc"\n`;
-  return spawnSync('/bin/sh', ['-c', script], { encoding: 'utf8', timeout: 20000, env: { PATH: `${b.bin}:/usr/bin:/bin`,
+  return spawnSync('/bin/sh', ['-c', script], { encoding: 'utf8', timeout: 15000, env: { PATH: `${b.bin}:/usr/bin:/bin`,
     HOME: b.user, KOSMOS_HOME: b.home, KOSMOS_CLOUD: '1', KOSMOS_PROVISIONING_TOKEN: TOKEN, KOSMOS_CLOUD_JOIN_RETRY_SECS: '0' } });
 }

@@ -5604,11 +5604,11 @@ _kosmos_cloud_join() {
     fi
     # kosmos#7550: the coordinator keys the board pins for every registration (remote.setupEnv), asked of the engine,
     # never re-derived here. Empty means the board makes no key check either; an engine that cannot answer stops the join.
-    _kcj_keys="$("$_kcj_node" -e 'const e = require(process.argv[1]).setupEnv(); process.stdout.write(e && typeof e.KOSMOS_EXPECT_COORDINATOR_KEYS === "string" ? e.KOSMOS_EXPECT_COORDINATOR_KEYS : ""); process.exit(0);' "$_kcj_remote" 2>/dev/null)" || {
-      info "This cloud machine could not find which Kosmos+ keys to trust ($_kcj_remote)."
+    : > "$KOSMOS_HOME/logs/cloud-join.log"
+    _kcj_keys="$("$_kcj_node" -e 'const e = require(process.argv[1]).setupEnv(); process.stdout.write(e && typeof e.KOSMOS_EXPECT_COORDINATOR_KEYS === "string" ? e.KOSMOS_EXPECT_COORDINATOR_KEYS : ""); process.exit(0);' "$_kcj_remote" 2>> "$KOSMOS_HOME/logs/cloud-join.log")" || {
+      info "This cloud machine could not find which Kosmos+ keys to trust. What happened is in $KOSMOS_HOME/logs/cloud-join.log"
       return 1
     }
-    : > "$KOSMOS_HOME/logs/cloud-join.log"
     _kcj_try=1
     while :; do
       printf 'try %s\n' "$_kcj_try" >> "$KOSMOS_HOME/logs/cloud-join.log"
@@ -5633,6 +5633,8 @@ _kosmos_cloud_join() {
     info "This cloud machine joined its account but could not mark itself as a cloud machine ($_kcj_state/hosted)."
     return 1
   fi
+  # kosmos#7550: both setOn calls exit once setOn answers, which drops the report it starts (askAfterFlip); the board's
+  # own early report after it starts (remote.js startReportTimer) tells the coordinator instead.
   if ! "$_kcj_node" -e 'const r = require(process.argv[1]).setOn(true); if (!r || r.ok === false) { process.stderr.write(String((r && r.because) || "refused")); process.exit(1); } process.exit(0);' "$_kcj_remote" >> "$KOSMOS_HOME/logs/cloud-join.log" 2>&1; then
     info "This cloud machine joined its account but could not turn on Kosmos+ remote access. What happened is in $KOSMOS_HOME/logs/cloud-join.log"
     return 1
