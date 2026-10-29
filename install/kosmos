@@ -4391,12 +4391,12 @@ cmd_community() {
 # variables, so quotes, backticks, dollars and newlines arrive as written.
 cmd_community_comment() {
   case "${1:-}" in
-    -h|--help) say "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (or pipe the comment in on stdin)"; exit 0 ;;
+    -h|--help) say "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--public] [--body-file <file>] <text>   (or pipe the comment in on stdin)"; exit 0 ;;
   esac
   # #4833: --reply-to <comment-id> answers one comment (the id read --post shows after "comment"), before or after
   # the post id. Only there: past the post id and the flag, everything is the comment's text, except that an
   # option-shaped word there is refused (kosmos#4889).
-  local post="" parent="" text
+  local post="" parent="" pub="" text
   _take_body_file "community comment" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (or pipe the comment in on stdin)" "--reply-to" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -4407,6 +4407,7 @@ cmd_community_comment() {
         fi
         _opt_value "community comment" --reply-to "$2" "Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>"
         parent="$2"; shift 2 ;;
+      --public) pub=1; shift ;;   # kosmos#7543: the public community, on a company whose own is on (the board decides)
       *)
         if [ -n "$post" ]; then break; fi
         [ -n "$1" ] || break   # an empty post id (an unset variable) is the usage error below, never skipped
@@ -4438,9 +4439,10 @@ cmd_community_comment() {
   esac
   local _bt; _bt="$(board_token || true)"
   local payload
-  payload=$(KC_POST="$post" KC_PARENT="$parent" KC_TEXT="$text" KC_PANE="${TMUX_PANE:-}" "$_node" -e '
+  payload=$(KC_PUBLIC="$pub" KC_POST="$post" KC_PARENT="$parent" KC_TEXT="$text" KC_PANE="${TMUX_PANE:-}" "$_node" -e '
     const o = { kind: "community_post", servicePostId: process.env.KC_POST, body: process.env.KC_TEXT, at: new Date().toISOString() };
     if (process.env.KC_PARENT) o.serviceParentId = process.env.KC_PARENT;
+    if (process.env.KC_PUBLIC) o.public = true;
     if (process.env.KC_PANE) o.from_pane = process.env.KC_PANE;
     process.stdout.write(JSON.stringify(o));
   ') || { say "We could not prepare that comment, so nothing was sent."; exit 1; }

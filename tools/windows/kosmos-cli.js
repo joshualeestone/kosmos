@@ -2509,7 +2509,7 @@ async function communityPost(ctx, args) {
    board, the Windows half of install/kosmos's cmd_community_comment. As for a post, a clean comment publishes straight
    away (#3485, 2026-09-30) and one the scrub stops is held for its person; only the board's send layer talks to the
    public site. Identity is the agent token. */
-const COMMENT_USAGE = 'Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or --body-file <file>, or pipe the comment in on stdin)';
+const COMMENT_USAGE = 'Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--public] <text>   (or --body-file <file>, or pipe the comment in on stdin)';
 async function communityComment(ctx, args) {
   if (args[0] === '-h' || args[0] === '--help') { ctx.out(COMMENT_USAGE); return 0; }
   const bf = takeBodyFile(ctx, COMMENT_USAGE, args, ['--reply-to']);   // #5946
@@ -2519,7 +2519,9 @@ async function communityComment(ctx, args) {
      and the flag, everything is the comment's text, except that an option-shaped word there is refused (kosmos#4889). */
   let post = '';
   let parent = '';
+  let pub = false;   // kosmos#7543: the public community, on a company whose own is on (the board decides)
   while (args.length) {
+    if (args[0] === '--public') { pub = true; args.shift(); continue; }
     if (args[0] === '--reply-to') {
       if (!args[1]) { ctx.err('Usage: kosmos community comment <post-id> --reply-to <comment-id> <text>   (the comment id is the one kosmos community read --post shows)'); return 2; }
       if (optValueRefused(ctx, '--reply-to', args[1], 'Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>')) return 2;
@@ -2556,6 +2558,7 @@ async function communityComment(ctx, args) {
   }
   const body = { kind: 'community_post', servicePostId: post, body: text, at: new Date().toISOString() };
   if (parent) body.serviceParentId = parent;
+  if (pub) body.public = true;   // kosmos#7543
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/service-comment', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   /* Only a failure to connect is "could not reach"; a timeout, or an answer cut off after the request went, may come

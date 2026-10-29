@@ -355,6 +355,11 @@ function insertServiceComment(rec) {
     receivedAt: nowISO(),
   };
   if (comment.agent === undefined) delete comment.agent;
+  // kosmos#7543: a comment for the company's own community says so, and which company; no field is the public one.
+  if (rec.space === 'company') {
+    comment.space = 'company';
+    if (typeof rec.org === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(rec.org)) comment.org = rec.org;
+  }
   if (rec.session !== undefined) comment.session = rec.session; // internal, never public
   if (status !== 'published' && Array.isArray(rec.findings)) comment.findings = rec.findings;
   const comments = loadJson(commentsFile(), []);

@@ -1117,8 +1117,13 @@ async function sendComment(c, keys, csent, now, from) {
   if (!stillSending(from)) return;                   // #4939 review 4: switched off (or a new ON period) while registering
   /* kosmos#7541 review 3: a comment goes to the PUBLIC community (company-space comments are #7543), so none goes while
      the company says the public one is off (it waits), and none on a post that went to a company space. */
-  if (!publicAllowedNow(now)) { logWaitOnce('comment:' + c.id, `comment ${c.id} for ${agentKey}: held, the company says its agents do not comment in the public community`); return; }
-  if (companyRemoteIds(now).has(String(c.remotePostId))) { logWaitOnce('comment:' + c.id, `comment ${c.id} for ${agentKey}: held, comments on a company community post are not built yet (#7543)`); return; }   // review 8
+  /* kosmos#7543: a comment written for the company's own community goes to its space, only while that company's community
+     is on (else it waits, never public). Any other comment is for the PUBLIC community: none goes while the company says
+     the public one is off, and none on a post that went to a company space (the public route has no such post). */
+  const company = c.space === 'company';
+  if (company && !companyPostGoesNow(c, now)) { logWaitOnce('comment:' + c.id, `comment ${c.id} for ${agentKey}: held, it was written for a company community that is not this computer's now`); return; }
+  if (!company && !publicAllowedNow(now)) { logWaitOnce('comment:' + c.id, `comment ${c.id} for ${agentKey}: held, the company says its agents do not comment in the public community`); return; }
+  if (!company && companyRemoteIds(now).has(String(c.remotePostId))) { logWaitOnce('comment:' + c.id, `comment ${c.id} for ${agentKey}: held, it was written for the public community but the post is in the company's own`); return; }   // review 8
   const body = { body: String(c.body || '') };
   // #4833: a reply goes into the thread of the comment it answers. Never dropped: a reply sent without its parent
   // would land as a top-level comment answering nobody, so a reply either goes as a reply or is refused there.
@@ -1132,8 +1137,17 @@ async function sendComment(c, keys, csent, now, from) {
   // mid-POST has nothing in flight, and its mark reads as unconfirmed, as before.
   commentsInFlight.add(c.id);
   let r;
-  try { r = await asAgent(agentKey, keys, 'POST', '/posts/' + encodeURIComponent(c.remotePostId) + '/comments', body); }
+  const route = '/posts/' + encodeURIComponent(c.remotePostId) + '/comments';
+  try { r = company ? await spaceAs(agentKey, keys, 'POST', route, body, c.org) : await asAgent(agentKey, keys, 'POST', route, body); }
   finally { commentsInFlight.delete(c.id); }
+  /* kosmos#7543: no membership to be had (no pass, the site has no spaces, still not a member after a fresh join):
+     nothing was sent, so the write-ahead mark comes off and the comment waits for a later sweep. */
+  if (company && r.notSent) {
+    csent[c.id] = rec;
+    saveJson(commentsSentFile(), csent);
+    logWaitOnce('comment-space:' + c.id, `comment ${c.id} for ${agentKey}: waiting, ${r.because}`);
+    return;
+  }
   if (r.status === 201) {
     // #4801: which service agent stored it (agentId), so a removal is only ever asked by that same agent: after keys.json is
     // lost and the agent registers afresh, the service answers 404 "not yours", which would read as removed.
