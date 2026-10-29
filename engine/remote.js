@@ -4308,6 +4308,7 @@ module.exports = {
   federationLive,
   refreshFederationLiveIfStale,
   setOn,
+  setupEnv,   // kosmos#7550: the cloud join (install/setup.sh kosmos-cloud-join) pins the same keys the board does
   setRelay,
   enrolled,
   spawnFedSeat,

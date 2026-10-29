@@ -24,7 +24,7 @@ const TOKEN = 'tok_' + 'A'.repeat(39);
 
 /* One box: a KOSMOS_HOME with stand-ins, a state dir, a HOME holding provision.env, and a PATH whose uname answers
    `os`. `tunnelRc` is the stand-in tunnel's exit code; `setOnFails` makes remote.setOn refuse. */
-function box({ os: osName = 'Linux', tunnelRc = 0, setOnFails = false, failTimes = 0 } = {}) {
+function box({ os: osName = 'Linux', tunnelRc = 0, setOnFails = false, failTimes = 0, keys = null, setupEnvThrows = false, setOnLingers = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-cloudjoin-4903-'));
   const home = path.join(root, 'kosmos');
   const user = path.join(root, 'user');
@@ -37,8 +37,15 @@ function box({ os: osName = 'Linux', tunnelRc = 0, setOnFails = false, failTimes
 const fs = require('fs');
 exports.stateDir = () => ${JSON.stringify(state)};
 exports.coordinator = () => 'https://coordinator.example';
+exports.setupEnv = () => {
+  if (${setupEnvThrows}) throw new Error('no key set in the test');
+  return ${JSON.stringify(keys)} === null ? null : { ...process.env, KOSMOS_EXPECT_COORDINATOR_KEYS: ${JSON.stringify(keys)} };
+};
 exports.setOn = (on) => {
   fs.writeFileSync(${JSON.stringify(path.join(root, 'seton'))}, String(on));
+  fs.writeFileSync(${JSON.stringify(path.join(root, 'seton-keys'))}, process.env.KOSMOS_EXPECT_COORDINATOR_KEYS ?? '<unset>');
+  // As the real setOn's standing refresh (askAfterFlip): work left running that would hold node open (kosmos#7550).
+  if (${setOnLingers}) setTimeout(() => {}, 60000);
   return ${setOnFails} ? { ok: false, because: 'refused in the test' } : { ok: true };
 };
 `);
@@ -47,6 +54,7 @@ exports.setOn = (on) => {
   fs.writeFileSync(tunnel, `#!/bin/sh
 printf '%s\\n' "$@" > ${JSON.stringify(path.join(root, 'tunnel-args'))}
 cat > ${JSON.stringify(path.join(root, 'tunnel-stdin'))}
+printf '%s' "\${KOSMOS_EXPECT_COORDINATOR_KEYS-<unset>}" > ${JSON.stringify(path.join(root, 'tunnel-keys'))}
 printf 'x' >> ${JSON.stringify(tries)}
 # As the real parser (kosmos-relay crates/tunnel main.rs SetupCommand::Cloud): --coordinator and --state-dir are
 # REQUIRED, in any order; a missing one, or anything else, is a usage error (exit 2) before any request is made.
@@ -226,3 +234,43 @@ test('#4903 a box whose registration is still pending (its pending key kept) is 
   assert.ok(read(path.join(b.root, 'tunnel-args')), 'an unfinished registration was taken as done');
   assert.equal(read(path.join(b.root, 'tunnel-stdin')), TOKEN, 'the retry did not carry the same token');
 });
+
+test('#7550 the join pins the coordinator keys the board pins, for the tunnel only', () => {
+  const b = box({ keys: 'k1,k2' });
+  const r = join(b);
+  assert.equal(rcOf(r), '0', r.stdout + r.stderr);
+  assert.equal(read(path.join(b.root, 'tunnel-keys')), 'k1,k2', 'the tunnel was not handed the board\'s keys');
+  assert.equal(read(path.join(b.root, 'seton-keys')), '<unset>', 'the pin leaked past the tunnel into the rest of the install');
+});
+
+test('#7550 with no pin from the board, an inherited KOSMOS_EXPECT_COORDINATOR_KEYS is removed, as setupEnv does', () => {
+  const b = box({ keys: null });
+  const r = join(b, { KOSMOS_EXPECT_COORDINATOR_KEYS: 'stale-from-the-caller' });
+  assert.equal(rcOf(r), '0', r.stdout + r.stderr);
+  assert.equal(read(path.join(b.root, 'tunnel-keys')), '<unset>');
+});
+
+test('#7550 an engine that cannot say which keys to trust stops the join before the token is sent', () => {
+  const b = box({ setupEnvThrows: true });
+  const r = join(b);
+  assert.equal(rcOf(r), '1', r.stdout + r.stderr);
+  assert.match(r.stdout, /could not find which Kosmos\+ keys to trust/);
+  assert.match(read(path.join(b.home, 'logs', 'cloud-join.log')) || '', /no key set in the test/, 'the reason did not reach the log');
+  assert.equal(read(path.join(b.root, 'tunnel-stdin')), null, 'the tunnel ran anyway');
+});
+
+test('#7550 work setOn leaves running does not hold the installer open', () => {
+  for (const pre of [false, true]) {
+    const b = box({ setOnLingers: true });
+    if (pre) { fs.mkdirSync(b.state, { recursive: true }); fs.writeFileSync(path.join(b.state, 'mac_id'), 'mac-1\n'); fs.writeFileSync(path.join(b.state, 'hosted'), '', { mode: 0o600 }); }
+    const t0 = Date.now();
+    const r = spawnSyncTimed(b);
+    assert.equal(rcOf(r), '0', `${pre ? 'rerun' : 'first'} join: ` + r.stdout + r.stderr + (r.error ? String(r.error) : ''));
+    assert.ok(Date.now() - t0 < 20000, `the ${pre ? 'rerun' : 'first'} join waited on setOn's leftover work`);
+  }
+});
+function spawnSyncTimed(b) {
+  const script = `set -eu\ninfo() { printf '%s\\n' "$*"; }\n${BLOCK}\nrc=0; _kosmos_cloud_join || rc=$?; echo "rc=$rc"\n`;
+  return spawnSync('/bin/sh', ['-c', script], { encoding: 'utf8', timeout: 15000, env: { PATH: `${b.bin}:/usr/bin:/bin`,
+    HOME: b.user, KOSMOS_HOME: b.home, KOSMOS_CLOUD: '1', KOSMOS_PROVISIONING_TOKEN: TOKEN, KOSMOS_CLOUD_JOIN_RETRY_SECS: '0' } });
+}
