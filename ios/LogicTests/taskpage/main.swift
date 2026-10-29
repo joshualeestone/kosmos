@@ -137,6 +137,9 @@ check(rows(3) == ["Created and given to Dana, under task 1", "Dana marked it bui
       "given to an agent under a parent, marked built, a message")
 check(rows(5) == ["Created and given to Eli", "A part added: Check linen prices", "A part marked done", "Put on hold"], "parts and a hold")
 check(rows(6) == ["Created", "Closed as replaced by task 7"], "replaced")
+check(Board.activityPhrase(["kind": "closed", "via": "parent", "parent": 4], name: { $0 }) == "Marked done with task 4"
+      && Board.activityPhrase(["kind": "closed"], name: { $0 }) == "Marked done",
+      "kosmos#7514: a subtask closed with its parent names the parent, as engine/taskactphrase.js does; a plain close as before")
 let runs: [[String: Any]] = [
     ["kind": "run", "at": "2026-10-20T10:00:00Z", "unchanged": true, "by": "dana"],
     ["kind": "run", "at": "2026-10-21T10:00:00Z", "unchanged": true, "inferred": true, "by": "dana"],

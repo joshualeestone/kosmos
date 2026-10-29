@@ -24163,18 +24163,32 @@ const server = http.createServer(async (req, res) => {
         return;
       }
     }
-    const act = (why, replacedBy) => {
+    const act = (why, replacedBy, withBuilt = false) => {
       try {
         /* #6157: a reopen records who put it back (the person from the screen, or the agent its token named; an agent
            that sends no token stays unnamed, as above) and why. #6923: a close may name the task that replaced it. */
-        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2], { replacedBy })
+        const t = taskAct[3] === 'close' ? tasks.close(id, taskAct[2], { replacedBy, withBuilt, wantLeft: true })
           : tasks.reopen(id, taskAct[2], { by: actor, person: isViaScreen(req, {}), why });
         // Close and reopen change what the assignee's block should list, so
         // the block follows the record. Non-gating.
         // ⚠️ `whoOf`, not `t.who`: a task with parts has no `who`, so the block
         // stopped following the record and an agent's instructions kept listing
         // a task it had already finished.
-        let told = tellEveryoneOn(t);
+        // kosmos#7514: with built subtasks closed too, one roster serves the parent's agents and theirs, each told once.
+        // `told` stays the parent's verdict (its one-verdict shape); the subtasks' agents are told without a verdict.
+        const withSubs = Array.isArray(t.closedWith) && t.closedWith.length > 0;
+        const roster = withSubs ? safeRoster() : undefined;
+        let told = tellEveryoneOn(t, roster);
+        if (withSubs) {
+          // Non-gating, as the telling is: everything has closed by now, so a failed read must not answer "could not close".
+          try {
+            const rec = (projects.readAll() || []).find((x) => x && x.id === id);   // raw: no claim join
+            const named = new Set();
+            for (const sub of t.closedWith) { const k = rec ? tasks.byNumber(rec, sub) : null; if (k) for (const one of tasks.whoOf(k)) named.add(one); }
+            for (const one of tasks.whoOf(t)) named.delete(one);   // told above
+            for (const one of named) { try { projects.syncAgent(one, roster); } catch { /* non-gating */ } }
+          } catch { /* non-gating */ }
+        }
         sendJson(res, 200, { task: t, told });
       } catch (err) {
         const msg = String((err && err.message) || '');
@@ -24197,11 +24211,18 @@ const server = http.createServer(async (req, res) => {
           if (!body || typeof body !== 'object' || Array.isArray(body)) {
             sendJson(res, 400, { error: 'we could not read that request, so the task was not closed' }); return;
           }
-          if (Object.keys(body).some((k) => k !== 'replacedBy')) {
-            sendJson(res, 400, { error: 'a close takes only replacedBy (the number of the task that replaced it), so the task was not closed' }); return;
+          if (Object.keys(body).some((k) => k !== 'replacedBy' && k !== 'withBuilt')) {
+            sendJson(res, 400, { error: 'a close takes only replacedBy (the number of the task that replaced it) or withBuilt, so the task was not closed' }); return;
+          }
+          // kosmos#7514: withBuilt (also close its built subtasks) is true or false, never a word that reads as either.
+          if (body.withBuilt !== undefined && typeof body.withBuilt !== 'boolean') {
+            sendJson(res, 400, { error: 'withBuilt has to be true or false, so the task was not closed' }); return;
+          }
+          if (body.withBuilt === true && body.replacedBy !== undefined && body.replacedBy !== null) {
+            sendJson(res, 400, { error: 'a task closed as replaced does not take its built subtasks: close them on their own, so the task was not closed' }); return;
           }
         }
-        act('', body && typeof body === 'object' ? body.replacedBy : undefined);
+        act('', body && typeof body === 'object' ? body.replacedBy : undefined, body && typeof body === 'object' && body.withBuilt === true);
       }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
       return;
     }
