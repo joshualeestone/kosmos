@@ -403,13 +403,15 @@ enum Board {
         var keyboardUp = false
         var rows: [String: Int] = [:]
 
-        mutating func add(offset: Double, dragging: Bool, listWidth: Double, contentWidth: Double, keyboardUp: Bool,
-                          rows: [String: Int]) {
-            shifts += 1
+        // A new shift is counted; a shift growing (isNew false) is not counted again. Only a new largest offset takes the
+        // snapshot (list width, content width, keyboard up, rows on screen), so the rows are walked rarely.
+        mutating func add(offset: Double, isNew: Bool, dragging: Bool,
+                          snapshot: () -> (Double, Double, Bool, [String: Int])) {
+            if isNew { shifts += 1 }
             if dragging { whileDragging = true }
-            guard abs(offset) >= largest else { return }
+            guard abs(offset) > largest else { return }
             largest = abs(offset)
-            self.listWidth = listWidth; self.contentWidth = contentWidth; self.keyboardUp = keyboardUp; self.rows = rows
+            (listWidth, contentWidth, keyboardUp, rows) = snapshot()
         }
 
         func body(app: String, ios: String, model: String, openSeconds: Double) -> [String: Any] {

@@ -4858,19 +4858,23 @@ do {
 section("kosmos#7575: the chat's sideways-shift report")
 do {
     var r = Board.ChatShiftReport()
-    r.add(offset: 8, dragging: false, listWidth: 402, contentWidth: 410, keyboardUp: false, rows: ["message": 3])
-    r.add(offset: -16, dragging: true, listWidth: 402, contentWidth: 434, keyboardUp: true, rows: ["reactions": 1, "working": 1])
-    r.add(offset: 4, dragging: false, listWidth: 300, contentWidth: 300, keyboardUp: false, rows: ["day": 1])
-    check(r.shifts == 3 && r.largest == 16 && r.whileDragging, "every shift counted; the largest kept by size; any shift while scrolling marked")
+    var snaps = 0
+    r.add(offset: 8, isNew: true, dragging: false) { snaps += 1; return (402, 410, false, ["message": 3]) }
+    r.add(offset: -16, isNew: true, dragging: true) { snaps += 1; return (402, 434, true, ["reactions": 1, "working": 1]) }
+    r.add(offset: 4, isNew: true, dragging: false) { snaps += 1; return (300, 300, false, ["day": 1]) }
+    check(r.shifts == 3 && r.largest == 16 && r.whileDragging, "every new shift counted; the largest kept by size; any shift while scrolling marked")
     check(r.listWidth == 402 && r.contentWidth == 434 && r.keyboardUp && r.rows == ["reactions": 1, "working": 1],
           "the widths, keyboard and rows are those at the largest shift, not the last")
+    check(snaps == 2, "review 1: a smaller shift takes no snapshot (the rows are not walked)")
+    r.add(offset: 40, isNew: false, dragging: false) { snaps += 1; return (402, 480, true, ["file": 1]) }
+    check(r.shifts == 3 && r.largest == 40 && r.contentWidth == 480 && snaps == 3, "review 1: a shift growing past the largest is its peak, not a new shift")
     let body = r.body(app: "1.4 (18)", ios: "27.0", model: "iPhone17,1", openSeconds: 41.5)
     check(Set(body.keys) == ["app", "ios", "model", "shifts", "largest", "whileDragging", "listWidth", "contentWidth", "keyboardUp", "openSeconds", "rows"],
           "the body holds only the fields the board keeps (engine/chatshifts.js)")
     let req = Board.chatShiftRequest(mac: URL(string: "https://studio.kosmosplus.com")!, body: body)
     check(req?.httpMethod == "POST" && req?.url?.absoluteString == "https://studio.kosmosplus.com/api/phone/chat-shift", "POST /api/phone/chat-shift")
     let sent = (req?.httpBody).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-    check((sent?["shifts"] as? Int) == 3 && (sent?["rows"] as? [String: Int]) == ["reactions": 1, "working": 1], "the body is sent as JSON")
+    check((sent?["shifts"] as? Int) == 3 && (sent?["rows"] as? [String: Int]) == ["file": 1], "the body is sent as JSON")
 
     let msg = Board.ChatRow(id: "m", atRaw: "A1", at: nil, text: "hi", who: .agent)
     var reacted = Board.ChatRow(id: "r", atRaw: "A2", at: nil, text: "hi", who: .agent); reacted.reactions = [Board.ChatReaction(emoji: "x", count: 1, mine: false)]

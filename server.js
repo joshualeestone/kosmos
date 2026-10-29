@@ -11027,7 +11027,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (pathname === '/api/phone/chat-shift' && req.method === 'POST') {
     if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this comes from the person\'s phone, not an agent' }); return; }
-    readBody(req)
+    readBody(req, 4096)   // review 1: a record is a few hundred bytes
       .then((buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}'); }
