@@ -62,11 +62,13 @@ function backend() {
       }
       if (req.method === 'POST' && req.url === '/spaces/join') {
         if (!body || body.pass !== PASS) return send(403, { detail: 'bad_pass' });
-        st.members.set(a.id, 'acme');
-        return send(200, { space: 'acme', until: new Date(Date.now() + 3600e3).toISOString() });
+        const space = st.mode.otherSpace ? 'org9' : 'org1';   // review 7: a pass for another company
+        st.members.set(a.id, space);
+        return send(200, { space, until: new Date(Date.now() + 3600e3).toISOString() });
       }
-      if (req.method === 'POST' && req.url === '/spaces/acme/posts') {
-        if (st.members.get(a.id) !== 'acme') return send(403, { detail: 'space_join_needed' });
+      if (st.mode.spacesOff && req.url.startsWith('/spaces/org1/')) return send(404, { detail: 'Not Found' });   // review 7: every space route
+      if (req.method === 'POST' && req.url === '/spaces/org1/posts') {
+        if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
         if (st.mode.lost) return;   // never stored, and the answer never comes
         const id = crypto.randomUUID();   // as the service's ids are
         st.spacePosts.push({ id, agent: a.id, ...body });
@@ -74,14 +76,14 @@ function backend() {
         return send(201, { id });
       }
       // Renet Tilley's contract on #7538: the agent's own posts IN the space (the public /agents/me/posts never lists them).
-      if (req.method === 'GET' && req.url === '/spaces/acme/agents/me/posts') {
-        if (st.members.get(a.id) !== 'acme') return send(403, { detail: 'space_join_needed' });
+      if (req.method === 'GET' && req.url === '/spaces/org1/agents/me/posts') {
+        if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
         return send(200, st.spacePosts.filter((p) => p.agent === a.id).map((p) => ({ id: p.id, channel: p.channel, sub_channel: p.sub_channel ?? null, title: p.title, body: p.body })));
       }
       // Renet's contract (review 3): an agent withdrawing its own space post.
-      if (req.method === 'DELETE' && req.url.startsWith('/spaces/acme/posts/')) {
-        if (st.members.get(a.id) !== 'acme') return send(403, { detail: 'space_join_needed' });
-        const id = decodeURIComponent(req.url.slice('/spaces/acme/posts/'.length));
+      if (req.method === 'DELETE' && req.url.startsWith('/spaces/org1/posts/')) {
+        if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
+        const id = decodeURIComponent(req.url.slice('/spaces/org1/posts/'.length));
         const i = st.spacePosts.findIndex((p) => p.id === id && p.agent === a.id);
         if (i < 0) return send(404, { detail: 'not found' });
         st.spacePosts.splice(i, 1);
@@ -164,11 +166,15 @@ test('#7541: with no pass to be had nothing is sent anywhere, and the post goes 
   assert.equal(be.st.posts.length + be.st.spacePosts.length, 0, 'a company post went out with no pass');
   coordinatorAnswer = { ok: true, data: { token: PASS } };
   await cs.sweep();
+  assert.equal(be.st.spacePosts.length, 0, 'review 7: the agent was asked again inside its pause after a pass could not be had');
+  assert.equal(passCalls.length, 1, 'review 7: the coordinator was asked again inside the pause');
+  cs.resetPauses();   // stands for the pause running out
+  await cs.sweep();
   assert.equal(be.st.spacePosts.length, 1, 'the post did not go out once a pass could be had');
   assert.equal(be.st.posts.length, 0);
 });
 
-const spaceSends = () => be.st.seen.filter((s) => s.method === 'POST' && s.url === '/spaces/acme/posts').length;
+const spaceSends = () => be.st.seen.filter((s) => s.method === 'POST' && s.url === '/spaces/org1/posts').length;
 
 test('#7541: a space post stored but whose answer never came is found in the space and never sent again', async () => {
   await on();
@@ -182,7 +188,7 @@ test('#7541: a space post stored but whose answer never came is found in the spa
   assert.equal(spaceSends(), 1, 'a stored space post was sent a second time');
   assert.equal(be.st.spacePosts.length, 1);
   assert.equal(be.st.posts.length, 0, 'a space post went to the public community');
-  assert.ok(be.st.seen.some((s) => s.url === '/spaces/acme/agents/me/posts'), 'it was not looked for in the space');
+  assert.ok(be.st.seen.some((s) => s.url === '/spaces/org1/agents/me/posts'), 'it was not looked for in the space');
 });
 
 test('#7541: a space post that never arrived is looked for in the space, then sent there once more, never to the public community', async () => {
@@ -208,7 +214,7 @@ function company(policy, org = 'org-1') {
   const file = path.join(store.ROOT, orgenroll.ENROLLMENT_FILE);
   if (policy === null) { fs.rmSync(file, { force: true }); return; }
   fs.mkdirSync(store.ROOT, { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ org: { id: org, name: 'Acme', slug: 'acme', kind: 'company' }, world: 'a'.repeat(32) }) + '\n');
+  fs.writeFileSync(file, JSON.stringify({ org: { id: org, name: 'Acme', slug: 'org1', kind: 'company' }, world: 'a'.repeat(32) }) + '\n');
   const now = Math.floor(Date.now() / 1000);
   version += 1;
   const pinned = coordinatorKey.publicKey.export({ format: 'jwk' }).x;
@@ -245,7 +251,7 @@ test('#7541 review 3: a sent company post is taken back in its space, never thro
   assert.equal(w.ok, true, JSON.stringify(w));
   await cs.sweep();
   assert.equal(be.st.spacePosts.length, 0, 'the company post was not taken down in its space');
-  assert.ok(be.st.seen.some((x) => x.method === 'DELETE' && x.url.startsWith('/spaces/acme/posts/')), 'no space take-down was sent');
+  assert.ok(be.st.seen.some((x) => x.method === 'DELETE' && x.url.startsWith('/spaces/org1/posts/')), 'no space take-down was sent');
   assert.ok(!be.st.seen.some((x) => (x.method === 'DELETE' || x.method === 'PATCH') && x.url.startsWith('/posts/')), 'a company post went to a PUBLIC take-back or edit route');
 });
 
@@ -335,4 +341,34 @@ test('#7541 review 5: a company post waits while its company\'s community is off
   company({ company_community: { enabled: false } });
   await cs.sweep();
   assert.equal(be.st.spacePosts.length + be.st.posts.length, 0, 'a company post went out while its company\'s community was off');
+});
+
+test('#7541 review 7: a join that lands in another company\'s space sends nothing there', async () => {
+  await on();
+  companyOn();
+  be.st.mode.otherSpace = true;
+  agentPost('dana', 'company');
+  await cs.sweep();
+  assert.equal(be.st.spacePosts.length, 0, 'a company post was sent into another company\'s space');
+  assert.ok(!be.st.seen.some((x) => x.method === 'POST' && /^\/spaces\/org9\//.test(x.url)), 'something was posted to the other company\'s space');
+  assert.equal(be.st.posts.length, 0);
+});
+
+test('#7541 review 7: a take-down answered 404 while the site has turned spaces off is not marked done', async () => {
+  await on();
+  companyOn();
+  const r = agentPost('dana', 'company');
+  await cs.sweep();
+  assert.equal(be.st.spacePosts.length, 1);
+  be.st.mode.spacesOff = true;
+  assert.equal(cs.withdrawFor('dana', 'post', r.id).ok, true);
+  await cs.sweep();
+  const rec = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'))[r.id];
+  assert.notEqual(rec.state, 'deleted', 'a take-down the site could not have done was recorded as done');
+  be.st.mode.spacesOff = false;   // CONTROL: spaces back, the take-down goes and is recorded
+  cs.resetPauses();
+  await cs.sweep();
+  const after = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'))[r.id];
+  assert.equal(after.state, 'deleted', 'CONTROL: the take-down did not go once spaces were back');
+  assert.equal(be.st.spacePosts.length, 0);
 });

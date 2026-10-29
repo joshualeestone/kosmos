@@ -20,6 +20,10 @@ const PASS_ROUTE = '/v1/mac/org/community-pass';
 const SPACE_ID = /^[A-Za-z0-9_-]{1,64}$/;   // goes into a URL path, so a bounded plain shape only
 const PASS_MAX = 8192;
 const AGENT_ID = /^[A-Za-z0-9_-]{1,64}$/;   // the agent's community id, sent in the pass request
+/* Review 7 (Renet 00:01: a space id IS the company's org id, 32 lowercase hex): the same company, compared lowercased with
+   dashes taken out, so a different spelling of one id is never read as another company. */
+const normOrg = (v) => String(v == null ? '' : v).toLowerCase().replace(/-/g, '');
+function sameOrg(a, b) { const x = normOrg(a); return x !== '' && x === normOrg(b); }
 
 let remoteOverride = null;   // tests only: the stand-in coordinator for the sweep's calls (setRemote)
 function setRemote(r) { remoteOverride = r || null; }
@@ -73,11 +77,15 @@ async function join(call, opts = {}) {
    once more on space_join_needed. Answers as `call` does, plus { space } when it went out, or a not-sent answer
    { status: 0, json: null, notSent: true, because } when no membership could be had. `members` is the caller's
    Map(agentKey -> { space, untilMs }). */
-async function spaceCall(agentKey, call, method, sub, body, { members, now = Date.now(), ...opts } = {}) {
+async function spaceCall(agentKey, call, method, sub, body, { members, now = Date.now(), expectSpace = null, ...opts } = {}) {
   let m = members.get(agentKey);
+  if (m && expectSpace && sameOrg(m.space, expectSpace) !== true) { members.delete(agentKey); m = null; }
   const fresh = async () => {
     const j = await join(call, opts);
     if (!j.ok) { members.delete(agentKey); return j; }
+    /* Review 7: the space joined must be the company the call is for. A pass the coordinator issued for another company
+       is never used to send this one's words. */
+    if (expectSpace && sameOrg(j.space, expectSpace) !== true) { members.delete(agentKey); return { ok: false, status: 0, because: 'the company community joined is not the one this was written for' }; }
     m = { space: j.space, untilMs: j.untilMs };
     members.set(agentKey, m);
     return j;
