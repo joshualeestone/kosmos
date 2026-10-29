@@ -452,15 +452,18 @@ function workersRootFor(env, home, platform = process.platform) {
   return e.AGENT_WORKFORCE_WORKERS || joinerFor(platform).join(home, 'work', 'workers');
 }
 
+/* #1760: the data root is owner-only (0700). A root outside ~/Library (an AGENT_WORKFORCE_DATA root, as the Linux
+   installer sets) is otherwise made under the umask, readable by other local accounts. root() is the value every
+   writer uses (store.ROOT), so a test process tightens its own throwaway root. Called at board start and on every
+   ensure(). chmod follows a symlinked root to its target, as securewrite.secureDir does. Best-effort: a read-only
+   root or a race is not fatal. */
+function secureRoot() {
+  try { fs.chmodSync(root(), 0o700); } catch { /* see above */ }
+}
+
 function ensure(dir) {
   fs.mkdirSync(dir, { recursive: true });
-  /* #1760: the data root is owner-only (0700). A root outside ~/Library (an override, or a Linux
-     install's data folder) is otherwise made under the umask and readable by other local accounts.
-     Through resolveDataRoot (#5418), so a test process tightens its own throwaway root, never the
-     real one, and no migration runs here. Best-effort: a read-only root or a race is not fatal. */
-  try {
-    fs.chmodSync(resolveDataRoot(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env), 0o700);
-  } catch { /* see above */ }
+  secureRoot();
   return dir;
 }
 
@@ -889,7 +892,7 @@ function writeSettings(patch) {
  * that names a gone pid on this host). Its test and test-support/data-root-sandbox.js are the
  * callers; nothing in the product calls it but the store itself.
  */
-module.exports = { saveFlushed /* #5434 slice 17 */, isTestProcess /* #6726: replyfile's test seam gates on it */, APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { secureRoot /* #1760 */, saveFlushed /* #5434 slice 17 */, isTestProcess /* #6726: replyfile's test seam gates on it */, APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

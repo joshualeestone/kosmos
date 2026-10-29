@@ -26658,6 +26658,8 @@ function start(port = PORT) {
       /* kosmos#7409: a removed agent stays off after a machine move (engine/remove.js reapplyAtBoardStart); a real board
          only, never a sandboxed fixture. */
       removal.reapplyAtBoardStart({ enforcing: boardAuthState.on });
+      // #1760: an existing install's data root and message log are made owner-only (a real board only, as above).
+      if (boardAuthState.on) { store.secureRoot(); require('./engine/messages').secureLog(); }
       // Keep a listener attached for the life of the process. Without one, an
       // error after a successful bind is uncaught and exits with a raw stack.
       server.on('error', (err) => {

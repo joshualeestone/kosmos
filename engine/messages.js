@@ -1123,6 +1123,12 @@ function readLog() {
   return record().rows;
 }
 
+/* #1760: a log made before appendLog created it 0600 (an upgraded install) is tightened at board start. A link is
+   left alone. Best-effort. */
+function secureLog() {
+  try { if (fs.lstatSync(LOG).isFile()) fs.chmodSync(LOG, 0o600); } catch { /* none yet, or not ours to change */ }
+}
+
 function appendLog(entry) {
   fs.mkdirSync(path.dirname(LOG), { recursive: true });
   // #1760: the message log holds conversation content, so it is created owner-only (an existing log keeps its mode).
@@ -4482,6 +4488,7 @@ module.exports = {
   spillLimit,   // #6065: the longest line typed whole
   spillLine, requestIn, fitOrBare,   // #6065 N1: the shortened line, its request, and the re-measure (tests)
   HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a
+  secureLog,   // #1760
   keepTaskLine, tellTaskLineDropped, recordTaskLineOutcome,   // kosmos#5805: task messages; #5842: their outcome on the task
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
   logRoomRefusal,       // kosmos#5752 slice 3

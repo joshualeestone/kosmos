@@ -1,12 +1,8 @@
 'use strict';
 
 /**
- * #1760 hardening: pin the data root owner-only (0700) on EVERY store write, and
- * create the message log 0600, so a data root outside ~/Library is not readable by
- * other local accounts.
- *
- * The first test asserts store.ensure() TIGHTENS a loose root; the second that the
- * message log is created 0600.
+ * #1760: the data root is owner-only (0700) and the message log is owner-only (0600), so a data root outside
+ * ~/Library is not readable by other local accounts. POSIX modes only, so skipped on Windows.
  */
 
 const test = require('node:test');
@@ -18,33 +14,53 @@ const path = require('node:path');
 const SB = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'storemode-1760-')));
 process.env.AGENT_WORKFORCE_DATA = SB;
 delete process.env.AGENT_WORKFORCE_HOME;
+test.after(() => { try { fs.rmSync(SB, { recursive: true, force: true }); } catch { /* temp */ } });
 
 const store = require('./store');
+const messages = require('./messages');
+const skip = process.platform === 'win32';
+const modeOf = (p) => fs.statSync(p).mode & 0o777;
 
-test('#1760: a store write (writeProfile -> ensure) TIGHTENS a loose data ROOT to 0700', () => {
-  // Pre-create ROOT and set it DELIBERATELY LOOSE (0755) so the assertion
-  // discriminates regardless of the ambient umask: under umask 077 a fresh
-  // mkdirSync would already be 0700 and hide whether ensure() did anything, so we
-  // pin the precondition ourselves. ensure() (reached via writeProfile) must
-  // tighten it to 0700; delete the chmod in store.ensure() and this stays 0755 and reds.
+test('#1760: a store write (writeProfile -> ensure) tightens a loose data root to 0700', { skip }, () => {
+  // The precondition is set here (0755), so the result does not depend on the ambient umask.
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.chmodSync(store.ROOT, 0o755);
-  assert.equal(fs.statSync(store.ROOT).mode & 0o777, 0o755, 'precondition: ROOT starts loose at 0755');
-
+  assert.equal(modeOf(store.ROOT), 0o755, 'precondition: the root starts at 0755');
   store.writeProfile('modeprobe', { dir: path.join(SB, 'work', 'modeprobe'), provider: 'anthropic' });
-
-  const mode = fs.statSync(store.ROOT).mode & 0o777;
-  assert.equal(mode, 0o700, `store.ensure() did not tighten ROOT to 0700 (got ${mode.toString(8)})`);
+  assert.equal(modeOf(store.ROOT), 0o700, `ensure() did not tighten the root (got ${modeOf(store.ROOT).toString(8)})`);
 });
 
-test('#1760: the message log is created owner-only (0600), whatever the umask', () => {
-  // Under a permissive umask a plain append would land 0644; the log's own create must say 0600. Remove the mode from
-  // messages.js appendLog and this reds.
-  const messages = require('./messages');
+test('#1760: secureRoot (the board-start call) tightens a loose data root to 0700', { skip }, () => {
+  fs.mkdirSync(store.ROOT, { recursive: true });
+  fs.chmodSync(store.ROOT, 0o755);
+  store.secureRoot();
+  assert.equal(modeOf(store.ROOT), 0o700);
+});
+
+test('#1760: the message log is created owner-only (0600), whatever the umask', { skip }, () => {
   assert.ok(messages.LOG.startsWith(SB), 'the message log is not in this test\'s sandbox: ' + messages.LOG);
   try { fs.unlinkSync(messages.LOG); } catch { /* fresh */ }
   const was = process.umask(0o022);
   try { messages.logHeldDropped({ id: 'm1', from: 'a', to: 'b' }); } finally { process.umask(was); }
-  const mode = fs.statSync(messages.LOG).mode & 0o777;
-  assert.equal(mode, 0o600, `the message log was created ${mode.toString(8)}, expected 600`);
+  assert.equal(modeOf(messages.LOG), 0o600, `the log was created ${modeOf(messages.LOG).toString(8)}`);
+});
+
+test('#1760: an existing 0644 log (an upgraded install) is tightened by secureLog, and a link is left alone', { skip }, () => {
+  fs.writeFileSync(messages.LOG, '{}\n');
+  fs.chmodSync(messages.LOG, 0o644);
+  messages.secureLog();
+  assert.equal(modeOf(messages.LOG), 0o600, 'secureLog did not tighten the existing log');
+  const target = path.join(SB, 'elsewhere.jsonl');
+  fs.writeFileSync(target, '{}\n');
+  fs.chmodSync(target, 0o644);
+  fs.unlinkSync(messages.LOG);
+  fs.symlinkSync(target, messages.LOG);
+  messages.secureLog();
+  assert.equal(modeOf(target), 0o644, 'secureLog followed a link to a file it does not own');
+});
+
+test('#1760: the board calls secureRoot and secureLog at start, for a real board', () => {
+  // A source check: the call sits in the board-start block, gated like removal.reapplyAtBoardStart.
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /removal\.reapplyAtBoardStart\(\{ enforcing: boardAuthState\.on \}\);\n[^\n]*\n\s*if \(boardAuthState\.on\) \{ store\.secureRoot\(\); require\('\.\/engine\/messages'\)\.secureLog\(\); \}/);
 });
