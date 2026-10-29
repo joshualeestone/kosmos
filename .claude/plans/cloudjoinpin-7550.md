@@ -10,6 +10,11 @@ Follow-up from Kitty's review of cloudjoin-4903r (#7549). Both changes are in in
 2. Both `setOn(true)` node -e calls exit once setOn has answered, so the standing refresh it starts (askAfterFlip)
    cannot hold the installer for up to the 20 s signed-call bound.
 
+   What the exit drops, read in engine/remote.js: setOn's settings write is synchronous and fsync'd, so it lands
+   first. ensure() starts nothing there (no board port is known in that process, so it stops a child that does not
+   exist). The flip report is lost, and the board's first report after it starts sends it instead (REPORT_FIRST_MS,
+   60 s, TTL 0, called from server.js at boot).
+
 ## Tests
 install.cloud-join-4903.test.js: four new tests (the pin reaches the tunnel; an inherited pin is removed; a failed
 setupEnv stops before the token is sent; setOn's leftover work does not hold the join, on a first run and a rerun).

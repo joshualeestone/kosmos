@@ -5634,7 +5634,8 @@ _kosmos_cloud_join() {
     return 1
   fi
   # kosmos#7550: both setOn calls exit once setOn answers, which drops the report it starts (askAfterFlip); the board's
-  # own early report after it starts (remote.js startReportTimer) tells the coordinator instead.
+  # first report, REPORT_FIRST_MS after it starts, tells the coordinator instead (engine/remote.test.js startReportTimer
+  # tests; server.remote-tick.test.js for the board starting it).
   if ! "$_kcj_node" -e 'const r = require(process.argv[1]).setOn(true); if (!r || r.ok === false) { process.stderr.write(String((r && r.because) || "refused")); process.exit(1); } process.exit(0);' "$_kcj_remote" >> "$KOSMOS_HOME/logs/cloud-join.log" 2>&1; then
     info "This cloud machine joined its account but could not turn on Kosmos+ remote access. What happened is in $KOSMOS_HOME/logs/cloud-join.log"
     return 1
