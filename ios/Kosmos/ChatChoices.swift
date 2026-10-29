@@ -220,6 +220,9 @@ struct FlowLayout: Layout {
     // kosmos#7420 review 1: each row flush right (the person's own reactions, under a right-hand bubble), as the one
     // HStack row it replaces sat; false keeps the left-to-right rows the answer buttons use.
     var trailing = false
+    // kosmos#7420 (Mona Lisa, 10-29): the space between lines when it should differ from the space between items; nil
+    // keeps them the same. Tappable reactions carry a 44 pt tap area each, so their lines touch (0) without overlapping.
+    var rowSpacing: CGFloat? = nil
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
@@ -253,7 +256,7 @@ struct FlowLayout: Layout {
             // kosmos#7420 review 2: half a point of slack, so bounds a fraction narrower than the widest row (rounding)
             // never wraps its last item onto a line the reported height did not count.
             if !row.items.isEmpty && x + w > width + 0.5 {
-                let y = row.y + row.height + spacing
+                let y = row.y + row.height + (rowSpacing ?? spacing)
                 rows.append(Row(y: y))
                 row = rows[rows.count - 1]
                 row.items.append(Item(index: i, x: 0, width: w))

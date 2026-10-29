@@ -1710,7 +1710,9 @@ struct ReactionPills: View {
     var body: some View {
         // kosmos#7420: wrapped onto more lines, never one row: a row of many reactions wider than the screen made the whole
         // thread as wide (a lazy stack takes its widest row), which pushed every bubble off its margin.
-        FlowLayout(spacing: 6, trailing: trailing) {
+        // Mona Lisa 10-29: tappable pills' 44 pt tap areas touch line to line (0), so the visible gap is the tap area's
+        // own margin, never that plus 6; plain pills (nothing to tap) keep 6.
+        FlowLayout(spacing: 6, trailing: trailing, rowSpacing: toggle == nil ? 6 : 0) {
             ForEach(pills, id: \.emoji) { p in
                 if toggle == nil {
                     // Not toggleable here (not this agent's own message): plain words, never a button that does nothing.
