@@ -217,7 +217,7 @@ struct AgentsView: View {
         BoardStates(client: client, openBoard: openBoard) { noAgents }
     }
 
-    // No agents (spec frame 4): no list and no footer line.
+    // No agents (spec frame 4): no list.
     private var noAgents: some View {
         VStack(spacing: 6) {
             Text("No agents yet").font(.headline).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
@@ -256,7 +256,8 @@ struct AgentsView: View {
                     .onAppear { UIAccessibility.post(notification: .announcement, argument: note) }
                 }
             }
-            Section(footer: footer) {
+            // kosmos#7528 (Josh 10-28): no footer line under the list.
+            Section {
                 ForEach(client.agents) { agent in   // in the chosen order (BoardClient.setAgentSort, kosmos#7421)
                     // kosmos#7008: the agent's chat, native; anything it does not draw opens the board's (openChat).
                     Button {
@@ -339,13 +340,6 @@ struct AgentsView: View {
         return "Checking for updates."
     }
 
-    // kosmos#7266 (Mona Lisa's design review): the + above adds an agent from the phone (the board's own form, over the
-    // tabs), so the footer no longer says new agents are set up on the computer.
-    private var footer: some View {
-        Text("Models and connections are set up on your computer.")
-            .font(.footnote)
-            .foregroundColor(Palette.tertiary)
-    }
 }
 
 // The states before a list can be shown, and after a refusal (kosmos#6838 slice 1's frames), for every tab that reads
