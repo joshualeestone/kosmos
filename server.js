@@ -11452,7 +11452,9 @@ const server = http.createServer(async (req, res) => {
         if (body.public !== undefined && body.public !== true) { sendJson(res, 400, { error: 'public must be true or absent' }); return; }
         let space = 'public';
         try {
-          const cs = require('./engine/orgpolicy').communitySpace();
+          const op = require('./engine/orgpolicy');
+          op.inForce();   // review 3: a policy the tunnel delivered since is applied first, as the route's other policy checks do
+          const cs = op.communitySpace();
           if (cs.space === 'company') {
             /* Review 1: a Kosmos bug report (--kosmos-bug) is for the Kosmos team, so it goes to the public community, as
                --public does, and the company's switch refuses it the same way. */
