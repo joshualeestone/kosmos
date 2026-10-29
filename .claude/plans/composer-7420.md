@@ -16,9 +16,11 @@
 - Rejected: pinning the stack to the list's width. A row made wider than the screen in the simulator did not widen the lazy stack at all (trace showed no width change), so the premise under the pin was not shown, and the pin would not stop an offset that arrives another way.
 - The diagnostic's trace guard now reads ChatView.trace( lines as well as Self.trace(, since the lock writes from outside the view; its two new values are numbers.
 
-- Review 2 (opus): one record line per shift (a cause that re-applies every frame cannot flood the 80-line record), the Debug offset is given from the rest, and a no-op bounce setting dropped. The only behavioural proof is the simulator run (iPhone 17 simulator, iOS 27.0, KOSMOS_SAMPLE_SIDEWAYS with the NOLOCK control); the source check proves only that the lock is wired, and the "side lock: no scroll view" record line is what a phone would show if the probe ever failed to find the list.
+- Review 2 (opus): the record no longer gets a line per frame (review 4 finished this: each put-back cleared the once-per-shift flag, so it still could), the Debug offset is given from the rest, and a no-op bounce setting dropped. The only behavioural proof is the simulator run (iPhone 17 simulator, iOS 27.0, KOSMOS_SAMPLE_SIDEWAYS with the NOLOCK control); the source check proves only that the lock is wired, and the "side lock: no scroll view" record line is what a phone would show if the probe ever failed to find the list.
 
 - Review 3 (sonnet): the once-per-shift flag resets when the probe moves window. Not changed: which scroll view the probe finds (nearest UIScrollView ancestor of a view inside the chat's own ScrollView content is that list; an outer container is farther up); putting the offset back can interrupt a fling in progress, but only when the list is already shifted, which is the bug.
+
+- Review 4 (opus): shifts are counted and recorded only at the 1st, 2nd, 4th, 8th... with the count, so a cause that comes back every frame adds a handful of lines, not 80; the put-back waits 0.35 s and is skipped while the list is dragged or flinging, so it cannot cut a scroll in progress short (the next offset change tries again); the watch also reads the offset when it starts; the Debug shift is given once. Not measured: whether 0.35 s outlasts every SwiftUI scroll animation; one still running then would be cut short, as before review 4. The card stays open until a Share from Josh's phone shows the shift gone or put back.
 
 ## Weakest premise
 

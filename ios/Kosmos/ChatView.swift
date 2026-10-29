@@ -2150,19 +2150,26 @@ struct SideScrollLock: UIViewRepresentable {
     final class Probe: UIView {
         let off: Bool
         private var watch: NSKeyValueObservation?
-        private var shifted = false   // review 2: one line in the record per sideways shift, not one per frame
+        private var shifted = false
+        private var shifts = 0          // review 4: shifts so far; recorded at the 1st, 2nd, 4th, 8th..., so a cause that
+                                        // comes back every frame cannot fill the record
+        private var fixing = false
+        #if DEBUG
+        static var sampleShifted = false   // KOSMOS_SAMPLE_SIDEWAYS gives one shift, not one per window
+        #endif
         init(off: Bool) { self.off = off; super.init(frame: .zero); isUserInteractionEnabled = false; isHidden = true }
         required init?(coder: NSCoder) { nil }
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            watch = nil; shifted = false   // review 3: a new watch records its first shift
+            watch = nil; shifted = false; fixing = false
             guard window != nil else { return }
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
             guard let scroll = up as? UIScrollView else { ChatView.trace("side lock: no scroll view"); return }
             #if DEBUG
-            if let at = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIDEWAYS"].flatMap(Double.init) {
+            if let at = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIDEWAYS"].flatMap(Double.init), !Self.sampleShifted {
+                Self.sampleShifted = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + at) { [weak scroll] in
                     if let scroll { scroll.contentOffset.x = -scroll.adjustedContentInset.left + 16 }
                 }
@@ -2171,18 +2178,26 @@ struct SideScrollLock: UIViewRepresentable {
             let off = self.off
             // Review 1: at rest the offset is minus the left inset (0 in portrait; landscape can give an inset), so that is
             // where it goes back to, and a difference from it is what is recorded.
-            watch = scroll.observe(\.contentOffset, options: [.new]) { [weak self] sv, _ in
+            // Review 4: put back 0.35 s after a shift and only while nobody is dragging or flinging, so a scroll in progress
+            // (the person's, or the hold on the newest message) finishes first; still shifted after that, it goes back.
+            watch = scroll.observe(\.contentOffset, options: [.initial, .new]) { [weak self] sv, _ in
+                guard let self else { return }
                 let x = sv.contentOffset.x + sv.adjustedContentInset.left
-                guard abs(x) > 0.5 else { self?.shifted = false; return }
-                if self?.shifted == false {
-                    self?.shifted = true
-                    ChatView.trace("side offset \(Int(x.rounded()))" + (off ? " (left)" : ", put back"))
-                }
-                if !off {
-                    DispatchQueue.main.async {
-                        let rest = -sv.adjustedContentInset.left
-                        if abs(sv.contentOffset.x - rest) > 0.5 { sv.contentOffset.x = rest }
+                guard abs(x) > 0.5 else { self.shifted = false; return }
+                if !self.shifted {
+                    self.shifted = true; self.shifts += 1
+                    if self.shifts & (self.shifts - 1) == 0 {
+                        ChatView.trace("side offset \(Int(x.rounded()))" + (off ? " (left)" : ", put back") + ", shift \(self.shifts)")
                     }
+                }
+                guard !off, !self.fixing else { return }
+                self.fixing = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, weak sv] in
+                    guard let self, let sv else { return }
+                    self.fixing = false
+                    guard !sv.isDragging, !sv.isDecelerating else { return }   // the next offset change tries again
+                    let rest = -sv.adjustedContentInset.left
+                    if abs(sv.contentOffset.x - rest) > 0.5 { sv.contentOffset.x = rest }
                 }
             }
         }
