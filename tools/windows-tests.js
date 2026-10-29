@@ -59,7 +59,6 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
   'setup-assistant.winrules-4752.test.js',   // #4752: the guide's real rules, read on a Windows host
   'securewrite.fsync-5434.test.js',   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
-  'store.chmod-retry-7554.test.js',   // #7554: its POSIX-mode arms skip there (listed so its win32 branch is a decision)
   'projects.linuxopen-5881.test.js',   // #5881: its Linux arms and its Mac and Windows controls run there (the Windows one through a spy); the stand-in arm skips
   'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
   'create.switchmem-7410.test.js',   // #7410: a switch off Claude copies its notes; its runner stand-ins carry .cmd on Windows
@@ -110,6 +109,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
   'engine/store.mode-hardening-1760.test.js': 'its win32 branch skips every arm: it checks POSIX file modes (the data root 0700, the message log 0600), which Windows does not have; chmod there only toggles read-only (#1760).',
+  'engine/store.chmod-retry-7554.test.js': 'its win32 branch skips every arm: it checks POSIX file modes (whether the data root is tightened to 0700 after an EBUSY, EPERM or EACCES chmod), which Windows does not have (#7554)',
   'server.builtcommit-7508.test.js': 'its win32 branches only skip the Mac CLI arms (install/kosmos is a bash script, which a Windows runner does not run); the Windows CLI arms of the same file drive tools/windows/kosmos-cli.js through its own entry point with real git, and run on every host (#7508)',
   'engine/loginadvlog-7194.test.js': 'its win32 branch only skips the real `ps -o comm=` capture (Windows has no ps, and the login-notice log reads tmux panes, which Kosmos does not run there); every other arm is string parsing that runs the same on the Mac',
   'engine/tmux-kill-helper-6857.test.js': 'its win32 branches skip every arm that needs tmux or a uid: killServerAt ends a tmux server by its socket path, and Kosmos runs no tmux on Windows; its fake tmux is a /bin/sh script. The one arm with no tmux (an empty socket path throws) runs everywhere',
