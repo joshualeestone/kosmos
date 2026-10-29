@@ -2165,11 +2165,18 @@ struct SideScrollLock: UIViewRepresentable {
             }
             #endif
             let off = self.off
+            // Review 1: at rest the offset is minus the left inset (0 in portrait; landscape can give an inset), so that is
+            // where it goes back to, and a difference from it is what is recorded.
             watch = scroll.observe(\.contentOffset, options: [.new]) { sv, _ in
-                let x = sv.contentOffset.x
+                let x = sv.contentOffset.x + sv.adjustedContentInset.left
                 guard abs(x) > 0.5 else { return }
                 ChatView.trace("side offset \(Int(x.rounded()))" + (off ? " (left)" : ", put back"))
-                if !off { DispatchQueue.main.async { if abs(sv.contentOffset.x) > 0.5 { sv.contentOffset.x = 0 } } }
+                if !off {
+                    DispatchQueue.main.async {
+                        let rest = -sv.adjustedContentInset.left
+                        if abs(sv.contentOffset.x - rest) > 0.5 { sv.contentOffset.x = rest }
+                    }
+                }
             }
         }
     }
