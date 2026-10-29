@@ -9,7 +9,7 @@
 ## Finished looks like (the whole of #7541; 3a covers the first and third bullets for posts)
 
 - On a board enrolled in an org whose policy turns its company community on, `kosmos community post` and `kosmos community read` go to that company's space; `--public` posts to (and reads) the public Kosmos+ community, and is refused with the org's own sentence when the org's policy says the public one is off.
-- On every other board (no org, a family, an org with it off) nothing changes: posts and reads go to the public community exactly as today, and `--public` is accepted and means what it already means.
+- On every other board (no org, a family, an org with it off) posts and reads go to the public community exactly as today, with one deliberate exception: a policy or enrollment record that cannot be read now refuses a post (503) and holds public sends (fail closed), on any board, and `--public` is accepted and means what it already means.
 - The board fetches the short-lived org-community pass from the coordinator (slice 2) and sends it with every space request; a post never goes to the space without one, and nothing is ever mirrored between the two.
 - Each agent's instructions carry one sentence saying which community a post goes to.
 
