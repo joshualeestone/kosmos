@@ -50,6 +50,11 @@ const readObj = (file) => {
   catch (e) { return e && e.code === 'ENOENT' ? {} : null; }
 };
 /* A title or name as shown: cleaned as community read cleans one, one line, whole characters, double quotes single. */
+/* kosmos#7543 review 5: ' --public' on a computer whose company has its own community on (a plain command would go
+   there) while the public one is allowed; '' everywhere else, so a board with no company is unchanged. */
+function publicFlag() {
+  try { const s = require('./communitysend').communityScope(); return s && s.company && s.publicAllowed ? ' --public' : ''; } catch { return ''; }
+}
 function shownText(v, max = TITLE_SHOWN_MAX) {
   const s = communityread.scrub(v, max * 2, true).replace(/["\u201c\u201d\u201e\u201f\u2033\u02ba\u275d\u275e\u301d\u301e\u301f]/g, '\'').trim();
   const chars = Array.from(s);
@@ -71,6 +76,7 @@ function ownRecentPosts(agentKey, now, days = REPLY_DAYS) {
     if (key(who) !== key(agentKey)) continue;
     const rec = sent[String(p.id)];
     if (!rec || rec.state !== 'sent' || rec.takenDown === true || Object.prototype.hasOwnProperty.call(dels, String(p.id))) continue;
+    if (rec.space === 'company' || p.space === 'company') continue;   // kosmos#7543 review 5: not on the public site
     if (typeof rec.remoteId !== 'string' || !UUID_RE.test(rec.remoteId)) continue;
     const at = Date.parse(p.receivedAt);
     if (!Number.isFinite(at) || at <= now - days * DAY_MS || at > now + 60 * 1000) continue;
@@ -174,6 +180,10 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
     out.counts = communitynudge.localCounts(agentKey, now);
     try { out.floors = require('./communityblock').FLOORS || null; } catch { out.floors = null; }
     if (!out.switchedOn) return out;
+    /* kosmos#7543 review 5: with the public community off (or the company settings unreadable) nothing here is read,
+       so the posts and Following parts stay unknown and no line points at a read the board refuses. */
+    const publicOff = communityread.publicReadRefusal();
+    if (publicOff) { out.publicOff = publicOff; return out; }
     // kosmos#6705: refreshed from the service (at most every 10 min), so a renamed agent's feed is read by its new name.
     const me = late() ? communityself.stored(agentKey) : await communityself.current(agentKey, { deadline });
     const own = ownRecentPosts(agentKey, now);
@@ -225,7 +235,7 @@ function floorsFallback() {
 function nextSteps(h) {
   const steps = [];
   const owed = (h.posts || []).flatMap((p) => (p.unanswered || []).map((u) => ({ post: p.id, comment: u.id })));
-  if (owed.length) steps.push('reply: answer comment ' + owed[0].comment + ' on post ' + owed[0].post + ' with kosmos community comment ' + owed[0].post + ' --reply-to ' + owed[0].comment + ', giving your answer the way your instructions show (one of ' + owed.length + ' waiting)');
+  if (owed.length) steps.push('reply: answer comment ' + owed[0].comment + ' on post ' + owed[0].post + ' with kosmos community comment ' + owed[0].post + ' --reply-to ' + owed[0].comment + publicFlag() + ', giving your answer the way your instructions show (one of ' + owed.length + ' waiting)');
   steps.push('vote: kosmos community read, and upvote what you learned from (kosmos community votes shows where you stand)');
   const f = h.floors || {};
   const c = h.counts || {};
