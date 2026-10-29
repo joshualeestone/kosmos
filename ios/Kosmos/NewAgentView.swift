@@ -64,10 +64,29 @@ struct NewAgentView: View {
     @State private var markTask: Task<Void, Never>?
     #if DEBUG
     @State private var sampleBottom = false          // design shots: the team screen scrolled to its foot
+    @State private var sampleModelTop = false        // kosmos#7502 design shots: the team's Model group at the top
     #endif
     @State private var projectUnsure = false         // a new project's create got no answer: look before making another
     @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
     @State private var checkedNames: [String: String] = [:]   // the names the board checked free, by slot
+    // kosmos#7502: the provider, account and model choice (NewAgentPicker), from the board's reads.
+    @State private var pickAccounts = NewAgentPicker.Accounts()
+    @State private var pickReady = NewAgentPicker.Readiness()
+    @State private var provider: NewAgentPicker.Provider = .anthropic
+    @State private var providerTouched = false        // the desktop's CREATE_PROVIDER_TOUCHED: a pick, not the default
+    // Review 1: the account chosen per provider, and the OpenAI model chosen per account, so a change of either never
+    // carries a pick made for another (the desktop repaints to "Let OpenAI choose" on an account change), and a pick
+    // still offered survives a later read or a visit to another step (tcApplyLateAccounts keeps it).
+    @State private var accountFor: [NewAgentPicker.Provider: String] = [:]
+    @State private var openaiModelsFor: [String: NewAgentPicker.OpenaiModels] = [:]   // by account dir, as read
+    @State private var openaiModelFor: [String: String] = [:]                        // by account dir; "" is Let OpenAI choose
+    @State private var openaiRead = 0                 // the newest models read: an older one landing late is dropped
+    @State private var openaiReading: String?         // review 3: the account whose list is being read now
+    @State private var pickGoneWhy: String?           // a pick the menu no longer allows, put back and said
+    @State private var accountsSettled = false
+    @State private var pickerOnTeam = false            // review 8: which screen's .task last read the picker        // review 1: /api/accounts answered or failed, or 5 s went by
+    // Review 1: the team's choice as its first run made members on it (the desktop's TC.model); Try again uses it.
+    @State private var teamChoice: (provider: NewAgentPicker.Provider, account: String, model: String)?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -129,12 +148,13 @@ struct NewAgentView: View {
         switch at {
         case "role": draft.roleKey = "pm"; path = [.role]
         case "own": draft.roleKey = "own"; draft.ownWords = NewAgent.ownExample(c); path = [.role]
-        case "setup": draft.roleKey = "pm"; draft.name = "Ada"; draft.label = "Project Manager"; lastLabel = draft.label; path = [.role, .setup]
+        case "setup", "setupbottom": sampleBottom = at == "setupbottom"; draft.roleKey = "pm"; draft.name = "Ada"; draft.label = "Project Manager"; lastLabel = draft.label; path = [.role, .setup]
         case "swarm": draft.kind = .swarm; draft.roleKey = "researcher"; draft.name = "Finch"; draft.label = "Researcher"; lastLabel = draft.label; path = [.role, .setup]
         case "made": draft.name = "Ada"; made = ("ada", "Ada"); seen = true; path = [.role, .setup, .made]
         case "notup": draft.name = "Ada"; made = ("ada", "Ada"); timedOut = true; path = [.role, .setup, .made]
-        case "team", "teammade", "teambottom":
-            sampleBottom = at == "teambottom"
+        case "team", "teammade", "teambottom", "teammodel":
+            sampleBottom = at == "teambottom" || at == "teammodel"
+            sampleModelTop = at == "teammodel"
             teams = NewTeam.parseTeams(Data(#"{"teams":[{"key":"marketing","label":"Marketing","blurb":"Plans and runs your campaigns","count":3},{"key":"support","label":"Customer Support","blurb":"Answers your customers","count":3}]}"#.utf8))
             detail = NewTeam.parseDetail(Data(#"{"team":{"key":"marketing","label":"Marketing","purpose":"A lead who plans the campaigns, and two who make them.","project":{"name":"Marketing"},"lead":"head"},"members":[{"slot":"head","title":"Head of Marketing","name":"Maya","reportsTo":null},{"slot":"writer","title":"Copywriter","name":"Wes","reportsTo":"lead"},{"slot":"social","title":"Social Media Manager","name":"Sol","reportsTo":"lead"}]}"#.utf8))
             teamKey = "marketing"
@@ -312,16 +332,9 @@ struct NewAgentView: View {
                     .labelsHidden()
                     .disabled(teamLocked || madeProject != nil)   // a made project is the team's; it is not left empty
                 }
-                if let models = catalogue?.models, !models.isEmpty {
-                    Section {
-                        Picker(NewAgent.Words.model, selection: $draft.model) {
-                            ForEach(models) { m in Text(m.label).tag(m.key) }
-                        }
-                        .labelsHidden()   // Mona Lisa: the heading says Model; the row shows only the choice
-                        .disabled(teamLocked)
-                    } header: { Text(NewAgent.Words.model + " " + NewTeam.Words.modelSoft) }
+                // kosmos#7502: the same choice for the whole team (the desktop's tc-provider, tc-account, tc-model).
+                modelChoice(soft: NewTeam.Words.modelSoft, locked: teamChoiceFixed)
                     .id("teamModel")
-                }
                 if catalogue == nil { Section { loadingRow } }   // the models come with the roles: Try again is here too
             } else if teamKey != nil {
                 Section {
@@ -340,7 +353,7 @@ struct NewAgentView: View {
         }
         #if DEBUG
         // Design shots only: the sample's team screen scrolled to its foot (Project and Model).
-        .onAppear { if sampleBottom { DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { proxy.scrollTo("teamModel", anchor: .bottom) } } }
+        .onAppear { if sampleBottom { DispatchQueue.main.asyncAfter(deadline: .now() + (sampleModelTop ? 1.5 : 0.6)) { proxy.scrollTo("teamModel", anchor: sampleModelTop ? .top : .bottom) } } }
         #endif
         }
         .navigationTitle(NewTeam.Words.title)
@@ -349,11 +362,12 @@ struct NewAgentView: View {
         .safeAreaInset(edge: .bottom) {
             let n = detail?.members.count ?? 0
             let named = detail.map { $0.key == teamKey && $0.members.allSatisfy { !NewProject.trimmed(names[$0.slot] ?? "").isEmpty } } ?? false
-            pinned(n > 0 ? NewTeam.Words.create(n) : NewAgent.Words.create, enabled: !teamRunning && !teamBusy && n > 0 && named,
+            pinned(n > 0 ? NewTeam.Words.create(n) : NewAgent.Words.create, enabled: !teamRunning && !teamBusy && n > 0 && named && pickerReady,
                    busy: teamRunning || teamBusy) {
                 runTeam()
             }
         }
+        .task { await loadPicker(team: true) }   // kosmos#7502: the team's provider and account menus read as the create form's
     }
 
     private func loadTeams() async {
@@ -375,6 +389,12 @@ struct NewAgentView: View {
     // The desktop locks the team's choices from the click on (its review 27); a member that failed is renamed on the
     // Made screen instead.
     private var teamLocked: Bool { teamRunning || teamStarted }
+    // kosmos#7502 review 7: the provider, account and model are fixed only while a run is going or once a member exists
+    // (the desktop's tcChoiceFixed: busy, running, or tcMemberExists). A lead refused for the choice leaves it open, so
+    // the person can change it and try again; the names stay as teamLocked keeps them.
+    private var teamChoiceFixed: Bool { teamRunning || teamMemberExists }
+    // A member made, or one whose create got no answer and may have been (the desktop's tcMemberExists).
+    private var teamMemberExists: Bool { (detail?.members.contains { isMade($0.slot) } ?? false) || !maybeMade.isEmpty }
 
     // Mona Lisa (build 14): a name that can be changed looks it, with a pencil while it can.
     // The name field takes its own taps; the pencil, beside it, puts the cursor in the name too.
@@ -416,6 +436,7 @@ struct NewAgentView: View {
             projectChoice = .new
             madeProject = nil
             teamStarted = false
+            teamChoice = nil   // kosmos#7502 review 1: another team chooses afresh
             checkedNames = [:]
             memberWarnings = [:]
             maybeMade = [:]
@@ -433,11 +454,20 @@ struct NewAgentView: View {
         teamMessage = nil
         let epoch = client.chatEpoch
         let typed = names.mapValues { NewProject.trimmed($0) }
-        let model = draft.model
+        // kosmos#7502: the choice as it stands when making starts; every member is made on it (the desktop's TC.model).
+        // Review 1: fixed from the first run; Try again makes the rest on what the first members were made on.
+        // Review 2: only once making has begun (teamStarted); a refused name check leaves the choice open, so the next
+        // press takes what the screen shows.
+        // Not teamChoiceFixed: runTeam sets teamRunning before this runs, and a run with no member yet reads the menus.
+        let choice = (teamMemberExists ? teamChoice : nil) ?? (onProvider, NewAgentPicker.accounts(for: onProvider, pickAccounts).choices.contains { $0.value == account } ? account : "", chosenModel)
+        teamChoice = choice
+        let model = choice.model
+        let teamProvider = choice.provider
+        let teamAccount = choice.account
         // 1. The names, checked against this computer, before anything is made. Only before: on Try again the members
         // already made hold their own names, which the check would refuse (the desktop's tcRunOnce reads without it).
         if !teamStarted {
-            let check = await client.throughMac { NewTeam.specsRequest(mac: $0, key: d.key, names: typed, project: nil, model: model, check: true) }
+            let check = await client.throughMac { NewAgentPicker.specsRequest(mac: $0, key: d.key, names: typed, project: nil, provider: teamProvider, account: teamAccount, model: model, check: true) }
             guard epoch == client.chatEpoch else { return }
             switch NewTeam.specsAnswer(status: check?.1.statusCode ?? 0, body: check?.0) {
             case .refused(let why): say(why); return
@@ -484,7 +514,7 @@ struct NewAgentView: View {
         }
         if projectChoice == .new { project = madeProject }
         // 3. The members, with the project, the lead first; the rest only once it is made.
-        let read = await client.throughMac { NewTeam.specsRequest(mac: $0, key: d.key, names: typed, project: project, model: model, check: false) }
+        let read = await client.throughMac { NewAgentPicker.specsRequest(mac: $0, key: d.key, names: typed, project: project, provider: teamProvider, account: teamAccount, model: model, check: false) }
         guard epoch == client.chatEpoch else { return }
         let specs: [NewTeam.Spec]
         switch NewTeam.specsAnswer(status: read?.1.statusCode ?? 0, body: read?.0) {
@@ -671,6 +701,15 @@ struct NewAgentView: View {
     // MARK: 3. Set up your agent
 
     private var setupScreen: some View {
+        ScrollViewReader { proxy in setupForm
+            #if DEBUG
+            // kosmos#7502 design shots: KOSMOS_SAMPLE_NEWAGENT=setupbottom scrolls to the Model group, as teambottom does.
+            // Debug only, as sampleBottom is (a Release build has neither: CI's Release build caught the first version).
+            .onAppear { if sampleBottom { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { proxy.scrollTo("setupModel", anchor: .top) } } }
+            #endif
+        }
+    }
+    private var setupForm: some View {
         Form {
             Section(NewAgent.Words.identity) {
                 // Side by side, or stacked when the text is too large for the row.
@@ -698,14 +737,7 @@ struct NewAgentView: View {
                     ForEach(client.agents.filter { !$0.isGuide }) { a in Text(a.name).tag(a.session) }   // as the desktop's menu
                 }
             }
-            if let models = catalogue?.models, !models.isEmpty {
-                Section {
-                    Picker(NewAgent.Words.model, selection: $draft.model) {
-                        ForEach(models) { m in Text(m.label).tag(m.key) }
-                    }
-                    .labelsHidden()
-                } header: { Text(NewAgent.Words.model + " " + NewAgent.Words.modelSoft) }
-            }
+            modelChoice.id("setupModel")
             if draft.kind == .swarm { swarmSection }
             if let message {
                 Section { Text(message).foregroundColor(Palette.dangerWord) }
@@ -725,13 +757,196 @@ struct NewAgentView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(sending)
         .onAppear { if draft.model.isEmpty { draft.model = catalogue?.defaultModel?.key ?? "" } }
+        .task { await loadPicker() }
         .safeAreaInset(edge: .bottom) {
             // Not while a photo is still being fitted (photoLoading): the create would go without it.
             pinned(NewAgent.Words.create, enabled: !sending && !photoLoading && NewProject.trimmed(draft.name) != unsureName
-                   && (catalogue.map { NewAgent.canCreate(draft, $0) } ?? false), busy: sending) {
+                   && pickerReady && (catalogue.map { NewAgent.canCreate(draft, $0) } ?? false), busy: sending) {
                 Task { await create() }
             }
         }
+    }
+
+    // kosmos#7502: the desktop's Model group (provider, account at two or more, the model row and its note).
+    private var modelChoice: some View { modelChoice(soft: NewAgent.Words.modelSoft, locked: false) }
+    // The provider the choice is on: a swarm is Claude, whatever was picked for an agent (kept for the way back, as the
+    // desktop's swarmProviderGate keeps swarmWasValue).
+    private var onProvider: NewAgentPicker.Provider { draft.kind == .swarm ? .anthropic : provider }
+    // The account for a provider: the one chosen for it while still offered, else the default.
+    private func accountOf(_ p: NewAgentPicker.Provider) -> String {
+        let accts = NewAgentPicker.accounts(for: p, pickAccounts)
+        if let a = accountFor[p], accts.choices.contains(where: { $0.value == a }) { return a }
+        return accts.chosen
+    }
+    private var account: String { accountOf(onProvider) }
+    private var openaiModels: NewAgentPicker.OpenaiModels? { openaiModelsFor[account] }
+    // The OpenAI model to send: the pick for this account, and only while this account's own list offers it.
+    private var openaiModel: String {
+        guard case .listed(let ms)? = openaiModels, let m = openaiModelFor[account], ms.contains(where: { $0.key == m }) else { return "" }
+        return m
+    }
+    // What the model row has to send now: Claude's pick, the OpenAI account's, or none where the vendor picks.
+    private var chosenModel: String { onProvider == .openai ? openaiModel : onProvider == .anthropic ? draft.model : "" }
+    // The desktop's tcIsModelLoading: an OpenAI account's list still on its way holds Create, or the team would be made
+    // on OpenAI's default without anyone choosing it.
+    private var modelLoading: Bool { onProvider == .openai && !account.isEmpty && openaiModels == nil }
+    // Review 1: Create waits for the account list (the desktop's tcFillProviderNow waits up to 5 s), so an OpenAI-only
+    // person is not made a Claude agent or team before the default can move.
+    private var pickerReady: Bool { accountsSettled && !modelLoading }
+    private func modelChoice(soft: String, locked: Bool) -> some View {
+        let p = onProvider
+        let options = NewAgentPicker.providers(pickAccounts, pickReady, swarm: draft.kind == .swarm)
+        let accts = NewAgentPicker.accounts(for: p, pickAccounts)
+        let row = NewAgentPicker.modelRow(p, account: account, claude: catalogue?.models ?? [], lastClaude: draft.model, openai: openaiModels)
+        let accountBinding = Binding<String>(get: { accountOf(p) }, set: { v in guard v != accountOf(p) else { return }; accountFor[p] = v; if p == .openai { Task { await readOpenaiModels() } } })
+        let openaiBinding = Binding<String>(get: { openaiModel }, set: { openaiModelFor[account] = $0 })
+        return Section {
+            Menu {
+                ForEach(options) { o in
+                    Button { pick(o.provider) } label: {
+                        // Review 1: the current one ticked; one that cannot be chosen says why.
+                        if o.provider == p { Label(o.provider.label, systemImage: "checkmark").accessibilityAddTraits(.isSelected) }
+                        else if let off = o.off { Text(o.provider.label + " \u{00b7} " + off) }
+                        else { Text(o.provider.label) }
+                    }
+                    .disabled(!o.enabled)
+                }
+            } label: {
+                HStack {
+                    Text(NewAgentPicker.Words.provider).foregroundColor(Palette.primary)
+                    Spacer()
+                    Text(p.label).foregroundColor(Palette.secondary)
+                }
+                .frame(minHeight: 44).contentShape(Rectangle())
+            }
+            .disabled(locked)
+            .accessibilityLabel(NewAgentPicker.Words.provider)
+            .accessibilityValue(p.label)
+            if accts.show {
+                Picker(NewAgentPicker.Words.account, selection: accountBinding) {
+                    ForEach(accts.choices) { a in Text(a.label).tag(a.value) }
+                }
+                .disabled(locked)
+            }
+            if row.shown && !row.choices.isEmpty {
+                // Mona Lisa (#7488 build 14): the heading says Model; the row shows only the choice.
+                if p == .openai {
+                    Picker(NewAgent.Words.model, selection: openaiBinding) {
+                        ForEach(row.choices) { m in Text(m.label).tag(m.value) }
+                    }
+                    .labelsHidden()
+                    .disabled(!row.enabled || locked)
+                } else {
+                    Picker(NewAgent.Words.model, selection: $draft.model) {
+                        ForEach(row.choices) { m in Text(m.label).tag(m.value) }
+                    }
+                    .labelsHidden()
+                    .disabled(locked)
+                }
+            }
+        } header: { Text(NewAgent.Words.model + " " + soft) } footer: {
+            // Review 1: both, the undone pick's sentence and the row's own note, never one hiding the other.
+            let lines = [pickGoneWhy, row.note].compactMap { $0 }
+            if !lines.isEmpty { Text(lines.joined(separator: " ")) }
+        }
+    }
+
+    private func pick(_ p: NewAgentPicker.Provider) {
+        providerTouched = true
+        pickGoneWhy = nil
+        provider = p
+        if p == .openai { Task { await readOpenaiModels() } }
+    }
+    // The menus follow what has answered: a pick no longer offered is put back and said; an untouched one follows the
+    // default. Never while a team is being made: its choice is fixed (the desktop's tcChoiceFixed).
+    private func settlePicker() {
+        // Review 8: held only on the team step, once a member exists. A run with no member yet took its choice at the
+        // press, so a late account read may still settle the menus a refused lead reopens; the single screen never waits
+        // on a team's state.
+        guard !(pickerOnTeam && teamMemberExists) else { return }
+        // Review 3: the agent's default settles on a swarm too (onProvider shows Claude there), so going back to Agent
+        // opens on it, as the desktop's resetCreateProvider does from the list it holds. Only a touched pick's undoing
+        // (and its sentence) waits for the agent's own screen.
+        if !providerTouched {
+            provider = NewAgentPicker.defaultProvider(pickAccounts, swarm: false)
+        } else if draft.kind != .swarm, let gone = NewAgentPicker.pickGone(provider, pickAccounts, pickReady, swarm: false) {
+            provider = gone.back; pickGoneWhy = gone.why
+        }
+        if onProvider == .openai && openaiModels == nil { Task { await readOpenaiModels() } }
+    }
+    // Review 1: each read applies as it lands (the desktop's painters do), and a failed read keeps the last good answer:
+    // never a confident "not here" from a read that did not answer (museCreateAsk, agyAsk).
+    private func loadPicker(team: Bool = false) async {
+        pickerOnTeam = team
+        #if DEBUG
+        // kosmos#7502: design shots (KOSMOS_SAMPLE_NEWAGENT) draw the picker from sample accounts, as there is no board:
+        // two Claude accounts on one email (so the Account row shows) and an OpenAI key; KOSMOS_SAMPLE_PROVIDER=openai
+        // opens on OpenAI with a listed model.
+        if let _ = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWAGENT"] {
+            let json = #"{"accounts":[{"dir":"/s/.claude","provider":"anthropic","email":"you@example.com","isDefault":true,"memoryShared":true,"connection":{"badge":"connected"}},{"dir":"/s/.claude-work","provider":"anthropic","email":"you@example.com","label":"work","memoryShared":true,"connection":{"badge":"connected"}},{"dir":"/s/.codex","provider":"openai","keyTail":"4f2a","isDefault":true,"connection":{"state":"connected"}}]}"#
+            pickAccounts = .init(rows: NewAgentPicker.parseAccounts(Data(json.utf8)) ?? [], known: true, failed: false)
+            pickReady = .init(agy: (true, false), muse: (false, false, false), compat: false)
+            accountsSettled = true
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PROVIDER"] == "openai" {
+                provider = .openai; providerTouched = true
+                openaiModelsFor["/s/.codex"] = .listed([NewAgent.Model(key: "gpt-5", label: "GPT-5", isDefault: true)])
+            }
+            return
+        }
+        #endif
+        let epoch = client.chatEpoch
+        pickGoneWhy = nil   // review 5: an undone pick is said on the screen it happened on, not carried to the next
+        let ok = { (x: (Data, HTTPURLResponse)?) -> Data? in x.flatMap { (200...299).contains($0.1.statusCode) ? $0.0 : nil } }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if epoch == client.chatEpoch { accountsSettled = true }
+        }
+        await withTaskGroup(of: Void.self) { g in
+            g.addTask { @MainActor in
+                let a = await client.throughMac { NewAgentPicker.accountsRequest(mac: $0) }
+                // Review 2: a read cancelled with the screen is no answer: neither a failure nor settled.
+                guard epoch == client.chatEpoch, !Task.isCancelled else { return }
+                if let rows = ok(a).flatMap(NewAgentPicker.parseAccounts) { pickAccounts = .init(rows: rows, known: true, failed: false) }
+                else if !pickAccounts.known { pickAccounts.failed = true }
+                accountsSettled = true
+                settlePicker()
+            }
+            g.addTask { @MainActor in
+                let g2 = await client.throughMac { NewAgentPicker.agyRequest(mac: $0) }
+                guard epoch == client.chatEpoch else { return }
+                if let v = ok(g2).flatMap(NewAgentPicker.parseAgy) { pickReady.agy = v; settlePicker() }
+            }
+            g.addTask { @MainActor in
+                let m = await client.throughMac { NewAgentPicker.museRequest(mac: $0) }
+                guard epoch == client.chatEpoch else { return }
+                if let v = ok(m).flatMap(NewAgentPicker.parseMuse) { pickReady.muse = v; settlePicker() }
+            }
+            g.addTask { @MainActor in
+                let k = await client.throughMac { NewAgentPicker.compatRequest(mac: $0) }
+                guard epoch == client.chatEpoch else { return }
+                if let v = ok(k).flatMap(NewAgentPicker.parseCompat) { pickReady.compat = v; settlePicker() }
+            }
+        }
+    }
+    private func readOpenaiModels() async {
+        let dir = account
+        guard !dir.isEmpty, onProvider == .openai else { return }   // review 2: before the count, so it never stales a live read
+        // Review 3: one read per account at a time (every landing read settles the picker, and would start another).
+        guard openaiReading != dir else { return }
+        openaiReading = dir
+        openaiRead += 1
+        let read = openaiRead
+        defer { if openaiReading == dir && read == openaiRead { openaiReading = nil } }   // review 4: only its own read's
+        let before = openaiModelsFor[dir]
+        openaiModelsFor[dir] = nil
+        let epoch = client.chatEpoch
+        let got = await client.throughMac { NewAgentPicker.openaiModelsRequest(mac: $0, dir: dir) }
+        guard epoch == client.chatEpoch, read == openaiRead else { return }
+        // Review 2: no answer is not "not signed in": the list held before, else the could-not-reach note.
+        guard let got, (200...299).contains(got.1.statusCode) else {
+            openaiModelsFor[dir] = before ?? .notListed(because: "could not reach OpenAI"); return
+        }
+        openaiModelsFor[dir] = NewAgentPicker.parseOpenaiModels(got.0)
     }
 
     private var swarmSection: some View {
@@ -760,10 +975,14 @@ struct NewAgentView: View {
         sending = true
         message = nil
         let sent = draft
+        let sentProvider = onProvider
+        let sentAccount = NewAgentPicker.accounts(for: sentProvider, pickAccounts).choices.contains { $0.value == account } ? account : ""
+        let sentModel = chosenModel
         let epoch = client.chatEpoch   // another account or Mac meanwhile: the answer is not this sheet's
         var built = false
         let got = await client.throughMac { mac in
-            let r = NewAgent.createRequest(mac: mac, draft: sent, catalogue: c)
+            let r = NewAgentPicker.createRequest(mac: mac, draft: sent, catalogue: c, provider: sentProvider,
+                                                 account: sentAccount, model: sentModel)
             built = r != nil
             return r
         }
