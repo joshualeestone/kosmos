@@ -759,15 +759,14 @@ extension View {
 
 // kosmos#7343: no title shows in the bar, but VoiceOver still hears the screen's name as its heading.
 // kosmos#7343 / #7421 (Mona Lisa): the ⇅ button on Agents and Projects looks pressed while a non-default order is on,
-// so a person who chose another order last week can see the list is not in its usual one: the symbol on a soft
-// circle of the bar's tint. The same size either way, so the bar does not shift when the order changes.
+// so a person who chose another order last week can see the list is not in its usual one: the symbol in a heavier
+// weight (the soft circle behind it went, #7532). The same size either way, so the bar does not shift.
 struct SortButtonLabel: View {
     let pressed: Bool
     var body: some View {
         Image(systemName: "arrow.up.arrow.down")
             .font(.body.weight(pressed ? .semibold : .regular))
             .frame(width: 30, height: 30)
-            .background(Circle().fill(Color.accentColor.opacity(pressed ? 0.18 : 0)))
     }
 }
 
