@@ -5533,14 +5533,6 @@ if mkdir -p "$_wf_data_root" 2>/dev/null; then
     || printf '  (could not record the source channel; the board will read the default, prod)\n'
 fi
 
-# #4356: a computer can connect to agents on another computer instead of running its own. The Mac
-# app records that in $KOSMOS_HOME/mode (one word: run, connect, or both, which runs agents AND
-# connects to other computers) and stops the board for connect, and an install or update must not
-# start it again. So the board is started only when the file is absent (never chosen: a fresh
-# install, and every install before #4356) or reads exactly `run` or `both`. Anything else,
-# including a file that cannot be read, is not started: the installer cannot ask, and the app
-# starts the board and asks again at its next launch. `$(cat ...)` drops trailing newlines, as the
-# app's reader does.
 # ---- kosmos#4903 S3: a Kosmos Cloud box joins its Kosmos+ account before its board first starts ---------------
 # BEGIN kosmos-cloud-join (install.cloud-join-4903.test.js runs this block as shipped, against stand-ins).
 # Only on Linux, and only when the box's cloud-init said so: it writes ~/.kosmos-cloud/provision.env (coordinator
@@ -5616,6 +5608,15 @@ if [ "$(uname -s)" = Linux ] && [ "${KOSMOS_CLOUD:-}" = 1 ]; then
   step "Joining this cloud machine to its Kosmos+ account."
   _kosmos_cloud_join || die "This cloud machine could not join its Kosmos+ account, so Kosmos was not started on it."
 fi
+
+# #4356: a computer can connect to agents on another computer instead of running its own. The Mac
+# app records that in $KOSMOS_HOME/mode (one word: run, connect, or both, which runs agents AND
+# connects to other computers) and stops the board for connect, and an install or update must not
+# start it again. So the board is started only when the file is absent (never chosen: a fresh
+# install, and every install before #4356) or reads exactly `run` or `both`. Anything else,
+# including a file that cannot be read, is not started: the installer cannot ask, and the app
+# starts the board and asks again at its next launch. `$(cat ...)` drops trailing newlines, as the
+# app's reader does.
 # #4356 migration: an install from before the first screen has no mode file, which the app reads
 # as "not chosen" and would ask about, for instance when a second Kosmos (#1852) opens its own first
 # run on a Mac that has run agents for months. An update of an install whose first run is done
