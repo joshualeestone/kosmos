@@ -1695,12 +1695,13 @@ struct LayerWaveDots: View {
             defer { CATransaction.commit() }
             for (i, d) in dots.enumerated() {
                 d.removeAllAnimations()
+                // Review 2: each part runs the whole half-loop (a part left at 0 runs Core Animation's 0.25 s default).
                 let fade = CABasicAnimation(keyPath: "opacity")
-                fade.fromValue = low; fade.toValue = Float(1)
+                fade.fromValue = low; fade.toValue = Float(1); fade.duration = period / 2
                 var parts: [CAAnimation] = [fade]
                 if !still {
                     let rise = CABasicAnimation(keyPath: "transform.translation.y")
-                    rise.fromValue = 0; rise.toValue = -4
+                    rise.fromValue = 0; rise.toValue = -4; rise.duration = period / 2
                     parts.append(rise)
                 }
                 let wave = CAAnimationGroup()

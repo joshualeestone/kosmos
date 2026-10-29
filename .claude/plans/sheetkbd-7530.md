@@ -14,6 +14,8 @@
 
 - Review 1 (opus): implicit layer animations disabled around the colour and opacity writes; the dots' two restart paths (reaching a window, returning to the foreground) are now checked; the old WaveDots checks are named as the control. Not done: resolving the colour for Increase Contrast (Palette.pair has no contrast variant, so there is nothing to miss).
 
+- Review 2 (sonnet): the fade and rise each carry the half-loop duration. Not changed: the lit cutout after the keyboard goes down is placed on the bubble (sheet-kbd-light shows it aligned); the 4 pt rise at large text sizes is the board's number.
+
 ## Weakest premise
 
 - #7427: the simulator never showed build 15's dots in unison, so the cause on the phone is unproven; layer-drawn dots remove every SwiftUI path to a shared restart, which is why this is the fix, but only Josh's phone can confirm it.
