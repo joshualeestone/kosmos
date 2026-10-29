@@ -59,6 +59,7 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   'create.test.js', 'outbox.test.js', 'remove.test.js', 'world-guard-lift-1704.test.js', 'personalinstr.test.js',
   'setup-assistant.winrules-4752.test.js',   // #4752: the guide's real rules, read on a Windows host
   'securewrite.fsync-5434.test.js',   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
+  'store.ensure-cost-7554.test.js',   // #7554: its key audit reads source and runs anywhere; its POSIX-mode arms skip there
   'projects.linuxopen-5881.test.js',   // #5881: its Linux arms and its Mac and Windows controls run there (the Windows one through a spy); the stand-in arm skips
   'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
   'create.switchmem-7410.test.js',   // #7410: a switch off Claude copies its notes; its runner stand-ins carry .cmd on Windows
