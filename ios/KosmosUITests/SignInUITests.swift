@@ -49,8 +49,14 @@ final class SignInUITests: XCTestCase {
         }
 
         step("the board") {
-            // The board's tab bar is the app past sign-in; the sign-in's own words must be gone.
-            XCTAssertTrue(app.tabBars.buttons["Agents"].waitForExistence(timeout: 120), "the board did not load (no Agents tab) after the second step")
+            // The board's tab bar is the app past sign-in; the sign-in's own words must be gone. An account with no computer
+            // connected signs in but has no board, and says so ("Signed in", "Continue to the app"): a different answer.
+            let board = app.tabBars.buttons["Agents"]
+            let noComputer = app.buttons["Continue to the app"]
+            let deadline = Date().addingTimeInterval(120)
+            while Date() < deadline && !board.exists && !(noComputer.exists && app.staticTexts["Signed in"].exists) { Thread.sleep(forTimeInterval: 1) }
+            XCTAssertFalse(noComputer.exists && app.staticTexts["Signed in"].exists, "signed in, but this account has no computer connected, so there is no board to load")
+            XCTAssertTrue(board.exists, "the board did not load (no Agents tab) within 120 s of the second step")
             XCTAssertFalse(app.staticTexts["One more step"].exists)
             XCTAssertFalse(app.staticTexts["Allow this iPhone on your Mac"].exists, "the box asked for an Allow")
         }
