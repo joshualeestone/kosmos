@@ -113,7 +113,7 @@ _bump="$(grep -n '^step "== 2\. the version' tools/release.sh | cut -d: -f1)"; _
 # The frozen re-check: after REPO="$BUILD" (the freeze) and before step 4 builds anything.
 _frz="$(grep -n '^REPO="\$BUILD"$' tools/release.sh | cut -d: -f1)"; _re="$(grep -n '^service_keys_live_recheck "\$BUILD" "\$_SK_PRINT" || { echo .*already committed.*; exit 1; }$' tools/release.sh | cut -d: -f1)"
 _pr="$(grep -n '^_SK_PRINT="\$(service_keys_fingerprint "\$REPO")" || _SK_PRINT=""' tools/release.sh | cut -d: -f1)"
-[ -n "$_pr" ] && [ -n "$_chk" ] && [ "$_pr" -eq $((_chk + 1)) ] && ok "1d3 records the set's fingerprint right after it checks" || bad "no fingerprint recorded after 1d3 (check '$_chk', print '$_pr')"
+[ -n "$_pr" ] && [ -n "$_chk" ] && [ "$_pr" -eq $((_chk - 1)) ] && ok "1d3 records the set's fingerprint right BEFORE it checks (a change during the check is then asked again)" || bad "no fingerprint recorded just before 1d3 (check '$_chk', print '$_pr')"
 _b4="$(grep -n '^step "== 4\. build ==' tools/release.sh | cut -d: -f1)"
 [ -n "$_frz" ] && [ -n "$_re" ] && [ -n "$_b4" ] && [ "$_re" -gt "$_frz" ] && [ "$_re" -lt "$_b4" ] && ok "the frozen tree is checked again, after the freeze and before the build" || bad "no frozen re-check between the freeze and step 4 (freeze '$_frz', check '$_re', build '$_b4')"
 grep -q '^\. "\$REPO/tools/lib/service-keys-live.sh"' tools/release.sh && ok "release.sh sources the lib" || bad "release.sh does not source tools/lib/service-keys-live.sh"

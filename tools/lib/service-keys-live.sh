@@ -41,7 +41,7 @@ service_keys_live_check() {
     _why="$(tail -1 "$curl_err" 2>/dev/null)"
     # --retry-all-errors needs curl 7.71+ (the Windows build's host is not pinned), so name the curl that refused.
     _cv="$(curl -V 2>/dev/null)" || _cv=""; _cv="${_cv%%$'\n'*}"
-    echo "service_keys_live: could not read $url/v1/meta${_why:+ ($_why)}, so whether the set lists the live coordinator key is UNKNOWN; refused. Retry; if it persists, check $url/v1/meta by hand${_cv:+ (this ran ${_cv%% (*}; it needs curl 7.71 or newer)}." >&2
+    echo "service_keys_live: could not read $url/v1/meta${_why:+ ($_why)}, so whether the set lists the live coordinator key is UNKNOWN; refused. Retry; if it persists, check $url/v1/meta by hand${_cv:+ (this ran ${_cv%% (*}: if that is older than 7.71, --retry-all-errors is the cause)}." >&2
     [ "$curl_err" = /dev/null ] || rm -f "$curl_err"; return 1; }
   [ "$curl_err" = /dev/null ] || rm -f "$curl_err"
   printf '%s' "$meta" | node "$repo/tools/check-service-keys-live.js" "$set" || {

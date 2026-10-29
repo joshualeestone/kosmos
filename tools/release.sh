@@ -949,8 +949,9 @@ coordinator_floor_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmo
 step "== 1d3. the service key set this cut ships lists the live coordinator key (kosmos#7568) =="
 # Cloud boxes pin the shipped set (#7561) and Macs hand it to the connector, so a set without the key the coordinator
 # answers with stops every new box and every sign-in. No set ships: nothing asked. No override (tools/lib/service-keys-live.sh).
-service_keys_live_check "$REPO" || exit 1
+# Fingerprinted BEFORE the check: a fast-forward during it then makes the frozen set differ, and it is asked again.
 _SK_PRINT="$(service_keys_fingerprint "$REPO")" || _SK_PRINT=""   # the frozen tree is asked again only if its set differs
+service_keys_live_check "$REPO" || exit 1
 
 step "== 1e. no browser-check quarantine expires at $V (#4160) =="
 # A quarantine marked `until=<version>` goes red once package.json reaches it, and main's
