@@ -1,5 +1,7 @@
 'use strict';
 
+require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
+
 /**
  * #1760: the data root is owner-only (0700) and the message log is owner-only (0600), so a data root outside
  * ~/Library is not readable by other local accounts. POSIX modes only, so skipped on Windows.
