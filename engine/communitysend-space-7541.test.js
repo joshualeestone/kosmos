@@ -490,3 +490,18 @@ test('#7543: CONTROL, with the public community allowed a vote goes out as befor
   assert.notEqual(vote.because, cs.PUBLIC_OFF_WORDS);
   assert.equal(be.st.seen.length, before + 1, 'the vote did not reach the site');
 });
+
+test('#7543: status says why a post waits under the company\'s settings, instead of "within a few minutes"', async () => {
+  const status = require('./communitystatus');
+  await on();
+  company({ company_community: { enabled: false } });
+  const c = agentPost('dana', 'company');
+  const p = agentPost('eli');
+  const stateOf = (agent, id) => (status.itemsFor(agent).find((x) => x.id === id) || {}).state;
+  assert.equal(stateOf('dana', c.id), 'company_off', 'a company post waiting on its community reads as queued');
+  assert.equal(stateOf('eli', p.id), 'queued', 'CONTROL: a public post with the public community allowed is queued');
+  company({ company_community: { enabled: true }, public_community: 'off' });
+  assert.equal(stateOf('eli', p.id), 'public_off', 'a public post held by the company\'s switch reads as queued');
+  assert.equal(stateOf('dana', c.id), 'queued', 'CONTROL: with its community on, the company post is queued');
+  assert.match(status.POST_WORDS.company_off, /never to the public community/);
+});
