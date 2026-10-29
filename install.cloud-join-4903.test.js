@@ -198,3 +198,19 @@ test('#4903 a rerun on a box that joined but never switched remote on switches i
   assert.equal(read(path.join(b.root, 'seton')), 'true', 'the rerun did not switch remote access on');
   assert.equal(read(path.join(b.root, 'tunnel-args')), null, 'a joined box asked the tunnel again');
 });
+
+test('#4903 a box registered by a run that stopped before its latch is not registered again', () => {
+  const b = box();
+  fs.mkdirSync(b.state, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(b.state, 'mac_id'), 'mac-1\n');   // registered; no latch; the spent token still in env
+  const r = join(b);
+  assert.equal(rcOf(r), '0', r.stdout + r.stderr);
+  assert.equal(read(path.join(b.root, 'tunnel-args')), null, 'the spent token was sent to the tunnel again');
+  assert.ok(fs.lstatSync(path.join(b.state, 'hosted')).isFile(), 'the latch was not written');
+  assert.equal(read(path.join(b.root, 'seton')), 'true', 'remote access was not switched on');
+  assert.ok(!read(b.env).includes('KOSMOS_PROVISIONING_TOKEN'), 'the spent token stayed in provision.env');
+  // CONTROL: the same box without mac_id is registered through the tunnel.
+  const c = box();
+  assert.equal(rcOf(join(c)), '0');
+  assert.ok(read(path.join(c.root, 'tunnel-args')), 'an unregistered box did not ask the tunnel');
+});
