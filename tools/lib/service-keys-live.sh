@@ -1,21 +1,26 @@
 #!/bin/bash
+# Bash only (local): sourced by tools/release.sh and tools/build-kosmos-windows.sh.
 # Does the service key set this cut ships list the coordinator key the live service answers with? (kosmos#7568)
 #
 # WHY. Since #7561 a Kosmos Cloud box pins the coordinator keys the release ships (engine/service-keys.json, staged by
-# tools/lib/stage-service-keys.sh), and a Mac's connector is handed the same list. A set without the live key would
+# tools/lib/stage-service-keys.sh), and once a recovery key is pinned a Mac's connector is handed the same list. A set without the live key would
 # make every new cloud box stop joining and every sign-in refuse the real service, and nothing in the cut asked the
 # coordinator which key it uses. Asked here, before the bump, so a wrong set costs a fix and not a cut.
 #
 # THE CHECK. Neither the set nor its .sig in the tree: nothing to check, and the coordinator is not asked. A .sig
 # alone: refused. A set: /v1/meta "coordinator_pubkey" must be one of its keys (tools/check-service-keys-live.js).
-# release.sh runs it twice: on the checkout before the bump (step 1d3), and on the frozen tree after step 2b, since a
-# fast-forward in between can bring in or change a set.
+# release.sh runs it on the checkout before the bump (step 1d3), and again through service_keys_live_recheck on the
+# frozen tree after step 2b, since a fast-forward in between can bring in or change a set. The re-check asks the
+# coordinator only when the frozen set's fingerprint differs from 1d3's: an unchanged set passed minutes ago, and a
+# network blip after the bump is pushed must not abort the cut for nothing.
 #
 # FAILS CLOSED, NO OVERRIDE. A /v1/meta that cannot be read or names no key is refused, and so is a set without the
 # key. There is no legitimate set that omits the key in use: a rotation lists the next key BESIDE the current one.
 #
 # Usage: source, then
 #   service_keys_live_check <repo>
+#   service_keys_fingerprint <repo>                  prints "absent", or the sha256 of the set and its .sig
+#   service_keys_live_recheck <tree> <fingerprint>   0 when <tree>'s fingerprint is that one, else the check
 # Env: KOSMOS_COORDINATOR_URL (default https://login.kosmosplus.com, as coordinator-floor.sh) and
 # KOSMOS_COORDINATOR_RETRIES (default 2; the tests' file:// arms set 0). Returns 0 or says why, 1.
 service_keys_live_check() {
@@ -41,4 +46,27 @@ service_keys_live_check() {
     echo "service_keys_live: refused. Fix engine/service-keys.json (and its .sig) to list the key $url/v1/meta answers with, then cut." >&2
     return 1; }
   return 0
+}
+
+service_keys_fingerprint() {
+  local set="${1:?service_keys_fingerprint needs the repo}/engine/service-keys.json"
+  if [ ! -f "$set" ] && [ ! -f "$set.sig" ]; then printf 'absent'; return 0; fi
+  # A missing half hashes as empty, so set-only and set-plus-sig differ. Always returns 0: release.sh runs under
+  # `set -euo pipefail` and assigns this, so a failure must print nothing rather than end the cut; the re-check then
+  # asks (an empty fingerprint never matches).
+  local out
+  out="$( { if [ -f "$set" ]; then cat "$set"; fi; printf '\0'; if [ -f "$set.sig" ]; then cat "$set.sig"; fi; } | shasum -a 256 2>/dev/null)" || out=""
+  printf '%s' "${out%% *}"
+  return 0
+}
+
+service_keys_live_recheck() {
+  local tree="${1:?service_keys_live_recheck needs the tree}" was="${2:-}" now
+  now="$(service_keys_fingerprint "$tree")" || now=""
+  if [ -n "$was" ] && [ "$now" = "$was" ]; then
+    echo "service_keys_live: the frozen tree's service key set is the one step 1d3 checked ($was); not asked again."
+    return 0
+  fi
+  echo "service_keys_live: the frozen tree's service key set differs from what step 1d3 saw (${was:-unknown} -> ${now:-unknown}); asking the coordinator again."
+  service_keys_live_check "$tree"
 }

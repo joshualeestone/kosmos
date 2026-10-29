@@ -13,6 +13,8 @@ that lacks it, green with one that has it.
 - **Where:** release.sh step 1d3, beside 1d2 (coordinator floor), before the bump. A refusal costs a fix, not a cut.
   And again on the FROZEN tree right after step 2b, beside the #6149 installer re-check: the shared checkout can be
   fast-forwarded between step 1 and the freeze, which could bring in or change a set after 1d3 asked nothing.
+  1d3 records the set's fingerprint; the frozen tree is asked about only when its set differs, so a network blip after
+  the bump is pushed cannot abort a cut whose set already passed.
 - **What:** tools/lib/service-keys-live.sh `service_keys_live_check <repo>`: no engine/service-keys.json, nothing is
   asked; otherwise curl /v1/meta (same URL, retries and env as coordinator-floor.sh) and pipe it to
   tools/check-service-keys-live.js, which compares with engine/servicekeys.js pinnedIsListed, the board's own test.

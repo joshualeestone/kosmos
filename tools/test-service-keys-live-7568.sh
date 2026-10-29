@@ -75,19 +75,31 @@ KOSMOS_COORDINATOR_URL="file://$T/coord/" service_keys_live_check "$T/repo" >"$T
 g(){ git -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false "$@"; }
 rm -f "$T/repo/engine/service-keys.json" "$T/repo/engine/service-keys.json.sig"
 g init -q -b main "$T/repo" && g -C "$T/repo" add -A && g -C "$T/repo" commit -q -m "no set"
+coordinator none   # so "asks nothing" is shown: asking would refuse
 run && ok "1d3 on the checkout with no set asks nothing" || bad "the checkout with no set refused: $(cat "$T/err")"
+PRINT_1D3="$(service_keys_fingerprint "$T/repo")"
+[ "$PRINT_1D3" = absent ] && ok "the fingerprint of no set is 'absent'" || bad "fingerprint of no set: '$PRINT_1D3'"
 coordinator "{\"coordinator_pubkey\":\"$LIVE_RAW\"}"
-freeze_check(){ # <label>: commit the set now in the checkout, freeze that commit, check the frozen tree
+freeze_check(){ # <label> <fingerprint 1d3 saw>: commit the set now in the checkout, freeze that commit, re-check it
   local sha build rc
-  g -C "$T/repo" add -A && g -C "$T/repo" commit -q -m "$1"; sha="$(git -C "$T/repo" rev-parse HEAD)"
+  g -C "$T/repo" add -A && g -C "$T/repo" commit -q --allow-empty -m "$1"; sha="$(git -C "$T/repo" rev-parse HEAD)"
   mkdir -p "$T/frozen"; build="$(release_freeze "$T/repo" "$sha" "$T/frozen")" || { echo "freeze failed" > "$T/err"; return 2; }
-  KOSMOS_COORDINATOR_URL="file://$T/coord" service_keys_live_check "$build" >"$T/out" 2>"$T/err"; rc=$?
+  KOSMOS_COORDINATOR_URL="file://$T/coord" service_keys_live_recheck "$build" "$2" >"$T/out" 2>"$T/err"; rc=$?
   release_thaw "$T/repo" "$build"; return "$rc"
 }
-set_of "$OTHER_SPKI"; freeze_check "a fast-forward brings in a set without the key"; rc=$?
-[ "$rc" = 1 ] && grep -q "NOT on the set" "$T/err" && ok "the frozen tree with a set lacking the key refuses" || bad "frozen set without the key: rc=$rc $(cat "$T/err")"
-set_of "$OTHER_SPKI" "$LIVE_SPKI"; freeze_check "the set lists the key"; rc=$?
+set_of "$OTHER_SPKI"; freeze_check "a fast-forward brings in a set without the key" "$PRINT_1D3"; rc=$?
+[ "$rc" = 1 ] && grep -q "differs from what step 1d3 saw" "$T/out" && grep -q "NOT on the set" "$T/err" && ok "a set the fast-forward brought in is asked about, and refused without the key" || bad "frozen set without the key: rc=$rc $(cat "$T/out" "$T/err")"
+set_of "$OTHER_SPKI" "$LIVE_SPKI"; freeze_check "the set lists the key" "$PRINT_1D3"; rc=$?
 [ "$rc" = 0 ] && grep -q "is listed" "$T/out" && ok "CONTROL: the frozen tree with the key passes" || bad "frozen set with the key: rc=$rc $(cat "$T/err")"
+# The same set 1d3 checked is not asked about again (a blip after the bump must not abort the cut): CONTROL, the meta is
+# absent, so asking would refuse. Then the set changes and the same fingerprint no longer passes it.
+PRINT_SAME="$(service_keys_fingerprint "$T/repo")"; coordinator none
+freeze_check "nothing changed" "$PRINT_SAME"; rc=$?
+[ "$rc" = 0 ] && grep -q "the one step 1d3 checked" "$T/out" && ok "an unchanged set is not asked about again" || bad "unchanged set: rc=$rc $(cat "$T/out" "$T/err")"
+set_of "$OTHER_SPKI"; freeze_check "the set changed after 1d3" "$PRINT_SAME"; rc=$?
+[ "$rc" = 1 ] && grep -q "differs from what step 1d3 saw" "$T/out" && ok "a set changed after 1d3 is asked about again" || bad "changed set: rc=$rc $(cat "$T/out" "$T/err")"
+freeze_check "no fingerprint from 1d3" ""; rc=$?
+[ "$rc" = 1 ] && grep -q "unknown" "$T/out" && ok "an empty fingerprint never matches: it asks" || bad "empty fingerprint: rc=$rc $(cat "$T/out" "$T/err")"
 
 # 4d. the Windows build ships the same set (kosmos_stage_service_keys) and asks the same question, beside its floor check
 grep -q '^\. "\$REPO/tools/lib/service-keys-live.sh"$' tools/build-kosmos-windows.sh \
@@ -99,7 +111,9 @@ grep -q '^service_keys_live_check "\$REPO" || exit 1$' tools/release.sh && ok "r
 _bump="$(grep -n '^step "== 2\. the version' tools/release.sh | cut -d: -f1)"; _chk="$(grep -n '^service_keys_live_check "\$REPO"' tools/release.sh | cut -d: -f1)"
 [ -n "$_bump" ] && [ -n "$_chk" ] && [ "$_chk" -lt "$_bump" ] && ok "the check runs before the bump" || bad "the check is not before step 2 (check line '$_chk', bump line '$_bump')"
 # The frozen re-check: after REPO="$BUILD" (the freeze) and before step 4 builds anything.
-_frz="$(grep -n '^REPO="\$BUILD"$' tools/release.sh | cut -d: -f1)"; _re="$(grep -n '^service_keys_live_check "\$BUILD" || { echo .*already committed.*; exit 1; }$' tools/release.sh | cut -d: -f1)"
+_frz="$(grep -n '^REPO="\$BUILD"$' tools/release.sh | cut -d: -f1)"; _re="$(grep -n '^service_keys_live_recheck "\$BUILD" "\$_SK_PRINT" || { echo .*already committed.*; exit 1; }$' tools/release.sh | cut -d: -f1)"
+_pr="$(grep -n '^_SK_PRINT="\$(service_keys_fingerprint "\$REPO")" || _SK_PRINT=""' tools/release.sh | cut -d: -f1)"
+[ -n "$_pr" ] && [ -n "$_chk" ] && [ "$_pr" -eq $((_chk + 1)) ] && ok "1d3 records the set's fingerprint right after it checks" || bad "no fingerprint recorded after 1d3 (check '$_chk', print '$_pr')"
 _b4="$(grep -n '^step "== 4\. build ==' tools/release.sh | cut -d: -f1)"
 [ -n "$_frz" ] && [ -n "$_re" ] && [ -n "$_b4" ] && [ "$_re" -gt "$_frz" ] && [ "$_re" -lt "$_b4" ] && ok "the frozen tree is checked again, after the freeze and before the build" || bad "no frozen re-check between the freeze and step 4 (freeze '$_frz', check '$_re', build '$_b4')"
 grep -q '^\. "\$REPO/tools/lib/service-keys-live.sh"' tools/release.sh && ok "release.sh sources the lib" || bad "release.sh does not source tools/lib/service-keys-live.sh"

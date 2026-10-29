@@ -950,6 +950,7 @@ step "== 1d3. the service key set this cut ships lists the live coordinator key 
 # Cloud boxes pin the shipped set (#7561) and Macs hand it to the connector, so a set without the key the coordinator
 # answers with stops every new box and every sign-in. No set ships: nothing asked. No override (tools/lib/service-keys-live.sh).
 service_keys_live_check "$REPO" || exit 1
+_SK_PRINT="$(service_keys_fingerprint "$REPO")" || _SK_PRINT=""   # the frozen tree is asked again only if its set differs
 
 step "== 1e. no browser-check quarantine expires at $V (#4160) =="
 # A quarantine marked `until=<version>` goes red once package.json reaches it, and main's
@@ -1115,8 +1116,9 @@ release_freeze_notice "$SHA" "$BUILD" "$V" "$CUT_CHANNEL"
 # in an installer without the marker, leaves the bump on origin (a stated limit).
 kosmos_setup_floor_installer_ok "the frozen install/setup.sh this cut publishes" "$BUILD/install/setup.sh" || exit 1
 # kosmos#7568: the same for the service key set step 1d3 checked in the checkout: a fast-forward can bring in a set, or
-# change one, after 1d3. Asked again of the FROZEN tree, with the same stated limit (the bump is already pushed).
-service_keys_live_check "$BUILD" || { echo "release: the version bump to $V is already committed (and pushed, unless step 2 said it could not be); fix the set in the tree and cut again." >&2; exit 1; }
+# change one, after 1d3. Asked again of the FROZEN tree when its set differs, with the same stated limit (the bump is
+# already pushed).
+service_keys_live_recheck "$BUILD" "$_SK_PRINT" || { echo "release: the version bump to $V is already committed (and pushed, unless step 2 said it could not be); fix the set in the tree and cut again." >&2; exit 1; }
 step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955) =="
 # The shared checkout can move between step 1 and the freeze (two cuts in a row were fast-forwarded
 # mid-run on 2026-08-24, per step 2b), so the file 1b-ii read is checked again as FROZEN. A refusal here
