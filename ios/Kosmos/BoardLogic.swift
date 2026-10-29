@@ -422,6 +422,40 @@ enum Board {
         }
     }
 
+    // kosmos#7575 review 3: one sideways reading, decided. shifted: a shift is in place now; wasShifted: one was in place
+    // when the lock last left its window; resumed: this is the first reading since it came back. A shift still in place
+    // across a window move is the same shift (not counted again); one that grows past its peak reports its new size.
+    enum ShiftEvent: Equatable { case none, new, grew }
+    static func sideShiftStep(x: Double, shifted: Bool, wasShifted: Bool, resumed: Bool, peak: Double)
+        -> (shifted: Bool, peak: Double, event: ShiftEvent) {
+        guard abs(x) > 0.5 else { return (false, 0, .none) }
+        if !shifted, resumed, wasShifted, peak > 0, abs(abs(x) - peak) <= 0.5 { return (true, peak, .none) }
+        if shifted { return abs(x) > peak + 0.5 ? (true, abs(x), .grew) : (true, peak, .none) }
+        return (true, abs(x), .new)
+    }
+
+    // kosmos#7575: the chat's running count and when it goes. The count always runs (a shift before the chat's onAppear
+    // is kept, review 3); flush() sends what was counted, if anything, and starts the next count at once. attach() gives
+    // the sender (the chat showing on this computer); reset() drops the count (another computer: never sent elsewhere).
+    // A class, so counting mid-layout redraws nothing; flushed as it goes too (a chat closed under its info page).
+    final class ShiftBox {
+        private(set) var report = ChatShiftReport()
+        private(set) var openedAt = Date()
+        private var send: ((ChatShiftReport, Date) -> Void)?
+        init() {}
+        func add(offset: Double, isNew: Bool, dragging: Bool, snapshot: () -> (Double, Double, Bool, [String: Int])) {
+            report.add(offset: offset, isNew: isNew, dragging: dragging, snapshot: snapshot)
+        }
+        func attach(send: @escaping (ChatShiftReport, Date) -> Void) { self.send = send }
+        func reset(now: Date = Date()) { report = ChatShiftReport(); openedAt = now }
+        func flush(now: Date = Date()) {
+            let was = report, since = openedAt
+            reset(now: now)
+            if was.shifts > 0 { send?(was, since) }
+        }
+        deinit { flush() }
+    }
+
     // The kind of each row on screen, counted. A message with reactions counts as reactions, one with files as file, a
     // question or permission as choice; the working line and day lines by their own words.
     static func chatRowKinds(_ items: [ChatItem], onScreen: Set<String>, working: Bool) -> [String: Int] {
