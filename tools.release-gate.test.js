@@ -493,7 +493,7 @@ function versions_entry(version, minutesStale = 0) {
   return `<article id="v${version.replace(/\./g, '-')}"><span class="rel-d">${when}</span></article>\n`;
 }
 
-function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
+function git_sandbox(version, { diverge = 'none', whatsNewFor = null, serviceKeys = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-'));
   const git = (...a) => {
     const r = spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
@@ -565,6 +565,15 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
      A PENDING FILE refuses at step 1 on "main is dirty". A hand-stamped cut leaves no
      such file and is unaffected -- an earlier version of this comment said "every cut",
      which is broader than true. */
+  /* kosmos#7568: serviceKeys (a list of SPKI keys) commits engine/service-keys.json listing them, with the check and the
+     board code it compares with, so step 1d3 asks the coordinator (KOSMOS_COORDINATOR_URL, a file:// meta the arm
+     passes). Without it no set ships and 1d3 asks nothing, as on main today. */
+  if (serviceKeys) {
+    fs.copyFileSync(path.join(__dirname, 'tools', 'check-service-keys-live.js'), path.join(dir, 'tools', 'check-service-keys-live.js'));
+    for (const f of ['servicekeys.js', 'manifest-verify.js']) fs.copyFileSync(path.join(__dirname, 'engine', f), path.join(dir, 'engine', f));
+    fs.writeFileSync(path.join(dir, 'engine', 'service-keys.json'), JSON.stringify({ type: 'kosmos-service-keys',
+      service_keys: serviceKeys.map((pub, i) => ({ kid: 'k' + i, pub, role: 'current' })), seq: 1, issued: '2026-10-29' }));
+  }
   spawnSync('git', ['init', '-b', 'main', dir], { encoding: 'utf8' });
   fs.writeFileSync(path.join(dir, '.gitignore'), '.release-entry.html\n');
   git('config', 'user.email', 'gate@example.invalid');
@@ -897,6 +906,40 @@ test('a clean tree in step with origin gets past the guard', () => {
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(site, { recursive: true, force: true });
 });
+
+/* kosmos#7568: step 1d3 refuses a cut whose service key set lacks the key the coordinator answers with, before the
+   bump; the same sandbox with the key listed reaches step 2 (the control, so the refusal is the set and not the
+   fixture). The coordinator's /v1/meta is a file:// URL: no network. Its own arms: tools/test-service-keys-live-7568.sh. */
+function coordinatorMeta(key) {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-coord-'));
+  fs.mkdirSync(path.join(d, 'v1'));
+  fs.writeFileSync(path.join(d, 'v1', 'meta'), JSON.stringify({ build: 'bfdf80be3', coordinator_pubkey: key }));
+  return d;
+}
+const edKey = () => {
+  const der = require('node:crypto').generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'der' });
+  return { spki: der.toString('base64'), raw: der.subarray(12).toString('base64url') };
+};
+for (const listed of [false, true]) {
+  test(`#7568: a cut whose service key set ${listed ? 'lists' : 'lacks'} the live coordinator key ${listed ? 'gets past step 1d3' : 'is refused at step 1d3, before the bump'}`, () => {
+    const live = edKey();
+    const other = edKey();
+    const { dir, home, site } = git_sandbox('0.6.02', { serviceKeys: listed ? [other.spki, live.spki] : [other.spki] });
+    const coord = coordinatorMeta(live.raw);
+    const r = run_git(dir, '0.6.03', home, site, { env: { KOSMOS_COORDINATOR_URL: 'file://' + coord, KOSMOS_COORDINATOR_RETRIES: '0' } });
+    assert.match(r.said, /== 1d3\. the service key set this cut ships lists the live coordinator key/, 'it never reached step 1d3:\n' + r.said.slice(-600));
+    if (listed) {
+      assert.match(r.said, /is listed/, r.said.slice(-600));
+      assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not get past step 1d3');
+    } else {
+      assert.equal(r.status, 1, 'a set without the live key was not refused');
+      assert.match(r.said, new RegExp('the live coordinator key ' + live.raw + ' is NOT on the set'));
+      assert.ok(!/== 2\. the version, in one place ==/.test(r.said), 'it reached step 2 before refusing');
+      assert.equal(r.touched, false, 'it edited the version before refusing');
+    }
+    for (const d of [dir, site, coord]) fs.rmSync(d, { recursive: true, force: true });
+  });
+}
 
 /* #6149: under KOSMOS_ALLOW_VERSION_JUMP (which turns #4075's forward-only rule off) a cut naming a version below the
    setup floor is refused at step 1a-floor, before anything is bumped; without the override #4075 stands in for it, and

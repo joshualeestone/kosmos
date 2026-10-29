@@ -58,10 +58,24 @@ coordinator '{"coordinator_pubkey":"not-a-key"}'; run && bad "a meta key that is
 coordinator "{\"coordinator_pubkey\":\"$LIVE_RAW\"}"; printf 'not json' > "$T/repo/engine/service-keys.json"
 run && bad "a set that is not JSON was waved on" || { grep -q "as JSON" "$T/err" && ok "a set that is not JSON refuses" || bad "wrong refusal for a junk set: $(cat "$T/err")"; }
 
-# 5. release.sh runs it before the bump (step 1d3), and sources the lib
+# 4b. a .sig without its set refuses (it is not "no set"); a set listing no keys says so; a trailing / on the
+# coordinator URL asks /v1/meta, not //v1/meta (CONTROL: the same meta at the bare URL passes above)
+rm -f "$T/repo/engine/service-keys.json"; printf 'sig' > "$T/repo/engine/service-keys.json.sig"; coordinator none
+run && bad "a .sig without its set passed" || { grep -q "without the set it signs" "$T/err" && ok "a .sig without its set refuses" || bad "wrong refusal for a lone .sig: $(cat "$T/err")"; }
+rm -f "$T/repo/engine/service-keys.json.sig"
+coordinator "{\"coordinator_pubkey\":\"$LIVE_RAW\"}"; set_of
+run && bad "a set listing no keys passed" || { grep -q "lists no keys at all" "$T/err" && ok "a set listing no keys refuses, said as empty" || bad "wrong refusal for an empty set: $(cat "$T/err")"; }
+set_of "$LIVE_SPKI"
+KOSMOS_COORDINATOR_URL="file://$T/coord/" service_keys_live_check "$T/repo" >"$T/out" 2>"$T/err" && ok "a trailing / on the coordinator URL still reads /v1/meta" || bad "a trailing / refused: $(cat "$T/err")"
+
+# 5. release.sh runs it before the bump (step 1d3) and again on the frozen tree, and sources the lib
 grep -q '^service_keys_live_check "\$REPO" || exit 1$' tools/release.sh && ok "release.sh step 1d3 runs the check" || bad "release.sh does not run service_keys_live_check"
-_bump="$(grep -n '^step "== 2\. the version' tools/release.sh | cut -d: -f1)"; _chk="$(grep -n '^service_keys_live_check' tools/release.sh | cut -d: -f1)"
+_bump="$(grep -n '^step "== 2\. the version' tools/release.sh | cut -d: -f1)"; _chk="$(grep -n '^service_keys_live_check "\$REPO"' tools/release.sh | cut -d: -f1)"
 [ -n "$_bump" ] && [ -n "$_chk" ] && [ "$_chk" -lt "$_bump" ] && ok "the check runs before the bump" || bad "the check is not before step 2 (check line '$_chk', bump line '$_bump')"
+# The frozen re-check: after REPO="$BUILD" (the freeze) and before step 4 builds anything.
+_frz="$(grep -n '^REPO="\$BUILD"$' tools/release.sh | cut -d: -f1)"; _re="$(grep -n '^service_keys_live_check "\$BUILD" || exit 1$' tools/release.sh | cut -d: -f1)"
+_b4="$(grep -n '^step "== 4\. build ==' tools/release.sh | cut -d: -f1)"
+[ -n "$_frz" ] && [ -n "$_re" ] && [ -n "$_b4" ] && [ "$_re" -gt "$_frz" ] && [ "$_re" -lt "$_b4" ] && ok "the frozen tree is checked again, after the freeze and before the build" || bad "no frozen re-check between the freeze and step 4 (freeze '$_frz', check '$_re', build '$_b4')"
 grep -q '^\. "\$REPO/tools/lib/service-keys-live.sh"' tools/release.sh && ok "release.sh sources the lib" || bad "release.sh does not source tools/lib/service-keys-live.sh"
 
 [ "$FAILS" -eq 0 ] && echo "ALL PASS" || { echo "$FAILS FAILED"; exit 1; }

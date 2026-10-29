@@ -31,6 +31,7 @@ const keys = set && Array.isArray(set.service_keys) ? set.service_keys : null;
 if (!keys) no(setFile + ' has no service_keys list');
 // pinnedIsListed answers false, not null, for a pin that is not a key: told apart first, so junk is not called a mismatch.
 if (!pinnedSpki(live)) no('/v1/meta coordinator_pubkey is not a key (' + JSON.stringify(live).slice(0, 80) + ')');
+if (!keys.length) no(setFile + ' lists no keys at all, so it cannot list the live coordinator key ' + live);
 if (!pinnedIsListed(live, { ok: true, keys })) {
   const kids = keys.map((k) => (k && k.kid) || '?').join(', ');
   no('the live coordinator key ' + live + ' is NOT on the set (' + keys.length + ' key(s): ' + kids + '). Every new cloud box and every sign-in under this release would refuse the real service.');

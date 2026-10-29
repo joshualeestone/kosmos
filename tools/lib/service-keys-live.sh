@@ -6,8 +6,10 @@
 # make every new cloud box stop joining and every sign-in refuse the real service, and nothing in the cut asked the
 # coordinator which key it uses. Asked here, before the bump, so a wrong set costs a fix and not a cut.
 #
-# THE CHECK. No set in the repo: nothing to check, and the coordinator is not asked. A set: /v1/meta
-# "coordinator_pubkey" must be one of its keys (tools/check-service-keys-live.js, the board's own comparison).
+# THE CHECK. Neither the set nor its .sig in the tree: nothing to check, and the coordinator is not asked. A .sig
+# alone: refused. A set: /v1/meta "coordinator_pubkey" must be one of its keys (tools/check-service-keys-live.js).
+# release.sh runs it twice: on the checkout before the bump (step 1d3), and on the frozen tree after step 2b, since a
+# fast-forward in between can bring in or change a set.
 #
 # FAILS CLOSED, NO OVERRIDE. A /v1/meta that cannot be read or names no key is refused, and so is a set without the
 # key. There is no legitimate set that omits the key in use: a rotation lists the next key BESIDE the current one.
@@ -21,10 +23,12 @@ service_keys_live_check() {
   local set="$repo/engine/service-keys.json"
   local url="${KOSMOS_COORDINATOR_URL:-https://login.kosmosplus.com}"
   local meta _why curl_err
-  if [ ! -f "$set" ]; then
+  url="${url%/}"
+  if [ ! -f "$set" ] && [ ! -f "$set.sig" ]; then
     echo "service_keys_live: no service key set ships (engine/service-keys.json absent); nothing to check."
     return 0
   fi
+  [ -f "$set" ] || { echo "service_keys_live: engine/service-keys.json.sig is there without the set it signs; refused (#6587: they ship together)." >&2; return 1; }
   case "${KOSMOS_COORDINATOR_RETRIES:-2}" in ''|*[!0-9]*) echo "service_keys_live: KOSMOS_COORDINATOR_RETRIES must be a number (got '${KOSMOS_COORDINATOR_RETRIES}'); refused." >&2; return 1 ;; esac
   command -v node >/dev/null 2>&1 || { echo "service_keys_live: node is not on PATH, so /v1/meta cannot be compared; refused." >&2; return 1; }
   curl_err="$(mktemp "${TMPDIR:-/tmp}/skeyslive-curl.XXXXXX")" || curl_err=/dev/null
