@@ -56,8 +56,9 @@ final class SignInUITests: XCTestCase {
             // yet", come only from the board's own answer (AgentsView: every other state is a connection message).
             let noComputer = { app.buttons["Continue to the app"].exists && app.staticTexts["Signed in"].exists }
             let askedAllow = { app.staticTexts["Allow this iPhone on your Mac"].exists }
-            // Review 2: the app opens on Today, so the test opens Agents itself, and waits on the two names AgentsView gives
-            // only what the board's answer draws ("agents-list", or "agents-empty" for no agents).
+            // Review 2: the test opens Agents itself (the app opens there today, AppTabs.todayTab being off, but it does not
+            // rely on that), and waits on the two names AgentsView gives only what the board's answer draws ("agents-list",
+            // or "agents-empty" for no agents). Review 2 said the app opens on Today; it does only in the screenshot build.
             let agentsTab = app.tabBars.buttons["Agents"]
             let named = { (id: String) in app.descendants(matching: .any).matching(identifier: id).firstMatch.exists }
             let boardAnswered = { agentsTab.isSelected && (named("agents-list") || named("agents-empty")) }
@@ -141,15 +142,15 @@ final class BoardCheckTests: XCTestCase {
     func testTheBoardCheckFindsTheAgentsListOnlyOnAgents() {
         let app = XCUIApplication()
         app.launchEnvironment["KOSMOS_SAMPLE_AGENTS"] = "1"
-        // The sample board opens on Agents unless told otherwise; Today is where a signed-in app opens, so the control
-        // starts there (KOSMOS_SAMPLE_TAB=today, ContentView.startTab).
-        app.launchEnvironment["KOSMOS_SAMPLE_TAB"] = "today"
+        // The app opens on Agents (AppTabs.todayTab is off outside the App Store screenshot build), so the control starts
+        // on another tab, Projects (KOSMOS_SAMPLE_TAB, ContentView.startTab), where the agents list must not be found.
+        app.launchEnvironment["KOSMOS_SAMPLE_TAB"] = "projects"
         app.launch()
         let agentsTab = app.tabBars.buttons["Agents"]
         XCTAssertTrue(agentsTab.waitForExistence(timeout: 30), "the sample board did not open")
         let list = app.descendants(matching: .any).matching(identifier: "agents-list").firstMatch
-        // Opened on Today, so the control always runs; if that ever changes, this says so rather than skipping it.
-        XCTAssertFalse(agentsTab.isSelected, "setup: the sample board did not open on Today, so the control below cannot run")
+        // Opened on Projects, so the control always runs; if that ever changes, this says so rather than skipping it.
+        XCTAssertFalse(agentsTab.isSelected, "setup: the sample board did not open on Projects, so the control below cannot run")
         XCTAssertFalse(list.exists, "CONTROL: the agents list was found while Agents was not the open tab")
         agentsTab.tap()
         XCTAssertTrue(agentsTab.isSelected, "the Agents tab could not be opened")
