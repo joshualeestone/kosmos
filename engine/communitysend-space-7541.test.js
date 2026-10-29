@@ -34,7 +34,7 @@ const PASS = 'KST1.org_community_pass.sig';
 
 // A fake kosmos-community with company spaces (Renet Tilley's contract on #7538). `mode` bends one behaviour per test.
 function backend() {
-  const st = { agents: new Map(), posts: [], spacePosts: [], seen: [], mode: {}, n: 0, members: new Map() };
+  const st = { agents: new Map(), posts: [], spacePosts: [], spaceComments: [], seen: [], mode: {}, n: 0, members: new Map() };
   const server = http.createServer((req, res) => {
     let raw = '';
     req.on('data', (d) => { raw += d; });
@@ -89,6 +89,13 @@ function backend() {
         if (i < 0) return send(404, { detail: 'not found' });
         st.spacePosts.splice(i, 1);
         return send(204);
+      }
+      // kosmos#7543: a comment in the space, as the public route answers.
+      if (req.method === 'POST' && /^\/spaces\/org1\/posts\/[^/]+\/comments$/.test(req.url)) {
+        if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
+        const id = crypto.randomUUID();
+        st.spaceComments.push({ id, agent: a.id, url: req.url, ...body });
+        return send(201, { id });
       }
       if (req.method === 'POST' && /^\/posts\/[^/]+\/comments$/.test(req.url)) return send(201, { id: 'c' + (++st.n) });
       if (req.method === 'GET' && req.url === '/agents/me/posts') return send(200, []);
@@ -385,4 +392,64 @@ test('#7541 review 9: a take-down answered 404 while the post is still listed in
   const rec = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'))[r.id];
   assert.notEqual(rec.state, 'deleted', 'a post still listed in its space was recorded as taken down');
   assert.equal(be.st.spacePosts.length, 1);
+});
+
+// kosmos#7543 (slice 3b): a comment written for the company's own community goes to the company space, never public.
+function companyComment(agent, servicePostId) {
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, agent), { recursive: true });
+  communitystore.grantTrust(agent);
+  const r = feedpublish.publishServiceComment({ kind: 'community_post', agent, at: new Date().toISOString(), body: 'a useful note on this', servicePostId },
+    { agentId: agent, space: 'company', org: 'org-1' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  return r;
+}
+
+test('#7543: a company comment goes to the space with the agent\'s membership, never to the public comments route', async () => {
+  await on();
+  companyOn();
+  const postId = crypto.randomUUID();
+  const r = companyComment('dana', postId);
+  await cs.sweep();
+  assert.equal(publicComments().length, 0, 'a company comment went to the PUBLIC community');
+  assert.equal(be.st.spaceComments.length, 1, 'the company comment did not reach the space');
+  assert.equal(be.st.spaceComments[0].url, '/spaces/org1/posts/' + postId + '/comments');
+  const rec = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'))[r.id];
+  assert.equal(rec.state, 'sent', JSON.stringify(rec));
+  assert.equal(rec.remoteId, be.st.spaceComments[0].id);
+});
+
+test('#7543: CONTROL, a comment with no space still goes to the public route, with no pass asked for', async () => {
+  await on();
+  agentComment('eli', crypto.randomUUID());
+  await cs.sweep();
+  assert.equal(publicComments().length, 1);
+  assert.equal(be.st.spaceComments.length, 0);
+  assert.deepEqual(passCalls, []);
+});
+
+test('#7543: a company comment waits, never public, once the company community is off on this computer', async () => {
+  await on();
+  company({ company_community: { enabled: false } });
+  companyComment('dana', crypto.randomUUID());
+  await cs.sweep();
+  assert.equal(publicComments().length + be.st.spaceComments.length, 0, 'a company comment went out with the company community off');
+  companyOn();
+  await cs.sweep();
+  assert.equal(be.st.spaceComments.length, 1, 'it did not go once the company community was on again');
+  assert.equal(publicComments().length, 0);
+});
+
+test('#7543: with no pass to be had a company comment is not marked as attempted, and goes once a pass can be had', async () => {
+  await on();
+  companyOn();
+  coordinatorAnswer = { ok: false, because: 'org_community_off' };
+  const r = companyComment('dana', crypto.randomUUID());
+  await cs.sweep();
+  assert.equal(be.st.spaceComments.length + publicComments().length, 0);
+  const rec = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'))[r.id];
+  assert.ok(!rec || !rec.attempted, 'a comment never sent reads as attempted, so it would never be sent: ' + JSON.stringify(rec));
+  coordinatorAnswer = { ok: true, data: { token: PASS } };
+  cs.resetPauses();
+  await cs.sweep();
+  assert.equal(be.st.spaceComments.length, 1, 'the comment did not go once a pass could be had');
 });

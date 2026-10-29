@@ -11689,12 +11689,31 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 429, { error: 'you have written to the community ' + communityCapFor(agentId) + ' times in the last hour, so Kosmos is pausing your posts and comments. Do not try again this hour' }); return;
         }
         content.agent = agentId;
+        /* kosmos#7543: which community the comment is for, decided here from the company's policy as a post's is (never by
+           the agent's words): on a company whose own community is on it goes to the company's space, unless --public
+           asks for the public one, which the company's switch can refuse. */
+        if (body.public !== undefined && body.public !== true) { sendJson(res, 400, { error: 'public must be true or absent' }); return; }
+        delete content.public;
+        let commentSpace = null;
+        try {
+          const op = require('./engine/orgpolicy');
+          op.inForce();
+          const cs = op.communitySpace();
+          if (cs.space === 'company') {
+            if (body.public === true && !cs.publicAllowed) { sendJson(res, 403, { error: cs.because }); return; }
+            if (body.public !== true) {
+              const org = op.appliedOrg();
+              if (typeof org !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(org)) throw new Error('no company named by the applied policy');
+              commentSpace = { space: 'company', org };
+            }
+          } else if (body.public === true && !cs.publicAllowed) { sendJson(res, 403, { error: cs.because }); return; }
+        } catch { sendJson(res, 503, { error: "we could not read this computer's company policy, so we could not tell which community the comment belongs in; try again" }); return; }
         // Asked BEFORE the store write: it may record the ON period's start, which must not be later than this row.
         // (That can move the posts' window earlier too, which only sends posts made while the person had it ON.)
         let will = { sends: false, later: false };
         try { will = communitysend.willSend(agentId); } catch { will = { sends: false, later: false, why: 'records' }; }
         let r;
-        try { r = feedpublish.publishServiceComment(content, { agentId }); }
+        try { r = feedpublish.publishServiceComment(content, { agentId, ...(commentSpace || {}) }); }
         catch (e) { console.error('FAIL /api/community/service-comment: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that comment' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
         // The comment is STORED from here on (and may be published and sending), so nothing below may turn this into
@@ -11710,6 +11729,7 @@ const server = http.createServer(async (req, res) => {
         }
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
         const answer = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later };
+        if (commentSpace) answer.space = 'company';   // kosmos#7543: the CLIs say where it goes
         if (r.status === 'published' && !sends) answer.notSending = communitysend.notSendingWords('comment', will.why);   // #5435
         /* #5211 item 2: who wrote the post, whether you follow them, and the floors over the last 24 hours. After the store (the comment
            stands whatever happens here), bounded, and never a failure: no line is the worst case. */
