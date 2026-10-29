@@ -11017,6 +11017,30 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that star' }));
     return;
   }
+  /* #7575: the iPhone chat's own report of a sideways shift (one per chat open, numbers and kind words only; see
+     engine/chatshifts.js). POST comes from the person's phone, so an agent's token is refused there; GET is for an
+     agent on this Mac looking for the cause, so it answers any caller the board already admits. */
+  if (pathname === '/api/phone/chat-shifts' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const r = require('./engine/chatshifts').read();
+    sendJson(res, 200, { records: r.records, ok: r.ok });
+    return;
+  }
+  if (pathname === '/api/phone/chat-shift' && req.method === 'POST') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this comes from the person\'s phone, not an agent' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (presentedAgentToken(req, body && typeof body === 'object' ? body : {})) { sendJson(res, 403, { error: 'this comes from the person\'s phone, not an agent' }); return; }
+        const r = require('./engine/chatshifts').add(body);
+        if (r.refused) { sendJson(res, 400, { error: r.refused }); return; }
+        if (!r.ok) { sendJson(res, 500, { error: 'we could not keep that record' }); return; }
+        sendJson(res, 200, { ok: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not keep that record' }));
+    return;
+  }
   if (pathname === '/api/undo/keep' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
