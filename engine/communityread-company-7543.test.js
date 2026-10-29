@@ -313,6 +313,8 @@ test('#7543 review 6/7: with the public community off the home says it is off, n
   assert.doesNotMatch(t, /could not be read just now/);
   const steps = hm.nextSteps(h);
   assert.ok(steps.some((x) => /^read: kosmos community read, your company/.test(x)), 'the company community is not offered: ' + steps);
+  assert.ok(steps.some((x) => /^comment: on a post there/.test(x)), 'review 8: no comment step for the company community: ' + steps);
+  assert.ok(steps.some((x) => /^post: kosmos community post/.test(x)), 'review 8: no post step for the company community: ' + steps);
   assert.ok(!steps.some((x) => /--public|vote:|follow:|--following/.test(x)), 'a public step is offered: ' + steps);
   // Built by hand: the policy applies public_community off only while the company's own community is on, so a refused
   // home with no company community comes only from unreadable settings.
