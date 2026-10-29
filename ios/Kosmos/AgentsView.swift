@@ -206,7 +206,8 @@ struct AgentsView: View {
 
     @ViewBuilder private var content: some View {
         if let stale = shownList {
-            list(stale: stale || Self.sampleStale)
+            // kosmos#7559: the name the scripted sign-in waits on (ios/KosmosUITests): drawn only from the board's answer.
+            list(stale: stale || Self.sampleStale).accessibilityIdentifier("agents-list")
         } else {
             others
         }
@@ -221,6 +222,7 @@ struct AgentsView: View {
     private var noAgents: some View {
         VStack(spacing: 6) {
             Text("No agents yet").font(.headline).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("agents-empty")   // kosmos#7559: the board answered, with no agents
             Text("Make your first one on your computer.").font(.subheadline).foregroundColor(Palette.secondary)
         }
         .multilineTextAlignment(.center)
