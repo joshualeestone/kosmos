@@ -29,3 +29,6 @@ later kill -0) but was not reproduced. Arm 18's cause is unknown until it fails 
      not gone, a live process is not gone after the polls (22 s on this busy Mac), a killed one is gone.
    Decided, not done: treating a Z-state process as stopped (exact, no wait). The wait is cheap and only paid on a
    failure path; ps state parsing would be a new thing to get wrong.
+2. sonnet: 0 BLOCKER, 0 MAJOR, 0 MINOR. Converged. Confirmed every replaced condition keeps its meaning, no removed
+   sleep was a wait anything other than kill -0 needed (the tick writes last-failure, the log and the lock synchronously),
+   and gone() is correct under set -uo pipefail.
