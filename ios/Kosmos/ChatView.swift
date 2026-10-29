@@ -501,8 +501,11 @@ struct ChatView: View {
                     .padding(.vertical, 12)
                     // kosmos#7420 diagnostic: the stack's width (wider than the list is the shift-left Josh saw).
                     .background(GeometryReader { g in
-                        Color.clear.onAppear { diagContentWidth = g.size.width }.onChange(of: g.size.width) { diagContentWidth = $0 }
+                        Color.clear.onAppear { diagContentWidth = g.size.width }.onChange(of: g.size.width) { w in diagContentWidth = w; Self.trace("stack width \(Int(w))") }
                     })
+                    // kosmos#7420 (Josh 10-28, builds 13 to 15): the list only scrolls up and down, so a sideways offset is put
+                    // back at once and written in the diagnostic's record (see SideScrollLock).
+                    .background(SideScrollLock(off: Self.sampleNoLock))
                     .modifier(PositionTargets(on: Self.idAnchor))
                 }
                 .modifier(PositionById(on: Self.idAnchor, id: $positionId))
@@ -2095,9 +2098,12 @@ extension ChatView {
     static let sampleNoFix = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOFIX"] == "1"
     // kosmos#7265 (10-27): KOSMOS_SAMPLE_NOKEEP=1 turns off only carryDropped and the kept eager start, the control for them.
     static let sampleNoKeep = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOKEEP"] == "1"
+    // kosmos#7420 (10-28): KOSMOS_SAMPLE_NOLOCK=1 leaves a sideways offset where it is, the control for SideScrollLock.
+    static let sampleNoLock = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOLOCK"] == "1"
     #else
     static let sampleNoFix = false
     static let sampleNoKeep = false
+    static let sampleNoLock = false
     #endif
 }
 
@@ -2127,6 +2133,48 @@ struct PositionTargets: ViewModifier {
         if #available(iOS 17.0, *), on { content.scrollTargetLayout() } else { content }
     }
 }
+// kosmos#7420 (Josh 10-28, builds 13 to 15): every row of the chat moved left by its 16 pt side margin, the agent's
+// bubbles against the screen's edge, and back on a later layout. The chat had been scrolled sideways: the list scrolls only
+// up and down, but the scroll view underneath it keeps whatever offset it is given (the hold on the newest message is
+// centred across as well, anchor .bottom). Which layout gave it one was never caught (a row made wider than the screen in
+// the simulator did not), so the lock does not depend on the cause: it watches the scroll view the chat sits in and puts
+// any sideways offset back to 0, writing it in the diagnostic's record. KOSMOS_SAMPLE_SIDEWAYS=<seconds> (Debug) gives it
+// one, as the phone did; KOSMOS_SAMPLE_NOLOCK=1 is the control.
+struct SideScrollLock: UIViewRepresentable {
+    let off: Bool
+    func makeUIView(context: Context) -> Probe { Probe(off: off) }
+    func updateUIView(_ view: Probe, context: Context) {}
+
+    final class Probe: UIView {
+        let off: Bool
+        private var watch: NSKeyValueObservation?
+        init(off: Bool) { self.off = off; super.init(frame: .zero); isUserInteractionEnabled = false; isHidden = true }
+        required init?(coder: NSCoder) { nil }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            watch = nil
+            guard window != nil else { return }
+            var up = superview
+            while let v = up, !(v is UIScrollView) { up = v.superview }
+            guard let scroll = up as? UIScrollView else { ChatView.trace("side lock: no scroll view"); return }
+            scroll.alwaysBounceHorizontal = false
+            #if DEBUG
+            if let at = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIDEWAYS"].flatMap(Double.init) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + at) { [weak scroll] in scroll?.contentOffset.x = 16 }
+            }
+            #endif
+            let off = self.off
+            watch = scroll.observe(\.contentOffset, options: [.new]) { sv, _ in
+                let x = sv.contentOffset.x
+                guard abs(x) > 0.5 else { return }
+                ChatView.trace("side offset \(Int(x.rounded()))" + (off ? " (left)" : ", put back"))
+                if !off { DispatchQueue.main.async { if abs(sv.contentOffset.x) > 0.5 { sv.contentOffset.x = 0 } } }
+            }
+        }
+    }
+}
+
 struct PositionById: ViewModifier {
     let on: Bool
     @Binding var id: String?
