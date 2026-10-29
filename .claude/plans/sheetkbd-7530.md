@@ -8,8 +8,11 @@
 ## Decided
 
 - #7530: the host that opens the sheet (chat and project rooms share it) resigns the first responder before it sets the sheet's target. Reply still puts the cursor back in the box. Rejected: waiting for the keyboard to finish going down before presenting (slower, and the simulator shows the sheet lands correctly without it).
+- #7530: the resign is the app's first responder, so a long press (or VoiceOver's Message actions) with the search field focused drops that keyboard too, and closing the sheet any way but Reply leaves the keyboard down. Both deliberate: a sheet over a keyboard is the bug, and only Reply means "keep typing".
 - #7427: not the Agents pill's clock-drawn WorkingDots, which was moved out of the chat because redrawing 30 times a second kept the thread from following new messages with the keyboard up (#7427 review 2). Layer animations move only the layers, never ask SwiftUI to lay out, and cannot be restarted together by a re-render. The board's numbers are kept (1.1 s ease-in-out, 4 pt rise, .45 to 1; Reduce Motion 1.6 s, .35 to 1, no rise). WaveDots stays for the KOSMOS_SAMPLE_SWIFTDOTS control.
 - A UIKit view gives SwiftUI no baseline, so the dots take an explicit firstTextBaseline guide (measured: without it they hung about 5 pt below the words).
+
+- Review 1 (opus): implicit layer animations disabled around the colour and opacity writes; the dots' two restart paths (reaching a window, returning to the foreground) are now checked; the old WaveDots checks are named as the control. Not done: resolving the colour for Increase Contrast (Palette.pair has no contrast variant, so there is nothing to miss).
 
 ## Weakest premise
 

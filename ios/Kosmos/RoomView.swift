@@ -1660,7 +1660,12 @@ struct LayerWaveDots: View {
         required init?(coder: NSCoder) { nil }
 
         func set(color: CGColor, size: CGFloat, still: Bool) {
-            dots.forEach { $0.backgroundColor = color }
+            // Review 1: only on a change, and without the layer's implicit fade (a re-render or a theme switch snaps).
+            if dots[0].backgroundColor != color {
+                CATransaction.begin(); CATransaction.setDisableActions(true)
+                dots.forEach { $0.backgroundColor = color }
+                CATransaction.commit()
+            }
             if self.size != size || self.still != still { self.size = size; self.still = still; setNeedsLayout() }
         }
 
@@ -1685,6 +1690,9 @@ struct LayerWaveDots: View {
         private func start() {
             running = (size, still)
             let period = still ? 1.6 : 1.1, low: Float = still ? 0.35 : 0.45
+            // Review 1: the model opacity is set with no implicit animation beside the wave.
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
             for (i, d) in dots.enumerated() {
                 d.removeAllAnimations()
                 let fade = CABasicAnimation(keyPath: "opacity")
