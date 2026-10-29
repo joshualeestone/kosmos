@@ -1178,6 +1178,20 @@ final class BoardClient: ObservableObject {
                 rows.insert(answer, at: i + 1)
                 t = Board.Thread(rows: rows, olderCount: t.olderCount, choices: t.choices)
             }
+            // kosmos#7420, KOSMOS_SAMPLE_REACTIONS=many: many reactions on one of Dana's messages and one of the person's, so a
+            // screenshot shows them wrapping (left under hers, right under the person's) rather than one row past the edge.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REACTIONS"] == "many" {
+                let many = ["\u{1F44D}", "\u{2764}\u{FE0F}", "\u{1F602}", "\u{1F389}", "\u{1F64F}", "\u{1F440}", "\u{1F525}",
+                            "\u{2705}", "\u{1F680}", "\u{1F914}", "\u{1F4AF}", "\u{1F44F}"]
+                var rows = t.rows
+                if let a = rows.lastIndex(where: { $0.who == .agent }) {
+                    rows[a].reactions = many.enumerated().map { Board.ChatReaction(emoji: $1, count: $0 % 3 + 1, mine: $0 == 0) }
+                }
+                if let p = rows.lastIndex(where: { $0.who == .person }) {
+                    rows[p].reactions = many.prefix(9).enumerated().map { Board.ChatReaction(emoji: $1, count: 1, mine: false) }
+                }
+                t = Board.Thread(rows: rows, olderCount: t.olderCount, choices: t.choices)
+            }
             sampleThreads["dana"] = t
         }
         // KOSMOS_SAMPLE_LONG=1: Dana's chat is 220 messages with 40 before them, to check that opening a long chat lands on
