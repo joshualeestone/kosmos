@@ -700,8 +700,11 @@ struct NewAgentView: View {
 
     private var setupScreen: some View {
         ScrollViewReader { proxy in setupForm
+            #if DEBUG
             // kosmos#7502 design shots: KOSMOS_SAMPLE_NEWAGENT=setupbottom scrolls to the Model group, as teambottom does.
+            // Debug only, as sampleBottom is (a Release build has neither: CI's Release build caught the first version).
             .onAppear { if sampleBottom { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { proxy.scrollTo("setupModel", anchor: .top) } } }
+            #endif
         }
     }
     private var setupForm: some View {
