@@ -36,4 +36,4 @@ if (!pinnedIsListed(live, { ok: true, keys })) {
   const kids = keys.map((k) => (k && k.kid) || '?').join(', ');
   no('the live coordinator key ' + live + ' is NOT on the set (' + keys.length + ' key(s): ' + kids + '). Every new cloud box and every sign-in under this release would refuse the real service.');
 }
-console.log('service key set vs the live coordinator: the live key ' + live + ' is listed');
+console.log('service key set vs the live coordinator: the live key ' + live + ' is listed (whether the set verifies is step 4\'s check)');

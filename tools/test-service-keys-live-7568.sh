@@ -73,7 +73,7 @@ grep -q '^service_keys_live_check "\$REPO" || exit 1$' tools/release.sh && ok "r
 _bump="$(grep -n '^step "== 2\. the version' tools/release.sh | cut -d: -f1)"; _chk="$(grep -n '^service_keys_live_check "\$REPO"' tools/release.sh | cut -d: -f1)"
 [ -n "$_bump" ] && [ -n "$_chk" ] && [ "$_chk" -lt "$_bump" ] && ok "the check runs before the bump" || bad "the check is not before step 2 (check line '$_chk', bump line '$_bump')"
 # The frozen re-check: after REPO="$BUILD" (the freeze) and before step 4 builds anything.
-_frz="$(grep -n '^REPO="\$BUILD"$' tools/release.sh | cut -d: -f1)"; _re="$(grep -n '^service_keys_live_check "\$BUILD" || exit 1$' tools/release.sh | cut -d: -f1)"
+_frz="$(grep -n '^REPO="\$BUILD"$' tools/release.sh | cut -d: -f1)"; _re="$(grep -n '^service_keys_live_check "\$BUILD" || { echo .*already pushed.*; exit 1; }$' tools/release.sh | cut -d: -f1)"
 _b4="$(grep -n '^step "== 4\. build ==' tools/release.sh | cut -d: -f1)"
 [ -n "$_frz" ] && [ -n "$_re" ] && [ -n "$_b4" ] && [ "$_re" -gt "$_frz" ] && [ "$_re" -lt "$_b4" ] && ok "the frozen tree is checked again, after the freeze and before the build" || bad "no frozen re-check between the freeze and step 4 (freeze '$_frz', check '$_re', build '$_b4')"
 grep -q '^\. "\$REPO/tools/lib/service-keys-live.sh"' tools/release.sh && ok "release.sh sources the lib" || bad "release.sh does not source tools/lib/service-keys-live.sh"
