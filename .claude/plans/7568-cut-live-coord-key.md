@@ -18,6 +18,8 @@ that lacks it, green with one that has it.
   tools/check-service-keys-live.js, which compares with engine/servicekeys.js pinnedIsListed, the board's own test.
 - **Fails closed, no override:** unreadable meta, no key, junk key, junk set. No legitimate set omits the key in use
   (a rotation lists next BESIDE current).
+- **Windows:** tools/build-kosmos-windows.sh stages the same set, so it runs the same check beside its floor check.
+  The Linux family is cut inside release.sh, so 1d3 covers it.
 - **Keys read from the set's JSON, not a verified set,** so the check answers while no recovery key is pinned; whether
   the set verifies is step 4's staging check.
 
@@ -36,6 +38,7 @@ between this check and step 8's publish is not seen; the cut runs minutes, rotat
 ## Tests
 tools/test-service-keys-live-7568.sh (in test:shell): no set passes without asking (control: meta absent); a set
 without the key refuses, naming it; with it, alone or beside another, passes; five fail-closed arms; release.sh runs
-it before the bump and again between the freeze and step 4. tools.release-gate.test.js runs the real release.sh in a
+it before the bump and again between the freeze and step 4; the frozen re-check runs through the real
+release_freeze (a fast-forwarded set without the key refuses, one with it passes); the Windows build runs it. tools.release-gate.test.js runs the real release.sh in a
 git sandbox: a set without the key refuses at 1d3 with the version untouched, the same sandbox with the key reaches
 step 2. Mutant runs and the live-service red/green runs are by hand; their output is in the PR body.
