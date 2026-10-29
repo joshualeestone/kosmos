@@ -2175,6 +2175,7 @@ struct SideScrollLock: UIViewRepresentable {
         private var shifts = 0          // review 4: shifts so far; recorded at the 1st, 2nd, 4th, 8th..., so a cause that
                                         // comes back every frame cannot fill the record (kept across windows on purpose)
         private var fixing = false
+        private var writing = false     // kosmos#7420 review 1: inside our own put-back write (below), never a second one
         private var generation = 0      // review 6: a retry from before the probe moved window ends itself
         #if DEBUG
         static var sampleShifted = false   // KOSMOS_SAMPLE_SIDEWAYS gives one shift, not one per window
@@ -2202,7 +2203,8 @@ struct SideScrollLock: UIViewRepresentable {
             // where it goes back to, and a difference from it is what is recorded.
             // Review 4: put back 0.35 s after a shift and only while nobody is dragging or flinging, so a scroll in progress
             // (the person's, or the hold on the newest message) finishes first; still shifted after that, it goes back.
-            // kosmos#7420 10-29: that wait is now only for a scroll in progress; with none, it goes back at once (below).
+            // kosmos#7420 10-29: under the id anchor that wait is now only for the person's drag or fling; with neither
+            // (the hold on the newest message included, which is not animated there), it goes back at once (below).
             watch = scroll.observe(\.contentOffset, options: [.initial, .new]) { [weak self] sv, _ in
                 guard let self else { return }
                 let x = sv.contentOffset.x + sv.adjustedContentInset.left
@@ -2218,10 +2220,15 @@ struct SideScrollLock: UIViewRepresentable {
                 // sometime multiple times a second"): put back 0.35 s later, a cause that keeps shifting the chat was drawn
                 // shifted, then back, then shifted again. With nobody scrolling it goes back now, inside this same change, so
                 // the shift is never drawn. Only under the id anchor (iOS 17+), where the move to the newest message is not
-                // animated: on iOS 16 that move is animated, and writing the offset under it could stop it partway.
-                if ChatView.idAnchor, !sv.isDragging, !sv.isDecelerating {
-                    let rest = -sv.adjustedContentInset.left
-                    sv.contentOffset = CGPoint(x: rest, y: sv.contentOffset.y)   // observed again at rest: shifted is cleared
+                // animated: on iOS 16 that move is often animated, and writing the offset under it could stop it partway.
+                // Known and accepted: an animated scroll the app starts (a status-bar tap to the top) is neither a drag nor
+                // a fling, so a shift landing during one is written at once too, which may end that scroll early.
+                // Review 1: one write at a time. If the write does not land at rest (something answers it with another
+                // shift inside the same change), the nested call does not write again: it falls to the delayed put-back.
+                if ChatView.idAnchor, !sv.isDragging, !sv.isDecelerating, !self.writing {
+                    self.writing = true
+                    defer { self.writing = false }
+                    sv.contentOffset = CGPoint(x: -sv.adjustedContentInset.left, y: sv.contentOffset.y)
                     return
                 }
                 guard !self.fixing else { return }
