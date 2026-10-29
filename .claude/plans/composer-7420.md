@@ -24,6 +24,8 @@
 
 - Review 5 (sonnet): while the list is dragged or flinging the put-back is tried again every 0.35 s (a fling ending with no further offset change left it shifted). Stated plainly: the lock shortens the shift, it does not prevent it; a shift can show for about 0.35 s, or for the length of a scroll the person is making.
 
+- Review 6 (opus): the stack-width trace an earlier session added is gone (unbounded, it could fill the record; the width still reaches the report as before); stale comments say "back to its rest"; a retry from before a window move ends itself. Reading a Share: shift 1 or 2 means the lock caught a shift; shift 8, 16, 32 and up means the lock is fighting whatever keeps causing it (likely the hold on the newest message), which is a visible jump every 0.35 s, NOT fixed, and the next step is the cause.
+
 ## Weakest premise
 
 - That the offset on Josh's phone is a UIScrollView contentOffset.x (the mechanism the simulator reproduces) rather than something that looks the same, such as the list's own frame moving. The trace will say: if the phone shifts again with no "side offset" line in a Share, it is the other thing.

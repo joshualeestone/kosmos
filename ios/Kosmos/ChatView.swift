@@ -501,10 +501,10 @@ struct ChatView: View {
                     .padding(.vertical, 12)
                     // kosmos#7420 diagnostic: the stack's width (wider than the list is the shift-left Josh saw).
                     .background(GeometryReader { g in
-                        Color.clear.onAppear { diagContentWidth = g.size.width }.onChange(of: g.size.width) { w in diagContentWidth = w; Self.trace("stack width \(Int(w))") }
+                        Color.clear.onAppear { diagContentWidth = g.size.width }.onChange(of: g.size.width) { diagContentWidth = $0 }
                     })
                     // kosmos#7420 (Josh 10-28, builds 13 to 15): the list only scrolls up and down, so a sideways offset is put
-                    // back at once and written in the diagnostic's record (see SideScrollLock).
+                    // back to its rest and written in the diagnostic's record (see SideScrollLock).
                     .background(SideScrollLock(off: Self.sampleNoLock))
                     .modifier(PositionTargets(on: Self.idAnchor))
                 }
@@ -2140,7 +2140,7 @@ struct PositionTargets: ViewModifier {
 // up and down, but the scroll view underneath it keeps whatever offset it is given (the hold on the newest message is
 // centred across as well, anchor .bottom). Which layout gave it one was never caught (a row made wider than the screen in
 // the simulator did not), so the lock does not depend on the cause: it watches the scroll view the chat sits in and puts
-// any sideways offset back to 0, writing it in the diagnostic's record. KOSMOS_SAMPLE_SIDEWAYS=<seconds> (Debug) gives it
+// any sideways offset back to its rest, writing it in the diagnostic's record. KOSMOS_SAMPLE_SIDEWAYS=<seconds> (Debug) gives it
 // one, as the phone did; KOSMOS_SAMPLE_NOLOCK=1 is the control.
 struct SideScrollLock: UIViewRepresentable {
     let off: Bool
@@ -2152,8 +2152,10 @@ struct SideScrollLock: UIViewRepresentable {
         // Review 5: tried again every 0.35 s while the list is dragged or flinging, so a fling that ends with no further
         // offset change still gets it back.
         private func putBack(_ sv: UIScrollView) {
+            let mine = generation
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, weak sv] in
-                guard let self, let sv, self.window != nil else { self?.fixing = false; return }
+                guard let self, self.generation == mine else { return }
+                guard let sv, self.window != nil else { self.fixing = false; return }
                 if sv.isDragging || sv.isDecelerating { self.putBack(sv); return }
                 self.fixing = false
                 let rest = -sv.adjustedContentInset.left
@@ -2165,6 +2167,7 @@ struct SideScrollLock: UIViewRepresentable {
         private var shifts = 0          // review 4: shifts so far; recorded at the 1st, 2nd, 4th, 8th..., so a cause that
                                         // comes back every frame cannot fill the record (kept across windows on purpose)
         private var fixing = false
+        private var generation = 0      // review 6: a retry from before the probe moved window ends itself
         #if DEBUG
         static var sampleShifted = false   // KOSMOS_SAMPLE_SIDEWAYS gives one shift, not one per window
         #endif
@@ -2173,7 +2176,7 @@ struct SideScrollLock: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            watch = nil; shifted = false; fixing = false
+            watch = nil; shifted = false; fixing = false; generation &+= 1
             guard window != nil else { return }
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
