@@ -1611,6 +1611,103 @@ struct WaveDots: View {
     }
 }
 
+// kosmos#7427 build 16 (Josh 10-28, build 15: the chat's dots still bounced in unison, the Agents pill's did not): the
+// chat's working dots drawn by Core Animation. Each dot's loop is fixed in its own layer animation, a phase 0.16 s behind
+// the one before (timeOffset), so nothing SwiftUI does to the thread (a re-render, a row re-laid out, the line coming
+// back into view) can restart them together, and the thread is never asked to lay out for them (why the clock-drawn
+// WorkingDots stays out of the thread, review 2). The board's numbers, as WorkingDots: 1.1 s ease-in-out, a 4 pt rise
+// with opacity .45 to 1; Reduce Motion 1.6 s, opacity .35 to 1, no rise.
+struct LayerWaveDots: View {
+    var color: Color = Palette.pillWord(.working)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+    @ScaledMetric(relativeTo: .footnote) private var size: CGFloat = 4
+
+    var body: some View {
+        DotLayers(color: UIColor(color), dark: scheme == .dark, size: size, still: reduceMotion)
+            .frame(width: size * 3 + size * 0.75 * 2, height: size + 4)
+            .accessibilityHidden(true)
+    }
+
+    struct DotLayers: UIViewRepresentable {
+        let color: UIColor
+        let dark: Bool
+        let size: CGFloat
+        let still: Bool
+        func makeUIView(context: Context) -> Dots { Dots() }
+        func updateUIView(_ v: Dots, context: Context) {
+            v.set(color: color.resolvedColor(with: UITraitCollection(userInterfaceStyle: dark ? .dark : .light)).cgColor,
+                  size: size, still: still)
+        }
+    }
+
+    final class Dots: UIView {
+        private let dots = (0..<3).map { _ in CALayer() }
+        private var size: CGFloat = 4
+        private var still = false
+        private var running: (CGFloat, Bool)?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            dots.forEach { layer.addSublayer($0) }
+            // The system takes a layer's animations away when the app leaves the screen; they go back on return.
+            NotificationCenter.default.addObserver(self, selector: #selector(restart), name: UIApplication.willEnterForegroundNotification, object: nil)
+        }
+        required init?(coder: NSCoder) { nil }
+
+        func set(color: CGColor, size: CGFloat, still: Bool) {
+            dots.forEach { $0.backgroundColor = color }
+            if self.size != size || self.still != still { self.size = size; self.still = still; setNeedsLayout() }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            for (i, d) in dots.enumerated() {
+                d.frame = CGRect(x: CGFloat(i) * size * 1.75, y: bounds.height - size, width: size, height: size)
+                d.cornerRadius = size / 2
+            }
+            CATransaction.commit()
+            if running.map({ $0 != size || $1 != still }) ?? true { start() }
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil { start() }
+        }
+
+        @objc private func restart() { start() }
+
+        private func start() {
+            running = (size, still)
+            let period = still ? 1.6 : 1.1, low: Float = still ? 0.35 : 0.45
+            for (i, d) in dots.enumerated() {
+                d.removeAllAnimations()
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = low; fade.toValue = Float(1)
+                var parts: [CAAnimation] = [fade]
+                if !still {
+                    let rise = CABasicAnimation(keyPath: "transform.translation.y")
+                    rise.fromValue = 0; rise.toValue = -4
+                    parts.append(rise)
+                }
+                let wave = CAAnimationGroup()
+                wave.animations = parts
+                wave.duration = period / 2
+                wave.autoreverses = true
+                wave.repeatCount = .infinity
+                wave.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                // Dot i is 0.16 s behind dot 0: its loop starts that far before its own beginning.
+                wave.timeOffset = period - Double(i) * 0.16
+                wave.isRemovedOnCompletion = false
+                d.opacity = low
+                d.add(wave, forKey: "wave")
+            }
+        }
+    }
+}
+
 // kosmos#7101: the double-tap of a reply's post is the jump (a modifier, so posts that are not replies are untouched).
 private struct ReplyJumpDefault: ViewModifier {
     let on: Bool
