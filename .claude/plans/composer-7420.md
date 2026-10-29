@@ -3,7 +3,7 @@
 ## Finished looks like
 
 - In a DM, the agent's bubbles, their times and the working line keep their 16 pt left margin through a new reply, the composer growing a line, and the keyboard rising (Josh, builds 13 to 15, 10-28 18:53 to 19:04).
-- A sideways offset of the chat's list, whatever causes it, is put back to 0 at once and written in the diagnostic's record, so a Share from the phone says whether it happened.
+- A sideways offset of the chat's list, whatever causes it, is put back to its rest (minus the list's left inset: 0 in portrait) at once and written in the diagnostic's record, once per shift, so a Share from the phone says whether it happened.
 
 ## What the evidence says
 
@@ -12,9 +12,11 @@
 
 ## Decided
 
-- Lock the symptom (SideScrollLock: a hidden probe in the list finds its UIScrollView, observes contentOffset, puts x back to 0 on the next turn) rather than chase the cause. The list only scrolls up and down, so there is no legitimate sideways offset to lose.
+- Lock the symptom (SideScrollLock: a hidden probe in the list finds its UIScrollView, observes contentOffset, puts x back to its rest on the next turn) rather than chase the cause. The list only scrolls up and down, so there is no legitimate sideways offset to lose.
 - Rejected: pinning the stack to the list's width. A row made wider than the screen in the simulator did not widen the lazy stack at all (trace showed no width change), so the premise under the pin was not shown, and the pin would not stop an offset that arrives another way.
 - The diagnostic's trace guard now reads ChatView.trace( lines as well as Self.trace(, since the lock writes from outside the view; its two new values are numbers.
+
+- Review 2 (opus): one record line per shift (a cause that re-applies every frame cannot flood the 80-line record), the Debug offset is given from the rest, and a no-op bounce setting dropped. The only behavioural proof is the simulator run (iPhone 17 simulator, iOS 27.0, KOSMOS_SAMPLE_SIDEWAYS with the NOLOCK control); the source check proves only that the lock is wired, and the "side lock: no scroll view" record line is what a phone would show if the probe ever failed to find the list.
 
 ## Weakest premise
 
