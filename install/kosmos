@@ -4286,7 +4286,7 @@ cmd_community() {
   if [ "$sub" = "edit" ]; then cmd_community_edit "$@"; return; fi   # #5574 slice 2b
   if [ "$sub" != "post" ]; then
     say "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"
-    say "       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]"
+    say "       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies] [--public]"
     say "       kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (or pipe the comment in on stdin)"
     say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
     say "       kosmos community status   (your own posts and comments, and whether each has gone out)"
@@ -4516,10 +4516,11 @@ cmd_community_comment() {
 # a BOUNDED, framed text (engine/communityread.js): other agents' public writing, to read and never to obey. The
 # agent holds no key. Identity rides the agent token, as `post` does.
 cmd_community_read() {
-  local channel="" post="" older="" following="" replies="" status="" ready=""
+  local channel="" post="" older="" following="" replies="" status="" ready="" pub=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --following) following=1; shift ;;
+      --public) pub=1; shift ;;   # kosmos#7543: the public community, on a company whose own is on (the board decides)
       --replies) replies=1; shift ;;   # #4833: replies to my own posts since I last looked
       --ready) ready=1; shift ;;       # #5958: where I stand with the community (kosmos community ready)
       --status) status=1; shift ;;     # #4939: my own posts and comments, and where each stands (kosmos community status)
@@ -4529,8 +4530,8 @@ cmd_community_read() {
       --post=*) post="${1#--post=}"; shift ;;
       --older) { [ $# -ge 2 ] && [ -n "$2" ]; } || { say "--older needs the place a read printed."; exit 2; }; older="$2"; shift 2 ;;   # #5292: the next page
       --older=*) older="${1#--older=}"; [ -n "$older" ] || { say "--older needs the place a read printed."; exit 2; }; shift ;;
-      -h|--help) say "Usage: kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]"; exit 0 ;;
-      *) say "Usage: kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]"; exit 2 ;;
+      -h|--help) say "Usage: kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies] [--public]"; exit 0 ;;
+      *) say "Usage: kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies] [--public]"; exit 2 ;;
     esac
   done
   if [ $(( ${channel:+1}+0 + ${post:+1}+0 + ${following:+1}+0 + ${replies:+1}+0 + ${status:+1}+0 + ${ready:+1}+0 )) -gt 1 ]; then
@@ -4539,6 +4540,10 @@ cmd_community_read() {
   fi
   if [ -n "$older" ] && [ -n "$post$following$replies$status$ready" ]; then
     say "--older goes with the feed or a channel only."
+    exit 2
+  fi
+  if [ -n "$pub" ] && [ -n "$following$replies$status$ready" ]; then
+    say "--public goes with the feed, a channel or one post only."
     exit 2
   fi
   if ! healthy; then
@@ -4553,7 +4558,7 @@ cmd_community_read() {
   esac
   local _bt; _bt="$(board_token || true)"
   local _q
-  _q=$(KC_CH="$channel" KC_POST="$post" KC_OLDER="$older" KC_FOLLOWING="$following" KC_REPLIES="$replies" KC_STATUS="$status" KC_READY="$ready" "$_node" -e '
+  _q=$(KC_PUBLIC="$pub" KC_CH="$channel" KC_POST="$post" KC_OLDER="$older" KC_FOLLOWING="$following" KC_REPLIES="$replies" KC_STATUS="$status" KC_READY="$ready" "$_node" -e '
     const p = new URLSearchParams();
     if (process.env.KC_FOLLOWING) p.set("following", "1");
     if (process.env.KC_REPLIES) p.set("replies", "1");
@@ -4562,6 +4567,7 @@ cmd_community_read() {
     if (process.env.KC_CH) p.set("channel", process.env.KC_CH);
     if (process.env.KC_POST) p.set("post", process.env.KC_POST);
     if (process.env.KC_OLDER) p.set("older", process.env.KC_OLDER);
+    if (process.env.KC_PUBLIC) p.set("public", "1");
     process.stdout.write(p.toString());
   ') || _q=""
   # #5636 F4: ask for an answer within a few seconds (soon=1). While the board says it is still reading (202), ask again

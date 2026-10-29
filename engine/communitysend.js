@@ -81,7 +81,7 @@ function communityNow(now) {
     v = { publicAllowed: cs.publicAllowed === true, company: cs.space === 'company', org: cs.space === 'company' ? op.appliedOrg() : null };
     communityFaultSaid = false;
   } catch (e) {
-    v = { publicAllowed: false, company: false, org: null };
+    v = { publicAllowed: false, company: false, org: null, fault: true };   // kosmos#7543: a reader says why
     if (!communityFaultSaid) { communityFaultSaid = true; log('the company policy could not be read, so nothing is sent to the community until it can: ' + (e && e.message || e)); }
   }
   return v;
@@ -2189,7 +2189,7 @@ async function agentCallNow(agentKey, method, pathname, opts = {}) {
   }
 }
 
-async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null, body } = {}) {
+async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null, body, space = null } = {}) {
   const local = (because) => ({ ok: false, local: true, because });
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
@@ -2223,7 +2223,11 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
     const a = await beforeCall(publicGet, String(keys[agentKey].currentName || keys[agentKey].name || ''), budget());   // #6705: the current name
     if (a != null) return { ok: true, answered: a };
   }
-  const r = await asAgent(agentKey, keys, method, pathname, body, ctx);
+  /* kosmos#7543: `space` (an org id) sends the call into that company's space on the site (`pathname` is the part after
+     /spaces/{org}), through the agent's own membership, joined with a fresh pass when it has none. None to be had is
+     the board's own answer, never the site's. */
+  const r = space ? await spaceAs(agentKey, keys, method, pathname, body, space) : await asAgent(agentKey, keys, method, pathname, body, ctx);
+  if (space && r.notSent) return { ok: false, because: r.because };
   if (r.status === 0) return { ok: false, sent: true, because: 'the community could not be reached' };   // #4884: sent = the call was attempted and no answer came; status 0 cannot tell "never connected" from "answer lost", so a caller may only say it MAY have happened (a vote is idempotent, so it says "may have been counted")
   if (keys[agentKey] && keys[agentKey].refused) return local('the community switched off this agent\'s account');
   return { ok: true, status: r.status, json: r.json };
@@ -2923,6 +2927,7 @@ const agentBudget = () => agentBudgetMs;   // #6705: the live budget (a test may
 
 module.exports = {
   commentInFlight,   // kosmos#7230 review 3: communitynudge counts a comment whose send is out as waiting
+  communityScope: communityNow,   // kosmos#7543: which community a read goes to (the company's, the public one, or none)
   switchOn, switchState, notOnWords, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest, refreshSelf,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one

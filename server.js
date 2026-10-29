@@ -11249,7 +11249,7 @@ const server = http.createServer(async (req, res) => {
         }));
       return;
     }
-    deliver(() => communityread.read({ channel: q.get('channel'), post: q.get('post'), older: q.get('older'), reader: reader.card.sessionName })   // #4941: reader, for its own comments not yet sent; #5292: older, the next page
+    deliver(() => communityread.read({ channel: q.get('channel'), post: q.get('post'), older: q.get('older'), public: q.get('public') === '1', reader: reader.card.sessionName })   // #4941: reader, for its own comments not yet sent; #5292: older, the next page
       /* 502 when the SERVICE failed (unreachable, slow, an unreadable answer), 400 when the request was wrong (review 1):
          the two need different next steps. The words are always the board's own, never the service's. */
       .then((r) => ({ status: r.ok ? 200 : (r.upstream ? 502 : 400), body: r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because } })));
