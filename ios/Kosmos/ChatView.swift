@@ -2040,18 +2040,20 @@ struct BubbleTail: Shape {
     }
 }
 
-// "<dots> <name> is working": the board's wave (WaveDots, kosmos#7427); VoiceOver hears the words only.
+// "<dots> <name> is working": the board's wave (LayerWaveDots, kosmos#7427); VoiceOver hears the words only.
 struct WorkingLine: View {
     let name: String
 
     var body: some View {
-        // kosmos#7427: the board's wave (WaveDots), not three dots pulsing together.
+        // kosmos#7427: the board's wave (LayerWaveDots), not three dots pulsing together.
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             #if DEBUG
             // kosmos#7427 review 2 debug: KOSMOS_SAMPLE_CLOCKDOTS=1 draws the clock-drawn dots here, as the control.
-            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_CLOCKDOTS"] == "1" { WorkingDots() } else { WaveDots() }
+            // kosmos#7427 build 16: KOSMOS_SAMPLE_SWIFTDOTS=1 draws build 15's WaveDots, the control for the layer-drawn ones.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_CLOCKDOTS"] == "1" { WorkingDots() }
+            else if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SWIFTDOTS"] == "1" { WaveDots() } else { LayerWaveDots() }
             #else
-            WaveDots()   // review 2: inside the thread, never the clock-drawn WorkingDots
+            LayerWaveDots()   // review 2: inside the thread, never the clock-drawn WorkingDots; build 16: layer-drawn
             #endif
             Text("\(name) is working")
         }
