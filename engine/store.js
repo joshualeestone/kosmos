@@ -466,13 +466,39 @@ function secureRoot() {
   const r = currentDataRoot();
   if (isTestProcess(process.env) && isRealRoot(r, process.platform)) { securedRoots.add(r); return null; }
   // Recorded once tried, so ensure() does not retry a root it could not change; not when the root does not exist yet.
-  try { fs.chmodSync(r, 0o700); securedRoots.add(r); } catch (err) { if (!err || err.code !== 'ENOENT') securedRoots.add(r); }
+  // #7554: nor after EBUSY, which is transient by nature, so the next write tries again. EPERM and EACCES (a root this
+  // user cannot change, usually for good) stay recorded: retrying them would cost a failing chmod on every write. The
+  // board's own start call always tries again, whatever is recorded, and says so.
+  try { fs.chmodSync(r, 0o700); securedRoots.add(r); } catch (err) {
+    const code = err && err.code;
+    if (code !== 'ENOENT' && code !== 'EBUSY') securedRoots.add(r);
+  }
   try { return fs.statSync(r).mode & 0o777; } catch { return null; }
+}
+
+/* #7554: ensure() runs on every store write, and currentDataRoot() resolves the root each time (in a test process, a
+   real-path check too). The root depends only on these inputs (dataRootFor, os.homedir, and the test-process rules in
+   isRealRootInTests), so the root is cached per their values: a write is a Map lookup until one of them changes. A
+   variable left out of this list would let a changed root reuse a stale answer, so every input dataRootFor or the
+   test rules read must be named here (engine/store.ensure-cost-7554.test.js holds the list to that). */
+const ROOT_ENV_INPUTS = ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_HOME', 'APPDATA', 'HOME', 'USERPROFILE',
+  'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_ALLOW_REAL_ROOT', 'TMPDIR', 'TEMP', 'TMP'];
+const rootByEnvKey = new Map();
+function rootForEnsure() {
+  const env = process.env;
+  const key = ROOT_ENV_INPUTS.map((n) => env[n] || '').join('\0');
+  let r = rootByEnvKey.get(key);
+  if (r === undefined) {
+    r = currentDataRoot();
+    if (rootByEnvKey.size > 64) rootByEnvKey.clear();   // a test that flips variables many times keeps this bounded
+    rootByEnvKey.set(key, r);
+  }
+  return r;
 }
 
 function ensure(dir) {
   fs.mkdirSync(dir, { recursive: true });
-  if (!securedRoots.has(currentDataRoot())) secureRoot();
+  if (!securedRoots.has(rootForEnsure())) secureRoot();
   return dir;
 }
 
