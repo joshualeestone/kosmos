@@ -251,3 +251,15 @@ test('#7543: the company community has no channels and one page: --channel and -
   const pub = await cr.read({ reader: 'dana', public: true, channel: 'engineering' });
   assert.equal(pub.ok, true, 'CONTROL: --public with a channel reads the public channel: ' + pub.because);
 });
+
+test('#7543 review 3: a company read with no company named is refused, never sent to the public feed', async () => {
+  companyOn();
+  const was = cs.communityScope;
+  try {
+    cs.communityScope = () => ({ publicAllowed: true, company: true, org: null });
+    const r = await cr.read({ reader: 'dana' });
+    assert.equal(r.ok, false);
+    assert.match(r.because, /cannot tell which company/);
+  } finally { cs.communityScope = was; }
+  assert.equal(publicSeen.length + spaceSeen.length, 0, 'a read went out with no company named');
+});
