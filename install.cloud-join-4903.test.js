@@ -36,6 +36,7 @@ function box({ os: osName = 'Linux', tunnelRc = 0, setOnFails = false, failTimes
   fs.writeFileSync(path.join(home, 'app', 'engine', 'remote.js'), `
 const fs = require('fs');
 exports.stateDir = () => ${JSON.stringify(state)};
+exports.coordinator = () => 'https://coordinator.example';
 exports.setOn = (on) => {
   fs.writeFileSync(${JSON.stringify(path.join(root, 'seton'))}, String(on));
   return ${setOnFails} ? { ok: false, because: 'refused in the test' } : { ok: true };
@@ -47,10 +48,23 @@ exports.setOn = (on) => {
 printf '%s\\n' "$@" > ${JSON.stringify(path.join(root, 'tunnel-args'))}
 cat > ${JSON.stringify(path.join(root, 'tunnel-stdin'))}
 printf 'x' >> ${JSON.stringify(tries)}
-[ "$1 $2 $3" = "setup cloud --state-dir" ] || exit 9
+# As the real parser (kosmos-relay crates/tunnel main.rs SetupCommand::Cloud): --coordinator and --state-dir are
+# REQUIRED, in any order; a missing one, or anything else, is a usage error (exit 2) before any request is made.
+[ "$1 $2" = "setup cloud" ] || exit 2
+shift 2
+coord=; dir=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --coordinator) coord=$2; shift 2 ;;
+    --state-dir) dir=$2; shift 2 ;;
+    --json) shift ;;
+    *) exit 2 ;;
+  esac
+done
+[ -n "$coord" ] && [ -n "$dir" ] || exit 2
 n=$(wc -c < ${JSON.stringify(tries)} | tr -d ' ')
 [ "$n" -le ${failTimes} ] && exit 7
-[ ${tunnelRc} -eq 0 ] && printf 'mac-1\\n' > "$4/mac_id"
+[ ${tunnelRc} -eq 0 ] && printf 'mac-1\\n' > "$dir/mac_id"
 exit ${tunnelRc}
 `, { mode: 0o755 });
   fs.writeFileSync(path.join(bin, 'uname'), `#!/bin/sh\nprintf '%s\\n' ${osName}\n`, { mode: 0o755 });
@@ -83,7 +97,7 @@ test('#4903 a cloud box joins: token on stdin, latch written, remote on, token r
   assert.equal(rcOf(r), '0', r.stdout + r.stderr);
   assert.equal(read(path.join(b.root, 'tunnel-stdin')), TOKEN, 'the token did not reach the tunnel on stdin');
   const args = read(path.join(b.root, 'tunnel-args'));
-  assert.equal(args, `setup\ncloud\n--state-dir\n${b.state}\n`);
+  assert.equal(args, `setup\ncloud\n--coordinator\nhttps://coordinator.example\n--state-dir\n${b.state}\n`);
   assert.ok(!args.includes(TOKEN), 'the token is in argv');
   const latch = path.join(b.state, 'hosted');
   const st = fs.lstatSync(latch);
@@ -160,4 +174,27 @@ test('#4903 no token, a refused switch, or a link where the latch goes: each ref
   fs.rmSync(path.join(b.state, 'hosted'));
   r = join(b);
   assert.equal(rcOf(r), '0', r.stdout);
+});
+
+test('#4903 a usage error from the tunnel is not retried: it would fail the same way', () => {
+  const b = box({ tunnelRc: 2 });
+  const r = join(b);
+  assert.equal(rcOf(r), '1', r.stdout + r.stderr);
+  assert.equal(read(path.join(b.root, 'tunnel-tries')), 'x', 'a usage error was tried more than once');
+  assert.ok(!fs.existsSync(path.join(b.state, 'hosted')), 'a failed join wrote the latch');
+  // CONTROL: a failure that is not a usage error is retried (up to three tries).
+  const c = box({ tunnelRc: 7 });
+  assert.equal(rcOf(join(c)), '1');
+  assert.equal(read(path.join(c.root, 'tunnel-tries')), 'xxx');
+});
+
+test('#4903 a rerun on a box that joined but never switched remote on switches it on', () => {
+  const b = box();
+  fs.mkdirSync(b.state, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(b.state, 'mac_id'), 'mac-1\n');
+  fs.writeFileSync(path.join(b.state, 'hosted'), '', { mode: 0o600 });
+  const r = join(b);
+  assert.equal(rcOf(r), '0', r.stdout + r.stderr);
+  assert.equal(read(path.join(b.root, 'seton')), 'true', 'the rerun did not switch remote access on');
+  assert.equal(read(path.join(b.root, 'tunnel-args')), null, 'a joined box asked the tunnel again');
 });

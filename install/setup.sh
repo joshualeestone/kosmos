@@ -5539,13 +5539,15 @@ fi
 # cloud.rs cloud_init_user_data) and runs this installer with that file SOURCED, so KOSMOS_CLOUD=1 and the one-time
 # KOSMOS_PROVISIONING_TOKEN arrive in the environment, never in argv. Anywhere else this does nothing at all.
 # In order, BEFORE the board starts (the tunnel reads the latch once, at its start):
-#   1. kosmos-tunnel setup cloud --state-dir <dir>, the token on its STDIN: the coordinator registers the box as the
-#      account's computer (POST /v1/setup/cloud) and the tunnel writes its state as a Mac's register does.
+#   1. kosmos-tunnel setup cloud --coordinator <url> --state-dir <dir>, the token on its STDIN: the coordinator
+#      registers the box as the account's computer (POST /v1/setup/cloud) and the tunnel writes its state as a Mac's
+#      register does. --coordinator is REQUIRED by the tunnel (no default, on purpose), and is the one the board uses.
 #   2. The latch: an EMPTY regular file `hosted`, mode 0600, in that state dir (PigeonPete's S4 shape; Baron's board
 #      reads the same file). A latch alone admits nobody: the tunnel also needs the coordinator's signed claim.
 #   3. Kosmos+ remote access switched on (engine/remote.js setOn), since nobody can sit at this box to switch it on.
 #   4. The spent token removed from provision.env.
-# The state dir is asked of the installed engine (remote.stateDir()), never re-derived here, so it is the one the
+# The state dir and the coordinator are asked of the installed engine (remote.stateDir(), remote.coordinator()),
+# never re-derived here, so they are the ones the
 # board passes the tunnel. A rerun on a box that already joined (state and latch present) changes nothing.
 # Returns non-zero with a sentence on any failure: a box that cannot join is of no use to anyone, and the caller stops.
 _kosmos_cloud_join() {
@@ -5558,12 +5560,23 @@ _kosmos_cloud_join() {
     info "This cloud machine could not find where Kosmos keeps its remote-access files ($_kcj_remote)."
     return 1
   fi
+  _kcj_coord="$("$_kcj_node" -e 'process.stdout.write(String(require(process.argv[1]).coordinator()))' "$_kcj_remote" 2>/dev/null)" || _kcj_coord=""
+  if [ -z "$_kcj_coord" ]; then
+    info "This cloud machine could not find which Kosmos+ service to join ($_kcj_remote)."
+    return 1
+  fi
   if [ -f "$_kcj_state/hosted" ] && [ ! -L "$_kcj_state/hosted" ] && [ -s "$_kcj_state/mac_id" ]; then
+    # A run that joined and latched but stopped before switching remote on finishes that step now (setOn is a no-op
+    # when it is already on).
+    if ! "$_kcj_node" -e 'const r = require(process.argv[1]).setOn(true); if (!r || r.ok === false) process.exit(1);' "$_kcj_remote" >/dev/null 2>&1; then
+      info "This cloud machine has joined its Kosmos+ account but could not turn on Kosmos+ remote access."
+      return 1
+    fi
     info "This cloud machine has already joined its Kosmos+ account."
     return 0
   fi
   if [ -z "${KOSMOS_PROVISIONING_TOKEN:-}" ]; then
-    info "This cloud machine has no setup token, so it cannot join its Kosmos+ account. It will be set up again."
+    info "This cloud machine has no setup token, so it cannot join its Kosmos+ account."
     return 1
   fi
   # -L on its own: a link whose target is missing fails -e, and `: >` below would then write through it.
@@ -5575,11 +5588,16 @@ _kosmos_cloud_join() {
   mkdir -p "$KOSMOS_HOME/logs" 2>/dev/null || true
   # Up to three tries, 10 seconds apart: a network hiccup can lose the coordinator's answer after it registered the
   # box. kosmos-tunnel keeps the same identity key across re-runs, and the coordinator answers the same registration to
-  # the same token and key, so a retry is safe. Each try appends to the log.
+  # the same token and key, so a retry is safe. The log is cleared once per run; each try then appends, numbered.
+  # A usage error (exit 2: the tunnel refused the call itself) is not retried: it would fail the same way.
   : > "$KOSMOS_HOME/logs/cloud-join.log"
   _kcj_try=1
-  until printf '%s' "$KOSMOS_PROVISIONING_TOKEN" | "$KOSMOS_HOME/app/bin/kosmos-tunnel" setup cloud --state-dir "$_kcj_state" >> "$KOSMOS_HOME/logs/cloud-join.log" 2>&1; do
-    if [ "$_kcj_try" -ge 3 ]; then
+  while :; do
+    printf 'try %s\n' "$_kcj_try" >> "$KOSMOS_HOME/logs/cloud-join.log"
+    _kcj_rc=0
+    printf '%s' "$KOSMOS_PROVISIONING_TOKEN" | "$KOSMOS_HOME/app/bin/kosmos-tunnel" setup cloud --coordinator "$_kcj_coord" --state-dir "$_kcj_state" >> "$KOSMOS_HOME/logs/cloud-join.log" 2>&1 || _kcj_rc=$?
+    [ "$_kcj_rc" -eq 0 ] && break
+    if [ "$_kcj_rc" -eq 2 ] || [ "$_kcj_try" -ge 3 ]; then
       info "This cloud machine could not join its Kosmos+ account. What happened is in $KOSMOS_HOME/logs/cloud-join.log"
       return 1
     fi
