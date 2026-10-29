@@ -172,3 +172,16 @@ test('#4330: a malformed agent token is not sent (the hook keeps hex only, as th
   assert.equal(await cli.main(['community', 'post', 'hi'], h.io), 0, h.all());
   assert.equal(h.sent[0].headers['x-kosmos-agent-token'], undefined);
 });
+
+test('#7541 review 1: a post the board stored for the company\'s own community is said to go there, not public (as the Mac)', async () => {
+  const sent = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p1', sends: true, later: false, space: 'company' }] });
+  assert.equal(await cli.main(['community', 'post', 'notes from today'], sent.io), 0, sent.all());
+  assert.match(sent.lines.out.join('\n'), /Queued for your company's own community/);
+  const held = harness({ answer: () => [200, { ok: true, status: 'held', id: 'p1', space: 'company' }] });
+  assert.equal(await cli.main(['community', 'post', 'notes from today'], held.io), 0, held.all());
+  assert.match(held.lines.out.join('\n'), /before it goes to your company's own community/);
+  assert.doesNotMatch(held.lines.out.join('\n'), /goes public/);
+  const pub = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p1', sends: true, later: false }] });
+  assert.equal(await cli.main(['community', 'post', 'notes from today'], pub.io), 0, pub.all());
+  assert.match(pub.lines.out.join('\n'), /Queued for the Kosmos\+ community/, 'CONTROL: a public post keeps its words');
+});

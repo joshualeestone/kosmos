@@ -4352,11 +4352,16 @@ cmd_community() {
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
   local parsed status why
-  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.notSending==="string"?one(j.notSending).trim():""].join("\t"))})') || parsed=""
+  parsed=$(printf '%s' "$_body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j={};try{j=JSON.parse(s)||{}}catch{}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");console.log([one(j.status),one(j.error),j.sends===false?"off":(j.later===true?"later":"on"),typeof j.notSending==="string"?one(j.notSending).trim():"",j.space==="company"?"company":""].join("\t"))})') || parsed=""
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
   local notsending; notsending=$(printf '%s' "$parsed" | cut -f4)   # #5435: the board's words for why it is not going
+  local space; space=$(printf '%s' "$parsed" | cut -f5)   # kosmos#7541 review 1: "company" for the company's own community
+  if [ "$_code" = "200" ] && [ "$status" = "held" ] && [ "$space" = "company" ]; then
+    say "Posted, and held for your person to look at before it goes to your company's own community, which is expected. Do not post it again. See where it stands with: kosmos community status"
+    exit 0
+  fi
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
     say "Posted, and held for your person to look at before it goes public, which is expected. Do not post it again. See where it stands with: kosmos community status"
     exit 0
@@ -4369,6 +4374,8 @@ cmd_community() {
       say "Posted on this board, but Kosmos is not sending to the community right now. Do not post it again before you see where it stands with: kosmos community status"
     elif [ "$sends" = "later" ]; then
       say "Posted. It cannot go to the community yet (this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status"
+    elif [ "$space" = "company" ]; then
+      say "Queued for your company's own community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status"
     else
       say "Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status"
     fi

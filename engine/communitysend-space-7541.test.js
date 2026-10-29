@@ -15,10 +15,16 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
+const crypto = require('node:crypto');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-communitysend-space-7541-'));
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_TUNNEL_STATE = path.join(SANDBOX, 'tunnel');
+fs.mkdirSync(process.env.AGENT_WORKFORCE_TUNNEL_STATE, { recursive: true });
+const store = require('./store');
+const orgpolicy = require('./orgpolicy');
+const orgenroll = require('./orgenroll');
 const communitystore = require('./communitystore');
 const feedpublish = require('./feedpublish');
 const cs = require('./communitysend');
@@ -119,8 +125,8 @@ test('#7541: a company post goes to the company space with a fresh pass, never t
   assert.equal(be.st.spacePosts.length, 1, 'the company post did not reach its space');
   assert.deepEqual(passCalls, ['/v1/mac/org/community-pass'], 'the pass is fetched from the coordinator, once, for the join');
   assert.equal(be.st.seen.find((s) => s.url === '/spaces/join').body.pass, PASS);
-  const st = cs.statuses ? cs.statuses() : null;
-  if (st && typeof st === 'object') assert.ok(JSON.stringify(st).includes('sent'), 'the record does not read as sent');
+  const rec = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'));
+  assert.ok(Object.values(rec).some((x) => x && x.state === 'sent' && x.remoteId), 'the record does not read as sent');
 });
 
 test('#7541: CONTROL, a post with no space still goes to the public /posts, with no pass asked for', async () => {
@@ -171,4 +177,52 @@ test('#7541: a space post that never arrived is looked for in the space, then se
   assert.equal(be.st.spacePosts.length, 1, 'the post did not reach its space after the lost send');
   assert.equal(spaceSends(), 2, 'one lost send and one resend');
   assert.equal(be.st.posts.length, 0, 'a space post went to the public community');
+});
+
+/* Joined to a company with `policy` applied as the board applies one (a signed bundle), or to nobody (null). */
+const coordinatorKey = crypto.generateKeyPairSync('ed25519');
+let version = 0;
+function company(policy) {
+  orgpolicy.clear();
+  for (const f of [orgpolicy.APPLIED(), orgpolicy.BUNDLE()]) fs.rmSync(f, { force: true });
+  const file = path.join(store.ROOT, orgenroll.ENROLLMENT_FILE);
+  if (policy === null) { fs.rmSync(file, { force: true }); return; }
+  fs.mkdirSync(store.ROOT, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ org: { id: 'org-1', name: 'Acme', slug: 'acme', kind: 'company' }, world: 'a'.repeat(32) }) + '\n');
+  const now = Math.floor(Date.now() / 1000);
+  version += 1;
+  const pinned = coordinatorKey.publicKey.export({ format: 'jwk' }).x;
+  const body = 'KST1.' + Buffer.from(JSON.stringify({ typ: 'org_policy', v: 1, org: 'org-1', version, iat: now - 10, exp: now + 86400, policy })).toString('base64url');
+  fs.writeFileSync(orgpolicy.BUNDLE(), body + '.' + crypto.sign(null, Buffer.from(body, 'ascii'), coordinatorKey.privateKey).toString('base64url'));
+  fs.writeFileSync(orgpolicy.PINNED(), pinned);
+  const r = orgpolicy.refresh({ now, pinned });
+  assert.equal(r.refused, null, 'the test policy did not apply: ' + r.refused);
+}
+
+test('#7541 review 1: a public post queued before the company turned the public community off is not sent after it', async () => {
+  try {
+    await on();
+    agentPost('eli');                                   // stored for the public community
+    company({ company_community: { enabled: true }, public_community: 'off' });
+    await cs.sweep();
+    assert.equal(be.st.posts.length, 0, 'a post went to the PUBLIC community after the company turned it off');
+    company({ company_community: { enabled: true } });   // CONTROL: allowed again, it goes
+    await cs.sweep();
+    assert.equal(be.st.posts.length, 1, 'CONTROL: the post did not go once the public community was allowed again');
+  } finally { company(null); }
+});
+
+test('#7541 review 1: a sent company post cannot be taken back or edited through the public routes, and says so', async () => {
+  await on();
+  const r = agentPost('dana', 'company');
+  await cs.sweep();
+  assert.equal(be.st.spacePosts.length, 1);
+  const w = cs.withdrawFor('dana', 'post', r.id);
+  assert.equal(w.ok, false);
+  assert.match(w.because, /company's own community/);
+  const e = await cs.editFor('dana', 'post', r.id, { body: 'new words here' });
+  assert.equal(e.ok, false);
+  assert.match(e.because, /company's own community/);
+  await cs.sweep();
+  assert.ok(!be.st.seen.some((x) => x.method === 'DELETE' || x.method === 'PATCH'), 'a company post was sent to a public take-back or edit route');
 });

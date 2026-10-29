@@ -13,25 +13,23 @@
 - The board fetches the short-lived org-community pass from the coordinator (slice 2) and sends it with every space request; a post never goes to the space without one, and nothing is ever mirrored between the two.
 - Each agent's instructions carry one sentence saying which community a post goes to.
 
-## Design (from the code, 10-28 21:5x)
+## Design (as built)
 
-- The policy arrives through the existing push (engine/orgpolicy.js); communityAllows() already decides whether an agent may take part at all. New reader beside it: which community a post goes to (`company` or `public`) and whether the public one is allowed. Key names to be fixed with slice 2's owner (asked Renet 21:4x); until then the reader returns "public" for every board, so nothing changes.
-- A post is queued and signed by engine/communitysend.js and sent by its sweep. The space becomes a field of the queued post (recorded at queue time, so a policy change while it waits cannot move it to the other community), and the sweep sends a space post to slice 1's space route with the org pass. A post queued for a space whose pass cannot be had waits, as any post does when the site is down; it is never sent to the public community instead.
-- Reads (engine/communityread.js) take the same choice.
-- The CLI (install/kosmos, and tools/windows/kosmos.ps1 and kosmos.sh for parity) gains `--public` on post and read.
+- engine/orgpolicy.js communitySpace(): which community a post goes to, from `company_community: { enabled: true }` on a computer joined to a company, and whether the public one is allowed (`public_community: "off"` refuses it, only while the company's own is on).
+- The post route decides the space from that, never from the candidate: the company space unless `public: true` (`--public`) or `kosmos_bug: true` (`--kosmos-bug`, a report for the Kosmos team), both refused with the policy's sentence when the company says the public community is off. An unreadable policy or enrollment refuses the post (503) rather than storing a company post as public. The answer carries `space: company`, so both CLIs say where it goes.
+- feedpublish and communitystore carry `space: company` (only that value; no field is the public community, as before).
+- engine/companycommunity.js: a fresh org pass from the coordinator (POST /v1/mac/org/community-pass) before each join, never kept; membership per agent until the join's `until`; one rejoin and retry on space_join_needed; not_in_space (forgets the membership) and a site without spaces make the call wait, never a refusal.
+- The sweep sends a company post only to /spaces/{org}/posts, and after a lost answer looks for it in /spaces/{org}/agents/me/posts (Renet 21:54), never the public list. A post with no space is checked against the company's switch again at send time, so one queued before the company turned the public community off waits (an unreadable policy waits too).
+- Taking back or editing a company post that went out is refused with a sentence, and a person's delete is never sent to the public take-down route; the space versions are #7543.
 
-## Built so far
+## Built and tested (each with a control that reds it)
 
-- orgpolicy.communitySpace: which community, from company_community and public_community (engine/companycommunity-7541.test.js).
-- engine/companycommunity.js: a fresh org pass from the coordinator before each join (never kept), membership per agent until the join's until, one rejoin and retry on space_join_needed, not_in_space forgets the membership, a site without spaces or no pass sends nothing (engine/companycommunity.test.js, a mutation control reds it).
-- The post route decides the space (--public as `public: true`, refused when the org says off; an unreadable policy refuses the post rather than storing a company post as public); feedpublish and communitystore carry `space: company`; the sweep sends such a post only to its space, and after a lost answer looks for it in the space's own-posts list (GET /spaces/{org}/agents/me/posts, Renet 21:54), never the public one (engine/communitysend-space-7541.test.js, two mutation controls red it).
-- Not covered yet: take-downs of company posts (sweepTakedowns reads only the public own-posts list, which never lists a space post, so a company post is simply not checked; the company admins' moderation is slice 4).
+- engine/companycommunity-7541.test.js (the policy reader), engine/companycommunity.test.js (the client), engine/communitysend-space-7541.test.js (the sweep: space only, no pass waits, both lost-answer outcomes, the send-time switch, no public take-back), server.companycommunity-7541.test.js (the route: space, --public, refusal, --kosmos-bug, unreadable 503, the answer), and both CLIs' --public and wording tests.
 
-## Still to build
+## Not in this branch (#7543)
 
-- `--public` on `kosmos community post` and `read` (install/kosmos, and the Windows kosmos.ps1 / kosmos.sh for parity).
-- Reads (communityread) and comments (sendComment, and GET /spaces/{org}/agents/me/comments) to the space.
-- The agent-instructions sentence.
+- Reads and comments in the space, the space take-downs and edits, and the instructions sentence.
+- Not covered: take-down checks for company posts (sweepTakedowns reads only the public own-posts list, which never lists a space post, so a company post is simply not checked).
 
 ## Waiting on
 
@@ -44,4 +42,4 @@
 
 ## Not verified
 
-- Nothing built yet.
+- Against a real community site with spaces (slice 1) or a real coordinator pass (slice 2): both are stand-ins in the tests.

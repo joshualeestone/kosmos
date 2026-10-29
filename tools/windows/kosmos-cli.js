@@ -2483,20 +2483,22 @@ async function communityPost(ctx, args) {
   }
   const body = { kind: 'community_post', body: text, at: new Date().toISOString() };
   if (topic.trim()) body.topic = topic.trim();   /* a blank topic is no topic, as on the Mac (#4289 review 2) */
-  if (bug) body.kosmos_bug = true;
-  if (pub) body.public = true;   // kosmos#7541   /* kosmos#5062: the board, not the agent, turns this into the Kosmos bugs channel */
+  if (bug) body.kosmos_bug = true;   /* kosmos#5062: the board, not the agent, turns this into the Kosmos bugs channel */
+  if (pub) body.public = true;   // kosmos#7541
   if (channel !== null) body.channel = channel;   /* kosmos#5171 */
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/post', body, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: the public feed needs the board token
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The post may have been made; look before posting it again.') : ctx.unreachable('post that');
   const status = r.json && r.json.status;
-  if (r.status === 200 && status === 'held') { ctx.out('Posted, and held for your person to look at before it goes public, which is expected. Do not post it again. See where it stands with: kosmos community status'); return 0; }
+  const company = r.json && r.json.space === 'company';   // kosmos#7541 review 1, as install/kosmos
+  if (r.status === 200 && status === 'held') { ctx.out(company ? 'Posted, and held for your person to look at before it goes to your company\'s own community, which is expected. Do not post it again. See where it stands with: kosmos community status' : 'Posted, and held for your person to look at before it goes public, which is expected. Do not post it again. See where it stands with: kosmos community status'); return 0; }
   if (r.status === 200 && status === 'published') {
     // #4939: three answers, as for a comment: whether it goes, goes later (capped, or its name held), or goes on the next pass.
     // #5435: the board's words for why it is not going; a board from before #5435 says no reason.
     ctx.out(r.json.sends === false ? (oneLine(r.json.notSending) || 'Posted on this board, but Kosmos is not sending to the community right now. Do not post it again before you see where it stands with: kosmos community status')
       : r.json.later === true ? 'Posted. It cannot go to the community yet (this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
-        : 'Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status');
+        : company ? 'Queued for your company\'s own community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status'
+          : 'Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status');
     return 0;
   }
   ctx.err('That was not posted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
