@@ -28,7 +28,13 @@ done
 case "$email" in *@*) ;; *) echo "ui-signin: --email needs the test account's address" >&2; exit 2 ;; esac
 [ -n "$totp_target" ] || { echo "ui-signin: --totp needs the secrets-map target of the account's authenticator" >&2; exit 2; }
 otpauth="$(secrets-map.sh value "$totp_target" 2>/dev/null)" || otpauth=""
-case "$otpauth" in otpauth://*) ;; *) unset otpauth; echo "FAIL  ui-signin: the secrets map has no authenticator URL for $totp_target" >&2; exit 1 ;; esac
+# An authenticator is filed either as its otpauth:// URL or as the bare base32 secret (Kitty's cloudrun1029, 10-29); a
+# bare one is the standard Kosmos+ kind (SHA1, 6 digits, 30 s), so it is wrapped as that URL here, never printed.
+case "$otpauth" in
+  otpauth://*) ;;
+  *) if printf '%s' "$otpauth" | grep -qE '^[A-Z2-7]{16,}=*$'; then otpauth="otpauth://totp/Kosmos?secret=$otpauth&algorithm=SHA1&digits=6&period=30"
+     else unset otpauth; echo "FAIL  ui-signin: the secrets map has no authenticator (an otpauth URL or a base32 secret) for $totp_target" >&2; exit 1; fi ;;
+esac
 
 work="$(mktemp -d)"; chmod 700 "$work"
 codefile="$work/code.txt"
