@@ -91,10 +91,9 @@ struct ChatView: View {
     // kosmos#7420 diagnostic: the list's size, the keyboard's height, the stack's width, and the report once one is made.
     @State private var diagViewport: CGSize = .zero
     @State private var diagKeyboard: CGFloat = 0
-    // kosmos#7575: this chat open's sideways shifts, sent to the board once when it closes; and when it opened.
-    @State private var shiftReport = Board.ChatShiftReport()
-    @State private var shiftOpenedAt = Date()
-    @State private var shiftSent = false
+    // kosmos#7575: this chat open's sideways shifts, sent to the board once when it closes. A reference held in state:
+    // a shift is counted in the middle of a layout, possibly every frame, and changing it must never redraw the chat.
+    @State private var shifts = ShiftBox()
     @State private var diagContentWidth: CGFloat = 0
     @State private var diagReport: String?
     @State private var diagDone = false   // once per open chat, even after the line is dismissed
@@ -297,14 +296,15 @@ struct ChatView: View {
             if draftText.isEmpty { draftText = client.drafts[agent.session] ?? "" }
             startReading()
             markDmSeen()
-            shiftReport = Board.ChatShiftReport(); shiftOpenedAt = Date(); shiftSent = false   // kosmos#7575: one report per chat open
+            // kosmos#7575 review 1: a return from the info page is the same open (its report goes on); a new open starts one.
+            if !shifts.open || shifts.sent { shifts.start(epoch: client.chatEpoch) }
         }
         // kosmos#7354: on every read of the list while the chat is open, unread replies are marked read again, as the board's
         // paintTalk does on each poll; so one that failed is sent again, and replies landing while it is open are read.
         .onReceive(client.$agents) { _ in markDmSeen() }
         .onDisappear {
             visible = false
-            sendShiftReport()   // kosmos#7575
+            if !infoOpen { sendShiftReport() }   // kosmos#7575 (review 1: the info page pushed over the chat is not a close)
             if PushNotificationManager.chatOnScreen?.session == agent.session { PushNotificationManager.chatOnScreen = nil }   // review 3: by session on purpose: a computer switch while open must never leave a stale value hiding banners; the cost is an extra banner
             armed = nil
             // A reading posture, not the chat's state: coming back shows the whole conversation (the board clears its
@@ -355,6 +355,7 @@ struct ChatView: View {
         .onChange(of: client.chatEpoch) { now in
             diagDone = false; diagWideDone = false; diagReport = nil   // kosmos#7420 review 1: another account or computer is a new chat
             diagThreadAt = nil; diagEverDrew = false   // review 4
+            shifts.start(epoch: now)   // kosmos#7575 review 1: what one computer saw is never sent to another's board
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
@@ -385,6 +386,8 @@ struct ChatView: View {
         .onChange(of: scenePhase) { phase in
             Self.trace("app \(phase == .active ? "active" : phase == .background ? "background" : "inactive")")   // kosmos#7420
             if phase == .background { loop?.cancel(); loop = nil; sendShiftReport() } else if phase == .active, visible, loop == nil { startReading() }
+            // kosmos#7575 review 1: back from the background, the chat open is counted afresh (its first report went).
+            if phase == .active, visible, shifts.sent { shifts.start(epoch: client.chatEpoch) }
         }
     }
 
@@ -511,13 +514,12 @@ struct ChatView: View {
                     })
                     // kosmos#7420 (Josh 10-28, builds 13 to 15): the list only scrolls up and down, so a sideways offset is put
                     // back to its rest and written in the diagnostic's record (see SideScrollLock).
-                    .background(SideScrollLock(off: Self.sampleNoLock) { x, scrolling in
-                        // kosmos#7575: counted for the report sent when this chat closes (sendShiftReport). A turn later: the
-                        // offset is observed in the middle of a layout, where the chat's state must not change.
-                        DispatchQueue.main.async {
-                            shiftReport.add(offset: Double(x), dragging: scrolling, listWidth: Double(diagViewport.width),
-                                            contentWidth: Double(diagContentWidth), keyboardUp: diagKeyboard > 0,
-                                            rows: Board.chatRowKinds(items, onScreen: onScreen, working: working))
+                    .background(SideScrollLock(off: Self.sampleNoLock) { x, scrolling, isNew in
+                        // kosmos#7575: counted for the report sent when this chat closes (sendShiftReport). The rows are
+                        // walked only for a new largest offset, not on every shift (review 1: a cause that fires every frame).
+                        shifts.report.add(offset: Double(x), isNew: isNew, dragging: scrolling) {
+                            (Double(diagViewport.width), Double(diagContentWidth), diagKeyboard > 0,
+                             Board.chatRowKinds(items, onScreen: onScreen, working: working))
                         }
                     })
                     .modifier(PositionTargets(on: Self.idAnchor))
@@ -765,13 +767,15 @@ struct ChatView: View {
 
     // kosmos#7575: when this chat open had a sideways shift, one report to the person's board (numbers and kind words,
     // never text), then nothing more until the chat opens again. One try, nothing kept on the phone.
+    // One try: going to the background, the request may be cut off before it lands, and it is not tried again.
     private func sendShiftReport() {
-        guard shiftReport.shifts > 0, !shiftSent else { return }
-        shiftSent = true
+        guard shifts.open, !shifts.sent else { return }
+        shifts.sent = true
+        guard shifts.report.shifts > 0, shifts.epoch == client.chatEpoch else { return }   // review 1: same computer only
         let info = Bundle.main.infoDictionary
         let app = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
-        let body = shiftReport.body(app: app, ios: UIDevice.current.systemVersion, model: Board.deviceModel(),
-                                    openSeconds: Date().timeIntervalSince(shiftOpenedAt))
+        let body = shifts.report.body(app: app, ios: UIDevice.current.systemVersion, model: Board.deviceModel(),
+                                      openSeconds: Date().timeIntervalSince(shifts.openedAt))
         Self.trace("shift report sent")
         Task { _ = await client.throughMac { Board.chatShiftRequest(mac: $0, body: body) } }
     }
@@ -2179,14 +2183,16 @@ struct PositionTargets: ViewModifier {
 // one, as the phone did; KOSMOS_SAMPLE_NOLOCK=1 is the control.
 struct SideScrollLock: UIViewRepresentable {
     let off: Bool
-    // kosmos#7575: told of each new shift (its offset, and whether the person was scrolling), for the chat's report.
-    var onShift: ((CGFloat, Bool) -> Void)? = nil
+    // kosmos#7575: told of each new shift, and of a shift growing past its largest so far (the offset, whether the person
+    // was scrolling, whether it is a new shift), for the chat's report.
+    var onShift: ((CGFloat, Bool, Bool) -> Void)? = nil
     func makeUIView(context: Context) -> Probe { let p = Probe(off: off); p.onShift = onShift; return p }
     func updateUIView(_ view: Probe, context: Context) { view.onShift = onShift }
 
     final class Probe: UIView {
         let off: Bool
-        var onShift: ((CGFloat, Bool) -> Void)?
+        var onShift: ((CGFloat, Bool, Bool) -> Void)?
+        private var peak: CGFloat = 0   // kosmos#7575 review 1: this shift's largest offset so far
         // Review 5: tried again every 0.35 s while the list is dragged or flinging, so a fling that ends with no further
         // offset change still gets it back.
         private func putBack(_ sv: UIScrollView) {
@@ -2240,9 +2246,12 @@ struct SideScrollLock: UIViewRepresentable {
                 guard let self else { return }
                 let x = sv.contentOffset.x + sv.adjustedContentInset.left
                 guard abs(x) > 0.5 else { self.shifted = false; return }
+                if self.shifted, abs(x) > self.peak + 0.5 {
+                    self.peak = abs(x); self.onShift?(x, sv.isDragging || sv.isDecelerating, false)
+                }
                 if !self.shifted {
-                    self.shifted = true; self.shifts += 1
-                    self.onShift?(x, sv.isDragging || sv.isDecelerating)
+                    self.shifted = true; self.shifts += 1; self.peak = abs(x)
+                    self.onShift?(x, sv.isDragging || sv.isDecelerating, true)
                     if self.shifts & (self.shifts - 1) == 0 {
                         ChatView.trace("side offset \(Int(x.rounded()))" + (off ? " (left)" : ", put back") + ", shift \(self.shifts)")
                     }
@@ -2286,4 +2295,14 @@ struct PositionById: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 17.0, *), on { content.scrollPosition(id: $id, anchor: .bottom) } else { content }
     }
+}
+
+// kosmos#7575: one chat open's shift report and whether it went. A class, so counting a shift mid-layout redraws nothing.
+final class ShiftBox {
+    var report = Board.ChatShiftReport()
+    var openedAt = Date()
+    var open = false
+    var sent = false
+    var epoch = 0
+    func start(epoch: Int) { report = Board.ChatShiftReport(); openedAt = Date(); open = true; sent = false; self.epoch = epoch }
 }

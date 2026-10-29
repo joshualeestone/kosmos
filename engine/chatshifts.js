@@ -16,9 +16,11 @@ const path = require('node:path');
 const store = require('./store');
 
 const MAX = 50;
-// The row kinds the app names (ChatShiftReport.Kind in ios/Kosmos/ChatShiftLogic.swift); anything else is dropped.
+// The row kinds the app names (Board.ChatShiftReport.kinds in ios/Kosmos/BoardLogic.swift; a test keeps the two equal);
+// anything else is dropped.
 const KINDS = ['message', 'reactions', 'file', 'choice', 'working', 'day', 'other'];
-const VERSION_RE = /^[0-9A-Za-z.()\- ]{1,32}$/;   // "1.4 (18)", "27.0", "iPhone17,1"
+// Review 1: digits and dots, with the build in brackets for the app ("1.4 (18)", "27.0.1"): no room for a word.
+const VERSION_RE = /^[0-9]{1,4}(\.[0-9]{1,4}){0,3}( \([0-9]{1,8}\))?$/;
 const MODEL_RE = /^[A-Za-z]{1,16}[0-9]{1,3},[0-9]{1,3}$/;
 
 const file = () => path.join(store.ROOT, 'phone-chat-shifts.json');
@@ -34,14 +36,14 @@ function clean(body) {
   if (typeof body.ios !== 'string' || !VERSION_RE.test(body.ios)) return { refused: 'ios must be a version' };
   const r = { app: body.app, ios: body.ios, shifts: Math.round(shifts) };
   if (typeof body.model === 'string' && MODEL_RE.test(body.model)) r.model = body.model;
-  for (const k of ['largest', 'listWidth', 'contentWidth', 'openSeconds']) {
-    const v = num(body[k], 1e5);
+  for (const [k, max] of [['largest', 1e5], ['listWidth', 1e5], ['contentWidth', 1e5], ['openSeconds', 1e7]]) {
+    const v = num(body[k], max);
     if (v !== null) r[k] = v;
   }
   for (const k of ['whileDragging', 'keyboardUp']) if (typeof body[k] === 'boolean') r[k] = body[k];
   if (body.rows && typeof body.rows === 'object' && !Array.isArray(body.rows)) {
     const rows = {};
-    for (const k of KINDS) { const v = num(body.rows[k], 1e4); if (v) rows[k] = Math.round(v); }
+    for (const k of KINDS) { const v = Math.round(num(body.rows[k], 1e4) || 0); if (v > 0) rows[k] = v; }
     if (Object.keys(rows).length) r.rows = rows;
   }
   return { record: r };
@@ -53,7 +55,13 @@ function read() {
   try { raw = fs.readFileSync(file(), 'utf8'); } catch (err) { return { records: [], ok: !err || err.code === 'ENOENT' }; }
   try {
     const v = JSON.parse(raw);
-    return Array.isArray(v && v.records) ? { records: v.records.slice(-MAX), ok: true } : { records: [], ok: false };
+    if (!Array.isArray(v && v.records)) return { records: [], ok: false };
+    // Review 1: what is read is checked again, so a file edited by hand cannot serve a field the board would not keep.
+    const records = v.records.slice(-MAX).map((r) => {
+      const c = clean(r);
+      return c.record && typeof (r && r.at) === 'string' && !Number.isNaN(Date.parse(r.at)) ? { at: r.at, ...c.record } : null;
+    }).filter(Boolean);
+    return { records, ok: true };
   } catch { return { records: [], ok: false }; }
 }
 

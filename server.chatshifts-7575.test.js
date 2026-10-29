@@ -91,3 +91,32 @@ test('#7575: a file that cannot be read answers ok false, a post is a 500, and t
     assert.equal(fs.readFileSync(file, 'utf8'), '{broken', 'the unreadable file was overwritten');
   } finally { fs.writeFileSync(file, kept); }
 });
+
+test('#7575 review 1: an oversize body and a word in a version are refused; a hand-edited file serves only kept fields', async () => {
+  const count = (await get()).body.records.length;
+  // readBody ends the connection on a body past its limit, so the refusal is a 4xx or a closed socket; either way nothing is kept.
+  const big = await post({ ...good, pad: 'x'.repeat(5000) }).catch(() => ({ status: 'closed' }));
+  assert.ok(big.status === 'closed' || big.status >= 400, `a body over 4 KB answered ${big.status}`);
+  assert.equal((await get()).body.records.length, count, 'a body over 4 KB was kept');
+  for (const app of ['1.4 beta', 'hello', '1.4 (18) x']) assert.equal((await post({ ...good, app })).status, 400, `app ${app} was kept`);
+  const file = require('./engine/chatshifts').file();
+  const kept = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(file, JSON.stringify({ records: [{ at: '2026-10-29T17:00:00.000Z', ...good, text: 'typed by hand' }, { at: 'never', ...good }] }));
+  try {
+    const { records } = (await get()).body;
+    assert.equal(records.length, 1, 'a record with no real time was served');
+    assert.equal('text' in records[0], false, 'a field the board would not keep was served');
+  } finally { fs.writeFileSync(file, kept); }
+});
+
+test('#7575 review 1: the app sends exactly the kinds and fields the board keeps (read from the Swift source)', () => {
+  const swift = fs.readFileSync(path.join(__dirname, 'ios', 'Kosmos', 'BoardLogic.swift'), 'utf8');
+  const kinds = swift.match(/static let kinds = \[([^\]]*)\]/);
+  assert.ok(kinds, 'Board.ChatShiftReport.kinds not found in BoardLogic.swift');
+  assert.deepEqual(kinds[1].match(/"([a-z]+)"/g).map((s) => s.slice(1, -1)), require('./engine/chatshifts').KINDS);
+  const body = swift.match(/func body\(app: String[^{]*\{\s*\[([\s\S]*?)\]\s*\}/);
+  assert.ok(body, 'ChatShiftReport.body not found');
+  const sent = [...body[1].matchAll(/"([A-Za-z]+)":/g)].map((m) => m[1]).sort();
+  const clean = require('./engine/chatshifts').clean({ ...good, model: 'iPhone17,1' }).record;
+  assert.deepEqual(sent, Object.keys(clean).sort(), 'a field the app sends is one the board drops, or the other way round');
+});
