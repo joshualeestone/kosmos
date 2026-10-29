@@ -457,7 +457,7 @@ check(chatPills.contains("FlowLayout(spacing: 6, trailing: trailing, rowSpacing:
       "kosmos#7420: the chat's and the room's reactions wrap, never one row wider than the screen; under your own messages each line sits right (review 1)")
 let flowSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatChoices.swift"), encoding: .utf8)) ?? ""
 let pillsStruct = sheetChat.range(of: "struct ReactionPills: View {").map { String(sheetChat[$0.upperBound...].prefix(2500)) } ?? ""
-check(flowSrc.contains("row.y + row.height + (rowSpacing ?? spacing)") && pillsStruct.contains(".frame(minWidth: 44, minHeight: 44)"), "kosmos#7420 (Mona Lisa 10-29): tappable reaction lines touch at their 44 pt tap areas, with no gap added on top; the tap area stays 44 pt")
+check(flowSrc.contains("row.y + row.height + (rowSpacing ?? spacing)") && pillsStruct.contains(".padding(.vertical, 3)\n                            .frame(minWidth: 44, minHeight: 44)"), "kosmos#7420 (Mona Lisa 10-29): tappable reaction lines touch at their 44 pt tap areas, with no gap added on top; the tap area stays 44 pt")
 check(flowSrc.contains("x + w > width + 0.5"), "kosmos#7420 review 2: a row wraps only past half a point of slack, so rounded bounds never push its last item onto an uncounted line")
 
 section("an agent's notification opens its chat natively (kosmos#7418)")

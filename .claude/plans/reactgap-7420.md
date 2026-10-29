@@ -12,3 +12,7 @@ areas, so they touch (about 20 pt visible). Not 36 pt, and no overlap (a tap at 
 ## Verify
 - All nine LogicTests scripts (room: the line gap source guard with a mutation control), repo readers of ios/, Debug and
   Release builds, simulator shots light and dark with KOSMOS_SAMPLE_REACTIONS=many.
+
+## Review
+- Round 1 (opus, blind): no blocker. Warning taken: at the accessibility text sizes a pill is taller than 44 pt, so with no line gap the capsules would touch; 3 pt of vertical padding inside the 44 pt frame keeps a gap there and changes nothing below 44 pt (source-guarded). Nits accepted: the guard reads source, not layout (the shots show it); the 0 rides on toggle != nil, which always comes with the 44 pt frame today (commented).
+- Shots after the change (iPhone 17e, light and dark, ~/work/design-shots/kosmos-7420-reactgap/): about 20 pt between the agent's lines, as ruled.
