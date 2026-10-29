@@ -419,6 +419,10 @@ check(sheetChat.contains("if starred { StarredStar() } else { Image(systemName: 
       "kosmos#7034: the chat header has a star, gold when starred, saved as the row swipe saves it")
 let sheetRoom = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
 let sheetSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ComposerExtras.swift"), encoding: .utf8)) ?? ""
+// kosmos#7530: the keyboard goes down before the sheet is set to open (a sheet opened with it up sat behind it).
+if let open = sheetSrc.range(of: ".environment(\\.openMessageActions) { t in"), let resign = sheetSrc.range(of: "#selector(UIResponder.resignFirstResponder)"), let set = sheetSrc.range(of: "target = t\n", range: open.upperBound..<sheetSrc.endIndex) {
+    check(open.upperBound <= resign.lowerBound && resign.upperBound <= set.lowerBound, "kosmos#7530: a long press puts the keyboard away before it opens the sheet")
+} else { check(false, "kosmos#7530: a long press puts the keyboard away before it opens the sheet (not found)") }
 // kosmos#7419 build 11 (Mona Lisa): the pressed message stays lit above the chat's own dim (the system's is off at the
 // small height), cut out on the bubble's own shape in every bubble kind; nothing (no ring) is drawn on the bubble.
 let litSrcs = ["ChatView.swift", "ChatFiles.swift", "ChatChoices.swift", "RoomView.swift"].map { (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/" + $0), encoding: .utf8)) ?? "" }
