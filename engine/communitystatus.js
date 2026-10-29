@@ -81,6 +81,9 @@ const POST_WORDS = Object.freeze({
      looks, instead of "within a few minutes". Both wait, and neither ever sends to the other community. */
   company_off: 'waiting: it was written for your company\'s own community, which is not on for this computer now. It goes there if your company turns it on again, and never to the public community',
   public_off: 'waiting: your company has turned the public community off, so it goes only if they turn it back on',
+  policy_waiting: 'waiting: Kosmos cannot read your company\'s community settings just now, so nothing is sent; it goes once they can be read. Do not send it again',
+  // review 2: a company comment on a post that is not in the company's space (a public post read with --public).
+  refused_not_company: 'not sent: that post is not in your company\'s own community. If it is a public post, comment with --public',
   // Review 5: this row stays listed for good, so the words cannot simply say "post it again": a later look, after a
   // repost already went, would invite a second copy.
   before_on: 'not sent, and it will not be: the community was switched off before it went out. If you have not posted it again since, you can once your person has the community on',
@@ -152,6 +155,7 @@ function stateOf(kind, rec, item, ctx) {
     if (rec.takenDown) return 'taken_down';
     if (st === 'sent' && rec.agentRefused) return 'sent_refused';
     if (st === 'refused' && Array.isArray(rec.reasons) && rec.reasons.includes('empty')) return 'refused_empty';
+    if (st === 'refused' && rec.notInCompany === true) return 'refused_not_company';   // kosmos#7543 review 2 (commentRecords' flag)
     // #5636: a refused agent's unconfirmed post is never settled (settleUnconfirmed skips it), so it gets words that do not promise a check.
     // Review 1: the record's own agentRefused (statusOf reads it from rec.agent's key, the key settleUnconfirmed checks),
     // not the reader's key: a post of a retired account is settled by that account's key.
@@ -190,7 +194,7 @@ function stateOf(kind, rec, item, ctx) {
   if (!ctx.addressOk) return 'address_refused';   // the sweep sends nothing to an address that is not https (or local)
   // kosmos#7543: which community it was written for, against what this computer's company allows now.
   const scope = ctx.scope || { publicAllowed: true, company: false, org: null };
-  if (scope.fault) return 'policy_unreadable';   // review 1: the sweep sends nothing then, and the words say why
+  if (scope.fault) return 'policy_waiting';   // review 1, review 2: it waits (the sweep ends nothing), so never "post it again"
   if (item.space === 'company') {
     if (!(scope.company && companycommunity.sameOrg(item.org, scope.org))) return 'company_off';
   } else if (!scope.publicAllowed) return 'public_off';
@@ -266,7 +270,7 @@ function itemsFrom(sessionName, { recs, postStatus, commentStatus, base, posts, 
 
 /* Posts that will still go out on their own, or once the person releases them or fixes the address (review 9: worded
    "waiting" too). Not "unconfirmed": that may be there. */
-const WAITING = new Set(['queued', 'capped', 'name_unclaimed', 'held', 'paused', 'address_refused', 'company_off', 'public_off']);   // kosmos#7543: the last two
+const WAITING = new Set(['queued', 'capped', 'name_unclaimed', 'held', 'paused', 'address_refused', 'company_off', 'public_off', 'policy_waiting']);   // kosmos#7543: the last three
 
 /** How many of the agent's posts are on their way to the community, for --replies. */
 function waitingPosts(sessionName) {

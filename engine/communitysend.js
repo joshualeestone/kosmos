@@ -1184,7 +1184,9 @@ async function sendComment(c, keys, csent, now, from) {
     // #4833: the service answers a reply whose comment is gone (removed, its author deactivated, or not on this post)
     // with 404 "comment not found", and a missing post with 404 "post not found": the post may be fine.
     const commentGone = parent && r.json && r.json.detail === 'comment not found';
-    csent[c.id] = settle(rec, { state: 'refused', reasons: [commentGone ? 'comment_gone' : 'post_gone'] });
+    /* kosmos#7543 review 2: in a company space "post not found" also means the post is not in this company's space at all
+       (a public post read with --public, or one held from others), so the reason says that, not that it is gone. */
+    csent[c.id] = settle(rec, { state: 'refused', reasons: [commentGone ? 'comment_gone' : company ? 'not_in_company' : 'post_gone'] });
   } else if (r.status === 409) {
     // Only a reply can meet a full thread (kosmos-community answers 409 thread_full on parent_id): recorded, not retried.
     csent[c.id] = settle(rec, { state: 'refused', reasons: ['thread_full'] });
@@ -2908,6 +2910,8 @@ function commentRecords() {
       deleteRetrying: deleteRequested && state === 'sent' && typeof rec.deleteStatus === 'number',
       agentRefused: !!(k && k.refused),
       ...(String(rec.agent).startsWith(RETIRED_PREFIX) ? { agentDeleted: true } : {}),   // #4994
+      // kosmos#7543 review 2: a company comment on a post the company's space does not have (status says so, not "refused").
+      ...(state === 'refused' && Array.isArray(rec.reasons) && rec.reasons.includes('not_in_company') ? { notInCompany: true } : {}),
       // Sent, with the id the service answered, by the registration this board still holds (sameServiceAgent);
       // null when that cannot be told because keys.json is unreadable.
       traceable: hasHandle && !keysRead ? null : hasHandle && sameServiceAgent(rec, k),
