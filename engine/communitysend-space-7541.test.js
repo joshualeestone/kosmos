@@ -457,3 +457,36 @@ test('#7543: with no pass to be had a company comment is not marked as attempted
   await cs.sweep();
   assert.equal(be.st.spaceComments.length, 1, 'the comment did not go once a pass could be had');
 });
+
+// kosmos#7543: public_community "off" stops every other public action too, not only posts and comments.
+test('#7543: while the company says the public community is off, votes, follows and endorsements are not sent; take-backs and reads still go', async () => {
+  await on();
+  company({ company_community: { enabled: true }, public_community: 'off' });
+  agentPost('dana', 'company');
+  await cs.sweep();   // registers dana
+  const before = be.st.seen.length;
+  const vote = await cs.agentCall('dana', 'PUT', '/posts/' + crypto.randomUUID() + '/vote', { body: { value: 1 } });
+  const follow = await cs.agentCall('dana', 'POST', '/agents/by-name/eli/follow', {});
+  const endorse = await cs.agentCall('dana', 'PUT', '/agents/by-name/eli/endorsement', { body: { stars: 5, review: 'x' } });
+  for (const r of [vote, follow, endorse]) {
+    assert.equal(r.ok, false, 'a public action went out while the company said the public community is off');
+    assert.equal(r.because, cs.PUBLIC_OFF_WORDS);
+  }
+  assert.equal(be.st.seen.length, before, 'something reached the public site');
+  const unfollow = await cs.agentCall('dana', 'DELETE', '/agents/by-name/eli/follow', {});
+  const read = await cs.agentCall('dana', 'GET', '/agents/me/votes', {});
+  assert.notEqual(unfollow.because, cs.PUBLIC_OFF_WORDS, 'taking a follow back was stopped');
+  assert.notEqual(read.because, cs.PUBLIC_OFF_WORDS, 'a read was stopped');
+  assert.ok(be.st.seen.length >= before + 2, 'the take-back and the read did not go out');
+});
+
+test('#7543: CONTROL, with the public community allowed a vote goes out as before', async () => {
+  await on();
+  companyOn();
+  agentPost('dana', 'company');
+  await cs.sweep();
+  const before = be.st.seen.length;
+  const vote = await cs.agentCall('dana', 'PUT', '/posts/' + crypto.randomUUID() + '/vote', { body: { value: 1 } });
+  assert.notEqual(vote.because, cs.PUBLIC_OFF_WORDS);
+  assert.equal(be.st.seen.length, before + 1, 'the vote did not reach the site');
+});

@@ -68,6 +68,16 @@ const COMPANY_NO_EDIT = (w) => 'Your company\'s own community does not take edit
 /* kosmos#7541 review 1: whether a post may go to the PUBLIC community now (orgpolicy.communitySpace); false when it
    cannot be read, so a policy fault never lets a post out. */
 function publicAllowedNow(now) { return communityNow(now).publicAllowed; }
+/* kosmos#7543: what an agent may still do on the PUBLIC site while its company says the public community is off.
+   Reads, taking something back (DELETE), and the board's own bookkeeping (the install group, marking assignments seen)
+   go on; anything that adds to or changes what the public sees (a vote, a follow, an endorsement, an edit, a profile)
+   does not. */
+const PUBLIC_OFF_WORDS = 'your company has turned the public community off, so Kosmos does not do this there';
+function publicWriteStopped(method, pathname, now) {
+  if (method === 'GET' || method === 'DELETE') return false;
+  if (pathname === '/agents/me/assignments/seen') return false;
+  return !publicAllowedNow(now);
+}
 /* kosmos#7541 review 3 and 5: the community policy in force, read once per sweep (keyed on its `now`): a newer policy
    the tunnel delivered is applied first (orgpolicy.inForce), as every other strict reader does. A policy that cannot
    be read allows nothing (no public send, no company send) and is said once in the log until it reads again. */
@@ -1500,6 +1510,7 @@ async function sweepIndustry(keys, on) {
     const wasUnsure = k.industryUnsure === true;        // set by an EARLIER unanswered PATCH, which may have landed
     k.industryUnsure = true;
     saveJson(keysFile(), keys);
+    if (!publicAllowedNow()) continue;   // kosmos#7543: no public profile change while the company says the public community is off
     const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { industry: want });
     if (r.status === 204 || r.status === 200) {
       k.industrySent = want;
@@ -1640,6 +1651,7 @@ async function sweepAvatars(keys, on, { removals }) {
     if (!k.avatarUnsure && sent === target) continue;
     if ((target === null) !== removals) continue;          // this call's half: removals, or new pictures
     if (target !== null && !(on && switchOn())) continue;   // a new picture goes only while ON; a removal always
+    if (target !== null && !publicAllowedNow()) continue;   // kosmos#7543: nor while the company says the public community is off
     // A new picture that keeps failing waits longer between tries (each is a full upload); a removal never waits.
     if (k.avatarRetrying !== target) { delete k.avatarFails; delete k.avatarNextTry; }
     if (target !== null && k.avatarNextTry && Date.now() < k.avatarNextTry) continue;
@@ -2241,6 +2253,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const sw = switchState();
   if (sw === 'policy') reportPolicyRefusal(agentKey);   // nothing here waits for the period, so it is only reported
   if (sw !== 'on') return local(notOnWords(sw));
+  if (!space && publicWriteStopped(method, pathname)) return local(PUBLIC_OFF_WORDS);   // kosmos#7543
   if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
   if (!sender && underTest()) return local('no network in tests');
   const publicGet = async (p) => { const r = await request('GET', p, ctx); return { status: r.status, json: r.json }; };
@@ -2973,7 +2986,7 @@ const agentBudget = () => agentBudgetMs;   // #6705: the live budget (a test may
 
 module.exports = {
   commentInFlight,   // kosmos#7230 review 3: communitynudge counts a comment whose send is out as waiting
-  communityScope: communityNow,   // kosmos#7543: which community a read goes to (the company's, the public one, or none)
+  communityScope: communityNow, PUBLIC_OFF_WORDS,   // kosmos#7543: which community a read goes to (the company's, the public one, or none)
   switchOn, switchState, notOnWords, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest, refreshSelf,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
