@@ -52,7 +52,7 @@ lit=$(grep -E 'PRODUCT_BUNDLE_IDENTIFIER = ' "$pbx" | grep -vF 'PRODUCT_BUNDLE_I
 uref=$(grep -cF 'PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID).uitests";' "$pbx")
 ref=$(grep -cF 'PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID)";' "$pbx")
 nref=$(grep -cF 'PRODUCT_BUNDLE_IDENTIFIER = "$(KOSMOS_BUNDLE_ID).notice";' "$pbx")
-if [ "$lit" -eq 0 ] && [ "$ref" -ge 2 ] && [ "$nref" -eq 2 ] && [ "$uref" -eq 2 ]; then echo "PASS  project.pbxproj takes its bundle ids from Signing.xcconfig ($ref app, $nref extension configurations)"; else echo "FAIL  project.pbxproj sets a bundle id of its own ($lit literal, $ref app and $nref extension from the xcconfig)"; fail=1; fi
+if [ "$lit" -eq 0 ] && [ "$ref" -ge 2 ] && [ "$nref" -eq 2 ] && [ "$uref" -eq 2 ]; then echo "PASS  project.pbxproj takes its bundle ids from Signing.xcconfig ($ref app, $nref extension configurations)"; else echo "FAIL  project.pbxproj sets a bundle id of its own ($lit literal, $ref app, $nref extension and $uref UI test from the xcconfig)"; fail=1; fi
 # kosmos#6487: App Store validation flags an extension whose version differs from its app's.
 versions=$(grep -E '^[[:space:]]*MARKETING_VERSION = ' "$pbx" | sort -u | wc -l | tr -d ' ')
 if [ "$versions" -eq 1 ] && [ "$(grep -cE '^[[:space:]]*MARKETING_VERSION = ' "$pbx")" -eq 4 ]; then echo "PASS  the app and the extension carry one version"
