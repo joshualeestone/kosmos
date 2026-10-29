@@ -1626,6 +1626,9 @@ struct LayerWaveDots: View {
     var body: some View {
         DotLayers(color: UIColor(color), dark: scheme == .dark, size: size, still: reduceMotion)
             .frame(width: size * 3 + size * 0.75 * 2, height: size + 4)
+            // Its bottom on the line's baseline, as WaveDots sits (a UIKit view gives SwiftUI no baseline of its own, and
+            // measured in the simulator it hung about 5 pt below the words).
+            .alignmentGuide(.firstTextBaseline) { $0[.bottom] }
             .accessibilityHidden(true)
     }
 
