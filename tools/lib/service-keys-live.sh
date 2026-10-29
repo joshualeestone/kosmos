@@ -27,7 +27,7 @@ service_keys_live_check() {
   local repo="${1:?service_keys_live_check needs the repo}"
   local set="$repo/engine/service-keys.json"
   local url="${KOSMOS_COORDINATOR_URL:-https://login.kosmosplus.com}"
-  local meta _why curl_err
+  local meta _why _cv curl_err
   url="${url%/}"
   if [ ! -f "$set" ] && [ ! -f "$set.sig" ]; then
     echo "service_keys_live: no service key set ships (engine/service-keys.json absent); nothing to check."
@@ -39,7 +39,9 @@ service_keys_live_check() {
   curl_err="$(mktemp "${TMPDIR:-/tmp}/skeyslive-curl.XXXXXX")" || curl_err=/dev/null
   meta="$(curl -fsS -m 15 --retry "${KOSMOS_COORDINATOR_RETRIES:-2}" --retry-delay 2 --retry-all-errors "$url/v1/meta" 2>"$curl_err")" || {
     _why="$(tail -1 "$curl_err" 2>/dev/null)"
-    echo "service_keys_live: could not read $url/v1/meta${_why:+ ($_why)}, so whether the set lists the live coordinator key is UNKNOWN; refused. Retry; if it persists, check $url/v1/meta by hand." >&2
+    # --retry-all-errors needs curl 7.71+ (the Windows build's host is not pinned), so name the curl that refused.
+    _cv="$(curl -V 2>/dev/null)" || _cv=""; _cv="${_cv%%$'\n'*}"
+    echo "service_keys_live: could not read $url/v1/meta${_why:+ ($_why)}, so whether the set lists the live coordinator key is UNKNOWN; refused. Retry; if it persists, check $url/v1/meta by hand${_cv:+ (this ran ${_cv%% (*}; it needs curl 7.71 or newer)}." >&2
     [ "$curl_err" = /dev/null ] || rm -f "$curl_err"; return 1; }
   [ "$curl_err" = /dev/null ] || rm -f "$curl_err"
   printf '%s' "$meta" | node "$repo/tools/check-service-keys-live.js" "$set" || {

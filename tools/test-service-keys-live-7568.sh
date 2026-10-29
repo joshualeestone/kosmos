@@ -51,7 +51,7 @@ set_of "$OTHER_SPKI" "$LIVE_SPKI"; run && ok "a set listing the live key beside 
 
 # 4. fails closed: unreadable meta, meta that is not JSON, meta with no key, a key that is not one, a set that is not JSON
 set_of "$LIVE_SPKI"
-coordinator none; run && bad "an unreadable /v1/meta was waved on" || { grep -q "UNKNOWN" "$T/err" && ok "an unreadable /v1/meta refuses" || bad "wrong refusal for no meta: $(cat "$T/err")"; }
+coordinator none; run && bad "an unreadable /v1/meta was waved on" || { grep -q "UNKNOWN" "$T/err" && grep -q "this ran curl [0-9]" "$T/err" && ok "an unreadable /v1/meta refuses, naming the curl that ran" || bad "wrong refusal for no meta: $(cat "$T/err")"; }
 coordinator '<html>gateway</html>'; run && bad "a non-JSON meta was waved on" || { grep -q "not with JSON" "$T/err" && ok "a non-JSON meta refuses" || bad "wrong refusal for non-JSON meta: $(cat "$T/err")"; }
 coordinator '{"build":"bfdf80be3"}'; run && bad "a meta without coordinator_pubkey was waved on" || { grep -q "names no coordinator_pubkey" "$T/err" && ok "a meta without the key refuses" || bad "wrong refusal for keyless meta: $(cat "$T/err")"; }
 coordinator '{"coordinator_pubkey":"not-a-key"}'; run && bad "a meta key that is not a key was waved on" || { grep -q "is not a key" "$T/err" && ok "a meta key that is not a key refuses" || bad "wrong refusal for a junk key: $(cat "$T/err")"; }
