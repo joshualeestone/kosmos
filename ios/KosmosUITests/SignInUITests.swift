@@ -4,7 +4,7 @@ import XCTest
 // kosmos#7559: a real sign-in on a simulator, typed by the test, so a phone sign-in can be measured on a Mac with no
 // Simulator window. Run by ios/tools/ui-signin.sh, which hands it, as TEST_RUNNER_ environment only (never the repo):
 //   KOSMOS_UI_EMAIL      the test account's address
-//   KOSMOS_UI_TOTP       its authenticator's otpauth:// URL (the second step), never printed
+//   KOSMOS_UI_TOTP_FILE  a file (0600) holding its authenticator's otpauth:// URL; never printed, never in the environment
 //   KOSMOS_UI_CODE_FILE  a path the runner writes the emailed six-digit code to, once it has it
 // The test finds each control by the words on the screen, as a person does, so it reads the sign-in as it ships.
 final class SignInUITests: XCTestCase {
@@ -13,10 +13,11 @@ final class SignInUITests: XCTestCase {
     func testSignInReachesTheBoard() throws {
         let env = ProcessInfo.processInfo.environment
         guard let email = env["KOSMOS_UI_EMAIL"], !email.isEmpty,
-              let otpauth = env["KOSMOS_UI_TOTP"], !otpauth.isEmpty,
+              let totpFile = env["KOSMOS_UI_TOTP_FILE"], !totpFile.isEmpty,
               let codeFile = env["KOSMOS_UI_CODE_FILE"], !codeFile.isEmpty else {
-            throw XCTSkip("run by ios/tools/ui-signin.sh, which gives the account (KOSMOS_UI_EMAIL, KOSMOS_UI_TOTP, KOSMOS_UI_CODE_FILE)")
+            throw XCTSkip("run by ios/tools/ui-signin.sh, which gives the account (KOSMOS_UI_EMAIL, KOSMOS_UI_TOTP_FILE, KOSMOS_UI_CODE_FILE)")
         }
+        let otpauth = try String(contentsOfFile: totpFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         let app = XCUIApplication()
         app.launch()
 
@@ -51,14 +52,18 @@ final class SignInUITests: XCTestCase {
         step("the board") {
             // The board's tab bar is the app past sign-in; the sign-in's own words must be gone. An account with no computer
             // connected signs in but has no board, and says so ("Signed in", "Continue to the app"): a different answer.
-            let board = app.tabBars.buttons["Agents"]
-            let noComputer = app.buttons["Continue to the app"]
+            // Review 1: the tab bar shows as soon as sign-in ends, board or not; the Agents list's rows, or its "No agents
+            // yet", come only from the board's own answer (AgentsView: every other state is a connection message).
+            let noComputer = { app.buttons["Continue to the app"].exists && app.staticTexts["Signed in"].exists }
+            let askedAllow = { app.staticTexts["Allow this iPhone on your Mac"].exists }
+            let boardAnswered = { app.tabBars.buttons["Agents"].exists && (app.staticTexts["No agents yet"].exists || app.cells.count > 0) }
             let deadline = Date().addingTimeInterval(120)
-            while Date() < deadline && !board.exists && !(noComputer.exists && app.staticTexts["Signed in"].exists) { Thread.sleep(forTimeInterval: 1) }
-            XCTAssertFalse(noComputer.exists && app.staticTexts["Signed in"].exists, "signed in, but this account has no computer connected, so there is no board to load")
-            XCTAssertTrue(board.exists, "the board did not load (no Agents tab) within 120 s of the second step")
+            while Date() < deadline && !boardAnswered() && !noComputer() && !askedAllow() { Thread.sleep(forTimeInterval: 1) }
+            XCTAssertFalse(askedAllow(), "the computer asked for an Allow: a hosted box should let its own account in")
+            XCTAssertFalse(noComputer(), "signed in, but this account has no computer connected, so there is no board to load")
+            XCTAssertTrue(app.tabBars.buttons["Agents"].exists, "signed in, but the app did not move past sign-in within 120 s")
+            XCTAssertTrue(boardAnswered(), "the app is past sign-in but the board did not answer within 120 s (no agents list, no \"No agents yet\")")
             XCTAssertFalse(app.staticTexts["One more step"].exists)
-            XCTAssertFalse(app.staticTexts["Allow this iPhone on your Mac"].exists, "the box asked for an Allow")
         }
     }
 
@@ -94,7 +99,12 @@ final class SignInUITests: XCTestCase {
     static func totp(_ otpauth: String, at now: Date = Date()) throws -> String {
         guard let items = URLComponents(string: otpauth)?.queryItems,
               let secret = items.first(where: { $0.name == "secret" })?.value,
-              let key = base32(secret) else { throw Failure("the authenticator URL could not be read") }
+              let key = base32(secret), !key.isEmpty else { throw Failure("the authenticator URL could not be read") }
+        let param = { (name: String) in items.first(where: { $0.name == name })?.value }
+        // Review 1: only what this computes (SHA1, 6 digits, 30 s), so another kind fails with its reason, not a wrong code.
+        if let a = param("algorithm"), a.uppercased() != "SHA1" { throw Failure("the authenticator uses \(a), not SHA1") }
+        if let d = param("digits"), d != "6" { throw Failure("the authenticator gives \(d) digits, not 6") }
+        if let p = param("period"), p != "30" { throw Failure("the authenticator's period is \(p) s, not 30") }
         var counter = UInt64(now.timeIntervalSince1970 / 30).bigEndian
         let mac = HMAC<Insecure.SHA1>.authenticationCode(for: Data(bytes: &counter, count: 8), using: SymmetricKey(data: key))
         let bytes = Array(mac)
@@ -119,6 +129,13 @@ final class SignInUITests: XCTestCase {
 
 // The code maths, checked against RFC 6238's own test vector (no account needed): runs in every `xcodebuild test`.
 final class TOTPTests: XCTestCase {
+    func testAnotherKindOfAuthenticatorIsRefused() {
+        XCTAssertThrowsError(try SignInUITests.totp("otpauth://totp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8"))
+        XCTAssertThrowsError(try SignInUITests.totp("otpauth://totp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&algorithm=SHA256"))
+        XCTAssertThrowsError(try SignInUITests.totp("otpauth://totp/x?secret="))
+        XCTAssertNoThrow(try SignInUITests.totp("otpauth://totp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&algorithm=SHA1&digits=6&period=30"), "CONTROL")
+    }
+
     func testRFC6238Vector() throws {
         // RFC 6238 appendix B, SHA1, secret "12345678901234567890" (base32 GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ):
         // at T = 59 s the 8-digit value is 94287082, so the 6-digit code is 287082.
