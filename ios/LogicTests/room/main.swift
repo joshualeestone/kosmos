@@ -455,6 +455,8 @@ func after(_ src: String, _ marker: String) -> String { src.range(of: marker).ma
 let chatPills = after(sheetChat, "struct ReactionPills: View {"), roomPills = after(sheetRoom, "private var reactions: some View {")
 check(chatPills.contains("FlowLayout(spacing: 6, trailing: trailing)") && !chatPills.contains("HStack(spacing: 6)") && roomPills.contains("FlowLayout(spacing: 6, trailing: mine)") && !roomPills.contains("HStack(spacing: 6)") && sheetChat.components(separatedBy: "trailing: mine)").count - 1 == 2,
       "kosmos#7420: the chat's and the room's reactions wrap, never one row wider than the screen; under your own messages each line sits right (review 1)")
+let flowSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatChoices.swift"), encoding: .utf8)) ?? ""
+check(flowSrc.contains("x + w > width + 0.5"), "kosmos#7420 review 2: a row wraps only past half a point of slack, so rounded bounds never push its last item onto an uncounted line")
 
 section("an agent's notification opens its chat natively (kosmos#7418)")
 // Josh 10-27: a message notification opened the board's old agent page. Every kind the board sends that names an agent
