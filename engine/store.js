@@ -452,12 +452,9 @@ function workersRootFor(env, home, platform = process.platform) {
   return e.AGENT_WORKFORCE_WORKERS || joinerFor(platform).join(home, 'work', 'workers');
 }
 
-/* #1760: the data root is owner-only (0700). A root outside ~/Library (an AGENT_WORKFORCE_DATA root, as the Linux
-   installer sets) is otherwise made under the umask, readable by other local accounts. root() is the value every
-   writer uses (store.ROOT): the app's own folder inside AGENT_WORKFORCE_DATA, never the named folder itself, and a
-   test process's throwaway root in tests. The board calls this at start; ensure() calls it once per root per process.
-   chmod follows a symlinked root to its target, as securewrite.secureDir does, and on Windows changes nothing that
-   matters. Best-effort: returns the root's mode afterwards, or null when it could not be read. */
+/* #1760: chmod root() (store.ROOT, the app's own folder; a throwaway root in tests) to 0700. Called by the board at
+   start and by ensure(), which skips a root already tried in this process. Best-effort: returns the root's mode
+   afterwards, or null when it could not be read. */
 const securedRoots = new Set();
 function secureRoot() {
   const r = root();
