@@ -49,7 +49,7 @@ function withChmod(root, impl, fn) {
 test('#7554: every environment input the data root depends on is in the cache key (a missing one would reuse a stale root)', () => {
   const list = SRC.match(/const ROOT_ENV_INPUTS = \[([^\]]*)\]/);
   assert.ok(list, 'ROOT_ENV_INPUTS is gone, so this audit reads nothing');
-  const inputs = new Set([...list[1].matchAll(/'([A-Z_][A-Z0-9_]*)'/g)].map((m) => m[1]));
+  const inputs = new Set([...list[1].matchAll(/'([A-Za-z_][A-Za-z0-9_]*)'/g)].map((m) => m[1]));
   const body = (name) => {
     const at = SRC.indexOf('\nfunction ' + name + '(');
     assert.ok(at >= 0, 'premise: store.js has ' + name);
@@ -61,7 +61,8 @@ test('#7554: every environment input the data root depends on is in the cache ke
     const b = body(fn);
     for (const m of b.matchAll(/\b(?:e|env|process\.env)\.([A-Z_][A-Z0-9_]*)/g)) read.add(m[1]);
     if (/os\.homedir\(\)/.test(b)) { read.add('HOME'); read.add('USERPROFILE'); }
-    if (/os\.tmpdir\(\)/.test(b)) { read.add('TMPDIR'); read.add('TEMP'); read.add('TMP'); }
+    // Review 2: os.tmpdir() falls back to SystemRoot / windir on Windows when TEMP and TMP are unset.
+    if (/os\.tmpdir\(\)/.test(b)) { for (const v of ['TMPDIR', 'TEMP', 'TMP', 'SystemRoot', 'windir']) read.add(v); }
   }
   // CONTROL: the scan sees the inputs it must (the data override, the home override, the test-run marker).
   for (const must of ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_HOME', 'KOSMOS_TEST_RUN']) assert.ok(read.has(must), 'the scan no longer sees ' + must);
@@ -102,11 +103,12 @@ test('#7554: a transient chmod failure (EBUSY) is tried again on the next write'
   } finally { process.env.AGENT_WORKFORCE_DATA = was; }
 });
 
-test('#7554: a lasting failure (EPERM) is not retried by ensure() on every write, but the board start call tries again', { skip }, () => {
+for (const code of ['EPERM', 'EACCES'])
+test('#7554: a lasting failure (' + code + ') is not retried by ensure() on every write, but the board start call tries again', { skip }, () => {
   const was = process.env.AGENT_WORKFORCE_DATA;
   try {
-    const d = looseRoot('perm');
-    const calls = withChmod(d.root, () => { throw Object.assign(new Error('not permitted'), { code: 'EPERM' }); }, () => {
+    const d = looseRoot('perm-' + code.toLowerCase());
+    const calls = withChmod(d.root, () => { throw Object.assign(new Error('not permitted'), { code }); }, () => {
       write(d.dir, 'perm1');
       write(d.dir, 'perm2');
       write(d.dir, 'perm3');
@@ -130,4 +132,21 @@ test('#7554 review 1: ensure() resolves the root once per environment, not once 
     write(f.dir, 'cache7');
     assert.equal(store._ensureRootCacheSizeForTest(), after1 + 1, 'a new data folder did not get its own entry, so ensure() is not using the cache');
   } finally { process.env.AGENT_WORKFORCE_DATA = was; }
+});
+
+test('#7554 review 2: a variable set to empty is keyed apart from the same variable unset', { skip }, () => {
+  const was = process.env.AGENT_WORKFORCE_DATA;
+  const had = 'APPDATA' in process.env, prior = process.env.APPDATA;
+  try {
+    const g = looseRoot('empty');
+    delete process.env.APPDATA;
+    write(g.dir, 'empty1');
+    const before = store._ensureRootCacheSizeForTest();
+    process.env.APPDATA = '';
+    write(g.dir, 'empty2');
+    assert.equal(store._ensureRootCacheSizeForTest(), before + 1, 'APPDATA set to empty reused the entry for APPDATA unset');
+  } finally {
+    process.env.AGENT_WORKFORCE_DATA = was;
+    if (had) process.env.APPDATA = prior; else delete process.env.APPDATA;
+  }
 });

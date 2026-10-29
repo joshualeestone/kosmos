@@ -56,6 +56,20 @@ All store tests: 111/111.
 - Reviewer's checks: a stale entry can at worst skip a chmod in a TEST process, never leave the real root loose in
   production (the variables do not change in a running board, and the board start call always runs secureRoot).
 
+## Review 2
+
+- [BLOCKER] tools/check-frozen-roots.js (CI test:shell) read the ROOT_ENV_INPUTS declaration and matched `os.tmpdir()` in
+  a comment inside it ("resolves a root at require time"): exit 1 on HEAD, 0 on the base -> FIXED: the note moved above
+  the declaration; the guard exits 0.
+- [NIT] the audit never checked SystemRoot/windir (an upper-case-only regex) -> FIXED (a mixed-case regex; the tmpdir
+  branch requires both). Mutant: dropping them is red.
+- [NIT] EACCES untested -> FIXED (the lasting-failure test runs for EPERM and EACCES). Mutant red.
+- [NIT] set-but-empty vs unset untested -> FIXED (APPDATA '' gets its own entry). Mutant red.
+- Checked, no defect: key completeness (every input traced), a stale entry can only skip a chmod and never chmod the
+  wrong root, the test seam matches the repo's `_xForTest` convention.
+
+Tests: 7/7; store suite 114/114; frozen-roots guard exit 0.
+
 ## Rejected
 
 - Not recording EPERM/EACCES either: a failing chmod on every write for a root that will never change.

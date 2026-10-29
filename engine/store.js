@@ -481,10 +481,10 @@ function secureRoot() {
    isRealRootInTests), so the root is cached per their values: a write is a Map lookup until one of them changes. A
    variable left out of this list would let a changed root reuse a stale answer, so every input dataRootFor or the
    test rules read must be named here (engine/store.ensure-cost-7554.test.js holds the list to that). */
+// Review 1: SystemRoot and windir are the temp folder's Windows fallback when TEMP and TMP are both unset. (Review 2:
+// this note sits above the list, not in it: tools/check-frozen-roots.js reads the declaration and a call spelt in it.)
 const ROOT_ENV_INPUTS = ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_HOME', 'APPDATA', 'HOME', 'USERPROFILE',
-  'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_ALLOW_REAL_ROOT', 'TMPDIR', 'TEMP', 'TMP',
-  // Review 1: os.tmpdir()'s Windows fallback when TEMP and TMP are both unset.
-  'SystemRoot', 'windir'];
+  'NODE_TEST_CONTEXT', 'KOSMOS_TEST_RUN', 'KOSMOS_ALLOW_REAL_ROOT', 'TMPDIR', 'TEMP', 'TMP', 'SystemRoot', 'windir'];
 const rootByEnvKey = new Map();
 function rootForEnsure() {
   const env = process.env;
