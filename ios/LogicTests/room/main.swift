@@ -487,12 +487,14 @@ check(content.contains("shownAddress: board.switcherShown ?? kept?.address"), "r
 let chatSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
 // kosmos#7420 diagnostic (source checks): the record holds numbers and event names, never what was written. Every trace
 // line is checked for the fields that carry words (a message's text, a name, the draft).
-let traceLines = chatSource.components(separatedBy: "\n").filter { $0.contains("Self.trace(") }
+// kosmos#7420 build 16: ChatView.trace( too (SideScrollLock writes from outside the view), so no writer is missed.
+let traceLines = chatSource.components(separatedBy: "\n").filter { $0.contains("Self.trace(") || $0.contains("ChatView.trace(") }
 // Review 1: an allow-list, not a ban-list. Every value a trace line puts in the record is one of these numbers, yes/no
 // flags or fixed words; anything new (an id, a session, a name) fails here until it is judged and added.
 let allowedInTrace: Set<String> = ["atBottom", "earlier.filling", "earlier.loading", "earlier.open", "earlier.rows.count", "endSeen",
     "endVisible", "fresh.olderCount", "fresh.rows.count", "Int(diagKeyboard)", "Int(now.height)", "Int(now.width)", "mine",
-    "personScrolling", "phase == .active ? \"active\" : phase == .background ? \"background\" : \"inactive\"", "pinned", "settledAtEnd", "why"]
+    "personScrolling", "phase == .active ? \"active\" : phase == .background ? \"background\" : \"inactive\"", "pinned", "settledAtEnd", "why",
+    "Int(w)", "Int(x.rounded())"]   // build 16: the stack's width and a sideways offset, both numbers
 var tracedValues: [String] = []
 for l in traceLines {
     var rest = Substring(l)
@@ -513,6 +515,8 @@ check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, on
       && !chatSource.contains(".onChange(of: onScreen.isEmpty)"), "review 1: the check runs only for the chat on screen, and never makes the chat redraw per row")
 check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("onScreen.isEmpty, !endVisible || neverDrew, !topVisible, count > 0, thread != nil") && chatSource.contains("ShareLink(item: report"),
       "kosmos#7420: a bounded record, the blank check, and a share the person chooses (nothing sent by itself)")
+// kosmos#7420 (Josh 10-28, builds 13 to 15): the chat's list is locked against a sideways offset (every row 16 pt left).
+check(chatSource.contains(".background(SideScrollLock(off: Self.sampleNoLock))") && chatSource.contains("watch = scroll.observe(\\.contentOffset") && chatSource.contains("if !off { DispatchQueue.main.async { if abs(sv.contentOffset.x) > 0.5 { sv.contentOffset.x = 0 } } }") && chatSource.contains("static let sampleNoLock = false"), "kosmos#7420: a sideways scroll of the chat is put back to 0 and recorded (the lock is on in Release)")
 check(chatSource.contains("Button { infoOpen = true } label: { title"), "kosmos#7424: the DM header's name and status open the info page, as the (i) button does")
 let roomSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
 check(roomSource.contains("let low = reduceMotion ? 0.35 : 0.45, half = (reduceMotion ? 1.6 : 1.1) / 2") && roomSource.contains(".delay(Double(i) * 0.16), value: up)") && roomSource.contains(".offset(y: up && !reduceMotion ? -4 : 0)"), "kosmos#7427: WaveDots, build 15's chat dots and now the Debug control (KOSMOS_SAMPLE_SWIFTDOTS), are the board's wave")
