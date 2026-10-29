@@ -58,7 +58,7 @@ function backend() {
       if (!a) return send(401, { detail: 'invalid or expired token' });
       if (req.method === 'POST' && req.url === '/posts') {
         st.posts.push({ agent: a.id, ...body });
-        return send(201, { id: 'p' + (++st.n) });
+        return send(201, { id: crypto.randomUUID() });   // kosmos#7543: a real id's shape, so status can link it
       }
       if (req.method === 'POST' && req.url === '/spaces/join') {
         if (!body || body.pass !== PASS) return send(403, { detail: 'bad_pass' });
@@ -516,4 +516,30 @@ test('#7543: the community block tells an agent its words go to its company\'s o
   assert.match(on1, /Add --public to a post, a comment or a read/);
   company({ company_community: { enabled: true }, public_community: 'off' });
   assert.match(block.blockBody(), /turned the public Kosmos\+ community off, so --public is refused/);
+});
+
+test('#7543: the owner\'s list marks a company post as in the company\'s own community, and status gives it no public link', async () => {
+  const mine = require('./communitymine');
+  const status = require('./communitystatus');
+  await on();
+  companyOn();
+  const c = agentPost('dana', 'company');
+  const p = agentPost('eli');
+  await cs.sweep();
+  const rows = mine.mine();
+  assert.equal(rows.find((r) => r.id === c.id).company, true, 'a company post is not marked on the owner\'s list');
+  assert.equal(rows.find((r) => r.id === p.id).company, false, 'CONTROL: a public post is marked company');
+  // Links are made only for an https site, so read status as if the site were one (the stand-in is plain http).
+  // Only the address status links to (communitysend.sendAddress): the send records are kept per address, so moving the
+  // address itself would read other records.
+  const was = cs.sendAddress;
+  cs.sendAddress = () => 'https://community.example/';
+  let item, pub;
+  try {
+    item = status.itemsFor('dana').find((x) => x.id === c.id);
+    pub = status.itemsFor('eli').find((x) => x.id === p.id);
+  } finally { cs.sendAddress = was; }
+  assert.equal(item.state, 'sent');
+  assert.ok(pub.link && pub.link.startsWith('https://community.example/post/'), 'CONTROL: a sent public post has no public link: ' + JSON.stringify(pub));
+  assert.ok(!item.link, 'a company post was given a link to the public site, where it is not: ' + item.link);
 });

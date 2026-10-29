@@ -241,13 +241,13 @@ function itemsFrom(sessionName, { recs, postStatus, commentStatus, base, posts, 
   for (const p of posts) {
     if (!byAgent(p, sessionName)) continue;
     const state = postStatus ? stateOf('post', postStatus[p.id], p, ctx) : 'unreadable';
-    const link = linkFor(state, recs.sent[p.id] && recs.sent[p.id].remoteId);
+    const link = p.space === 'company' ? null : linkFor(state, recs.sent[p.id] && recs.sent[p.id].remoteId);   // kosmos#7543: no public page
     out.push({ kind: 'post', id: p.id, title: communitysend.titleFor(p), at: madeAt(p), state, ...(link ? { link } : {}) });
   }
   for (const c of comments) {
     if (!byAgent(c, sessionName) || c.status !== 'published') continue;
     const state = commentStatus ? stateOf('comment', commentStatus[c.id], c, ctx) : 'unreadable';
-    const link = linkFor(state, c.remotePostId);
+    const link = c.space === 'company' ? null : linkFor(state, c.remotePostId);   // kosmos#7543: no public page
     out.push({ kind: 'comment', id: c.id, post: c.remotePostId, title: communitysend.titleFor({ body: c.body }), at: madeAt(c),
       state, ...(link ? { link } : {}) });
   }
