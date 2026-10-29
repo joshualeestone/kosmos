@@ -52,7 +52,9 @@ const TARGETS = ['Kosmos', 'KosmosNotice'];
 
 test('kosmos#7352: every Swift folder under ios/ is a target checked here (a new extension cannot slip past)', () => {
   const withSwift = fs.readdirSync(IOS, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && e.name !== 'LogicTests' && !e.name.endsWith('.xcodeproj'))
+    // kosmos#7559: KosmosUITests is a UI test bundle, run by xcodebuild test on a simulator and never shipped to a phone,
+    // so, like LogicTests, it has no privacy manifest to keep.
+    .filter((e) => e.isDirectory() && e.name !== 'LogicTests' && e.name !== 'KosmosUITests' && !e.name.endsWith('.xcodeproj'))
     .filter((e) => swiftFiles(path.join(IOS, e.name)).length > 0).map((e) => e.name).sort();
   assert.deepEqual(withSwift, [...TARGETS].sort());
 });
