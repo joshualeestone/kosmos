@@ -11,6 +11,11 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/site-autodeploy-test.XXXXXX"); live=""; trap '[ -
 fail=0
 pass() { echo "PASS  $1"; }
 bad()  { echo "FAIL  $1"; fail=1; }
+# gone <pid>: the process has ended, within 100 polls 0.1 s apart (at least 10 s; 22 s was measured on a busy Mac). A process this file's subject stops, whose parent died with it, is a
+# zombie until launchd reaps it, and kill -0 succeeds on a zombie; on a loaded machine that reap can take more than the
+# one second these arms used to sleep (the 0.7.74 cut went red on two of them, kosmos#7556). An empty pid is never
+# gone: it would pass vacuously. A process that was NOT stopped still fails, after the polls.
+gone() { local p=$1 i; [ -n "$p" ] || return 1; for i in $(seq 1 100); do kill -0 "$p" 2>/dev/null || return 0; sleep 0.1; done; return 1; }
 
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 git init -q --bare --initial-branch=main "$T/origin.git"
@@ -367,8 +372,8 @@ git -C "$T/site" remote set-url origin "$T/origin.git"
 H22=$(advance twentytwo); rm -f "$ST/retries" "$ST/failures"
 HANGPID="$T/hang.pid"
 KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANGPID"'; wait' tick
-hp=$(cat "$HANGPID" 2>/dev/null); sleep 1
-{ [ "$RC" = 1 ] && [ -n "$hp" ] && ! kill -0 "$hp" 2>/dev/null && grep -q "^$H22 rc=124 " "$ST/last-failure" && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "past its 2s limit"; } \
+hp=$(cat "$HANGPID" 2>/dev/null)
+{ [ "$RC" = 1 ] && gone "$hp" && grep -q "^$H22 rc=124 " "$ST/last-failure" && [ ! -e "$ST/parked" ] && printf '%s' "$OUT" | grep -q "past its 2s limit"; } \
   && pass "a hung deploy is stopped with its child and counted as a failure (rc 124), not parked yet" || { bad "hung deploy (rc=$RC, child $hp alive=$(kill -0 "$hp" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp" ] && kill "$hp" 2>/dev/null; }
 printf 'kosmos-release-export\ncommit=%s\n' "$H22" > "$SERVED/.kosmos-release-export"   # as if it published, then hung
 KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=2 KOSMOS_AUTODEPLOY_DEPLOY='perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANGPID"'; wait' tick
@@ -382,9 +387,9 @@ H23=$(advance twentythree); HANG2="$T/hang2.pid"
 KOSMOS_AUTODEPLOY_DEPLOY='echo started-23; perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANG2"'; wait' bash "$AD" > "$T/tick23.out" 2>&1 & tick23=$!
 # Signal only once the tick has said it is deploying (its traps are set by then), not on the child alone.
 for i in $(seq 1 100); do [ -s "$HANG2" ] && command grep -q "deploying site main" "$T/tick23.out" && break; sleep 0.1; done; sleep 0.3
-kill -TERM "$tick23"; wait "$tick23" 2>/dev/null; sleep 1
+kill -TERM "$tick23"; wait "$tick23" 2>/dev/null
 hp2=$(cat "$HANG2" 2>/dev/null)
-{ [ -n "$hp2" ] && ! kill -0 "$hp2" 2>/dev/null && [ ! -e "$ST/lock" ] && command grep -q "^started-23" "$ST/log"; } && pass "a tick killed mid-deploy takes its deploy's children with it, keeps its output in the log, and frees the lock" \
+{ gone "$hp2" && [ ! -e "$ST/lock" ] && command grep -q "^started-23" "$ST/log"; } && pass "a tick killed mid-deploy takes its deploy's children with it, keeps its output in the log, and frees the lock" \
   || { bad "killed tick left its deploy (child $hp2 alive=$(kill -0 "$hp2" 2>/dev/null && echo yes || echo no), lock=$([ -e "$ST/lock" ] && echo held || echo free))"; [ -n "$hp2" ] && kill "$hp2" 2>/dev/null; }
 # ...and it recorded a FAILURE (it may have published before the kill), so a marker naming the sha on
 # the next tick does not get it recorded as deployed.
@@ -472,9 +477,9 @@ tick   # a good tick (the fetch record stays: see test 21)
 H27=$(advance twentyseven); HANG27="$T/hang27.pid"; rm -f "$ST/failures" "$ST/last-failure"
 KOSMOS_AUTODEPLOY_DEPLOY='trap "" TERM; echo started-27; perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANG27"'; wait' bash "$AD" > "$T/tick27.out" 2>&1 & tick27=$!
 for i in $(seq 1 100); do [ -s "$HANG27" ] && command grep -q "deploying site main" "$T/tick27.out" && break; sleep 0.1; done; sleep 0.3
-kill -TERM "$tick27"; sleep 1; kill -TERM "$tick27" 2>/dev/null; wait "$tick27" 2>/dev/null; sleep 1
+kill -TERM "$tick27"; sleep 1; kill -TERM "$tick27" 2>/dev/null; wait "$tick27" 2>/dev/null
 hp27=$(cat "$HANG27" 2>/dev/null)
-{ grep -q "^$H27 rc=143 " "$ST/last-failure" 2>/dev/null && [ -n "$hp27" ] && ! kill -0 "$hp27" 2>/dev/null && [ ! -e "$ST/lock" ]; } \
+{ grep -q "^$H27 rc=143 " "$ST/last-failure" 2>/dev/null && gone "$hp27" && [ ! -e "$ST/lock" ]; } \
   && pass "a second signal during the stop neither loses the failure record nor leaves the deploy running" \
   || { bad "second signal (last-failure: $(cat "$ST/last-failure" 2>/dev/null); child alive=$(kill -0 "$hp27" 2>/dev/null && echo yes || echo no))"; [ -n "$hp27" ] && kill -KILL "$hp27" 2>/dev/null; }
 rm -f "$ST/failures" "$ST/parked"; rm -rf "$ST/reported.d" "$ST/lock"
@@ -492,11 +497,7 @@ n28=$(ndeploys); tick
 touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 printf 'kosmos-release-export\ncommit=%s\n' "$H28" > "$SERVED/.kosmos-release-export"   # as if it published
 KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick
-# The stopped perl's parent died too, so it is a zombie until launchd reaps it, and kill -0 succeeds on a zombie.
-# On a loaded machine that takes more than a second (the 0.7.74 cut, 10-29): wait for it, up to 10 s, rather than
-# one fixed second. A process the tick did NOT stop still fails, after the 10 s.
-for i in $(seq 1 100); do kill -0 "$hp28" 2>/dev/null || break; sleep 0.1; done
-{ ! kill -0 "$hp28" 2>/dev/null && [ ! -e "$ST/deploy.pid" ] && [ "$(cat "$ST/last-deployed")" != "$H28" ] && printf '%s' "$OUT" | grep -q "stopped the deploy of" && printf '%s' "$OUT" | grep -q "recorded as a failure"; } \
+{ gone "$hp28" && [ ! -e "$ST/deploy.pid" ] && [ "$(cat "$ST/last-deployed")" != "$H28" ] && printf '%s' "$OUT" | grep -q "stopped the deploy of" && printf '%s' "$OUT" | grep -q "recorded as a failure"; } \
   && pass "past 1200 s the orphan is stopped and counted a failure; a marker naming its sha does not bless it" \
   || { bad "orphan stop (alive=$(kill -0 "$hp28" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp28" ] && kill "$hp28" 2>/dev/null; }
 # A pid in deploy.pid whose start time does not match (a reused pid) is not touched.
@@ -508,8 +509,8 @@ rm -f "$ST/failures" "$ST/parked" "$ST/deploy.pid"; rm -rf "$ST/reported.d"
 
 # 29) a deploy whose leader exits leaving a child running in its group: the child is stopped.
 H29=$(advance twentynine); HANG29="$T/hang29.pid"
-KOSMOS_AUTODEPLOY_DEPLOY='perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANG29"'; exit 0' tick; sleep 1; hp29=$(cat "$HANG29" 2>/dev/null)
-{ [ "$RC" = 0 ] && [ -n "$hp29" ] && ! kill -0 "$hp29" 2>/dev/null && printf '%s' "$OUT" | grep -q "left processes running"; } \
+KOSMOS_AUTODEPLOY_DEPLOY='perl -e "select(undef, undef, undef, 300)" & echo $! > '"$HANG29"'; exit 0' tick; hp29=$(cat "$HANG29" 2>/dev/null)
+{ [ "$RC" = 0 ] && gone "$hp29" && printf '%s' "$OUT" | grep -q "left processes running"; } \
   && pass "a child left running in the deploy's group after it exits is stopped" || { bad "lingering child (rc=$RC alive=$(kill -0 "$hp29" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp29" ] && kill "$hp29" 2>/dev/null; }
 
 # 30) the green run's ::warning:: annotation is escaped: a % in a path in the message is %25, so it can
@@ -542,9 +543,7 @@ set -m; sh -c 'perl -e "select(undef, undef, undef, 300)" & echo $! > '"$M32"'; 
 for i in $(seq 1 50); do [ -s "$M32" ] && break; sleep 0.1; done; m32=$(cat "$M32")
 printf '%s %s Mon_Jan_1_00:00:00_2001\n' "$lead32" "$H31b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 tick
-# As in 28: a stopped member is a zombie until launchd reaps it; wait for it, up to 10 s, not one fixed second.
-for i in $(seq 1 100); do kill -0 "$m32" 2>/dev/null || break; sleep 0.1; done
-{ ! kill -0 "$m32" 2>/dev/null && printf '%s' "$OUT" | grep -q "stopped the deploy of"; } \
+{ gone "$m32" && printf '%s' "$OUT" | grep -q "stopped the deploy of"; } \
   && pass "a deploy group whose leader exited is still found by its members, stopped and counted" \
   || { bad "leaderless group (member alive=$(kill -0 "$m32" 2>/dev/null && echo yes || echo no)) $OUT"; kill "$m32" 2>/dev/null; }
 rm -f "$ST/failures" "$ST/parked" "$ST/deploy.pid"; rm -rf "$ST/reported.d"
