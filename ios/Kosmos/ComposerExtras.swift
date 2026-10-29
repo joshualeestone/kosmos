@@ -664,6 +664,10 @@ struct MessageActionsHost: ViewModifier {
     @Environment(\.dynamicTypeSize) private var typeSize
     #if DEBUG
     static var sampleOpened = false
+    // kosmos#7530: KOSMOS_SAMPLE_KEEPKBD=1 leaves the keyboard up as the sheet opens, the control.
+    static let sampleKeepKeyboard = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_KEEPKBD"] == "1"
+    #else
+    static let sampleKeepKeyboard = false
     #endif
 
     // The sheet's height before More: the reaction row, Reply and Copy text, at the person's text size.
@@ -689,6 +693,11 @@ struct MessageActionsHost: ViewModifier {
             .environment(\.shownMessageActions, target?.id)
             .environment(\.openMessageActions) { t in
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                // kosmos#7530 (Josh 10-28): the keyboard goes first. A sheet opened with it up sat behind it, only the dim
+                // showing. Reply puts the cursor back in the box.
+                if !Self.sampleKeepKeyboard {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
                 detent = small(t)
                 target = t
             }
