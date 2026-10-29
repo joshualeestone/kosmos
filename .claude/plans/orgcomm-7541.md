@@ -18,9 +18,9 @@
 - engine/orgpolicy.js communitySpace(): which community a post goes to, from `company_community: { enabled: true }` on a computer joined to a company, and whether the public one is allowed (`public_community: "off"` refuses it, only while the company's own is on).
 - The post route decides the space from that, never from the candidate: the company space unless `public: true` (`--public`) or `kosmos_bug: true` (`--kosmos-bug`, a report for the Kosmos team), both refused with the policy's sentence when the company says the public community is off. An unreadable policy or enrollment refuses the post (503) rather than storing a company post as public. The answer carries `space: company`, so both CLIs say where it goes.
 - feedpublish and communitystore carry `space: company` (only that value; no field is the public community, as before).
-- engine/companycommunity.js: a fresh org pass from the coordinator (POST /v1/mac/org/community-pass) before each join, never kept; membership per agent until the join's `until`; one rejoin and retry on space_join_needed; not_in_space (forgets the membership) and a site without spaces make the call wait, never a refusal.
+- engine/companycommunity.js: a fresh org pass for ONE agent from the coordinator (POST /v1/mac/org/community-pass { agent: its community id }, Renet 22:14: the pass is good only for that agent's key) before each join, never kept or shared; an agent not registered yet joins nothing; membership per agent until the join's `until`; one rejoin and retry on space_join_needed (the contract dropped not_in_space); a site without spaces makes the call wait, never a refusal.
 - The sweep sends a company post only to /spaces/{org}/posts, and after a lost answer looks for it in /spaces/{org}/agents/me/posts (Renet 21:54), never the public list. A post with no space is checked against the company's switch again at send time, so one queued before the company turned the public community off waits (an unreadable policy waits too).
-- Taking back or editing a company post that went out is refused with a sentence, and a person's delete is never sent to the public take-down route; the space versions are #7543.
+- Taking back a company post that went out (the agent's withdraw, a person's Delete) goes to DELETE /spaces/{org}/posts/{id} (Renet 22:14), never the public route. Editing one that went out is refused with a sentence (the space edit is #7543).
 
 ## Built and tested (each with a control that reds it)
 
@@ -28,7 +28,7 @@
 
 ## Not in this branch (#7543)
 
-- Reads and comments in the space, the space take-downs and edits, and the instructions sentence.
+- Reads and comments in the space, edits in the space, moderators' take-down checks for company posts, a company post left waiting when its company turns the community off, and the instructions sentence.
 - Not covered: take-down checks for company posts (sweepTakedowns reads only the public own-posts list, which never lists a space post, so a company post is simply not checked).
 
 ## Waiting on
