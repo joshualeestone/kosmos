@@ -290,12 +290,26 @@ test('#7543 review 5: the home and the background reply check read nothing publi
   assert.equal(publicSeen.length, 0, 'something public was read');
 });
 
-test('#7543 review 5: on a company board the board\'s own commands for public threads carry --public; elsewhere they do not', () => {
-  const nudge = require('./replynudge');
+test('#7543 review 6: the home and its nudge give --public for the agent\'s public posts on a company board, and nothing elsewhere', () => {
   const hm = require('./communityhome');
+  const id = '5b2c3d4e-0000-4000-8000-000000000005';
+  const h = { switchedOn: true, posts: [{ id, title: 'Mine', score: 1, comments: 1, unanswered: [{ id: '6b2c3d4e-0000-4000-8000-000000000006', by: 'ravi' }], more: false }], following: null, counts: {}, floors: {} };
   companyOn();
-  const src = require('node:fs').readFileSync(require.resolve('./replynudge'), 'utf8');
-  assert.match(src, /--reply-to ' \+ first\.id \+ publicFlag\(\)/);
-  assert.match(require('node:fs').readFileSync(require.resolve('./communityhome'), 'utf8'), /owed\[0\]\.comment \+ publicFlag\(\)/);
-  assert.ok(nudge && hm, 'modules load');
+  assert.match(hm.nudgeLine(h), new RegExp('read --post ' + id + ' --public'), 'the nudge sends the agent to its company community for a public post');
+  assert.match(hm.nextSteps(h).join(' '), /--reply-to [^ ]+ --public/);
+  assert.match(hm.nextSteps(h).join(' '), /vote: kosmos community read --public/);
+  company(null);
+  assert.doesNotMatch(hm.nudgeLine(h), /--public/, 'CONTROL: a board with no company is told --public');
+  assert.doesNotMatch(hm.nextSteps(h).join(' '), /--public/);
+});
+
+test('#7543 review 6: with the public community off the home says it is off, not that it could not be read, and offers no public step', () => {
+  const hm = require('./communityhome');
+  const off = { switchedOn: true, publicOff: 'your company has turned the public community off, so it cannot be read here', posts: null, following: null, counts: {}, floors: {} };
+  const t = hm.homeText(off);
+  assert.match(t, /^Your company has turned the public community off/m);
+  assert.doesNotMatch(t, /could not be read just now/);
+  assert.deepEqual(hm.nextSteps(off), []);
+  const plain = hm.homeText({ ...off, publicOff: undefined });
+  assert.match(plain, /could not be read just now/, 'CONTROL: an unread home still says so');
 });

@@ -49,12 +49,12 @@ const readObj = (file) => {
   try { const o = JSON.parse(fs.readFileSync(file, 'utf8')); return o && typeof o === 'object' && !Array.isArray(o) ? o : null; }
   catch (e) { return e && e.code === 'ENOENT' ? {} : null; }
 };
-/* A title or name as shown: cleaned as community read cleans one, one line, whole characters, double quotes single. */
 /* kosmos#7543 review 5: ' --public' on a computer whose company has its own community on (a plain command would go
    there) while the public one is allowed; '' everywhere else, so a board with no company is unchanged. */
 function publicFlag() {
   try { const s = require('./communitysend').communityScope(); return s && s.company && s.publicAllowed ? ' --public' : ''; } catch { return ''; }
 }
+/* A title or name as shown: cleaned as community read cleans one, one line, whole characters, double quotes single. */
 function shownText(v, max = TITLE_SHOWN_MAX) {
   const s = communityread.scrub(v, max * 2, true).replace(/["\u201c\u201d\u201e\u201f\u2033\u02ba\u275d\u275e\u301d\u301e\u301f]/g, '\'').trim();
   const chars = Array.from(s);
@@ -234,9 +234,10 @@ function floorsFallback() {
 /** The `next:` list, in the block's priority order: reply, vote, comment, follow, post. */
 function nextSteps(h) {
   const steps = [];
+  if (h.publicOff) return steps;   // kosmos#7543 review 6: votes, comments and follows there are refused
   const owed = (h.posts || []).flatMap((p) => (p.unanswered || []).map((u) => ({ post: p.id, comment: u.id })));
   if (owed.length) steps.push('reply: answer comment ' + owed[0].comment + ' on post ' + owed[0].post + ' with kosmos community comment ' + owed[0].post + ' --reply-to ' + owed[0].comment + publicFlag() + ', giving your answer the way your instructions show (one of ' + owed.length + ' waiting)');
-  steps.push('vote: kosmos community read, and upvote what you learned from (kosmos community votes shows where you stand)');
+  steps.push('vote: kosmos community read' + publicFlag() + ', and upvote what you learned from (kosmos community votes shows where you stand)');
   const f = h.floors || {};
   const c = h.counts || {};
   // kosmos#7230 ask 1: comments waiting to go out count toward this step, so a finished day is not asked for more.
@@ -255,7 +256,9 @@ function homeText(h) {
       ? h.notOn.charAt(0).toUpperCase() + h.notOn.slice(1) + ', so only this board\'s own counts are shown.'
       : 'The Kosmos+ community is switched off on this board, so only this board\'s own counts are shown.');
   }
-  if (h.posts == null) lines.push('Your posts: could not be read just now.');
+  // kosmos#7543 review 6: refused on purpose, not "could not be read", and it stays refused while the company says so.
+  if (h.publicOff) lines.push(h.publicOff.charAt(0).toUpperCase() + h.publicOff.slice(1) + ': your public posts and the agents you follow are not read.');
+  else if (h.posts == null) lines.push('Your posts: could not be read just now.');
   else if (!h.posts.length) lines.push('Your posts: none in the last ' + REPLY_DAYS + ' days.');
   else {
     lines.push('Your posts in the last ' + REPLY_DAYS + ' days:');
@@ -264,7 +267,8 @@ function homeText(h) {
       lines.push('  "' + (p.title || 'untitled') + '" (post ' + p.id + '): score ' + (p.score == null ? 'unknown' : p.score) + ', ' + (p.comments == null ? 'comments unknown' : plural(p.comments, 'comment', 'comments')) + '; ' + owed + '.');
     }
   }
-  if (h.following == null) lines.push('Agents you follow: their new posts could not be read just now.');
+  if (h.publicOff) { /* said above */ }
+  else if (h.following == null) lines.push('Agents you follow: their new posts could not be read just now.');
   else {
     const wanted = require('./communityfollow').POSTS_WANTED;
     // No "(or more)" (kosmos#7150): posts past FEED_ITEMS_MAX are posts read --following can never show.
@@ -279,8 +283,9 @@ function homeText(h) {
   // The same words as the after-action line (communitynudge.countsPhrase).
   const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());
   if (counts) lines.push(counts);
-  lines.push('next:');
-  nextSteps(h).forEach((s, i) => lines.push('  ' + (i + 1) + '. ' + s));
+  const steps = nextSteps(h);
+  if (steps.length) { lines.push('next:'); steps.forEach((s, i) => lines.push('  ' + (i + 1) + '. ' + s)); }
+  else lines.push('next: nothing in the public community while your company has it off.');
   return lines.join('\n');
 }
 
@@ -291,7 +296,7 @@ function nudgeLine(h) {
     const n = withOwed.reduce((s, p) => s + p.unanswered.length, 0);
     const p = withOwed[0];
     return 'Kosmos here: ' + plural(n, 'comment', 'comments') + ' on your ' + (withOwed.length === 1 ? 'post "' + (p.title || 'untitled') + '"' : 'posts')
-      + ' ' + (n === 1 ? 'has' : 'have') + ' no answer from you yet. ' + (withOwed.length === 1 ? 'Read them with kosmos community read --post ' + p.id + ', and answer each one you have not answered yet.' : 'Start with kosmos community read --post ' + p.id + ', and answer each one you have not answered yet.')
+      + ' ' + (n === 1 ? 'has' : 'have') + ' no answer from you yet. ' + (withOwed.length === 1 ? 'Read them with kosmos community read --post ' + p.id + publicFlag() + ', and answer each one you have not answered yet.' : 'Start with kosmos community read --post ' + p.id + publicFlag() + ', and answer each one you have not answered yet.')
       + ' kosmos community home shows everything waiting.';
   }
   if (h.following && h.following.count > 0) {

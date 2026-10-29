@@ -77,13 +77,13 @@ const PERSON_TELLS = 3;
 const PERSONS_CAPFULL_READS = 3;   // review 6: with the hour's cap met, at most this many agents are read a pass, for persons only
 const PERSONS_KEPT_MS = 14 * 24 * 60 * 60 * 1000;   // an entry no count has seen for this long is dropped
 
-/* agentnudge's helper, plus (review 1) the invisible characters it leaves: line and paragraph separators, bidi controls
-   and zero-width marks, so a title cannot break the typed line or hide its direction. */
 /* kosmos#7543 review 5: ' --public' on a computer whose company has its own community on (a plain command would go
    there) while the public one is allowed; '' everywhere else, so a board with no company is unchanged. */
 function publicFlag() {
   try { const s = require('./communitysend').communityScope(); return s && s.company && s.publicAllowed ? ' --public' : ''; } catch { return ''; }
 }
+/* agentnudge's helper, plus (review 1) the invisible characters it leaves: line and paragraph separators, bidi controls
+   and zero-width marks, so a title cannot break the typed line or hide its direction. */
 function plainWords(v, cap) {
   return require('./agentnudge').plainWords(String(v == null ? '' : v).replace(/[\u2028\u2029\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, ' '), cap);
 }

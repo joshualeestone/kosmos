@@ -836,7 +836,7 @@ async function freshReplies(sessionName, opts) {
   if (sw !== 'on') return { ok: false, because: communitysend.notOnWords(sw) };   // #5435
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent' };
   const off = publicReadRefusal();   // kosmos#7543 review 5: no nudge toward a read the board refuses
-  if (off) return { ok: false, because: off };
+  if (off) return { ok: false, because: off, asked: 0 };   // review 6: nothing was asked
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board' };
   // Review 15 (Sonnet): an agent's own read already waiting goes first (the count would hold it for a whole request).
   if (replyReadWaiting > 0) return { ok: false, busy: true, because: 'an agent\'s own read of replies is waiting' };
