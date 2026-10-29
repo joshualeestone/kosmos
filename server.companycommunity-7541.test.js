@@ -95,6 +95,7 @@ test('#7541: a company that turned its community on stores its agents\' posts fo
   assert.ok(r.status < 300, JSON.stringify(r.json));
   assert.ok(r.row, 'the post was not stored');
   assert.equal(r.row.space, 'company');
+  assert.equal(r.row.org, 'org-1', 'review 5: a company post does not say which company it was written for');
 });
 
 test('#7541: --public stores it for the public community while the company allows that', async (t) => {

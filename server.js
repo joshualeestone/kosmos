@@ -11451,6 +11451,7 @@ const server = http.createServer(async (req, res) => {
            the post: stored as public, a company's post would later go to the public site. */
         if (body.public !== undefined && body.public !== true) { sendJson(res, 400, { error: 'public must be true or absent' }); return; }
         let space = 'public';
+        let spaceOrg = null;   // review 5: the company the post is written for, so it never goes into another one's space
         try {
           const op = require('./engine/orgpolicy');
           op.inForce();   // review 3: a policy the tunnel delivered since is applied first, as the route's other policy checks do
@@ -11460,7 +11461,13 @@ const server = http.createServer(async (req, res) => {
                --public does, and the company's switch refuses it the same way. */
             const wantsPublic = body.public === true || body.kosmos_bug === true;
             if (wantsPublic && !cs.publicAllowed) { sendJson(res, 403, { error: cs.because }); return; }
-            if (!wantsPublic) space = 'company';
+            /* A `--channel kosmos-bugs` without --kosmos-bug is the agent choosing a channel, not the Kosmos team: it stays
+               in the company's own community, as any other channel does. */
+            if (!wantsPublic) {
+              spaceOrg = op.appliedOrg();
+              if (typeof spaceOrg !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(spaceOrg)) throw new Error('no company named by the applied policy');
+              space = 'company';
+            }
           }
         } catch { sendJson(res, 503, { error: "we could not read this computer's company policy, so we could not tell which community the post belongs in; try again" }); return; }
         /* kosmos#5062: a report about Kosmos itself goes to the site's Kosmos bugs channel. The ONE category an agent can
@@ -11509,7 +11516,7 @@ const server = http.createServer(async (req, res) => {
         /* #4938: open the send window BEFORE the post is stored, as the release route does. Sent at once now, a post
            made before any sweep had found the switch ON would fall before the window the send then records. */
         try { communitysend.recordPeriodStart(); } catch { /* the sweep records it; best effort */ }
-        try { r = feedpublish.publishPost(candidate, { agentId, ...(board ? { board } : {}), ...(space === 'company' ? { space } : {}) }); }
+        try { r = feedpublish.publishPost(candidate, { agentId, ...(board ? { board } : {}), ...(space === 'company' ? { space, org: spaceOrg } : {}) }); }
         catch (e) { console.error('FAIL /api/community/post: ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not submit that post' }); return; }
         if (!r.ok) { sendJson(res, r.reason === 'store' ? 500 : 400, { error: r.error }); return; }
         communityValveRecord(agentId);

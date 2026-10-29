@@ -117,20 +117,22 @@ test.beforeEach(async () => {
   companycommunity.setRemote({ macRequest: async (m, route, body) => { passCalls.push(route); passBodies.push(body); return coordinatorAnswer; } });
   be = await backend();
 });
-test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.setSender(null); cs.setSwitch(null); companycommunity.setRemote(null); });
+test.afterEach(() => { be.server.closeAllConnections(); be.server.close(); cs.setSender(null); cs.setSwitch(null); companycommunity.setRemote(null); company(null); });
+const companyOn = () => company({ company_community: { enabled: true } });
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 function agentPost(agent, space) {
   fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, agent), { recursive: true });
   communitystore.grantTrust(agent);
   const r = feedpublish.publishPost({ kind: 'community_post', agent, at: new Date().toISOString(), topic: 'Hi', body: 'hello there' },
-    { agentId: agent, ...(space ? { space } : {}) });
+    { agentId: agent, ...(space ? { space, org: 'org-1' } : {}) });
   assert.equal(r.ok, true, JSON.stringify(r));
   return r;
 }
 
 test('#7541: a company post goes to the company space with a fresh pass, never to the public /posts', async () => {
   await on();
+  companyOn();
   agentPost('dana', 'company');
   await cs.sweep();
   assert.equal(be.st.posts.length, 0, 'a company post reached the PUBLIC community');
@@ -155,6 +157,7 @@ test('#7541: CONTROL, a post with no space still goes to the public /posts, with
 
 test('#7541: with no pass to be had nothing is sent anywhere, and the post goes out on a later sweep once there is one', async () => {
   await on();
+  companyOn();
   coordinatorAnswer = { ok: false, because: 'org_community_off' };
   agentPost('dana', 'company');
   await cs.sweep();
@@ -169,6 +172,7 @@ const spaceSends = () => be.st.seen.filter((s) => s.method === 'POST' && s.url =
 
 test('#7541: a space post stored but whose answer never came is found in the space and never sent again', async () => {
   await on();
+  companyOn();
   be.st.mode.hang = true;
   agentPost('dana', 'company');
   await cs.sweep();
@@ -183,6 +187,7 @@ test('#7541: a space post stored but whose answer never came is found in the spa
 
 test('#7541: a space post that never arrived is looked for in the space, then sent there once more, never to the public community', async () => {
   await on();
+  companyOn();
   be.st.mode.lost = true;
   agentPost('dana', 'company');
   await cs.sweep();
@@ -197,17 +202,17 @@ test('#7541: a space post that never arrived is looked for in the space, then se
 /* Joined to a company with `policy` applied as the board applies one (a signed bundle), or to nobody (null). */
 const coordinatorKey = crypto.generateKeyPairSync('ed25519');
 let version = 0;
-function company(policy) {
+function company(policy, org = 'org-1') {
   orgpolicy.clear();
   for (const f of [orgpolicy.APPLIED(), orgpolicy.BUNDLE()]) fs.rmSync(f, { force: true });
   const file = path.join(store.ROOT, orgenroll.ENROLLMENT_FILE);
   if (policy === null) { fs.rmSync(file, { force: true }); return; }
   fs.mkdirSync(store.ROOT, { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ org: { id: 'org-1', name: 'Acme', slug: 'acme', kind: 'company' }, world: 'a'.repeat(32) }) + '\n');
+  fs.writeFileSync(file, JSON.stringify({ org: { id: org, name: 'Acme', slug: 'acme', kind: 'company' }, world: 'a'.repeat(32) }) + '\n');
   const now = Math.floor(Date.now() / 1000);
   version += 1;
   const pinned = coordinatorKey.publicKey.export({ format: 'jwk' }).x;
-  const body = 'KST1.' + Buffer.from(JSON.stringify({ typ: 'org_policy', v: 1, org: 'org-1', version, iat: now - 10, exp: now + 86400, policy })).toString('base64url');
+  const body = 'KST1.' + Buffer.from(JSON.stringify({ typ: 'org_policy', v: 1, org, version, iat: now - 10, exp: now + 86400, policy })).toString('base64url');
   fs.writeFileSync(orgpolicy.BUNDLE(), body + '.' + crypto.sign(null, Buffer.from(body, 'ascii'), coordinatorKey.privateKey).toString('base64url'));
   fs.writeFileSync(orgpolicy.PINNED(), pinned);
   const r = orgpolicy.refresh({ now, pinned });
@@ -229,6 +234,7 @@ test('#7541 review 1: a public post queued before the company turned the public 
 
 test('#7541 review 3: a sent company post is taken back in its space, never through the public route; an edit says it is not built yet', async () => {
   await on();
+  companyOn();
   const r = agentPost('dana', 'company');
   await cs.sweep();
   assert.equal(be.st.spacePosts.length, 1);
@@ -267,6 +273,7 @@ test('#7541 review 3: a public comment waits while the company says the public c
 
 test('#7541 review 3: a comment on a post that went to a company space is never sent through the public comments route', async () => {
   await on();
+  companyOn();
   agentPost('dana', 'company');
   await cs.sweep();
   const remote = be.st.spacePosts[0] && be.st.spacePosts[0].id;
@@ -281,6 +288,7 @@ test('#7541 review 3: a comment on a post that went to a company space is never 
 
 test('#7541 review 4: a sent company post\'s record says so itself, so a later path never depends on the board row alone', async () => {
   await on();
+  companyOn();
   agentPost('dana', 'company');
   await cs.sweep();
   const recs = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'));
@@ -302,4 +310,29 @@ test('#7541 review 4 (decided): a post stored for the public community before th
     assert.equal(be.st.posts.length, 1, 'the earlier public post did not go');
     assert.equal(be.st.spacePosts.length, 0, 'the earlier public post was moved to the company space');
   } finally { company(null); }
+});
+
+test('#7541 review 5: a company post is never sent into another company\'s space after the computer moves company', async () => {
+  await on();
+  companyOn();                                   // written for org-1
+  agentPost('dana', 'company');
+  company({ company_community: { enabled: true } }, 'org-2');   // the computer now belongs to org-2
+  await cs.sweep();
+  await cs.sweep();
+  assert.equal(be.st.spacePosts.length, 0, 'a post written for one company went into another company\'s space');
+  assert.equal(be.st.posts.length, 0, 'it went to the public community instead');
+  assert.deepEqual(passCalls, [], 'a pass was asked for while the post belongs to another company');
+  companyOn();                                   // CONTROL: back in org-1, it goes
+  await cs.sweep();
+  assert.equal(be.st.spacePosts.length, 1, 'CONTROL: the post did not go once the computer was back in its company');
+});
+
+test('#7541 review 5: a company post waits while its company\'s community is off, and is never in the board\'s public feed', async () => {
+  await on();
+  companyOn();
+  const r = agentPost('dana', 'company');
+  assert.ok(!communitystore.publicFeed({ limit: 200 }).some((p) => p.id === r.id), 'a company post was in the board\'s PUBLIC feed');
+  company({ company_community: { enabled: false } });
+  await cs.sweep();
+  assert.equal(be.st.spacePosts.length + be.st.posts.length, 0, 'a company post went out while its company\'s community was off');
 });
