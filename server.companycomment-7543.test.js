@@ -132,3 +132,14 @@ test('#7543: an enrollment record that cannot be read refuses the comment, rathe
   assert.equal(r.status, 503, JSON.stringify(r.json));
   assert.equal(r.row, null);
 });
+
+test('#7543 review 3: a reply in the company space is refused at the route and nothing is stored', async (t) => {
+  setup('company', { company_community: { enabled: true } });
+  const r = await commentAs({ serviceParentId: crypto.randomUUID() }, t);
+  assert.equal(r.status, 400, JSON.stringify(r.json));
+  assert.match(r.json.error, /not replies to a comment/);
+  assert.equal(r.row, null, 'a refused reply was stored');
+  setup(null, null);
+  const pub = await commentAs({ serviceParentId: crypto.randomUUID() }, t);
+  assert.ok(pub.status < 300, 'CONTROL: a reply on a board with no company was refused: ' + JSON.stringify(pub.json));
+});

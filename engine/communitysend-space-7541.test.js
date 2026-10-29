@@ -651,3 +651,69 @@ test('#7543 review 2: a post waiting on company settings Kosmos cannot read says
   assert.match(status.POST_WORDS.policy_waiting, /Do not send it again/);
   assert.doesNotMatch(status.POST_WORDS.policy_waiting, /you can (post|send) it again/);
 });
+
+test('#7543 review 3: a sent company comment cannot be edited, and nothing goes to the public edit route', async () => {
+  await on();
+  companyOn();
+  const r = companyComment('dana', crypto.randomUUID());
+  await cs.sweep();
+  assert.equal(be.st.spaceComments.length, 1, 'setup: the company comment did not go');
+  const before = be.st.seen.length;
+  const e = await cs.editFor('dana', 'comment', r.id, { body: 'new words for it' });
+  assert.equal(e.ok, false, 'a sent company comment was edited');
+  assert.match(e.because, /does not take edits/);
+  assert.ok(!be.st.seen.slice(before).some((x) => x.method === 'PATCH'), 'a PATCH went out for a company comment');
+  const p = agentComment('eli', crypto.randomUUID());
+  await cs.sweep();
+  const pe = await cs.editFor('eli', 'comment', p.id, { body: 'new words for it' });
+  assert.doesNotMatch(String(pe.because || ''), /does not take edits/, 'CONTROL: a public comment was refused as a company one');
+});
+
+test('#7543 review 3: a post waiting while the company settings cannot be read reads policy_waiting', async () => {
+  const status = require('./communitystatus');
+  await on();
+  companyOn();
+  const c = agentPost('dana', 'company');
+  const was = cs.communityScope;
+  try {
+    cs.communityScope = () => ({ publicAllowed: false, company: false, org: null, fault: true });
+    assert.equal((status.itemsFor('dana').find((x) => x.id === c.id) || {}).state, 'policy_waiting');
+  } finally { cs.communityScope = was; }
+  assert.equal((status.itemsFor('dana').find((x) => x.id === c.id) || {}).state, 'queued', 'CONTROL: with the settings read it is queued');
+});
+
+test('#7543 review 3: --replies never asks the public site about a company post', async () => {
+  const cr = require('./communityread');
+  await on();
+  companyOn();
+  agentPost('dana', 'company');
+  await cs.sweep();
+  const sent = JSON.parse(fs.readFileSync(cs._paths.sentFile(), 'utf8'));
+  const companyId = Object.values(sent).find((x) => x && x.space === 'company').remoteId;
+  const asked = [];
+  cr.setFetcher(async (url) => { asked.push(url); return { status: 200, json: { comments: [] } }; });
+  try { await cr.readReplies('dana'); } finally { cr.setFetcher(null); }
+  assert.ok(!asked.some((u) => u.includes(companyId)), 'a company post id was sent to a public route: ' + asked.join(' '));
+});
+
+test('#7543 review 3: a company vote taken back still goes while the public community is off; a new vote does not', async () => {
+  await on();
+  company({ company_community: { enabled: true }, public_community: 'off' });
+  agentPost('dana', 'company');
+  await cs.sweep();
+  const clear = await cs.agentCall('dana', 'PUT', '/posts/' + crypto.randomUUID() + '/vote', { body: { value: 0 } });
+  assert.notEqual(clear.because, cs.PUBLIC_OFF_WORDS, 'clearing a vote was stopped');
+  const vote = await cs.agentCall('dana', 'PUT', '/posts/' + crypto.randomUUID() + '/vote', { body: { value: 1 } });
+  assert.equal(vote.because, cs.PUBLIC_OFF_WORDS, 'CONTROL: a new vote went out');
+});
+
+test('#7543 review 3: a call asked for a space with no company named goes nowhere, never to the public routes', async () => {
+  await on();
+  companyOn();
+  agentPost('dana', 'company');
+  await cs.sweep();
+  const before = be.st.seen.length;
+  const r = await cs.agentCall('dana', 'GET', '/feed?limit=10', { space: null });
+  assert.equal(r.ok, false);
+  assert.equal(be.st.seen.length, before, 'something reached the site');
+});

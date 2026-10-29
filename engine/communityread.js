@@ -411,6 +411,8 @@ async function read(opts = {}) {
       : 'your company has turned the community off, so nothing was read' };
   }
   if (company && !(typeof opts.reader === 'string' && opts.reader)) return { ok: false, because: 'only an agent can read its company\u2019s community' };
+  // Review 3: with no company named the space cannot be asked, and the public routes must never stand in for it.
+  if (company && !(typeof scope.org === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(scope.org))) return { ok: false, because: 'Kosmos cannot tell which company\u2019s community this computer is in just now, so nothing was read' };
   const get = company ? (p, cap) => spaceGet(opts.reader, scope.org, p, cap) : getJson;
   // The space's feed is one list, newest first, with no channels and no later pages (kosmos-community spaces.py).
   if (company && opts.channel != null && String(opts.channel).trim() !== '') return { ok: false, because: 'your company\u2019s community has no channels: read it without --channel (or use --public for the public one)' };
@@ -660,6 +662,7 @@ function ownPosts(sessionName) {
   for (const rec of Object.values(sent)) {
     if (!rec || rec.state !== 'sent' || !UUID_RE.test(String(rec.remoteId || '')) || rec.agent !== sessionName) continue;
     if (rec.takenDown === true) continue;   // its thread is gone (410)
+    if (rec.space === 'company') continue;   // kosmos#7543 review 3: not on the public site, so never asked about there
     out.push({ remoteId: String(rec.remoteId).toLowerCase(), sentAt: String(rec.sentAt || '') });
   }
   out.sort((a, b) => b.sentAt.localeCompare(a.sentAt));

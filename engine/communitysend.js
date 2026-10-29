@@ -73,8 +73,9 @@ function publicAllowedNow(now) { return communityNow(now).publicAllowed; }
    go on; anything that adds to or changes what the public sees (a vote, a follow, an endorsement, an edit, a profile)
    does not. */
 const PUBLIC_OFF_WORDS = 'your company has turned the public community off, so Kosmos does not do this there';
-function publicWriteStopped(method, pathname, now) {
+function publicWriteStopped(method, pathname, now, body) {
   if (method === 'GET' || method === 'DELETE') return false;
+  if (method === 'PUT' && /\/vote$/.test(pathname) && body && body.value === 0) return false;   // review 3: clearing a vote takes it back
   if (pathname === '/agents/me/assignments/seen') return false;
   return !publicAllowedNow(now);
 }
@@ -2251,14 +2252,16 @@ async function agentCallNow(agentKey, method, pathname, opts = {}) {
   }
 }
 
-async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null, body, space = null } = {}) {
+async function agentCallSteps(agentKey, method, pathname, { register = true, beforeRegister, beforeCall, deadline = null, body, space } = {}) {
+  // kosmos#7543 review 3: a call asked for a space with no company named goes nowhere, never to the public routes.
+  if (space !== undefined && !(typeof space === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(space))) return { ok: false, local: true, because: 'no company community is named, so nothing was sent' };
   const local = (because) => ({ ok: false, local: true, because });
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
   const sw = switchState();
   if (sw === 'policy') reportPolicyRefusal(agentKey);   // nothing here waits for the period, so it is only reported
   if (sw !== 'on') return local(notOnWords(sw));
-  if (!space && publicWriteStopped(method, pathname)) return local(PUBLIC_OFF_WORDS);   // kosmos#7543
+  if (!space && publicWriteStopped(method, pathname, undefined, body)) return local(PUBLIC_OFF_WORDS);   // kosmos#7543
   if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
   if (!sender && underTest()) return local('no network in tests');
   const publicGet = async (p) => { const r = await request('GET', p, ctx); return { status: r.status, json: r.json }; };
