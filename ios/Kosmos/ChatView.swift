@@ -1728,6 +1728,9 @@ struct ReactionPills: View {
                             .padding(.horizontal, 8).padding(.vertical, 4)
                             .background(Capsule().fill(p.mine ? Palette.personBubble : Palette.card))
                             .overlay(Capsule().stroke(p.mine ? Palette.link : Palette.separator, lineWidth: p.mine ? 1 : 0.5))
+                            // Review 1: at the largest text sizes a pill is taller than 44 pt and the lines would touch
+                            // with no gap; 3 pt either side keeps one. Under 44 pt the frame decides, so nothing changes.
+                            .padding(.vertical, 3)
                             .frame(minWidth: 44, minHeight: 44)
                             .contentShape(Rectangle())
                     }
