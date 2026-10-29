@@ -142,7 +142,7 @@ test('a sent comment lists with its first line, its agent, when, and Delete; no 
   assert.equal(rows.length, 1);
   const row = rows[0];
   assert.deepEqual(Object.keys(row).sort(),
-    ['agent', 'agentRefused', 'canDelete', 'deleteRequested', 'deleteRetrying', 'id', 'kind', 'postedAt', 'remotePostId', 'state', 'text', 'traceUnknown', 'untraceable', 'untraceableReason']);
+    ['agent', 'agentRefused', 'canDelete', 'company', 'deleteRequested', 'deleteRetrying', 'id', 'kind', 'postedAt', 'remotePostId', 'state', 'text', 'traceUnknown', 'untraceable', 'untraceableReason']);
   assert.deepEqual([row.id, row.kind, row.text, row.agent, row.state, row.canDelete, row.untraceable], [c.id, 'comment', 'Tuesdays work for us too.', 'Ava', 'sent', true, false]);
   const stored = communitystore.serviceComments().find((x) => x.id === c.id);
   assert.equal(row.postedAt, stored.receivedAt);

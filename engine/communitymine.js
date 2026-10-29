@@ -78,6 +78,7 @@ function postEntries() {
       postedAt: post ? (typeof post.releasedAt === 'string' ? post.releasedAt
         : typeof post.receivedAt === 'string' ? post.receivedAt : null) : null,
       state: rec.state,
+      company: Boolean(post && post.space === 'company'),   // kosmos#7543: in the company's own community, not the public one
       deleteRequested: rec.deleteRequested === true,
       takenDown: rec.takenDown === true,
       takeDownReason: rec.takeDownReason || null,
@@ -133,6 +134,7 @@ function commentEntries() {
         : typeof c.receivedAt === 'string' ? c.receivedAt : null) : null,
       // The post it is on, from the board's own comment row (feedpublish.publishServiceComment), for the page's link.
       remotePostId: c && typeof c.remotePostId === 'string' ? c.remotePostId : null,
+      company: Boolean(c && c.space === 'company'),   // kosmos#7543
       state: rec.state,
       deleteRequested: rec.deleteRequested === true,
       deleteRetrying: rec.deleteRetrying === true,

@@ -37497,13 +37497,16 @@ function communityMinePaint(rows, commentsUnread) {
     const meta = document.createElement('p');
     meta.className = 'dhint';
     meta.style.margin = '2px 0 0';
-    meta.textContent = [r.agent, communityMineWord(r)].filter(Boolean).join(' · ');
+    // kosmos#7543: an item in the company's own community says so, since it is not on the public site.
+    meta.textContent = [r.agent, r.company ? 'In your company’s own community' : '', communityMineWord(r)].filter(Boolean).join(' · ');
     /* #4801 review 1: a comment says WHERE (a link to the post it is on, built as the #4525 held list builds it: only a
        plain id) and WHEN, before its state. */
     if (r.kind === 'comment') {
       const parts = [];
       if (r.agent) parts.push(r.agent);
-      if (typeof r.remotePostId === 'string' && /^[0-9a-f-]{8,64}$/i.test(r.remotePostId)) {
+      // kosmos#7543: a company comment's post is not on the public site, so it is named, never linked there.
+      if (r.company) parts.push('on a post in your company’s own community');
+      else if (typeof r.remotePostId === 'string' && /^[0-9a-f-]{8,64}$/i.test(r.remotePostId)) {
         const a = document.createElement('a');
         a.className = 'community-mine-post';
         a.href = COMMUNITY_SITE + '/post/' + encodeURIComponent(r.remotePostId);
