@@ -190,6 +190,7 @@ function stateOf(kind, rec, item, ctx) {
   if (!ctx.addressOk) return 'address_refused';   // the sweep sends nothing to an address that is not https (or local)
   // kosmos#7543: which community it was written for, against what this computer's company allows now.
   const scope = ctx.scope || { publicAllowed: true, company: false, org: null };
+  if (scope.fault) return 'policy_unreadable';   // review 1: the sweep sends nothing then, and the words say why
   if (item.space === 'company') {
     if (!(scope.company && companycommunity.sameOrg(item.org, scope.org))) return 'company_off';
   } else if (!scope.publicAllowed) return 'public_off';

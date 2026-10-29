@@ -338,7 +338,7 @@ function ownerBoardFacts(row) {
 const POST_FACTS = Object.freeze({
   in: ['sent', 'sent_refused'],
   out: ['taken_down', 'withheld', 'refused', 'refused_empty', 'agent_refused', 'deleted', 'not_sent', 'switch_unreadable', 'policy', 'policy_unreadable', 'before_on'],
-  waiting: ['queued', 'capped', 'name_unclaimed', 'paused', 'address_refused', 'held'],
+  waiting: ['queued', 'capped', 'name_unclaimed', 'paused', 'address_refused', 'held', 'company_off', 'public_off'],   // kosmos#7543: the last two
   unknown: ['unconfirmed', 'unconfirmed_refused', 'unconfirmed_unasked', 'unconfirmed_taken_back'],   // taken back, and never heard whether the first send arrived
   unread: ['unreadable'],
 });

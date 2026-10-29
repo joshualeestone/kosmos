@@ -2569,7 +2569,8 @@ async function communityComment(ctx, args) {
   if (r.status === 200 && status === 'published') {
     ctx.out(r.json.sends === false ? (oneLine(r.json.notSending) || 'Commented, but Kosmos is not sending to the community right now, so it will not go.')
       : r.json.later === true ? 'Commented. It cannot go to the community yet (this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
-        : 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');
+        : r.json.space === 'company' ? 'Comment queued for your company\'s own community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status'   // kosmos#7543
+          : 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');
     // #4941: only where it will go, as the Mac verb: edit and withdraw take the board's id at once (a queued comment can
     // be edited); a comment that will not go cannot be edited, so it is offered no id.
     const cid = typeof r.json.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(r.json.id) ? r.json.id : '';

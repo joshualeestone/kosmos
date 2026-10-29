@@ -1179,7 +1179,7 @@ async function sendComment(c, keys, csent, now, from) {
   if (r.status === 201) {
     // #4801: which service agent stored it (agentId), so a removal is only ever asked by that same agent: after keys.json is
     // lost and the agent registers afresh, the service answers 404 "not yours", which would read as removed.
-    csent[c.id] = settle(rec, { state: 'sent', sentAt: new Date(now).toISOString(), ...(r.json && r.json.id ? { remoteId: String(r.json.id) } : {}), ...(k.remoteId ? { agentId: k.remoteId } : {}) });
+    csent[c.id] = settle(rec, { state: 'sent', sentAt: new Date(now).toISOString(), ...(r.json && r.json.id ? { remoteId: String(r.json.id) } : {}), ...(k.remoteId ? { agentId: k.remoteId } : {}), ...(company ? { space: 'company', org: c.org } : {}) });   // kosmos#7543 review 1: the record says where it went
   } else if (r.status === 404) {
     // #4833: the service answers a reply whose comment is gone (removed, its author deactivated, or not on this post)
     // with 404 "comment not found", and a missing post with 404 "post not found": the post may be fine.
@@ -1274,14 +1274,17 @@ async function sweepCommentDeletes(keys) {
     /* kosmos#7543: a company comment is taken back in its space (DELETE /spaces/{org}/comments/{id}, Renet's contract),
        only while that company's community is this computer's, and a 404 there counts as gone only when the space still
        answers and no longer lists it, as for a company post (sweepDeletes). */
-    const row = communitystore.rowOf('comment', id);
-    const company = Boolean(row && row.space === 'company');
-    if (company && !companyPostGoesNow({ org: row.org }, Date.now())) { logWaitOnce('cdelete:' + id, `removal of comment ${id}: held, it is in a company community that is not this computer's now`); continue; }
-    const r = company ? await spaceAs(rec.agent, keys, 'DELETE', '/comments/' + encodeURIComponent(rec.remoteId), undefined, row.org)
+    /* Review 1: the sent record first (written when it went), then the board's row, so a row that is gone or unreadable
+       cannot turn a company comment's take-back into a public one. */
+    const row = communitystore.rowOf('comment', id) || {};
+    const company = rec.space === 'company' || row.space === 'company';
+    const corg = company ? (rec.org || row.org) : null;
+    if (company && !companyPostGoesNow({ org: corg }, Date.now())) { logWaitOnce('cdelete:' + id, `removal of comment ${id}: held, it is in a company community that is not this computer's now`); continue; }
+    const r = company ? await spaceAs(rec.agent, keys, 'DELETE', '/comments/' + encodeURIComponent(rec.remoteId), undefined, corg)
       : await asAgent(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.post) + '/comments/' + encodeURIComponent(rec.remoteId));
     if (r.notSent) { logWaitOnce('cdelete:' + id, `removal of comment ${id}: not sent to the company community (${r.because}); trying again on each pass`); continue; }
     if (company && r.status === 404) {
-      const check = await spaceAs(rec.agent, keys, 'GET', '/agents/me/comments', undefined, row.org);
+      const check = await spaceAs(rec.agent, keys, 'GET', '/agents/me/comments', undefined, corg);
       const mine = ownList(check, 'comments');
       if (!mine) { logWaitOnce('cdelete:' + id, `removal of comment ${id}: the company community did not answer; trying again on each pass`); continue; }
       if (mine.some((c) => c && String(c.id) === String(rec.remoteId))) { logWaitOnce('cdelete:' + id, `removal of comment ${id}: the company community still lists it; trying again on each pass`); continue; }
@@ -1507,10 +1510,10 @@ async function sweepIndustry(keys, on) {
       delete k.industryRefused;
     }
     // Write-ahead: if the answer never arrives (or the board stops), the next sweep knows it cannot trust industrySent.
+    if (!publicAllowedNow()) continue;   // kosmos#7543: no public profile change while the company says the public community is off (before the mark: nothing goes)
     const wasUnsure = k.industryUnsure === true;        // set by an EARLIER unanswered PATCH, which may have landed
     k.industryUnsure = true;
     saveJson(keysFile(), keys);
-    if (!publicAllowedNow()) continue;   // kosmos#7543: no public profile change while the company says the public community is off
     const r = await asAgent(agentKey, keys, 'PATCH', '/agents/me', { industry: want });
     if (r.status === 204 || r.status === 200) {
       k.industrySent = want;
