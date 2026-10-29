@@ -36,7 +36,8 @@ udid=""
 cleanup() {
   [ -n "$udid" ] && { xcrun simctl shutdown "$udid" >/dev/null 2>&1; xcrun simctl delete "$udid" >/dev/null 2>&1; }
   [ -n "${fetch_pid:-}" ] && kill "$fetch_pid" 2>/dev/null
-  if [ "$keep" = 1 ]; then echo "kept: $work"; else rm -rf "$work"; fi
+  # The result bundle can hold the test environment (compressed, so a search cannot show it does not): delete it.
+  if [ "$keep" = 1 ]; then echo "kept: $work (it may hold the account's secrets: delete it when done)"; else rm -rf "$work"; fi
 }
 trap cleanup EXIT
 
@@ -69,8 +70,10 @@ if [ "$rc" -eq 0 ] && grep -q "Test Case .*testSignInReachesTheBoard.* passed" "
   exit 0
 fi
 # The first failing step's own words (the test names each step), never the environment.
-why="$(grep -o 'STEP [a-z ]*: .*' "$log" | head -1)"
-[ -n "$why" ] || why="$(grep -E 'error:|failed' "$log" | grep -v -i 'totp\|otpauth' | head -1)"
+# The test's own failing assertion, and the last step it reached (each step is named "STEP <name>").
+why="$(sed -n 's/.*error: -\[KosmosUITests\.[A-Za-z]* [A-Za-z]*\] : //p' "$log" | head -1)"
+reached="$(sed -n 's/.* STEP \([a-z ]*\)$/\1/p' "$log" | tail -1)"
+[ -n "$reached" ] && why="at the step \"$reached\": ${why:-it stopped}"
 echo "FAIL  ui-signin: ${why:-xcodebuild test exited $rc}"
 [ "$keep" = 1 ] || echo "  (run again with --keep to keep the log, screenshots and result)"
 exit 1

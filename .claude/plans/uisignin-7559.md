@@ -31,3 +31,5 @@ UI automation (#4903). Make a phone sign-in measurable here: typed by a test, he
 - xcodebuild test on a fresh booted simulator: TOTPTests passes, SignInUITests skips with no account (done 06:18, exit 0).
 - ios/tools/test-archive-config.sh, the LogicTests suites, Debug and Release app builds.
 - End to end once the fetcher and the account exist.
+- First end-to-end run (06:25 CDT 10-29, hello+test-a@, Vivienne's fetcher): the email, the emailed code (fetched in seconds, read by the test from the runner's host path), the authenticator code and the sign-in all went through in 18.6 s; it stopped at the board with "signed in, but this account has no computer connected" (test-a has no computer). That answer is now its own assertion rather than a timeout. The runner reported an Xcode log line instead of the assertion; it now names the step and the assertion.
+- The result bundle is compressed: a search found neither the secret nor the email in it (the email's own control failed), so nothing can show it is free of the environment. It is deleted by default, and --keep says so.
