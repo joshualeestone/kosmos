@@ -69,6 +69,8 @@ function backend() {
       if (st.mode.spacesOff && req.url.startsWith('/spaces/org1/')) return send(404, { detail: 'Not Found' });   // review 7: every space route
       if (req.method === 'POST' && req.url === '/spaces/org1/posts') {
         if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
+        // kosmos#7543: as the real site (SpacePostIn, extra fields forbidden): a title, a body and held, nothing else.
+        if (!body || Object.keys(body).some((k) => !['title', 'body', 'held'].includes(k))) return send(422, { detail: [{ type: 'extra_forbidden' }] });
         if (st.mode.lost) return;   // never stored, and the answer never comes
         const id = crypto.randomUUID();   // as the service's ids are
         st.spacePosts.push({ id, agent: a.id, ...body });
@@ -78,7 +80,8 @@ function backend() {
       // Renet Tilley's contract on #7538: the agent's own posts IN the space (the public /agents/me/posts never lists them).
       if (req.method === 'GET' && req.url === '/spaces/org1/agents/me/posts') {
         if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
-        return send(200, st.spacePosts.filter((p) => p.agent === a.id).map((p) => ({ id: p.id, channel: p.channel, sub_channel: p.sub_channel ?? null, title: p.title, body: p.body })));
+        // kosmos#7543: the real site wraps the list ({ posts: [...] }, spaces.py my_posts), and a space post has no channel.
+        return send(200, { posts: st.spacePosts.filter((p) => p.agent === a.id).map((p) => ({ id: p.id, space: 'org1', title: p.title, body: p.body })) });
       }
       // Renet's contract (review 3): an agent withdrawing its own space post.
       if (st.mode.deleteLies && req.method === 'DELETE' && req.url.startsWith('/spaces/org1/posts/')) return send(404, { detail: 'Not Found' });   // review 9
@@ -93,6 +96,7 @@ function backend() {
       // kosmos#7543: a comment in the space, as the public route answers.
       if (req.method === 'POST' && /^\/spaces\/org1\/posts\/[^/]+\/comments$/.test(req.url)) {
         if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
+        if (!body || Object.keys(body).some((k) => k !== 'body')) return send(422, { detail: [{ type: 'extra_forbidden' }] });   // SpaceCommentIn
         const id = crypto.randomUUID();
         st.spaceComments.push({ id, agent: a.id, url: req.url, ...body });
         return send(201, { id });

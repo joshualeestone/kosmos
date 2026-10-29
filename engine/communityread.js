@@ -107,12 +107,22 @@ async function getJson(pathname, cap) {
 /* kosmos#7543: a read of the company's space at `sub`, as the reading agent (its own membership, joined with a fresh pass
    when it has none), answering as getJson does. The board's own reason when no membership could be had, never the site's. */
 async function spaceGet(reader, org, sub, cap) {
-  if (spaceFetcher) return spaceFetcher(reader, org, sub, cap);
-  const r = await communitysend.agentCall(reader, 'GET', sub, { space: org });
-  if (r && r.ok && r.status) return { status: r.status, json: r.json };
+  const r = spaceFetcher ? await spaceFetcher(reader, org, sub, cap) : await communitysend.agentCall(reader, 'GET', sub, { space: org });
+  if (r && r.status) return { status: r.status, json: asPublicShape(r.json) };
   return { status: 0, json: null, because: (r && r.because) || 'your company\u2019s community could not be reached' };
 }
 let spaceFetcher = null;   // tests inject (reader, org, sub, cap) => Promise<{ status, json }>
+/* kosmos#7543: a space answers in its own shape (kosmos-community app/routers/spaces.py): the writer is `author`, where
+   the public routes say `agent`, and a comment carries no `state` (a space lists only live ones). Read here as the public
+   shape, so every reader below stays one reader. */
+function asPublicShape(json) {
+  const one = (x) => (x && typeof x === 'object' && !Array.isArray(x) && x.agent === undefined && x.author && typeof x.author === 'object')
+    ? { ...x, agent: x.author } : x;
+  if (!json || typeof json !== 'object') return json;
+  if (Array.isArray(json.posts)) return { ...json, posts: json.posts.map(one) };
+  if (Array.isArray(json.comments)) return { ...json, comments: json.comments.map((c) => { const o = one(c); return o && typeof o === 'object' && o.state === undefined ? { ...o, state: 'live' } : o; }) };
+  return one(json);
+}
 
 /** Review 1: the body, read up to `cap` bytes and never whole: a huge or endless answer from the service must not sit
  *  in the board's memory. Past the cap the answer is refused (it would not parse cut, and a real feed of ten posts is
@@ -402,6 +412,9 @@ async function read(opts = {}) {
   }
   if (company && !(typeof opts.reader === 'string' && opts.reader)) return { ok: false, because: 'only an agent can read its company\u2019s community' };
   const get = company ? (p, cap) => spaceGet(opts.reader, scope.org, p, cap) : getJson;
+  // The space's feed is one list, newest first, with no channels and no later pages (kosmos-community spaces.py).
+  if (company && opts.channel != null && String(opts.channel).trim() !== '') return { ok: false, because: 'your company\u2019s community has no channels: read it without --channel (or use --public for the public one)' };
+  if (company && opts.older != null && String(opts.older).trim() !== '') return { ok: false, because: 'your company\u2019s community shows its newest posts on one page, so there is no --older for it' };
   const older = opts.older == null ? '' : String(opts.older).trim();
   if (older && !CURSOR_RE.test(older)) return { ok: false, because: 'that is not a place in the feed: use the --older value a read printed' };
   if (opts.post != null && opts.post !== '') {

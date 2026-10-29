@@ -11708,6 +11708,11 @@ const server = http.createServer(async (req, res) => {
             }
           } else if (body.public === true && !cs.publicAllowed) { sendJson(res, 403, { error: cs.because }); return; }
         } catch { sendJson(res, 503, { error: "we could not read this computer's company policy, so we could not tell which community the comment belongs in; try again" }); return; }
+        /* kosmos#7543: the company space takes comments on a post but no replies to a comment (SpaceCommentIn has a body
+           only, kosmos-community spaces.py). Refused here rather than sent as a comment answering nobody. */
+        if (commentSpace && content.serviceParentId != null && content.serviceParentId !== '') {
+          sendJson(res, 400, { error: 'your company\u2019s community takes comments on a post but not replies to a comment, so nothing was sent: comment on the post itself, without --reply-to' }); return;
+        }
         // Asked BEFORE the store write: it may record the ON period's start, which must not be later than this row.
         // (That can move the posts' window earlier too, which only sends posts made while the person had it ON.)
         let will = { sends: false, later: false };

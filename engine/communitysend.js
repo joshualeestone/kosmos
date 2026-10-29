@@ -62,7 +62,9 @@ const communitysite = require('./communitysite');
 const feedpublish = require('./feedpublish');   // #5574: an edit's new words get a new one's check
 const companycommunity = require('./companycommunity');   // kosmos#7541: posts for a company's own community
 const spaceMembers = new Map();   // kosmos#7541: agentKey -> { space, untilMs }, a company space membership
-const COMPANY_NOT_YET = (what) => 'Kosmos cannot ' + what + ' a post in your company\'s own community yet';   // kosmos#7543 builds it
+/* kosmos#7543: the company space takes no edits (Renet Tilley's contract on #7538 has no PATCH under /spaces), so the
+   refusal says what does work: taking it back and writing it again. */
+const COMPANY_NO_EDIT = (w) => 'Your company\'s own community does not take edits, so this ' + w + ' cannot be edited; take it back and write it again';
 /* kosmos#7541 review 1: whether a post may go to the PUBLIC community now (orgpolicy.communitySpace); false when it
    cannot be read, so a policy fault never lets a post out. */
 function publicAllowedNow(now) { return communityNow(now).publicAllowed; }
@@ -862,15 +864,27 @@ async function asAgent(agentKey, keys, method, pathname, body, ctx = {}) {
 // After a send whose answer never arrived, the server may hold the post already. Look for
 // it among the agent's own posts before sending again. Returns its remote id, null when it
 // is not there, or undefined when the server could not be asked.
+/* kosmos#7543: an agent's own list, as the public route answers it (a bare list) or as the space route does
+   ({ posts: [...] } or { comments: [...] }, kosmos-community app/routers/spaces.py); null when it is neither. */
+function ownList(r, key) {
+  if (!r || r.status !== 200) return null;
+  if (Array.isArray(r.json)) return r.json;
+  return r.json && Array.isArray(r.json[key]) ? r.json[key] : null;
+}
 async function findExisting(agentKey, keys, body, sent, space, org) {
   /* kosmos#7541: a company post is looked for among the agent's own posts IN its space (Renet Tilley's contract on
      #7538: the public /agents/me/posts never lists a space row). No membership to be had is "cannot tell yet". */
   const r = space === 'company' ? await spaceAs(agentKey, keys, 'GET', '/agents/me/posts', undefined, org) : await asAgent(agentKey, keys, 'GET', '/agents/me/posts');
-  if (r.status !== 200 || !Array.isArray(r.json)) return undefined;
+  const list = ownList(r, 'posts');
+  if (!list) return undefined;
   const taken = new Set(Object.values(sent).map((x) => x && x.remoteId).filter(Boolean));
+  if (space === 'company') {   // kosmos#7543: a space post has no channel
+    const hit = list.find((p) => p && !taken.has(String(p.id)) && p.title === body.title && p.body === body.body);
+    return hit ? String(hit.id) : null;
+  }
   /* #5174: the sub-channel too (null and absent alike), or a same-title post in the parent channel reads as this one
      and the real post is never sent. The site answers sub_channel on every own post, null when there is none. */
-  const hit = r.json.find((p) => p && !taken.has(String(p.id)) && p.title === body.title
+  const hit = list.find((p) => p && !taken.has(String(p.id)) && p.title === body.title
     && p.body === body.body && p.channel === body.channel && (p.sub_channel || null) === (body.sub_channel || null));
   return hit ? String(hit.id) : null;
 }
@@ -945,6 +959,9 @@ async function sendPost(post, keys, sent, now, from) {
   if (post.space !== 'company' && !publicAllowedNow(now)) { logWaitOnce(post.id, `post ${post.id} for ${agentKey}: held, the company says its agents do not post in the public community`); return; }
   if (post.space === 'company' && !companyPostGoesNow(post, now)) { logWaitOnce(post.id, `post ${post.id} for ${agentKey}: held, it was written for a company community that is not this computer's now`); return; }
   let body = payload(post, rec.channel);
+  /* kosmos#7543: the site's space post takes a title and a body and refuses any other field (SpacePostIn, extra
+     forbidden: kosmos-community app/routers/spaces.py), so a company post never carries the channel a public one does. */
+  if (post.space === 'company') body = { title: body.title, body: body.body };
   if (!body.title || !body.body) { sent[post.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   if (rec.attempted) return;                         // settleUnconfirmed could not tell this sweep: wait
   // #5574 review 4: which service agent sends it, as a comment records (agentId), so a take-back is asked only by that
@@ -1034,9 +1051,10 @@ async function sweepDeletes(keys, sent, deletes) {
        spaces off answers 404 to every route, and the post would be marked taken down while still there. */
     if (company && r.status === 404) {
       const check = await spaceAs(rec.agent, keys, 'GET', '/agents/me/posts', undefined, corg);
-      if (check.status !== 200 || !Array.isArray(check.json)) { logWaitOnce('delete:' + id, `take-down of ${id}: the company community did not answer; trying again on each pass`); continue; }
+      const mine = ownList(check, 'posts');   // kosmos#7543: the space answers { posts: [...] }
+      if (!mine) { logWaitOnce('delete:' + id, `take-down of ${id}: the company community did not answer; trying again on each pass`); continue; }
       // Review 9: and the post must really be absent from the agent's own posts there, not merely the route answering.
-      if (check.json.some((p) => p && String(p.id) === String(rec.remoteId))) { logWaitOnce('delete:' + id, `take-down of ${id}: the company community still lists it; trying again on each pass`); continue; }
+      if (mine.some((p) => p && String(p.id) === String(rec.remoteId))) { logWaitOnce('delete:' + id, `take-down of ${id}: the company community still lists it; trying again on each pass`); continue; }
     }
     if (r.status === 204 || r.status === 404) sent[id] = settle(rec, { state: 'deleted' });
     else {
@@ -1243,8 +1261,21 @@ async function sweepCommentDeletes(keys) {
     const k = keys[rec.agent];
     if (!k || !k.apiKey || k.refused) continue;
     if (!sameServiceAgent(rec, k)) continue;          // another registration: its 404 would not mean "gone"
-    const r = await asAgent(rec.agent, keys, 'DELETE',
-      '/posts/' + encodeURIComponent(rec.post) + '/comments/' + encodeURIComponent(rec.remoteId));
+    /* kosmos#7543: a company comment is taken back in its space (DELETE /spaces/{org}/comments/{id}, Renet's contract),
+       only while that company's community is this computer's, and a 404 there counts as gone only when the space still
+       answers and no longer lists it, as for a company post (sweepDeletes). */
+    const row = communitystore.rowOf('comment', id);
+    const company = Boolean(row && row.space === 'company');
+    if (company && !companyPostGoesNow({ org: row.org }, Date.now())) { logWaitOnce('cdelete:' + id, `removal of comment ${id}: held, it is in a company community that is not this computer's now`); continue; }
+    const r = company ? await spaceAs(rec.agent, keys, 'DELETE', '/comments/' + encodeURIComponent(rec.remoteId), undefined, row.org)
+      : await asAgent(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.post) + '/comments/' + encodeURIComponent(rec.remoteId));
+    if (r.notSent) { logWaitOnce('cdelete:' + id, `removal of comment ${id}: not sent to the company community (${r.because}); trying again on each pass`); continue; }
+    if (company && r.status === 404) {
+      const check = await spaceAs(rec.agent, keys, 'GET', '/agents/me/comments', undefined, row.org);
+      const mine = ownList(check, 'comments');
+      if (!mine) { logWaitOnce('cdelete:' + id, `removal of comment ${id}: the company community did not answer; trying again on each pass`); continue; }
+      if (mine.some((c) => c && String(c.id) === String(rec.remoteId))) { logWaitOnce('cdelete:' + id, `removal of comment ${id}: the company community still lists it; trying again on each pass`); continue; }
+    }
     // Saved against a fresh read, so a "will not go" record markNotSent added while this DELETE was out is kept.
     const csent = loadJson(commentsSentFile());
     if (!csent || !csent[id] || csent[id].state !== 'sent') continue;
@@ -2495,8 +2526,9 @@ async function editNow(who, kind, raw, words, deadline) {
   const row = local ? own(local) : null;
   if (!row) return { ok: false, missing: true, because: 'you have no ' + w + ' with that id' };
   if (row.notSent === true) return no('This ' + w + ' was never sent, so there is nothing to edit');
-  // kosmos#7541 review 1 and 3: editing a post that went to the company's own community is not built yet (#7543).
-  if (kind === 'post' && recs[local] && (recs[local].state === 'sent' || recs[local].attempted) && wentToCompany(local, recs[local])) return no(COMPANY_NOT_YET('edit'));
+  // kosmos#7541 review 1 and 3, kosmos#7543: a post or comment that went to the company's own community cannot be edited.
+  const wentCompany = kind === 'post' ? wentToCompany(local, recs[local]) : row.space === 'company';
+  if (recs[local] && (recs[local].state === 'sent' || recs[local].attempted) && wentCompany) return no(COMPANY_NO_EDIT(w));
   const dels = loadJson(kind === 'post' ? deletesFile() : commentDeletesFile());
   if (!dels) return retry('Kosmos could not read its list of taken-back ' + w + 's just now');
   if (Object.prototype.hasOwnProperty.call(dels, local)) return no('You took this ' + w + ' back, so it cannot be edited');
