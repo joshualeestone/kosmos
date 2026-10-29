@@ -18,6 +18,8 @@
 
 - Review 2 (opus): one record line per shift (a cause that re-applies every frame cannot flood the 80-line record), the Debug offset is given from the rest, and a no-op bounce setting dropped. The only behavioural proof is the simulator run (iPhone 17 simulator, iOS 27.0, KOSMOS_SAMPLE_SIDEWAYS with the NOLOCK control); the source check proves only that the lock is wired, and the "side lock: no scroll view" record line is what a phone would show if the probe ever failed to find the list.
 
+- Review 3 (sonnet): the once-per-shift flag resets when the probe moves window. Not changed: which scroll view the probe finds (nearest UIScrollView ancestor of a view inside the chat's own ScrollView content is that list; an outer container is farther up); putting the offset back can interrupt a fling in progress, but only when the list is already shifted, which is the bug.
+
 ## Weakest premise
 
 - That the offset on Josh's phone is a UIScrollView contentOffset.x (the mechanism the simulator reproduces) rather than something that looks the same, such as the list's own frame moving. The trace will say: if the phone shifts again with no "side offset" line in a Share, it is the other thing.
