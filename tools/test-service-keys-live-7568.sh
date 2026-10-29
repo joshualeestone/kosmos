@@ -68,12 +68,38 @@ run && bad "a set listing no keys passed" || { grep -q "lists no keys at all" "$
 set_of "$LIVE_SPKI"
 KOSMOS_COORDINATOR_URL="file://$T/coord/" service_keys_live_check "$T/repo" >"$T/out" 2>"$T/err" && ok "a trailing / on the coordinator URL still reads /v1/meta" || bad "a trailing / refused: $(cat "$T/err")"
 
+# 4c. the frozen-tree re-check, through the REAL freeze (tools/lib/release-freeze.sh): the checkout had no set when
+# 1d3 asked, then a fast-forward brought one in that lacks the key. The frozen tree must refuse; a freeze of a commit
+# that lists the key passes (the control, so the refusal is the set and not a frozen tree missing the check).
+. tools/lib/release-freeze.sh
+g(){ git -c user.name=t -c user.email=t@example.com -c commit.gpgsign=false "$@"; }
+rm -f "$T/repo/engine/service-keys.json" "$T/repo/engine/service-keys.json.sig"
+g init -q -b main "$T/repo" && g -C "$T/repo" add -A && g -C "$T/repo" commit -q -m "no set"
+run && ok "1d3 on the checkout with no set asks nothing" || bad "the checkout with no set refused: $(cat "$T/err")"
+coordinator "{\"coordinator_pubkey\":\"$LIVE_RAW\"}"
+freeze_check(){ # <label>: commit the set now in the checkout, freeze that commit, check the frozen tree
+  local sha build rc
+  g -C "$T/repo" add -A && g -C "$T/repo" commit -q -m "$1"; sha="$(git -C "$T/repo" rev-parse HEAD)"
+  mkdir -p "$T/frozen"; build="$(release_freeze "$T/repo" "$sha" "$T/frozen")" || { echo "freeze failed" > "$T/err"; return 2; }
+  KOSMOS_COORDINATOR_URL="file://$T/coord" service_keys_live_check "$build" >"$T/out" 2>"$T/err"; rc=$?
+  release_thaw "$T/repo" "$build"; return "$rc"
+}
+set_of "$OTHER_SPKI"; freeze_check "a fast-forward brings in a set without the key"; rc=$?
+[ "$rc" = 1 ] && grep -q "NOT on the set" "$T/err" && ok "the frozen tree with a set lacking the key refuses" || bad "frozen set without the key: rc=$rc $(cat "$T/err")"
+set_of "$OTHER_SPKI" "$LIVE_SPKI"; freeze_check "the set lists the key"; rc=$?
+[ "$rc" = 0 ] && grep -q "is listed" "$T/out" && ok "CONTROL: the frozen tree with the key passes" || bad "frozen set with the key: rc=$rc $(cat "$T/err")"
+
+# 4d. the Windows build ships the same set (kosmos_stage_service_keys) and asks the same question, beside its floor check
+grep -q '^\. "\$REPO/tools/lib/service-keys-live.sh"$' tools/build-kosmos-windows.sh \
+  && grep -q '^service_keys_live_check "\$REPO" || exit 1$' tools/build-kosmos-windows.sh \
+  && ok "build-kosmos-windows.sh runs the check" || bad "build-kosmos-windows.sh does not run service_keys_live_check"
+
 # 5. release.sh runs it before the bump (step 1d3) and again on the frozen tree, and sources the lib
 grep -q '^service_keys_live_check "\$REPO" || exit 1$' tools/release.sh && ok "release.sh step 1d3 runs the check" || bad "release.sh does not run service_keys_live_check"
 _bump="$(grep -n '^step "== 2\. the version' tools/release.sh | cut -d: -f1)"; _chk="$(grep -n '^service_keys_live_check "\$REPO"' tools/release.sh | cut -d: -f1)"
 [ -n "$_bump" ] && [ -n "$_chk" ] && [ "$_chk" -lt "$_bump" ] && ok "the check runs before the bump" || bad "the check is not before step 2 (check line '$_chk', bump line '$_bump')"
 # The frozen re-check: after REPO="$BUILD" (the freeze) and before step 4 builds anything.
-_frz="$(grep -n '^REPO="\$BUILD"$' tools/release.sh | cut -d: -f1)"; _re="$(grep -n '^service_keys_live_check "\$BUILD" || { echo .*already pushed.*; exit 1; }$' tools/release.sh | cut -d: -f1)"
+_frz="$(grep -n '^REPO="\$BUILD"$' tools/release.sh | cut -d: -f1)"; _re="$(grep -n '^service_keys_live_check "\$BUILD" || { echo .*already committed.*; exit 1; }$' tools/release.sh | cut -d: -f1)"
 _b4="$(grep -n '^step "== 4\. build ==' tools/release.sh | cut -d: -f1)"
 [ -n "$_frz" ] && [ -n "$_re" ] && [ -n "$_b4" ] && [ "$_re" -gt "$_frz" ] && [ "$_re" -lt "$_b4" ] && ok "the frozen tree is checked again, after the freeze and before the build" || bad "no frozen re-check between the freeze and step 4 (freeze '$_frz', check '$_re', build '$_b4')"
 grep -q '^\. "\$REPO/tools/lib/service-keys-live.sh"' tools/release.sh && ok "release.sh sources the lib" || bad "release.sh does not source tools/lib/service-keys-live.sh"

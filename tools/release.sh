@@ -1116,7 +1116,7 @@ release_freeze_notice "$SHA" "$BUILD" "$V" "$CUT_CHANNEL"
 kosmos_setup_floor_installer_ok "the frozen install/setup.sh this cut publishes" "$BUILD/install/setup.sh" || exit 1
 # kosmos#7568: the same for the service key set step 1d3 checked in the checkout: a fast-forward can bring in a set, or
 # change one, after 1d3. Asked again of the FROZEN tree, with the same stated limit (the bump is already pushed).
-service_keys_live_check "$BUILD" || { echo "release: the version bump to $V is already pushed to origin; fix the set in the tree and cut again." >&2; exit 1; }
+service_keys_live_check "$BUILD" || { echo "release: the version bump to $V is already committed (and pushed, unless step 2 said it could not be); fix the set in the tree and cut again." >&2; exit 1; }
 step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955) =="
 # The shared checkout can move between step 1 and the freeze (two cuts in a row were fast-forwarded
 # mid-run on 2026-08-24, per step 2b), so the file 1b-ii read is checked again as FROZEN. A refusal here
