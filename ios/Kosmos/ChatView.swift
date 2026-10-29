@@ -2150,6 +2150,7 @@ struct SideScrollLock: UIViewRepresentable {
     final class Probe: UIView {
         let off: Bool
         private var watch: NSKeyValueObservation?
+        private var shifted = false   // review 2: one line in the record per sideways shift, not one per frame
         init(off: Bool) { self.off = off; super.init(frame: .zero); isUserInteractionEnabled = false; isHidden = true }
         required init?(coder: NSCoder) { nil }
 
@@ -2160,19 +2161,23 @@ struct SideScrollLock: UIViewRepresentable {
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
             guard let scroll = up as? UIScrollView else { ChatView.trace("side lock: no scroll view"); return }
-            scroll.alwaysBounceHorizontal = false
             #if DEBUG
             if let at = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIDEWAYS"].flatMap(Double.init) {
-                DispatchQueue.main.asyncAfter(deadline: .now() + at) { [weak scroll] in scroll?.contentOffset.x = 16 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + at) { [weak scroll] in
+                    if let scroll { scroll.contentOffset.x = -scroll.adjustedContentInset.left + 16 }
+                }
             }
             #endif
             let off = self.off
             // Review 1: at rest the offset is minus the left inset (0 in portrait; landscape can give an inset), so that is
             // where it goes back to, and a difference from it is what is recorded.
-            watch = scroll.observe(\.contentOffset, options: [.new]) { sv, _ in
+            watch = scroll.observe(\.contentOffset, options: [.new]) { [weak self] sv, _ in
                 let x = sv.contentOffset.x + sv.adjustedContentInset.left
-                guard abs(x) > 0.5 else { return }
-                ChatView.trace("side offset \(Int(x.rounded()))" + (off ? " (left)" : ", put back"))
+                guard abs(x) > 0.5 else { self?.shifted = false; return }
+                if self?.shifted == false {
+                    self?.shifted = true
+                    ChatView.trace("side offset \(Int(x.rounded()))" + (off ? " (left)" : ", put back"))
+                }
                 if !off {
                     DispatchQueue.main.async {
                         let rest = -sv.adjustedContentInset.left
