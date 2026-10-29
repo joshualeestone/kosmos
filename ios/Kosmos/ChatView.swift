@@ -230,8 +230,10 @@ struct ChatView: View {
                         if let note = client.starNote { UIAccessibility.post(notification: .announcement, argument: note) }
                     }
                 } label: {
-                    Image(systemName: starred ? "star.fill" : "star").font(.system(size: 20))
-                        .foregroundColor(starred ? Palette.starGold : Palette.secondary)
+                    Group {
+                        if starred { StarredStar() } else { Image(systemName: "star").foregroundColor(Palette.secondary) }
+                    }
+                    .font(.system(size: 20))
                         .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
                 .disabled(client.starring.contains(agent.session))

@@ -499,7 +499,7 @@ struct AgentRow: View {
     private var name: some View {
         HStack(spacing: 4) {
             Text(agent.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(large ? nil : 1)
-            if starred { Image(systemName: "star.fill").font(.caption2).foregroundColor(Palette.starGold).accessibilityHidden(true) }
+            if starred { StarredStar().font(.caption2).accessibilityHidden(true) }
         }
     }
 
@@ -648,6 +648,9 @@ enum Palette {
     // kosmos#7034: the board's star (.astar.on): its deep gold in light (#9c741b, which holds 3:1 on the card where the
     // bright gold does not), its bright gold in dark (--gold-bright).
     static let starGold = pair(0x9c741b, 0xe3b341)
+    // kosmos#7529 (Josh 10-28: "still a dingy brown"; Mona Lisa's spec): a starred star is the bright gold filled, under a
+    // thin starGold outline, as the board's .astar.on draws it. In dark both are the bright gold, so it looks as before.
+    static let starFill = pair(0xe3b341, 0xe3b341)
     // kosmos#7419: a reaction already the person's, in the long-press sheet: a warm fill under the gold ring (Mona Lisa).
     static let mineReaction = pair(0xfbf1d9, 0x3a2f12)
     static let askedWord = pair(0x7a5200, 0xffca55)
@@ -842,4 +845,15 @@ struct StatusPill: View {
     // kosmos#7427 (Josh 10-27 20:56): the board's wave, as everywhere else on the phone (WorkingDots), in the pill's own
     // word colour so it reads on the pill.
     private var sweep: some View { WorkingDots(color: Palette.pillWord(pill)) }
+}
+
+// kosmos#7529: the starred star, everywhere one is drawn filled (the chat's header, beside a name on the Agents list).
+// The font comes from where it is used, so the fill and its outline are one symbol size.
+struct StarredStar: View {
+    var body: some View {
+        ZStack {
+            Image(systemName: "star.fill").foregroundColor(Palette.starFill)
+            Image(systemName: "star").foregroundColor(Palette.starGold)
+        }
+    }
 }
