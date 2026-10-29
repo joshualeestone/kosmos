@@ -61,16 +61,30 @@ final class SignInUITests: XCTestCase {
             // or "agents-empty" for no agents). Review 2 said the app opens on Today; it does only in the screenshot build.
             let agentsTab = app.tabBars.buttons["Agents"]
             let named = { (id: String) in app.descendants(matching: .any).matching(identifier: id).firstMatch.exists }
-            let boardAnswered = { agentsTab.isSelected && (named("agents-list") || named("agents-empty")) }
+            // exists first: reading isSelected of an element that is not there fails the test at once (no matching
+            // snapshot), which is what the first cloud run (08:5x 10-29) hit before the tab bar had drawn.
+            let boardAnswered = { agentsTab.exists && agentsTab.isSelected && (named("agents-list") || named("agents-empty")) }
+            // The Allow screen shows for a moment on a hosted box too: the gate answers "pending" to the first knock, then
+            // allows it and the app signs again at once (the hosted allow, #7337). It is a failure only if it LASTS, which
+            // means the computer is waiting for a person to press Allow (the second cloud run, 08:5x 10-29, met it at 0.5 s).
             let deadline = Date().addingTimeInterval(120)
-            while Date() < deadline && !boardAnswered() && !noComputer() && !askedAllow() {
+            var allowSince: Date? = nil
+            var continued = false
+            while Date() < deadline && !boardAnswered() && !noComputer() {
+                if askedAllow() { allowSince = allowSince ?? Date() } else { allowSince = nil }
+                // The third cloud run (09:0x 10-29) waited 60 s on this screen. Its "Continue to the app" is the way on a
+                // person has: taken after 10 s, and recorded, so the run says whether the board then loads.
+                if let since = allowSince, Date().timeIntervalSince(since) > 10, !continued, app.buttons["Continue to the app"].exists {
+                    app.buttons["Continue to the app"].tap(); continued = true; allowSince = nil
+                }
                 if agentsTab.exists && !agentsTab.isSelected { agentsTab.tap() }
                 Thread.sleep(forTimeInterval: 1)
             }
-            XCTAssertFalse(askedAllow(), "the computer asked for an Allow: a hosted box should let its own account in")
+            XCTAssertFalse(askedAllow() && !boardAnswered(), "the computer is still asking for an Allow: a hosted box should let its own account in")
+            XCTAssertFalse(continued && boardAnswered(), "the board loaded, but only after \"Continue to the app\": the sign-in screen waited on an Allow the hosted box never gives")
             XCTAssertFalse(noComputer(), "signed in, but this account has no computer connected, so there is no board to load")
             XCTAssertTrue(app.tabBars.buttons["Agents"].exists, "signed in, but the app did not move past sign-in within 120 s")
-            XCTAssertTrue(agentsTab.isSelected, "the Agents tab could not be opened")
+            XCTAssertTrue(agentsTab.exists && agentsTab.isSelected, "the Agents tab could not be opened")
             XCTAssertTrue(boardAnswered(), "the app is past sign-in but the board did not answer within 120 s (no agents list, no \"No agents yet\" on Agents)")
             XCTAssertFalse(app.staticTexts["One more step"].exists)
         }
