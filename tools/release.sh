@@ -439,6 +439,7 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 . "$REPO/tools/lib/connector-currency.sh"
 . "$REPO/tools/lib/release-linux.sh"   # kosmos#7281: the Linux x86_64 family, in lockstep with the Mac pointer
 . "$REPO/tools/lib/coordinator-floor.sh"
+. "$REPO/tools/lib/service-keys-live.sh"   # kosmos#7568: step 1d3
 # kosmos#6620: a cut moves a release pointer, so none starts while the site is frozen (tools/pointer-freeze.sh, the
 # incident pin). Before the cut marks itself, so a frozen site refuses without registering a cut.
 . "$REPO/tools/lib/pointer-freeze.sh"
@@ -944,6 +945,11 @@ step "== 1d2. the coordinator serving traffic carries what that connector needs 
 # lists those commits; refused here, before the bump. KOSMOS_ALLOW_COORDINATOR_BEHIND=1 ships anyway.
 coordinator_floor_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
   "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" "$REPO/tools/coordinator-floor" || exit 1
+
+step "== 1d3. the service key set this cut ships lists the live coordinator key (kosmos#7568) =="
+# Cloud boxes pin the shipped set (#7561) and Macs hand it to the connector, so a set without the key the coordinator
+# answers with stops every new box and every sign-in. No set ships: nothing asked. No override (tools/lib/service-keys-live.sh).
+service_keys_live_check "$REPO" || exit 1
 
 step "== 1e. no browser-check quarantine expires at $V (#4160) =="
 # A quarantine marked `until=<version>` goes red once package.json reaches it, and main's
