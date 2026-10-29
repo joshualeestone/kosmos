@@ -318,7 +318,7 @@ rm -f "$ST/paused"; tick
 printf 'tar 0.7.100\n' > "$CUTDIST/kosmos-0.7.100-arm64.tar.gz"; printf '%s  x\n' "$(shasum -a 256 "$CUTDIST/kosmos-0.7.100-arm64.tar.gz" | cut -c1-64)" > "$CUTDIST/kosmos-0.7.100-arm64.tar.gz.sha256"
 H18=$(advance eighteen); tick
 { [ ! -e "$T/site/dist/kosmos-0.7.100-arm64.tar.gz" ] && [ -f "$T/site/dist/kosmos-0.7.21-arm64.tar.gz" ] && printf '%s' "$OUT" | grep -q "newer than any release pointer"; } \
-  && pass "a build newer than every release pointer on main (0.7.100 > 0.7.99) is not mirrored; 0.7.21 is" || bad "unreleased build mirrored: $(ls "$T/site/dist" | tr '\n' ' ')"
+  && pass "a build newer than every release pointer on main (0.7.100 > 0.7.99) is not mirrored; 0.7.21 is" || bad "unreleased build mirrored: $(ls "$T/site/dist" | tr '\n' ' ') (rc=$RC) $OUT"
 
 # 19) red once per sha and cause per DAY, one record per sha and cause (reported.d/<sha>-<cause>).
 H19=$(advance nineteen)
@@ -491,7 +491,11 @@ n28=$(ndeploys); tick
   && pass "an orphaned deploy from a killed tick is found, and the next tick waits for it" || bad "orphan wait (rc=$RC) $OUT"
 touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 printf 'kosmos-release-export\ncommit=%s\n' "$H28" > "$SERVED/.kosmos-release-export"   # as if it published
-KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick; sleep 1
+KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick
+# The stopped perl's parent died too, so it is a zombie until launchd reaps it, and kill -0 succeeds on a zombie.
+# On a loaded machine that takes more than a second (the 0.7.74 cut, 10-29): wait for it, up to 10 s, rather than
+# one fixed second. A process the tick did NOT stop still fails, after the 10 s.
+for i in $(seq 1 100); do kill -0 "$hp28" 2>/dev/null || break; sleep 0.1; done
 { ! kill -0 "$hp28" 2>/dev/null && [ ! -e "$ST/deploy.pid" ] && [ "$(cat "$ST/last-deployed")" != "$H28" ] && printf '%s' "$OUT" | grep -q "stopped the deploy of" && printf '%s' "$OUT" | grep -q "recorded as a failure"; } \
   && pass "past 1200 s the orphan is stopped and counted a failure; a marker naming its sha does not bless it" \
   || { bad "orphan stop (alive=$(kill -0 "$hp28" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp28" ] && kill "$hp28" 2>/dev/null; }
@@ -537,7 +541,9 @@ M32="$T/member32.pid"
 set -m; sh -c 'perl -e "select(undef, undef, undef, 300)" & echo $! > '"$M32"'; exit 0' & lead32=$!; set +m; wait "$lead32" 2>/dev/null
 for i in $(seq 1 50); do [ -s "$M32" ] && break; sleep 0.1; done; m32=$(cat "$M32")
 printf '%s %s Mon_Jan_1_00:00:00_2001\n' "$lead32" "$H31b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
-tick; sleep 1
+tick
+# As in 28: a stopped member is a zombie until launchd reaps it; wait for it, up to 10 s, not one fixed second.
+for i in $(seq 1 100); do kill -0 "$m32" 2>/dev/null || break; sleep 0.1; done
 { ! kill -0 "$m32" 2>/dev/null && printf '%s' "$OUT" | grep -q "stopped the deploy of"; } \
   && pass "a deploy group whose leader exited is still found by its members, stopped and counted" \
   || { bad "leaderless group (member alive=$(kill -0 "$m32" 2>/dev/null && echo yes || echo no)) $OUT"; kill "$m32" 2>/dev/null; }
