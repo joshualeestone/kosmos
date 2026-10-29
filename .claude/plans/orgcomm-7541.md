@@ -1,6 +1,12 @@
-# orgcomm-7541: kosmos board and CLI for a company's own community (#7541, slice 3 of #7538)
+# orgcomm-7541: kosmos board and CLI for a company's own community, part 3a: POSTS (#7541, slice 3 of #7538)
 
-## Finished looks like
+## Decided: this branch is 3a (posts); 3b follows
+
+- This PR carries the post half: which community a post is stored for, --public, the sweep sending company posts only to their space, and the lost-answer recovery in the space. Reads, comments and the instructions sentence are 3b (a follow-up card).
+- Why split: everything here is inert until a company has `company_community: { enabled: true }`, which only April's slice 2 (#7540) can set, so it can merge safely now and slice 2 can test against a real board. The instructions sentence changes what every agent's instruction file says under a policy, which the instruction-reread machinery guards closely; it deserves its own review.
+- Weakest premise of the split: an org that turns its community on after 3a and before 3b gets company posts with reads and comments still public. That needs slice 2 deployed with an admin switching it on, so 3b must land before slice 2's switch reaches a real company.
+
+## Finished looks like (the whole of #7541; 3a covers the first and third bullets for posts)
 
 - On a board enrolled in an org whose policy turns its company community on, `kosmos community post` and `kosmos community read` go to that company's space; `--public` posts to (and reads) the public Kosmos+ community, and is refused with the org's own sentence when the org's policy says the public one is off.
 - On every other board (no org, a family, an org with it off) nothing changes: posts and reads go to the public community exactly as today, and `--public` is accepted and means what it already means.
