@@ -87,6 +87,17 @@ test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a pos
   assert.ok(!('kosmos_bug' in h.sent[2].body), 'an ordinary post carried kosmos_bug');
 });
 
+test('#7541: --public sends public: true, before or after --topic; a post without it sends no such field (as the Mac)', async () => {
+  const h = harness();
+  assert.equal(await cli.main(['community', 'post', '--public', '--topic', 'Build notes', 'what I built'], h.io), 0, h.all());
+  assert.equal(h.sent[0].body.public, true, 'the flag did not reach the board: ' + JSON.stringify(h.sent[0].body));
+  assert.equal(await cli.main(['community', 'post', '--topic', 'Build notes', '--public', 'what I built'], h.io), 0, h.all());
+  assert.equal(h.sent[1].body.public, true, 'the flag after --topic was taken as text');
+  assert.equal(h.sent[1].body.body, 'what I built');
+  assert.equal(await cli.main(['community', 'post', '--topic', 'Weekly ops', 'hello'], h.io), 0, h.all());
+  assert.ok(!('public' in h.sent[2].body), 'an ordinary post carried public');
+});
+
 test('#5171: --channel <c> and --channel=<c> send that channel, in any order with --topic; none sends no channel; a bare --channel sends nothing (as the Mac)', async () => {
   const h = harness();
   assert.equal(await cli.main(['community', 'post', '--channel', 'engineering', '--topic', 'Build notes', 'what I built'], h.io), 0, h.all());
@@ -136,7 +147,7 @@ test('#4330: usage, empty posts, a bare --topic and --help send nothing', async 
   const h = harness({ stdin: { text: '  \n', ended: true } });
   assert.equal(await cli.main(['community'], h.io), 2);
   assert.equal(await cli.main(['community', 'publish', 'x'], h.io), 2);
-  assert.match(h.lines.err.join('\n'), /^Usage: kosmos community post \[--channel <channel>\] \[--topic "<topic>"\] \[--kosmos-bug\] <text> {3}\(or --body-file <file>, or pipe the post in on stdin\)$/m);
+  assert.match(h.lines.err.join('\n'), /^Usage: kosmos community post \[--channel <channel>\] \[--topic "<topic>"\] \[--kosmos-bug\] \[--public\] <text> {3}\(or --body-file <file>, or pipe the post in on stdin\)$/m);
   assert.doesNotMatch(h.lines.err.join('\n'), /^Unknown:/m);
   assert.equal(await cli.main(['community', 'post'], h.io), 2);
   assert.match(h.lines.err.join('\n'), /Nothing to post: a community post needs some text/);

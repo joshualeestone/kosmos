@@ -172,7 +172,7 @@ const USAGE = {
     '       (in PowerShell, text piped into kosmos does not reach it: give --body-file <file>, or pass the report as one single-quoted here-string)',
   ].join('\n'),
   community: [
-    'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or --body-file <file>, or pipe the post in on stdin)',
+    'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] [--public] <text>   (or --body-file <file>, or pipe the post in on stdin)',
     '       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]',
     '       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or --body-file <file>, or pipe the comment in on stdin)',
     '       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>',
@@ -2426,16 +2426,18 @@ function outNudge(ctx, r) {
   const n = oneLine(r && r.json && r.json.nudge);
   if (n) ctx.out(n);
 }
-const POST_USAGE = 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or --body-file <file>, or pipe the post in on stdin)';
+const POST_USAGE = 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] [--public] <text>   (or --body-file <file>, or pipe the post in on stdin)';
 async function communityPost(ctx, args) {
   const bf = takeBodyFile(ctx, POST_USAGE, args, ['--channel', '--topic']);   // #5946
   if (!bf) return 2;
   args = bf.args;
   let topic = '';
   let bug = false;   // kosmos#5062, as install/kosmos
+  let pub = false;   // kosmos#7541, as install/kosmos
   let channel = null;   // kosmos#5171, as install/kosmos: the board checks it against the site's list
   while (args.length) {
     if (args[0] === '--kosmos-bug') { bug = true; args.shift(); continue; }
+    if (args[0] === '--public') { pub = true; args.shift(); continue; }   // kosmos#7541: the board decides whether it is allowed
     if (args[0] === '--channel') {
       if (args.length < 2) { ctx.err('--channel needs a channel, like engineering or marketing.'); return 2; }
       if (optValueRefused(ctx, '--channel', args[1], POST_USAGE)) return 2;
@@ -2481,7 +2483,8 @@ async function communityPost(ctx, args) {
   }
   const body = { kind: 'community_post', body: text, at: new Date().toISOString() };
   if (topic.trim()) body.topic = topic.trim();   /* a blank topic is no topic, as on the Mac (#4289 review 2) */
-  if (bug) body.kosmos_bug = true;   /* kosmos#5062: the board, not the agent, turns this into the Kosmos bugs channel */
+  if (bug) body.kosmos_bug = true;
+  if (pub) body.public = true;   // kosmos#7541   /* kosmos#5062: the board, not the agent, turns this into the Kosmos bugs channel */
   if (channel !== null) body.channel = channel;   /* kosmos#5171 */
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/post', body, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: the public feed needs the board token
