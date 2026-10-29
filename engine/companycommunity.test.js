@@ -74,5 +74,11 @@ test('#7541: not_in_space forgets the membership, so the next call joins again',
   const s = site(() => ({ status: 403, json: { detail: { code: 'not_in_space' } } }));
   const r = await cc.spaceCall('dana', s.call, 'GET', '/feed', undefined, { members, remote: coordinator([]).remote });
   assert.equal(r.status, 403);
+  assert.equal(r.notSent, true, 'review 1: another org\'s space is "not sent, try again", never a refusal');
   assert.equal(members.has('dana'), false);
+  // Review 1: a site that stopped having spaces after the join waits too.
+  const gone = new Map([['dana', { space: 'acme', untilMs: Date.now() + 60e3 }]]);
+  const s404 = site(() => ({ status: 404, json: null }));
+  const r404 = await cc.spaceCall('dana', s404.call, 'POST', '/posts', {}, { members: gone, remote: coordinator([]).remote });
+  assert.equal(r404.notSent, true);
 });

@@ -59,9 +59,15 @@ const store = require('./store');
 const communitystore = require('./communitystore');
 const industry = require('./communityindustry');   // #4375
 const communitysite = require('./communitysite');
-const feedpublish = require('./feedpublish');
+const feedpublish = require('./feedpublish');   // #5574: an edit's new words get a new one's check
 const companycommunity = require('./companycommunity');   // kosmos#7541: posts for a company's own community
-const spaceMembers = new Map();   // kosmos#7541: agentKey -> { space, untilMs }, a company space membership   // #5574: an edit's new words get a new one's check
+const spaceMembers = new Map();   // kosmos#7541: agentKey -> { space, untilMs }, a company space membership
+/* kosmos#7541 review 1: whether a post may go to the PUBLIC community now (orgpolicy.communitySpace); false when it
+   cannot be read, so a policy fault never lets a post out. */
+const COMPANY_NOT_YET = (what) => 'Kosmos cannot ' + what + ' a post in your company\'s own community yet';
+function publicAllowedNow() {
+  try { return require('./orgpolicy').communitySpace().publicAllowed === true; } catch { return false; }
+}
 
 const DEFAULT_ENDPOINT = 'https://community.kosmosplus.com';   // #4895: the Kosmos+ community (was community.installkosmos.com, still an alias)
 const endpoint = () => String(process.env.AGENT_WORKFORCE_COMMUNITY_URL || DEFAULT_ENDPOINT).replace(/\/+$/, '');
@@ -868,6 +874,11 @@ async function sendPost(post, keys, sent, now, from) {
   // #4939 review 4: and the owner's deletes, read again for the same window (an unreadable one sends nothing).
   const lateDeletes = loadJson(deletesFile());
   if (!lateDeletes || Object.prototype.hasOwnProperty.call(lateDeletes, post.id)) return;
+  /* kosmos#7541 review 1: a post for the public community is checked against the company's switch again HERE, at send
+     time, not only when it was stored: one made before the company turned the public community off (queued, or held and
+     released later) must not go out after it. It waits (it goes if the company allows the public one again); an
+     unreadable policy waits too. */
+  if (post.space !== 'company' && !publicAllowedNow()) return;
   let body = payload(post, rec.channel);
   if (!body.title || !body.body) { sent[post.id] = settle(rec, { state: 'refused', reasons: ['empty'] }); return; }
   if (rec.attempted) return;                         // settleUnconfirmed could not tell this sweep: wait
@@ -946,6 +957,10 @@ async function sweepDeletes(keys, sent, deletes) {
     // cannot tell an agent's first post (registered in the same sweep) from a re-registration, and refusing it would
     // leave the person's Delete promising "within a few minutes" forever.
     if (knownOtherRegistration(rec, k)) continue;
+    // kosmos#7541 review 1: a company-space post is never taken down through the PUBLIC route (the space's own take-down
+    // is #7543); it stays asked for.
+    const row = communitystore.rowOf('post', id);
+    if (row && row.space === 'company') continue;
     const r = await asAgent(rec.agent, keys, 'DELETE', '/posts/' + encodeURIComponent(rec.remoteId));
     if (r.status === 204 || r.status === 404) sent[id] = settle(rec, { state: 'deleted' });
     else {
@@ -2284,6 +2299,9 @@ function withdrawFor(agentId, kind, id) {
   }
   // Review 3: moderators already took it down: it is not public, which is what the agent asked for.
   if (rec.takenDown === true) return { ok: true, state: 'deleted' };
+  // kosmos#7541 review 1: taking back a post that reached the company's own community is not built yet (#7543).
+  const crow = communitystore.rowOf('post', local);
+  if (crow && crow.space === 'company' && (rec.state === 'sent' || rec.attempted)) return no(COMPANY_NOT_YET('take back'));
   if (rec.state === 'refused') return no('The community did not accept this post, so there is nothing to take back');
   if (rec.state === 'sent' && !rec.remoteId) return no('Kosmos has no way to find this post again, so it cannot take it back');
   if (rec.state === 'sent' || (rec.state === 'pending' && rec.attempted)) {
@@ -2378,6 +2396,8 @@ async function editNow(who, kind, raw, words, deadline) {
     }
   }
   const row = local ? own(local) : null;
+  // kosmos#7541 review 1: editing in the company's own community is not built yet (#7543).
+  if (row && row.space === 'company') return no(COMPANY_NOT_YET('edit'));
   if (!row) return { ok: false, missing: true, because: 'you have no ' + w + ' with that id' };
   if (row.notSent === true) return no('This ' + w + ' was never sent, so there is nothing to edit');
   const dels = loadJson(kind === 'post' ? deletesFile() : commentDeletesFile());

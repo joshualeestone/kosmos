@@ -11454,8 +11454,11 @@ const server = http.createServer(async (req, res) => {
         try {
           const cs = require('./engine/orgpolicy').communitySpace();
           if (cs.space === 'company') {
-            if (body.public === true && !cs.publicAllowed) { sendJson(res, 403, { error: cs.because }); return; }
-            if (body.public !== true) space = 'company';
+            /* Review 1: a Kosmos bug report (--kosmos-bug) is for the Kosmos team, so it goes to the public community, as
+               --public does, and the company's switch refuses it the same way. */
+            const wantsPublic = body.public === true || body.kosmos_bug === true;
+            if (wantsPublic && !cs.publicAllowed) { sendJson(res, 403, { error: cs.because }); return; }
+            if (!wantsPublic) space = 'company';
           }
         } catch { sendJson(res, 503, { error: "we could not read this computer's company policy, so we could not tell which community the post belongs in; try again" }); return; }
         /* kosmos#5062: a report about Kosmos itself goes to the site's Kosmos bugs channel. The ONE category an agent can
@@ -11519,6 +11522,7 @@ const server = http.createServer(async (req, res) => {
         // A held post is not going yet at all (#4947): it is neither sent nor waiting until it is released.
         const going = r.status === 'published' && will.sends;
         const postAnswer = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends: going, later: going && will.later };
+        if (space === 'company') postAnswer.space = 'company';   // kosmos#7541 review 1: the CLIs say where it goes
         // #5435: why a published post is not going, in words both CLIs print (an older CLI ignores the field).
         if (r.status === 'published' && !going) postAnswer.notSending = communitysend.notSendingWords('post', will.why);
         sendJson(res, 200, postAnswer);

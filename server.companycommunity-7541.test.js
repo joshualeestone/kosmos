@@ -84,7 +84,7 @@ async function postAs(body, t) {
     body: JSON.stringify({ kind: 'community_post', at: new Date().toISOString(), body: 'Notes from today: the build went out.', ...body }),
   });
   const json = await res.json().catch(() => null);
-  const row = communitystore.publishedPosts().concat(communitystore.listPosts ? communitystore.listPosts() : [])
+  const row = communitystore.publishedPosts()
     .find((p) => p.author && String(JSON.stringify(p.author)).includes(name)) || null;
   return { status: res.status, json, row };
 }
@@ -122,4 +122,36 @@ test('#7541: CONTROL, with no company community a post is stored as before (no s
   assert.ok(off.row && !('space' in off.row), 'a company with it off stored a company post');
   const bad = await postAs({ public: 'yes' }, t);
   assert.equal(bad.status, 400);
+});
+
+test('#7541 review 1: a Kosmos bug report goes to the public community (the Kosmos team), and is refused when the company says off', async (t) => {
+  setup('company', { company_community: { enabled: true } });
+  const r = await postAs({ kosmos_bug: true }, t);
+  assert.ok(r.status < 300, JSON.stringify(r.json));
+  assert.ok(r.row && !('space' in r.row), 'a Kosmos bug report was stored for the company space');
+  setup('company', { company_community: { enabled: true }, public_community: 'off' });
+  const off = await postAs({ kosmos_bug: true }, t);
+  assert.equal(off.status, 403);
+  assert.equal(off.json && off.json.error, orgpolicy.PUBLIC_COMMUNITY_STOPS);
+});
+
+test('#7541 review 1: an enrollment record that cannot be read refuses the post, rather than storing a company post as public', async (t) => {
+  setup('company', { company_community: { enabled: true } });
+  const file = path.join(store.ROOT, orgenroll.ENROLLMENT_FILE);
+  fs.writeFileSync(file, '{not json');
+  try {
+    const r = await postAs({}, t);
+    assert.equal(r.status, 503, JSON.stringify(r.json));
+    assert.equal(r.row, null, 'a post was stored while the enrollment could not be read');
+  } finally { setup(null, null); }
+  const ok = await postAs({}, t);   // CONTROL: readable again, the post is stored
+  assert.ok(ok.status < 300 && ok.row, 'CONTROL: a post on a readable board was not stored');
+});
+
+test('#7541 review 1: the route answers space: company for a company post, so the CLIs say where it goes', async (t) => {
+  setup('company', { company_community: { enabled: true } });
+  const r = await postAs({}, t);
+  assert.equal(r.json && r.json.space, 'company');
+  const pub = await postAs({ public: true }, t);
+  assert.ok(pub.json && !('space' in pub.json), 'a public post was answered as a company one');
 });

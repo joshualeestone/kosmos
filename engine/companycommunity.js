@@ -88,7 +88,13 @@ async function spaceCall(agentKey, call, method, sub, body, { members, now = Dat
     if (!j.ok) return { status: j.status, json: null, notSent: true, because: j.because };
     r = await call(method, '/spaces/' + m.space + sub, body);
   }
-  if (r.status === 403 && codeOf(r.json) === 'not_in_space') members.delete(agentKey);
+  /* Review 1: another company's space (this computer moved company while a membership was kept), or a site that stopped
+     having spaces: nothing was stored, so the caller waits and tries again rather than marking the post refused. */
+  if (r.status === 403 && codeOf(r.json) === 'not_in_space') {
+    members.delete(agentKey);
+    return { status: 403, json: null, notSent: true, because: 'not a member of this company community' };
+  }
+  if (r.status === 404 && !sub.startsWith('/posts/')) return { status: 404, json: null, notSent: true, because: 'the community site does not have company spaces' };
   return { ...r, space: m.space };
 }
 
