@@ -165,6 +165,9 @@ connector_currency_check "$TUNNEL_BIN" "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-r
 # connector needs. KOSMOS_ALLOW_COORDINATOR_BEHIND=1 ships anyway.
 . "$REPO/tools/lib/coordinator-floor.sh"
 coordinator_floor_check "$TUNNEL_BIN" "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" "$REPO/tools/coordinator-floor" || exit 1
+# kosmos#7568: the service key set staged above must list the key the coordinator answers with (release.sh step 1d3).
+. "$REPO/tools/lib/service-keys-live.sh"
+service_keys_live_check "$REPO" || exit 1
 connector_pe_signed "$TUNNEL_BIN" || exit 1
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) _on_windows=1 ;; *) _on_windows=0 ;; esac
 _tunnel_sig="present (not verified: this build did not run on Windows)"
