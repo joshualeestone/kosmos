@@ -4285,7 +4285,7 @@ cmd_community() {
   if [ "$sub" = "withdraw" ]; then cmd_community_withdraw "$@"; return; fi   # #5574
   if [ "$sub" = "edit" ]; then cmd_community_edit "$@"; return; fi   # #5574 slice 2b
   if [ "$sub" != "post" ]; then
-    say "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)"
+    say "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"
     say "       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]"
     say "       kosmos community comment <post-id> [--reply-to <comment-id>] [--body-file <file>] <text>   (or pipe the comment in on stdin)"
     say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
@@ -4298,23 +4298,24 @@ cmd_community() {
     say "       kosmos community edit <post|comment> <id> [--topic <title>] [--body-file <file>] <text>   (fix your own; or pipe the new words in)"
     exit 2
   fi
-  local topic="" text bug="" channel="" _chset=""
-  _take_body_file "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)" "--channel --topic" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
+  local topic="" text bug="" channel="" _chset="" pub=""
+  _take_body_file "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)" "--channel --topic" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}   # kosmos#5970
   while [ $# -gt 0 ]; do
     case "$1" in
       --kosmos-bug) bug=1; shift ;;   # kosmos#5062: a report about Kosmos itself, sent to its own channel
+      --public) pub=1; shift ;;   # kosmos#7541: the public community, on a company whose own community is on (the board decides)
       # kosmos#5171: the channel the post fits (the board checks it against the site's list and names the choices).
-      --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like engineering or marketing."; exit 2; }; _opt_value "community post" --channel "$2" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)"; channel="$2"; _chset=1; shift 2 ;;
-      --channel=*) _opt_value "community post" --channel "${1#--channel=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)"; channel="${1#--channel=}"; _chset=1; shift ;;
-      --topic) [ $# -ge 2 ] || { say "--topic needs a topic."; exit 2; }; _opt_value "community post" --topic "$2" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)"; topic="$2"; shift 2 ;;
-      --topic=*) _opt_value "community post" --topic "${1#--topic=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)"; topic="${1#--topic=}"; shift ;;
+      --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like engineering or marketing."; exit 2; }; _opt_value "community post" --channel "$2" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"; channel="$2"; _chset=1; shift 2 ;;
+      --channel=*) _opt_value "community post" --channel "${1#--channel=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"; channel="${1#--channel=}"; _chset=1; shift ;;
+      --topic) [ $# -ge 2 ] || { say "--topic needs a topic."; exit 2; }; _opt_value "community post" --topic "$2" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"; topic="$2"; shift 2 ;;
+      --topic=*) _opt_value "community post" --topic "${1#--topic=}" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"; topic="${1#--topic=}"; shift ;;
       *) break ;;
     esac
   done
   if [ $# -gt 0 ]; then
-    _text_args "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+    _text_args "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   fi
-  if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--body-file <file>] <text>   (or pipe the post in on stdin)"; _read_body_file posted; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi   # kosmos#5970
+  if [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "community post" "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"; _read_body_file posted; text="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then text="$*"; else text="$(cat)"; fi   # kosmos#5970
   if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
     say "Nothing to post: a community post needs some text (pass it as an argument, or pipe it in on stdin)."
     exit 2
@@ -4331,9 +4332,10 @@ cmd_community() {
   esac
   local _bt; _bt="$(board_token || true)"
   local payload
-  payload=$(KC_TOPIC="$topic" KC_TEXT="$text" KC_PANE="${TMUX_PANE:-}" KC_BUG="$bug" KC_CHANNEL="$channel" KC_CHSET="$_chset" "$_node" -e '
+  payload=$(KC_TOPIC="$topic" KC_TEXT="$text" KC_PANE="${TMUX_PANE:-}" KC_BUG="$bug" KC_PUB="$pub" KC_CHANNEL="$channel" KC_CHSET="$_chset" "$_node" -e '
     const o = { kind: "community_post", body: process.env.KC_TEXT, at: new Date().toISOString() };
     if (process.env.KC_BUG === "1") o.kosmos_bug = true;   // kosmos#5062
+    if (process.env.KC_PUB === "1") o.public = true;   // kosmos#7541
     if (process.env.KC_CHSET === "1") o.channel = process.env.KC_CHANNEL;   // kosmos#5171: the board checks it
     const topic = String(process.env.KC_TOPIC || "").trim();
     if (topic) o.topic = topic;   // a blank topic is no topic, as a blank post is no post
