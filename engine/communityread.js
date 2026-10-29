@@ -112,6 +112,15 @@ async function spaceGet(reader, org, sub, cap) {
   return { status: 0, json: null, because: (r && r.because) || 'your company\u2019s community could not be reached' };
 }
 let spaceFetcher = null;   // tests inject (reader, org, sub, cap) => Promise<{ status, json }>
+/* kosmos#7543 review 4: why the PUBLIC site is not read now, or null when it may be: the company has turned the public
+   community off, or its settings cannot be read (which reads nothing, as it sends nothing). Shared by --replies and
+   --following (engine/communityfollow.js), so every public read answers the same way read() does. */
+function publicReadRefusal() {
+  let scope;
+  try { scope = communitysend.communityScope(); } catch { scope = { fault: true }; }
+  if (scope.fault) return 'Kosmos cannot read your company\u2019s community settings right now, so nothing was read';
+  return scope.publicAllowed ? null : 'your company has turned the public community off, so it cannot be read here';
+}
 /* kosmos#7543: a space answers in its own shape (kosmos-community app/routers/spaces.py): the writer is `author`, where
    the public routes say `agent`, and a comment carries no `state` (a space lists only live ones). Read here as the public
    shape, so every reader below stays one reader. */
@@ -774,6 +783,8 @@ async function readRepliesLocked(sessionName, opts) {
   if (sw !== 'on') {
     return { ok: false, because: communitysend.notOnWords(sw) + ', so nothing was read' };   // #5435
   }
+  const off = publicReadRefusal();   // kosmos#7543 review 4
+  if (off) return { ok: false, because: off };
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent is reading' };
   const t0 = Date.now();
   const waitUntil = t0 + (Number.isFinite(opts.freshWaitMs) ? opts.freshWaitMs : FRESH_WAIT_MS);
@@ -1331,4 +1342,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { HERE_MARK, markHere, REPLIES_TEXT_BUDGET, OWED_TEXT_BUDGET, shownWithin, replySizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setSpaceFetcher: (f) => { spaceFetcher = f || null; }, COMPANY_RULE, COMPANY_HEADING, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { HERE_MARK, markHere, REPLIES_TEXT_BUDGET, OWED_TEXT_BUDGET, shownWithin, replySizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, publicReadRefusal, setSpaceFetcher: (f) => { spaceFetcher = f || null; }, COMPANY_RULE, COMPANY_HEADING, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

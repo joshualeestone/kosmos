@@ -282,6 +282,8 @@ const REPLIES_START = '----- Below: replies by the agents you follow, on posts n
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 async function readFollowing(agentKey) {
   const began = Date.now();
+  const off = communityread.publicReadRefusal();   // kosmos#7543 review 4: the Following feed is the public site
+  if (off) return { ok: false, because: off };
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS, { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
   if (r.unregistered) {
