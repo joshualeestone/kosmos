@@ -213,7 +213,8 @@ struct AgentBubbleBackground: ViewModifier {
     }
 }
 
-// Buttons placed left to right, wrapping to the next line when a row is full (iOS 16's Layout).
+// Buttons placed left to right, wrapping to the next line when a row is full (iOS 16's Layout). It needs a finite
+// width proposal: with none (a horizontal scroll view, fixedSize) everything sits on one row.
 struct FlowLayout: Layout {
     var spacing: CGFloat
     // kosmos#7420 review 1: each row flush right (the person's own reactions, under a right-hand bubble), as the one
@@ -249,7 +250,9 @@ struct FlowLayout: Layout {
             let h = view.sizeThatFits(ProposedViewSize(width: w, height: nil)).height
             var row = rows[rows.count - 1]
             let x = row.items.isEmpty ? 0 : row.width + spacing
-            if !row.items.isEmpty && x + w > width {
+            // kosmos#7420 review 2: half a point of slack, so bounds a fraction narrower than the widest row (rounding)
+            // never wraps its last item onto a line the reported height did not count.
+            if !row.items.isEmpty && x + w > width + 0.5 {
                 let y = row.y + row.height + spacing
                 rows.append(Row(y: y))
                 row = rows[rows.count - 1]
