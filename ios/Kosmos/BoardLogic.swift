@@ -415,9 +415,10 @@ enum Board {
             (listWidth, contentWidth, keyboardUp, rows) = snapshot()
         }
 
-        func body(app: String, ios: String, model: String, openSeconds: Double) -> [String: Any] {
+        // countSeconds: how long this count ran (from the last report or the chat's first count), not time on screen.
+        func body(app: String, ios: String, model: String, countSeconds: Double) -> [String: Any] {
             ["app": app, "ios": ios, "model": model, "shifts": shifts, "largest": largest, "whileDragging": whileDragging,
-             "listWidth": listWidth, "contentWidth": contentWidth, "keyboardUp": keyboardUp, "openSeconds": openSeconds,
+             "listWidth": listWidth, "contentWidth": contentWidth, "keyboardUp": keyboardUp, "countSeconds": countSeconds,
              "rows": rows]
         }
     }
@@ -429,7 +430,8 @@ enum Board {
     static func sideShiftStep(x: Double, shifted: Bool, wasShifted: Bool, resumed: Bool, peak: Double)
         -> (shifted: Bool, peak: Double, event: ShiftEvent) {
         guard abs(x) > 0.5 else { return (false, 0, .none) }
-        if !shifted, resumed, wasShifted, peak > 0, abs(abs(x) - peak) <= 0.5 { return (true, peak, .none) }
+        // Review 4: still in place after the move whatever its size now (rotation, a safe area): the same shift, grown or not.
+        if !shifted, resumed, wasShifted, peak > 0 { return abs(x) > peak + 0.5 ? (true, abs(x), .grew) : (true, peak, .none) }
         if shifted { return abs(x) > peak + 0.5 ? (true, abs(x), .grew) : (true, peak, .none) }
         return (true, abs(x), .new)
     }
