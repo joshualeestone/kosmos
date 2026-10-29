@@ -11225,7 +11225,7 @@ const server = http.createServer(async (req, res) => {
       /* Review 1: keyed on the reader and only the words this route reads, so made-up extras cannot start reads. */
       const asked = new URLSearchParams();
       for (const k of ['channel', 'post', 'older']) if (q.get(k)) asked.set(k, q.get(k));
-      for (const k of ['following', 'replies']) if (q.get(k) === '1') asked.set(k, '1');   // review 3: as the route reads them
+      for (const k of ['following', 'replies', 'public']) if (q.get(k) === '1') asked.set(k, '1');   // review 3: as the route reads them; kosmos#7543 review 2: public is a different question
       /* Review 4: only a good answer to a read that marks what it showed (replies, Following) is kept for a re-ask; a
          channel or post read, and any failure, is read afresh, so a re-read after commenting is never stale. */
       const readjobs = require('./engine/readjobs');

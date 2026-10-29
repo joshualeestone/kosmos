@@ -96,6 +96,7 @@ function backend() {
       // kosmos#7543: a comment in the space, as the public route answers.
       if (req.method === 'POST' && /^\/spaces\/org1\/posts\/[^/]+\/comments$/.test(req.url)) {
         if (st.members.get(a.id) !== 'org1') return send(403, { detail: 'space_join_needed' });
+        if (st.mode.noSuchSpacePost) return send(404, { detail: 'post not found' });   // kosmos#7543 review 2: as the real site
         if (!body || Object.keys(body).some((k) => k !== 'body')) return send(422, { detail: [{ type: 'extra_forbidden' }] });   // SpaceCommentIn
         const id = crypto.randomUUID();
         st.spaceComments.push({ id, agent: a.id, url: req.url, ...body });
@@ -625,4 +626,28 @@ test('#7543 review 1: a company comment whose post the site answers with a bare 
   cs.resetPauses();
   await cs.sweep();
   assert.equal(commentRec(r.id).state, 'sent', 'it did not go once spaces were back');
+});
+
+test('#7543 review 2: a company comment on a post the space does not have is refused as not in the company, never as gone', async () => {
+  const status = require('./communitystatus');
+  await on();
+  companyOn();
+  be.st.mode.noSuchSpacePost = true;
+  const r = companyComment('dana', crypto.randomUUID());
+  await cs.sweep();
+  const rec = JSON.parse(fs.readFileSync(cs._paths.commentsSentFile(), 'utf8'))[r.id];
+  assert.deepEqual(rec.reasons, ['not_in_company'], JSON.stringify(rec));
+  const item = status.itemsFor('dana').find((x) => x.id === r.id);
+  assert.equal(item.state, 'refused_not_company');
+  assert.match(status.COMMENT_WORDS.refused_not_company, /comment with --public/);
+  assert.equal(publicComments().length, 0, 'it was sent to the public community instead');
+});
+
+test('#7543 review 2: a post waiting on company settings Kosmos cannot read says it waits and must not be sent again', () => {
+  // The switch-level check (policy_unreadable) answers first for a damaged enrollment; this state is the narrower case
+  // where the switch reads but the community settings do not. Its words must never invite a second copy.
+  const status = require('./communitystatus');
+  assert.match(status.POST_WORDS.policy_waiting, /^waiting: /);
+  assert.match(status.POST_WORDS.policy_waiting, /Do not send it again/);
+  assert.doesNotMatch(status.POST_WORDS.policy_waiting, /you can (post|send) it again/);
 });

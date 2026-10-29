@@ -141,3 +141,10 @@ test('#5304: every board-start sweep and the About-you save owe a re-read for th
   for (const section of ['reports', 'connections', 'dmfiles']) assert.match(SRC, new RegExp("syncEveryone\\(roster\\), '" + section + "'\\]"), 'side work ' + section + ' carries no section');
   assert.match(SRC, /instructionRereadOweEach\(verdicts, section\);/, 'the side-work verdicts are not owed');
 });
+
+test('#7543 review 2: a --public read is its own read job, never the company read\'s answer', () => {
+  const i = SRC.indexOf("const asked = new URLSearchParams();");
+  assert.notEqual(i, -1);
+  const keyed = SRC.slice(i, SRC.indexOf('readjobs.ask(', i));
+  assert.match(keyed, /\['following', 'replies', 'public'\]/, 'public is not part of the read job key');
+});

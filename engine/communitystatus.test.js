@@ -285,7 +285,7 @@ test('every state this module or the send layer can produce has words (read from
   // Review 5: every quoted word in stateOf, so a state returned from a ternary is seen too. The words it only compares
   // against (item kinds, the layer's 'pending', a typeof, a refusal reason) are not states it returns.
   // kosmos#7543: 'company' is the item's community (item.space), compared against, never returned.
-  const NOT_STATES = new Set(['comment', 'post', 'pending', 'string', 'empty', 'company']);
+  const NOT_STATES = new Set(['comment', 'post', 'pending', 'string', 'empty', 'company']);   // 'empty' and (kosmos#7543) 'not_in_company' are reasons
   const fromStateOf = [...own.slice(own.indexOf('function stateOf'), own.indexOf('function itemsFor')).matchAll(/'([a-z_]+)'/g)].map((m) => m[1])
     .filter((w) => !NOT_STATES.has(w));
   /* #5636 follow-up: 'unconfirmed_keyless' is withdrawFor's ANSWER to the agent (the CLI words it), never a state
