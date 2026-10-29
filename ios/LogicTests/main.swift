@@ -4871,8 +4871,8 @@ do {
     var early = Board.ChatShiftReport()
     early.add(offset: 30, isNew: false, dragging: true) { (402, 450, false, ["message": 1]) }
     check(early.shifts == 0 && early.largest == 0 && !early.whileDragging, "review 2: a shift that began before the count does not enter it")
-    let body = r.body(app: "1.4 (18)", ios: "27.0", model: "iPhone17,1", openSeconds: 41.5)
-    check(Set(body.keys) == ["app", "ios", "model", "shifts", "largest", "whileDragging", "listWidth", "contentWidth", "keyboardUp", "openSeconds", "rows"],
+    let body = r.body(app: "1.4 (18)", ios: "27.0", model: "iPhone17,1", countSeconds: 41.5)
+    check(Set(body.keys) == ["app", "ios", "model", "shifts", "largest", "whileDragging", "listWidth", "contentWidth", "keyboardUp", "countSeconds", "rows"],
           "the body holds only the fields the board keeps (engine/chatshifts.js)")
     let req = Board.chatShiftRequest(mac: URL(string: "https://studio.kosmosplus.com")!, body: body)
     check(req?.httpMethod == "POST" && req?.url?.absoluteString == "https://studio.kosmosplus.com/api/phone/chat-shift", "POST /api/phone/chat-shift")
@@ -4901,9 +4901,12 @@ do {
           "a shift is new once, grows past its peak, and after going back a shift is new again")
     st = (false, 0, .none); _ = step(16); _ = step(0)
     check(step(16, resumed: true, was: false) == .new, "review 3: a fresh 16 pt shift after the info page is counted (the old one had gone back)")
-    st = (true, 16, .none)
     st = (false, 16, .none)   // the window move clears shifted; the lock remembered it as wasShifted
     check(step(16, resumed: true, was: true) == .none && st.shifted, "review 2: the same shift still in place after the info page is not counted again")
+    st = (false, 16, .none)
+    check(step(32, resumed: true, was: true) == .grew && st.peak == 32, "review 4: a shift in place that grew during the move is the same shift, grown")
+    st = (false, 16, .none)
+    check(step(10, resumed: true, was: true) == .none && st.peak == 16, "review 4: one that shrank is the same shift, not a new one")
     check(Board.sideShiftStep(x: 0.4, shifted: true, wasShifted: false, resumed: false, peak: 16) == (false, 0, .none), "back at rest clears the shift and its peak")
 
     // Review 3: the box over a chat's life.

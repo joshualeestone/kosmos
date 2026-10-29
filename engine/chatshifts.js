@@ -30,13 +30,14 @@ const num = (v, max) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 &
 /** The record as kept, or { refused } when it is not one. */
 function clean(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { refused: 'not a record' };
-  const shifts = num(body.shifts, 1e6);
-  if (shifts === null || shifts < 1) return { refused: 'shifts must be a count of at least 1' };
+  // Review 4: a whole count of at least 1; a huge one (a cause firing every frame for hours) is capped, not refused.
+  if (!Number.isInteger(body.shifts) || body.shifts < 1) return { refused: 'shifts must be a count of at least 1' };
+  const shifts = Math.min(body.shifts, 1e6);
   if (typeof body.app !== 'string' || !VERSION_RE.test(body.app)) return { refused: 'app must be a version' };
   if (typeof body.ios !== 'string' || !VERSION_RE.test(body.ios)) return { refused: 'ios must be a version' };
-  const r = { app: body.app, ios: body.ios, shifts: Math.round(shifts) };
+  const r = { app: body.app, ios: body.ios, shifts };
   if (typeof body.model === 'string' && MODEL_RE.test(body.model)) r.model = body.model;
-  for (const [k, max] of [['largest', 1e5], ['listWidth', 1e5], ['contentWidth', 1e5], ['openSeconds', 1e7]]) {
+  for (const [k, max] of [['largest', 1e5], ['listWidth', 1e5], ['contentWidth', 1e5], ['countSeconds', 1e7]]) {
     const v = num(body[k], max);
     if (v !== null) r[k] = v;
   }

@@ -36,7 +36,7 @@ const post = async (body, headers = {}) => {
   return { status: res.status, body: await res.json().catch(() => null) };
 };
 const good = { app: '1.4 (18)', ios: '27.0', model: 'iPhone17,1', shifts: 3, largest: 16, whileDragging: false,
-  listWidth: 402, contentWidth: 434, keyboardUp: true, openSeconds: 41.27, rows: { message: 5, reactions: 1, working: 1 } };
+  listWidth: 402, contentWidth: 434, keyboardUp: true, countSeconds: 41.27, rows: { message: 5, reactions: 1, working: 1 } };
 
 test('#7575: none at first; a record is kept with the board\'s time and read back as sent', async () => {
   assert.deepEqual(await get(), { status: 200, body: { records: [], ok: true } });
@@ -46,7 +46,7 @@ test('#7575: none at first; a record is kept with the board\'s time and read bac
   assert.equal(body.records.length, 1);
   const { at, ...rest } = body.records[0];
   assert.ok(!Number.isNaN(Date.parse(at)), `at is not a time: ${at}`);
-  assert.deepEqual(rest, { ...good, openSeconds: 41.3 });
+  assert.deepEqual(rest, { ...good, countSeconds: 41.3 });
 });
 
 test('#7575: text the app did not mean to send is dropped, field by field', async () => {
@@ -65,7 +65,7 @@ test('#7575: an agent cannot post; a request that is not a record is a 400 and k
   const before = (await get()).body;
   assert.equal((await post(good, { 'x-kosmos-agent-token': 'any' })).status, 403, 'an agent token posted');
   assert.equal((await post({ ...good, token: 'any' })).status, 403, 'an agent token in the body posted');
-  for (const bad of [{ ...good, shifts: 0 }, { ...good, app: 'x'.repeat(40) }, { ...good, ios: 'ios\n27' }, { ...good, shifts: 'two' }, {}, [], 'not json', 'null']) {
+  for (const bad of [{ ...good, shifts: 0 }, { ...good, app: 'x'.repeat(40) }, { ...good, ios: 'ios\n27' }, { ...good, shifts: 'two' }, { ...good, shifts: 0.95 }, {}, [], 'not json', 'null']) {
     const r = await post(bad);
     assert.equal(r.status, 400, `accepted ${JSON.stringify(bad)}: ${JSON.stringify(r.body)}`);
   }
@@ -119,4 +119,9 @@ test('#7575 review 1: the app sends exactly the kinds and fields the board keeps
   const sent = [...body[1].matchAll(/"([A-Za-z]+)":/g)].map((m) => m[1]).sort();
   const clean = require('./engine/chatshifts').clean({ ...good, model: 'iPhone17,1' }).record;
   assert.deepEqual(sent, Object.keys(clean).sort(), 'a field the app sends is one the board drops, or the other way round');
+});
+
+test('#7575 review 4: a huge count is capped, not refused', async () => {
+  assert.equal((await post({ ...good, shifts: 5e6 })).status, 200);
+  assert.equal((await get()).body.records.at(-1).shifts, 1e6);
 });

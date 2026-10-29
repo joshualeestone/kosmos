@@ -782,7 +782,7 @@ struct ChatView: View {
                 let info = Bundle.main.infoDictionary
                 let app = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
                 let body = report.body(app: app, ios: UIDevice.current.systemVersion, model: Board.deviceModel(),
-                                       openSeconds: Date().timeIntervalSince(openedAt))
+                                       countSeconds: Date().timeIntervalSince(openedAt))
                 ChatView.trace("shift report sent")
                 var task = UIBackgroundTaskIdentifier.invalid
                 task = UIApplication.shared.beginBackgroundTask(withName: "chat-shift") {   // review 3: ended if time runs out

@@ -527,6 +527,14 @@ check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("onSc
       "kosmos#7420: a bounded record, the blank check, and a share the person chooses (nothing sent by itself)")
 // kosmos#7420 (Josh 10-28, builds 13 to 15): the chat's list is locked against a sideways offset (every row 16 pt left).
 // kosmos#7575: it also tells the chat of each shift (the trailing closure), for the report sent to the board.
+// Review 4: the lock's own flags, which the pure decision (Board.sideShiftStep) is handed: remembered before the move
+// clears shifted, the first reading after it marked, and cleared after that reading.
+check(chatSource.contains("if window == nil { wasShifted = shifted }   // kosmos#7575 review 3: remembered across the move\n            watch = nil; shifted = false;")
+      && chatSource.contains("guard window != nil else { return }\n            resumed = true")
+      && chatSource.contains("let resumed = self.resumed; self.resumed = false")
+      && chatSource.contains("if resumed { self.wasShifted = false }")
+      && chatSource.contains("if step.event == .grew { self.onShift?(x, sv.isDragging || sv.isDecelerating, false) }"),
+      "kosmos#7575 review 4: the lock keeps wasShifted across a window move and marks the first reading after it")
 check(chatSource.contains(".background(SideScrollLock(off: Self.sampleNoLock) { x, scrolling, isNew in") && chatSource.contains("watch = scroll.observe(\\.contentOffset") && chatSource.contains("let x = sv.contentOffset.x + sv.adjustedContentInset.left") && chatSource.contains("if abs(sv.contentOffset.x - rest) > 0.5 { sv.contentOffset.x = rest }") && chatSource.contains("if self.shifts & (self.shifts - 1) == 0 {") && chatSource.contains("if sv.isDragging || sv.isDecelerating { self.putBack(sv); return }") && chatSource.contains("static let sampleNoLock = false"), "kosmos#7420: a sideways scroll of the chat is put back to its rest (minus the left inset) and recorded (the lock is on in Release)")
 check(chatSource.contains("Button { infoOpen = true } label: { title"), "kosmos#7424: the DM header's name and status open the info page, as the (i) button does")
 let roomSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
