@@ -420,9 +420,14 @@ function resolveDataRoot(platform, home, env, app = APP) {
   return throwawayRootForThisProcess(platform, app);
 }
 
+/* This process's data root as root() returns it, without the migration (#1760: secureRoot needs it with no side effect). */
+function currentDataRoot() {
+  return resolveDataRoot(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env);
+}
+
 function root() {
   const env = process.env;
-  const resolved = resolveDataRoot(process.platform, env.AGENT_WORKFORCE_HOME || os.homedir(), env);
+  const resolved = currentDataRoot();
   // #5418: a throwaway root is not migrated (the migration's own target is the real store), and
   // neither is the REAL root when a test process allowed it only to read it (KOSMOS_ALLOW_REAL_ROOT);
   // a sandbox in that same process still migrates as usual.
@@ -452,12 +457,14 @@ function workersRootFor(env, home, platform = process.platform) {
   return e.AGENT_WORKFORCE_WORKERS || joinerFor(platform).join(home, 'work', 'workers');
 }
 
-/* #1760: chmod root() (store.ROOT, the app's own folder; a throwaway root in tests) to 0700. Called by the board at
+/* #1760: chmod this process's data root (the app's own folder; a throwaway root in tests) to 0700, with no migration.
+   A test process never changes the real root, even when KOSMOS_ALLOW_REAL_ROOT lets it read it. Called by the board at
    start and by ensure(), which skips a root already tried in this process. Best-effort: returns the root's mode
-   afterwards, or null when it could not be read. */
+   afterwards, or null when it could not be read or was left alone. */
 const securedRoots = new Set();
 function secureRoot() {
-  const r = root();
+  const r = currentDataRoot();
+  if (isTestProcess(process.env) && isRealRoot(r, process.platform)) return null;
   // Recorded once tried, so ensure() does not retry a root it could not change; not when the root does not exist yet.
   try { fs.chmodSync(r, 0o700); securedRoots.add(r); } catch (err) { if (!err || err.code !== 'ENOENT') securedRoots.add(r); }
   try { return fs.statSync(r).mode & 0o777; } catch { return null; }
@@ -465,7 +472,7 @@ function secureRoot() {
 
 function ensure(dir) {
   fs.mkdirSync(dir, { recursive: true });
-  if (!securedRoots.has(root())) secureRoot();
+  if (!securedRoots.has(currentDataRoot())) secureRoot();
   return dir;
 }
 

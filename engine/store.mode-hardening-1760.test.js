@@ -84,3 +84,23 @@ test('#1760: the board calls secureRoot and secureLog at start, for a real board
   const after = src.slice(at, at + 1500);
   assert.match(after, /if \(boardAuthState\.on\) \{\s*try \{[\s\S]*store\.secureRoot\(\)[\s\S]*messages\.secureLog\(\)[\s\S]*\} catch/);
 });
+
+test('#1760: a test process allowed to read the real root (KOSMOS_ALLOW_REAL_ROOT=1) never chmods it', { skip }, () => {
+  // In a child with fs.chmodSync stubbed to record and do nothing, so the real root cannot be touched by this test.
+  const { spawnSync } = require('node:child_process');
+  // The child keeps this process's test markers (NODE_TEST_CONTEXT), so it is a test process too.
+  const env = { ...process.env, KOSMOS_ALLOW_REAL_ROOT: '1' };
+  delete env.AGENT_WORKFORCE_DATA; delete env.AGENT_WORKFORCE_HOME;
+  const code = `
+    const fs = require('fs'); const calls = [];
+    fs.chmodSync = (p) => { calls.push(String(p)); };
+    const store = require(${JSON.stringify(path.join(__dirname, 'store.js'))});
+    const real = store.realDefaultRoot(process.platform, store.APP);
+    store.secureRoot();
+    process.stdout.write(JSON.stringify({ real, touched: calls.filter((p) => p === real).length }));`;
+  const r = spawnSync(process.execPath, ['-e', code], { env, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout);
+  assert.ok(out.real, 'no real root to compare against');
+  assert.equal(out.touched, 0, 'secureRoot asked to chmod the real data root from a test process');
+});
