@@ -454,16 +454,20 @@ function workersRootFor(env, home, platform = process.platform) {
 
 /* #1760: the data root is owner-only (0700). A root outside ~/Library (an AGENT_WORKFORCE_DATA root, as the Linux
    installer sets) is otherwise made under the umask, readable by other local accounts. root() is the value every
-   writer uses (store.ROOT), so a test process tightens its own throwaway root. Called at board start and on every
-   ensure(). chmod follows a symlinked root to its target, as securewrite.secureDir does. Best-effort: a read-only
-   root or a race is not fatal. */
+   writer uses (store.ROOT): the app's own folder inside AGENT_WORKFORCE_DATA, never the named folder itself, and a
+   test process's throwaway root in tests. The board calls this at start; ensure() calls it once per root per process.
+   chmod follows a symlinked root to its target, as securewrite.secureDir does, and on Windows changes nothing that
+   matters. Best-effort: returns the root's mode afterwards, or null when it could not be read. */
+const securedRoots = new Set();
 function secureRoot() {
-  try { fs.chmodSync(root(), 0o700); } catch { /* see above */ }
+  const r = root();
+  try { fs.chmodSync(r, 0o700); securedRoots.add(r); } catch { /* read-only, foreign-owned, or a race */ }
+  try { return fs.statSync(r).mode & 0o777; } catch { return null; }
 }
 
 function ensure(dir) {
   fs.mkdirSync(dir, { recursive: true });
-  secureRoot();
+  if (!securedRoots.has(root())) secureRoot();
   return dir;
 }
 

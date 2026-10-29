@@ -30,10 +30,10 @@ test('#1760: a store write (writeProfile -> ensure) tightens a loose data root t
   assert.equal(modeOf(store.ROOT), 0o700, `ensure() did not tighten the root (got ${modeOf(store.ROOT).toString(8)})`);
 });
 
-test('#1760: secureRoot (the board-start call) tightens a loose data root to 0700', { skip }, () => {
+test('#1760: secureRoot (the board-start call) tightens a loose root every time, and returns the mode', { skip }, () => {
   fs.mkdirSync(store.ROOT, { recursive: true });
-  fs.chmodSync(store.ROOT, 0o755);
-  store.secureRoot();
+  fs.chmodSync(store.ROOT, 0o755);   // loosened again after the test above already secured this root
+  assert.equal(store.secureRoot(), 0o700);
   assert.equal(modeOf(store.ROOT), 0o700);
 });
 
@@ -62,5 +62,8 @@ test('#1760: an existing 0644 log (an upgraded install) is tightened by secureLo
 test('#1760: the board calls secureRoot and secureLog at start, for a real board', () => {
   // A source check: the call sits in the board-start block, gated like removal.reapplyAtBoardStart.
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /removal\.reapplyAtBoardStart\(\{ enforcing: boardAuthState\.on \}\);\n[^\n]*\n\s*if \(boardAuthState\.on\) \{ store\.secureRoot\(\); require\('\.\/engine\/messages'\)\.secureLog\(\); \}/);
+  const at = src.indexOf('removal.reapplyAtBoardStart({ enforcing: boardAuthState.on });');
+  assert.ok(at > 0, 'the board-start block moved');
+  const after = src.slice(at, at + 1500);
+  assert.match(after, /if \(boardAuthState\.on\) \{\s*try \{[\s\S]*store\.secureRoot\(\)[\s\S]*\.secureLog\(\)[\s\S]*\} catch/);
 });
