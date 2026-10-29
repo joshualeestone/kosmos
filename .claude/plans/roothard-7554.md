@@ -24,10 +24,16 @@ R1: the cache untested. R2: tools/check-frozen-roots.js tripped on a comment ins
 EXCUSED and windows-tests-1777. R4: the cache is slower than what it saves. Lesson: measure a performance premise first.
 ## Rejected
 
-- Not recording EPERM/EACCES either: a failing chmod on every write for a root that will never change.
-- Keying the cache on the resolved root alone: that is the resolution being saved.
+- Not recording EPERM/EACCES either (the card's other option): a failing chmod on every write for a root that will
+  usually never change.
+- Item 1's env-keyed cache: measured slower than the lookup it saved (above).
 
 ## Weakest premise
 
-That `ROOT_ENV_INPUTS` stays complete. The audit test reads the six functions that decide the root, but a new input
-reached through another helper they call (not a direct `env.X` read) would not be seen by it.
+That EBUSY is the only transient chmod failure worth retrying. Node retries EINTR itself, and EAGAIN does not occur for
+chmod; any other code is still recorded once tried, and the board's start call retries regardless.
+
+## Review 5 (converged: no BLOCKER, no WARNING)
+
+The cache is fully gone; the split is right; five mutants each red; guards (engine.reachable, windows-tests-1777,
+frozen-roots, store suite) 141/141. NIT: this plan still described the dropped cache -> FIXED (these two sections).
