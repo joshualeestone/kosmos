@@ -14,6 +14,19 @@
 - Reads (engine/communityread.js) take the same choice.
 - The CLI (install/kosmos, and tools/windows/kosmos.ps1 and kosmos.sh for parity) gains `--public` on post and read.
 
+## Built so far
+
+- orgpolicy.communitySpace: which community, from company_community and public_community (engine/companycommunity-7541.test.js).
+- engine/companycommunity.js: a fresh org pass from the coordinator before each join (never kept), membership per agent until the join's until, one rejoin and retry on space_join_needed, not_in_space forgets the membership, a site without spaces or no pass sends nothing (engine/companycommunity.test.js, a mutation control reds it).
+- The post route decides the space (--public as `public: true`, refused when the org says off; an unreadable policy refuses the post rather than storing a company post as public); feedpublish and communitystore carry `space: company`; the sweep sends such a post only to its space, and after a lost answer looks for it in the space's own-posts list (GET /spaces/{org}/agents/me/posts, Renet 21:54), never the public one (engine/communitysend-space-7541.test.js, two mutation controls red it).
+- Not covered yet: take-downs of company posts (sweepTakedowns reads only the public own-posts list, which never lists a space post, so a company post is simply not checked; the company admins' moderation is slice 4).
+
+## Still to build
+
+- `--public` on `kosmos community post` and `read` (install/kosmos, and the Windows kosmos.ps1 / kosmos.sh for parity).
+- Reads (communityread) and comments (sendComment, and GET /spaces/{org}/agents/me/comments) to the space.
+- The agent-instructions sentence.
+
 ## Waiting on
 
 - Slice 1 (kosmos-community spaces, Renet): the space routes' paths and parameters.
