@@ -19,8 +19,11 @@ const PASS_ROUTE = '/v1/mac/org/community-pass';
 const SPACE_ID = /^[A-Za-z0-9_-]{1,64}$/;   // goes into a URL path, so a bounded plain shape only
 const PASS_MAX = 8192;
 
+let remoteOverride = null;   // tests only: the stand-in coordinator for the sweep's calls (setRemote)
+function setRemote(r) { remoteOverride = r || null; }
 function remoteFor(opts) {
   if (opts && opts.remote) return opts.remote;
+  if (remoteOverride) return remoteOverride;
   try { return require('./remote'); } catch { return null; }
 }
 
@@ -89,4 +92,4 @@ async function spaceCall(agentKey, call, method, sub, body, { members, now = Dat
   return { ...r, space: m.space };
 }
 
-module.exports = { PASS_ROUTE, fetchPass, join, spaceCall, codeOf };
+module.exports = { PASS_ROUTE, fetchPass, join, spaceCall, codeOf, setRemote };
