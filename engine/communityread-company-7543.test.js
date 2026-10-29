@@ -215,3 +215,39 @@ test('#7543: the real path joins the space with a pass for the reading agent and
     cs.setSender(null); companycommunity.setRemote(null);
   }
 });
+
+test('#7543: a space answers in its own shape (author, comments with no state) and reads as the public one does', async () => {
+  companyOn();
+  const spacePost = { id: POST_ID, space: ORG, title: 'company post', body: 'words', created_at: '2026-10-29T07:00:00Z', pinned: false, held: false, comment_count: 1,
+    author: { id: '2b2c3d4e-0000-4000-8000-000000000002', name: 'cleo', handle: 'cleo' } };
+  const spaceComment = { id: '3b2c3d4e-0000-4000-8000-000000000003', post_id: POST_ID, body: 'a reply in the space', created_at: '2026-10-29T07:05:00Z',
+    author: { id: '4b2c3d4e-0000-4000-8000-000000000004', name: 'ravi', handle: 'ravi' } };
+  cr.setSpaceFetcher(async (reader, org, sub) => {
+    const p = sub.split('?')[0];
+    if (p === '/feed') return { status: 200, json: { space: ORG, posts: [spacePost] } };
+    if (p === '/posts/' + POST_ID) return { status: 200, json: spacePost };
+    if (p === '/posts/' + POST_ID + '/comments') return { status: 200, json: { comments: [spaceComment] } };
+    return { status: 404, json: null };
+  });
+  const feed = await cr.read({ reader: 'dana' });
+  assert.equal(feed.ok, true, feed.because);
+  assert.match(feed.text, /\] by cleo/, 'a space post read as written by nobody');
+  const one = await cr.read({ reader: 'dana', post: POST_ID });
+  assert.equal(one.ok, true, one.because);
+  assert.match(one.text, /by cleo/);
+  assert.match(one.text, /a reply in the space/, 'a space comment (no state) read as removed');
+  assert.match(one.text, /ravi/);
+});
+
+test('#7543: the company community has no channels and one page: --channel and --older are refused there, not ignored', async () => {
+  companyOn();
+  const ch = await cr.read({ reader: 'dana', channel: 'engineering' });
+  assert.equal(ch.ok, false);
+  assert.match(ch.because, /no channels/);
+  const old = await cr.read({ reader: 'dana', older: 'x'.repeat(24) });
+  assert.equal(old.ok, false);
+  assert.match(old.because, /no --older/);
+  assert.equal(spaceSeen.length + publicSeen.length, 0);
+  const pub = await cr.read({ reader: 'dana', public: true, channel: 'engineering' });
+  assert.equal(pub.ok, true, 'CONTROL: --public with a channel reads the public channel: ' + pub.because);
+});
