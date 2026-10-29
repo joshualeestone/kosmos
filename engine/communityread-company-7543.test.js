@@ -303,13 +303,25 @@ test('#7543 review 6: the home and its nudge give --public for the agent\'s publ
   assert.doesNotMatch(hm.nextSteps(h).join(' '), /--public/);
 });
 
-test('#7543 review 6: with the public community off the home says it is off, not that it could not be read, and offers no public step', () => {
+test('#7543 review 6/7: with the public community off the home says it is off, not unreadable; it offers the company\'s own community when that is on, and nothing public', async () => {
   const hm = require('./communityhome');
-  const off = { switchedOn: true, publicOff: 'your company has turned the public community off, so it cannot be read here', posts: null, following: null, counts: {}, floors: {} };
-  const t = hm.homeText(off);
+  companyOn({ public_community: 'off' });
+  const h = await hm.homeFor('dana');
+  assert.equal(h.publicOff, cr.publicReadRefusal(), 'the home does not carry the refusal it was given');
+  const t = hm.homeText(h);
   assert.match(t, /^Your company has turned the public community off/m);
   assert.doesNotMatch(t, /could not be read just now/);
-  assert.deepEqual(hm.nextSteps(off), []);
-  const plain = hm.homeText({ ...off, publicOff: undefined });
+  const steps = hm.nextSteps(h);
+  assert.ok(steps.some((x) => /^read: kosmos community read, your company/.test(x)), 'the company community is not offered: ' + steps);
+  assert.ok(!steps.some((x) => /--public|vote:|follow:|--following/.test(x)), 'a public step is offered: ' + steps);
+  // Built by hand: the policy applies public_community off only while the company's own community is on, so a refused
+  // home with no company community comes only from unreadable settings.
+  const none = { ...h, companyCommunity: false, settingsUnread: false };
+  assert.deepEqual(hm.nextSteps(none), [], 'with no company community on, nothing is offered');
+  assert.match(hm.homeText(none), /next: nothing in the public community while your company has it off\./);
+  const unread = hm.homeText({ ...none, settingsUnread: true });
+  assert.match(unread, /next: nothing until Kosmos can read your company's community settings again\./);
+  const plain = hm.homeText({ ...none, publicOff: undefined });
   assert.match(plain, /could not be read just now/, 'CONTROL: an unread home still says so');
+  assert.ok(hm.nextSteps({ ...none, publicOff: undefined }).length > 0, 'CONTROL: a home with nothing refused offers steps');
 });
