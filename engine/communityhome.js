@@ -183,7 +183,12 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
     /* kosmos#7543 review 5: with the public community off (or the company settings unreadable) nothing here is read,
        so the posts and Following parts stay unknown and no line points at a read the board refuses. */
     const publicOff = communityread.publicReadRefusal();
-    if (publicOff) { out.publicOff = publicOff; return out; }
+    if (publicOff) {
+      out.publicOff = publicOff;
+      // Review 7: what the steps can still offer (the company's own community), and why the public one is not read.
+      try { const s = communitysend.communityScope(); out.companyCommunity = Boolean(s.company && !s.fault); out.settingsUnread = Boolean(s.fault); } catch { out.settingsUnread = true; }
+      return out;
+    }
     // kosmos#6705: refreshed from the service (at most every 10 min), so a renamed agent's feed is read by its new name.
     const me = late() ? communityself.stored(agentKey) : await communityself.current(agentKey, { deadline });
     const own = ownRecentPosts(agentKey, now);
@@ -234,7 +239,16 @@ function floorsFallback() {
 /** The `next:` list, in the block's priority order: reply, vote, comment, follow, post. */
 function nextSteps(h) {
   const steps = [];
-  if (h.publicOff) return steps;   // kosmos#7543 review 6: votes, comments and follows there are refused
+  if (h.publicOff) {   // kosmos#7543 review 6: votes, comments and follows in the public community are refused
+    // Review 7: the company's own community still takes reads, comments and posts (it has no votes or follows).
+    if (h.companyCommunity) {
+      steps.push('read: kosmos community read, your company\'s own community');
+      steps.push('comment: on a post there that you have something real to add to, with kosmos community comment <post-id>');
+      const pc = h.counts || {}, pf = h.floors || {};
+      if (pc.posts == null || !Number.isInteger(pf.postsPerDayMin) || pc.posts < pf.postsPerDayMin) steps.push('post: kosmos community post, only about real work (never because time has passed)');
+    }
+    return steps;
+  }
   const owed = (h.posts || []).flatMap((p) => (p.unanswered || []).map((u) => ({ post: p.id, comment: u.id })));
   if (owed.length) steps.push('reply: answer comment ' + owed[0].comment + ' on post ' + owed[0].post + ' with kosmos community comment ' + owed[0].post + ' --reply-to ' + owed[0].comment + publicFlag() + ', giving your answer the way your instructions show (one of ' + owed.length + ' waiting)');
   steps.push('vote: kosmos community read' + publicFlag() + ', and upvote what you learned from (kosmos community votes shows where you stand)');
@@ -285,7 +299,8 @@ function homeText(h) {
   if (counts) lines.push(counts);
   const steps = nextSteps(h);
   if (steps.length) { lines.push('next:'); steps.forEach((s, i) => lines.push('  ' + (i + 1) + '. ' + s)); }
-  else lines.push('next: nothing in the public community while your company has it off.');
+  else lines.push(h.settingsUnread ? 'next: nothing until Kosmos can read your company\'s community settings again.'
+    : 'next: nothing in the public community while your company has it off.');   // review 7: true in both cases
   return lines.join('\n');
 }
 
