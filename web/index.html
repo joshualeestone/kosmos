@@ -55016,7 +55016,7 @@ function plusOrgPaint() {
   // the sentence asks nothing of them.
   if (here && st.wordsNeeded === true && PLUS_ORG.wordsRefused) document.getElementById('plus-org-say').textContent = 'This Kosmos still shows ' + (st.org.name || 'a family account') + ' on this computer, and it reports nothing to the family.';
   else if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.';
-  else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
+  else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') + plusOrgRequiredWait(st) : ''));
   plusOrgReviewers(here ? st : null);   // kosmos#6752
   if (here) reviewerNoteSeenList(st);   // kosmos#6817: the list on screen counts as seen
 }
@@ -56201,6 +56201,13 @@ function plusForgetKept(on, said) {
    is told only that it cannot report once removed, which is true either way. */
 const PLUS_FORGET_REQUIRED = 'Your company requires this computer to report to it. Once it is removed, it stops reporting, and your company will see that.';
 const PLUS_FORGET_REQUIRED_IDLE = 'Your company requires this computer to report to it. Once it is removed, it cannot report.';
+/* kosmos#7586: the joined view, when the company's policy requires reports and this computer cannot send them yet, says
+   that its company requires them and sees it is not reporting (the console's member card says "and your rules require
+   it", #6367). Not while the company asks it to report nothing: that is not a computer failing a rule. */
+const PLUS_ORG_REQUIRED_WAIT = ' Your company requires this computer to report, and sees that it is not reporting yet.';
+function plusOrgRequiredWait(st) {
+  return st && st.reporting === false && st.reportingRequired === true && st.reportingWait !== 'noReports' ? PLUS_ORG_REQUIRED_WAIT : '';
+}
 function plusForgetRequiredLine(st) {
   if (!(st && st.enrolled === true && st.reportingRequired === true)) return '';
   const line = st.reporting === true ? PLUS_FORGET_REQUIRED : PLUS_FORGET_REQUIRED_IDLE;
