@@ -5569,7 +5569,7 @@ _kosmos_cloud_join() {
     unset KOSMOS_PROVISIONING_TOKEN
     # A run that joined and latched but stopped before switching remote on finishes that step now (setOn is a no-op
     # when it is already on).
-    if ! "$_kcj_node" -e 'const r = require(process.argv[1]).setOn(true); if (!r || r.ok === false) process.exit(1);' "$_kcj_remote" >/dev/null 2>&1; then
+    if ! "$_kcj_node" -e 'const r = require(process.argv[1]).setOn(true); if (!r || r.ok === false) process.exit(1); process.exit(0);' "$_kcj_remote" >/dev/null 2>&1; then
       info "This cloud machine has joined its Kosmos+ account but could not turn on Kosmos+ remote access."
       return 1
     fi
@@ -5602,12 +5602,23 @@ _kosmos_cloud_join() {
       info "This cloud machine has no Kosmos+ connector to join with ($KOSMOS_HOME/app/bin/kosmos-tunnel)."
       return 1
     fi
+    # kosmos#7550: the coordinator keys the board pins for every registration (remote.setupEnv), asked of the engine,
+    # never re-derived here. Empty means the board makes no key check either; an engine that cannot answer stops the join.
+    _kcj_keys="$("$_kcj_node" -e 'const e = require(process.argv[1]).setupEnv(); process.stdout.write(e && typeof e.KOSMOS_EXPECT_COORDINATOR_KEYS === "string" ? e.KOSMOS_EXPECT_COORDINATOR_KEYS : ""); process.exit(0);' "$_kcj_remote" 2>/dev/null)" || {
+      info "This cloud machine could not find which Kosmos+ keys to trust ($_kcj_remote)."
+      return 1
+    }
     : > "$KOSMOS_HOME/logs/cloud-join.log"
     _kcj_try=1
     while :; do
       printf 'try %s\n' "$_kcj_try" >> "$KOSMOS_HOME/logs/cloud-join.log"
       _kcj_rc=0
-      printf '%s' "$KOSMOS_PROVISIONING_TOKEN" | "$KOSMOS_HOME/app/bin/kosmos-tunnel" setup cloud --coordinator "$_kcj_coord" --state-dir "$_kcj_state" >> "$KOSMOS_HOME/logs/cloud-join.log" 2>&1 || _kcj_rc=$?
+      # In a subshell, so the pin reaches only the tunnel; with no pin, one inherited from the caller is removed (as setupEnv does).
+      (
+        if [ -n "$_kcj_keys" ]; then KOSMOS_EXPECT_COORDINATOR_KEYS="$_kcj_keys"; export KOSMOS_EXPECT_COORDINATOR_KEYS
+        else unset KOSMOS_EXPECT_COORDINATOR_KEYS; fi
+        printf '%s' "$KOSMOS_PROVISIONING_TOKEN" | "$KOSMOS_HOME/app/bin/kosmos-tunnel" setup cloud --coordinator "$_kcj_coord" --state-dir "$_kcj_state"
+      ) >> "$KOSMOS_HOME/logs/cloud-join.log" 2>&1 || _kcj_rc=$?
       [ "$_kcj_rc" -eq 0 ] && break
       if [ "$_kcj_rc" -eq 2 ] || [ "$_kcj_try" -ge 3 ]; then
         info "This cloud machine could not join its Kosmos+ account. What happened is in $KOSMOS_HOME/logs/cloud-join.log"
@@ -5622,7 +5633,7 @@ _kosmos_cloud_join() {
     info "This cloud machine joined its account but could not mark itself as a cloud machine ($_kcj_state/hosted)."
     return 1
   fi
-  if ! "$_kcj_node" -e 'const r = require(process.argv[1]).setOn(true); if (!r || r.ok === false) { process.stderr.write(String((r && r.because) || "refused")); process.exit(1); }' "$_kcj_remote" >> "$KOSMOS_HOME/logs/cloud-join.log" 2>&1; then
+  if ! "$_kcj_node" -e 'const r = require(process.argv[1]).setOn(true); if (!r || r.ok === false) { process.stderr.write(String((r && r.because) || "refused")); process.exit(1); } process.exit(0);' "$_kcj_remote" >> "$KOSMOS_HOME/logs/cloud-join.log" 2>&1; then
     info "This cloud machine joined its account but could not turn on Kosmos+ remote access. What happened is in $KOSMOS_HOME/logs/cloud-join.log"
     return 1
   fi
