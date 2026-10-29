@@ -31,6 +31,22 @@ test('#1760: a store write (writeProfile -> ensure) tightens a loose data root t
   assert.equal(modeOf(store.ROOT), 0o700, `ensure() did not tighten the root (got ${modeOf(store.ROOT).toString(8)})`);
 });
 
+test('#1760: a root that does not exist yet is not marked secured, so the first write after it is made tightens it', { skip }, () => {
+  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), 'storemode-1760-fresh-'));
+  const was = process.env.AGENT_WORKFORCE_DATA;
+  process.env.AGENT_WORKFORCE_DATA = fresh;
+  try {
+    assert.ok(store.ROOT.startsWith(fresh) && !fs.existsSync(store.ROOT), 'precondition: a root that does not exist yet');
+    store.secureRoot();   // ENOENT: nothing to tighten yet
+    const um = process.umask(0o022);
+    try { store.writeProfile('freshprobe', { dir: path.join(fresh, 'work', 'freshprobe'), provider: 'anthropic' }); } finally { process.umask(um); }
+    assert.equal(modeOf(store.ROOT), 0o700, `the root made after a missed secureRoot is ${modeOf(store.ROOT).toString(8)}`);
+  } finally {
+    process.env.AGENT_WORKFORCE_DATA = was;
+    fs.rmSync(fresh, { recursive: true, force: true });
+  }
+});
+
 test('#1760: secureRoot (the board-start call) tightens a loose root every time, and returns the mode', { skip }, () => {
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.chmodSync(store.ROOT, 0o755);   // loosened again after the test above already secured this root

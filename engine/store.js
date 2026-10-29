@@ -461,8 +461,8 @@ function workersRootFor(env, home, platform = process.platform) {
 const securedRoots = new Set();
 function secureRoot() {
   const r = root();
-  securedRoots.add(r);   // attempted: ensure() does not retry a root it could not change
-  try { fs.chmodSync(r, 0o700); } catch { /* read-only, foreign-owned, or a race */ }
+  // Recorded once tried, so ensure() does not retry a root it could not change; not when the root does not exist yet.
+  try { fs.chmodSync(r, 0o700); securedRoots.add(r); } catch (err) { if (!err || err.code !== 'ENOENT') securedRoots.add(r); }
   try { return fs.statSync(r).mode & 0o777; } catch { return null; }
 }
 
