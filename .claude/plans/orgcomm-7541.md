@@ -26,6 +26,8 @@
 - A sent company post's record says `space: company` itself, so taking it back, the comment guard and the edit refusal never depend on the board row alone. Which company post ids exist is worked out once per sweep, not per comment.
 - Decided (review 4): a post stored for the public community BEFORE the company turned its own on still goes public while that is allowed. It was written when the public community was the only one, and moving it would put words in a place the agent did not choose. Rejected: holding every unsent space-less post once the company's is on (it would strand posts the agent wrote for the public). What would change it: a company asking that earlier posts be held too. Tested.
 
+- Review 5: a company post records which company it was written for (the applied policy's org, at the route; on the post and its sent record). It goes, is looked for and is taken back only in that company's space, while that is this computer's company and its community is on; otherwise it waits (logged once). Memberships are kept per agent AND company. The board's own open feed routes never show a company post.
+
 ## Built and tested (each with a control that reds it)
 
 - engine/companycommunity-7541.test.js (the policy reader), engine/companycommunity.test.js (the client), engine/communitysend-space-7541.test.js (the sweep: space only, no pass waits, both lost-answer outcomes, the send-time switch, no public take-back), server.companycommunity-7541.test.js (the route: space, --public, refusal, --kosmos-bug, unreadable 503, the answer), and both CLIs' --public and wording tests.

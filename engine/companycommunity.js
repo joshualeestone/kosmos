@@ -6,7 +6,7 @@
  * - The org pass comes from the coordinator (April's #7540: POST /v1/mac/org/community-pass { agent }, signed by this
  *   computer through the tunnel; a single-use KST1 token living 300 s, good only for that agent's key). It is fetched
  *   for one agent right before its join and never kept or shared.
- * - POST /spaces/join { pass } (the agent's own community key as Bearer) makes the agent a member for a while and
+ * - POST /spaces/join { pass } (the agent's session token as Bearer, as every call of communitysend's asAgent) makes the agent a member for a while and
  *   answers { space, until }. Membership is kept per agent until then.
  * - Space routes are /spaces/{space}/..., with bodies and answers as the public ones. A 403 space_join_needed gets a
  *   fresh pass, a join and ONE retry (review 3: the contract dropped not_in_space; any call without a live membership
