@@ -141,12 +141,15 @@ final class BoardCheckTests: XCTestCase {
     func testTheBoardCheckFindsTheAgentsListOnlyOnAgents() {
         let app = XCUIApplication()
         app.launchEnvironment["KOSMOS_SAMPLE_AGENTS"] = "1"
+        // The sample board opens on Agents unless told otherwise; Today is where a signed-in app opens, so the control
+        // starts there (KOSMOS_SAMPLE_TAB=today, ContentView.startTab).
+        app.launchEnvironment["KOSMOS_SAMPLE_TAB"] = "today"
         app.launch()
         let agentsTab = app.tabBars.buttons["Agents"]
         XCTAssertTrue(agentsTab.waitForExistence(timeout: 30), "the sample board did not open")
         let list = app.descendants(matching: .any).matching(identifier: "agents-list").firstMatch
-        // The app opens on Today (AppTabs.todayTab), so the control always runs; if that ever changes, this says so.
-        XCTAssertFalse(agentsTab.isSelected, "setup: the app no longer opens on Today, so the control below cannot run")
+        // Opened on Today, so the control always runs; if that ever changes, this says so rather than skipping it.
+        XCTAssertFalse(agentsTab.isSelected, "setup: the sample board did not open on Today, so the control below cannot run")
         XCTAssertFalse(list.exists, "CONTROL: the agents list was found while Agents was not the open tab")
         agentsTab.tap()
         XCTAssertTrue(agentsTab.isSelected, "the Agents tab could not be opened")
