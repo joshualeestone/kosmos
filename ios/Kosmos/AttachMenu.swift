@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import UIKit
 
@@ -21,8 +22,8 @@ enum AttachChoice: CaseIterable {
     }
 }
 
-// The + and its panel. The choice is acted on once the panel has gone (onChoose), since iOS opens nothing from a
-// presentation still on its way out.
+// The + and its panel. The choice is acted on once the panel has gone (its onDisappear), since iOS opens nothing from a
+// presentation still on its way out. A camera Kosmos may not use opens Settings instead, where it is turned back on.
 struct AttachPlusButton: View {
     let atLimit: Bool
     let label: String
@@ -30,6 +31,7 @@ struct AttachPlusButton: View {
     let onChoose: (AttachChoice) -> Void
     @State private var open = false
     @State private var chosen: AttachChoice?
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         Button { open = true } label: {
@@ -43,13 +45,17 @@ struct AttachPlusButton: View {
         .accessibilityLabel(label)
         .accessibilityHint(hint)
         .popover(isPresented: $open, arrowEdge: .bottom) {
-            AttachPanel(atLimit: atLimit, camera: Self.hasCamera) { choice in chosen = choice; open = false }
+            AttachPanel(atLimit: atLimit, limitHint: hint, camera: Self.camera) { choice in chosen = choice; open = false }
                 .modifier(PopoverOnPhone())
-        }
-        .onChange(of: open) { now in
-            guard !now, let choice = chosen else { return }
-            chosen = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { onChoose(choice) }
+                .onDisappear {
+                    guard let choice = chosen else { return }
+                    chosen = nil
+                    if choice == .camera, Self.camera == .notAllowed {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    } else {
+                        onChoose(choice)
+                    }
+                }
         }
         #if DEBUG
         // Screenshots only: KOSMOS_SAMPLE_PLUS=1 opens the panel 2 s after the composer shows.
@@ -61,28 +67,54 @@ struct AttachPlusButton: View {
         #endif
     }
 
-    static var hasCamera: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+    static var camera: CameraState {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else { return .none }
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .denied, .restricted: return .notAllowed
+        default: return .ready
+        }
+    }
 }
 
-// The panel's rows. A phone with no camera (the simulator, some iPads) shows Camera dimmed, not missing, with the reason
-// read out.
+// Whether the panel's Camera can open: a camera on this device, and Kosmos allowed to use it (not yet asked counts as
+// allowed: iOS asks the first time the camera opens).
+enum CameraState { case ready, notAllowed, none }
+
+// The panel's rows. A device with no camera (the simulator, some iPads) shows Camera dimmed, not missing; one where
+// Kosmos is not allowed the camera keeps it tappable, to open Settings. Each says why under its name.
 struct AttachPanel: View {
     let atLimit: Bool
-    let camera: Bool
+    let limitHint: String
+    let camera: CameraState
     let choose: (AttachChoice) -> Void
+    @ScaledMetric(relativeTo: .body) private var symbolSize: CGFloat = 18
+    @ScaledMetric(relativeTo: .body) private var tileSize: CGFloat = 44
+
+    private func note(_ choice: AttachChoice) -> String? {
+        guard choice == .camera else { return nil }
+        switch camera {
+        case .ready: return nil
+        case .notAllowed: return "Turned off for Kosmos in Settings"
+        case .none: return "Not available on this device"
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(AttachChoice.allCases, id: \.self) { choice in
-                let off = atLimit || (choice == .camera && !camera)
+                let off = atLimit || (choice == .camera && camera == .none)
                 Button { choose(choice) } label: {
                     HStack(spacing: 14) {
                         Image(systemName: choice.symbol)
-                            .font(.system(size: 18, weight: .regular))
+                            .font(.system(size: symbolSize, weight: .regular))
                             .foregroundColor(Palette.primary)
-                            .frame(width: 44, height: 44)
+                            .frame(width: tileSize, height: tileSize)
                             .background(Circle().fill(Palette.avatarFill))
-                        Text(choice.title).font(.body).foregroundColor(Palette.primary)
+                            .accessibilityHidden(true)   // the name beside it says it once
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(choice.title).font(.body).foregroundColor(Palette.primary)
+                            if let note = note(choice) { Text(note).font(.footnote).foregroundColor(Palette.secondary) }
+                        }
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
@@ -92,7 +124,7 @@ struct AttachPanel: View {
                 .buttonStyle(.plain)
                 .disabled(off)
                 .opacity(off ? 0.4 : 1)
-                .accessibilityHint(choice == .camera && !camera ? "This iPhone has no camera Kosmos can use." : "")
+                .accessibilityHint(atLimit ? limitHint : choice == .camera && camera == .notAllowed ? "Opens Settings, where the camera can be turned on for Kosmos." : "")
             }
         }
         .padding(.vertical, 8)
@@ -105,7 +137,7 @@ private struct PopoverOnPhone: ViewModifier {
         if #available(iOS 16.4, *) {
             content.presentationCompactAdaptation(.popover).presentationBackground(.regularMaterial)
         } else {
-            content.presentationDetents([.height(220)])
+            content.presentationDetents([.height(240), .medium])
         }
     }
 }
