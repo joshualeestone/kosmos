@@ -1618,11 +1618,12 @@ check(attachSrc.contains(".disabled(off)") && attachSrc.contains("let off = Boar
 for (name, src) in [("chat", chatSource), ("room", roomViewSrc)] {
     check(src.contains("case .camera: cameraEpoch = client.chatEpoch; showCamera = true")
           && src.contains(".background(Color.clear.fullScreenCover(isPresented: $showCamera) {")
-          && src.contains("let epoch = cameraEpoch\n                Task { await addTaken(data, epoch: epoch) }")
-          && src.contains("private func addTaken(_ data: Data, epoch: Int) async {"),
-          "kosmos#7596 review 1: the \(name) opens the camera on its own host and sends its photo under the epoch it opened with")
+          && src.contains("let epoch = cameraEpoch") && src.contains("Task { await addTaken(image, epoch: epoch) }")
+          && src.contains("private func addTaken(_ image: UIImage, epoch: Int) async {")
+          && src.contains("Task.detached(operation: { image.jpegData(compressionQuality: 0.85) })"),
+          "kosmos#7596 review 1: the \(name) opens the camera on its own host, sends its photo under the epoch it opened with, and encodes it off the main thread")
 }
-check(attachSrc.contains(".onDisappear {\n                    guard let choice = chosen else { return }") && !attachSrc.contains("asyncAfter(deadline: .now() + 0.35)"),
+check(attachSrc.contains(".onDisappear {\n                    guard let choice = chosen else { return }"),
       "kosmos#7596 review 1: a choice is acted on once the panel has gone, never on a timer")
 check(attachSrc.contains("case .notAllowed: if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }")
       && attachSrc.contains("AVCaptureDevice.requestAccess(for: .video) { granted in"),

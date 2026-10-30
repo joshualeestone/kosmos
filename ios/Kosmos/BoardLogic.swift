@@ -2590,8 +2590,10 @@ enum AttachChoice: CaseIterable {
     }
 }
 
-// Whether the panel's Camera can open. notAsked: iOS has not asked yet, so the camera asks first.
-enum CameraState { case ready, notAsked, notAllowed, none }
+// Whether the panel's Camera can open. notAsked: iOS has not asked yet, so the camera asks first. notAllowed: turned off
+// for Kosmos, which Settings can undo. blocked: restricted by Screen Time or a device profile, which Kosmos's Settings
+// page cannot undo.
+enum CameraState { case ready, notAsked, notAllowed, blocked, none }
 // The camera permission as iOS reports it (AVAuthorizationStatus), kept free of AVFoundation so it can be tested here.
 enum CameraAuth { case notDetermined, denied, restricted, authorized }
 
@@ -2601,14 +2603,15 @@ extension Board {
         switch auth {
         case .authorized: return .ready
         case .notDetermined: return .notAsked
-        case .denied, .restricted: return .notAllowed
+        case .denied: return .notAllowed
+        case .restricted: return .blocked
         }
     }
 
-    // At the file limit every row is off; Camera is off too where the device has none. A camera Kosmos may not use stays
-    // on, to open Settings.
+    // At the file limit every row is off; Camera is off too where the device has none or blocks it. One turned off for
+    // Kosmos stays on, to open Settings.
     static func attachRowOff(_ choice: AttachChoice, atLimit: Bool, camera: CameraState) -> Bool {
-        atLimit || (choice == .camera && camera == .none)
+        atLimit || (choice == .camera && (camera == .none || camera == .blocked))
     }
 
     // The line under Camera that says why it will not open the camera.
@@ -2616,6 +2619,7 @@ extension Board {
         switch camera {
         case .ready, .notAsked: return nil
         case .notAllowed: return "Turned off for Kosmos in Settings"
+        case .blocked: return "Not allowed on this device"
         case .none: return "Not available on this device"
         }
     }

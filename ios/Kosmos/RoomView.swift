@@ -1100,9 +1100,13 @@ struct RoomView: View {
         }
     }
 
-    private func addTaken(_ data: Data, epoch: Int) async {
+    // Encoded inside the load, off the main thread, as a picked photo is read.
+    private func addTaken(_ image: UIImage, epoch: Int) async {
         client.attachLine[attachKey] = nil
-        await store.attach(.photo(load: { (Board.photoName(at: Date(), ext: "jpg", number: 1), data) }), epoch: epoch, to: project.id)
+        await store.attach(.photo(load: {
+            guard let data = await Task.detached(operation: { image.jpegData(compressionQuality: 0.85) }).value else { return nil }
+            return (Board.photoName(at: Date(), ext: "jpg", number: 1), data)
+        }), epoch: epoch, to: project.id)
     }
 
     private func addFiles(_ urls: [URL]) async {
@@ -1225,11 +1229,11 @@ struct RoomView: View {
         }
         // kosmos#7596: a photo taken with the camera goes up as a picked one does, named the same way.
         .background(Color.clear.fullScreenCover(isPresented: $showCamera) {
-            CameraCapture { data in
+            CameraCapture { image in
                 showCamera = false
-                guard let data else { return }
+                guard let image else { return }
                 let epoch = cameraEpoch
-                Task { await addTaken(data, epoch: epoch) }
+                Task { await addTaken(image, epoch: epoch) }
             }
             .ignoresSafeArea()
         })
