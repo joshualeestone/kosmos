@@ -21,7 +21,11 @@ while [ $# -gt 0 ]; do
   esac
 done
 # Each class and how many tests it holds: a filter that matches nothing also exits 0, so the count is what proves a run.
-classes="AttachMenuUITests:6 RoomTitleUITests:2 ChatOpensAtNewestUITests:1 KeyboardSlideUITests:3"
+classes="AttachMenuUITests:6 RoomTitleUITests:2 ChatOpensAtNewestUITests:1 KeyboardSlideUITests:2"
+# KeyboardSlideUITests' third check (read higher up) waits on a clock and flakes under load (first CI run, iOS 26.5, and
+# once here); Mona Lisa is replacing that wait with a marker (branch kbrested-7609). Skipped here until it lands, then
+# back to 3 with the skip removed. ios/tools/ui-keyboard.sh still runs all three.
+skip="-skip-testing:KosmosUITests/KeyboardSlideUITests/testReadHigherUpStaysWhereItWas"
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
   echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
   exit 1
@@ -55,9 +59,9 @@ echo "ui-sample: ${dtype##*.} on ${runtime##*.}"
 only=""; want=0
 for c in $classes; do only="$only -only-testing:KosmosUITests/${c%%:*}"; want=$((want + ${c##*:})); done
 log="$work/xcodebuild.log"
-# shellcheck disable=SC2086  # $only is a list of separate arguments
+# shellcheck disable=SC2086  # $only and $skip are lists of separate arguments
 ( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
-    $only -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
+    $only $skip -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
 rc=$?
 ran="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' (passed|failed)" "$log")"
 failed="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' failed" "$log")"

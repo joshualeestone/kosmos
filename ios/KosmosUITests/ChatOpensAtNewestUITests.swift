@@ -10,16 +10,16 @@ final class ChatOpensAtNewestUITests: XCTestCase {
     /// The bubble itself: a bubble reads as one element, "<who>, <time>: <text>" (ChatView's spoken label), so its label
     /// is matched after the colon, never a bare text inside it or anything that merely starts with the words.
     private func message(_ n: Int, in app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", ": Message \(n) of 260.")).firstMatch
+        // kosmos#7609: typed (a bubble is one "other" element), never a search of every element: on a CI runner a query
+        // over the whole 260-message tree timed out.
+        app.otherElements.matching(NSPredicate(format: "label CONTAINS %@", ": Message \(n) of 260.")).firstMatch
     }
 
 
     /// The chat's composer, a multi-line TextField ("Message <name>"), which XCUITest may type as a text field or a text
     /// view. It exists only while a chat is open (the search field's prompt is "Search").
     private func composer(_ app: XCUIApplication) -> XCUIElement {
-        app.descendants(matching: .any)
-            .matching(NSPredicate(format: "(elementType == %d OR elementType == %d) AND placeholderValue BEGINSWITH %@",
-                                  XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue, "Message ")).firstMatch
+        app.textFields.matching(NSPredicate(format: "placeholderValue BEGINSWITH %@", "Message ")).firstMatch
     }
 
     /// Wholly on screen between the top bar and the composer, not merely loaded somewhere in the list.
@@ -33,7 +33,7 @@ final class ChatOpensAtNewestUITests: XCTestCase {
 
     /// Waits until the list has stopped moving: a bubble's frame reads the same twice, half a second apart.
     private func waitStill(_ app: XCUIApplication) {
-        let any = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", ": Message ")).firstMatch
+        let any = app.otherElements.matching(NSPredicate(format: "label CONTAINS %@", ": Message ")).firstMatch
         var last = CGRect.null
         for _ in 0..<12 {
             let now = any.exists ? any.frame : .null
@@ -48,7 +48,8 @@ final class ChatOpensAtNewestUITests: XCTestCase {
     private func assertOpensOnNewest(_ app: XCUIApplication, _ when: String) {
         XCTAssertTrue(composer(app).waitForExistence(timeout: 20), "the chat did not open, \(when)")
         let newest = message(260, in: app)
-        XCTAssertTrue(newest.waitForExistence(timeout: 2), "the newest message is not in the chat as it opens, \(when)")
+        // 5 s, not 2: a CI runner draws far slower than a phone; a chat that opens mid-way never loads 260 at all.
+        XCTAssertTrue(newest.waitForExistence(timeout: 5), "the newest message is not in the chat as it opens, \(when)")
         XCTAssertTrue(newest.label.hasPrefix("You, "), "matched something other than the newest bubble: \(newest.label)")
         waitStill(app)
         let (shown, at) = onScreen(newest, app)

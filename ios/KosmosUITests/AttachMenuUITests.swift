@@ -28,7 +28,7 @@ final class AttachMenuUITests: XCTestCase {
         row.tap()
         // Review 5: the panel itself has gone, so a panel stuck open cannot pass for the picker below.
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: row)
-        waitForExpectations(timeout: 5)
+        waitForExpectations(timeout: 15)   // kosmos#7609: a CI runner took over 5 s to close the panel
         // The picker covers the chat: the + can no longer be tapped. A dropped presentation leaves it tappable.
         let covered = NSPredicate(format: "isHittable == false")
         expectation(for: covered, evaluatedWith: plus)
