@@ -26,6 +26,7 @@ test('#7598: a plain https sign-up address is kept as it is', () => {
 test('#7598: anything else is no link', () => {
   for (const v of ['', 'http://coordinator.kosmos.invalid/signup', 'javascript:alert(1)', '/signup',
     'https://user:pw@a.invalid/signup', 'https://a.invalid@b.invalid/signup',
+    'https://a.invalid?x', 'https://a.invalid#x', 'https://a.invalid\\b/signup',
     'https://a.invalid/signup x', 'https://a.invalid/"onmouseover=1', 'https://a.invalid/<b>', null, undefined, 7, {}]) {
     assert.equal(f(v), '', 'kept ' + JSON.stringify(v));
   }

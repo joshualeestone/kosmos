@@ -57080,7 +57080,7 @@ var PLUS_SI_CODE_LATE_TIMER = null;
    Empty until read, and then the line offers no link. */
 var PLUS_SIGNUP_URL = '';
 // An https address with nothing a link should not carry (no sign-in part before the host), or '' (then no link).
-function plusSignupUrl(v) { return typeof v === 'string' && /^https:\/\/[^\s"'<>@\/]+(\/[^\s"'<>]*)?$/.test(v) ? v : ''; }
+function plusSignupUrl(v) { return typeof v === 'string' && /^https:\/\/[^\s"'<>@\/?#\\]+(\/[^\s"'<>]*)?$/.test(v) ? v : ''; }
 function plusSiCodeLateReset() {
   if (PLUS_SI_CODE_LATE_TIMER) { clearTimeout(PLUS_SI_CODE_LATE_TIMER); PLUS_SI_CODE_LATE_TIMER = null; }
   const late = document.getElementById('plus-si-code-late'); if (late) late.textContent = '';
