@@ -115,8 +115,16 @@ final class SignInUITests: XCTestCase {
             // The new project's room: its name at the top and the room's own + for files.
             let room = app.buttons["Add a file to this conversation"]
             XCTAssertTrue(room.waitForExistence(timeout: 60), "Create did not open the new project's room within 60 s")
-            XCTAssertTrue(app.staticTexts[name].exists || app.navigationBars[name].exists, "the room that opened is not \(name)")
+            // Review 1: the room's own title, in its top bar, not the list row underneath (RoomTitleUITests checks this).
+            XCTAssertTrue(Self.roomTitle(app, name).waitForExistence(timeout: 5), "the room that opened is not \(name)")
         }
+    }
+
+    /// The open room's title: the top bar's name and agent count are one element ("<name>, N agents"), so it is matched
+    /// as exactly the name or the name then a comma, never a longer name that starts with it.
+    static func roomTitle(_ app: XCUIApplication, _ name: String) -> XCUIElement {
+        app.navigationBars.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", name, name + ",")).firstMatch
     }
 
     /// Runs one named step, so a failure says which one and leaves a screenshot of it in the result.
