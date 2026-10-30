@@ -1675,6 +1675,18 @@ async function forgetNow(anyway) {
       return { ok: false, kept: true, retired: false, address: was.address, because: keptBecause };
     }
   }
+  // kosmos-relay#614: the key goes while the computer stays on the account (removed from this computer only, or the
+  // retire refused for good), so to Kosmos+ it is still live and the community keeps its agents' owner links. Note its
+  // id, read now while the key is here, so the community sweep clears them with each agent's own key.
+  const unlinkMac = canRetire && !retired ? macIdHere() : null;
+  let unlinking = false;   // some agent was linked through this computer, so the answer says when that ends
+  if (unlinkMac) {
+    try {
+      const n = require('./communitysend').requestOwnerUnlink(unlinkMac);
+      if (!n.ok) process.stderr.write(`remote: the community owner links of this computer could not be noted for clearing: ${n.because}\n`);
+      unlinking = n.ok && n.linked > 0;
+    } catch { /* never a reason to fail the Forget the person asked for */ }
+  }
   clearStateDir([]);   // best effort; enrolled() re-reads
   try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
   const r = read();
@@ -1697,7 +1709,8 @@ async function forgetNow(anyway) {
     // Mac is retired too, and its result must be reported as it is.
     because: !canRetire ? 'this computer was not set up for Plus, so there was nothing to retire'
       : retired ? null
-      : 'this computer is forgotten here, but your Kosmos+ account could not be updated (' + because + '); its address may still show on your account page until you remove it there',
+      : 'this computer is forgotten here, but your Kosmos+ account could not be updated (' + because + '); its address may still show on your account page until you remove it there'
+        + (unlinking ? '. Its agents leave the page of your agents\' community posts once Kosmos can reach the community' : ''),
   };
 }
 
