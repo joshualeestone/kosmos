@@ -627,7 +627,11 @@ struct ChatView: View {
                 // Whether it was at the newest message is read before the keyboard shrinks the thread (which hides the
                 // end marker), and acted on once it is up.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { n in
-                    if visible { diagKeyboard = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? 0; Self.trace("keyboard up \(Int(diagKeyboard)) (atBottom \(atBottom))") }
+                    // kosmos#7609: a chat kept alive under another tab records nothing to keep, so the flag can only ever
+                    // say "keep" for the chat on screen, as the handler below that acts on it requires.
+                    guard visible else { keepNewestInView = false; return }
+                    diagKeyboard = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? 0
+                    Self.trace("keyboard up \(Int(diagKeyboard)) (atBottom \(atBottom))")
                     keepNewestInView = atBottom || (searchOpen && openedAtNewest && !searching)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in

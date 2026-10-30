@@ -1,0 +1,64 @@
+#!/bin/bash
+# kosmos#7609: every UI test that needs no account (sample agents only, a Debug build) on one fresh simulator: the + panel
+# (AttachMenuUITests), the room title check (RoomTitleUITests), a long chat opening on its newest message
+# (ChatOpensAtNewestUITests) and the keyboard (KeyboardSlideUITests). Run by the ios workflow's "ui tests (sample board)"
+# job and by hand. Prints PASS, or FAIL with the failing check's own words.
+#
+#   ios/tools/ui-sample.sh [--keep]
+#
+# The newest installed iOS runtime and the smallest iPhone it offers (the least room above the keyboard). The simulator is
+# new for each run and deleted at the end, and so are the build and the results (--keep keeps them). SignInUITests is left
+# out: it needs a real account (ios/tools/ui-signin.sh). The keyboard checks need the on-screen keyboard, so a run stops if
+# the Simulator's hardware keyboard preference is on (a setting others on a shared Mac use; it is never changed here).
+set -u
+here="$(cd "$(dirname "$0")" && pwd)"
+keep=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --keep) keep=1; shift ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    *) echo "ui-sample: unknown argument $1" >&2; exit 2 ;;
+  esac
+done
+# Each class and how many tests it holds: a filter that matches nothing also exits 0, so the count is what proves a run.
+classes="AttachMenuUITests:6 RoomTitleUITests:2 ChatOpensAtNewestUITests:1 KeyboardSlideUITests:3"
+if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
+  echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
+  exit 1
+fi
+work="$(mktemp -d)"
+udid=""
+cleanup() {
+  [ -n "$udid" ] && { xcrun simctl shutdown "$udid" >/dev/null 2>&1; xcrun simctl delete "$udid" >/dev/null 2>&1; }
+  if [ "$keep" = 1 ]; then echo "kept: $work"; else rm -rf "${work:?}"; fi
+}
+trap cleanup EXIT
+trap 'exit 143' TERM; trap 'exit 130' INT HUP
+runtime="$(xcrun simctl list runtimes available | sed -n 's/.*\(com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]*\).*/\1/p' | sort -V | tail -1)"
+[ -n "$runtime" ] || { echo "FAIL  ui-sample: no iOS simulator runtime installed" >&2; exit 1; }
+# The smallest current phone this Xcode knows: the "e" model if there is one, else the newest plain iPhone.
+types="$(xcrun simctl list devicetypes | sed -n 's/.*(\(com\.apple\.CoreSimulator\.SimDeviceType\.iPhone-[0-9]*e\{0,1\}\))$/\1/p' | sort -V)"
+dtype="$(printf '%s\n' "$types" | grep -E 'iPhone-[0-9]+e$' | tail -1)"
+[ -n "$dtype" ] || dtype="$(printf '%s\n' "$types" | grep -E 'iPhone-[0-9]+$' | tail -1)"
+[ -n "$dtype" ] || { echo "FAIL  ui-sample: no iPhone simulator type found" >&2; exit 1; }
+udid="$(xcrun simctl create "kosmos-ui-sample-$$" "$dtype" "$runtime")" || { echo "FAIL  ui-sample: no ${dtype##*.} simulator could be made on $runtime" >&2; exit 1; }
+xcrun simctl boot "$udid" && xcrun simctl bootstatus "$udid" -b >/dev/null || { echo "FAIL  ui-sample: the simulator did not boot" >&2; exit 1; }
+echo "ui-sample: ${dtype##*.} on ${runtime##*.}"
+only=""; want=0
+for c in $classes; do only="$only -only-testing:KosmosUITests/${c%%:*}"; want=$((want + ${c##*:})); done
+log="$work/xcodebuild.log"
+# shellcheck disable=SC2086  # $only is a list of separate arguments
+( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
+    $only -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
+rc=$?
+ran="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z]+ [A-Za-z]+\]' (passed|failed)" "$log")"
+failed="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z]+ [A-Za-z]+\]' failed" "$log")"
+if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ]; then
+  echo "PASS  ui-sample: $ran of $want UI checks passed on a fresh simulator"
+  exit 0
+fi
+why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z]*\) \([A-Za-z]*\)\] : /\1.\2: /p' "$log" | head -3)"
+echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)"
+[ -n "$why" ] && printf '%s\n' "$why"
+[ "$keep" = 1 ] || echo "  (run again with --keep to keep the log and result)"
+exit 1
