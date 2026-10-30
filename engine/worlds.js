@@ -619,6 +619,7 @@ module.exports = {
   WORLD_ROOT_ENV_VARS,
   PRE_WORLD_ROOTS_ENV_VAR,
   applyAgentWorldEnv,
+  applyWorldEnv,
   preWorldEnv,
   createWorld,
   renameWorld,

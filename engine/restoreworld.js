@@ -27,7 +27,8 @@
  *
  * ⚠️ EVERY CALL IS SYNCHRONOUS. A listing can read up to MAX_BRIEF_TOTAL of briefs and thousands of entries, and run
  * git on project configs for about 22 s; a finish on Windows can wait seconds per rename. The 4c caller runs these off
- * the board's event loop (a worker thread or a child process), or one large restore stalls every other request.
+ * the board's event loop, or one large restore stalls every other request: listRestoredAgentsInChild does it for a
+ * listing, in a child process (not a worker thread, which shares this process's store root).
  */
 
 const childProcess = require('node:child_process');
@@ -859,4 +860,87 @@ function listRestoredAgents(opts = {}) {
   return { agents, shared, more };
 }
 
-module.exports = { memberTag, prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, isRestoredWorld, worldName, RESTORE_DIR };
+/* A listing's bound in the child, and what it may print: git's 22 s (20 s of reads plus one 2 s read past it) and
+   32 MB of briefs together come to about 25 s, so a minute is room to spare. 1,000 rows of labels and `runs` lines fit well inside 32 MB.
+   Past either, the child is killed and the listing reads as failed, never as empty. */
+const LIST_CHILD_TIMEOUT_MS = 60 * 1000;
+const LIST_CHILD_STDOUT_MAX = 32 * 1024 * 1024;
+const LIST_FAILED = 'the restored agents could not be listed, so nothing in this Kosmos is offered yet';
+const listing = new Map();   // one listing per world at a time: key -> the answer in flight
+const listChildren = new Set();
+let listingsStopped = false;   // between stopListings and startListings: the board is stopping, so no new child starts
+
+/* listRestoredAgents for `world`, run in a child process (engine/restoreworld-child.js) with that world's folders in
+   its environment, so the board's event loop never waits on it and create.js there takes the Restored world's store
+   root. Resolves to listRestoredAgents's own answer; any failure (the child timing out, printing too much, or saying
+   something that is not a listing) resolves to no rows, `more`, and a `because`, as does a refusal from
+   listRestoredAgents itself (which in-process answers `more: false`). A consumer refuses on `because`, which every
+   refusal carries; `more` alone does not tell a refusal from a cut list.
+   One listing per world at a time: a second ask while one runs gets the same answer (one object: do not change it).
+   stopListings ends them all and refuses every ask until startListings (the board calls them as it stops and starts,
+   so no child outlives a board). A refusal from listRestoredAgents itself is given the same shape (more: true).
+   The child reports its own store root, and a listing from any root but the Restored world's is refused: the env is
+   what keeps create.js there off the board's store, so it is checked, not assumed. opts: { base, world, restoreDir? }.
+   deps: { execFile, env } (tests; env is the board's own, process.env by default). */
+function listRestoredAgentsInChild(opts = {}, deps = {}) {
+  const failed = (because) => Object.freeze({ agents: Object.freeze([]), shared: Object.freeze([]), more: true, because });
+  const world = opts.world;
+  if (world && world.id === worlds.DEFAULT_ID) return Promise.resolve(failed('this Kosmos was not made for a restore, so nothing in it is offered'));
+  if (!world || typeof world.id !== 'string' || typeof opts.base !== 'string' || !path.isAbsolute(opts.base)) return Promise.resolve(failed(LIST_FAILED));
+  if (listingsStopped) return Promise.resolve(failed(LIST_FAILED));
+  const key = JSON.stringify([path.resolve(opts.base), world.id, opts.restoreDir ? path.resolve(opts.restoreDir) : '']);
+  if (listing.has(key)) return listing.get(key);
+  let env;
+  try {
+    // That world's environment as worlds.applyWorldEnv builds it, marker included, from the pre-world roots and the
+    // SAME base the listing reads, so the child's store root, anything it starts, and the folders it lists are one
+    // world's. (applyAgentWorldEnv would derive the base from the env, which can differ from opts.base.)
+    env = worlds.preWorldEnv(deps.env || process.env);
+    if (!worlds.applyWorldEnv(env, opts.base, { id: world.id }).AGENT_WORKFORCE_DATA) return Promise.resolve(failed(LIST_FAILED));
+  } catch { return Promise.resolve(failed(LIST_FAILED)); }
+  const execFile = deps.execFile || childProcess.execFile;
+  const args = [path.join(__dirname, 'restoreworld-child.js'), 'list', opts.base, world.id].concat(opts.restoreDir ? [opts.restoreDir] : []);
+  let settled = false;
+  let mine = null;   // this ask's own entry: a killed child calling back late must not remove a newer ask's
+  const answer = new Promise((resolve) => {
+    let child = null;
+    const done = (l) => { settled = true; if (child) listChildren.delete(child); if (mine && listing.get(key) === mine) listing.delete(key); resolve(l); };
+    try {
+      child = execFile(process.execPath, args, { env, timeout: LIST_CHILD_TIMEOUT_MS, maxBuffer: LIST_CHILD_STDOUT_MAX, windowsHide: true }, (err, stdout) => {
+        if (err) return done(failed(LIST_FAILED));
+        let j;
+        try { j = JSON.parse(String(stdout).trim().split('\n').pop()); } catch { return done(failed(LIST_FAILED)); }
+        if (j && j.ok === false && typeof j.because === 'string') return done(failed(j.because));
+        let want;
+        try { want = path.resolve(worlds.worldStoreRoot(opts.base, world)); } catch { want = null; }
+        const l = j && j.ok === true && want && typeof j.root === 'string' && path.resolve(j.root) === want ? j.listing : null;
+        const shaped = l && Array.isArray(l.agents) && Array.isArray(l.shared) && typeof l.more === 'boolean'
+          && (l.because === undefined || typeof l.because === 'string')
+          && l.agents.concat(l.shared).every((row) => row !== null && typeof row === 'object' && !Array.isArray(row));
+        if (!shaped) return done(failed(LIST_FAILED));
+        // The listing's own refusal (a world not on the list, or not made for a restore) in the refusal shape too, so
+        // a screen keying on `more` never reads it as an empty restore.
+        if (typeof l.because === 'string') return done(failed(l.because));
+        for (const row of l.agents.concat(l.shared)) { if (Array.isArray(row.runs)) Object.freeze(row.runs); Object.freeze(row); }
+        Object.freeze(l.agents); Object.freeze(l.shared);
+        done(Object.freeze(l));   // shared by every ask for this world while it ran, so nobody's change reaches another
+      });
+      if (child && !settled) listChildren.add(child);
+    } catch { done(failed(LIST_FAILED)); }
+  });
+  mine = answer;
+  if (!settled) listing.set(key, answer);   // an answer given at once (a spawn that threw) holds no place
+  return answer;
+}
+function startListings() { listingsStopped = false; }   // the board is starting: listings may run again
+/* The board is stopping: ends every listing child still running (each answers a refusal through its own callback) and
+   refuses every later ask, so no child outlives the board. */
+function stopListings() {
+  listingsStopped = true;
+  for (const c of listChildren) { try { c.kill(); } catch { /* gone */ } }
+  listChildren.clear();
+  listing.clear();   // an ask after the stop is refused above, never handed a killed child's answer
+}
+
+module.exports = { memberTag, prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, listRestoredAgentsInChild, startListings, stopListings, isRestoredWorld, worldName,
+  RESTORE_DIR, LIST_CHILD_TIMEOUT_MS };

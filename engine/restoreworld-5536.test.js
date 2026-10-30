@@ -1157,3 +1157,141 @@ test('checkout path guards are named; every part of a key is bounded; refused ag
   assert.ok(!Object.values(runs).flat().some((r) => /checked as many as it may/.test(r)), 'the refused agent folder spent none of the two reads');
   assert.ok(!l.agents.find((a) => a.folder === 'gitty').runs.some((r) => / sets /.test(r)));
 });
+
+test('a listing run in a child process answers exactly what a successful listing in this process does', async (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const sink = createRestoreSink(p.restoreDir);
+  writeThrough(sink, 'workers/ann/CLAUDE.md', '# You are Ann\n');
+  writeThrough(sink, 'workers/eve/.claude/settings.json', '{}\n');
+  writeThrough(sink, 'projects/site/.git/config', '[core]\n\tpager = x\n');
+  sink.close();
+  const moved = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(moved.ok, true, moved.because);
+  const tree = (d) => { const out = []; const walk = (x) => { for (const e of fs.readdirSync(x, { withFileTypes: true })) { const f = path.join(x, e.name); const st = fs.lstatSync(f); out.push(`${path.relative(d, f)} ${st.size} ${st.mtimeMs}`); if (e.isDirectory()) walk(f); } }; walk(d); return out.sort(); };
+  const before = tree(base);
+  const here = rw.listRestoredAgents({ base, world: p.world, restoreDir: p.restoreDir, nameOk });
+  assert.ok(here.agents.length >= 2 && here.shared.some((s) => s.runs.includes('.git/config sets core.pager')), JSON.stringify(here));
+  const away = await rw.listRestoredAgentsInChild({ base, world: p.world, restoreDir: p.restoreDir });
+  assert.deepEqual(away, here);
+  assert.deepEqual(tree(base), before, 'neither listing wrote anything under the base');
+  assert.ok(Object.isFrozen(away.agents) && Object.isFrozen(away.agents[0]), 'a shared answer is frozen, rows too');
+  assert.ok(away.shared.every((s) => Object.isFrozen(s.runs)), 'and their runs');
+  // A real child with the board's own env, not the Restored world's: its store root differs, so the answer is refused.
+  let said = '';
+  const wrongEnv = { execFile: (f, a, o, cb) => require('node:child_process').execFile(f, a, Object.assign({}, o, { env: process.env }), (e, out) => { said = String(out); cb(e, out); }) };
+  const wrong = await rw.listRestoredAgentsInChild({ base, world: p.world, restoreDir: p.restoreDir }, wrongEnv);
+  assert.ok(wrong.agents.length === 0 && wrong.more === true && typeof wrong.because === 'string', 'a listing read from another store root is refused');
+  const told = JSON.parse(said.trim().split('\n').pop());
+  assert.ok(told.ok === true && told.listing.agents.length > 0 && told.root !== worlds.worldStoreRoot(base, p.world), 'the child listed fine: only the root check refused it');
+  const stranger = await rw.listRestoredAgentsInChild({ base, world: { id: 'not-a-world' } });
+  assert.deepEqual(stranger, { agents: [], shared: [], more: true, because: 'this is not a Kosmos on your list, so nothing in it is offered' });
+  // A world on the list that a restore did not make: listRestoredAgents refuses it, and the refusal keeps more: true.
+  const plain = worlds.createWorld(base, 'Plain');
+  const notRestore = await rw.listRestoredAgentsInChild({ base, world: plain });
+  assert.deepEqual(notRestore, { agents: [], shared: [], more: true, because: 'this Kosmos was not made for a restore, so nothing in it is offered' });
+});
+
+test('a listing in a child that fails in any way is a refusal, never an empty restore; the child gets the Restored world\'s roots', async (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const refused = (l) => l.agents.length === 0 && l.shared.length === 0 && l.more === true && typeof l.because === 'string' && l.because.length > 0;
+  const answering = (err, stdout, seen) => ({ execFile: (file, args, opts, cb) => { if (seen) seen.push({ file, args, opts }); cb(err, stdout); } });
+  const seen = [];
+  const good = { agents: [], shared: [], more: false };
+  const root = worlds.worldStoreRoot(base, p.world);
+  assert.deepEqual(await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(null, JSON.stringify({ ok: true, root, listing: good }) + '\n', seen)), good);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].opts.env.AGENT_WORKFORCE_DATA, worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_DATA);
+  assert.equal(seen[0].opts.env.AGENT_WORKFORCE_WORKERS, worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS);
+  assert.equal(seen[0].opts.env[require('./launchidentity').WORLD_ENV_VAR], p.world.id);
+  assert.deepEqual(seen[0].args.slice(1), ['list', base, p.world.id]);
+  assert.equal(seen[0].opts.timeout, rw.LIST_CHILD_TIMEOUT_MS, 'a wedged child is killed, or it would hold its world for good');
+  assert.ok(Number.isFinite(seen[0].opts.maxBuffer) && seen[0].opts.maxBuffer > 0);
+  for (const [why, err, out] of [
+    ['the child failed or timed out', new Error('killed'), ''],
+    ['the child printed something that is not JSON', null, 'not json\n'],
+    ['the listing is missing its shared rows', null, JSON.stringify({ ok: true, root, listing: { agents: [], more: false } }) + '\n'],
+    ['a row is not an object', null, JSON.stringify({ ok: true, root, listing: { agents: [null], shared: [], more: false } }) + '\n'],
+    ['more is not a boolean', null, JSON.stringify({ ok: true, root, listing: { agents: [], shared: [], more: 'no' } }) + '\n'],
+    ['the child read another store root', null, JSON.stringify({ ok: true, root: path.join(SANDBOX, 'support'), listing: good }) + '\n'],
+    ['the child named no store root', null, JSON.stringify({ ok: true, listing: good }) + '\n'],
+  ]) {
+    assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(err, out))), why);
+  }
+  assert.equal((await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(null, JSON.stringify({ ok: false, because: 'said by the child' }) + '\n'))).because, 'said by the child');
+  // A real child answers on a later tick, outside any try in the caller: a malformed row must be refused, not thrown.
+  const later = (out) => ({ execFile: (file, args, opts, cb) => { setImmediate(() => cb(null, out)); return { kill() {} }; } });
+  assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: p.world }, later(JSON.stringify({ ok: true, root, listing: { agents: [null], shared: [], more: false } }) + '\n'))), 'a null row, answered later');
+  assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: p.world }, later(JSON.stringify({ ok: true, root, listing: { agents: [], more: false } }) + '\n'))), 'no shared rows, answered later');
+  const none = [];
+  assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: { id: worlds.DEFAULT_ID } }, answering(null, '', none))), 'the default Kosmos is never listed');
+  const rel = await rw.listRestoredAgentsInChild({ base: 'relative/base', world: p.world }, answering(null, '', none));
+  assert.ok(refused(rel) && !/not made for a restore/.test(rel.because), 'nor a relative base, and it is not called a non-restore');
+  assert.ok(Object.isFrozen(rel) && Object.isFrozen(rel.agents), 'a refusal is frozen too: it can be shared');
+  assert.equal(none.length, 0, 'and no child is started for either');
+
+  // A board serving ANOTHER world: its marker and roots are not carried; the child gets this world's, marker included.
+  const M = worlds.PRE_WORLD_ROOTS_ENV_VAR, W = require('./launchidentity').WORLD_ENV_VAR;
+  const orig = { AGENT_WORKFORCE_DATA: path.join(SANDBOX, 'support'), AGENT_WORKFORCE_PROJECTS: path.join(SANDBOX, 'projects'), AGENT_WORKFORCE_WORKERS: path.join(SANDBOX, 'workers') };
+  const boardEnv = Object.assign({}, process.env, { [W]: 'elsewhere', [M]: JSON.stringify({ world: 'elsewhere', roots: orig }),
+    AGENT_WORKFORCE_DATA: '/x/elsewhere', AGENT_WORKFORCE_PROJECTS: '/x/elsewhere/projects', AGENT_WORKFORCE_WORKERS: '/x/elsewhere/workers' });
+  const seen2 = [];
+  await rw.listRestoredAgentsInChild({ base, world: p.world }, Object.assign(answering(null, JSON.stringify({ ok: true, root, listing: good }) + '\n', seen2), { env: boardEnv }));
+  const e = seen2[0].opts.env, want = worlds.envOverridesFor(base, p.world);
+  assert.equal(e.AGENT_WORKFORCE_PROJECTS, want.AGENT_WORKFORCE_PROJECTS);
+  assert.equal(e[W], p.world.id);
+  assert.deepEqual(JSON.parse(e[M]), { world: p.world.id, roots: orig }, 'the marker names this world and the board\'s original roots');
+});
+
+test('one listing per world at a time; stopListings ends a running one as a refusal and refuses every later ask', async (t) => {
+  t.after(() => { rw.stopListings(); rw.startListings(); });   // whatever fails below, the next test starts clean
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  let calls = 0, pending = null;
+  const fakeChild = { kill() { const cb = pending; pending = null; if (cb) cb(new Error('killed'), ''); } };
+  const deps = { execFile: (file, args, opts, cb) => { calls += 1; pending = cb; return fakeChild; } };
+  const a = rw.listRestoredAgentsInChild({ base, world: p.world }, deps);
+  const b = rw.listRestoredAgentsInChild({ base, world: p.world }, deps);
+  assert.equal(a, b, 'a second ask while one runs gets the same answer');
+  assert.equal(calls, 1, 'and starts no second child');
+  rw.stopListings();
+  const l = await a;
+  assert.ok(l.agents.length === 0 && l.more === true && typeof l.because === 'string', JSON.stringify(l));
+  // Raced, so a regression (a child started and never answering) fails here instead of hanging the suite.
+  let timer;
+  const after = await Promise.race([rw.listRestoredAgentsInChild({ base, world: p.world }, deps),
+    new Promise((r) => { timer = setTimeout(() => r({ agents: ['still waiting'] }), 2000); })]);
+  clearTimeout(timer);
+  assert.ok(after.agents.length === 0 && after.more === true && typeof after.because === 'string', 'an ask after the stop is refused');
+  assert.equal(calls, 1, 'and starts no child');
+  rw.startListings();
+  rw.listRestoredAgentsInChild({ base, world: p.world }, deps);
+  assert.equal(calls, 2, 'startListings lets the next ask start a child');
+  rw.stopListings();
+  rw.startListings();
+
+  // An answer that comes on a later tick, as a real child's does, frees the world's place for the next ask.
+  const ok = JSON.stringify({ ok: true, root: worlds.worldStoreRoot(base, p.world), listing: { agents: [], shared: [], more: false } }) + '\n';
+  const tick = { execFile: (file, args, opts, cb) => { calls += 1; setImmediate(() => cb(null, ok)); return { kill() {} }; } };
+  const was = calls;
+  await rw.listRestoredAgentsInChild({ base, world: p.world }, tick);
+  await rw.listRestoredAgentsInChild({ base, world: p.world }, tick);
+  assert.equal(calls, was + 2, 'each finished listing frees its place: the next ask starts a new child');
+
+  // A real child calls back AFTER kill(), so a killed one can answer once a newer ask holds the world's place.
+  const late = [];
+  const lateDeps = { execFile: (file, args, opts, cb) => { calls += 1; late.push(cb); return { kill() {} }; } };
+  const first = rw.listRestoredAgentsInChild({ base, world: p.world }, lateDeps);
+  rw.stopListings();
+  rw.startListings();
+  const second = rw.listRestoredAgentsInChild({ base, world: p.world }, lateDeps);
+  assert.equal(calls, was + 4);
+  late[0](new Error('killed'), '');   // the killed child's callback, late
+  assert.ok((await first).because);
+  assert.equal(rw.listRestoredAgentsInChild({ base, world: p.world }, lateDeps), second, 'the newer ask still holds its place');
+  assert.equal(calls, was + 4, 'and no second child is started for the world');
+  rw.stopListings();
+  late[1](new Error('killed'), '');
+  rw.startListings();
+});
