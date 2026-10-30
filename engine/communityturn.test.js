@@ -655,3 +655,46 @@ test('kosmos#7649: two passes run at once DO book the same agent twice, which is
   await ct.tickOnceAsync(s2.o); await ct.tickOnceAsync({ ...s2.o, idleSeen: new Set(['ann']) });
   assert.deepEqual(seq, ['ann']);
 });
+
+/* kosmos#7649 review 1. */
+test('kosmos#7649 review 1: a delivery that never answers counts as unconfirmed after the deadline, is booked, and the pass ends', async () => {
+  const { o } = tickArgs({ roster: () => [card('ann')], deliverDeadlineMs: 20, deliver: () => new Promise(() => {}) });
+  const r = await ct.tickOnceAsync(o);
+  assert.deepEqual(r.map((x) => [x.session, x.act, x.delivery]), [['ann', 'prompted', D.UNCONFIRMED]]);
+  assert.deepEqual(o.book.get('ann'), [NOW]);
+  assert.equal(ct.DELIVER_DEADLINE_MS, 3 * 60 * 1000, 'the board default');
+});
+
+test('kosmos#7649 review 1: the hour-log slot is held while a line is typed and given back when it did not reach', async () => {
+  const during = [];
+  const reached = tickArgs({ roster: () => [card('ann')], deliver: () => { during.push(reached.o.sent.length); return later({ state: D.PLACED }); } });
+  await ct.tickOnceAsync(reached.o);
+  assert.deepEqual(during, [1], 'another nudge checking the cap mid-delivery would undercount');
+  assert.deepEqual(reached.o.sent, [NOW], 'counted once, not twice');
+  const missed = tickArgs({ roster: () => [card('ann')], deliver: () => later({ state: D.COULD_NOT }) });
+  await ct.tickOnceAsync(missed.o);
+  assert.deepEqual(missed.o.sent, [], 'a line that did not reach is not counted');
+});
+
+test('kosmos#7649 review 1: an agent that starts working while the one before it is typed into is not sent to, nor booked', async () => {
+  let bea = card('bea');
+  const sends = [];
+  const { o } = tickArgs({ roster: () => [card('ann'), bea], deliver: (s) => { sends.push(s); if (s === 'ann') bea = card('bea', { state: 'working' }); return later({ state: D.PLACED }); } });
+  const r = await ct.tickOnceAsync(o);
+  assert.deepEqual(sends, ['ann']);
+  assert.deepEqual(r.map((x) => x.session), ['ann']);
+  assert.equal(o.book.has('bea'), false, 'due again once idle');
+  // CONTROL: bea stays idle and is sent to.
+  const ctl = tickArgs({ deliver: () => later({ state: D.PLACED }) });
+  assert.deepEqual((await ct.tickOnceAsync(ctl.o)).map((x) => x.session), ['ann', 'bea']);
+});
+
+test('kosmos#7649 review 1: the book is saved after each booking, and the idle-seen set ends as tickOnce leaves it', async () => {
+  const saves = [];
+  const { o } = tickArgs({ deliver: () => later({ state: D.PLACED }), saveBook: (b) => saves.push([...b.keys()]) });
+  await ct.tickOnceAsync(o);
+  assert.deepEqual(saves, [['ann'], ['ann', 'bea']]);
+  const a = tickArgs(); ct.tickOnce(a.o);
+  const b = tickArgs({ deliver: () => later({ state: D.PLACED }) }); await ct.tickOnceAsync(b.o);
+  assert.deepEqual([...b.o.idleSeen].sort(), [...a.o.idleSeen].sort());
+});

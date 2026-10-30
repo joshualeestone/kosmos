@@ -351,20 +351,54 @@ function tickOnce(o) {
   return results;
 }
 
+/* kosmos#7649 review 1: a delivery that has not answered by then counts as UNCONFIRMED (reached, so the agent is booked)
+   and the pass moves on. Without it one delivery that never settles would keep the board's one-pass-at-a-time flag set,
+   and no community turn would ever run again. Far above a real delivery's wait (a few seconds behind the pane's queue). */
+const DELIVER_DEADLINE_MS = 3 * 60 * 1000;
+
+// Insert t into the shared hour log in time order (the other nudges prune it from the front); returns nothing.
+function logAt(sent, t) {
+  let i = sent.length;
+  while (i > 0 && sent[i - 1] > t) i -= 1;
+  sent.splice(i, 0, t);
+}
+
 /* kosmos#7649: the board's sender. Same pass, but each delivery is awaited, so the event loop is free while a pane is
-   typed into. A rejection counts as UNCONFIRMED, as a throw does above. Never rejects. */
+   typed into. A rejection counts as UNCONFIRMED, as a throw does above. Never rejects. What the await lets happen, and
+   what closes each (review 1):
+   - another nudge on the shared hour log checks the cap mid-delivery: the slot is held in the log during the await and
+     given back before the verdict is booked, so the log never undercounts a send in flight;
+   - an agent due at the start of the pass starts working while the one before it is typed into: each agent after the
+     first is checked again on a fresh roster just before it is sent to, and left unbooked if it is no longer idle;
+   - the board stops mid-pass: o.saveBook (the board's writeBook), when given, runs after each booking. */
 async function tickOnceAsync(o) {
   const results = [];
   try {
     const p = begin(o, results);
     if (!p) return results;
+    const ms = Number.isFinite(o.deliverDeadlineMs) && o.deliverDeadlineMs > 0 ? o.deliverDeadlineMs : DELIVER_DEADLINE_MS;
     for (let n = 0; n < p.dues.length; n += 1) {
       if (capped(p, n)) break;
       const d = p.dues[n];
+      if (n > 0) {
+        let card = null;
+        try { const r = o.roster(); card = Array.isArray(r) ? r.find((c) => c && c.sessionName === d.session) : null; } catch { card = null; }
+        let idle = false;
+        try { idle = Boolean(card) && require('./agentnudge').nudgeableCard(card) === true; } catch { idle = false; }
+        if (!idle) continue;   // not booked: it is due again at a later pass, once it is idle
+      }
       const text = lineFor(p, d);
+      logAt(p.sent, p.now);   // the slot, held while the line is typed
       let v = null;
-      try { v = await o.deliver(d.session, text, p.roster); } catch { v = { state: p.D.UNCONFIRMED }; }
+      let timer = null;
+      try {
+        const late = new Promise((res) => { timer = setTimeout(() => res({ state: p.D.UNCONFIRMED }), ms); if (timer && timer.unref) timer.unref(); });
+        v = await Promise.race([Promise.resolve().then(() => o.deliver(d.session, text, p.roster)), late]);
+      } catch { v = { state: p.D.UNCONFIRMED }; } finally { clearTimeout(timer); }
+      const held = p.sent.lastIndexOf(p.now);
+      if (held !== -1) p.sent.splice(held, 1);   // given back: settle logs it again if it reached
       settle(p, d, v);
+      if (typeof o.saveBook === 'function') { try { o.saveBook(p.book); } catch { /* the board writes it after the pass too */ } }
     }
   } catch { /* never rejects: a sweep is best-effort */ }
   return results;
@@ -396,4 +430,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, tickOnceAsync, readBook, writeBook, bookFile };
+module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, tickOnceAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile };

@@ -27999,11 +27999,12 @@ function start(port = PORT) {
           kosmosLines: (session) => require('./engine/instructionreread').sentTimes(session),   // #5297: turns a re-read line woke
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
+          saveBook: (b) => communityturn.writeBook(b),   // kosmos#7649 review 1: after each booking, so a stop mid-pass keeps it
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
           stamp: true,   // #5636 F7a: the line says when it was sent, for a runner that rereads one long session
           deliver: (session, text, r) => chat.deliverAutomaticAsync(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
-          log: (r) => process.stdout.write(`community-turn:${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
+          log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
         });
         if (done.length) communityturn.writeBook(COMMUNITY_TURN_BOOK);   // review 9: only when a pass tried someone
         /* #5212: read ahead for the next passes. Only agents idle at this pass (the turn fills that set only once its

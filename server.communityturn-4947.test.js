@@ -157,3 +157,8 @@ test('#7543 review 2: a --public read is its own read job, never the company rea
   const keyed = SRC.slice(i, SRC.indexOf('readjobs.ask(', i));
   assert.match(keyed, /\['following', 'replies', 'public'\]/, 'public is not part of the read job key');
 });
+
+test('kosmos#7649 review 1: the book is saved after each booking (a stop mid-pass keeps it), and the log line is unchanged', () => {
+  assert.match(w, /saveBook:\s*\(b\)\s*=>\s*communityturn\.writeBook\(b\),/);
+  assert.match(w, /log: \(r\) => process\.stdout\.write\(`community-turn: \$\{r\.name\} \(\$\{r\.session\}\) /, 'the log line lost its space after community-turn:');
+});
