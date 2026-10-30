@@ -51,17 +51,23 @@ const BUSY = 'Muse Code is still working on this agent\'s last turn';
 const QUOTA_HEAD = 'Meta\'s usage quota for Muse Code is used up, so this turn did not run';
 const QUOTA_LINE_MAX = 240;
 const QUOTA_SAID = new RegExp([
-  /quota[_\W]{0,3}(?:is\s+|has\s+been\s+|was\s+)?(?:exhausted|exceeded)/.source,
+  // Review 3 BLOCKER: only a space, "_" or ":" between the words, so "exceeded. Quota for this session" (two
+  // sentences, a context-length failure) is never read as a quota refusal.
+  /quota(?:\s+|_|:\s*)(?:is\s+|has\s+been\s+|was\s+)?(?:exhausted|exceeded)/.source,
   // Review 2: the other order ("You have exhausted your quota", "exceeded your current quota", "RESOURCE_EXHAUSTED: quota").
-  /(?:exhausted|exceeded)\W{1,3}(?:(?:your|the)\s+)?(?:(?:current|monthly|daily)\s+)?quota/.source,
-  /\b429\b.{0,40}\bquota/.source,
-  /\bquota\b.{0,40}\b429\b/.source,
+  /(?:exhausted|exceeded)(?:\s+|_|:\s*)(?:(?:your|the)\s+)?(?:(?:current|monthly|daily)\s+)?quota/.source,
+  // A 429 and a quota in one sentence (review 3: never across a ".", ";" or "!").
+  /\b429\b[^.;!]{0,40}\bquota/.source,
+  /\bquota\b[^.;!]{0,40}\b429\b/.source,
 ].join('|'), 'i');
-// Not a refusal: a negation, or a share of a quota ("80% of monthly quota exceeded" is a notice, review 2).
-const NOT_REFUSED = /\bnot\s+(?:yet\s+)?(?:exhausted|exceeded)\b|\d\s*%/i;
+/* Not a refusal: a negation; a share below 100% ("80% of monthly quota exceeded" is a notice, review 2; "100% used" is
+   a refusal, review 3); a quota said to be fine (review 3: "retried after 429, quota ok"). */
+const NOT_REFUSED = /\bnot\s+(?:yet\s+)?(?:exhausted|exceeded)\b|\b[1-9]?\d(?:\.\d+)?\s*%|\bquota\s+(?:is\s+)?(?:ok|fine|available|remaining)\b/i;
 /* Review 1 and 2: a stderr line that says Muse is retrying is one it may have recovered from. Only "retrying": a final
    refusal often says when to retry ("Retry after ..."), and that time is why Meta's sentence is quoted at all. */
-const RETRYING = /\bretrying\b/i;
+/* Review 3: "retried" too. Only the bare word "retry" is let through before "after" or "in" ("Retry after <time>",
+   "retry in 31s": a final refusal's reset time); "retrying in 2s" is a retry under way. */
+const RETRYING = /\bretr(?:ied|ying)\b|\bretry\b(?!\s+(?:after|in)\b)/i;
 // By characters, not UTF-16 units (review 1: a cut must never split a character).
 function capped(line) {
   const chars = Array.from(line);
@@ -103,9 +109,12 @@ function failureWords(jsonl) {
 /* Which sentence says the quota refused this turn. A run failure with words of its own is the run's own account of why it
    ended, so only those are read; stderr is read only when there is none (review 2: an earlier stderr warning must not
    override a failure that names another cause). */
+// Review 3: a failure whose words are only machine codes ("provider_error") names no cause, so stderr is still read.
+const CODES_ONLY = (said) => said.split('\n').every((l) => /^[A-Za-z0-9_.-]+$/.test(l.trim()));
 function quotaRefusal(stderr, stdout) {
   const said = failureWords(stdout);
-  return said ? quotaLine(said) : quotaLine(stderr, true);
+  if (!said) return quotaLine(stderr, true);
+  return quotaLine(said) || (CODES_ONLY(said) ? quotaLine(stderr, true) : null);
 }
 
 /**
