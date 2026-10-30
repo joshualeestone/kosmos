@@ -70,7 +70,8 @@ function _resetRate() { recent.clear(); lookups.clear(); }
    slug, '-', and four characters from an alphabet with no 0/o, 1/l/i. */
 const HANDLE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*-[abcdefghjkmnpqrstuvwxyz23456789]{4}$/;
 
-/* Which name the follow routes (/agents/by-name/...) should use for what the agent typed.
+/* byHandle (below PROFILE_CAP and the lookup allowance it uses): which name the follow routes (/agents/by-name/...)
+   should use for what the agent typed.
    - A leading '@' is a handle and only a handle: an unknown one is "no agent", never a display name looked up instead.
      An @ followed by something not in the handle's shape is refused here with nothing sent (every handle the service
      issues has that shape, app/handles.py make_handle), so '@@x' or '@ x' cannot be read differently by the board and
@@ -107,13 +108,15 @@ async function byHandle(asked, deadline, { agentKey = null, takeBack = false } =
   }
   const overLookups = 'you have looked up ' + LOOKUPS_PER_HOUR + ' community handles in the last hour, so Kosmos is pausing handle lookups. Do not try again this hour';
   const beforeSend = agentKey ? () => (lookupAllowed(agentKey, Date.now()) ? null : overLookups) : null;
-  const p = await communitysend.publicGet('/agents/by-handle/' + encodeURIComponent(form), { deadline, cap: PROFILE_CAP, takeBack, agentKey, beforeSend });
+  // Review 6: a policy refusal is recorded here only for an @handle; a bare word goes on to the by-name call, which
+  // records it itself, so one act is one record.
+  const p = await communitysend.publicGet('/agents/by-handle/' + encodeURIComponent(form), { deadline, cap: PROFILE_CAP, takeBack, agentKey: at ? agentKey : null, beforeSend });
   /* A bare word is a handle only when the lookup clearly says so (200); anything short of that leaves it a display name,
      as before this card, so a follow or endorse by name never fails because the lookup did. When that was not a clear
      404 either, the result says so (unchecked), so a "no agent named ..." from the by-name route can add that the
      handle could not be checked, rather than tell the agent a real handle does not exist. */
   const clear = p.ok && p.status === 200 && p.json && typeof p.json.name === 'string';
-  if (!at && !clear) return { ok: true, name: asked, unchecked: !(p.ok && p.status === 404) };
+  if (!at && !clear) return { ok: true, name: asked, unchecked: p.limited ? 'limited' : !(p.ok && p.status === 404) };
   // A follow or endorse while the public community is off says so in the words a by-name one gets; settings that
   // cannot be read stop a follow or endorse, so it says nothing was SENT.
   if (!p.ok) return fail(p.publicOff ? communitysend.PUBLIC_OFF_WORDS : (p.fault ? 'Kosmos cannot read your company’s community settings right now, so nothing was sent' : p.because), p.limited ? { limited: true } : {});
@@ -129,7 +132,10 @@ async function byHandle(asked, deadline, { agentKey = null, takeBack = false } =
 /* Review 5: what a "no agent named <who>" adds when <who> was a bare handle-shaped word whose handle lookup gave no
    clear answer, or '' otherwise. */
 function uncheckedNote(resolved) {
-  return resolved && resolved.unchecked ? '. Kosmos could not check just now whether ' + resolved.name + ' is someone’s handle; if it is, try @' + resolved.name + ' again in a few minutes' : '';
+  if (!resolved || !resolved.unchecked) return '';
+  // Review 6: when the lookup allowance was spent, "try again in a few minutes" would be refused for the hour.
+  if (resolved.unchecked === 'limited') return '. Kosmos has looked up its most handles for this hour, so it did not check whether ' + resolved.name + ' is someone’s handle; if it is, try @' + resolved.name + ' again in an hour';
+  return '. Kosmos could not check just now whether ' + resolved.name + ' is someone’s handle; if it is, try @' + resolved.name + ' again in a few minutes';
 }
 
 /** Follow (or, with unfollow, stop following) `name` as `agentKey`. { ok, text } or { ok: false, because }, with

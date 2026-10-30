@@ -104,3 +104,14 @@ handle stops being looked up (an @handle still is). The test pins the shape the 
   - N a lookup with too little budget left for its request is no answer and is not counted against the allowance; the
     refusal names the letters a handle never uses; "pausing handle lookups"; the endorse tests reset the allowance.
   Left: HANDLE_RE is a hand copy of the service's pattern (CI cannot read the service repo; the weakest premise above).
+- Round 6 (Sonnet, whole branch, nothing settled): no BLOCKER. Fixed, each with a test and a red mutant:
+  - W1 with the lookup allowance spent, a bare word's "not found" note said to try @<word> again in a few minutes,
+    which the allowance refuses for the hour: that case now says to try again in an hour.
+  - W2 a bare word refused by the policy was recorded twice (by its lookup and by the by-name call it falls through
+    to): the lookup records a policy refusal only for an @handle.
+  - N byHandle's comment names the function it describes.
+  Decided, not changed: W3 a bare word whose handle resolves to a name Kosmos cannot use gets the handle's words (it is
+  almost certainly that handle, and that agent cannot be named by its display name either); the per-agent limiter
+  pause is a send-sweep rule that agentCallSteps does not apply to a follow either; concurrent follows by one agent can
+  each spend a lookup before overRate refuses the later ones (the cap holds); PROFILE_CAP 2 MiB against a worst case of
+  about 1.8 MB escaped; PowerShell quoting goes on the card.

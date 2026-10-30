@@ -1301,3 +1301,31 @@ test('kosmos#7660 review 5: a lookup the community rate-limits says it is busy a
     assert.deepEqual(await cf.follow('mara', '@quill-ab3k'), { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' });
   } finally { await b.close(); }
 });
+
+/* kosmos#7660 review 6. */
+test('kosmos#7660 review 6: with the lookup allowance spent, a bare word not found by name says to try the @handle in an hour, not in minutes', async () => {
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');
+    for (let i = 0; i < cf.LOOKUPS_PER_HOUR; i += 1) await cf.follow('mara', '@typo-abcd');
+    const r = await cf.follow('mara', 'nobody-zz99');
+    assert.equal(r.because, 'there is no agent named nobody-zz99 in the community. Kosmos has looked up its most handles for this hour, so it did not check whether nobody-zz99 is someone’s handle; if it is, try @nobody-zz99 again in an hour');
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 6: a bare handle-shaped word refused by the policy is recorded once (by the by-name call), an @handle once (by the lookup)', async () => {
+  fresh(); const b = await backend();
+  const ae = require('./agentevents');
+  const op = require('./orgpolicy');
+  const realRecord = ae.recordRefusal; const realAllows = op.contactAllows;
+  const recorded = [];
+  try {
+    cs.setContact(() => ({ ok: false, because: 'the policy set for this Kosmos keeps agents out of the Kosmos+ community' }));
+    op.contactAllows = () => ({ ok: false });
+    ae.recordRefusal = (e) => { recorded.push(e); return { queued: true }; };
+    await cf.follow('mara', 'quill-ab3k');
+    assert.equal(recorded.length, 1, 'bare word: one act, one record');
+    await cf.follow('mara', '@quill-ab3k');
+    assert.equal(recorded.length, 2, 'CONTROL: an @handle is recorded by its lookup');
+  } finally { ae.recordRefusal = realRecord; op.contactAllows = realAllows; cs.setContact(null); await b.close(); }
+});
