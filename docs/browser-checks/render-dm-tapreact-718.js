@@ -210,8 +210,11 @@ function repaint() {
         const own = await page.evaluate(() => { const open = [...document.querySelectorAll('#d-dmthread .msg.rxn-show')];
           const q = open[0] && open[0].querySelector('.rxn-quick');
           return { shown: open.length, you: open.length === 1 && open[0].classList.contains('you'),
-            kids: q ? [...q.children].filter((k) => k.getClientRects().length).map((k) => k.className.split(' ')[0]).join(',') : '' }; });
-        chk(before === 1 && own.shown === 1 && own.you && own.kids === 'rxn-dots', `${tag} a tap on your own message closes the open bar and opens your own, which holds only "..." (kosmos#7614)`, JSON.stringify({ before, after: own }));
+            kids: q ? [...q.children].filter((k) => k.getClientRects().length).map((k) => k.className.split(' ')[0]).join(',') : '',
+            /* Its bar sits at the bubble's right end, over the person's own message, not across the agent's to its left. */
+            atRight: (() => { const bd = open[0] && open[0].querySelector('.msg-bd'); if (!q || !bd) return false;
+              const a = q.getBoundingClientRect(), b = bd.getBoundingClientRect(); return a.left >= b.left - 1 && Math.abs(a.right - b.right) <= 24; })() }; });
+        chk(before === 1 && own.shown === 1 && own.you && own.kids === 'rxn-dots' && own.atRight, `${tag} a tap on your own message closes the open bar and opens your own, which holds only "..." at its right end (kosmos#7614)`, JSON.stringify({ before, after: own }));
         // A tap outside the thread (the text box) closes it.
         await lastAgent.tap(); await page.waitForTimeout(300);
         const beforeOut = (await page.evaluate(openBar, MIN_RXN_TAP_PX)).shown;

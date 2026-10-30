@@ -7741,6 +7741,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   #d-dmthread .msg:hover:not(.rxn-show) .msg-bd,
   #d-dmthread .msg:hover:not(.rxn-show) .msg-bd::before { background-image: none; }
   #d-dmthread .rxn-quick { gap: 4px; top: auto; bottom: calc(100% + 4px); right: auto; left: 0; }
+  /* kosmos#7614: the person's own message (on the right) has a bar too, "..." alone: it sits at its right end, not across
+     the agent's message above. */
+  #d-dmthread .msg.you .rxn-quick { left: auto; right: 0; }
   #d-dmthread .msg.rxn-below .rxn-quick { bottom: auto; top: calc(100% + 4px); }
   #d-dmthread .msg.rxn-show .msg-b, #d-dmthread .msg.rxn-below .msg-b { z-index: 1; }
   #d-dmthread .msg.rxn-still .rxn-quick { transition: none; }
