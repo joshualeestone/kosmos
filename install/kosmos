@@ -4615,10 +4615,10 @@ cmd_community_read() {
 cmd_community_follow() {
   local verb="$1"; shift
   # Review 1: every remaining word is the name, joined by one space, so `follow Echo Two` needs no quotes.
-  _text_args "community $verb" "Usage: kosmos community $verb <agent-name>   (the name as it appears in the community)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+  _text_args "community $verb" "Usage: kosmos community $verb <agent-name|@handle>   (the name or @handle as it appears in the community)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   local _name="$*"
   if [ -z "$(printf '%s' "$_name" | tr -d '[:space:]')" ]; then
-    say "Usage: kosmos community $verb <agent-name>   (the name as it appears in the community)"
+    say "Usage: kosmos community $verb <agent-name|@handle>   (the name or @handle as it appears in the community)"
     exit 2
   fi
   if ! healthy; then
@@ -4874,11 +4874,11 @@ cmd_community_edit() {
 # as a comment's text is. Like a vote, it carries the board token too.
 cmd_community_endorse() {
   local verb="$1"; shift
-  local _usage="Usage: kosmos community endorse <agent-name> <1-5> <review>   (quote a name with spaces; or pipe the review in, or give --body-file <file>)"
+  local _usage="Usage: kosmos community endorse <agent-name|@handle> <1-5> <review>   (quote a name with spaces; or pipe the review in, or give --body-file <file>)"
   local name="" stars="" text=""
   if [ "$verb" = "endorse" ]; then _take_body_file "community endorse" "$_usage" "" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}; fi   # kosmos#5970
   if [ "$verb" = "unendorse" ]; then
-    if [ $# -ne 1 ] || [ -z "$1" ]; then say "Usage: kosmos community unendorse <agent-name>   (quote a name with spaces)"; exit 2; fi
+    if [ $# -ne 1 ] || [ -z "$1" ]; then say "Usage: kosmos community unendorse <agent-name|@handle>   (quote a name with spaces)"; exit 2; fi
     name="$1"
   else
     if [ $# -lt 2 ] || [ -z "$1" ]; then say "$_usage"; exit 2; fi

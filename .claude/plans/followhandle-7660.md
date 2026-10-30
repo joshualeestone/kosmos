@@ -30,3 +30,19 @@ That the board's HANDLE_RE matches the service's HANDLE_PATTERN. If the service 
 handle stops being looked up (an @handle still is). The test pins the shape the service uses today.
 
 ## Review rounds
+- Round 1 (Opus, whole branch): one provisional BLOCKER, reasoned from the service's code. Fixed, each with a test and
+  a red mutant:
+  - B the handle lookup returns the whole profile (up to 50 posts of 4000 characters and 50 comments of 2000), which
+    can pass the usual 256 KiB answer cap; past it the answer read as "nobody holds this handle" and a bare handle fell
+    back to a display name, answering "no agent named ..." falsely. publicGet takes a cap (PROFILE_CAP, 2 MiB, never
+    past the sweep's cap), and a 200 that cannot be read is an unreadable answer, never a fallback.
+  - W1 the lookup went out while the company had the public community off: publicGet now refuses as every public read
+    does (communityread.publicReadRefusal's rule and words), read through the communityScope export.
+  - W2 a follow could pass the CLI's 30 s wait (lookup + name refresh + 20 s chain wait + the request): agentCall's
+    chain wait now counts from budgetFrom, as its deadline does. Only follow and endorse pass budgetFrom.
+  - W3 a bare handle-shaped display name could reach a different agent depending on how fast the service answered: a
+    bare word falls back to the display name only on a clear 404; no answer or an unreadable one is said.
+  - N an @ followed by anything not in the handle shape is refused with nothing sent (settles '@@x' and '@ x'); a
+    resolved name the board cannot use has its own words; every per-command usage line says <agent-name|@handle>
+    (eight test pins updated).
+  Left: an extra public request for display names in the handle's shape (one request, bounded by the budget).

@@ -41,7 +41,11 @@ function backend() {
       if (byh) {
         const h = decodeURIComponent(byh[1]).replace(/^@/, '').toLowerCase();
         const HANDLES = { 'quill-ab3k': 'quill', 'echo-two-x7mn': 'Echo Two' };
-        return HANDLES[h] ? send(200, { name: HANDLES[h], handle: h }) : send(404, { detail: 'agent not found' });
+        // Review 1: st.handleMode answers the lookup with a large profile, an unreadable body, or never.
+        if (st.handleMode === 'hang') return undefined;
+        if (st.handleMode === 'junk') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{not json'); }
+        const extra = st.handleMode === 'big' ? { posts: Array.from({ length: 50 }, (_, i) => ({ id: 'p' + i, body: 'x'.repeat(4000) })), comments: Array.from({ length: 50 }, (_, i) => ({ id: 'c' + i, body: 'y'.repeat(2000) })) } : {};
+        return HANDLES[h] ? send(200, { name: HANDLES[h], handle: h, ...extra }) : send(404, { detail: 'agent not found' });
       }
       // The public routes (no bearer): an agent's profile and its following list.
       const pub = req.method === 'GET' && req.url.match(/^\/agents\/by-name\/([^/?]+)(\/following\?limit=(\d+))?$/);
@@ -1087,4 +1091,79 @@ test('kosmos#7660: an unknown @handle is "no agent", never a display name; a han
 test('kosmos#7660: the handle shape matches the service (lowercase slug, dash, four letters with no 0/o/1/l/i)', () => {
   for (const h of ['ada-3f2c', 'echo-two-x7mn', 'a1-b2-zz99']) assert.ok(cf.HANDLE_RE.test(h), h);
   for (const h of ['Echo Two', 'quill', 'ada-3f20', 'ada-oooo', 'ada-3f2', '-ada-3f2c']) assert.ok(!cf.HANDLE_RE.test(h), h);
+});
+
+/* kosmos#7660 review 1. */
+test('kosmos#7660 review 1: a profile larger than the usual answer cap (50 long posts and comments) still resolves the handle', async () => {
+  fresh(); const b = await backend();
+  try {
+    b.st.handleMode = 'big';
+    assert.deepEqual(await cf.follow('mara', '@quill-ab3k'), { ok: true, text: 'You now follow quill.' });
+    assert.ok(cs.RESPONSE_CAP < 50 * 4000 + 50 * 2000, 'CONTROL: the profile is larger than the usual cap');
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 1: a bare handle-shaped word falls back to the display name only on a clear 404; no answer or an unreadable one is said as such', async () => {
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');   // mara has an account
+    b.st.handleMode = 'junk';
+    const junk = await cf.follow('mara', 'quill-ab3k');
+    assert.deepEqual(junk, { ok: false, upstream: true, because: 'the community gave an answer we could not read' });
+    assert.equal(b.st.seen.some((s) => s.url === '/agents/by-name/quill-ab3k'), false, 'an unreadable lookup must not fall back to a name');
+    b.st.handleMode = 'hang';
+    cs.setTimeoutMs(300);
+    const slow = await cf.follow('mara', 'echo-two-x7mn');
+    assert.deepEqual(slow, { ok: false, upstream: true, because: 'the community could not be reached' });
+    assert.equal(b.st.seen.some((s) => s.url === '/agents/by-name/echo-two-x7mn'), false, 'no answer must not fall back to a name');
+  } finally { cs.setTimeoutMs(5000); await b.close(); }
+});
+
+test('kosmos#7660 review 1: an @ that is not in the handle shape is refused with nothing sent (@@x, @ x, a display name after @)', async () => {
+  fresh(); const b = await backend();
+  try {
+    for (const w of ['@@quill-ab3k', '@Echo Two', '@quill']) {
+      const r = await cf.follow('mara', w);
+      assert.equal(r.ok, false, w);
+      assert.match(r.because, /is not a community handle/, w);
+    }
+    assert.equal(b.st.seen.length, 0, 'nothing was sent for any of them');
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 1: while the company has the public community off (or its settings cannot be read), the handle is not looked up', async () => {
+  fresh(); const b = await backend();
+  const real = cs.communityScope;
+  try {
+    cs.communityScope = () => ({ publicAllowed: false, company: true, org: null });
+    const off = await cf.follow('mara', '@quill-ab3k');
+    assert.deepEqual(off, { ok: false, because: 'your company has turned the public community off, so it cannot be read here' });
+    cs.communityScope = () => ({ publicAllowed: false, company: false, org: null, fault: true });
+    const fault = await cf.follow('mara', '@quill-ab3k');
+    assert.equal(fault.because, 'Kosmos cannot read your company’s community settings right now, so nothing was read');
+    assert.equal(b.st.seen.some((s) => s.url.startsWith('/agents/by-handle/')), false, 'no lookup went out');
+    cs.communityScope = real;
+    assert.equal((await cf.follow('mara', '@quill-ab3k')).ok, true, 'CONTROL: with the public community on, the same handle resolves');
+  } finally { cs.communityScope = real; await b.close(); }
+});
+
+test('kosmos#7660 review 1: an agent call\'s wait for the chain counts from budgetFrom, so time already spent cannot push it past the wait', async () => {
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');
+    cs.setTimeoutMs(3000);
+    cs.setAgentWaitMs(1500);
+    b.st.hang = (req) => req.method === 'POST' && /\/follow$/.test(req.url);
+    const holding = cf.follow('mara', 'Echo Two');   // holds the chain
+    for (let i = 0; i < 200 && !b.st.seen.some((s) => s.method === 'POST' && s.url === '/agents/by-name/Echo%20Two/follow'); i += 1) await new Promise((r) => setTimeout(r, 10));   // the chain is held only once that call is on the wire
+    const t0 = Date.now();
+    const late = await cs.agentCall('lena', 'GET', '/agents/me', { register: false, budgetFrom: t0 - 1400 });
+    assert.equal(late.ok, false);
+    assert.ok(Date.now() - t0 < 700, 'waited ' + (Date.now() - t0) + ' ms: the 1400 ms already spent did not count');
+    // CONTROL: without budgetFrom, the same call waits its full 1500 ms.
+    const t1 = Date.now();
+    await cs.agentCall('lena', 'GET', '/agents/me', { register: false });
+    assert.ok(Date.now() - t1 >= 1200, 'CONTROL waited only ' + (Date.now() - t1) + ' ms');
+    await holding;
+  } finally { b.st.hang = null; cs.setAgentWaitMs(null); cs.setTimeoutMs(5000); await b.close(); }
 });

@@ -73,20 +73,34 @@ const HANDLE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*-[abcdefghjkmnpqrstuvwxyz23456789]{4
    - A bare word in the handle's shape is looked up as a handle first, and a found handle wins (the card's rule: a
      handle over a display name when both match); when no agent has that handle it is read as a display name.
    - Anything else is a display name, as before.
-   Display names cannot be ambiguous: the service keeps name_key unique. { ok: true, name } or { ok: false, result }. */
+   Display names cannot be ambiguous: the service keeps name_key unique. { ok: true, name } or { ok: false, result }.
+   Review 1:
+   - Only a clear 404 lets a bare word fall back to the display name. No answer, or an answer that cannot be read, is
+     said as such, so whether a name reaches one agent or another never depends on how fast the community answered.
+   - The profile carries the agent's recent posts and comments, so it is read with a larger cap (PROFILE_CAP).
+   - An @ followed by something that is not in the handle's shape is refused here, with nothing sent (every handle the
+     service issues is in that shape, app/handles.py make_handle), so '@@x' or '@ x' cannot be read differently by the
+     board and the service. */
+const PROFILE_CAP = 2 * 1024 * 1024;
+const fail = (because, extra = {}) => ({ ok: false, result: { ok: false, ...extra, because } });
 async function byHandle(asked, deadline) {
   const at = asked.startsWith('@');
-  const form = (at ? asked.slice(1) : asked).trim().toLowerCase();   // the service's lookup_form
-  if (!at && !HANDLE_RE.test(form)) return { ok: true, name: asked };
-  if (at && !form) return { ok: false, result: { ok: false, because: 'name the agent after the @ (its handle, as the community shows it)' } };
-  const p = await communitysend.publicGet('/agents/by-handle/' + encodeURIComponent(form), { deadline });
-  const found = p.ok && p.status === 200 && p.json ? nameOf(p.json.name) : null;
-  if (found) return { ok: true, name: found };
-  if (!at) return { ok: true, name: asked };   // not a handle anyone holds: the display name, as typed
-  if (!p.ok) return { ok: false, result: { ok: false, because: p.because } };
-  if (p.status === 404) return { ok: false, result: { ok: false, because: 'there is no agent with the handle @' + form + ' in the community' } };
+  const form = (at ? asked.slice(1) : asked).toLowerCase();   // nameOf has trimmed it already
+  if (!HANDLE_RE.test(form)) {
+    if (!at) return { ok: true, name: asked };   // a display name, as typed
+    return fail('@' + asked.slice(1) + ' is not a community handle (a handle reads like @ada-3f2c: a name, a dash and four letters or digits)');
+  }
+  const p = await communitysend.publicGet('/agents/by-handle/' + encodeURIComponent(form), { deadline, cap: PROFILE_CAP });
+  if (!p.ok) return fail(p.because);
+  if (p.status === 404) {
+    if (!at) return { ok: true, name: asked };   // no agent holds that handle: the display name, as typed
+    return fail('there is no agent with the handle @' + form + ' in the community');
+  }
   if (p.status === 0) return { ok: false, result: unreached };
-  return { ok: false, result: unreadable };
+  if (p.status !== 200 || !p.json || typeof p.json.name !== 'string') return { ok: false, result: unreadable };
+  const found = nameOf(p.json.name);
+  if (!found) return fail('the agent @' + form + ' has a community name Kosmos cannot use here (longer than ' + NAME_MAX + ' characters, or with a slash)');
+  return { ok: true, name: found };
 }
 
 /** Follow (or, with unfollow, stop following) `name` as `agentKey`. { ok, text } or { ok: false, because }, with

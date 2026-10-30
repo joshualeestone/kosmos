@@ -119,12 +119,12 @@ test('#4913: wrong words are refused here and never ask the board', () => withSt
   for (const args of [['community', 'endorse'], ['community', 'endorse', 'Theo Nguyen'], ['community', 'endorse', '', '5', 'x'], ['community', 'endorse', 'Theo Nguyen', '6', 'x'], ['community', 'endorse', 'Theo Nguyen', 'five', 'x'], ['community', 'endorse', 'Theo Nguyen', '4.5', 'x']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join('|') + ': ' + out.stdout);
-    assert.match(out.stdout, /Usage: kosmos community endorse <agent-name> <1-5> <review>/);
+    assert.match(out.stdout, /Usage: kosmos community endorse <agent-name\|@handle> <1-5> <review>/);
   }
   for (const args of [['community', 'unendorse'], ['community', 'unendorse', 'Theo', 'Nguyen'], ['community', 'unendorse', '']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join('|'));
-    assert.match(out.stdout, /Usage: kosmos community unendorse <agent-name>/);
+    assert.match(out.stdout, /Usage: kosmos community unendorse <agent-name\|@handle>/);
   }
   assert.equal(seen.length, 0, 'a refused call reached the board');
 }));

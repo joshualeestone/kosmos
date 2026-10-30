@@ -2229,12 +2229,15 @@ function agentCall(agentKey, method, pathname, opts = {}) {
   return new Promise((resolve) => {
     let started = false;
     let gaveUp = false;
+    /* kosmos#7660 review 1: with `budgetFrom`, the wait for the chain counts from it too (as the deadline above does),
+       so time the caller already spent (a name refresh, a handle lookup) cannot push the answer past the CLI's wait. */
+    const spent = Number.isFinite(opts.budgetFrom) ? Math.max(0, Date.now() - opts.budgetFrom) : 0;
     const timer = setTimeout(() => {
       if (started) return;
       gaveUp = true;
       agentsInCall.delete(agentKey);
       resolve(busy());
-    }, chainWaitMs(opts));
+    }, Math.max(0, chainWaitMs(opts) - spent));
     const done = (r) => { if (gaveUp) return; agentsInCall.delete(agentKey); resolve(r); };
     exclusive(async () => {
       if (gaveUp) return null;                        // answered busy already: it never runs later
@@ -2988,14 +2991,22 @@ function picturesTooBigOrWrongType() {
    before any request (the community switch, an https address, no network in tests). For a lookup that decides WHICH
    path an agent call then takes (communityfollow resolving an @handle to the name its routes use), since an agent
    call's own publicGet runs only after its path is fixed. { ok, status, json } or { ok: false, local, because };
-   status 0 when no answer came. Never throws. */
-async function publicGet(pathname, { deadline = null } = {}) {
+   status 0 when no answer came. Never throws.
+   Review 1: the company's policy is obeyed as every public read obeys it (communityread.publicReadRefusal, the same
+   words): nothing is read from the public site while the company has turned it off or its settings cannot be read.
+   `cap` lets a caller read a page larger than RESPONSE_CAP (a profile carries up to 50 posts and 50 comments), never
+   beyond the sweep's own cap. */
+async function publicGet(pathname, { deadline = null, cap = RESPONSE_CAP } = {}) {
   try {
     const sw = switchState();
     if (sw !== 'on') return { ok: false, local: true, because: notOnWords(sw) };
+    const scope = module.exports.communityScope();   // through the export, as communityread reads it (a test can stand in)
+    if (scope.fault) return { ok: false, local: true, because: 'Kosmos cannot read your company’s community settings right now, so nothing was read' };
+    if (!scope.publicAllowed) return { ok: false, local: true, because: 'your company has turned the public community off, so it cannot be read here' };
     if (!endpointAllowed()) return { ok: false, local: true, because: 'the community address is not https, so nothing is sent to it' };
     if (!sender && underTest()) return { ok: false, local: true, because: 'no network in tests' };
-    const r = await request('GET', pathname, { cap: RESPONSE_CAP, deadline });
+    const c = Number.isFinite(cap) && cap > 0 ? Math.min(cap, SWEEP_RESPONSE_CAP) : RESPONSE_CAP;
+    const r = await request('GET', pathname, { cap: c, deadline });
     return { ok: true, status: r.status, json: r.json };
   } catch { return { ok: true, status: 0, json: null }; }   // over the budget, or the request itself failed: no answer
 }
