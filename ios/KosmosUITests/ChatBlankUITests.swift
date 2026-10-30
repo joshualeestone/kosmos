@@ -19,13 +19,15 @@ final class ChatBlankUITests: XCTestCase {
         return app
     }
 
-    // The control: the list moved past its content's end (KOSMOS_SAMPLE_BLANK) must raise the banner, so the walk below
-    // passing means the check saw no empty list, not that it cannot see one.
+    // The control: the list moved past its content's end (KOSMOS_SAMPLE_BLANK) must raise the banner and come back, so the
+    // walk below passing means the check saw no empty list of that kind. Moving the list clears every row too, so this
+    // shows the rows arm and the put-back working; it cannot show the band arm alone (rows counted, band off) or the
+    // direct scroll write on its own, which only a phone's report can.
     func testAListPastItsEndRaisesTheBanner() throws {
         let app = try launch(["KOSMOS_SAMPLE_BLANK": "4"])
         XCTAssertTrue(app.staticTexts[Self.banner].waitForExistence(timeout: 20), "an empty list did not raise the #7420 banner")
         // And the one try put the newest message back on screen.
-        let newest = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Message 260 of 260")).firstMatch
+        let newest = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Message 260 of 260")).firstMatch
         XCTAssertTrue(newest.waitForExistence(timeout: 5) && newest.isHittable, "the newest message was not put back")
         shot(app, "control: past the end")
     }

@@ -20,7 +20,8 @@ again" after one try, but his screenshot, taken after that line, was still empty
   every put-back counted (the one try too), and each of those is added to the report the person can share (while it is on screen), with which arm read empty.
 - The report is written only if no account or computer change came between the capture and its 1.5 s reading, and the
   chat is still on screen.
-- A band too short to hold more than the padding and markers at its two ends is not judged.
+- A band too short to hold more than the padding and markers at its two ends is not judged: it reads "too little shown
+  to judge", neither empty nor recovered.
 - `Board.scrollBand` is tested in LogicTests with a control on each side of each boundary.
 - A UI test (`ChatBlankUITests`, skipped unless `TEST_RUNNER_KOSMOS_UI_BLANK=1`) walks Josh's steps on the sample chat.
 
@@ -33,8 +34,9 @@ again" after one try, but his screenshot, taken after that line, was still empty
 - Recovery goes to the newest message (goNewest), as the existing one try does, and with the band off the content it also
   moves the scroll view to its end directly (review 11: re-setting the anchor alone may move nothing if SwiftUI already
   holds the list at "end"). Known risk: that write is under SwiftUI's scroll position, which may then anchor on a row
-  rather than "end"; it is proven only by the opt-in UI test (passed 10-29 23:27 on the iOS 27 simulator: the control's
-  newest message came back), and the after-one-try readings will show it on a phone. Rejected: re-setting the message anchor,
+  rather than "end". Not proven: the opt-in UI test's control (passed 10-29 23:27 on the iOS 27 simulator, the newest
+  message came back) clears every row as well, so it shows the rows arm and the put-back as a whole, not the band arm
+  or the direct write alone. The after-one-try readings will show those on a phone. Rejected: re-setting the message anchor,
   because the anchor is the thing suspected of holding the bad place. Weakest premise: a reader scrolled far up loses
   their place on recovery; an empty screen is worse than a lost place, it needs two still, empty readings, and it is at
   most once in 2 s and 3 times a chat, so a wrong reading cannot keep moving a reader.

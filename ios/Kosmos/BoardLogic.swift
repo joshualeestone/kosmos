@@ -440,7 +440,10 @@ enum Board {
     // empty, because a row counts as on screen when SwiftUI says it appeared, not when it is drawn. The scroll view's own
     // numbers say whether the band it shows touches the content at all: past its end, above its top, or on it (where an
     // empty screen means rows not drawn, a different fault).
-    enum ScrollBand: String { case content = "on the content", pastEnd = "past the content's end", aboveTop = "above the content's top" }
+    enum ScrollBand: String {
+        case content = "on the content", pastEnd = "past the content's end", aboveTop = "above the content's top"
+        case unjudged = "too little shown to judge"   // review 15: never read as on the content, nor as off it
+    }
     // Review 13: edge is how much of each end of the content is not a message (padding and the end and top markers), so a
     // band showing only that reads as off the content too.
     static func scrollBand(offsetY: Double, contentHeight: Double, visibleHeight: Double, insetTop: Double, insetBottom: Double,
@@ -448,7 +451,7 @@ enum Board {
         let top = offsetY + insetTop, bottom = offsetY + visibleHeight - insetBottom
         // Insets covering the whole view, or a band too short to hold more than the edges (review 14: landscape with the
         // keyboard up): nothing shown to judge.
-        guard bottom - top > 2 * edge else { return .content }
+        guard bottom - top > 2 * edge else { return .unjudged }
         if top >= contentHeight - edge - 0.5 { return .pastEnd }
         if bottom <= edge + 0.5 { return .aboveTop }
         return .content

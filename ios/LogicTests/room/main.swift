@@ -534,6 +534,9 @@ let plusTraces = chatSource.components(separatedBy: "\n").filter { ($0.component
 let allowedOperands: Set<String> = ["geo.line", "g.line", "(g.off ? \"the band\" : \"the rows\")",
                                      "\" (rows counted \\(onScreen.count), \""]   // review 11: the row count, a number
 let lineDefs = chatSource.components(separatedBy: "\n").filter { $0.contains("let line = \"empty again by \"") }
+// Review 15: the statement goes on to a second line, which the per-line scan above does not read; it must stay a literal.
+check(chatSource.contains("+ \" (rows counted \\(onScreen.count), \" + g.line\n                + \"), trying the newest message\""),
+      "kosmos#7420 review 15: the empty-again line's second line is a literal only")
 // Review 11: the after-one-try line joins its verdict (fixed words) and the vetted scroll line.
 let readLine = chatSource.components(separatedBy: "\n").first { $0.contains("+ \" (rows counted \\(onScreen.count), \" + g.line + \")\"") } ?? ""
 check(!readLine.isEmpty && chatSource.contains("let verdict = g.off || onScreen.isEmpty ? \"still nothing on screen\" : g.judged ? \"the list shows the content again\" : \"not judged yet\""),

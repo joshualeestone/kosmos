@@ -837,7 +837,8 @@ struct ChatView: View {
             + "insets \(n(inset.top))/\(n(inset.bottom)), \(band.rawValue)" + (sv.isDragging || sv.isDecelerating ? ", moving" : "")
         let settled = sv.contentSize.height > 0 && (diagThreadAt.map { Date().timeIntervalSince($0) > 2 } ?? false)
         // Review 6: an unmeasured list is never read as off, and the record says it was not judged rather than on the content.
-        return (settled ? line : line + ", not judged yet", settled && band != .content, sv.isDragging || sv.isDecelerating, settled)
+        let off = band == .pastEnd || band == .aboveTop
+        return (settled ? line : line + ", not judged yet", settled && off, sv.isDragging || sv.isDecelerating, settled && band != .unjudged)
     }
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
