@@ -214,10 +214,11 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # company community never worked before, and a post for the public community never asks for a pass, so nothing that
 # works today breaks.
 # kosmos#7404 re-decided for engine/personalbackupkey.js (a personal backup's key, step 3): it calls
-# /v1/org/backup/member-key/mine and /v1/org/backup/member-key, which only a connector carrying the personal backup routes
-# (kosmos-relay #691) signs. Every entry point that signs (setUpPersonalKey, restorePersonalKey) asks /mine FIRST, before
-# any file is written; an older connector refuses it ("mac-request does not sign") and the call answers ok:false with no
-# key, pending code or recovery file touched. confirmRecoveryCodeSaved signs nothing. Nothing calls it yet and personal
+# /v1/org/backup/member-key/mine and /v1/org/backup/member-key. The coordinator serves /mine since kosmos-relay #702, but
+# NO connector signs it yet (crates/tunnel MAC_REQUEST_ROUTES lacks it on relay main 0ca0fa2c9; a relay slice of #7404
+# adds it). Every entry point that signs (setUpPersonalKey, restorePersonalKey) asks /mine FIRST, before any file is
+# written; a connector without it refuses ("mac-request does not sign") and the call answers ok:false with no key,
+# pending code or recovery file touched. confirmRecoveryCodeSaved signs nothing. Nothing calls it yet and personal
 # backup never worked before these connectors, so nothing that works today breaks.
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
 [ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupmemberkey.js engine/backuprun.js engine/backupupload.js engine/companycommunity.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/personalbackupkey.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the fifteen the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
