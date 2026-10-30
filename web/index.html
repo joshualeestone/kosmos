@@ -57079,8 +57079,8 @@ var PLUS_SI_CODE_LATE_TIMER = null;
    pricing page: a company member's seat is already paid for by the company, so buying there pays for nothing.
    Empty until read, and then the line offers no link. */
 var PLUS_SIGNUP_URL = '';
-// An https address with nothing a link should not carry, or '' (then the line offers no link).
-function plusSignupUrl(v) { return typeof v === 'string' && /^https:\/\/[^\s"'<>]+$/.test(v) ? v : ''; }
+// An https address with nothing a link should not carry (no sign-in part before the host), or '' (then no link).
+function plusSignupUrl(v) { return typeof v === 'string' && /^https:\/\/[^\s"'<>@\/]+(\/[^\s"'<>]*)?$/.test(v) ? v : ''; }
 function plusSiCodeLateReset() {
   if (PLUS_SI_CODE_LATE_TIMER) { clearTimeout(PLUS_SI_CODE_LATE_TIMER); PLUS_SI_CODE_LATE_TIMER = null; }
   const late = document.getElementById('plus-si-code-late'); if (late) late.textContent = '';
@@ -57101,7 +57101,7 @@ function plusSiCodeLateArm() {
       join.href = href;
       join.textContent = 'Create an account';
       parts.push(document.createTextNode(' New to Kosmos+? '), join,
-        document.createTextNode(' Joining your company? Create the account and stop before paying: your company\u2019s plan already covers you.'));
+        document.createTextNode('. Joining your company? Stop before paying: your company\'s plan already covers you.'));
     }
     late.replaceChildren(...parts);
   }, PLUS_SI_CODE_LATE_MS);
