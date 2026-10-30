@@ -111,14 +111,15 @@ _tree_of() {
 }
 _restore_on_signal() {   # $1 the signal's number: the exit is 128 + it, as a shell reports a death by that signal
   trap '' HUP INT TERM
-  # Only while that pid is still this script's own child (review 2): a signal just after the test ended, before
-  # _test_pid is cleared, must not stop and kill whatever process has since taken the number.
+  # Decided window, not guarded (review 2/3): a signal in the few instructions after the test ends, before _test_pid
+  # is cleared, would act on that number. A ppid check cannot close it: with traps set, bash runs the background test
+  # under an extra subshell, so the test's parent is never this script's pid (tried; it skipped every kill).
   if [ -n "${_test_pid:-}" ]; then
     local _tree _q
     _tree="$(_tree_of "$_test_pid")"
     # TERM then CONT for each pid in one pass (review 2): a stopped process acts on its TERM only once continued, and
-    # if this script is itself killed mid-loop (a kill -9 is not ignored), at most one process is left stopped, not
-    # the whole tree.
+    # if this script is itself killed in this loop (a kill -9 is not ignored), at most one process is left stopped.
+    # A kill -9 while _tree_of is still reading leaves every process read so far stopped: a stated window.
     for _q in $_tree; do kill "$_q" 2>/dev/null; kill -CONT "$_q" 2>/dev/null; done
     wait "$_test_pid" 2>/dev/null
   fi
