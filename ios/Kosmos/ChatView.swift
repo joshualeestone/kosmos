@@ -1733,7 +1733,10 @@ struct ChatView: View {
             let result = await client.deleteMessage(at: at, to: agent)
             guard startedIn == client.chatEpoch else { return }
             switch result {
-            case .deleted(let told):
+            case .deleted, .gone:
+                // Mona Lisa's routes: `gone` (already deleted elsewhere) takes the row out the same way, and says so.
+                var told: [String] = []
+                if case .deleted(let t) = result { told = t }
                 // Review 3: a read already in the air still holds the message; it is dropped, as an older read is.
                 readShown = readsStarted
                 if let t = thread { thread = Board.withoutMessage(t, at: at) }
@@ -1744,7 +1747,7 @@ struct ChatView: View {
                 if earlier.open || !earlier.rows.isEmpty { earlier = Board.resetEarlier(earlier) }
                 // Review 1: only when there is something to say, so a standing line (Try again, a wait) is kept; review 2:
                 // but an earlier delete's own refusal still showing is taken away.
-                if let note = Board.deletedNote(told: told, names: [agent.session: shown.name]) {
+                if let note = result == .gone ? Board.deleteGoneNote : Board.deletedNote(told: told, names: [agent.session: shown.name]) {
                     composerNote = note; deleteNote = note
                 } else {
                     // Review 4: the earlier delete's line goes if it still shows; either way it is no longer this delete's.

@@ -1552,6 +1552,21 @@ do {
           && Board.deletedNote(told: ["a", "b", "c"], names: ["a": "Ann", "b": "Bo"]) == "Deleted. Ann, Bo and c had already read it, so Kosmos told them you withdrew it.",
           "an agent had read it: named by the shown name (the session where none is known)")
     check(Board.canDelete(rows[1]) && !Board.canDelete(rows[0]), "only the person's own message offers Delete, never the agent's")
+    // Mona Lisa's routes (PR #7637): a 404 that says gone is "already deleted"; any other 404 is a refusal like the rest.
+    check(Board.deleteResult(status: 404, body: Data(#"{"error":"there is no message of yours at that time here","gone":true}"#.utf8)) == .gone,
+          "a 404 with gone: true reads as already deleted")
+    check(Board.deleteResult(status: 404, body: Data(#"{"error":"we could not find that conversation"}"#.utf8)) == .refused("We could not find that conversation.")
+          && Board.deleteResult(status: 404, body: Data(#"{"error":"x","gone":false}"#.utf8)) == .refused("X.")
+          && Board.deleteResult(status: 409, body: Data(#"{"error":"x","gone":true}"#.utf8)) == .refused("X."),
+          "CONTROL: a 404 without the flag, a false flag, or the flag on another status, is a refusal")
+    check(Board.deleteResult(status: 409, body: Data(#"{"error":"that message is being sent again right now, so wait a moment and try deleting it again"}"#.utf8))
+          == .refused("That message is being sent again right now, so wait a moment and try deleting it again."),
+          "a 409 (Try again sending it now) says the route's own sentence")
+    // A row from an earlier part of the conversation (`earlierPart`, kept as it was) offers no Delete, as on the board.
+    let partThread = Board.parseThread(Data(#"{"messages":[{"at":"2026-10-24T09:00:00.000Z","text":"old one","earlierPart":true},{"at":"2026-10-24T09:01:00.000Z","text":"new one"}]}"#.utf8))
+    let partRows = partThread?.rows ?? []
+    check(partRows.count == 2 && partRows[0].earlierPart && !partRows[1].earlierPart, "earlierPart is read from the row")
+    check(!Board.canDelete(partRows[0]) && Board.canDelete(partRows[1]), "an earlier-part row offers no Delete; CONTROL: the newer one does")
     let gone = Board.withoutMessage(rows, at: "2026-10-24T10:01:00.000Z")
     check(gone.count == rows.count - 1 && gone.contains(rows[0]), "the deleted row goes, the agent's stays")
     check(Board.withoutMessage(rows, at: "2026-10-24T10:00:00.000Z").count == rows.count,
