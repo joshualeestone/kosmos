@@ -69,6 +69,22 @@ fi
 # (`${`, `$`, backticks) OUT of a `perl -e` pattern (prefer python3 + an assert);
 # and when a should-be-RED arm comes back GREEN, suspect the perturbation before
 # the guard. Both #1759 instances were hand plants that silently never applied.
+#
+# 🛑 KILLED MID-RUN, IT STILL RESTORES (kosmos#7619). The 10-30 08:29 tmux server death sent SIGHUP to every run in
+# every pane at once, and a mutation run that dies holding a break leaves that break in the tree for the next commit
+# to carry. A hangup, an interrupt or a terminate now restores the tree before exiting (safe for the same reason the
+# end is: the tree was clean a moment ago). The test it was running is a child, so it is ended too, or it would keep
+# testing a tree that is no longer broken. SIGKILL cannot be caught: the refusal above then names the file at the
+# next start.
+_restore_on_signal() {
+  trap - HUP INT TERM
+  [ -n "${_test_pid:-}" ] && kill "$_test_pid" 2>/dev/null
+  rm -f "${_outf:-}"
+  git checkout -q -- . 2>/dev/null
+  echo "    interrupted: restored ($(git diff --quiet && echo clean || echo 'NOT clean, check git status'))"
+  exit 130
+}
+trap _restore_on_signal HUP INT TERM
 before="$(git rev-parse HEAD)"
 echo "── $LABEL"
 node -e "
@@ -162,7 +178,14 @@ esac
 # failure lands on the default — and the default is always success.
 #
 # 🔑 A UNIFORM RESULT IS AN INSTRUMENT SMELL, NOT A FINDING.
-out="$(node --test "$TESTFILE" 2>&1)"
+# In the background with a wait, not in $( ): bash runs a trap only after its foreground command ends, and `wait` is
+# the one thing a signal interrupts (#7619).
+_outf="$(mktemp "${TMPDIR:-/tmp}/prove-it-fails.XXXXXX")"
+node --test "$TESTFILE" > "$_outf" 2>&1 &
+_test_pid=$!
+wait "$_test_pid"
+_test_pid=""
+out="$(cat "$_outf")"; rm -f "$_outf"
 summary="$(printf '%s' "$out" | grep -E '^ℹ (pass|fail) ' | head -2)"
 failed="$(printf '%s' "$out" | sed -n '/failing tests:/,$p' | grep -c '^✖')"
 
