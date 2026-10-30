@@ -32,7 +32,10 @@ final class AttachMenuUITests: XCTestCase {
         // The picker covers the chat: the + can no longer be tapped. A dropped presentation leaves it tappable.
         let covered = NSPredicate(format: "isHittable == false")
         expectation(for: covered, evaluatedWith: plus)
-        waitForExpectations(timeout: 8)
+        // kosmos#7609: the Files and Photos pickers run in their own system process, whose first launch on a freshly booted
+        // simulator took over 8 s once (the whole suite on one simulator, iOS 27); a slower CI runner needs more. A long
+        // wait cannot make a dropped presentation pass: the + stays hittable and the wait runs out.
+        waitForExpectations(timeout: 20)
         shot(app, "\(choice) opened")
     }
 
