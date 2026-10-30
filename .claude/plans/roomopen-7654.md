@@ -1,0 +1,40 @@
+# roomopen-7654: a long room opens on its newest post on iOS 26 (part 1 of #7654)
+
+Card: kosmos#7654 (found while building #7645, claimed by Angel 10-30). Stacked on roomkb-7645 (#7645's room debug
+hooks: KOSMOS_SAMPLE_ROOM_LONG=<n>, ROOM_SCROLLUP, ROOM_FOCUS), which is stacked on uitrace-7609 (PR #7632).
+
+## Finished looks like
+On iOS 26.5 a 150- and a 220-post room open with the newest post on screen above the box, measured by a UI test that
+fails without the change; 50- and 100-post rooms and iOS 27 still open there.
+
+## Measured before the change (iOS 26.5 simulator, 8 s after opening, no other hooks)
+- 50 posts (a real room's first page, RoomStore.pageSize): Post 50. 100: Post 100. 150: half a post short. 220: Posts
+  212 to 216, four short, and it stays there. iOS 27.0, same build, 220: Post 220.
+- So a first open is fine; it bites on a room opened again after older pages were read (the store keeps them).
+- Cause: RoomView jumps once (proxy.scrollTo("bottom")) in a LazyVStack whose rows above are estimated; the DM's #7265.
+
+## Change
+- ios/Kosmos/RoomView.swift: goEnd(proxy) replaces the single jump on the two opening paths (the first page in
+  onChange(of: rows.last?.id), and the thread's onAppear for a room opened again). It jumps, then retries at 0.05, 0.15,
+  0.3 and 0.5 s only while the end marker is not on screen (atBottom false), the room is visible, not searching and not
+  in the archive. endJumps: a newer goEnd cancels an older one's retries. The other jumps (new post, pending post,
+  search cleared, archive) are untouched.
+- ios/KosmosUITests/RoomOpensAtNewestUITests.swift: 150 and 220 posts open on the newest, above the box. Presence first
+  (some post of the room is drawn), then the newest.
+- ios/tools/ui-sample.sh: the new class, 2 tests, in the CI run's class list and header.
+
+## Verified
+- iOS 26.5: RoomOpensAtNewest 150 and 220 PASS with the change; CONTROL (same tree, RoomView from HEAD~1) both FAIL.
+- Screenshots: 150 and 220 open on their newest with the change.
+
+## Known trade-off
+A person who flicks up within half a second of opening a long room is pulled back to the end once.
+
+## Not this branch (part 2 of #7654)
+A person's own scroll to the end of a long room stops short on iOS 26 (six swipes: 212 to 218 of 220, with and
+without this change). Approach to measure: eager newest rows (the DM's iOS 16 path) or an id anchor (iOS 17+).
+#7645's testRoomNewestStaysAboveTheBox is its failing test and is NOT in ui-sample's list until then.
+
+## Weakest premise
+That 0.5 s of retries is enough on a slower runner. CI's ui job runs the two checks on iOS 26.5; if they flake there,
+the window (endRetries) is the first thing to widen.
