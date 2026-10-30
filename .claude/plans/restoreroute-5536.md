@@ -11,17 +11,19 @@ Design call: #5536 comment 6513912365.
 ## Change
 - engine/restoreworld-child.js: `list <base> <world id> [<restore folder>]`, one JSON line, exits 0, its own exit
   timer. The world is looked up in the registry by id, never taken from the caller.
-- restoreworld.listRestoredAgentsInChild({ base, world, restoreDir? }, { execFile? }): starts it with env =
-  preWorldEnv(process.env) + envOverridesFor(base, world) + KOSMOS_WORLD, so create.js there takes the Restored
-  world's store root, derived from the same base the listing reads. Timeout 60 s, stdout cap 32 MB.
+- restoreworld.listRestoredAgentsInChild({ base, world, restoreDir? }, { execFile?, env? }): starts it with env =
+  worlds.applyWorldEnv(preWorldEnv(board env), base, world) (roots, KOSMOS_WORLD and the pre-world marker), so
+  create.js there takes the Restored world's store root, derived from the same base the listing reads. The child
+  reports store.ROOT and any other root is refused. Timeout 60 s, stdout cap 32 MB. One listing per world and restore
+  folder at a time; startListings / stopListings for the board's start and stop.
 - Any failure (error, timeout, overflow, junk, a listing missing a field) answers no rows, more: true and a because:
   the contract's refusal shape, so it never reads as an empty restore. The default Kosmos is refused without a child.
 
 ## Decided
 - Child process, not a worker thread: the store root is frozen per process at module load (worlds.js:271), and a
   thread shares it.
-- envOverridesFor over applyAgentWorldEnv: the latter derives from the env's own base, which can differ from the base
-  the listing is given.
+- applyWorldEnv over applyAgentWorldEnv: the latter derives from the env's own base, which can differ from the base
+  the listing is given (applyWorldEnv is exported from worlds.js for this).
 
 ## Measured
 - Real child against a finished restore (two agents, a project with core.pager): deepEqual to the in-process listing.
@@ -101,3 +103,16 @@ Design call: #5536 comment 6513912365.
 - FIXED: the child's header leads with what it does; a CLAUDE.md routing row for restoring (its sibling orgrollup-child
   has one); the doc states that listRestoredAgents itself answers more: false in-process; runs freezing is asserted.
 - Tests 86/86; CLAUDE.md-reading tests 398/398. Mutations (no cleanup; no root check; runs unfrozen) each red; restored.
+
+## Review round 7 (opus): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 6 NIT
+- FIXED: the "missing shared rows" fixture had no root, so the root check refused it first and the shape check went
+  untested. Fixtures now carry the right root.
+- FIXED: a null row passed the shape check and would THROW in the freeze loop. With a real child that callback is
+  asynchronous, outside the caller's try, so it would have been uncaught. Every row must be a non-null object now;
+  tests answer a null row and a missing shared on a later tick. Measured: with the row check removed, the async arm
+  reds. The shared check overlaps the row check (concat(undefined) adds a non-object row); either refuses it.
+- FIXED: the real wrong-env arm now proves the child listed fine and only the root check refused it; the plan's Change
+  section matches the code (applyWorldEnv, the root report, start/stop).
+- DEFERRED: a case-insensitive key on darwin/win32 (two children, both answers right); git reads outliving a kill (about
+  2 s each); the root check covers the data root only (the listing reads workers and projects from base and world).
+- Tests 86/86.

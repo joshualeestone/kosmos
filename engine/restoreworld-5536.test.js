@@ -1178,9 +1178,12 @@ test('a listing run in a child process answers exactly what a successful listing
   assert.ok(Object.isFrozen(away.agents) && Object.isFrozen(away.agents[0]), 'a shared answer is frozen, rows too');
   assert.ok(away.shared.every((s) => Object.isFrozen(s.runs)), 'and their runs');
   // A real child with the board's own env, not the Restored world's: its store root differs, so the answer is refused.
-  const wrongEnv = { execFile: (f, a, o, cb) => require('node:child_process').execFile(f, a, Object.assign({}, o, { env: process.env }), cb) };
+  let said = '';
+  const wrongEnv = { execFile: (f, a, o, cb) => require('node:child_process').execFile(f, a, Object.assign({}, o, { env: process.env }), (e, out) => { said = String(out); cb(e, out); }) };
   const wrong = await rw.listRestoredAgentsInChild({ base, world: p.world, restoreDir: p.restoreDir }, wrongEnv);
   assert.ok(wrong.agents.length === 0 && wrong.more === true && typeof wrong.because === 'string', 'a listing read from another store root is refused');
+  const told = JSON.parse(said.trim().split('\n').pop());
+  assert.ok(told.ok === true && told.listing.agents.length > 0 && told.root !== worlds.worldStoreRoot(base, p.world), 'the child listed fine: only the root check refused it');
   const stranger = await rw.listRestoredAgentsInChild({ base, world: { id: 'not-a-world' } });
   assert.deepEqual(stranger, { agents: [], shared: [], more: true, because: 'this is not a Kosmos on your list, so nothing in it is offered' });
   // A world on the list that a restore did not make: listRestoredAgents refuses it, and the refusal keeps more: true.
@@ -1208,7 +1211,8 @@ test('a listing in a child that fails in any way is a refusal, never an empty re
   for (const [why, err, out] of [
     ['the child failed or timed out', new Error('killed'), ''],
     ['the child printed something that is not JSON', null, 'not json\n'],
-    ['the listing is missing its shared rows', null, JSON.stringify({ ok: true, listing: { agents: [], more: false } }) + '\n'],
+    ['the listing is missing its shared rows', null, JSON.stringify({ ok: true, root, listing: { agents: [], more: false } }) + '\n'],
+    ['a row is not an object', null, JSON.stringify({ ok: true, root, listing: { agents: [null], shared: [], more: false } }) + '\n'],
     ['more is not a boolean', null, JSON.stringify({ ok: true, root, listing: { agents: [], shared: [], more: 'no' } }) + '\n'],
     ['the child read another store root', null, JSON.stringify({ ok: true, root: path.join(SANDBOX, 'support'), listing: good }) + '\n'],
     ['the child named no store root', null, JSON.stringify({ ok: true, listing: good }) + '\n'],
@@ -1216,6 +1220,10 @@ test('a listing in a child that fails in any way is a refusal, never an empty re
     assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(err, out))), why);
   }
   assert.equal((await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(null, JSON.stringify({ ok: false, because: 'said by the child' }) + '\n'))).because, 'said by the child');
+  // A real child answers on a later tick, outside any try in the caller: a malformed row must be refused, not thrown.
+  const later = (out) => ({ execFile: (file, args, opts, cb) => { setImmediate(() => cb(null, out)); return { kill() {} }; } });
+  assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: p.world }, later(JSON.stringify({ ok: true, root, listing: { agents: [null], shared: [], more: false } }) + '\n'))), 'a null row, answered later');
+  assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: p.world }, later(JSON.stringify({ ok: true, root, listing: { agents: [], more: false } }) + '\n'))), 'no shared rows, answered later');
   const none = [];
   assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: { id: worlds.DEFAULT_ID } }, answering(null, '', none))), 'the default Kosmos is never listed');
   const rel = await rw.listRestoredAgentsInChild({ base: 'relative/base', world: p.world }, answering(null, '', none));

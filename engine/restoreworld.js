@@ -915,12 +915,13 @@ function listRestoredAgentsInChild(opts = {}, deps = {}) {
         try { want = path.resolve(worlds.worldStoreRoot(opts.base, world)); } catch { want = null; }
         const l = j && j.ok === true && want && typeof j.root === 'string' && path.resolve(j.root) === want ? j.listing : null;
         const shaped = l && Array.isArray(l.agents) && Array.isArray(l.shared) && typeof l.more === 'boolean'
-          && (l.because === undefined || typeof l.because === 'string');
+          && (l.because === undefined || typeof l.because === 'string')
+          && l.agents.concat(l.shared).every((row) => row !== null && typeof row === 'object' && !Array.isArray(row));
         if (!shaped) return done(failed(LIST_FAILED));
         // The listing's own refusal (a world not on the list, or not made for a restore) in the refusal shape too, so
         // a screen keying on `more` never reads it as an empty restore.
         if (typeof l.because === 'string') return done(failed(l.because));
-        for (const row of l.agents.concat(l.shared)) if (row && typeof row === 'object') { if (Array.isArray(row.runs)) Object.freeze(row.runs); Object.freeze(row); }
+        for (const row of l.agents.concat(l.shared)) { if (Array.isArray(row.runs)) Object.freeze(row.runs); Object.freeze(row); }
         Object.freeze(l.agents); Object.freeze(l.shared);
         done(Object.freeze(l));   // shared by every ask for this world while it ran, so nobody's change reaches another
       });
