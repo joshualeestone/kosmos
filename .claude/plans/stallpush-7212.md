@@ -74,3 +74,7 @@ show, not for a usage-limit-only streak, again after a day; the turn callback; a
   once a day, so at most two tries a day per agent. The push file's path is worked out each sweep, inside its try.
   To a follow-up card (past round 8): an idle agent whose nudge gave up (ownbounds) can get that push and then a stall
   push for the same problem, now that a stall has its own cooldown class.
+- Full suite on 46005c1842: 8 reds. One was real and mine: fixture-discipline.test.js forbids a hand-built card, and
+  stallpush-7212.test.js built them; it now starts each card from test-support/fleet. The other seven were timeouts at
+  load ~175 in files this branch does not touch (create.test.js 5536 4c-1, server.agent-id, report-hook-allowed-5495,
+  tools.command-words-7262), each green when run alone.

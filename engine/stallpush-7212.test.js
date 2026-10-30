@@ -20,7 +20,11 @@ const DAY = 24 * 60 * MIN;
 const T0 = Date.parse('2026-10-30T12:00:00Z');
 const SINCE = '2026-10-30T11:20:00.000Z';
 const fileIn = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-stallpush-')), ds.PUSH_FILE);
-const card = (sessionName, extra = {}) => ({ sessionName, name: sessionName.toUpperCase(), deliveryStall: { since: SINCE, count: 4, lastWhy: 'refused' }, ...extra });
+/* A real board card from test-support/fleet (fixture-discipline.test.js: never a hand-built one), carrying a stall. */
+const fleet = require('../test-support/fleet');
+test.after(() => fleet.restore());
+const realCard = (session) => fleet.install([fleet.agent(session)]).card(session);
+const card = (session, extra = {}) => ({ ...realCard(session), name: session.toUpperCase(), deliveryStall: { since: SINCE, count: 4, lastWhy: 'refused' }, ...extra });
 const sender = (answer = true) => { const sent = []; return { sent, send: (ev) => { sent.push(ev); return typeof answer === 'function' ? answer(ev) : answer; } }; };
 
 test.beforeEach(() => ds.resetForTests());
@@ -31,10 +35,12 @@ test('a card carrying a stall is one needs-you event, named by its day, since an
   assert.equal(ds.stallEvent(card('s-ada'), T0 + DAY).id, 'stall:1:' + SINCE + ':s-ada', 'a day later the id did not move on');
   const turn = card('s-cy', { deliveryStall: { since: SINCE, count: 2, lastWhy: 'turn', step: 'x' } });
   assert.match(ds.stallEvent(turn, T0).id, /^turn:0:/);
-  assert.equal(ds.stallEvent({ sessionName: 's' }, T0), null, 'a card with no stall named one');
+  assert.equal(ds.stallEvent(card('s-none', { deliveryStall: null }), T0), null, 'a card with no stall named one');
   assert.equal(ds.stallEvent(null, T0), null);
-  assert.equal(ds.stallEvent({ sessionName: '', deliveryStall: { since: SINCE } }, T0), null);
-  assert.equal(ds.stallEvent({ sessionName: 's', deliveryStall: { since: SINCE } }, T0).agent, 's', 'no name: the session');
+  const nameless = card('s-anon', { name: '' });
+  assert.equal(ds.stallEvent(nameless, T0).agent, 's-anon', 'no name: the session');
+  delete nameless.sessionName;
+  assert.equal(ds.stallEvent(nameless, T0), null, 'a card with no session named one');
 });
 
 test('told at most once a day per agent, across a restart and a stall that ends and starts again', () => {
@@ -130,7 +136,7 @@ test('review 3: the board tells the stalls after it has settled the cards, insid
 test('review 4: one cause stalling many agents is one push, and a healthy card on the roster is never told', () => {
   const file = fileIn();
   const a = sender();
-  const healthy = { sessionName: 's-ok', name: 'OK', deliveryStall: null };
+  const healthy = card('s-ok', { deliveryStall: null });
   ds.tellStalls([healthy, card('s-a'), card('s-b'), card('s-c'), card('s-a')], { now: T0, file, send: a.send });
   assert.equal(a.sent.length, 1, 'three stalls in one minute buzzed ' + a.sent.length + ' times');
   assert.equal(a.sent[0].agent, 'S-A and 2 more', 'the one push does not say how many');
