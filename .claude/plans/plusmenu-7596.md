@@ -16,7 +16,9 @@ Camera, Photos, Files.
   the camera, Camera says "Turned off for Kosmos in Settings" and opens Settings. Not yet asked: iOS asks first, and
   the camera opens only on yes. Restricted by Screen Time or a device profile (Kosmos's Settings page cannot undo
   it): dimmed, "Not allowed on this device".
-- At the largest text sizes the rows scroll inside the panel.
+- At the largest text sizes the rows scroll inside the panel, which is held to 360 pt. Seen 10-29 23:24 at
+  Accessibility XXXL on the iOS 27 simulator: Camera and Photos showing, Files below them inside the scroll view (the
+  layout, not a scroll gesture, was checked).
 - The camera's photo is encoded off the main thread, inside the upload's load, as a picked photo is read.
 - A choice opens once the panel has gone (its onDisappear), never on a timer. A UI test (AttachMenuUITests, opt-in with
   TEST_RUNNER_KOSMOS_UI_PLUS=1) shows Photos and Files opening after the panel closes, with a control (the panel closed
