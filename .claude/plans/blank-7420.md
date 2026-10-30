@@ -1,0 +1,23 @@
+# blank-7420: the empty-chat record reads the scroll view; an empty list is put back every time
+
+Card: kosmos#7420 (Josh 10-29 21:22, build 19, iOS 26.7.2: a 114-item DM went empty; the record said "messages on screen
+again" after one try, but his screenshot, taken after that line, was still empty).
+
+## Finished looks like
+- The diagnostic record carries the list's scroll view numbers (offset, content height, shown height, insets) and whether
+  the shown band misses the content (`Board.scrollBand`), at capture, at every resize in the trace, and after the one try.
+- "After one try" is decided by the band, with the onAppear row count written beside it, never by the count alone.
+- A resize that leaves the band off the content triggers the check (no row leaving would bump the tick).
+- After the one report, an empty list is still put back (to the newest message), at most once in 2 s.
+- `Board.scrollBand` is tested in LogicTests with a control on each side of each boundary.
+- A UI test (`ChatBlankUITests`, skipped unless `TEST_RUNNER_KOSMOS_UI_BLANK=1`) walks Josh's steps on the sample chat.
+
+## Not in scope
+- The cause of the empty list. Not reproduced: the simulator run (iPhone 17 Pro Max, iOS 27.0, 260-message sample) went
+  through keyboard up, drag-dismiss, three flicks up and keyboard up again with the band on the content throughout.
+  The next real report will say which kind of empty it is (band off the content, or rows not drawn on it).
+
+## Decided
+- Recovery goes to the newest message (goNewest), as the existing one try does. Rejected: re-setting the message anchor,
+  because the anchor is the thing suspected of holding the bad place. Weakest premise: a reader scrolled far up loses
+  their place on recovery; an empty screen is worse than a lost place, and it is at most once in 2 s.
