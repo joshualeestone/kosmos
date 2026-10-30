@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: personalswitch-7404
-diff_hash: 1538a8933aaf47ce5a8380ebaf8344519b13b1b26bb9a3fc1c3b4cefbeef37d7
+diff_hash: bfcc4c465b99ab08b3ac55130c929ece743e171b0419a135d617060c1373140b
 validation: pending
 subdir_audit: passed
-timestamp: 2026-10-30T22:31:57Z
+timestamp: 2026-10-30T22:35:32Z
 iterations: 8
 converged: true
 ---
@@ -32,3 +32,5 @@ world as well as the Mac, an off that claimed a binding it had not read.
 agentevents-5683, familysay-6251, workkosmos-6567 green after the orgenroll change; the full-suite-only guards
 (engine.reachable, windows-coupling-audit-1732, windows-tests-1777, tools/test-connector-verbs.sh 27/27) green. NOT run
 here: the full suite (that is CI's and the Mortals gate's).
+
+**Re-hash after rebasing onto kosmos main c06da40d1a:** clean rebase; the tests and guards listed above rerun green on the new base (connector-verbs 27/27).
