@@ -218,7 +218,7 @@ struct ChatView: View {
             if let was = openedFile, was != now { client.closed(was); openedFile = now }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .kosmosSolidTopBar(fade: false)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
+        .kosmosSolidTopBar(fade: false, ground: Palette.chatGround)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
         .toolbar {
             // kosmos#7424 (Josh 10-27 20:49): the name and status open the same page as the info button.
             ToolbarItem(placement: .principal) {
@@ -544,7 +544,7 @@ struct ChatView: View {
                 })
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
-                .kosmosTopFade()   // kosmos#7346: rows fade under the solid top bar; the banner and search above stay clear
+                .kosmosTopFade(ground: Palette.chatGround)   // kosmos#7346: rows fade under the solid top bar; the banner and search above stay clear
                 .overlay(alignment: .top) { earlierLoadingLine }
                 #if DEBUG
                 .overlay(alignment: .bottomTrailing) {
