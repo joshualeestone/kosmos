@@ -37,18 +37,17 @@ final class KeyboardSlideUITests: XCTestCase {
     // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP moves
     // the reader up the thread 3 s after opening, as a reader's own scroll does.
     func testReadHigherUpStaysWhereItWas() throws {
-        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40"])
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15), "no sample rows")
-        let opened = Date()
         // The chat opens at its newest message; the hook's scroll up has happened once that has left the screen.
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false OR isHittable == false"), object: newest)
         XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 15), .completed, "the scroll up never moved the reader off the newest message")
-        // The hook clears atBottom 3.6 s after the chat opens; a tap before that would read the reader as at the newest.
-        let early = 4.2 - Date().timeIntervalSince(opened)
-        if early > 0 { Thread.sleep(forTimeInterval: early) }
+        // Tap only after the hook has told the chat the reader moved up: its marker shows then (kosmos#7609).
+        let rested = app.descendants(matching: .any).matching(identifier: "sample-scroll-rested").firstMatch
+        XCTAssertTrue(rested.waitForExistence(timeout: 30), "the sample scroll-up never came to rest")
         Self.settle(rows.firstMatch)
         // The highest row on screen below the header, by its own label so it can be found again after the keyboard.
         let header = app.navigationBars.firstMatch.frame.maxY   // rows under the top bar are not the reader's place

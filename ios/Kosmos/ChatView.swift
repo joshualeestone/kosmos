@@ -37,6 +37,8 @@ struct ChatView: View {
     // kosmos#7265 (iOS 17+, idAnchor): the message the list is anchored on; "end" keeps the newest in view.
     @State private var positionId: String?
     @State private var personScrolling = false
+    // kosmos#7609: set only by the DEBUG sample scroll-up once it has told the chat where the reader is; checks wait on it.
+    @State private var sampleScrollRested = false
     // kosmos#7265 (Josh 10-27): the id of the first eager row, fixed when the conversation is first drawn (eagerStart).
     @State private var eagerFrom: String?
     @State private var unseenNew = false
@@ -542,6 +544,12 @@ struct ChatView: View {
                 // (the board's paintOlderLine).
                 .kosmosTopFade()   // kosmos#7346: rows fade under the solid top bar; the banner and search above stay clear
                 .overlay(alignment: .top) { earlierLoadingLine }
+                .overlay(alignment: .bottomTrailing) {
+                    if sampleScrollRested {
+                        Color.clear.frame(width: 1, height: 1)
+                            .accessibilityElement().accessibilityLabel("sample scroll rested").accessibilityIdentifier("sample-scroll-rested")
+                    }
+                }
                 // kosmos#7420 diagnostic: the list's size, and a check whenever no message is on screen.
                 .background(GeometryReader { g in
                     Color.clear.onAppear { diagViewport = g.size }
@@ -581,7 +589,7 @@ struct ChatView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                             if Self.idAnchor { positionId = target } else { proxy.scrollTo(target, anchor: .top) }
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { atBottom = endVisible; Self.trace("debug scroll-up rested, atBottom \(endVisible)") }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { atBottom = endVisible; sampleScrollRested = true; Self.trace("debug scroll-up rested, atBottom \(endVisible)") }
                     }
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {
                         // Twice: the first reaches the top and loads a page; the second shows what landed above.
