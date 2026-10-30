@@ -368,9 +368,17 @@ test('#7404 (review 3): a restore deletes this computer\'s pending code, includi
   const down = async (m, route, body) => (route === mk.MEMBER_KEY_ROUTE ? refuse(503, 'escrow_unavailable', 'down') : c.macRequest(m, route, body));
   assert.equal((await pk.setUpPersonalKey({ macRequest: down })).ok, false);
   assert.equal(pendingFiles().length, 1, 'CONTROL: code A is pending');
-  // Another computer sets up with code B; this one restores with B.
-  const other = await (async () => { const keep = pendingFiles(); forget(); const r = await pk.setUpPersonalKey({ macRequest: c.macRequest }); return { r, keep }; })();
-  const r = await pk.restorePersonalKey(other.r.code, { macRequest: c.macRequest });
+  // Another computer sets up with code B (its own key folder: code A's file is set aside, then put back), and this
+  // one restores with B while code A's dead file is on disk (review 4: the case must exist when restore runs).
+  const dir = path.join(require('./store').ROOT, 'backupkeys');
+  const aName = pendingFiles()[0], aBody = fs.readFileSync(path.join(dir, aName));
+  forget();
+  const other = await pk.setUpPersonalKey({ macRequest: c.macRequest });
+  forget();
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(dir, aName), aBody, { mode: 0o600 });
+  assert.deepEqual(pendingFiles(), [aName], 'CONTROL: code A\'s dead file is on disk when the restore runs');
+  const r = await pk.restorePersonalKey(other.code, { macRequest: c.macRequest });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.deepEqual(pendingFiles(), [], 'a pending code survived a successful restore');
   assert.deepEqual(await pk.confirmRecoveryCodeSaved(WHO), { ok: true, deleted: 0 });

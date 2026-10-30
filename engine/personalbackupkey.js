@@ -140,7 +140,7 @@ async function setUpNow(opts) {
     const epochs = Object.keys(kept.keys);
     const own = kept.keys['1'];
     const pending = readPending(org, member);
-    if (pending && pending.unreadable) return refused('the recovery code kept on this computer could not be read; it was left as it is');
+    if (pending && pending.unreadable) return refused('the recovery code kept on this computer could not be read, so setup stops rather than replace it. If Kosmos+ lists no backup key for this account, the file ' + path.basename(pendingFile(org, member)) + ' in the backup keys folder can be removed and setup run again');
     // Our own registration (its answer lost, or a crash before the screen showed the code, review 2): the one epoch-1
     // row is our key, our pending code's recovery key, and it OPENS with that code and its tag. Answered with the same
     // code, registered here if it was not yet, until the screen confirms. Checked in full, so a row the code could not
@@ -190,6 +190,7 @@ async function setUpNow(opts) {
     // the key and the code (a benign coordinator bug that dropped the tag is found now, not at the first restore).
     const back = await readContext(macRequest);
     const stored = back.ok && back.ctx.rows.length === 1 ? back.ctx.rows[0] : null;
+    if (!stored) return refused('Kosmos+ took the backup key, but what it kept could not be checked; try again (the key and code are kept for it)');
     if (!rowIsOurs(stored, key, code, org, member)) {
       return refused('Kosmos+ kept the backup key in a form this recovery code does not open; the key and code are kept on this computer');
     }
