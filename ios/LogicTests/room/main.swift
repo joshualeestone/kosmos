@@ -531,8 +531,13 @@ check(geoValues.count == 6 && geoValues.allSatisfy { $0.hasPrefix("n(sv.") || $0
 // Review 9: a record line built with + is not seen by the interpolation scan above, so each + operand of a trace line must be
 // a string literal, the vetted scroll line, or the arm's fixed words.
 let plusTraces = chatSource.components(separatedBy: "\n").filter { ($0.components(separatedBy: "Self.trace(").dropFirst().first ?? "").contains(" + ") }
-let allowedOperands: Set<String> = ["geo.line", "g.line", "line", "(g.off ? \"the band\" : \"the rows\")"]
+let allowedOperands: Set<String> = ["geo.line", "g.line", "line", "(g.off ? \"the band\" : \"the rows\")",
+                                     "\" (rows counted \\(onScreen.count), \""]   // review 11: the row count, a number
 let lineDefs = chatSource.components(separatedBy: "\n").filter { $0.contains("let line = \"empty again by \"") }
+// Review 11: the after-one-try line joins its verdict (fixed words) and the vetted scroll line.
+let readLine = chatSource.components(separatedBy: "\n").first { $0.contains("+ \" (rows counted \\(onScreen.count), \" + g.line + \")\"") } ?? ""
+check(!readLine.isEmpty && chatSource.contains("let verdict = g.off || onScreen.isEmpty ? \"still nothing on screen\" : g.judged ? \"the list shows the content again\" : \"not judged yet\""),
+      "kosmos#7420 review 11: the after-one-try line joins fixed verdict words and the vetted scroll line only")
 let badOperands = (plusTraces + lineDefs).flatMap { l -> [String] in
     let body = l.contains("Self.trace(") ? String((l.components(separatedBy: "Self.trace(").last ?? "").dropLast())
         : (l.components(separatedBy: "let line = ").last ?? "")

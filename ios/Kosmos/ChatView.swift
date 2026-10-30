@@ -796,15 +796,26 @@ struct ChatView: View {
             guard diagRecoveries < Self.diagRecoveryCap else { return }
             let g = diagGeometry()
             diagRecoveries += 1; diagRecoveredAt = Date()
-            let line = "empty again by " + (g.off ? "the band" : "the rows") + " (" + g.line + "), trying the newest message"
+            let line = "empty again by " + (g.off ? "the band" : "the rows") + " (rows counted \(onScreen.count), " + g.line
+                + "), trying the newest message"
             Self.trace(line)
             // Review 9: in the report the person shares too, not only the trace (the report is written once, at capture).
             if let report = diagReport { diagReport = report + "\n" + line }
-            goNewest(proxy)
+            putBack(proxy)
             return
         }
         diagRecoveredAt = Date()
         diagCapture(proxy, why: "no message on screen", count: count)
+    }
+
+    // Review 11: the newest message, and with the band off the content the scroll view moved to its end directly too: if
+    // SwiftUI already holds the list at "end", re-setting the anchor alone may move nothing, as build 19's record suggests.
+    private func putBack(_ proxy: ScrollViewProxy) {
+        goNewest(proxy)
+        guard diagGeometry().off, let sv = diagScroll.view else { return }
+        let inset = sv.adjustedContentInset
+        sv.setContentOffset(CGPoint(x: -inset.left, y: max(-inset.top, sv.contentSize.height - sv.bounds.height + inset.bottom)),
+                            animated: false)
     }
 
     // kosmos#7420 (build 19): the scroll view's own numbers, and whether the band it shows misses the content (Board.scrollBand).
@@ -841,7 +852,7 @@ struct ChatView: View {
                      "recent events:"] + Self.diagRing
         guard recover else { diagReport = lines.joined(separator: "\n"); announceDiag(); return }   // review 1: a width finding moves nobody
         Self.trace("diag: \(why), trying the newest message")
-        goNewest(proxy)
+        putBack(proxy)
         // Review 10: written 1.5 s later, so only if no account or computer change came between (that resets the report).
         let epoch = client.chatEpoch
         // kosmos#7420 (build 19): rows counted are what SwiftUI says appeared, not what was drawn, so a band off the content

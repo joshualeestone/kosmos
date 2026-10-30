@@ -26,7 +26,9 @@ again" after one try, but his screenshot, taken after that line, was still empty
   The next real report will say which kind of empty it is (band off the content, or rows not drawn on it).
 
 ## Decided
-- Recovery goes to the newest message (goNewest), as the existing one try does. Rejected: re-setting the message anchor,
+- Recovery goes to the newest message (goNewest), as the existing one try does, and with the band off the content it also
+  moves the scroll view to its end directly (review 11: re-setting the anchor alone may move nothing if SwiftUI already
+  holds the list at "end"). Rejected: re-setting the message anchor,
   because the anchor is the thing suspected of holding the bad place. Weakest premise: a reader scrolled far up loses
   their place on recovery; an empty screen is worse than a lost place, it needs two still, empty readings, and it is at
   most once in 2 s and 3 times a chat, so a wrong reading cannot keep moving a reader.
