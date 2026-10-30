@@ -553,9 +553,13 @@ test('#7404 review 3 warning 3: the follow-up ends nothing while a switch-on is 
   await new Promise((res) => setImmediate(res));
   await new Promise((res) => setTimeout(res, 20));
   pb._resetFollowUpForTests();
-  await pb.followUp({ root, remote: c, now: () => Date.now() + 11 * 60 * 1000 });
+  // Not awaited before the check: a pass that did send would then wait on orgenroll's queue, which the held enroll owns,
+  // and a deadlocked test reads as a hang rather than a red (measured on the mutant).
+  const fu = pb.followUp({ root, remote: c, now: () => Date.now() + 11 * 60 * 1000 });
+  await new Promise((res) => setTimeout(res, 50));
   assert.equal(LEAVE_N(c), 0, 'no leave while the enroll is in flight');
   release();
+  await fu;
   assert.equal((await on).ok, true);
   assert.equal(c.member, true);
 });
