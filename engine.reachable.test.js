@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  switchOff: '#7404 personalswitch-7404 (Baron): engine/personalbackup.js, turning a personal backup off; the personal backup screen calls it, pending the screens slice (behind KOSMOS_PERSONAL_BACKUP, off). If #7404 is abandoned it goes with it.',
   setUpPersonalKey: '#7404 step 3, end to end (Baron): engine/personalbackupkey.js, the personal backup setup screen calls it, pending that slice (board piece 3, behind KOSMOS_PERSONAL_BACKUP, off). If #7404 is abandoned it goes with it.',
   confirmRecoveryCodeSaved: '#7404 step 3: the same setup screen calls it once the person says they saved the code (it deletes this computer\'s copy), pending that slice.',
   restorePersonalKey: '#7404 step 3: the restore screen (code prompt on a new computer) calls it, pending that slice (board piece 3).',

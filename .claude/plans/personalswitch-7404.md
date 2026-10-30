@@ -99,8 +99,14 @@ branches across nine modules carry the same silent failure mode across far more 
    `refresh({ root, orgpolicy: stub })`), and the personal screen gets its own ticket, never ORG_TICKET.
 4. **One root for the personal key path.** backuptick's gate and backupmemberkey's key-pin check read store.ROOT
    (backuptick.js:328, backupmemberkey.js:151), and personalbackupkey's files live at store.ROOT
-   (personalbackupkey.js:72) while the pin would be written under the personal root (orgenroll.js:765). Decided: the
-   personal key files and the pin both live under the personal root; the personal backup tick has its own gate.
+   (personalbackupkey.js:72) while the pin would be written under the personal root (orgenroll.js:765).
+   **Re-decided while building (15:5x):** the key files STAY in store.ROOT/backupkeys. Each file is named by a hash of
+   (org, member) (backupmemberkey.js readKeys/writeKeys, personalbackupkey.js pendingFile), so a personal key and a
+   company key cannot collide, and the personal path never reads the key pin (personalbackupkey.js has no orgkeypin
+   call; only backupmemberkey.ensureMemberKey's company path checks it). Moving them would split one person's keys
+   across two roots, which is more to get wrong at restore. The pin written under the personal root is never read.
+   **Rule for later:** if a pin check is ever added to the personal path, it must read the personal root. The personal
+   backup tick (a later slice) has its own gate, never backuptick's mayBackUp.
 5. **agentevents STOPS cross-talk.** markWithdrawn bumps a process-wide STOPS before reading the root
    (agentevents.js:1056-1072), so a personal clear can make an in-flight company tick write `withdrawn: true` and send
    nothing. Fixed in this slice: markWithdrawn touches nothing when its root holds no agent-events state.

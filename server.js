@@ -26881,6 +26881,9 @@ function start(port = PORT) {
   /* #5531: an enrolled work Kosmos asks its company on start and hourly (#6232) whether it is still the enrolled world, and
      stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
   try { require('./engine/orgenroll').onEnrollmentEnded(orgEnrollmentEnded); } catch { /* best effort */ }   // #6232 review 10
+  /* kosmos#7404: a personal backup's own follow-up (a lost join or leave under its own root; the company refresh above
+     reads store.ROOT only). Idle while this computer holds no personal record and nothing is pending. */
+  try { require('./engine/personalbackup').startFollowUp(); } catch { /* best effort */ }
   orgEnrollRefresh();
   setInterval(() => { orgRefreshIfDue(); }, ORG_REFRESH_CHECK_MS).unref();   // #6232 review 3: an hour on the clock
   // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the hourly pass.
