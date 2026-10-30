@@ -99,3 +99,29 @@ test('the board tells every card carrying a stall, through phonenotify, each min
   assert.match(body, /ds\.tellStalls\(shown\.map\(\(n\) => byName\.get\(n\)\), \{ file: STALL_PUSH_FILE, send: \(ev\) => phonenotify\.happened\(ev\) \}\);/);
   assert.match(src, /const STALL_PUSH_FILE = path\.join\(store\.ROOT, require\('\.\/engine\/deliverystreak'\)\.PUSH_FILE\);/);
 });
+
+test('review 3: the record is read once per sweep, not once per stalled card, while nothing can be sent', () => {
+  const file = fileIn();
+  fs.writeFileSync(file, '{}');
+  const real = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = function (p, ...rest) { if (p === file) reads += 1; return real.call(this, p, ...rest); };
+  try {
+    ds.tellStalls([card('s-a'), card('s-b'), card('s-c')], { now: T0, file, send: () => false });
+    assert.equal(reads, 1, 'three stalled cards read the record ' + reads + ' times in one sweep');
+    ds.tellStalls([card('s-a')], { now: T0 + MIN, file, send: () => false });
+    assert.equal(reads, 2, 'CONTROL: the next sweep reads it again');
+  } finally { fs.readFileSync = real; }
+});
+
+test('review 3: the board tells the stalls after it has settled the cards, inside the sweep', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('const sayStalls = () => {');
+  const body = src.slice(at, src.indexOf('} catch { /* said next minute */ }', at));
+  const settled = body.indexOf('for (const c of r) ds.settleFor(c);');
+  const shown = body.indexOf('const shown = names.filter(');
+  const told = body.indexOf('ds.tellStalls(');
+  assert.ok(settled > 0 && shown > settled && told > shown, 'tellStalls is not after settleFor and shown: ' + [settled, shown, told]);
+  assert.equal(body.slice(0, told).includes('return;\n'), true, 'CONTROL: the early return for an empty roster is above it');
+  assert.equal((body.slice(told).match(/return/g) || []).length, 0, 'something can return before the stalls are told');
+});

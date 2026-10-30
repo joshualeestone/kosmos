@@ -43,3 +43,8 @@ show, not for a usage-limit-only streak, again after a day; the turn callback; a
   so a session named __proto__ is gated; an entry from the future reads as nobody told. The id is
   `stall:<day>:<since>:<session>`, session last, so a long name cut to fit loses only its tail. turnsToSay is back to
   main's. storecheck names stall-pushes.json in the person's words. The module header says the file exists.
+- Round 3 (Sonnet): no BLOCKER. The record is read once per sweep, not once per stalled card each minute while nothing
+  can be sent (no phone set up, a demo install). A test pins that the board tells the stalls after it settles the
+  cards and that nothing can return before it. Kept on purpose: one agent is told at most once a day even if its stall
+  ends and a different one starts; that is what keeps a flapping stall from buzzing all day, and the card still shows
+  every stall. Not reachable today: a project's mute level (a stall event names no project).

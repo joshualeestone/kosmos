@@ -264,12 +264,13 @@ function readPushes(file) {
   } catch { /* nobody told */ }
   return book;
 }
-function pushDue(session, now, file) {
+/* `bookOf()` reads the file at most once per sweep (review 3: not once per stalled card per minute). */
+function pushDue(session, now, bookOf) {
   try {
     if (typeof session !== 'string' || !session) return false;
     const fresh = (t) => Number.isFinite(t) && t <= now && now - t < PUSH_GAP_MS;
     if (fresh(pushedAt.get(session))) return false;
-    return !(typeof file === 'string' && file && fresh(readPushes(file)[session]));
+    return !fresh(bookOf()[session]);
   } catch { return false; }
 }
 function pushTold(session, now, file) {
@@ -288,13 +289,15 @@ function pushTold(session, now, file) {
 /* The board's minute sweep: tell the person about each card carrying a stall that is due. `send` is
    phonenotify.happened (true when it sent). Never throws. */
 function tellStalls(cards, { now = Date.now(), file, send }) {
+  let book = null;
+  const bookOf = () => book || (book = typeof file === 'string' && file ? readPushes(file) : Object.create(null));
   for (const c of cards || []) {
     try {
       const ev = stallEvent(c, now);
-      if (!ev || !pushDue(ev.session, now, file)) continue;
+      if (!ev || !pushDue(ev.session, now, bookOf)) continue;
       if (send(ev) === true) pushTold(ev.session, now, file);
     } catch { /* the next card is still told */ }
   }
 }
 
-module.exports = { stallEvent, pushDue, pushTold, tellStalls, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+module.exports = { stallEvent, tellStalls, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
