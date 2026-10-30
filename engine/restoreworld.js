@@ -613,9 +613,12 @@ function gitSettingsOf(file, shown, budget) {
   budget.gitReads -= 1;
   const env = {};
   for (const [k, v] of Object.entries(process.env)) if (!/^GIT_/i.test(k) || /^GIT_EXEC_PATH$/i.test(k)) env[k] = v;   // a relocated git needs its own
-  Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull, GIT_TERMINAL_PROMPT: '0', GIT_CEILING_DIRECTORIES: path.dirname(os.tmpdir()) });
+  // git compares the ceiling without resolving links, and macOS's temporary folder sits behind /var -> /private/var.
+  let tmp;
+  try { tmp = fs.realpathSync(os.tmpdir()); } catch { tmp = os.tmpdir(); }
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull, GIT_TERMINAL_PROMPT: '0', GIT_CEILING_DIRECTORIES: path.dirname(tmp) });
   const r = childProcess.spawnSync('git', ['config', '--file', file, '--no-includes', '--null', '--name-only', '--list'],
-    { cwd: os.tmpdir(), env, encoding: 'utf8', timeout: GIT_READ_MS, maxBuffer: 2 * MAX_GIT_CONFIG_BYTES, windowsHide: true });
+    { cwd: tmp, env, encoding: 'utf8', timeout: GIT_READ_MS, maxBuffer: 2 * MAX_GIT_CONFIG_BYTES, windowsHide: true });
   if (r.error || r.status !== 0) return [`${shown} (its git settings could not be checked)`];
   const keys = [...new Set(r.stdout.split('\0').filter(Boolean))].filter((k) => !GIT_PLAIN_KEYS.has(plainKeyOf(k)));
   const out = keys.slice(0, MAX_GIT_KEYS_SHOWN).map((k) => `${shown} sets ${keyLabelOf(k)}`);
@@ -732,7 +735,9 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    restore cannot be enabled, and the screen says so rather than offering part of a list. Keep the person out of a
    Restored world until its finish has run: an agent or project made there first fills the folders finish needs
    empty. An empty `runs` also says nothing about
-   files a shell hook (direnv, mise) would run on entering a folder. Nothing is registered, started or written.
+   files a shell hook (direnv, mise) would run on entering a folder, nor about a repository in a project's subfolders
+   or a .gitattributes, neither of whose git settings are checked: the screen says both in words before Enable
+   (review 4). Nothing is registered, started or written.
    A world not on the list (no registry row, hidden, or its folder swapped for a link) answers with no rows and a
    `because`, so a refusal cannot read as an empty restore.
    opts.maxListed lowers MAX_LISTED and opts.briefTotal lowers MAX_BRIEF_TOTAL and opts.gitReads MAX_GIT_READS and opts.gitMs MAX_GIT_READ_TOTAL_MS (tests). */

@@ -64,3 +64,15 @@ runs or loads something once the agent's git reaches it. The review screen must 
   the config-link and oversized arms are tested.
 - Tests 62/62. Mutations (protectntfs back in the allowlist; three-part section uncut; agent folders reading
   settings) each red; restored green.
+
+## Review round 4 (sonnet): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 4 NIT
+- FIXED (screen obligation): a repository in a project's subfolder and a .gitattributes were stated limits in this
+  plan only, so the screen showed an empty `runs` with nothing said. The contract comment now requires the screen to
+  say in words, before Enable, that neither is checked. This covers any depth, which a one-level scan would not.
+- FIXED: GIT_CEILING_DIRECTORIES and cwd now use the real path of the temporary folder (macOS /var is a link to
+  /private/var, and git compares the ceiling without resolving links).
+- DEFERRED: values are not read (decided above: a value can carry a credential). A .gitattributes selecting a filter
+  defined in the person's own global config runs the person's own program. The 20-key cap counts the rest ("N more");
+  every key shown is one git may act on (alias.* included), so there is no safe order to sort by.
+- Tests 62/62; engine.reachable, win32-separator-guard, windows-coupling-audit-1732 20/20. No test for the realpath:
+  it changes only where git stops looking for a repository, which `config --file` does not use.
