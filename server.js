@@ -5138,7 +5138,10 @@ function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
      before kosmos-relay sessioniat-6595 sends neither header and gets the fallback sentence, which still works. */
   const viaGate = req.headers['x-kosmos-session-iat'] !== undefined || req.headers['x-kosmos-session-second'] !== undefined;
   if (!viaGate) return REMOTE_STEP_UP;
-  return said.has('fresh-signin') ? REMOTE_STEP_UP_SIGNIN : REMOTE_STEP_UP_LOGOUT;
+  if (said.has('fresh-signin')) return REMOTE_STEP_UP_SIGNIN;
+  /* kosmos#7625 review 1: logging out helps only a session that has a second factor; one without (an account that
+     never set one up) would sign in again and be refused the same way, so it keeps the plain refusal. */
+  return second ? REMOTE_STEP_UP_LOGOUT : REMOTE_STEP_UP;
 }
 /* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
    Kosmos+ reaches the board over loopback, which is why the header rule stays). */
