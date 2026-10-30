@@ -45,6 +45,7 @@ function coordinator(over = {}) {
       sent.push({ route, body: body == null ? null : JSON.parse(JSON.stringify(body)) });
       if (route === pb.ROUTE) return over.preview || { ok: true, data: { org: ORG, role: 'admin', consent: WORDS, consentHash: HASH, computerSalt: SALT } };
       if (route === oe.ROUTES.enroll) {
+        if (over.enrollRefuse) return { ok: false, because: '409 {"code":"' + over.enrollRefuse + '"}', refusal: { status: 409, code: over.enrollRefuse } };
         if (body.consentHash !== HASH || body.wordsShown !== true) return { ok: false, because: '409 {"code":"personal_backup_words_unseen"}', refusal: { status: 409, code: 'personal_backup_words_unseen' } };
         world = body.world; left = false;
         return { ok: true, data: { ok: true, org: over.enrollOrg || ORG, role: 'member', printPinned: true, enrolled: { computer: 'c1', world, thisComputer: true } } };
@@ -225,4 +226,19 @@ test('#7404: the follow-up sends nothing with no personal backup here, and refre
   assert.equal(c.sent.length, n1, 'a settled record was refreshed again two minutes later');
   await pb.followUp({ root, remote: c, now: () => at + 3600e3 + 1 });
   assert.ok(c.sent.length > n1, 'an hour later the follow-up did not refresh');
+});
+
+test('#7404: a coded personal refusal on enroll is told as refused, and leaves no lost-join marker or follow-up', async (t) => {
+  /* Code review 2, blocker 2: orgenroll knew only its own codes, so personal_backup_words_unseen read as a lost answer
+     (a status read, org-join-unknown.json, two-minute follow-ups, "not known yet"). */
+  for (const code of ['personal_backup_words_unseen', 'personal_backup_in_org', 'org_other_org']) {
+    const root = fresh(t);
+    const c = coordinator({ enrollRefuse: code });
+    const p = await pb.preview({ remote: c });
+    const on = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+    assert.equal(on.ok, false, code);
+    assert.equal(on.unknown, undefined, code + ' was told as not known yet');
+    assert.equal(on.code, code, code);
+    assert.equal(fs.existsSync(path.join(root, oe.JOIN_UNKNOWN_FILE)), false, code + ' left a lost-join marker');
+  }
 });

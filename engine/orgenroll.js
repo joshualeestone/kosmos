@@ -445,7 +445,10 @@ function inKind(kind, text) {
 /* A public code's sentence in the org's kind. */
 function sayCode(c, kind) { return (kindOf(kind) === 'family' && FAMILY_SAY[c]) || SAY[c]; }
 /* Only the PUBLIC codes count: a field such as org_id elsewhere in the line must not be read as the error. */
-const CODES = Object.freeze(Object.keys(SAY).concat(['org_not_accepted']));
+/* kosmos#7404: a personal backup's refusal codes (engine/personalbackup.js says them in its own words). Known here, so a
+   coded personal refusal is a refusal, never read as a lost answer (personalswitch-7404 code review 2). */
+const PERSONAL_CODES = ['personal_backup_off', 'personal_backup_in_org', 'personal_backup_raced', 'personal_backup_words_unseen'];
+const CODES = Object.freeze(Object.keys(SAY).concat(['org_not_accepted'], PERSONAL_CODES));
 function codeOf(because) {
   const text = String(because || '');
   for (const c of CODES) if (new RegExp('\\b' + c + '\\b').test(text)) return c;
