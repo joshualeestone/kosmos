@@ -21,6 +21,9 @@ const path = require('node:path');
 const ab = require('./autobalance');
 
 const FILE = 'autobalance-record.jsonl';
+/* kosmos#7548 review round 7: shared by decisions, the mover's lines and person lines, and the mover rebuilds its holds
+   from them (rules 7, 8, 10). A decision is written only when it changes, so 500 is days of lines at the default
+   period; a sweep set to its one-minute floor with many bulk moves could push a live hold out within a day. */
 const KEEP_LINES = 500;
 const RECENT = 10;
 const CLOCK_SLACK_MS = 60 * 1000;   // a record line stamped further ahead than this is not trusted
@@ -44,12 +47,14 @@ function readLines(file) {
 }
 
 /* Append one entry, keeping the newest KEEP_LINES. Written whole and renamed into place, so a reader never sees half a
-   file, under a temp name unique to the write. Never throws: a record that cannot be written must not stop the sweep. */
-function append(file, entry) {
+   file, under a temp name unique to the write. Never throws: a record that cannot be written must not stop the sweep.
+   appendAll writes several entries in one write (kosmos#7548: a person's move of many agents is one line each). */
+function append(file, entry) { return appendAll(file, [entry]); }
+function appendAll(file, entries) {
   const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
   try {
     const lines = readLines(file);
-    lines.push(entry);
+    lines.push(...entries);
     const keep = lines.slice(-KEEP_LINES);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(tmp, keep.map((l) => JSON.stringify(l)).join('\n') + '\n', { mode: 0o600 });
@@ -63,13 +68,26 @@ function append(file, entry) {
 
 const objects = (x) => (Array.isArray(x) ? x : []).filter((y) => y && typeof y === 'object');   // an odd line must not throw
 
-/* The newest RECENT decisions Settings draws, newest first: only those with a usage move in them. A decision with an
+/* Review round 6: only what Settings draws (web/index.html abRecentHtml), so a line it cannot draw takes no slot. */
+const DRAWN_MOVES = new Set(['changed', 'stopped', 'partial', 'unknown', 'refused']);
+const DRAWN_WORKS = new Set(['yes', 'no', 'not-seen']);
+/* The newest RECENT entries Settings draws, newest first: decisions with a usage move in them, and (kosmos#7548) the
+   mover's own lines it draws. A decision with an
    account at risk and nothing that could move is recorded but not drawn, and so is a move off a stopped login (review
    12): it stays in the file as evidence of the login problem, but slice 3b moves for usage only, so drawing it would
    show a move that will never happen. Throws when the record cannot be read (the route answers it as empty). */
 function recent(file, n = RECENT) {
   const now = Date.now();
-  return readLines(file).filter((l) => l.kind === 'decision' && objects(l.moves).some((m) => m.kind !== 'login') && Number.isFinite(l.at) && l.at <= now + CLOCK_SLACK_MS)   // review 10: as create() distrusts it
+  return readLines(file).filter((l) => Number.isFinite(l.at) && l.at <= now + CLOCK_SLACK_MS   // review 10: as create() distrusts it
+    && ((l.kind === 'decision' && objects(l.moves).some((m) => m.kind !== 'login'))
+      /* kosmos#7548 (slice 3b): the mover's own lines (engine/automove.js). A move that only started draws nothing (its
+         ending line says how it went), and a person's move is the mover's hold, not news. */
+      || (l.kind === 'move' && DRAWN_MOVES.has(l.outcome) && typeof l.agent === 'string')
+      || (l.kind === 'works' && DRAWN_WORKS.has(l.works) && typeof l.agent === 'string')
+      || ((l.kind === 'skipped' || l.kind === 'released') && typeof l.agent === 'string')))
+    /* Review round 6: by time, not by place in the file: a move's ending written at the next start keeps the move's
+       own time, and lines that waited for a writable record are written late. Stable, so equal times keep file order. */
+    .map((l, i) => [l, i]).sort((a, b) => a[0].at - b[0].at || a[1] - b[1]).map(([l]) => l)
     .slice(-n).reverse();
 }
 
@@ -174,4 +192,4 @@ function create({ file, nowMs = Date.now() }) {
   return { tick, state };
 }
 
-module.exports = { create, recent, append, readLines, sweepOn, keyOf, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS, GAP_TICKS };
+module.exports = { create, recent, append, appendAll, readLines, sweepOn, keyOf, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS, GAP_TICKS };
