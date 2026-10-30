@@ -131,9 +131,18 @@ const UNREACHED = 'Kosmos+ could not be reached just now. Nothing was turned on;
    Status is read every time, even with a record here (code review 5: a stale record, another computer having taken the
    binding since the last refresh, must not let this one move it back), and no answer means nothing is sent (code review
    5, warning 1: a preview made with no status read could not be checked). */
-function elsewhere(st) {
+/* Code review 8, warning 2: `thisComputer` means this MAC (org.rs enrolled_json), not this Kosmos; two Kosmoses can run
+   on one computer (orgenroll.js), so a binding is this one's only when its world is this root's world id too. */
+function localWorld(opts) {
+  const oe = opts.orgenroll || require('./orgenroll');
+  try { const w = fs.readFileSync(path.join(root(opts), oe.WORLD_ID_FILE), 'utf8').trim(); return /^[0-9a-f]{32}$/.test(w) ? w : null; } catch { return null; }
+}
+function boundHere(d, opts) {
+  return !!(d && d.enrolled && d.enrolled.thisComputer === true && localWorld(opts) && d.enrolled.world === localWorld(opts));
+}
+function elsewhere(st, opts) {
   const d = st && st.ok && st.data;
-  return !!(d && d.member === true && d.org && d.org.kind === 'personal' && d.enrolled && d.enrolled.thisComputer !== true);
+  return !!(d && d.member === true && d.org && d.org.kind === 'personal' && d.enrolled && !boundHere(d, opts));
 }
 const STATUS = '/v1/mac/org/status';
 async function readStatus(remote) {
@@ -148,7 +157,7 @@ async function preview(opts = {}) {
   if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: UNREACHED };
   const st = await readStatus(remote);
   if (!st) return { ok: false, because: UNREACHED };
-  if (elsewhere(st)) return { ok: false, code: 'personal_on_elsewhere', because: ELSEWHERE };
+  if (elsewhere(st, opts)) return { ok: false, code: 'personal_on_elsewhere', because: ELSEWHERE };
   let r;
   try { r = await remote.macRequest('POST', ROUTE, {}); } catch { return { ok: false, because: UNREACHED }; }
   if (!r || !r.ok) {
@@ -192,7 +201,7 @@ async function bindAndKey(ticket, t, opts) {
   const remote = remoteOf(opts);
   const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
   if (!st) return { ok: false, because: UNREACHED };
-  if (elsewhere(st)) { TICKETS.delete(ticket); return { ok: false, code: 'personal_on_elsewhere', because: ELSEWHERE }; }
+  if (elsewhere(st, opts)) { TICKETS.delete(ticket); return { ok: false, code: 'personal_on_elsewhere', because: ELSEWHERE }; }
   /* Code review 6, warning 3: the account is in another org now (a company or family joined since the preview). An
      enroll would be refused as org_consent_changed against that org's words, a false sentence; nothing is sent. */
   if (st.data.member === true && st.data.org && st.data.org.id !== t.org.id) { TICKETS.delete(ticket); return { ok: false, code: 'org_other_org', because: SAY.org_other_org }; }
@@ -290,15 +299,23 @@ function readEnrolling(opts) {
 function forgetEnrolling(opts) { try { fs.rmSync(path.join(root(opts), ENROLLING), { force: true }); } catch { /* read as pending until it goes */ } }
 /* An in-flight marker left by a restart: once no switch-on here is running, status says whether Kosmos+ bound this
    computer. Not bound: it goes ('off'). Bound with no record here: it stays ('pending'), and switchOff says how out. */
+/* 'bound' (Kosmos+ binds this Kosmos's world: the marker stays), 'unbound' (it goes), or 'unknown' (no answer, or a
+   switch-on running: it stays, and nothing is claimed either way; code review 8, warning 1). */
 async function settleEnrolling(opts) {
   const e = readEnrolling(opts);
-  if (!e || CLAIMED.size || isOn(opts)) { if (e && isOn(opts)) forgetEnrolling(opts); return; }
+  if (!e) return 'unbound';
+  if (isOn(opts)) { forgetEnrolling(opts); return 'unbound'; }
+  if (CLAIMED.size) return 'unknown';
   const remote = remoteOf(opts);
   const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
-  if (!st) return;
+  if (!st) return 'unknown';
   const d = st.data;
-  const boundHere = d.member === true && d.org && d.org.kind === 'personal' && d.enrolled && d.enrolled.thisComputer === true;
-  if (!boundHere) forgetEnrolling(opts);
+  if (d.member === true && d.org && d.org.kind === 'personal' && boundHere(d, opts)) return 'bound';
+  // Code review 8, NIT 1: a switch-on that started during the read wrote its own marker; that one is not this read's.
+  const now = readEnrolling(opts);
+  if (CLAIMED.size || !now || now.at !== e.at) return 'unknown';
+  forgetEnrolling(opts);
+  return 'unbound';
 }
 function state(opts = {}) {
   const rec = record(opts);
@@ -352,9 +369,15 @@ function pendingAge(opts, now) {
    record or a pending step is here; nothing at all otherwise. */
 const HOUR = 60 * 60 * 1000;
 let LAST_REFRESH = 0;
+let LAST_SETTLE = 0;
 async function followUp(opts = {}) {
   const now = (opts.now || Date.now)();
-  if (readEnrolling(opts)) await settleEnrolling(opts);
+  // Code review 8, NIT 2: as a pending step, every pass for a day after the marker went down, then hourly.
+  const e = readEnrolling(opts);
+  if (e) {
+    const age = Number.isFinite(e.at) && e.at <= now ? now - e.at : 24 * HOUR;
+    if (age < 24 * HOUR || now - LAST_SETTLE >= HOUR) { LAST_SETTLE = now; await settleEnrolling(opts); }
+  }
   const age = pendingAge(opts, now);
   const on = isOn(opts);
   if (age === null && !on) return { ok: true, idle: true };
@@ -386,8 +409,9 @@ async function switchOff(opts = {}) {
   /* Code review 6, warning 2: with a lost join and no record, orgenroll's leave clears locally and sends nothing, which
      would strand a binding the join may have made. Settled first (one refresh); still unsettled, nothing is done. */
   if (!isOn(opts) && joinUnsettled(opts)) {
-    await settleEnrolling(opts);
-    if (readEnrolling(opts) && !isOn(opts)) return { ok: false, pending: true, because: 'Kosmos+ has this computer down for personal backup, but this Kosmos lost its record of it. Turn personal backup on again here (it binds again without a new code), then turn it off.' };
+    const v = await settleEnrolling(opts);
+    if (v === 'bound') return { ok: false, pending: true, because: 'Kosmos+ has this computer down for personal backup, but this Kosmos lost its record of it. Turn personal backup on again here (it binds again without a new code), then turn it off.' };
+    if (v === 'unknown') return { ok: false, pending: true, because: 'It is not known yet whether this computer was bound. Kosmos asks Kosmos+ again in a few minutes; turn it off after that.' };
     try { await oe.refresh(enrollOpts(opts)); } catch { /* still unsettled below */ }
     if (!isOn(opts) && joinUnsettled(opts)) return { ok: false, pending: true, because: 'It is not known yet whether this computer was bound. Kosmos asks Kosmos+ again in a few minutes; turn it off after that.' };
   }
@@ -402,4 +426,4 @@ async function switchOff(opts = {}) {
   return { ok: false, because: 'Kosmos+ could not be reached just now. Personal backup is still on; try again in a minute.' };
 }
 
-module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, state, isOn, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; } };
+module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, state, isOn, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; LAST_SETTLE = 0; } };

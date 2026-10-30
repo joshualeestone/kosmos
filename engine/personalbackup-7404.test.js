@@ -408,7 +408,12 @@ test('#7404 review 3 blocker 1: bound on another computer: the preview is refuse
   assert.equal(c.sent.filter((x) => x.route === pb.ROUTE).length, 0, 'no preview sent');
   // CONTROL: the same account bound on THIS computer (thisComputer true) is not "elsewhere".
   const c2 = coordinator({ preexisting: true, statusAnswer: { ok: true, data: Object.assign({}, ON_B.data, { enrolled: Object.assign({}, ON_B.data.enrolled, { thisComputer: true }) }) } });
-  assert.equal((await pb.preview({ root: fresh(t), remote: c2 })).ok, true);
+  // Bound on this Mac AND to this Kosmos's own world (review 8: thisComputer alone is any Kosmos on this Mac).
+  const own = fresh(t);
+  fs.writeFileSync(path.join(own, oe.WORLD_ID_FILE), 'b'.repeat(32) + '\n');
+  assert.equal((await pb.preview({ root: own, remote: c2 })).ok, true);
+  // ...and the same binding seen from another Kosmos on this Mac (no world id of its own) is elsewhere.
+  assert.equal((await pb.preview({ root: fresh(t), remote: c2 })).code, 'personal_on_elsewhere');
 });
 
 test('#7404 review 3 blocker 1: bound on another computer after the preview: switchOn sends no enroll', async (t) => {
@@ -641,5 +646,47 @@ test('#7404 review 7: the key step refuses when Kosmos+ binds another world on t
   const real = c.macRequest;
   c.macRequest = async (m, route, body) => (route === oe.ROUTES.status ? { ok: true, data: { member: true, org: ORG, enrolled: { computer: 'c1', world: 'e'.repeat(32), thisComputer: true } } } : real(m, route, body));
   assert.equal((await pb.setUpKey({ root, remote: c, personalbackupkey: KEY_OK })).code, 'not_on');
+});
+
+/* Code review 8, warning 3: the marker is written for the whole enroll (held on a gate) and gone after it. */
+test('#7404 review 8: the in-flight marker is down while the enroll is held, and gone after', async (t) => {
+  const root = fresh(t);
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  t.after(() => release());
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  const real = c.macRequest;
+  c.macRequest = async (m, route, body) => { if (route === oe.ROUTES.enroll) await gate; return real(m, route, body); };
+  const on = pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  await new Promise((res) => setTimeout(res, 30));
+  assert.equal(fs.existsSync(path.join(root, 'personal-enrolling.json')), true, 'down while the enroll is out');
+  assert.equal(pb.state({ root }), 'pending');
+  release();
+  assert.equal((await on).ok, true);
+  assert.equal(fs.existsSync(path.join(root, 'personal-enrolling.json')), false, 'gone once answered');
+});
+
+/* Warning 1: with a marker and no answer from Kosmos+, Off says it is not known, never that Kosmos+ holds a binding. */
+test('#7404 review 8: an off with a marker and no status answer says not known', async (t) => {
+  const root = fresh(t);
+  fs.writeFileSync(path.join(root, 'personal-enrolling.json'), JSON.stringify({ org: ORG.id, at: Date.now() }));
+  const c = coordinator();
+  c.macRequest = async () => ({ ok: false, because: 'unreachable' });
+  const off = await pb.switchOff({ root, remote: c, orgenroll: oe });
+  assert.equal(off.pending, true);
+  assert.match(off.because, /not known yet/);
+  assert.doesNotMatch(off.because, /lost its record/);
+});
+
+/* Warning 2: a marker here while ANOTHER Kosmos on this Mac holds the binding (other world) is dropped, not kept. */
+test('#7404 review 8: a binding to another world on this Mac does not keep this Kosmos pending', async (t) => {
+  const root = fresh(t);
+  fs.writeFileSync(path.join(root, oe.WORLD_ID_FILE), 'a'.repeat(32) + '\n');
+  fs.writeFileSync(path.join(root, 'personal-enrolling.json'), JSON.stringify({ org: ORG.id, at: Date.now() }));
+  const c = coordinator({ preexisting: true, statusAnswer: { ok: true, data: { member: true, org: ORG, enrolled: { computer: 'c1', world: 'd'.repeat(32), thisComputer: true } } } });
+  pb._resetFollowUpForTests();
+  await pb.followUp({ root, remote: c });
+  assert.equal(pb.state({ root }), 'off');
 });
 
