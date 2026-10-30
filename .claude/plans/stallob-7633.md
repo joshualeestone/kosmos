@@ -54,3 +54,18 @@ pushes (control). Mutant (skip removed): red.
   ownbounds.sweepRoster: held while the stall stands, told once when it clears, not again. Mutant (always mark): red.
   Got wrong in flight: a one-line perl edit with \n in a line-mode pattern deleted the test's roster line; restored by
   an exact edit.
+- Round 6 (Sonnet, final read, whole branch, nothing settled): no BLOCKER. "I found no ordering where a real problem
+  gets no push." Warnings, each decided, no code change:
+  - A board restart can mean one extra buzz (ownboundsPushed is in memory). As round 4: bounded to one push per restart;
+    persisting it is new state, filed as its own card.
+  - A first-reply give-up can still double with a stall. Kept from round 1: only the idle-nudge give-up is "Messages
+    stuck"; a first reply that never came is a different thing to tell the person, and the error is toward two pushes,
+    never none.
+  - A give-up whose push did not go out (no phone set up, the needs_you cooldown) is asked again each minute and pushed
+    once one goes out, while it still stands. Intended: that is round 5's root fix, and a late push for a give-up that
+    still stands is true.
+  - A stall push that failed twice in a day stays counted and can hold the nudge push for up to a day: #7212's own
+    take-back rule (once a day), bounded, not this card's.
+  Nits (stale in-memory records pruned at two days, the said-once set wiped at 500, wiring pinned by source): left.
+- Validation: full suite on e7504293ce (main merged in), PASSED attempt 1: node 25837 tests, 25430 pass, 0 fail,
+  0 cancelled, 407 skipped; shell 4/4 shards all green (304 commands).
