@@ -192,7 +192,7 @@ final class RoomStore: ObservableObject {
             let room = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REFUSAL"] == "1"
                 ? Self.sampleRoom.replacingOccurrences(of: #"{"kind":"post","id":"m5""#, with: Self.sampleRefusal + #",{"kind":"post","id":"m5""#)
                 : Self.sampleRoom
-            rows[project] = Board.withoutDeleted(Board.parseRoom(Data((ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ROOM_LONG"] == "1" ? Self.sampleLongRoom : room).utf8), names: names)?.rows ?? [], deletedPosts[project] ?? [])
+            rows[project] = Board.withoutDeleted(Board.parseRoom(Data((Self.sampleLongRoom ?? room).utf8), names: names)?.rows ?? [], deletedPosts[project] ?? [])
             // kosmos#7072: KOSMOS_SAMPLE_HELD=1 shows the sample room held, for its screenshots (a Debug build only).
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HELD"] == "1", !Self.sampleReopened.contains(project) {
                 held[project] = .some(Self.sampleHeldUntil)
@@ -619,12 +619,14 @@ final class RoomStore: ObservableObject {
     static var sampleReopened: Set<String> = []
     static let sampleRefusal = #"{"kind":"refused","from":"farah","because":"farah is not on this project","addable":true,"key":"2026-10-23T15:11:00.000Z|r","at":"2026-10-23T15:11:00.000Z"}"#
     // kosmos#7645: KOSMOS_SAMPLE_ROOM_LONG=1 is a room of 220 posts ("Post 1 of 220." to "Post 220 of 220."), as the DM's
-    // KOSMOS_SAMPLE_LONG, to check whether the keyboard moves a room read higher up. Its own name, so the DM's long-chat
-    // runs never change the room.
-    static var sampleLongRoom: String {
+    // KOSMOS_SAMPLE_LONG, to check whether the keyboard moves a room read higher up; =<n> makes it n posts (#7654: 50 is a
+    // real room's first page, RoomStore.pageSize). Its own name, so the DM's long-chat runs never change the room.
+    static var sampleLongRoom: String? {
+        guard let v = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ROOM_LONG"], let asked = Int(v), asked > 0 else { return nil }
+        let n = asked == 1 ? 220 : asked
         let who = ["cleo", "dana", "eli"]
-        let rows: [[String: Any]] = (0..<220).map { i in
-            ["kind": "post", "id": "p\(i + 1)", "from": who[i % 3], "text": "Post \(i + 1) of 220.", "mentioned": [String](),
+        let rows: [[String: Any]] = (0..<n).map { i in
+            ["kind": "post", "id": "p\(i + 1)", "from": who[i % 3], "text": "Post \(i + 1) of \(n).", "mentioned": [String](),
              "at": String(format: "2026-10-23T%02d:%02d:00.000Z", 8 + i / 60, i % 60)]
         }
         let body: [String: Any] = ["ok": true, "olderCount": 0, "olderCursor": NSNull(), "rows": rows]
