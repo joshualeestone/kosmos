@@ -11,7 +11,7 @@
  *     (the topmost element at its centre is that emoji: not the next message, not the composer);
  *   - the bar is inside the thread and inside what is showing (never under the composer);
  *   - its targets are at least the room's 36px;
- *   - a second tap closes it, a tap on your own message opens nothing, a tap between messages
+ *   - a second tap closes it, a tap on your own message opens only its "..." (kosmos#7614), a tap between messages
  *     closes it for good, a tap outside the thread (the text box) closes it;
  *   - a repaint of the thread keeps it on the same message, and opening another agent drops it
  *     (the new agent's thread starts empty, which closes it), and a repaint for another agent with
@@ -205,8 +205,13 @@ function repaint() {
         { const own = page.locator('#d-dmthread .msg.you .msg-bd').nth(2); const bb = await own.boundingBox();
           await own.tap({ position: { x: Math.max(2, bb.width - 6), y: Math.max(2, bb.height - 4) } }); }
         await page.waitForTimeout(300);
-        const own = await page.evaluate(openBar, MIN_RXN_TAP_PX);
-        chk(before === 1 && own.shown === 0, `${tag} a tap on your own message opens nothing and closes the open bar`, JSON.stringify({ before, after: own.shown }));
+        /* kosmos#7614: your own message now carries a bar with "..." alone (Delete message lives in its menu), and on a phone a
+           tap is the only way to reach it, so the tap opens THAT bar: the agent's closes, yours opens with no reactions. */
+        const own = await page.evaluate(() => { const open = [...document.querySelectorAll('#d-dmthread .msg.rxn-show')];
+          const q = open[0] && open[0].querySelector('.rxn-quick');
+          return { shown: open.length, you: open.length === 1 && open[0].classList.contains('you'),
+            kids: q ? [...q.children].filter((k) => k.getClientRects().length).map((k) => k.className.split(' ')[0]).join(',') : '' }; });
+        chk(before === 1 && own.shown === 1 && own.you && own.kids === 'rxn-dots', `${tag} a tap on your own message closes the open bar and opens your own, which holds only "..." (kosmos#7614)`, JSON.stringify({ before, after: own }));
         // A tap outside the thread (the text box) closes it.
         await lastAgent.tap(); await page.waitForTimeout(300);
         const beforeOut = (await page.evaluate(openBar, MIN_RXN_TAP_PX)).shown;
@@ -254,21 +259,21 @@ function repaint() {
         }));
         chk(!picked.error && picked.focusedFirst && picked.sent.length === 1 && picked.sent[0] === picked.rowAt && picked.shown === 0 && !picked.focusInBar,
           `${tag} picking an emoji reacts to that message, closes the bar and lets go of focus`, JSON.stringify(picked));
-        // #5312: Copy in a tapped-open bar opens the menu with both items, and Copy message copies that message whole.
+        // #5312: "..." in a tapped-open bar (it took Copy's place, kosmos#7614) opens the menu with both items, and Copy message copies that message whole.
         await lastAgent.tap(); await page.mouse.move(1, 1); await page.waitForTimeout(300);
         const cpAt = await page.evaluate(() => {
           window.__copied = [];
           Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); } } });
           const r = document.querySelector('#d-dmthread .msg.rxn-show'); return r ? r.querySelector('.rxns').getAttribute('data-at') : null;
         });
-        if (cpAt) await page.locator('#d-dmthread .msg.rxn-show .rxn-copy').tap();   // no bar or no Copy (main): a clean FAIL below
+        if (cpAt) await page.locator('#d-dmthread .msg.rxn-show .rxn-dots').tap();   // no bar or no "..." (main): a clean FAIL below
         await page.waitForTimeout(200);
         const cpMenu = await page.evaluate(() => { const m = document.getElementById('msg-menu'); return { open: !!m && !m.hidden, items: m ? [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.id).join('|') : '' }; });
         if (cpMenu.open) await page.locator('#msg-menu-text').tap();
         await page.waitForTimeout(200);
         const cp = await page.evaluate((a) => ({ copied: window.__copied.slice(), want: (typeof DM_ROWS !== 'undefined' && DM_ROWS.get(a)) ? DM_ROWS.get(a).text : null }), cpAt);
         chk(!!cpAt && cpMenu.open && cpMenu.items === 'msg-menu-text|msg-menu-copy' && !!cp.want && cp.copied[0] === cp.want,
-          `${tag} Copy in the bar opens the menu with Copy message and Copy message id, and Copy message copies that message whole (#5312)`, JSON.stringify(Object.assign({ cpAt }, cpMenu, cp)));
+          `${tag} "..." in the bar opens the menu with Copy message and Copy message id (no Delete on an agent's message), and Copy message copies that message whole (#5312)`, JSON.stringify(Object.assign({ cpAt }, cpMenu, cp)));
         // The full emoji list, opened from a tapped bar: a pick reacts to that message and closes the bar too.
         await lastAgent.tap(); await page.mouse.move(1, 1); await page.waitForTimeout(300);
         const beforeMore = await page.evaluate(() => { window.__reacts = []; const r = document.querySelector('#d-dmthread .msg.rxn-show'); return r ? r.querySelector('.rxns').getAttribute('data-at') : null; });

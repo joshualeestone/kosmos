@@ -106,8 +106,8 @@ async function paintRoom(page) {
           inside: qr.left >= inL - 0.5 && qr.right <= inR + 0.5, bar: [Math.round(qr.left), Math.round(qr.right)], thread: [Math.round(inL), Math.round(inR)] };
       });
       chk(c6.name === 'More actions for this message' && c6.popup === 'menu', '[touch] C6 "..." is named for what it opens (a menu)', JSON.stringify(c6));
-      chk(c6.open && c6.shown === 'rxn-pick,rxn-pick,rxn-pick,rxn-div,rxn-more,rxn-speak,rxn-reply,rxn-dots' && c6.buttons === 7 && c6.dots[0] >= 36 && c6.dots[1] >= 36 && c6.barH < 50 && c6.inside,
-        '[touch] C6 a tapped-open bar keeps seven buttons ("..." last, no copy button), "..." a room-sized target, on one line inside the thread', JSON.stringify(c6));
+      chk(c6.open && c6.shown === 'rxn-pick,rxn-pick,rxn-pick,rxn-more,rxn-speak,rxn-reply,rxn-dots' && c6.buttons === 7 && c6.dots[0] >= 36 && c6.dots[1] >= 36 && c6.barH < 50 && c6.inside,
+        '[touch] C6 a tapped-open bar keeps seven buttons ("..." last, no copy button, no divider at thumb size), "..." a room-sized target, on one line inside the thread', JSON.stringify(c6));
       await page.locator('#pj-room .msg[data-mid="m530"] .rxn-dots').tap();
       await page.waitForTimeout(150);
       const c6m = await page.evaluate(() => { const m = document.getElementById('msg-menu'); return m ? { shown: !m.hidden, items: [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.textContent.trim()).join('|'),

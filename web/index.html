@@ -7676,6 +7676,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      The bar is wider than a short bubble: pinned right on a short agent bubble it would cross the
      thread's left edge and be clipped, so an agent's bar starts at the bubble's left. */
   #pj-room .rxn-quick { gap: 4px; top: auto; bottom: calc(100% + 4px); }
+  /* kosmos#7614: no divider at thumb size. The bar already holds #4409's seven buttons, and the divider's width pushed
+     an agent's open bar over the corner of the person's message under it, where a tap meant to close the bar lands. */
+  .rxn-quick .rxn-div { display: none; }
   #pj-room .msg.rxn-below .rxn-quick { bottom: auto; top: calc(100% + 4px); }
   /* Every row's .msg-b is its own stacking context (isolation), painted in order, so a bar that
      opens BELOW its post sat under the next message and lost every tap to it. The open row is
