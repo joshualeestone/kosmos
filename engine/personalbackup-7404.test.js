@@ -568,7 +568,9 @@ test('#7404 review 6: a lost join reads pending and an off does not clear it', a
   fs.writeFileSync(path.join(root, oe.JOIN_UNKNOWN_FILE), JSON.stringify({ at: new Date().toISOString(), orgId: ORG.id }));
   assert.equal(pb.state({ root }), 'pending');
   const stub = { JOIN_UNKNOWN_FILE: oe.JOIN_UNKNOWN_FILE, LEAVE_PENDING_FILE: oe.LEAVE_PENDING_FILE, readEnrollment: () => null,
-    refresh: async () => ({ ok: false }), leave: async () => { throw new Error('must not be called'); } };
+    // As orgenroll's leave with no record (leaveNow's local-only branch): it clears the join marker and answers ok,
+    // which is the stranding this guards against (a throwing stub here read as pending either way: mutant M4 green).
+    refresh: async () => ({ ok: false }), leave: async () => { fs.rmSync(path.join(root, oe.JOIN_UNKNOWN_FILE), { force: true }); return { ok: true, localOnly: true }; } };
   const r = await pb.switchOff({ root, orgenroll: stub });
   assert.equal(r.pending, true);
   assert.equal(fs.existsSync(path.join(root, oe.JOIN_UNKNOWN_FILE)), true, 'the join marker is kept');
