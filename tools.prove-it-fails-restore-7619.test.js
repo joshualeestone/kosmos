@@ -123,3 +123,30 @@ test('#7619 review 3: a broken file someone edits again mid-run is left alone an
   assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 3;   // a colleague, mid-run\n', 'their edit was overwritten');
   assert.match(out, /NOT restored, changed again during the run \(check by hand\): a\.js/);
 });
+
+test('#7629 B1: a signal also ends what the test itself started (a child it spawned is not left running)', async (t) => {
+  const dir = sandbox(t);
+  // A test that starts a long-running child of its own (as a test server would), records its pid, then holds.
+  fs.writeFileSync(path.join(dir, 'kids.test.js'),
+    "const { spawn } = require('node:child_process');\n" +
+    "const k = spawn('/bin/sleep', ['60'], { stdio: 'ignore' });\n" +
+    "require('node:fs').writeFileSync(__dirname + '/kid.pid', String(k.pid));\n" +
+    "require('node:test')('holds', () => new Promise((r) => setTimeout(r, 30000)));\n");
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'kids'], { stdio: 'ignore' });
+  const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+  const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'kids.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
+    { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
+  const exited = new Promise((r) => child.on('exit', (code) => r(code)));
+  const kidFile = path.join(dir, 'kid.pid');
+  for (let i = 0; i < 200 && !fs.existsSync(kidFile); i++) await sleep(50);
+  assert.ok(fs.existsSync(kidFile), 'premise: the test started its child');
+  const kid = Number(fs.readFileSync(kidFile, 'utf8'));
+  t.after(() => { if (alive(kid)) process.kill(kid); });   // never leave it behind, even when the arm fails
+  assert.ok(alive(kid), 'premise: the child is running');
+  child.kill('SIGTERM');
+  assert.equal(await exited, 143);
+  for (let i = 0; i < 200 && alive(kid); i++) await sleep(50);
+  assert.equal(alive(kid), false, 'the child the test started was left running');
+  assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 1;\n');
+});

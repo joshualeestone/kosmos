@@ -96,9 +96,23 @@ _restore() {
 # Every restore at an ending runs with the signals ignored (review 4): a second Ctrl-C, or a TERM after a HUP, must not
 # kill the restore halfway, and a signal during a normal finish must not re-run it over files it has just restored.
 _final_restore() { trap '' HUP INT TERM; _restore; }
+# Every process under the test, deepest last, read before anything is killed (kosmos#7629 B1): a server or worker the
+# test file started would otherwise keep running against the restored tree. Exact pids only, never a group or pkill.
+_tree_of() {
+  local p c
+  for p in "$@"; do
+    printf '%s\n' "$p"
+    for c in $(pgrep -P "$p" 2>/dev/null); do _tree_of "$c"; done
+  done
+}
 _restore_on_signal() {   # $1 the signal's number: the exit is 128 + it, as a shell reports a death by that signal
   trap '' HUP INT TERM
-  if [ -n "${_test_pid:-}" ]; then kill "$_test_pid" 2>/dev/null; wait "$_test_pid" 2>/dev/null; fi
+  if [ -n "${_test_pid:-}" ]; then
+    local _tree _q
+    _tree="$(_tree_of "$_test_pid")"
+    for _q in $_tree; do kill "$_q" 2>/dev/null; done
+    wait "$_test_pid" 2>/dev/null
+  fi
   rm -f "${_outf:-}"
   # A signal can land after the break is written but before _broken is filled (or while node is mid-write, review
   # 3). The tree was clean at the start, so whatever differs now is the break: restore that whole, unconditionally.
