@@ -23,7 +23,7 @@ final class ChatBlankUITests: XCTestCase {
     // passing means the check saw no empty list, not that it cannot see one.
     func testAListPastItsEndRaisesTheBanner() throws {
         let app = try launch(["KOSMOS_SAMPLE_BLANK": "4"])
-        XCTAssertTrue(app.staticTexts[Self.banner].waitForExistence(timeout: 12), "an empty list did not raise the #7420 banner")
+        XCTAssertTrue(app.staticTexts[Self.banner].waitForExistence(timeout: 20), "an empty list did not raise the #7420 banner")
         shot(app, "control: past the end")
     }
 

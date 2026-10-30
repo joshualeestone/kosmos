@@ -553,10 +553,12 @@ struct ChatView: View {
                             diagScroll.resizes &+= 1
                             let mine = diagScroll.resizes
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                guard diagScroll.resizes == mine else { return }
-                                let g = diagGeometry()
-                                Self.trace("size held, " + g.line)
-                                if g.off { diagTick &+= 1 }
+                                // Review 5: only the chat on screen, as the keyboard lines: a chat kept alive under another
+                                // tab would fill the shared record.
+                                guard diagScroll.resizes == mine, visible, scenePhase == .active else { return }
+                                let geo = diagGeometry()
+                                Self.trace("size held, " + geo.line)
+                                if geo.off { diagTick &+= 1 }
                             }
                         }
                 })
@@ -761,8 +763,8 @@ struct ChatView: View {
     static var followsScrollPhase: Bool { if #available(iOS 18.0, *) { return true } else { return false } }
 
     // kosmos#7265 debug: KOSMOS_SAMPLE_TRACE=1 appends the chat's scroll state to Documents/trace.txt.
-    // kosmos#7420 diagnostic: no message on screen for half a second while the conversation has some (the black list), by
-    // the rows or by the scroll view's band (diagGeometry).
+    // kosmos#7420 diagnostic: no message on screen while the conversation has some (the black list), by the rows or by the
+    // scroll view's band (diagGeometry), read empty at 0.5 s and again at 1.5 s after the tick before anything is done.
     private func diagEmpty(count: Int) -> Bool {
         // Review 1: only for the chat on screen with the app in front: under the info page, another tab or Quick Look every
         // row leaves too, and that is not a fault.
@@ -774,7 +776,9 @@ struct ChatView: View {
         let rowsGone = onScreen.isEmpty && (!endVisible || neverDrew) && !topVisible
         // Review 2: the band counts only with the list still, so a fling or a bounce past the end is not a finding.
         let geo = diagGeometry()
-        return visible && scenePhase == .active && !searchMode && (rowsGone || (geo.off && !geo.moving)) && count > 0 && thread != nil
+        // Review 5: a moving list is never empty by either arm (rows can read empty mid-fling over long rows), for the first
+        // report as for the recoveries after it.
+        return visible && scenePhase == .active && !searchMode && (rowsGone || geo.off) && !geo.moving && count > 0 && thread != nil
     }
 
     private func diagCheck(_ proxy: ScrollViewProxy, count: Int) {
@@ -783,10 +787,7 @@ struct ChatView: View {
         // every frame cannot hold the list at the newest message).
         if diagDone {
             if let at = diagRecoveredAt, Date().timeIntervalSince(at) < 2 { return }
-            // Review 1: the rows alone can read empty in the middle of a fast fling over long rows, so a moving list is put
-            // back only when its band is off the content.
             let g = diagGeometry()
-            guard g.off || !g.moving else { return }
             diagRecoveredAt = Date(); Self.trace("empty again (" + g.line + "), trying the newest message"); goNewest(proxy)
             return
         }
