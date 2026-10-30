@@ -171,10 +171,13 @@ function markTargets(rows, nowMs) {
    Slice 3 (slice 2's review 11): the guide FAILS CLOSED here. The route's walk leaves it out too (skipGuide), but that
    test reads a check that throws as "not the guide", which is wrong for a move. `isGuide(session)` throws when it
    cannot tell; `guideName()` is the name the guide was seeded under, and throws (from movableFor itself, review 10)
-   when its record cannot be read. */
+   when its record cannot be read.
+   kosmos#7548 rule 12: `strict` (the mover's re-check just before a move) THROWS where a check cannot be made (the agent
+   gone from the roster, its box, guide check or commitment unreadable), so only "not free" reads as "no longer idle".
+   Without it every such case is "not movable", as the decision needs. */
 function movableFor({ cards, records, readCommitment, assigner = require('./assigner'),
   isGuide = (s) => require('./setup-assistant').isGuideFolderStrict(s),
-  guideName = () => require('./setup-assistant').guideNameStrict() }) {
+  guideName = () => require('./setup-assistant').guideNameStrict(), strict = false }) {
   /* Review 3: a roster that could not be read is not an empty one: the caller says "could not work out". */
   if (!Array.isArray(cards)) throw new Error('the roster could not be read');
   const bySession = new Map(cards.filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
@@ -182,21 +185,23 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
      ("could not work out"), not every agent "not idle". */
   const g = guideName();
   const guide = typeof g === 'string' && g ? g.trim().toLowerCase() : null;
+  const cannot = (why) => { if (strict) throw new Error(why); return false; };
   return (session) => {
     const c = bySession.get(session);
-    if (!c || !assigner.idleCard(c)) return false;
+    if (!c) return cannot('the agent is not on the roster');
+    if (!assigner.idleCard(c)) return false;
     /* Review 2 (slice 3): words sitting unsent in its box are a person's or a peer's, and a restart would drop them. A
        card that cannot say is not movable. Review 5: the card says so only once the same words have sat there for
        status.js's UNSENT_SHOW_MS (3 minutes), so words typed more recently are not seen; the two-tick rule narrows
        that and does not close it. */
-    try { if (c.unsentInput) return false; } catch { return false; }
+    try { if (c.unsentInput) return false; } catch { return cannot('its box could not be read'); }
     /* Not from the card: a roster card carries no isGuide (only the status rows are marked); a test pins that. */
     try {
       if (isGuide(session) !== false) return false;
       if (guide && guide === String(session).trim().toLowerCase()) return false;
-    } catch { return false; }
+    } catch { return cannot('whether it is the guide could not be read'); }
     let rec = null;
-    try { rec = readCommitment(session); } catch { rec = null; }
+    try { rec = readCommitment(session); } catch { return cannot('its commitments could not be read'); }
     const all = typeof records === 'function' ? records() : records;
     /* Review 9: the Assigner's own filter (assigner.js step), so one bad entry in the projects file is skipped rather
        than failing the whole decision. */

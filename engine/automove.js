@@ -223,7 +223,7 @@ function create({ file, nowMs = Date.now() }) {
     await check(deps, nowMs);
     const heldTarget = (dir) => state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS;
     const unproven = (dir) => state.watching.some((w) => w.to === dir);   // rule 6
-    const movableArgs = (cards, records) => ({ cards, records: records || deps.records, readCommitment: deps.readCommitment,
+    const movableArgs = (cards, records, strict = false) => ({ cards, records: records || deps.records, readCommitment: deps.readCommitment, strict,
       ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) });
     let decision;
     try {
@@ -256,7 +256,7 @@ function create({ file, nowMs = Date.now() }) {
        that answers "not free" is "no longer idle"; one that cannot be made (a roster or project that cannot be read, a
        check that throws) writes nothing and moves nothing. */
     let stillFree;
-    try { stillFree = ab.movableFor(movableArgs(deps.freshRoster(), deps.freshRecords))(m.agent); }
+    try { stillFree = ab.movableFor(movableArgs(deps.freshRoster(), deps.freshRecords, true))(m.agent); }
     catch (err) { return { did: 'unreadable', because: `the re-check: ${String((err && err.message) || err)}` }; }
     if (stillFree !== true) {
       sweep.append(file, { kind: 'skipped', at: nowMs, agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, because: 'it was no longer idle' });
