@@ -34,3 +34,40 @@ agentevents-5683, familysay-6251, workkosmos-6567 green after the orgenroll chan
 here: the full suite (that is CI's and the Mortals gate's).
 
 **Re-hash after rebasing onto kosmos main c06da40d1a:** clean rebase; the tests and guards listed above rerun green on the new base (connector-verbs 27/27).
+
+## Iteration 1 (code review 1, earlier 10-30)
+- [BLOCKER] policy calls did not follow the personal root (a personal enroll could clear a company policy): INERT_POLICY on every orgenroll call; fixed, with a control that the same leave without it wipes the policy.
+- [WARNING] follow-up cadence and ticket handling (see the plan); fixed.
+
+## Iteration 2 (code review 2)
+- [BLOCKER] the preview makes a membership nothing ended. Decided again in iteration 5 (the relay ends it at a join, #7658).
+- [BLOCKER] personal refusal codes read as "unknown": orgenroll's SAY learns them; fixed.
+- [WARNING] a pending leave was followed up every two minutes forever; the key-ready marker went stale; generic sentences; the idle guard untested; fast follow-up untested. All fixed, mutants red.
+
+## Iteration 3
+- [BLOCKER] a second computer's switch-on MOVED the first's binding: status read before the preview and the enroll, personal_on_elsewhere; fixed.
+- [WARNING] a retired Mac reads as unbound (found by me in the relay's ORG_MEMBERSHIP_SELECT); an in-flight enroll raced the follow-up; the key marker erased before the enroll; fixed.
+
+## Iteration 4
+- [BLOCKER] the personal org is reused across computers, so {orgId} could not tell this preview's membership from another computer's bind: superseded by iteration 5's decision.
+- [WARNING] the follow-up raced this computer's own switch-on; a re-preview did not refresh the marker; fixed then removed with the ending code.
+
+## Iteration 5
+- [BLOCKER] (relay) key rows never deleted: Mona Lisa fixed it in unboundjoin-7658 (rows of the current membership only).
+- [BLOCKER] status-then-leave is never atomic on a relay that ignores the guard fields: DECISION, the board ends nothing; #7658 ends an unbound membership at the join.
+- [WARNING] no status answer still made a membership; an unconfirmed recovery code read "on": fixed.
+
+## Iteration 6
+- No BLOCKER found.
+- [WARNING] two computers enrolling at once (relay: filed #7661); a lost join stranded by an off; an account in another org since the preview; the key step did not check the binding: board parts fixed, mutants red.
+
+## Iteration 7
+- No BLOCKER found.
+- [WARNING] a restart mid-bind read "off" (in-flight marker added); a pin check named a file that never exists (fixed with a control).
+
+## Iteration 8
+- No BLOCKER found.
+- [WARNING] an off claimed a binding it had not read; thisComputer is the Mac, not the Kosmos (world now compared); no test that the marker is written. Fixed, mutants red except one equivalent (stated above).
+
+## Final ledger
+BLOCKERs open: 0. Relay follow-ups owned elsewhere: #7658 (Mona Lisa), #7661 items 1 (Baron), 2 (Mona Lisa), 3 (Kitty).
