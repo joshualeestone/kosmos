@@ -824,8 +824,10 @@ struct ChatView: View {
     private func diagGeometry() -> (line: String, off: Bool, moving: Bool, judged: Bool) {
         guard let sv = diagScroll.view, sv.window != nil else { return ("scroll view unknown", false, false, false) }
         let inset = sv.adjustedContentInset
+        // The stack's 12 pt padding plus the end marker (fadeHeight + 8) at the end, which is also more than the top's.
         let band = Board.scrollBand(offsetY: Double(sv.contentOffset.y), contentHeight: Double(sv.contentSize.height),
-                                    visibleHeight: Double(sv.bounds.height), insetTop: Double(inset.top), insetBottom: Double(inset.bottom))
+                                    visibleHeight: Double(sv.bounds.height), insetTop: Double(inset.top), insetBottom: Double(inset.bottom),
+                                    edge: Double(12 + ChatView.fadeHeight + 8))
         // Review 10: a diagnostic must never crash the app, and Int() traps on a value that is not finite.
         func n(_ v: CGFloat) -> Int { v.isFinite ? Int(max(min(v, 1e9), -1e9)) : -1 }
         let line = "scroll y \(n(sv.contentOffset.y)), content \(n(sv.contentSize.height)), shown \(n(sv.bounds.height)), "
@@ -868,7 +870,10 @@ struct ChatView: View {
             lines.append(reading("0.6 s"))
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
                 lines.append(reading("1.5 s"))
-                guard client.chatEpoch == epoch, visible else { return }   // review 12: nor for a chat left meanwhile
+                guard client.chatEpoch == epoch else { return }
+                // Review 12 and 13: not for a chat left meanwhile, and then the one report is not used up, so it can be
+                // offered when the chat is back.
+                guard visible else { diagDone = false; return }
                 diagReport = lines.joined(separator: "\n")
                 announceDiag()
             }

@@ -531,7 +531,7 @@ check(geoValues.count == 6 && geoValues.allSatisfy { $0.hasPrefix("n(sv.") || $0
 // Review 9: a record line built with + is not seen by the interpolation scan above, so each + operand of a trace line must be
 // a string literal, the vetted scroll line, or the arm's fixed words.
 let plusTraces = chatSource.components(separatedBy: "\n").filter { ($0.components(separatedBy: "Self.trace(").dropFirst().first ?? "").contains(" + ") }
-let allowedOperands: Set<String> = ["geo.line", "g.line", "line", "(g.off ? \"the band\" : \"the rows\")",
+let allowedOperands: Set<String> = ["geo.line", "g.line", "(g.off ? \"the band\" : \"the rows\")",
                                      "\" (rows counted \\(onScreen.count), \""]   // review 11: the row count, a number
 let lineDefs = chatSource.components(separatedBy: "\n").filter { $0.contains("let line = \"empty again by \"") }
 // Review 11: the after-one-try line joins its verdict (fixed words) and the vetted scroll line.

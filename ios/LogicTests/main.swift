@@ -4919,6 +4919,13 @@ do {
     check(band(-412) == .aboveTop && band(-1000) == .aboveTop, "a band ending at or above the content's top shows nothing")
     check(band(-411) == .content, "CONTROL: one point of the top still showing is on the content")
     check(band(-100, top: 100) == .content && band(4900, top: 100) == .pastEnd && band(4900) == .content, "the top inset moves where the band starts")
+    check(Board.scrollBand(offsetY: 4970, contentHeight: 5000, visibleHeight: 412, insetTop: 0, insetBottom: 0, edge: 38) == .pastEnd
+          && Board.scrollBand(offsetY: 4950, contentHeight: 5000, visibleHeight: 412, insetTop: 0, insetBottom: 0, edge: 38) == .content
+          && band(4970) == .content,
+          "review 13: a band showing only the end's padding and marker is past the end (CONTROL: 12 pt of messages, and no edge)")
+    check(Board.scrollBand(offsetY: -400, contentHeight: 5000, visibleHeight: 412, insetTop: 0, insetBottom: 0, edge: 38) == .aboveTop
+          && Board.scrollBand(offsetY: -360, contentHeight: 5000, visibleHeight: 412, insetTop: 0, insetBottom: 0, edge: 38) == .content,
+          "review 13: a band showing only the top's padding is above the top (CONTROL: past the edge)")
     check(band(-300, bottom: 120) == .aboveTop && band(-300) == .content, "the bottom inset (the keyboard) moves where it ends")
     check(band(-400, top: 300, bottom: 200) == .content && band(-400, top: 300, bottom: 100) == .aboveTop,
           "insets covering the whole view leave nothing to judge (CONTROL: with a sliver left, the same offset reads above the top)")
