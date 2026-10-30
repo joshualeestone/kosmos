@@ -1544,7 +1544,8 @@ do {
     check(Board.deleteResult(status: 403, body: Data(#"{"error":"that is not your message"}"#.utf8)) == .refused("That is not your message.")
           && Board.deleteResult(status: 409, body: Data(#"{"error":"that message is in an earlier part of the conversation"}"#.utf8))
              == .refused("That message is in an earlier part of the conversation.")
-          && Board.deleteResult(status: 0, body: nil) == .refused("We could not delete that just now."),
+          && Board.deleteResult(status: 0, body: nil) == .refused("We could not delete that just now.")
+          && Board.deleteResult(status: 404, body: Data("{}".utf8)) == .refused("We could not delete that just now."),
           "refused: the route's own words as a sentence (403 not yours, 409 earlier part), or the fallback with no answer")
     check(Board.deletedNote(told: [], names: [:]) == nil, "nobody had read it: nothing to say")
     check(Board.deletedNote(told: ["dana"], names: ["dana": "Dana"]) == "Deleted. Dana had already read it, so Kosmos told them you withdrew it."

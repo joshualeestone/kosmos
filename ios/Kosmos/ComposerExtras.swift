@@ -693,7 +693,7 @@ struct MessageActionsHost: ViewModifier {
     private func small(_ t: MessageActionTarget) -> PresentationDetent {
         let rowH: CGFloat = typeSize.isAccessibilitySize ? 76 : 50
         return .height(32 + (t.react != nil ? 56 : 0) + (t.reply != nil ? rowH + 12 : 0) + (t.text.isEmpty ? 0 : rowH)
-                       + (t.delete != nil ? rowH + 12 : 0) + 24)
+                       + (t.delete != nil ? rowH + (t.react != nil || t.reply != nil || !t.text.isEmpty ? 12 : 0) : 0) + 24)
     }
 
     // kosmos#7419 build 11: our dim stands in for the system's only where the system's is off (16.4+, small height).
