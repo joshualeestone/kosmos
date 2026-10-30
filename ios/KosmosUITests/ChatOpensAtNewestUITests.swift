@@ -16,7 +16,10 @@ final class ChatOpensAtNewestUITests: XCTestCase {
     /// Wholly on screen between the top bar and the composer, not merely loaded somewhere in the list.
     private func onScreen(_ el: XCUIElement, _ app: XCUIApplication) -> (Bool, String) {
         let top = app.navigationBars.firstMatch.frame.maxY
-        let composer = app.textViews.firstMatch
+        // The composer is a multi-line TextField ("Message <name>"), which XCUITest may type as a text field or a text view.
+        let composer = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "(elementType == %d OR elementType == %d) AND placeholderValue BEGINSWITH %@",
+                                  XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue, "Message ")).firstMatch
         XCTAssertTrue(composer.exists, "the composer was not found, so the bottom of the visible band is unknown")
         let bottom = composer.frame.minY
         return (el.frame.minY >= top - 1 && el.frame.maxY <= bottom + 1, "\(el.frame), visible band \(top) to \(bottom)")
