@@ -1626,8 +1626,8 @@ for (name, src) in [("chat", chatSource), ("room", roomViewSrc)] {
 check(attachSrc.contains(".onDisappear {\n                    guard let choice = chosen else { return }"),
       "kosmos#7596 review 1: a choice is acted on once the panel has gone, never on a timer")
 check(attachSrc.contains("if granted { onChoose(.camera) } else { onCameraDenied() }")
-      && chatSource.contains("onCameraDenied: { client.attachLine[agent.session] = Board.cameraDeniedLine }")
-      && roomViewSrc.contains("onCameraDenied: { client.attachLine[attachKey] = Board.cameraDeniedLine }"),
+      && chatSource.contains("onCameraDenied: { if cameraEpoch == client.chatEpoch { client.attachLine[agent.session] = Board.cameraDeniedLine } }")
+      && roomViewSrc.contains("onCameraDenied: { if cameraEpoch == client.chatEpoch { client.attachLine[attachKey] = Board.cameraDeniedLine } }"),
       "kosmos#7596 review 8: a Don't Allow on the camera prompt says so above the composer, in the chat and the room")
 check(attachSrc.contains("case .notAllowed: if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }")
       && attachSrc.contains("AVCaptureDevice.requestAccess(for: .video) { granted in"),

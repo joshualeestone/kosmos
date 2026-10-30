@@ -14,8 +14,9 @@ Camera, Photos, Files.
 - At the ten-file limit every row is dimmed and disabled, as the old menu items were; the + keeps its label and hint.
 - A device with no camera shows Camera dimmed, "Not available on this device" under it. Where Kosmos is not allowed
   the camera, Camera says "Turned off for Kosmos in Settings" and opens Settings. Not yet asked: iOS asks first, and
-  the camera opens only on yes; on Don't Allow the line above the composer says the camera is off and where to turn it on. Restricted by Screen Time or a device profile (Kosmos's Settings page cannot undo
-  it): dimmed, "Not allowed on this device".
+  the camera opens only on yes; on Don't Allow the line above the composer says the camera is off and where to turn it
+  on. Restricted by Screen Time or a device profile (Kosmos's Settings page cannot undo it): dimmed, "Not allowed on
+  this device".
 - At the largest text sizes the rows scroll inside the panel, which is held to 360 pt. Seen 10-29 23:24 at
   Accessibility XXXL on the iOS 27 simulator: Camera and Photos showing, Files below them inside the scroll view (the
   layout, not a scroll gesture, was checked).
@@ -27,7 +28,6 @@ Camera, Photos, Files.
 - One shared view (AttachMenu.swift) for the chat and the room, so the two cannot drift.
 - The choices and their rules (Board.cameraState, attachRowOff, cameraNote) are in BoardLogic and tested in LogicTests
   with controls; room source checks hold both screens to the one panel and the camera wiring.
-
 - The photo carries the account or computer Camera was chosen under (before any permission prompt); a photo across a
   switch is dropped without touching the new account's line.
 

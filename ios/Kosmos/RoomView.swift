@@ -1057,7 +1057,7 @@ struct RoomView: View {
         AttachPlusButton(atLimit: atFileLimit, label: "Add a file to this conversation",
                          hint: atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "",
                          onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } },
-                         onCameraDenied: { client.attachLine[attachKey] = Board.cameraDeniedLine }) { choice in
+                         onCameraDenied: { if cameraEpoch == client.chatEpoch { client.attachLine[attachKey] = Board.cameraDeniedLine } }) { choice in
             switch choice {
             case .camera: showCamera = true
             case .photos: showPhotos = true
