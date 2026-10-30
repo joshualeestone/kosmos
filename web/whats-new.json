@@ -2,6 +2,11 @@
   "version": "0.7.76",
   "highlights": [
     {
+      "icon": "chat",
+      "title": "Delete your own messages",
+      "line": "Hover or tap one of your own messages, choose ..., then Delete message. Agents that already read it are told you withdrew it."
+    },
+    {
       "icon": "spark",
       "title": "Sonnet 5.5 usage at its real price",
       "line": "Usage now prices Claude Sonnet 5.5's cache reads at the published rate, half the rate Kosmos used before."
@@ -23,14 +28,6 @@
       "icon": "shield",
       "title": "The Kosmos app itself is read-only",
       "line": "The installed Kosmos app is read-only, so an agent's edit to the app your agents run on is refused.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
-      "icon": "shield",
-      "title": "Gemini agents stop updating gemini",
-      "line": "A new Gemini agent stops gemini updating itself unless you allowed it, and on your default Gemini account so does your own.",
       "platforms": [
         "mac"
       ]
