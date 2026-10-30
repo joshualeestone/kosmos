@@ -19195,6 +19195,8 @@ const server = http.createServer(async (req, res) => {
      it); this answers 200 { deleted, told }, 403 not the person's, 404 none, 409 an earlier part of the conversation. */
   const dmDelete = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/delete$/);
   if (dmDelete && req.method === 'POST') {
+    /* The person's alone, like Send now anyway: an agent's token is refused, in the header now and in the body below. */
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'deleting a message is the person\'s, not an agent\'s' }); return; }
     const name = decodeSegment(dmDelete[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     const refusal = nameRefusal(name);
@@ -19208,12 +19210,15 @@ const server = http.createServer(async (req, res) => {
         if (!body || typeof body !== 'object' || typeof body.at !== 'string') {
           const bad = new Error('that request is not the shape we expect'); bad.status = 400; throw bad;
         }
+        if (presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'deleting a message is the person\'s, not an agent\'s' }); return; }
         const out = await chat.deleteDirectAsync(name, body.at, safeRoster());
         if (!out.ok) { sendJson(res, out.code || 400, { error: out.error }); return; }
         sendJson(res, 200, { deleted: true, at: body.at, told: out.told });
       })
-      .catch((err) => sendJson(res, (err && err.status) || 400,
-        { error: String((err && err.message) || 'we could not read that request') }));
+      /* A thrown failure that is not a request error (a file this computer could not write) answers in a plain sentence:
+         its own message can carry a path on this computer. */
+      .catch((err) => sendJson(res, (err && err.status) || 503,
+        { error: err && err.status ? String(err.message) : 'we could not delete it on this computer just now; try again in a moment' }));
     return;
   }
 
@@ -23259,12 +23264,21 @@ const server = http.createServer(async (req, res) => {
      not the person's, 404 for none (or one already deleted). The page's confirm said so before it called this. */
   const roomDelete = pathname.match(/^\/api\/project\/([^/]+)\/room\/([^/]+)\/delete$/);
   if (roomDelete && req.method === 'POST') {
+    /* The person's alone: an agent's token is refused, in the header now and in the body below. */
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'deleting a message is the person\'s, not an agent\'s' }); return; }
     const id = decodeSegment(roomDelete[1]);
     const raw = decodeSegment(roomDelete[2]);
     if (id === null || raw === null) { sendJson(res, 400, { error: 'that is not something we can read' }); return; }
     const postId = /^[0-9]+$/.test(raw) ? 'm' + raw : raw;   // the page shows the number without its m (msgRefNumber)
     readBody(req)
-      .then(async () => {
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read'); bad.status = 400; throw bad;
+        }
+        if (presentedAgentToken(req, body && typeof body === 'object' ? body : {})) {
+          sendJson(res, 403, { error: 'deleting a message is the person\'s, not an agent\'s' }); return;
+        }
         const roster = safeRoster();
         let found = null;
         try { found = projects.get(id, roster || []); } catch { found = null; }
@@ -23273,8 +23287,9 @@ const server = http.createServer(async (req, res) => {
         if (!out.ok) { sendJson(res, out.code || 400, { error: out.error }); return; }
         sendJson(res, 200, { deleted: true, of: postId, told: out.told });
       })
-      .catch((err) => sendJson(res, (err && err.status) || 400,
-        { error: String((err && err.message) || 'we could not read that request') }));
+      /* As the DM route: a failure that is not a request error answers in a plain sentence, never its own message. */
+      .catch((err) => sendJson(res, (err && err.status) || 503,
+        { error: err && err.status ? String(err.message) : 'we could not delete it on this computer just now; try again in a moment' }));
     return;
   }
 

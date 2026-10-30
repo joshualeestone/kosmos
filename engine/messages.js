@@ -1133,6 +1133,16 @@ function deletedPostKeys(parsed) {
   return keys;
 }
 
+/* kosmos#7614 review 1: held posts a flush took and could not type go back on hold, except one the person deleted while
+   it was being typed, so a later "while you were away" line never names a post the room no longer shows. A log that
+   cannot be read puts them all back, as before. */
+function restoreHeld(name, projectId, ids) {
+  let gone = null;
+  try { const read = record(); gone = read && read.ok !== false ? deletedPostKeys(read.parsed || []) : null; } catch { gone = null; }
+  const keep = gone ? ids.filter((x) => !gone.has(projectId + '\u0000' + roomhold.plainId(x))) : ids;
+  return roomhold.restore(name, projectId, keep);
+}
+
 /* The send path keeps the old contract on purpose: an unreadable log
    fails OPEN there (the valve cannot count; ids restart only on a board that has minted none since it started) rather than
    blocking every send on a read error -- a RECORDED trade, revisit when
@@ -3094,7 +3104,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       const spill = spillInto(name, id, cleaned);
       if (!spill.file) {
         outcomes[name] = chat.DELIVERY.COULD_NOT;
-        if (heldIds.length) { try { roomhold.restore(name, projectId, heldIds); } catch { /* best effort */ } }
+        if (heldIds.length) { try { restoreHeld(name, projectId, heldIds); } catch { /* best effort */ } }
         return null;
       }
       spilled[name] = spill.file;
@@ -3113,7 +3123,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          reached, as before. Only deliverAutomatic(Async) answers held: true, and under the room brake typeInto uses
          chat.deliver(Async), which never does, so this branch is not reached then. */
       if (sent && sent.held === true) {
-        roomhold.restore(name, projectId, heldIds);
+        restoreHeld(name, projectId, heldIds);
         unspill(spilled[name]);
         /* #4926 review 1 (Opus): an answer to this member's OWN post (--in-reply-to, no @) asks for its attention too, so it
            is kept marked like an @: a stale-post drop at the flush never removes it (and its line says it is asked). */
@@ -3138,7 +3148,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       logCarried(sent.state);   // #4926 N7: told unless COULD_NOT (then put back below)
       if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
       else {
-        roomhold.restore(name, projectId, heldIds);
+        restoreHeld(name, projectId, heldIds);
         unspill(spilled[name]);   // #4447: nothing left for a member it never reached
       }
       return sent;
@@ -3147,7 +3157,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const putBack = (err) => {
       // #4926 N7 (round 3): typing started and threw, so the held posts may have been pasted; they go back regardless.
       if (typingStarted.has(name)) logCarried('may-have');
-      roomhold.restore(name, projectId, heldIds);
+      restoreHeld(name, projectId, heldIds);
       throw err;
     };
     /* #4588 PR B: the person's own post is typed at once (never held); a colleague's post, addressed or not, is an
@@ -3180,7 +3190,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         outcomes[name] = chat.DELIVERY.COULD_NOT; unspill(spilled[name]);   // review 3: no inbox file for a post it never got
         // Review 6 (Sonnet): its held ids were taken for a line it never got; put them back (putBack covers a throw
         // inside the typing path).
-        if (Array.isArray(takenHeld[name]) && takenHeld[name].length) { try { roomhold.restore(name, projectId, takenHeld[name]); } catch { /* best effort */ } }
+        if (Array.isArray(takenHeld[name]) && takenHeld[name].length) { try { restoreHeld(name, projectId, takenHeld[name]); } catch { /* best effort */ } }
       }
     }
     // Review 8 (Sonnet): the error's CODE only, never its message (a tmux error can echo the pasted text).
@@ -4573,6 +4583,7 @@ module.exports = {
   _sendWithDelivery: sendWithDelivery,
   _nextIdForTests: nextIdForTests, // #4888
   _sendPostWithDelivery: sendPostWithDelivery,
+  _restoreHeld: restoreHeld,   // kosmos#7614 review 1
   roomCap,   // #6420: the room's budget, scaled to its size (the browser check fills it)
   roomRecipientsOf,   // #6420: the room route and the browser check size a room as the valve does
   setSenderTextFilter, filteredText, // #3769

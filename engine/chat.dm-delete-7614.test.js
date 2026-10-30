@@ -81,15 +81,45 @@ test('#7614: a kept (held) message is taken out of the queue, never typed, and n
   assert.equal(typed.length, 0);
 });
 
-test('#7614: a kept message being typed this moment counts as given, so the agent is told', async () => {
+test('#7614: a kept message being typed this moment counts as given; the note waits until that typing has finished', async () => {
   typed.length = 0; verdict = chat.DELIVERY.PLACED;
   const agent = thread({ state: 'held', held: true, heldBy: 'limit', at: t(1) });
   assert.ok(limitqueue.add(agent, { id: 'dm-typing-1', from: '', kind: 'dm', text: SECRET, envelope: '', at: t(1), reset: t(1) }));
   assert.ok(limitqueue.claim('dm-typing-1'), 'the sweep holds it');
+  const wait = { ...chat.DELETE_WAIT }; chat.DELETE_WAIT.pollMs = 10;
+  let releasedAt = 0;
+  const timer = setTimeout(() => { releasedAt = Date.now(); limitqueue.release('dm-typing-1'); }, 150);
   try {
     const out = await chat.deleteDirectAsync(agent, t(1));
     assert.deepEqual(out.told, [agent]);
-  } finally { limitqueue.release('dm-typing-1'); }
+    assert.ok(releasedAt > 0, 'the delete waited for the typing to finish');
+    assert.equal(typed.length, 1, 'the note, once, after the typing');
+  } finally { clearTimeout(timer); limitqueue.release('dm-typing-1'); Object.assign(chat.DELETE_WAIT, wait); }
+});
+
+test('#7614 review 1: when the typing that held it fails, the deleted message is not typed again', async () => {
+  typed.length = 0; verdict = chat.DELIVERY.PLACED;
+  const agent = thread({ state: 'held', held: true, heldBy: 'limit', at: t(1) });
+  assert.ok(limitqueue.add(agent, { id: 'dm-typing-2', from: '', kind: 'dm', text: SECRET, envelope: '', at: t(1), reset: t(1) }));
+  assert.ok(limitqueue.claim('dm-typing-2'), 'the sweep holds it');
+  const wait = { ...chat.DELETE_WAIT }; chat.DELETE_WAIT.pollMs = 10;
+  const timer = setTimeout(() => limitqueue.release('dm-typing-2'), 50);   // the typing failed: the sweep only lets go
+  try {
+    await chat.deleteDirectAsync(agent, t(1));
+    const left = limitqueue.list(agent).some((e) => e.id === 'dm-typing-2');
+    assert.ok(!left || limitqueue.isDone('dm-typing-2'), 'nothing kept to type again');
+    assert.equal(limitqueue.claim('dm-typing-2'), left ? false : true, 'control: a later claim finds it gone or done');
+    limitqueue.release('dm-typing-2');
+  } finally { clearTimeout(timer); limitqueue.release('dm-typing-2'); Object.assign(chat.DELETE_WAIT, wait); }
+});
+
+test('#7614 review 1: a row update the sweep kept for the deleted row is dropped, not retried for ever', async () => {
+  typed.length = 0;
+  const agent = thread({ state: 'placed' });
+  limitqueue.setRow(agent, t(1), { state: 'placed' }, { updateDmDelivery: () => false });   // a write that could not land
+  assert.ok(limitqueue.hasRowFix(agent, t(1)), 'control: kept to retry');
+  await chat.deleteDirectAsync(agent, t(1));
+  assert.equal(limitqueue.hasRowFix(agent, t(1)), false);
 });
 
 test('#7614: a note that could not be typed is not counted as told', async () => {

@@ -42,14 +42,14 @@ chat.appendMessage(chat.DIRECT, NAME, { text: 'delete me', at: t(1), delivery: {
 chat.appendMessage(chat.DIRECT, NAME, { text: 'the agent wrote this', from: NAME, at: t(2) });
 const rows = () => chat.readThread(chat.DIRECT, NAME).messages.map((m) => m.at);
 
-async function del(name, body, origin) {
+async function del(name, body, origin, headers) {
   const board = fleet.install([fleet.agent(NAME, { state: 'idle' })]);
   const real = chat.deliverAutomaticAsync;
   const typed = [];
   chat.deliverAutomaticAsync = async (n, line) => { typed.push({ n, line }); return { state: chat.DELIVERY.PLACED }; };
   try {
     const res = await fetch(`${base}/api/agent/${encodeURIComponent(name)}/thread/delete`, {
-      method: 'POST', headers: { 'content-type': 'application/json', ...(origin ? { origin } : {}) }, body: JSON.stringify(body),
+      method: 'POST', headers: { 'content-type': 'application/json', ...(origin ? { origin } : {}), ...(headers || {}) }, body: JSON.stringify(body),
     });
     return { status: res.status, out: await res.json().catch(() => null), typed };
   } finally { chat.deliverAutomaticAsync = real; board.restore(); }
@@ -70,6 +70,17 @@ test('#7614 route: a body without a time is refused (400); no message at that ti
 test('#7614 route: another site cannot delete (the board\'s cross-site guard)', async () => {
   const r = await del(NAME, { at: t(1) }, 'http://evil.example');
   assert.ok(r.status >= 400, 'refused, got ' + r.status);
+  assert.deepEqual(rows(), [t(1), t(2)], 'still there');
+});
+
+test('#7614 review 1: an agent\'s token is refused (403), in the header or the body, and the person\'s message stays', async () => {
+  const h = await del(NAME, { at: t(1) }, null, { 'x-kosmos-agent-token': 'any-agent-token' });
+  const b = await del(NAME, { at: t(1), token: 'any-agent-token' });
+  for (const r of [h, b]) {
+    assert.equal(r.status, 403);
+    assert.match(r.out.error, /person's, not an agent's/);
+    assert.equal(r.typed.length, 0);
+  }
   assert.deepEqual(rows(), [t(1), t(2)], 'still there');
 });
 

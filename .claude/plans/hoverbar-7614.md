@@ -35,8 +35,10 @@ card, and it ships in a staging build.
 
 ## Open questions decided here
 
-- A reply to a deleted post keeps its own text; its "replying to" quote says "a deleted message" rather than vanishing,
-  so the reply still reads. (Decided; revisit if Josh wants replies hidden too.)
+- A reply to a deleted post keeps its own text, and its "replying to" header shows what it shows today for an original
+  it cannot find ("Original message unavailable" in a DM, the room's own missing-original text). Changed in review
+  round 1 from "a deleted message": that needs the row to know its original was deleted rather than pruned, which is
+  more than this card needs; the reply still reads either way. Revisit if Josh wants the reason named or replies hidden.
 - The note never repeats the deleted words.
 - No time limit on deleting.
 
@@ -66,3 +68,26 @@ card, and it ships in a staging build.
   project's thread), now paintTalk.
 - Checks: 8 older browser checks updated for the new bar; 19 more named by the surface gate ran and pass unchanged.
 - Known and kept: like every touch bar, an open bar floats above its message and can cover the corner of the one above.
+
+## After review round 1 (opus, 09:4x CDT)
+
+Findings file: ~/.cache/monalisa-review/review-7614-round1.md. No blockers; 5 warnings, 6 nits.
+- FIXED W1: both delete routes refuse an agent's token (header first, then the body), as Send now anyway does.
+  Tests: room and DM, header and body, 403 and the message stays; control with the guards removed goes red.
+- FIXED W2: a kept DM the sweep is typing at the moment of the delete is settled anyway (so a typing that fails leaves
+  nothing to type again) and the withdrawn note waits for that typing to finish (DELETE_WAIT, 20 s cap). If that typing
+  failed, the agent is told about a message it never saw: one line, misleads nobody. Tests for order and for the
+  failed typing; controls (no settle, no wait) go red.
+- FIXED W3: a held room post a flush took and could not type goes back on hold only if it is still in the room
+  (restoreHeld, at all five restore sites). Test with control.
+- FIXED W4: the sweep's kept row fix for a deleted DM row is dropped (limitqueue.forgetRow). Test with control.
+- FIXED W5: the plan's reply-quote answer now says what was built (above).
+- FIXED nits: a busy thread lock says so (held.because); a write failure answers 503 in a plain sentence, never the raw
+  error with its path; a 404 (gone already, another tab) closes the dialog, says "That message was already gone." and
+  repaints (browser check D10); stale CSS comments; rxnsInner's unused `mid` documented (kept for argument order).
+- DEFERRED, the double-delete race: deletePostAsync reads and appends with no await between them (record() and
+  appendLog are synchronous), and the route awaits nothing between its body and the call, so two requests cannot
+  interleave there. Weakest premise: a future await added before appendLog would open it.
+- DEFERRED, archived posts: the server deletes any of the person's posts, archived or not; the page leaves Delete out
+  of the archive view because that view is a read-only record (#7365). An archived post reaches no member, so deleting
+  one from the server is harmless. Revisit if Josh wants Delete in the archive view.

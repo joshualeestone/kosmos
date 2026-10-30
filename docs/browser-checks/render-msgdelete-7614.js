@@ -13,6 +13,7 @@
  *   D7  a direct message: the person's own row has "..." alone; its menu has Delete message; an agent's row has none
  *   D8  Delete posts {at} to the DM route, says "Deleted.", and the thread repaints without the message
  *   D9  a DM refusal (an earlier part was already given) shows in the dialog
+ *   D10 a message already gone (another tab deleted it, 404): the dialog closes, says so, and the thread repaints
  *
  * CONTROL: D6 runs with the webhooks pane open on ANOTHER project, so a page that read that pane's project fails it.
  *
@@ -197,6 +198,21 @@ const menuItems = () => { const m = document.getElementById('msg-menu');
     chk(d8.dels.length === 1 && dm.url === '/api/agent/april/thread/delete' && dm.method === 'POST' && dm.body === JSON.stringify({ at: OWN }),
       'D8 Delete posts {at} to the direct-message route', JSON.stringify(d8.dels));
     chk(!d8.open && d8.toast === 'Deleted.' && d8.gone && d8.agents === 2, 'D8 the dialog closes, the toast says "Deleted.", and the thread repaints without that message only', JSON.stringify(d8));
+
+    // D10: gone already (another tab deleted it): the dialog closes, says so, and the thread repaints without it.
+    await page.evaluate(({ f, OWN }) => { window.__fx = f; window.__dels = []; window.__answer = { status: 404, body: { error: 'there is no message of yours at that time here' } }; }, { f: FX, OWN });
+    await page.evaluate(() => paintTalk('april', 'April'));
+    await page.waitForTimeout(200);
+    const again = page.locator('#d-dmthread .msg.you[data-own="1"]').first();
+    await again.hover(); await again.locator('.rxn-dots').click(); await page.waitForTimeout(100);
+    await page.click('#msg-menu-del'); await page.waitForTimeout(100);
+    await page.evaluate((OWN) => { window.__fx = Object.assign({}, window.__fx, { messages: window.__fx.messages.filter((m) => m.at !== OWN) }); }, OWN);
+    await page.click('#msgdel-go'); await page.waitForTimeout(300);
+    const d10 = await page.evaluate((OWN) => ({ open: !document.getElementById('msgdel-modal').hidden, n: window.__dels.length,
+      toast: (() => { const t = document.getElementById('msg-toast'); return t && !t.hidden ? t.textContent : null; })(),
+      gone: !document.querySelector('#d-dmthread .rxns[data-at="' + OWN + '"]') }), OWN);
+    chk(!d10.open && d10.n === 1 && d10.toast === 'That message was already gone.' && d10.gone,
+      'D10 a message already gone (404): the dialog closes, says so, and the thread repaints without it', JSON.stringify(d10));
   } catch (e) {
     chk(false, 'the run finished', e && e.message ? e.message.split('\n')[0] : String(e));
   }

@@ -70,8 +70,9 @@ test.after(() => {
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
 
-const del = (postId, origin) => fetch(`${base}/api/project/${encodeURIComponent(pid)}/room/${postId}/delete`, {
-  method: 'POST', headers: { 'content-type': 'application/json', origin: origin || base }, body: '{}',
+const del = (postId, origin, extra) => fetch(`${base}/api/project/${encodeURIComponent(pid)}/room/${postId}/delete`, {
+  method: 'POST', headers: { 'content-type': 'application/json', origin: origin || base, ...((extra && extra.headers) || {}) },
+  body: JSON.stringify((extra && extra.body) || {}),
 });
 async function roomIds() {
   const res = await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room`);
@@ -99,6 +100,16 @@ test('#7614: another site cannot delete (the board\'s cross-site guard)', async 
   assert.ok((await roomIds()).includes('m904'), 'still there');
 });
 
+test('#7614 review 1: an agent\'s token is refused (403), in the header or the body, and the person\'s post stays', async () => {
+  for (const extra of [{ headers: { 'x-kosmos-agent-token': 'any-agent-token' } }, { body: { token: 'any-agent-token' } }]) {
+    const res = await del('m904', null, extra);
+    assert.equal(res.status, 403, JSON.stringify(extra));
+    assert.match((await res.json()).error, /person's, not an agent's/);
+  }
+  assert.ok((await roomIds()).includes('m904'), 'still there');
+  assert.equal(typed.length, 0, 'nobody was told anything');
+});
+
 test('#7614: the person\'s post goes for every reader, its hold is dropped, and only the member given it is told', async () => {
   assert.deepEqual(roomhold.heldIn('beta', pid).map(roomhold.plainId), ['m901'], 'control: held before');
   const res = await del('901');   // the page shows the number without its m
@@ -118,6 +129,14 @@ test('#7614: the person\'s post goes for every reader, its hold is dropped, and 
   assert.ok(!rows.some((r) => r.kind === 'post-deleted'), 'the deletion row itself is given to no reader');
   assert.ok(messages.record().parsed.some((r) => r.id === 'm901'), 'it stays in the parsed log, so its id is never reused');
   assert.equal((await del('m901')).status, 404, 'a second delete finds nothing');
+});
+
+test('#7614 review 1: a held post deleted while a flush was typing it is not put back on hold when that typing fails', async () => {
+  // m901 was deleted by the test above; m904 (the person's, still in the room) is the control.
+  assert.ok(!(await roomIds()).includes('m901'), 'precondition: m901 is deleted');
+  messages._restoreHeld('beta', pid, ['m901', 'm904']);
+  assert.deepEqual(roomhold.heldIn('beta', pid).map(roomhold.plainId), ['m904'], 'only the post still in the room goes back');
+  roomhold.take('beta', pid);
 });
 
 test('#7614: a post held for a member and since told to it (no hold left) earns that member the note', async () => {

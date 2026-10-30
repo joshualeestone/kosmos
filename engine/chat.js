@@ -5240,10 +5240,15 @@ function retryDmFinish(agent, at, text, delivery) {
 /* kosmos#7614: the person deletes one of their own messages in a direct conversation. The row leaves the thread file
    (under the thread lock, the reactDirect pattern), so no reader sees it again. A copy still kept to type later
    (out of usage, signed out, or held behind the input box) is taken out of the queue under its own claim, so the sweep
-   never types it; if the sweep is typing it at this moment, the claim fails and it counts as given. An agent that was
+   never types it. If the sweep is typing it at this moment, the claim fails: it is settled anyway, so a typing that
+   then fails leaves nothing to type again, and the note waits until that typing has finished, so the agent never reads
+   "withdrawn" before the message (review 1). It counts as given; if that typing did fail, the agent is told about a
+   message it never saw, which costs one line and misleads nobody. An agent that was
    given it gets one line, never repeating the words, to treat it as withdrawn. A message in an earlier part of the
    conversation is refused, as reactDirect refuses it: those files are kept as they were. Answers
    { ok, code, error?, told }. */
+/* How long a delete waits for a kept copy the sweep is typing this moment, so the note follows it. Changed by tests. */
+const DELETE_WAIT = { pollMs: 100, capMs: 20000 };
 function dmWithdrawnLine(at) {
   const when = Number.isFinite(Date.parse(at)) ? new Date(at).toTimeString().slice(0, 5) : 'earlier';
   return '[from Kosmos] The person deleted the message they sent you at ' + when
@@ -5280,19 +5285,28 @@ async function deleteDirectAsync(agent, at, roster) {
       return { ok: true, delivery: m.delivery && typeof m.delivery === 'object' ? m.delivery : null };
     });
   } catch { return { ok: false, code: 503, error: 'we could not change this conversation on this computer', told: [] }; }
-  if (!held.ok) return { ok: false, code: 503, error: 'we could not change this conversation on this computer', told: [] };
+  // A busy lock says so (reactDirect's wording), rather than that something is wrong with this computer.
+  if (!held.ok) return { ok: false, code: 503, error: held.because || 'we could not change this conversation on this computer', told: [] };
   const out = held.value;
   if (!out.ok) return { ...out, told: [] };
   const state = out.delivery && out.delivery.state;
   let given = state === DELIVERY.PLACED || state === DELIVERY.UNCONFIRMED;
+  const limitqueue = require('./limitqueue');
   if (state === 'held') {
-    const limitqueue = require('./limitqueue');
     const kept = limitqueue.list(name).filter((e) => e && e.kind === 'dm' && e.at === when);
+    const inFlight = [];
     for (const e of kept) {
       if (limitqueue.claim(e.id)) { limitqueue.settle(name, e.id); limitqueue.release(e.id); }
-      else given = true;   // being typed this moment: it will have it
+      else { limitqueue.settle(name, e.id); inFlight.push(e.id); given = true; }   // being typed this moment
+    }
+    const until = Date.now() + DELETE_WAIT.capMs;
+    while (inFlight.some((id) => limitqueue.isTyping(id)) && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, DELETE_WAIT.pollMs));
     }
   }
+  /* The sweep keeps a row whose new delivery it could not write and retries it every minute; this row is gone, so that
+     retry could never succeed (review 1). */
+  try { limitqueue.forgetRow(name, when); } catch { /* nothing kept for it */ }
   const told = [];
   if (given) {
     let v = null;
@@ -5311,7 +5325,7 @@ module.exports = {
   setMovedTell,   // #5400
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, acknowledgementOnly, storeText, messageProblem, addressable, resolveCard, paneTarget,
-  deleteDirectAsync,   // kosmos#7614
+  deleteDirectAsync, DELETE_WAIT,   // kosmos#7614
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
