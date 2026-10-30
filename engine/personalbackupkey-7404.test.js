@@ -21,6 +21,7 @@ const mk = require('./backupmemberkey');
 const pk = require('./personalbackupkey');
 
 const ORG = 'porg1', MEMBER = 'pacct1';
+const WHO = { org: ORG, member: MEMBER };
 const b64 = (b) => Buffer.from(b).toString('base64url');
 const refuse = (status, code, because) => ({ ok: false, because, refusal: { status, code, currentEpoch: null } });
 
@@ -87,7 +88,7 @@ test('#7404: setUp registers a KBR1 wrap with the recovery key and tag, keeps th
   };
   const before = allFileText(SANDBOX);
   assert.ok(before.includes(b64(backupkeys.recoveryCodeBytes(r.code))), 'CONTROL: the pending code is kept until confirmed');
-  assert.equal((await pk.confirmRecoveryCodeSaved({ macRequest: c.macRequest })).ok, true);
+  assert.equal((await pk.confirmRecoveryCodeSaved(WHO)).ok, true);
   const after = allFileText(SANDBOX);
   assert.ok(after.length > 0, 'CONTROL: the data root still holds the key file');
   for (const form of forms(r.code)) assert.ok(!after.includes(form), 'a form of the recovery code is still on disk: ' + form.slice(0, 8));
@@ -199,7 +200,7 @@ test('#7404: setUp refuses when the backup already has a key, and restore refuse
   const c = fakeCoordinator();
   assert.equal((await pk.setUpPersonalKey({ macRequest: c.macRequest })).ok, true);
   // Confirmed first: until then a second setUp resumes with the same code (review 2's test above).
-  assert.equal((await pk.confirmRecoveryCodeSaved()).ok, true);
+  assert.equal((await pk.confirmRecoveryCodeSaved(WHO)).ok, true);
   const again = await pk.setUpPersonalKey({ macRequest: c.macRequest });
   assert.equal(again.ok, false);
   // Refused at the first fence it meets: this computer already holds the registered key (review 1's file guard).
@@ -247,7 +248,7 @@ test('#7404 (review 2): a crash AFTER a successful setUp, before the screen show
   assert.equal(again.ok, true, JSON.stringify(again));
   assert.equal(again.resumed, true); assert.equal(again.code, first.code);
   // Once confirmed, the code is gone and setUp refuses.
-  const conf = await pk.confirmRecoveryCodeSaved();
+  const conf = await pk.confirmRecoveryCodeSaved(WHO);
   assert.equal(conf.ok, true); assert.equal(conf.deleted, 1);
   const after = await pk.setUpPersonalKey({ macRequest: c.macRequest });
   assert.equal(after.ok, false);
@@ -309,11 +310,14 @@ test('#7404 (review 2): confirm keeps a code that is not registered yet, and nee
   };
   assert.equal((await pk.setUpPersonalKey({ macRequest: lossy })).ok, false);
   const before = allFileText(SANDBOX);
-  const conf = await pk.confirmRecoveryCodeSaved();   // no macRequest at all: local only
+  const conf = await pk.confirmRecoveryCodeSaved(WHO);   // no macRequest at all: local only
   assert.equal(conf.ok, false, 'a pending, unregistered code was confirmed away');
   assert.equal(allFileText(SANDBOX), before, 'confirm changed files while the code was pending');
   const resumed = await pk.setUpPersonalKey({ macRequest: lossy });
   assert.equal(resumed.ok, true, 'the kept code still finishes the setup');
+  // Review 3: the resume registers the key here, so confirm can then delete the code.
+  assert.ok(mk.readKeys(ORG, MEMBER).keys['1'].registered, 'the resume did not register the key');
+  assert.deepEqual(await pk.confirmRecoveryCodeSaved(WHO), { ok: true, deleted: 1 });
 });
 
 test('#7404 (review 2): the in-flight race (Kosmos+ kept it, the next read does not show it yet): the retry sends the same recovery key and tag', async () => {
@@ -333,4 +337,70 @@ test('#7404 (review 2): the in-flight race (Kosmos+ kept it, the next read does 
   assert.equal(secondPost.recovery_public, firstPost.recovery_public, 'the retry used another code');
   assert.equal(secondPost.recovery_tag, firstPost.recovery_tag);
   assert.equal(secondPost.member_public, firstPost.member_public);
+});
+
+const pendingFiles = () => { try { return fs.readdirSync(path.join(require('./store').ROOT, 'backupkeys')).filter((n) => n.startsWith('pending-code-')); } catch { return []; } };
+
+test('#7404 (review 3): a pending code file that cannot be read is refused and left as it is, never overwritten', async () => {
+  forget();
+  const c = fakeCoordinator();
+  let lose = true;
+  const lossy = async (m, route, body) => {
+    const res = await c.macRequest(m, route, body);
+    if (route === mk.MEMBER_KEY_ROUTE && lose) { lose = false; c.state.hideRowsOnce = true; throw new Error('lost after the write'); }
+    return res;
+  };
+  assert.equal((await pk.setUpPersonalKey({ macRequest: lossy })).ok, false);
+  const f = path.join(require('./store').ROOT, 'backupkeys', pendingFiles()[0]);
+  const before = fs.readFileSync(f, 'utf8');
+  fs.chmodSync(f, 0o000);   // a passing read error
+  try {
+    const r = await pk.setUpPersonalKey({ macRequest: lossy });
+    assert.equal(r.ok, false); assert.match(r.because, /could not be read/);
+  } finally { fs.chmodSync(f, 0o600); }
+  assert.equal(fs.readFileSync(f, 'utf8'), before, 'the pending code was overwritten');
+});
+
+test('#7404 (review 3): a restore deletes this computer\'s pending code, including a dead one from a failed setUp under another code', async () => {
+  forget();
+  const c = fakeCoordinator();
+  // This computer's setUp is refused (a 503), leaving its pending key and code A.
+  const down = async (m, route, body) => (route === mk.MEMBER_KEY_ROUTE ? refuse(503, 'escrow_unavailable', 'down') : c.macRequest(m, route, body));
+  assert.equal((await pk.setUpPersonalKey({ macRequest: down })).ok, false);
+  assert.equal(pendingFiles().length, 1, 'CONTROL: code A is pending');
+  // Another computer sets up with code B; this one restores with B.
+  const other = await (async () => { const keep = pendingFiles(); forget(); const r = await pk.setUpPersonalKey({ macRequest: c.macRequest }); return { r, keep }; })();
+  const r = await pk.restorePersonalKey(other.r.code, { macRequest: c.macRequest });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(pendingFiles(), [], 'a pending code survived a successful restore');
+  assert.deepEqual(await pk.confirmRecoveryCodeSaved(WHO), { ok: true, deleted: 0 });
+});
+
+test('#7404 (review 3): the success path checks the row Kosmos+ STORED: a dropped tag is caught while the key and code are still here', async () => {
+  forget();
+  const c = fakeCoordinator();
+  const dropsTag = async (m, route, body) => {
+    const res = await c.macRequest(m, route, body);
+    if (route === mk.MEMBER_KEY_ROUTE && res.ok) c.rows.set(1, { ...c.rows.get(1), recovery_tag: null });
+    return res;
+  };
+  const r = await pk.setUpPersonalKey({ macRequest: dropsTag });
+  assert.equal(r.ok, false, 'a stored row the code cannot restore was answered as set up');
+  const k = mk.readKeys(ORG, MEMBER).keys['1'];
+  assert.ok(k && !k.registered, 'the key was marked registered');
+  assert.equal(pendingFiles().length, 1, 'the code was not kept');
+});
+
+test('#7404 (review 3): Kosmos+ lost the rows while this computer holds the key and its code: setUp re-sends the same registration', async () => {
+  forget();
+  const c = fakeCoordinator();
+  const first = await pk.setUpPersonalKey({ macRequest: c.macRequest });
+  assert.equal(first.ok, true);
+  const sent = c.calls.filter((x) => x.route === mk.MEMBER_KEY_ROUTE)[0].body;
+  c.rows.clear();   // lost on Kosmos+'s side, before the person confirmed
+  const healed = await pk.setUpPersonalKey({ macRequest: c.macRequest });
+  assert.equal(healed.ok, true, JSON.stringify(healed));
+  assert.equal(healed.code, first.code);
+  assert.equal(c.rows.get(1).member_public, sent.member_public);
+  assert.equal(c.rows.get(1).recovery_tag, sent.recovery_tag);
 });
