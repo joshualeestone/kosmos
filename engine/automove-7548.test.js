@@ -619,7 +619,7 @@ test('#7548: the board wires the mover through the bulk move\'s own deps, and on
     'the bulk route names refused agents as moved by a person');
   /* Inert unless switched on: the mover is made, ticked and shown as moving only when moves are on. */
   assert.match(src, /if \(abSweep && automove\.movesOn\(\)\) \{\s*(?:\/\*[^*]*\*\/\s*)?try \{ automoveRun = automove\.create\(/, 'the mover is made with moves off');
-  assert.match(src, /\.then\(\(\) => \(automoveRun && automove\.movesOn\(\) && autobalanceSweepRuns\(\{ forTick: true \}\) \? automoveRun\.tick\(automoveDeps\(\)\)/, 'the mover ticks with moves off');
+  assert.match(src, /\.then\(\(\) => \(automoveRun && automove\.movesOn\(\) && autobalanceSweepRuns\(\{ forTick: true \}\) \? automoveRun\.tick\(automoveDeps\(sweepDeps\)\)/, 'the mover ticks with moves off');
   assert.match(src, /autobalance\.moving = autobalance\.recording === true && !!automoveRun && automove\.movesOn\(\);/, 'Settings says moving with moves off');
 });
 
@@ -1001,4 +1001,11 @@ test('kosmos#7621 item 2: Settings sees a person\'s move made since the last tic
     assert.equal(automove.personMoved(f2, ['bo'], '/u/.claude-spare', NOW, ON), false, 'CONTROL: the line waits');
     assert.equal(r2.leftAlone(NOW + 1000)('bo'), true, 'a person line still waiting was not seen');
   } finally { fs.chmodSync(dir, 0o755); automove.resetUnwrittenPeopleForTests(); }
+});
+
+test('kosmos#7621 item 7: the sweep and the mover share one tick\'s deps, so the agents are walked once a tick', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /const sweepDeps = autobalanceSweepDeps\(\);[^\n]*\n\s+try \{ ticking = abSweep\.tick\(sweepDeps\); \}/, 'the sweep does not use the tick\'s deps');
+  assert.match(src, /automoveRun\.tick\(automoveDeps\(sweepDeps\)\)/, 'the mover builds a second walk each tick');
+  assert.match(src, /function automoveDeps\(sweepDeps = null\) \{\n\s+const d = sweepDeps \|\| autobalanceSweepDeps\(\);/);
 });

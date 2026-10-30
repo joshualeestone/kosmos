@@ -3086,8 +3086,8 @@ function autobalanceSweepDeps() {
 /* kosmos#7548 (slice 3b): what the automatic move reads and does: the sweep's own reads (so the two decide from one
    rule), plus the move itself through the bulk move's deps (rule 1) and the re-check just before it, which reads the
    roster and the projects AGAIN, on purpose (rule 2). A function, so a test can drive a real tick on the real wiring. */
-function automoveDeps() {
-  const d = autobalanceSweepDeps();
+function automoveDeps(sweepDeps = null) {
+  const d = sweepDeps || autobalanceSweepDeps();   // kosmos#7621 item 7: the tick's own sweep deps, so one agents walk serves both
   return {
     ...d,
     movesOn: () => automove.movesOn(),
@@ -27294,7 +27294,8 @@ function start(port = PORT) {
           const started = Date.now();
           abSweepBusy = started;
           let ticking;
-          try { ticking = abSweep.tick(autobalanceSweepDeps()); } catch (err) { ticking = Promise.reject(err); }
+          const sweepDeps = autobalanceSweepDeps();   // kosmos#7621 item 7: shared with the mover below, one walk a tick
+          try { ticking = abSweep.tick(sweepDeps); } catch (err) { ticking = Promise.reject(err); }
           ticking
             .then((r) => {
               if (r && r.did === 'recorded') process.stdout.write('autobalance-sweep: recorded a changed decision\n');
@@ -27308,7 +27309,7 @@ function start(port = PORT) {
             .catch(() => { /* best-effort, like the sweeps above */ })
             /* kosmos#7548: the move waits for the sweep's record of the same period. A move can take minutes, so the busy
                flag spans it (the backstop above, three usage polls). Nothing here may throw into the board. */
-            .then(() => (automoveRun && automove.movesOn() && autobalanceSweepRuns({ forTick: true }) ? automoveRun.tick(automoveDeps()) : null))
+            .then(() => (automoveRun && automove.movesOn() && autobalanceSweepRuns({ forTick: true }) ? automoveRun.tick(automoveDeps(sweepDeps)) : null))
             .then((r) => {
               const why = r && r.did === 'unreadable' ? String(r.because) : null;
               const said = why !== null && why === automoveSaid;

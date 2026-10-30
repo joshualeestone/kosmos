@@ -18,7 +18,8 @@ while moves are off. Items as numbered on the card.
 - Item 2: Settings asks the mover leftAlone, which reads the person lines first (in the record and still waiting), so a
   person's move made since the last tick is not shown as one Kosmos will undo.
 
+- Item 7: the sweep and the mover share one tick's deps, so the agents are walked once a tick, not twice.
+
 ## Still to do
 - Item 1: a test that runs the mover through the board's real deps.
 - Item 5: throughput (a moved idle agent may hold its target a day).
-- Item 7: the second agents walk per tick.
