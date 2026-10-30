@@ -119,6 +119,7 @@ final class RoomStore: ObservableObject {
         archivedCount = [:]; archive = [:]; archiveNote = [:]; archiveNoteId = [:]; archiveOpens = [:]; archiveRefreshing = []; archiveRefreshFailed = [:]   // kosmos#7365 slice 3c
         returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAsk = [:]
         held = [:]; roomReads = [:]; roomLanded = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
+        deletedPosts = [:]; deleteNotes = [:]   // kosmos#7614 review 4: post ids repeat across computers
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0
@@ -191,7 +192,7 @@ final class RoomStore: ObservableObject {
             let room = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REFUSAL"] == "1"
                 ? Self.sampleRoom.replacingOccurrences(of: #"{"kind":"post","id":"m5""#, with: Self.sampleRefusal + #",{"kind":"post","id":"m5""#)
                 : Self.sampleRoom
-            rows[project] = Board.parseRoom(Data(room.utf8), names: names)?.rows ?? []
+            rows[project] = Board.withoutDeleted(Board.parseRoom(Data(room.utf8), names: names)?.rows ?? [], deletedPosts[project] ?? [])
             // kosmos#7072: KOSMOS_SAMPLE_HELD=1 shows the sample room held, for its screenshots (a Debug build only).
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HELD"] == "1", !Self.sampleReopened.contains(project) {
                 held[project] = .some(Self.sampleHeldUntil)
@@ -553,8 +554,10 @@ final class RoomStore: ObservableObject {
             // Review 1: only when there is something to say, so the room's "not confirmed" line is kept otherwise.
             if let note = Board.deletedNote(told: told, names: names) {
                 notes[project] = note; deleteNotes[project] = note
-            } else if let was = deleteNotes[project], notes[project] == was {
-                notes[project] = nil; deleteNotes[project] = nil
+            } else {
+                // Review 4: the earlier delete's line goes if it still shows; either way it is no longer this delete's.
+                if let was = deleteNotes[project], notes[project] == was { notes[project] = nil }
+                deleteNotes[project] = nil
             }
         case .refused(let why):
             notes[project] = why
