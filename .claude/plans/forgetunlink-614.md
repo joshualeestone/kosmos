@@ -58,6 +58,16 @@ The site route is built by Sub-Zero to the contract on #614 (amended to m6557).
   keep the computer noted; a refused key is dropped. Controls, each red by assertion: no sweep call, any answer read as
   cleared, a refused key not dropped, no hour wait, the computer never removed from the file, the wrong mac sent.
 
+## Order (decided 2026-10-30)
+
+The challenge loop runs after #7294 merges and this branch is rebased onto main, not while it is stacked. The skill's
+blind-review prompt diffs `origin/main...HEAD`, which today carries #7294's 41 already-reviewed commits beside this
+one; narrowing the prompt to this commit is the forgery the skill names, and the proof hash must match the PR's diff
+against main, which only exists after #7294 lands. Rejected: running it now on the stacked branch (a review over the
+wrong diff and a proof that would have to be redone). Weakest point: the review waits on #7294's merge, so a defect
+here is found later than it could be; nothing ships before then, so nothing is exposed meanwhile. What would change
+it: #7294 being split or abandoned, in which case this branch is rebased onto main on its own and the loop runs then.
+
 ## Residuals
 
 - A board whose community endpoint changes between the Forget and the sweep clears only links under the endpoint it
