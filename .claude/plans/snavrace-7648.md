@@ -23,10 +23,12 @@ web/index.html. If `hitWas` later names a real element covering the pill, that i
 - Review: five blind rounds so far (opus, sonnet, opus, sonnet, opus). Round 1 added the call-counting control; round
   2 moved the count into the forced poll's own evaluate; round 3 added this section; round 4 narrowed the count to
   pollAsk; round 5 found nothing new in the code.
-- Local browser run and the mutation control: **not yet run.** Baron's 0.7.76 staging cut is in progress, and
-  tools/browser-checks.sh forbids any browser check on this machine during a cut. They run when it serves on staging,
-  and their results are recorded here before the pull request is opened.
+- Local browser run (15:54 CDT, after 0.7.76 served on staging): render-snav-head-4979 passes on chromium and webkit,
+  149 PASS, 0 FAIL, "all checks passed", precondition ran=16 notesRan=2. The new control reads pollAskPaints 1 on both
+  engines; every first-pill line reports hitWas "button".
+- Mutation control (15:55 CDT): the same check with only the paintAsk stub line removed fails 6 checks, the same 3 on
+  each engine: the Allow card not shown (askShown false, the nightly's failure), pollAskPaints 0, and the Allow card
+  position. So the arm now reproduces the nightly race on every run, and the stub is what keeps it green.
 - The control counts only repaints whose stack names pollAsk (round 4: the page's pollWaiting also repaints). Weakest
-  premise: that both engines keep the pollAsk frame in the stack after its await. The local run on chromium and webkit
-  measures it. A 0 there means that premise failed or /api/remote/pending errored (pollAsk returns before painting);
-  either way it is not the race.
+  premise was that both engines keep the pollAsk frame in the stack after its await: measured, both read 1. A 0 would
+  mean that premise failed or /api/remote/pending errored (pollAsk returns before painting); either way not the race.
