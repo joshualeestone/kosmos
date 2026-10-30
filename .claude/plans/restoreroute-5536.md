@@ -82,3 +82,14 @@ Design call: #5536 comment 6513912365.
 - DEFERRED: a case-insensitive root compare (both sides come from one base, so a mismatch fails closed); real-child
   timeout and output-cap runs (the options are pinned; the kill paths are execFile's own); orphaned git reads on kill.
 - Tests 86/86. Mutations (delete any entry; rows not frozen) each red; restored.
+
+## Review round 5 (opus): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 6 NIT
+- FIXED: listRestoredAgentsInChild passed the #265 orphan guard only because a comment named it; now excused like its
+  siblings, with the reason.
+- FIXED: a shared refusal was a mutable object; failed() freezes it and its arrays.
+- FIXED: a relative base or a malformed world is LIST_FAILED, not "not made for a restore" (only the default world
+  says that); the stop test cleans up in t.after; the stop comment sits on stopListings.
+- DEFERRED: one child per world AND restore folder (the doc's key includes it); orphaned git reads on kill; no cap
+  across worlds (one route, one person); the root check refuses a wrong answer, it cannot stop a wrong read (the doc
+  says "checked").
+- Tests 86/86. Mutation (refusal unfrozen) red; restored.

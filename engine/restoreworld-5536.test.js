@@ -1213,7 +1213,9 @@ test('a listing in a child that fails in any way is a refusal, never an empty re
   assert.equal((await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(null, JSON.stringify({ ok: false, because: 'said by the child' }) + '\n'))).because, 'said by the child');
   const none = [];
   assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: { id: worlds.DEFAULT_ID } }, answering(null, '', none))), 'the default Kosmos is never listed');
-  assert.ok(refused(await rw.listRestoredAgentsInChild({ base: 'relative/base', world: p.world }, answering(null, '', none))), 'nor a relative base');
+  const rel = await rw.listRestoredAgentsInChild({ base: 'relative/base', world: p.world }, answering(null, '', none));
+  assert.ok(refused(rel) && !/not made for a restore/.test(rel.because), 'nor a relative base, and it is not called a non-restore');
+  assert.ok(Object.isFrozen(rel) && Object.isFrozen(rel.agents), 'a refusal is frozen too: it can be shared');
   assert.equal(none.length, 0, 'and no child is started for either');
 
   // A board serving ANOTHER world: its marker and roots are not carried; the child gets this world's, marker included.
@@ -1230,6 +1232,7 @@ test('a listing in a child that fails in any way is a refusal, never an empty re
 });
 
 test('one listing per world at a time; stopListings ends a running one as a refusal and refuses every later ask', async (t) => {
+  t.after(() => { rw.stopListings(); rw.startListings(); });   // whatever fails below, the next test starts clean
   const base = fresh(t);
   const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
   let calls = 0, pending = null;

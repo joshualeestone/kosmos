@@ -882,11 +882,10 @@ let listingsStopped = false;   // between stopListings and startListings: the bo
    what keeps create.js there off the board's store, so it is checked, not assumed. opts: { base, world, restoreDir? }.
    deps: { execFile, env } (tests; env is the board's own, process.env by default). */
 function listRestoredAgentsInChild(opts = {}, deps = {}) {
-  const failed = (because) => ({ agents: [], shared: [], more: true, because });
+  const failed = (because) => Object.freeze({ agents: Object.freeze([]), shared: Object.freeze([]), more: true, because });
   const world = opts.world;
-  if (!world || typeof world.id !== 'string' || world.id === worlds.DEFAULT_ID || typeof opts.base !== 'string' || !path.isAbsolute(opts.base)) {
-    return Promise.resolve(failed('this Kosmos was not made for a restore, so nothing in it is offered'));
-  }
+  if (world && world.id === worlds.DEFAULT_ID) return Promise.resolve(failed('this Kosmos was not made for a restore, so nothing in it is offered'));
+  if (!world || typeof world.id !== 'string' || typeof opts.base !== 'string' || !path.isAbsolute(opts.base)) return Promise.resolve(failed(LIST_FAILED));
   if (listingsStopped) return Promise.resolve(failed(LIST_FAILED));
   const key = JSON.stringify([path.resolve(opts.base), world.id, opts.restoreDir ? path.resolve(opts.restoreDir) : '']);
   if (listing.has(key)) return listing.get(key);
@@ -931,9 +930,9 @@ function listRestoredAgentsInChild(opts = {}, deps = {}) {
   if (!settled) listing.set(key, answer);   // an answer given at once (a spawn that threw) holds no place
   return answer;
 }
+function startListings() { listingsStopped = false; }   // the board is starting: listings may run again
 /* The board is stopping: ends every listing child still running (each answers a refusal through its own callback) and
    refuses every later ask, so no child outlives the board. */
-function startListings() { listingsStopped = false; }
 function stopListings() {
   listingsStopped = true;
   for (const c of listChildren) { try { c.kill(); } catch { /* gone */ } }
