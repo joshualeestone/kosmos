@@ -65,13 +65,14 @@ let personMissedAt = null;
  * record cannot be read, so the board leaves the mover off rather than forgetting every hold.
  */
 function create({ file, nowMs = Date.now() }) {
-  const state = { lastMovable: new Set(), watching: [], failed: new Map(), resting: new Map(), refused: new Map(), refusedCount: new Map() };
+  const state = { lastMovable: new Set(), watching: [], failed: new Map(), resting: new Map(), refused: new Map(), refusedTimes: new Map() };
   const watched = new Map();   // agent -> its watch, from its newest move, until a works or released line closes it
   const open = new Map();      // agent -> a 'started' line with no ending yet
   const rest = (agent, at) => { if (!state.resting.has(agent) || state.resting.get(agent) < at) state.resting.set(agent, at); };
   const refuse = (agent, at) => {
     state.refused.set(agent, at);
-    state.refusedCount.set(agent, (state.refusedCount.get(agent) || 0) + 1);
+    /* Review round 3: each refusal's time, so the count is of the last day, not of the board's whole run. */
+    state.refusedTimes.set(agent, [...(state.refusedTimes.get(agent) || []), at]);
   };
   for (const l of sweep.readLines(file)) {
     if (!Number.isFinite(l.at) || l.at > nowMs + sweep.CLOCK_SLACK_MS) continue;   // a line from the future is not trusted
@@ -263,7 +264,8 @@ function create({ file, nowMs = Date.now() }) {
       if (state.resting.has(agent) && nowMs - state.resting.get(agent) < REST_MS) return true;   // rules 7 and 8
       if (!state.refused.has(agent)) return false;
       const since = nowMs - state.refused.get(agent);
-      return (state.refusedCount.get(agent) || 0) >= REFUSED_TIMES ? since < DAY_MS : since < REFUSED_HOLD_MS;
+      const inDay = (state.refusedTimes.get(agent) || []).filter((t) => nowMs - t < DAY_MS).length;
+      return inDay >= REFUSED_TIMES ? since < DAY_MS : since < REFUSED_HOLD_MS;
     };
     /* Rule 3: usage only. A move off an account whose login has stopped stays a would-move line in the sweep's record.
        Rule 2: movable on the previous tick too. Held and unproven targets are skipTarget's, inside decide(). */
@@ -295,4 +297,4 @@ function create({ file, nowMs = Date.now() }) {
   return { tick, check, state };
 }
 
-module.exports = { create, movesOn, personMoved, _resetPersonMissed: () => { personMissedAt = null; }, DAY_MS, WATCH_MS, FAILED_HOLD_MS, REST_MS, REFUSED_HOLD_MS, REFUSED_TIMES };
+module.exports = { create, movesOn, personMoved, resetPersonMissedForTests: () => { personMissedAt = null; }, DAY_MS, WATCH_MS, FAILED_HOLD_MS, REST_MS, REFUSED_HOLD_MS, REFUSED_TIMES };

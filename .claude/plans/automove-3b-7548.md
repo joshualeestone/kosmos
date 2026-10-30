@@ -59,3 +59,16 @@ tests for 7, 11 and 12, and a page check for the new lines (docs/browser-checks/
   without `hold:`), page check render-autobalance-7152.js gains `moving` and `movingOff`.
 - Found while testing: a commitment unreadable at the re-check folded to "not free" inside movableFor, so the mover wrote
   "no longer idle" for a read failure. That is why `strict` exists.
+
+## Review rounds (blind, models alternating)
+- Round 1 (Sonnet): routes wrote person lines with moves off (now gated); a changed move now also waits for the
+  restart before a sighting counts; the target re-check after decide() dropped (untestable duplicate); replay tests.
+- Round 2 (Opus): no move the record cannot keep (writable pre-check); person lines read again just before the move;
+  a person's move the record could not keep stops moves for a day; tmux whole-second starts; rule 12's other branches,
+  route-order and inert-wiring pins. Settings' lines no longer add an inline capitalizer (web.open-sentence-1199).
+- Round 3 (Sonnet): tests for an incomplete walk, the default account's walk and the released rest; refusals counted
+  over the last day only. Left as they are, on purpose: personMissedAt is in memory (a restart forgets it; narrow,
+  since an unwritable record already moves nobody); the first readPeople stays, so check() writes nothing on a record
+  it cannot read; Settings says "moves them itself" while a tick is blocked.
+- Full suite on the round 2 head under load ~200: 14 timeouts in untouched areas, all green alone; one real red
+  (engine.reachable: the test-only reset export), fixed by naming it a ForTests seam and excusing it.

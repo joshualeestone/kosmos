@@ -374,6 +374,9 @@ test('#7548 rule 7: a person who moves an agent off the account Kosmos chose win
   assert.equal(run.state.failed.has('/u/.claude-spare'), false, 'spare was held for a call made somewhere else');
   assert.ok(automove.create({ file, nowMs: NOW + 13000 }).state.resting.has('ada'), 'a restart forgot the person\'s move');
   seen = null;
+  /* Review round 3: the day runs from the release, not from Kosmos's move before it. */
+  await twoTicks(run, d, NOW + automove.REST_MS + 5000);
+  assert.equal(calls.starts.length, 1, 'the person\'s move rested the agent only as long as Kosmos\'s own move did');
   await twoTicks(run, d, NOW + automove.REST_MS + 20000);
   assert.equal(calls.starts.length, 2, 'CONTROL: after a day it may move again');
 });
@@ -660,7 +663,7 @@ test('#7548 review round 2: a person\'s move the record could not keep stops eve
     assert.deepEqual(calls.starts, []);
     await twoTicks(run, d, NOW + automove.REST_MS + 1000);
     assert.equal(calls.starts.length, 1, 'CONTROL: a day later it moves');
-  } finally { automove._resetPersonMissed(); }
+  } finally { automove.resetPersonMissedForTests(); }
 });
 
 test('#7548 review round 2: a restart in the move\'s own second (tmux reads whole seconds) counts as after it', async () => {
@@ -700,4 +703,40 @@ test('#7548 review round 1: after a changed move, a call from the session that r
   await twoTicks(r2, d2);
   await r2.tick(d2, NOW + 2000);
   assert.equal(lines(f2).filter((l) => l.kind === 'works').pop()?.works, 'yes', 'a changed move with no session start never took a sighting');
+});
+
+test('#7548 review round 3: a walk that could not list every agent never closes a watch, and the default account is walked as one', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d } = deps();
+  await twoTicks(run, d);
+  assert.deepEqual(run.state.watching.map((w) => w.agent), ['ada'], 'CONTROL: the move is watched');
+  const walk = d.agentsOn;
+  d.agentsOn = (dir, isDefault) => (dir === '/u/.claude-spare' ? { names: [], complete: false, moving: [] } : walk(dir, isDefault));
+  await run.tick(d, NOW + 2000);
+  assert.equal(lines(file).some((l) => l.kind === 'released'), false, 'a walk that could not finish read as the person moving the agent');
+  assert.deepEqual(run.state.watching.map((w) => w.agent), ['ada']);
+  /* The default account lists its agents only when asked as the default (accounts' walk). */
+  d.isDefaultDir = (dir) => dir === '/u/.claude-spare';
+  d.agentsOn = (dir, isDefault) => (dir === '/u/.claude-spare' && isDefault !== true ? { names: [], complete: true, moving: [] } : walk(dir, isDefault));
+  await run.tick(d, NOW + 3000);
+  assert.equal(lines(file).some((l) => l.kind === 'released'), false, 'the default account was walked as an ordinary one, so its agents read as gone');
+  d.agentsOn = (dir, isDefault) => (dir === '/u/.claude-spare' ? { names: [], complete: true, moving: [] } : walk(dir, isDefault));
+  await run.tick(d, NOW + 4000);
+  assert.equal(lines(file).filter((l) => l.kind === 'released').length, 1, 'CONTROL: a full walk without the agent releases it');
+});
+
+test('#7548 review round 3: three refusals hold an agent a day only when all three fall inside the day', async () => {
+  /* The last refusal two hours ago, past its hour; the day's hold depends on how many fell inside the day. */
+  for (const [what, times, moves] of [
+    ['two of three over a day old', [NOW - automove.DAY_MS - 5000, NOW - automove.DAY_MS - 4000, NOW - 2 * H], 1],
+    ['CONTROL: all three inside the day', [NOW - 4 * H, NOW - 3 * H, NOW - 2 * H], 0],
+  ]) {
+    const run = automove.create({ file: fileFor() });
+    run.state.refused.set('ada', NOW - 2 * H);
+    run.state.refusedTimes.set('ada', times);
+    const { d, calls } = deps();
+    await twoTicks(run, d);
+    assert.equal(calls.starts.length, moves, what);
+  }
 });
