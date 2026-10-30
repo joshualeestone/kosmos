@@ -180,6 +180,9 @@ function stateFile() { return path.join(dir(), 'state.json'); }
 function keysFile() { return path.join(endpointDir(), 'keys.json'); }
 function sentFile() { return path.join(endpointDir(), 'sent.json'); } // written ONLY inside an exclusive section (the sweep, #4994's retirements)
 function deletesFile() { return path.join(dir(), 'deletes.json'); } // written ONLY by requestDelete
+// kosmos-relay#614: computers whose owner links are still to be cleared; added ONLY by requestOwnerUnlink, removed ONLY by
+// sweepOwnerUnlink, each in one synchronous read-modify-write.
+function ownerUnlinkFile() { return path.join(endpointDir(), 'owner-unlink.json'); }
 // #4373 part B: comments' own record, never sent.json: the delete, take-down and settle passes walk
 // sent.json as POSTS, and must never meet a comment row.
 // written inside an exclusive section (the sweep, #4994's retirements), and by markNotSent, which adds a row for a comment with none
@@ -1690,6 +1693,88 @@ async function sweepOwnerLink(keys, on) {
   }
 }
 
+/**
+ * kosmos-relay#614: a Forget that wipes this computer's key while the computer is still on the account (the person
+ * removed it from this computer only, or Kosmos+ refused the retire for good) leaves the computer live to the
+ * coordinator's owner-live check, so the site would keep each agent's owner link, and the person who had this computer
+ * would keep the owner view and Delete over its agents' posts. remote.forgetNow notes the computer's id here before it
+ * wipes the key; sweepOwnerUnlink then clears each agent's link with that agent's own key, which Forget does not touch.
+ * A computer that was retired needs nothing: owner-live answers false for it and the site clears the link itself.
+ * Noted whether or not an agent shows a marker for it yet: a link already out when the Forget began can land after it,
+ * and the next sweep finds its marker.
+ */
+function requestOwnerUnlink(mac) {
+  if (typeof mac !== 'string' || !/^[0-9a-f]{32}$/.test(mac)) return { ok: false, because: 'not a computer id' };
+  try {
+    const pending = loadJson(ownerUnlinkFile());
+    if (!pending) return { ok: false, because: 'we could not read the list of owner links to clear' };
+    if (!pending[mac]) {
+      pending[mac] = new Date().toISOString();
+      saveJson(ownerUnlinkFile(), pending);
+    }
+    // How many agents show a link through this computer now, so the Forget can say so only when there are some.
+    const keys = loadJson(keysFile()) || {};
+    const linked = Object.values(keys).filter((k) => k && typeof k.ownerLinked === 'string' && k.ownerLinked.startsWith(mac + ':')).length;
+    return { ok: true, linked };
+  } catch {
+    return { ok: false, because: 'we could not save that' };
+  }
+}
+const ownerUnlinkAt = new Map();      // endpointDir -> ms: the clear pass is paused until then
+const ownerUnlinkLogged = new Map();  // endpointDir -> the reason last logged (once per reason)
+/* The site's DELETE /agents/me/owner {mac} (contract on kosmos-relay#614): 204 whether it cleared the link or found
+   nothing naming this mac, so 204 drops the marker either way. It runs whatever the Community switch and Kosmos+ say,
+   as the industry clear and the owner's deletes do: taking something back must not wait for a switch, and after such a
+   Forget Kosmos+ is off here. */
+async function sweepOwnerUnlink(keys) {
+  const pending = loadJson(ownerUnlinkFile());
+  const macs = pending ? Object.keys(pending).filter((m) => /^[0-9a-f]{32}$/.test(m)) : [];
+  if (!macs.length) return;
+  const ep = endpointDir();
+  if ((ownerUnlinkAt.get(ep) || 0) > Date.now()) return;
+  const pause = (ms, why, reason = why) => {
+    ownerUnlinkAt.set(ep, Date.now() + ms);
+    if (ownerUnlinkLogged.get(ep) !== reason) { ownerUnlinkLogged.set(ep, reason); log(`owner link clear: ${why}`); }
+  };
+  let marks = false;
+  const cleared = [];
+  try {
+    for (const mac of macs) {
+      let left = false;
+      for (const [agentKey, k] of Object.entries(keys)) {
+        if (!k || typeof k.ownerLinked !== 'string' || !k.ownerLinked.startsWith(mac + ':')) continue;
+        // A key the site refused was rotated or revoked there, and the site cleared its link when it did.
+        if (k.refused) { delete k.ownerLinked; marks = true; continue; }
+        const r = await asAgent(agentKey, keys, 'DELETE', '/agents/me/owner', { mac });
+        if (r.status === 204 || k.refused) { delete k.ownerLinked; marks = true; continue; }
+        left = true;
+        if (r.status === 404 || r.status === 405) {
+          pause(OWNER_LINK_UNKNOWN_MS, `the community has no route to clear an owner link yet (${r.status}); trying again in an hour`);
+        } else if (r.status === 429 || r.status === 503) {
+          const waitS = Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 0));
+          pause(waitS * 1000, `the community asked to wait (${r.status}); trying again in ${waitS} s`, 'site ' + r.status);
+        } else {
+          pause(OWNER_LINK_RETRY_MS, `the community answered ${r.status || 'nothing'}; trying again in ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`,
+            'site ' + (r.status >= 500 ? '5xx' : r.status || 'none'));
+        }
+        break;
+      }
+      if (left) break;   // the pass waits; the macs after this one go with the next one
+      cleared.push(mac);
+    }
+  } finally {
+    if (marks) saveJson(keysFile(), keys);
+    if (cleared.length) {
+      const now = loadJson(ownerUnlinkFile());
+      if (now) {
+        for (const m of cleared) delete now[m];
+        saveJson(ownerUnlinkFile(), now);
+      }
+      ownerUnlinkLogged.delete(ep);
+    }
+  }
+}
+
 async function sweepIndustry(keys, on) {
   const cur = industry.read();
   if (!cur.ok) return;
@@ -2022,6 +2107,9 @@ async function sweepOnce(now) {
   // comments or the install group.
   try { await sweepAvatars(keys, on, { removals: false }); }
   catch (e) { log(`pictures: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
+  // kosmos-relay#614: before the link pass, so a clear for a forgotten computer never waits behind a slow link pass.
+  try { await sweepOwnerUnlink(keys); }
+  catch (e) { log(`owner link clear: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
   // #7215: last: nothing public waits on the owner link, so it must not hold back new pictures.
   try { await sweepOwnerLink(keys, on); }
   catch (e) { log(`owner link: ${e && e.code ? e.code : 'failed'}; the next sweep tries again`); }
@@ -3264,18 +3352,18 @@ const agentBudget = () => agentBudgetMs;   // #6705: the live budget (a test may
 module.exports = {
   commentInFlight,   // kosmos#7230 review 3: communitynudge counts a comment whose send is out as waiting
   communityScope: communityNow, PUBLIC_OFF_WORDS,   // kosmos#7543: which community a read goes to (the company's, the public one, or none)
-  switchOn, switchState, notOnWords, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, publicGet, requestDelete, withdrawFor, editFor,
+  switchOn, switchState, notOnWords, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, requestOwnerUnlink /* kosmos-relay#614 */, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, publicGet, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest, refreshSelf,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, reportPolicyRefusal, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, agentBudget, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
   CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171
-  _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
+  _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile, ownerUnlinkFile },
   _saveJsonForTest: saveJson,   // #5431: an unchanged save is otherwise hard to drive on its own
   namesInstallGroup,   // #4922: for its contract test against the service's real answer shapes
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
   _ownerLinkBudget: (ms) => { OWNER_LINK_PASS_MS = ms; },   // #7215: for its budget test
-  _ownerLinkReset: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); ownerLinkLogged.clear(); ownerLinkPassLogged.clear(); ownerLinkFrom.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215: for its tests: ends every pause and wait, and sets the short pause
+  _ownerLinkReset: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); ownerLinkLogged.clear(); ownerLinkPassLogged.clear(); ownerLinkFrom.clear(); ownerUnlinkAt.clear(); ownerUnlinkLogged.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215, kosmos-relay#614: for its tests: ends every pause and wait, and sets the short pause
   _installGroupRetry: (ms) => { installGroupPassAt.clear(); installGroupFrom.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };
