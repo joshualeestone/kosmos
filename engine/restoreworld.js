@@ -93,6 +93,9 @@ const GIT_PLAIN_KEYS = new Set([
 const GIT_CONFIGS = ['config', 'config.worktree'];   // in a git folder; the second is read when extensions.worktreeConfig is set
 const MAX_GIT_CONFIG_BYTES = 1024 * 1024;   // a hand-kept config is a few KB; past this it is named, not read
 const MAX_GIT_KEYS_SHOWN = 20;   // per config file; past it one line says how many more
+/* Keys git is known to act on (git's key, as plainKeyOf gives it). They are shown before any other unlisted key, so
+   decoys cannot push one past the cap. Only an order: a key missing here is still shown, just not first. */
+const GIT_RUNNER_KEY = /^(core\.(sshcommand|pager|editor|fsmonitor|hookspath|askpass|worktree|gitproxy)$|pager\.|alias\.|filter\.|diff\.\*\.(textconv|command)$|merge\.\*\.driver$|credential|include|url\.\*\.insteadof$|submodule\.\*\.update$|remote\.\*\.(uploadpack|receivepack|vcs|proxy)$|gpg\.|sequence\.editor$|protocol\.)/;
 const GIT_READ_MS = 2000;   // one read takes a few ms; a git that hangs costs at most this
 const MAX_GIT_READ_TOTAL_MS = 20000;   // across one listing: MAX_GIT_READS at GIT_READ_MS each would be 13 minutes
 const MAX_GIT_READS = 400;   // git config runs per listing: up to four per project, across a thousand projects, took 10 s
@@ -617,17 +620,20 @@ function gitSettingsOf(file, shown, budget) {
   let tmp;
   try { tmp = fs.realpathSync(os.tmpdir()); } catch { tmp = os.tmpdir(); }
   Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull, GIT_TERMINAL_PROMPT: '0', GIT_CEILING_DIRECTORIES: path.dirname(tmp) });
-  // Key names alone fit in the file's own size; the buffer allows twice that, and past it the read is not checked.
+  // Twice the file's size; long subsections over many short keys can list more than that, and then it is not checked.
   const r = childProcess.spawnSync('git', ['config', '--file', file, '--no-includes', '--null', '--name-only', '--list'],
     { cwd: tmp, env, encoding: 'utf8', timeout: GIT_READ_MS, maxBuffer: 2 * MAX_GIT_CONFIG_BYTES, windowsHide: true });
   if (r.error || r.status !== 0) return [`${shown} (its git settings could not be checked)`];
   const keys = [...new Set(r.stdout.split('\0').filter(Boolean))].filter((k) => !GIT_PLAIN_KEYS.has(plainKeyOf(k)));
+  const runner = (k) => GIT_RUNNER_KEY.test(plainKeyOf(k));
+  keys.sort((a, b) => Number(runner(b)) - Number(runner(a)));   // stable: file order within each group
   const out = keys.slice(0, MAX_GIT_KEYS_SHOWN).map((k) => `${shown} sets ${keyLabelOf(k)}`);
   // Past the cap the sections are still named, so twenty harmless keys first cannot hide a core.sshCommand.
   const rest = [...new Set(keys.slice(MAX_GIT_KEYS_SHOWN).map((k) => k.slice(0, k.indexOf('.')).toLowerCase()))];
   const sections = rest.slice(0, MAX_GIT_KEYS_SHOWN).map((x) => cleanText(x, MAX_KEY_PART_CHARS, '(a name that cannot be shown)'));
   if (rest.length > MAX_GIT_KEYS_SHOWN) sections.push('others');
-  if (keys.length > MAX_GIT_KEYS_SHOWN) out.push(`${shown} sets ${keys.length - MAX_GIT_KEYS_SHOWN} more git settings (in ${sections.join(', ')})`);
+  const more = keys.length - MAX_GIT_KEYS_SHOWN;
+  if (more > 0) out.push(`${shown} sets ${more} more git ${more === 1 ? 'setting' : 'settings'} (in ${sections.join(', ')})`);
   return out;
 }
 /* A key as shown: its section, subsection and name each cleaned and cut on its own, so a long subsection cannot push
@@ -658,12 +664,19 @@ function gitSettingsIn(folder, runs, budget) {
   if (runs.includes(BARE)) dirs.push([folder, '']);
   for (const [dir, shown] of dirs) {
     const at = (n) => (shown ? `${shown}/${n}` : n);
-    // Present, or not readable enough to tell, both say not checked; only a missing entry says nothing.
-    const there = (n) => { try { fs.lstatSync(path.join(dir, n)); return true; } catch (e) { return !isAbsent(e); } };
-    if (there('commondir')) out.push(`${at('commondir')} moves its git settings elsewhere, so they were not checked`);
+    // Present, absent, or unknown when the folder cannot be searched; unknown says so rather than guessing either way.
+    const there = (n) => { try { fs.lstatSync(path.join(dir, n)); return true; } catch (e) { return isAbsent(e) ? false : null; } };
+    const unknown = (n) => `${at(n)} (could not be checked)`;
+    const common = there('commondir');
+    if (common) out.push(`${at('commondir')} moves its git settings elsewhere, so they were not checked`);
+    else if (common === null) out.push(unknown('commondir'));
     for (const c of GIT_CONFIGS) out.push(...gitSettingsOf(path.join(dir, c), at(c), budget));
     // Submodules and linked worktrees keep configs of their own, which git reads when an agent works in them.
-    for (const n of ['modules', 'worktrees']) if (there(n)) out.push(`${at(n)} holds more git settings, which were not checked`);
+    for (const n of ['modules', 'worktrees']) {
+      const t = there(n);
+      if (t) out.push(`${at(n)} holds more git settings, which were not checked`);
+      else if (t === null) out.push(unknown(n));
+    }
   }
   return out;
 }

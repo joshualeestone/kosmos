@@ -102,3 +102,15 @@ runs or loads something once the agent's git reaches it. The review screen must 
   os.devNull on Windows (a refusal there fails closed; Homer's to measure with #7593); the budget message not saying
   time or count; a bare-layout project's modules folder named (fails closed).
 - Tests 63/63; guard files 20/20. Mutation (section naming removed) red (62/1); restored.
+
+## Review round 7 (opus): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 4 NIT
+- FIXED: twenty decoys in the SAME section (core.a0..a19, then core.sshCommand) still buried the real command behind
+  "1 more (in core)". Keys git is known to act on (GIT_RUNNER_KEY) are now shown first, in a stable sort. It is only an
+  order: a key missing from that list is still shown, just not first. Round 4's "no safe order" was wrong.
+- FIXED: a .git that cannot be searched claimed commondir and worktrees were present. there() now has three states,
+  and the unknown one says "(could not be checked)".
+- FIXED: the maxBuffer comment was false (a long subsection over short keys lists more than the file's size; probed
+  ENOBUFS, which reads as not checked). "1 more git setting" is singular.
+- DEFERRED: gitUntil starting at the listing's start (fails closed); env-stripping tests (probed: not load-bearing for
+  --file on git 2.53); os.devNull on Windows, for Homer with #7593.
+- Tests 63/63; guard files 20/20. Mutations (no runner sort; there() two-state) each red (62/1); restored.

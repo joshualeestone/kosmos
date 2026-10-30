@@ -1036,6 +1036,7 @@ test('a restored project\'s git settings that run or load something are named be
   put('shared/.git/commondir', '../../elsewhere\n');
   put('shared/.git/config', '[core]\n');
   put('many/.git/config', '[alias]\n' + Array.from({ length: 25 }, (_, i) => `\ta${i} = x\n`).join(''));
+  put('decoy/.git/config', '[core]\n' + Array.from({ length: 20 }, (_, i) => `\ta${i} = x\n`).join('') + '\tsshCommand = x\n');
   put('hidden/.git/config', '[foo]\n' + Array.from({ length: 20 }, (_, i) => `\ta${i} = x\n`).join('') + '[core]\n\tsshCommand = x\n');
   const l = rw.listRestoredAgents({ base, world: p.world, nameOk });
   const runs = Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
@@ -1050,7 +1051,10 @@ test('a restored project\'s git settings that run or load something are named be
   assert.ok(runs.shared.includes('.git/commondir moves its git settings elsewhere, so they were not checked'));
   assert.equal(set('many').length, 21);
   assert.equal(set('many')[20], '.git/config sets 5 more git settings (in alias)');
-  assert.equal(set('hidden')[20], '.git/config sets 1 more git settings (in core)', 'a key past the cap still names its section');
+  assert.equal(set('hidden')[0], '.git/config sets core.sshcommand', 'a key git acts on is shown before decoys');
+  assert.equal(set('hidden')[20], '.git/config sets 1 more git setting (in foo)');
+  assert.equal(set('decoy')[0], '.git/config sets core.sshcommand', 'decoys in the same section cannot push it past the cap');
+  assert.equal(set('decoy')[20], '.git/config sets 1 more git setting (in core)');
 });
 
 test('a git key keeps its name in view whatever its subsection; link, oversized and over-budget configs read as not checked', (t) => {
@@ -1125,7 +1129,8 @@ test('a git folder that cannot be searched says not checked, not nothing', { ski
     runs = Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
   } finally { fs.chmodSync(shut, 0o755); fs.chmodSync(closed, 0o755); }   // before fresh() removes the folder
   assert.ok(runs.shut.includes('.git/config (its git settings could not be checked)'), JSON.stringify(runs.shut));
-  assert.ok(runs.shut.includes('.git/modules holds more git settings, which were not checked'));
+  assert.ok(runs.shut.includes('.git/modules (could not be checked)'));
+  assert.ok(!runs.shut.some((r) => /moves its git settings|holds more git settings/.test(r)), 'nothing is claimed present that could not be seen');
   assert.ok(runs.closed.includes('.git (its git settings could not be checked)'), JSON.stringify(runs.closed));
 });
 
