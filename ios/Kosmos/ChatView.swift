@@ -634,7 +634,8 @@ struct ChatView: View {
                     guard keepNewestInView else { return }
                     if visible { Self.trace("keyboard shown, to the newest") }
                     // kosmos#7344: re-setting an anchor that already reads "end" does not move the thread, so scroll to it.
-                    // Not animated under the anchor, as goNewest is (the side lock below relies on that).
+                    // Not animated under the anchor, as goNewest is (the side lock below relies on that). Setting the anchor
+                    // after the scroll repairs one that was not "end" (the reader's own scroll to the bottom leaves a message).
                     if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy, animated: true) }
                 }
                 // Only the chat on screen: another tab can keep a chat alive under it.

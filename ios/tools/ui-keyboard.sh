@@ -22,19 +22,38 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# Puts the shared preference back to a value `defaults read` gave (1 or 0), or removes it when that was empty (unset).
+# `-bool` takes only true or false.
+restore_kbd() {
+  if [ -n "$1" ]; then defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool "$([ "$1" = 1 ] && echo true || echo false)"
+  else defaults delete com.apple.iphonesimulator ConnectHardwareKeyboard >/dev/null 2>&1; fi
+}
+
+# One run at a time. The lock directory holds the run's pid and the preference's value from before the run ("was"), so a
+# run that died without its cleanup (SIGKILL, a crash) is found by its dead pid, and the next run puts its "was" back
+# before taking the lock over. A lock with no pid yet is a run that is just starting, unless it is over two minutes old.
 lock="$HOME/.cache/kosmos-ui-keyboard.lock"
 mkdir -p "$HOME/.cache"
-for _ in $(seq 1 120); do mkdir "$lock" 2>/dev/null && break; sleep 5; done
-[ -d "$lock" ] && [ "$(cat "$lock/pid" 2>/dev/null)" = "" ] || { echo "FAIL  ui-keyboard: another run holds $lock (10 min waited)" >&2; exit 1; }
+acquired=0
+for _ in $(seq 1 120); do
+  if mkdir "$lock" 2>/dev/null; then acquired=1; break; fi
+  holder="$(cat "$lock/pid" 2>/dev/null)"
+  if { [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; } || { [ -z "$holder" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +2 2>/dev/null)" ]; }; then
+    [ -f "$lock/was" ] && restore_kbd "$(cat "$lock/was")"
+    echo "ui-keyboard: took over a lock left by a run that is gone (pid ${holder:-none})" >&2
+    rm -rf "$lock"; continue
+  fi
+  sleep 5
+done
+[ "$acquired" = 1 ] || { echo "FAIL  ui-keyboard: another run holds $lock (10 min waited)" >&2; exit 1; }
 echo $$ > "$lock/pid"
+was_kbd="$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" || was_kbd=""
+printf '%s' "$was_kbd" > "$lock/was"
 work="$(mktemp -d)"
 udid=""
-was_kbd="$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" || was_kbd=""
 cleanup() {
   [ -n "$udid" ] && { xcrun simctl shutdown "$udid" >/dev/null 2>&1; xcrun simctl delete "$udid" >/dev/null 2>&1; }
-  # `defaults read` prints 1 or 0; `-bool` takes only true or false.
-  if [ -n "$was_kbd" ]; then defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool "$([ "$was_kbd" = 1 ] && echo true || echo false)"
-  else defaults delete com.apple.iphonesimulator ConnectHardwareKeyboard >/dev/null 2>&1; fi
+  restore_kbd "$was_kbd"
   if [ "$keep" = 1 ]; then echo "kept: $work"; else rm -rf "$work"; fi
   rm -rf "$lock"
 }
