@@ -235,10 +235,11 @@ function chk(ok, label, extra) {
             slot.appendChild(n);
             document.getElementById('topnotes').appendChild(slot);
             // #7648: pollAsk and pollWaiting (5s each) repaint through paintAsk, which hides an empty Allow card.
-            window.__paintAskCalls = 0; window.paintAsk = () => { window.__paintAskCalls += 1; };
+            window.__pollAskPaints = 0;
+            window.paintAsk = () => { if (/pollAsk/.test(String(new Error().stack))) window.__pollAskPaints += 1; };
             const ask = document.getElementById('askcard'); if (ask) ask.hidden = false;   // the Allow card, shown
           });
-          const forcedCalls = await page.evaluate(async () => { window.__paintAskCalls = 0; await pollAsk(); return window.__paintAskCalls; });
+          const pollAskPaints = await page.evaluate(async () => { window.__pollAskPaints = 0; await pollAsk(); return window.__pollAskPaints; });
           await page.waitForTimeout(400);
           await page.evaluate(() => { const m = document.documentElement.scrollHeight - innerHeight; window.scrollTo(0, Math.round(m / 2)); });
           await page.waitForTimeout(200);
@@ -259,7 +260,7 @@ function chk(ok, label, extra) {
           });
           const tag = `${engineName} a floating notice, 900x700 mac, scrolled halfway`;
           chk(r.y > 0 && !r.consolidated && r.notesH >= 90 && r.navPos === 'sticky' && r.askShown, `${tag}: control: the tab view, the notice and the Allow card show, the page scrolled and the nav is sticky`, JSON.stringify(r));
-          chk(forcedCalls >= 1, `${tag}: control: a repaint reached the stub while the forced poll ran`, JSON.stringify({ forcedCalls }));
+          chk(pollAskPaints >= 1, `${tag}: control: pollAsk reached the stubbed repaint`, JSON.stringify({ pollAskPaints }));
           chk(r.underNotes === 0 && r.firstTakesClick, `${tag}: every pill is below the floating notice, and the first one takes the click`, JSON.stringify(r));
           chk(r.askBelowNotes, `${tag}: at the top of the page the Allow card is below the floating notice, never under it`, JSON.stringify(r));
           notesRan += 1;
