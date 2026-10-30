@@ -10,9 +10,9 @@ final class ChatOpensAtNewestUITests: XCTestCase {
     /// The bubble itself: a bubble reads as one element, "<who>, <time>: <text>" (ChatView's spoken label), so its label
     /// is matched after the colon, never a bare text inside it or anything that merely starts with the words.
     private func message(_ n: Int, in app: XCUIApplication) -> XCUIElement {
-        // kosmos#7609: typed (a bubble is one "other" element), never a search of every element: on a CI runner a query
+        // kosmos#7609: typed (a bubble reads as one button: it carries the sheet's action), never a search of every element: on a CI runner a query
         // over the whole 260-message tree timed out.
-        app.otherElements.matching(NSPredicate(format: "label CONTAINS %@", ": Message \(n) of 260.")).firstMatch
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ": Message \(n) of 260.")).firstMatch
     }
 
 
@@ -33,7 +33,7 @@ final class ChatOpensAtNewestUITests: XCTestCase {
 
     /// Waits until the list has stopped moving: a bubble's frame reads the same twice, half a second apart.
     private func waitStill(_ app: XCUIApplication) {
-        let any = app.otherElements.matching(NSPredicate(format: "label CONTAINS %@", ": Message ")).firstMatch
+        let any = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ": Message ")).firstMatch
         var last = CGRect.null
         for _ in 0..<12 {
             let now = any.exists ? any.frame : .null
