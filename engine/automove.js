@@ -39,9 +39,9 @@ const REFUSED_TIMES = 3;          // refused this many times in a day, it is pas
 const PERIOD_MS = require('./usagepoll').POLL_MS;
 const previousTickMs = (periodMs) => 2.5 * (Number.isFinite(periodMs) && periodMs > 0 ? periodMs : PERIOD_MS);
 const SKIP_SAID_MS = 60 * 60 * 1000;   // a "no longer idle" line for one agent at most once an hour
-/* kosmos#7621 item 8: an agent whose re-check could not be made is set aside this long, in memory and with no line, so
+/* kosmos#7621 item 8: an agent whose re-check could not be made is set aside this long (ten minutes), in memory and with no line, so
    the next candidate gets its turn (the first candidate is always tried first, so one such agent blocked every move). */
-const RECHECK_HOLD_MS = 60 * 60 * 1000;
+const RECHECK_HOLD_MS = 10 * 60 * 1000;   // review 3: long enough for the next candidate, short for one bad roster read
 
 function movesOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOMOVE === '1' && env.AGENT_WORKFORCE_AUTOMOVE_OFF !== '1'; }
 
@@ -379,8 +379,12 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
   /* kosmos#7621 item 2: Settings' question, "does the mover leave this agent alone now?", with the person lines
      read first (those in the record and those still waiting to be written), so a person's move made since the last
      tick is not shown as one Kosmos will undo. A record that cannot be read answers from what the last tick read. */
+  let peopleReadAt = null;   // review 3: Settings polls; the record is read for it at most every 30 seconds
   const leftAlone = (nowMs = Date.now()) => {
-    try { readPeople(nowMs); } catch { /* the last tick's reading stands */ }
+    if (!(Number.isFinite(peopleReadAt) && peopleReadAt <= nowMs && nowMs - peopleReadAt < 30 * 1000)) {
+      peopleReadAt = nowMs;
+      try { readPeople(nowMs); } catch { /* the last tick's reading stands */ }
+    }
     for (const l of waitingPeople()) if (l && typeof l.agent === 'string' && Number.isFinite(l.at) && l.at <= nowMs + sweep.CLOCK_SLACK_MS && nowMs - l.at < REST_MS) rest(l.agent, l.at);
     return passedOverAt(nowMs);
   };

@@ -3087,7 +3087,10 @@ function autobalanceSweepDeps() {
    rule), plus the move itself through the bulk move's deps (rule 1) and the re-check just before it, which reads the
    roster and the projects AGAIN, on purpose (rule 2). A function, so a test can drive a real tick on the real wiring. */
 function automoveDeps(sweepDeps = null) {
-  const d = sweepDeps || autobalanceSweepDeps();   // kosmos#7621 item 7: the tick's own sweep deps, so one agents walk serves both
+  /* kosmos#7621 item 7: the tick's own sweep deps, so one agents walk serves both. Review 3: that walk is as old as the
+     sweep's start, so a watch's "released" check can see a person's move a tick late (harmless); the re-check before a
+     move reads a fresh roster and fresh projects (freshRoster, freshRecords below), never the shared walk. */
+  const d = sweepDeps || autobalanceSweepDeps();
   return {
     ...d,
     movesOn: () => automove.movesOn(),

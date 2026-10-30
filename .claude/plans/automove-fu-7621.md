@@ -42,3 +42,8 @@ while moves are off. Items as numbered on the card.
   stopped case's test is strict again (no message at all); a partial is told exactly once. The real-wiring tick test
   says what it shows (it stops at the fewer-than-two-accounts check). Settings checks "leaves it alone" before the
   record pause. Three comments corrected.
+- Round 3 (Sonnet, whole branch): no BLOCKER. The set-aside is ten minutes, not an hour, so one bad roster read holds an
+  agent briefly while the next candidate still gets its turn. Settings' leftAlone reads the record at most every 30
+  seconds, not on every poll. A comment says the shared walk can make a "released" check one tick late, and that the
+  re-check before a move never uses it. Got wrong, corrected in flight: a perl edit with | as its delimiter and \|\| in
+  the text rewrote every line of server.js; restored from the commit (hash checked equal) and made by hand instead.

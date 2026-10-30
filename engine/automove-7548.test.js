@@ -1012,7 +1012,7 @@ test('kosmos#7621 item 7: the sweep and the mover share one tick\'s deps, so the
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /const sweepDeps = autobalanceSweepDeps\(\);[^\n]*\n\s+try \{ ticking = abSweep\.tick\(sweepDeps\); \}/, 'the sweep does not use the tick\'s deps');
   assert.match(src, /automoveRun\.tick\(automoveDeps\(sweepDeps\)\)/, 'the mover builds a second walk each tick');
-  assert.match(src, /function automoveDeps\(sweepDeps = null\) \{\n\s+const d = sweepDeps \|\| autobalanceSweepDeps\(\);/);
+  assert.match(src, /function automoveDeps\(sweepDeps = null\) \{\n(?:\s+\/\*[\s\S]*?\*\/\n)?\s+const d = sweepDeps \|\| autobalanceSweepDeps\(\);/);
 });
 
 test('kosmos#7621 review 1: the set-aside shows in Settings, holds only the agent the re-check failed for, and ends when one works', async () => {
