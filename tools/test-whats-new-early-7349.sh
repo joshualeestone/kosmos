@@ -112,7 +112,8 @@ run 0 0 STUB_BUILD_STALE=1
 # ...and a list that cannot be read is said as that, not as a stale list (review 2).
 run 0 0 STUB_BUILD_EMPTY=1
 { [ "$RC" != 0 ] && has "$OUT" "$STOP" && has "$OUT" "could not compare web/whats-new.json" \
-  && ! has "$OUT" "is not what release/whats-new-pool.json builds" && ! marked; } \
+  && ! has "$OUT" "is not what release/whats-new-pool.json builds" && has "$LOG" "whats-new-pool build markers=0" \
+  && ! marked && ! home_made; } \
   && pass "an unreadable build is could-not-compare, not stale" \
   || bad "unreadable build (rc=$RC): out=$(printf '%s' "$OUT" | tail -3)"
 
