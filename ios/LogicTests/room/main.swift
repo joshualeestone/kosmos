@@ -525,7 +525,8 @@ let geoStart = chatSource.range(of: "let line = \"scroll y ")
 let geoEnd = geoStart.flatMap { chatSource.range(of: "let settled", range: $0.upperBound..<chatSource.endIndex) }
 let geoText = geoStart.flatMap { s in geoEnd.map { String(chatSource[s.lowerBound..<$0.lowerBound]) } } ?? ""
 let geoValues = geoText.components(separatedBy: "\\(").dropFirst().map { $0.components(separatedBy: ")").first ?? "" }
-check(geoValues.count == 6 && geoValues.allSatisfy { $0.hasPrefix("Int(") || $0 == "band.rawValue" },
+check(geoValues.count == 6 && geoValues.allSatisfy { $0.hasPrefix("n(sv.") || $0.hasPrefix("n(inset.") || $0 == "band.rawValue" }
+      && chatSource.contains("func n(_ v: CGFloat) -> Int { v.isFinite ? Int(max(min(v, 1e9), -1e9)) : -1 }"),
       "kosmos#7420: the scroll view's line records numbers and the band only (\(geoValues.count) values: \(geoValues))")
 // Review 9: a record line built with + is not seen by the interpolation scan above, so each + operand of a trace line must be
 // a string literal, the vetted scroll line, or the arm's fixed words.

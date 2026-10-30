@@ -815,8 +815,10 @@ struct ChatView: View {
         let inset = sv.adjustedContentInset
         let band = Board.scrollBand(offsetY: Double(sv.contentOffset.y), contentHeight: Double(sv.contentSize.height),
                                     visibleHeight: Double(sv.bounds.height), insetTop: Double(inset.top), insetBottom: Double(inset.bottom))
-        let line = "scroll y \(Int(sv.contentOffset.y)), content \(Int(sv.contentSize.height)), shown \(Int(sv.bounds.height)), "
-            + "insets \(Int(inset.top))/\(Int(inset.bottom)), \(band.rawValue)" + (sv.isDragging || sv.isDecelerating ? ", moving" : "")
+        // Review 10: a diagnostic must never crash the app, and Int() traps on a value that is not finite.
+        func n(_ v: CGFloat) -> Int { v.isFinite ? Int(max(min(v, 1e9), -1e9)) : -1 }
+        let line = "scroll y \(n(sv.contentOffset.y)), content \(n(sv.contentSize.height)), shown \(n(sv.bounds.height)), "
+            + "insets \(n(inset.top))/\(n(inset.bottom)), \(band.rawValue)" + (sv.isDragging || sv.isDecelerating ? ", moving" : "")
         let settled = sv.contentSize.height > 0 && (diagThreadAt.map { Date().timeIntervalSince($0) > 2 } ?? false)
         // Review 6: an unmeasured list is never read as off, and the record says it was not judged rather than on the content.
         return (settled ? line : line + ", not judged yet", settled && band != .content, sv.isDragging || sv.isDecelerating, settled)
@@ -840,6 +842,8 @@ struct ChatView: View {
         guard recover else { diagReport = lines.joined(separator: "\n"); announceDiag(); return }   // review 1: a width finding moves nobody
         Self.trace("diag: \(why), trying the newest message")
         goNewest(proxy)
+        // Review 10: written 1.5 s later, so only if no account or computer change came between (that resets the report).
+        let epoch = client.chatEpoch
         // kosmos#7420 (build 19): rows counted are what SwiftUI says appeared, not what was drawn, so a band off the content
         // reads as empty whatever the count; both are written. Read at 0.6 s and again at 1.5 s (layout may still be settling).
         func reading(_ when: String) -> String {
@@ -853,6 +857,7 @@ struct ChatView: View {
             lines.append(reading("0.6 s"))
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
                 lines.append(reading("1.5 s"))
+                guard client.chatEpoch == epoch else { return }
                 diagReport = lines.joined(separator: "\n")
                 announceDiag()
             }
