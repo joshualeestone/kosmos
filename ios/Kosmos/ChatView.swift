@@ -546,22 +546,29 @@ struct ChatView: View {
                 .background(GeometryReader { g in
                     Color.clear.onAppear { diagViewport = g.size }
                         .onChange(of: g.size) { now in
-                            diagViewport = now; Self.trace("viewport \(Int(now.width))x\(Int(now.height)), " + diagGeometry().line)
+                            diagViewport = now; Self.trace("viewport \(Int(now.width))x\(Int(now.height))")
                             // kosmos#7420 (build 19): a resize can leave the band off the content with rows still counted as
                             // shown, so no row leaving ever bumps the tick; checked here too, once the size has held for 0.5 s
-                            // (a keyboard drag resizes every frame).
+                            // (a keyboard drag resizes every frame), and the scroll view's numbers recorded then, not per frame.
                             diagScroll.resizes &+= 1
                             let mine = diagScroll.resizes
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                if diagScroll.resizes == mine, diagGeometry().off { diagTick &+= 1 }
+                                guard diagScroll.resizes == mine else { return }
+                                let g = diagGeometry()
+                                Self.trace("size held, " + g.line)
+                                if g.off { diagTick &+= 1 }
                             }
                         }
                 })
                 // Review 1: driven by a tick bumped when the last row leaves (row()), when the list first exists, and when a
-                // resize leaves the band off the content (above), never by reading onScreen here,
-                // which would redraw the whole chat on every row that scrolls in or out. Checked at 0.5 s and again at 1.5 s.
+                // resize leaves the band off the content (above), never by reading onScreen here, which would redraw the
+                // whole chat on every row that scrolls in or out. Read at 0.5 s and acted on at 1.5 s only if both read empty
+                // (build 19 review 3: one reading of an estimated content height is not enough to move the reader).
                 .onChange(of: diagTick) { _ in
-                    for wait in [0.5, 1.5] { DispatchQueue.main.asyncAfter(deadline: .now() + wait) { diagCheck(proxy, count: items.count) } }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        let first = diagEmpty(count: items.count)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { if first { diagCheck(proxy, count: items.count) } }
+                    }
                 }
                 // Review 1: a row wider than the list, measured in one pass (diagContentWidth carries the list's width beside it)
                 // and still so 0.3 s later, so a rotation or resize between two readers cannot fire it.
@@ -756,7 +763,7 @@ struct ChatView: View {
     // kosmos#7265 debug: KOSMOS_SAMPLE_TRACE=1 appends the chat's scroll state to Documents/trace.txt.
     // kosmos#7420 diagnostic: no message on screen for half a second while the conversation has some (the black list), by
     // the rows or by the scroll view's band (diagGeometry).
-    private func diagCheck(_ proxy: ScrollViewProxy, count: Int) {
+    private func diagEmpty(count: Int) -> Bool {
         // Review 1: only for the chat on screen with the app in front: under the info page, another tab or Quick Look every
         // row leaves too, and that is not a fault.
         // Review 3 and 4: a list never drawn never moved the end marker, so that arm needs no row drawn since the messages
@@ -767,7 +774,11 @@ struct ChatView: View {
         let rowsGone = onScreen.isEmpty && (!endVisible || neverDrew) && !topVisible
         // Review 2: the band counts only with the list still, so a fling or a bounce past the end is not a finding.
         let geo = diagGeometry()
-        guard visible, scenePhase == .active, !searchMode, rowsGone || (geo.off && !geo.moving), count > 0, thread != nil else { return }
+        return visible && scenePhase == .active && !searchMode && (rowsGone || (geo.off && !geo.moving)) && count > 0 && thread != nil
+    }
+
+    private func diagCheck(_ proxy: ScrollViewProxy, count: Int) {
+        guard diagEmpty(count: count) else { return }
         // After the one report, an empty list is still put back each time, at most once in 2 s (a fault that comes back
         // every frame cannot hold the list at the newest message).
         if diagDone {
@@ -815,8 +826,8 @@ struct ChatView: View {
         guard recover else { diagReport = lines.joined(separator: "\n"); announceDiag(); return }   // review 1: a width finding moves nobody
         Self.trace("diag: \(why), trying the newest message")
         goNewest(proxy)
-        // kosmos#7420 (build 19): rows counted are what SwiftUI says appeared, not what was drawn, so the band is the verdict
-        // and the count is written beside it; read at 0.6 s and again at 1.5 s (review 2: layout may still be settling).
+        // kosmos#7420 (build 19): rows counted are what SwiftUI says appeared, not what was drawn, so a band off the content
+        // reads as empty whatever the count; both are written. Read at 0.6 s and again at 1.5 s (layout may still be settling).
         func reading(_ when: String) -> String {
             let g = diagGeometry()
             return "after one try, \(when): " + (g.off || onScreen.isEmpty ? "still nothing on screen" : "the list shows the content again")

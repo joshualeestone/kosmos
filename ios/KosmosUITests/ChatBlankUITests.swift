@@ -64,6 +64,8 @@ final class ChatBlankUITests: XCTestCase {
     }
 
     private func shot(_ app: XCUIApplication, _ name: String) {
-        let a = XCTAttachment(screenshot: app.screenshot()); a.name = name; a.lifetime = .keepAlways; add(a)
+        // Named with whether the banner showed at that moment, so the walk's evidence says where an empty list appeared.
+        let a = XCTAttachment(screenshot: app.screenshot())
+        a.name = name + (app.staticTexts[Self.banner].exists ? " (banner)" : ""); a.lifetime = .keepAlways; add(a)
     }
 }

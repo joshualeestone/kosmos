@@ -529,10 +529,11 @@ check(geoValues.count == 6 && geoValues.allSatisfy { $0.hasPrefix("Int(") || $0 
       "kosmos#7420: the scroll view's line records numbers and the band only (\(geoValues.count) values: \(geoValues))")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
-check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, rowsGone || (geo.off && !geo.moving)") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
+check(chatSource.contains("return visible && scenePhase == .active && !searchMode && (rowsGone || (geo.off && !geo.moving))") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
       && !chatSource.contains(".onChange(of: onScreen.isEmpty)"), "review 1: the check runs only for the chat on screen, and never makes the chat redraw per row")
 check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("let rowsGone = onScreen.isEmpty && (!endVisible || neverDrew) && !topVisible")
-      && chatSource.contains("rowsGone || (geo.off && !geo.moving), count > 0, thread != nil else { return }") && chatSource.contains("ShareLink(item: report"),
+      && chatSource.contains("(rowsGone || (geo.off && !geo.moving)) && count > 0 && thread != nil")
+      && chatSource.contains("DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { if first { diagCheck(proxy, count: items.count) } }") && chatSource.contains("ShareLink(item: report"),
       "kosmos#7420: a bounded record, the blank check, and a share the person chooses (nothing sent by itself)")
 // kosmos#7420 (Josh 10-28, builds 13 to 15): the chat's list is locked against a sideways offset (every row 16 pt left).
 // kosmos#7575: it also tells the chat of each shift (the trailing closure), for the report sent to the board.
