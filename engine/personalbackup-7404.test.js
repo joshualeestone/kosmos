@@ -392,3 +392,26 @@ test('#7404 warning 3: a lost join is aged by its own at, and an unreadable at r
   await pb.followUp({ root, orgenroll: stub, now: at });
   assert.equal(n, 2, 'unreadable: hourly');
 });
+
+/* Code review 2, warning 4: the key-ready marker names its org and world, so one left by an ending this module did not
+   see (a refresh that found the membership gone) never reads as 'on' for a later membership. */
+test('#7404 warning 4: a key marker for another world or org reads needs-key; a switch-on clears it first', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true);
+  assert.equal(pb.state({ root }), 'on', 'CONTROL: the marker for this record reads on');
+  const f = path.join(root, oe.ENROLLMENT_FILE);
+  const rec = JSON.parse(fs.readFileSync(f, 'utf8'));
+  fs.writeFileSync(f, JSON.stringify(Object.assign({}, rec, { world: 'f'.repeat(32) })));
+  assert.equal(pb.state({ root }), 'needs-key', 'another world: the old marker does not count');
+  fs.writeFileSync(f, JSON.stringify(Object.assign({}, rec, { org: Object.assign({}, rec.org, { id: 'porg_2' }) })));
+  assert.equal(pb.state({ root }), 'needs-key', 'another org: the old marker does not count');
+  fs.writeFileSync(f, JSON.stringify(rec));
+  assert.equal(pb.state({ root }), 'on');
+  // A switch-on removes it before anything is sent, so a key step that then fails leaves needs-key, never a stale on.
+  const p2 = await pb.preview({ root, remote: c });
+  const r = await pb.switchOn(p2.ticket, true, { root, remote: c, personalbackupkey: { setUpPersonalKey: async () => ({ ok: false, code: 'x', because: 'down' }) } });
+  assert.equal(r.ok, false);
+  assert.equal(pb.state({ root }), 'needs-key');
+});

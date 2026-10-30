@@ -185,6 +185,8 @@ async function switchOn(ticket, accepted, opts = {}) {
     return { ok: false, code: 'ticket', because: 'These words were shown too long ago. Open personal backup again to read them.' };
   }
   const oe = opts.orgenroll || require('./orgenroll');
+  // A fresh switch-on runs the key step again (warning 4): no marker from an earlier membership carries over.
+  try { fs.rmSync(path.join(root(opts), KEY_READY), { force: true }); } catch { /* state() compares it anyway */ }
   // The hash was checked when the ticket was made (cleanPreview); it is what stops a hashless enroll moving a company's
   // binding here (design review 1, blocker 2).
   let r;
@@ -221,7 +223,10 @@ async function setUpKey(opts = {}) {
   let k;
   try { k = await pk.setUpPersonalKey({ macRequest: opts.macRequest || ((m, rt, b) => remoteOf(opts).macRequest(m, rt, b)) }); } catch { k = null; }
   if (k && (k.ok || k.code === 'already_here')) {
-    try { fs.writeFileSync(path.join(root(opts), KEY_READY), new Date().toISOString() + '\n', { mode: 0o600 }); } catch { /* state() then says needs-key, and this runs again harmlessly */ }
+    // Code review 2, warning 4: the marker names the org and world it was made for, so an ending this module did not see
+    // (a refresh that finds the membership gone, then a new join) never reads as 'on' for the new one.
+    const rec = record(opts);
+    try { fs.writeFileSync(path.join(root(opts), KEY_READY), JSON.stringify({ at: new Date().toISOString(), org: rec && rec.org.id, world: rec && rec.world }) + '\n', { mode: 0o600 }); } catch { /* state() then says needs-key, and this runs again harmlessly */ }
     return k.ok ? { ok: true, code: k.code, epoch: k.epoch } : { ok: true, code: null, already: true };
   }
   if (k && k.code === 'already_set_up') return { ok: false, code: 'restore', because: 'This backup already has a recovery code from another computer. Restore it here with that code.' };
@@ -230,13 +235,18 @@ async function setUpKey(opts = {}) {
 
 /** 'off', 'needs-key' (on, the key step not finished here), or 'on'; from this module's own record only. */
 function state(opts = {}) {
-  if (!isOn(opts)) return 'off';
-  try { return fs.existsSync(path.join(root(opts), KEY_READY)) ? 'on' : 'needs-key'; } catch { return 'needs-key'; }
+  const rec = record(opts);
+  if (!rec) return 'off';
+  try {
+    const k = JSON.parse(fs.readFileSync(path.join(root(opts), KEY_READY), 'utf8'));
+    return k && k.org === rec.org.id && k.world === rec.world ? 'on' : 'needs-key';
+  } catch { return 'needs-key'; }
 }
 
 /** Whether this computer holds a personal backup's enrollment, from this module's own record only. */
-function isOn(opts = {}) {
-  try { const oe = opts.orgenroll || require('./orgenroll'); const rec = oe.readEnrollment(enrollOpts(opts)); return !!(rec && rec.org && rec.world); } catch { return false; }
+function isOn(opts = {}) { return !!record(opts); }
+function record(opts) {
+  try { const oe = opts.orgenroll || require('./orgenroll'); const rec = oe.readEnrollment(enrollOpts(opts)); return rec && rec.org && rec.world ? rec : null; } catch { return null; }
 }
 
 /** A lost join or a pending leave under this root, settled the way orgenroll settles the company's: one refresh. */
