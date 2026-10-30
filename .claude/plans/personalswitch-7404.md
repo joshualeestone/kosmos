@@ -151,3 +151,27 @@ Decided, not changed (recorded so nobody re-derives it):
 7. DONE by the warning 3 tests (leave and join inside their first day) and c36d1fd48 (coded refusal). WARNING: no test of the fast follow-up path (a pending join or leave) or of a coded refusal through switchOn.
 NITs: DONE (64340b60c5): live-execution gate and one-pass guard in startFollowUp (NOT tested: timer path), ticket claimed at once (mutant red). setUpKey's because left as is: personalbackupkey's sentences are already plain. Full-suite-only guards (reachable, 1732, 1777, connector-verbs) green after fixes. Original list: followUp checks liveExecutionAllowed() as orgEnrollRefresh does; an in-flight guard; setUpKey's because
 in plain words; peek-then-delete is not atomic for two concurrent switchOn calls (claim the ticket synchronously).
+
+## Code review 3 (blind, 16:4x 10-30): one blocker, five warnings, three nits. ALL ADDRESSED (fc2c3ee7fc, then test fixes)
+
+Found by me before the review landed (2cf64bf34d): the coordinator reads a RETIRED computer's binding as none
+(db.rs ORG_MEMBERSHIP_SELECT), so a real personal backup whose Mac was lost read as unbound, and a decline on the new
+Mac would have ended it. Now the board ends only a membership its OWN preview made (status said "no org" just before the
+preview, or no marker is written), and the leave sends {orgId}. Relay half: kosmos#7658 (Mona Lisa, unboundjoin-7658,
+read by me): an unbound personal membership (raw enrolled_mac NULL and no backup key row) ends inside a company or
+family join; mac_leave refuses another org with org_not_that_org.
+
+1. BLOCKER, a second computer's switch-on MOVED the binding (codeless enroll = move) and stopped the first. Fixed:
+   preview and switchOn read status and refuse personal_on_elsewhere when another computer is bound (a retired one
+   reads as none, so the lost-Mac case still binds and is then told to restore). Mutants M2, M3 red.
+2. WARNING, another computer's abandoned marker ends a membership this one is reading. Narrowed by the own-preview rule
+   (an existing membership writes no marker); what remains is said: org_not_member on accept = "open it again".
+3. WARNING, endUnbound raced an in-flight enroll. Fixed: no end while CLAIMED is non-empty. Mutant M1 red (the test
+   first DEADLOCKED on the mutant; now it does not await the follow-up before asserting, and releases its gate on red).
+4. WARNING, status-to-leave window: {orgId} on the leave (needs #7658 deployed; an older relay ignores it).
+5. WARNING, key marker erased before the enroll: now removed only after the bind lands. Mutant M6 red.
+6. WARNING, off with no record and no marker ignores a failed cleanup: accepted. Without a marker nothing here may end
+   it (the own-preview rule); a stranded unbound membership is #7658's job at the next join.
+NITs: future marker counts as old (M4 red); tests preview under their own root, fixture role 'member'; agentevents
+roots by realpath (NOT pinned: M7 stayed green, the withdrawn file reaches the tick through the link; the test says so).
+org_not_that_org settles the marker (M5 red). Untested: startFollowUp's live gate and one-pass guard (timer path).
