@@ -1039,6 +1039,7 @@ struct RoomView: View {
     @State private var photoPicks: [PhotosPickerItem] = []
     @State private var showPhotos = false
     @State private var showFiles = false
+    @State private var showCamera = false   // kosmos#7596
     private var attachKey: String { Board.roomAttachKey(project.id) }
     private var attachedHere: [Board.Attached] { client.attached[attachKey] ?? [] }
     private var uploadingHere: Int { client.uploading[attachKey] ?? 0 }
@@ -1047,23 +1048,17 @@ struct RoomView: View {
     }
     private var atFileLimit: Bool { countedFiles >= Board.maxFiles }
 
+    // kosmos#7596: Camera, Photos and Files in the larger panel (AttachMenu.swift), as in a chat.
     private var addButton: some View {
-        Menu {
-            Button { showPhotos = true } label: { Label("Photo Library", systemImage: "photo.on.rectangle") }
-                .disabled(atFileLimit)
-            Button { showFiles = true } label: { Label("Files", systemImage: "folder") }
-                .disabled(atFileLimit)
-        } label: {
-            // kosmos#7346: a plain + inside the box, a 44 pt target.
-            Image(systemName: "plus")
-                .font(.system(size: 19, weight: .regular))
-                .foregroundColor(Palette.secondary)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
         // The board's own label for its + (#pj-attach).
-        .accessibilityLabel("Add a file to this conversation")
-        .accessibilityHint(atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "")
+        AttachPlusButton(atLimit: atFileLimit, label: "Add a file to this conversation",
+                         hint: atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "") { choice in
+            switch choice {
+            case .camera: showCamera = true
+            case .photos: showPhotos = true
+            case .files: showFiles = true
+            }
+        }
     }
 
     private var chips: some View {
@@ -1100,6 +1095,12 @@ struct RoomView: View {
                 return (Board.photoName(at: at, ext: Board.imageExtension(data) ?? type.preferredFilenameExtension ?? "jpg", number: i + 1), data)
             }), epoch: epoch, to: project.id)
         }
+    }
+
+    private func addTaken(_ data: Data) async {
+        let epoch = client.chatEpoch
+        client.attachLine[attachKey] = nil
+        await store.attach(.photo(load: { (Board.photoName(at: Date(), ext: "jpg", number: 1), data) }), epoch: epoch, to: project.id)
     }
 
     private func addFiles(_ urls: [URL]) async {
@@ -1220,6 +1221,15 @@ struct RoomView: View {
             photoPicks = []
             Task { await addPhotos(picks) }
         }
+        // kosmos#7596: a photo taken with the camera goes up as a picked one does, named the same way.
+        .background(Color.clear.fullScreenCover(isPresented: $showCamera) {
+            CameraCapture { data in
+                showCamera = false
+                guard let data else { return }
+                Task { await addTaken(data) }
+            }
+            .ignoresSafeArea()
+        })
         .background(Color.clear.fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): Task { await addFiles(urls) }

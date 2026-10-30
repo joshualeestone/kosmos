@@ -111,10 +111,11 @@ struct ChatView: View {
     @State private var openedFile: URL?
     // Bumped when the arm window or the answered lock ends, so the buttons redraw then.
     @State private var tick = 0
-    // kosmos#7071: the + beside the composer (Photo Library or Files).
+    // kosmos#7071: the + beside the composer (kosmos#7596: Camera, Photos or Files).
     @State private var photoPicks: [PhotosPickerItem] = []
     @State private var showPhotos = false
     @State private var showFiles = false
+    @State private var showCamera = false   // kosmos#7596
     // kosmos#7083: the agent's message the next send answers (the board's DM reply strip); the box's focus, taken by
     // Reply; the last reaction refusal shown (only it is cleared by the next reaction that goes); reactions in the air.
     @State private var replying: Board.ChatRow?
@@ -1400,6 +1401,15 @@ struct ChatView: View {
             photoPicks = []
             Task { await addPhotos(picks) }
         }
+        // kosmos#7596: a photo taken with the camera goes up as a picked one does, named the same way.
+        .background(Color.clear.fullScreenCover(isPresented: $showCamera) {
+            CameraCapture { data in
+                showCamera = false
+                guard let data else { return }
+                Task { await addTaken(data) }
+            }
+            .ignoresSafeArea()
+        })
         .background(Color.clear.fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): Task { await addFiles(urls) }
@@ -1420,22 +1430,16 @@ struct ChatView: View {
     // As many as a message carries are waiting or on their way: nothing more can be picked.
     private var atFileLimit: Bool { attachedHere.count + uploadingHere >= Board.maxFiles }
 
+    // kosmos#7596: Camera, Photos and Files in the larger panel (AttachMenu.swift).
     private var addButton: some View {
-        Menu {
-            Button { showPhotos = true } label: { Label("Photo Library", systemImage: "photo.on.rectangle") }
-                .disabled(atFileLimit)
-            Button { showFiles = true } label: { Label("Files", systemImage: "folder") }
-                .disabled(atFileLimit)
-        } label: {
-            // kosmos#7346: a plain + inside the box, a 44 pt target (Apple's minimum) on its 48 pt row.
-            Image(systemName: "plus")
-                .font(.system(size: 19, weight: .regular))
-                .foregroundColor(Palette.secondary)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+        AttachPlusButton(atLimit: atFileLimit, label: "Add a photo or file",
+                         hint: atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "") { choice in
+            switch choice {
+            case .camera: showCamera = true
+            case .photos: showPhotos = true
+            case .files: showFiles = true
+            }
         }
-        .accessibilityLabel("Add a photo or file")
-        .accessibilityHint(atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "")
         .padding(.leading, 4)
         .padding(.bottom, 2)
     }
@@ -1479,6 +1483,12 @@ struct ChatView: View {
                 return (Board.photoName(at: at, ext: Board.imageExtension(data) ?? type.preferredFilenameExtension ?? "jpg", number: i + 1), data)
             }), epoch: epoch, to: agent)
         }
+    }
+
+    private func addTaken(_ data: Data) async {
+        let epoch = client.chatEpoch
+        client.attachLine[agent.session] = nil
+        await client.attach(.photo(load: { (Board.photoName(at: Date(), ext: "jpg", number: 1), data) }), epoch: epoch, to: agent)
     }
 
     private func addFiles(_ urls: [URL]) async {
