@@ -865,6 +865,26 @@ final class BoardClient: ObservableObject {
         return Board.reactResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
     }
 
+    // MARK: Deleting the person's own message (kosmos#7614)
+
+    // Deletes one of the person's own messages, named by its `at`. The chat takes the row out on .deleted; the next read
+    // confirms it.
+    func deleteMessage(at: String, to agent: Board.Agent) async -> Board.DeleteResult {
+        #if DEBUG
+        if let sample = sampleThreads[agent.session] {
+            // The sample chats (a Debug build only): removed in memory, as the Mac would; nobody had read it.
+            guard sample.rows.contains(where: { $0.atRaw == at && $0.who == .person }) else { return .refused("No message of yours at that time.") }
+            sampleThreads[agent.session] = Board.withoutMessage(sample, at: at)
+            return .deleted(told: [])
+        }
+        #endif
+        guard let held = admitted, let request = Board.deleteRequest(mac: held.url, session: agent.session, at: at) else {
+            return .refused("We could not delete that just now.")
+        }
+        let answer = await env.send(request)
+        return Board.deleteResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
+    }
+
     // MARK: Answering a question (kosmos#7016, the board's dmChoicePress)
 
     // Agents with a press in the air: their buttons are drawn off, and a typed send waits.

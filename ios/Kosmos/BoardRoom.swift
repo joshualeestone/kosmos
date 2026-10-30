@@ -460,6 +460,18 @@ extension Board {
         }
     }
 
+    // kosmos#7614: POST /api/project/<id>/room/<post id>/delete, an empty body: the person's own post, gone for everyone.
+    // Post ids are the room's m<digits>; anything else is never put into a path. Its answer is Board.deleteResult.
+    static func roomDeleteRequest(mac: URL, project: String, post: String) -> URLRequest? {
+        guard isProjectId(project), post.range(of: #"^m\d{1,15}$"#, options: .regularExpression) != nil else { return nil }
+        var r = URLRequest(url: URL(string: "/api/project/\(project)/room/\(post)/delete", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = Data("{}".utf8)
+        return r
+    }
+
     // The react route's answer ({ ok, of, reactions }, server.js roomReact): the post it toggled and its fresh pills,
     // in the room's own shape. Patching that row from it reaches a post above the newest page, which no re-read does.
     static func reacted(_ data: Data) -> (of: String, reactions: [Reaction])? {

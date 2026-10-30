@@ -1527,6 +1527,36 @@ do {
     check(after[0].reactions.isEmpty && after[1] == rows[1], "a react answer repaints only the agent's row it names")
     check(Board.withReactions(rows, at: "2026-10-24T10:01:00.000Z", pills: [Board.ChatReaction(emoji: "x", count: 1, mine: true)])[1].reactions.isEmpty,
           "never a row of the person's (the Mac reacts only on the agent's)")
+
+    // kosmos#7614: deleting the person's own message (Mona Lisa's route, contract on the card).
+    let del = Board.deleteRequest(mac: mac, session: "dana", at: "2026-10-24T10:01:00.000Z")
+    let delBody = del?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(del?.httpMethod == "POST" && del?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/dana/thread/delete"
+          && delBody?["at"] as? String == "2026-10-24T10:01:00.000Z" && delBody?.count == 1,
+          "a delete: POST the agent's thread/delete with only the message's `at`")
+    check(Board.deleteRequest(mac: mac, session: "../x", at: "T") == nil && Board.deleteRequest(mac: mac, session: "dana", at: "") == nil,
+          "no agent name the app accepts, or no `at`: no request")
+    check(Board.deleteResult(status: 200, body: Data(#"{"deleted":true,"told":["dana"],"at":"T1"}"#.utf8)) == .deleted(told: ["dana"])
+          && Board.deleteResult(status: 200, body: Data(#"{"deleted":true,"told":[]}"#.utf8)) == .deleted(told: []),
+          "deleted: who was told, or nobody")
+    check(Board.deleteResult(status: 200, body: Data(#"{"deleted":false}"#.utf8)) == .refused("We could not delete that just now."),
+          "CONTROL: a 200 that does not say deleted is not a delete")
+    check(Board.deleteResult(status: 403, body: Data(#"{"error":"that is not your message"}"#.utf8)) == .refused("That is not your message.")
+          && Board.deleteResult(status: 409, body: Data(#"{"error":"that message is in an earlier part of the conversation"}"#.utf8))
+             == .refused("That message is in an earlier part of the conversation.")
+          && Board.deleteResult(status: 0, body: nil) == .refused("We could not delete that just now."),
+          "refused: the route's own words as a sentence (403 not yours, 409 earlier part), or the fallback with no answer")
+    check(Board.deletedNote(told: [], names: [:]) == nil, "nobody had read it: nothing to say")
+    check(Board.deletedNote(told: ["dana"], names: ["dana": "Dana"]) == "Deleted. Dana had already read it, so Kosmos told them you withdrew it."
+          && Board.deletedNote(told: ["a", "b", "c"], names: ["a": "Ann", "b": "Bo"]) == "Deleted. Ann, Bo and c had already read it, so Kosmos told them you withdrew it.",
+          "an agent had read it: named by the shown name (the session where none is known)")
+    check(Board.canDelete(rows[1]) && !Board.canDelete(rows[0]), "only the person's own message offers Delete, never the agent's")
+    let gone = Board.withoutMessage(rows, at: "2026-10-24T10:01:00.000Z")
+    check(gone.count == rows.count - 1 && gone.contains(rows[0]), "the deleted row goes, the agent's stays")
+    check(Board.withoutMessage(rows, at: "2026-10-24T10:00:00.000Z").count == rows.count,
+          "CONTROL: an agent's message at the given time is never taken out")
+    check(!Board.deleteConfirmBody.contains("\u{2014}") && Board.deleteConfirmYes == "Delete" && Board.deleteConfirmNo == "Keep it",
+          "the confirm uses the board's words, and no em dash")
 }
 
 section("native chat: a message's files (kosmos#7016 part 2)")

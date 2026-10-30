@@ -416,6 +416,9 @@ struct MessageActionTarget: Identifiable {
     let react: ((String) -> Void)?        // nil where the message takes no reactions
     let reply: (() -> Void)?              // nil where it takes no reply
     let text: String                      // what Copy text copies: the words shown; empty hides Copy text
+    // kosmos#7614: set only on the person's own message; asks before deleting it for everyone, then runs once the sheet
+    // has gone. nil hides Delete.
+    var delete: (() -> Void)? = nil
 }
 
 private struct MessageActionsOpenKey: EnvironmentKey { static let defaultValue: ((MessageActionTarget) -> Void)? = nil }
@@ -524,6 +527,7 @@ struct MessageActionsSheet: View {
     // What to run once the sheet has gone (Reply): run from the host's onDismiss, never on a guessed delay (review 1).
     let after: (@escaping () -> Void) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var confirmingDelete = false   // kosmos#7614: Delete asks first, in the board's own words
 
     private var more: Bool { detent == .large }
 
@@ -599,6 +603,19 @@ struct MessageActionsSheet: View {
                     dismiss()
                 }
             }
+            // kosmos#7614: last and red, on the person's own message only; it asks once, as the board does.
+            if target.delete != nil {
+                row(Board.deleteConfirmYes + " message", "trash", destructive: true) { confirmingDelete = true }
+            }
+        }
+        .confirmationDialog(Board.deleteConfirmTitle, isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button(Board.deleteConfirmYes, role: .destructive) {
+                if let delete = target.delete { after(delete) }
+                dismiss()
+            }
+            Button(Board.deleteConfirmNo, role: .cancel) {}
+        } message: {
+            Text(Board.deleteConfirmBody)
         }
         .padding(.horizontal, 16).padding(.top, 20).padding(.bottom, 12)
         // kosmos#7419 build 11 (Mona Lisa): fill the sheet to its bottom edge, so the sheet's own background (ground)
@@ -606,11 +623,11 @@ struct MessageActionsSheet: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private func row(_ title: String, _ symbol: String, _ run: @escaping () -> Void) -> some View {
+    private func row(_ title: String, _ symbol: String, destructive: Bool = false, _ run: @escaping () -> Void) -> some View {
         Button(action: run) {
             HStack(spacing: 12) {
-                Image(systemName: symbol).font(.body).foregroundColor(Palette.primary).accessibilityHidden(true)
-                Text(title).font(.body).foregroundColor(Palette.primary)
+                Image(systemName: symbol).font(.body).foregroundColor(destructive ? Color.red : Palette.primary).accessibilityHidden(true)
+                Text(title).font(.body).foregroundColor(destructive ? Color.red : Palette.primary)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 16).frame(minHeight: 50)
@@ -670,10 +687,11 @@ struct MessageActionsHost: ViewModifier {
     static let sampleKeepKeyboard = false
     #endif
 
-    // The sheet's height before More: the reaction row, Reply and Copy text, at the person's text size.
+    // The sheet's height before More: the reaction row, Reply, Copy text and Delete (kosmos#7614), at the person's text size.
     private func small(_ t: MessageActionTarget) -> PresentationDetent {
         let rowH: CGFloat = typeSize.isAccessibilitySize ? 76 : 50
-        return .height(32 + (t.react != nil ? 56 : 0) + (t.reply != nil ? rowH + 12 : 0) + (t.text.isEmpty ? 0 : rowH) + 24)
+        return .height(32 + (t.react != nil ? 56 : 0) + (t.reply != nil ? rowH + 12 : 0) + (t.text.isEmpty ? 0 : rowH)
+                       + (t.delete != nil ? rowH + 12 : 0) + 24)
     }
 
     // kosmos#7419 build 11: our dim stands in for the system's only where the system's is off (16.4+, small height).
@@ -743,7 +761,7 @@ struct MessageActions: ViewModifier {
                     MessageActionsHost.sampleOpened = true
                     // KOSMOS_SAMPLE_MINE=<emoji> (Mona Lisa's #7419 shot): that quick reaction shows as already the person's.
                     if let mine = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_MINE"], !mine.isEmpty {
-                        t = MessageActionTarget(mine: t.mine.union([mine]), react: t.react, reply: t.reply, text: t.text)
+                        t = MessageActionTarget(mine: t.mine.union([mine]), react: t.react, reply: t.reply, text: t.text, delete: t.delete)
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { opened = t.id; open?(t) }
                     if want == "more" { DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { NotificationCenter.default.post(name: .sampleSheetMore, object: nil) } }
@@ -770,11 +788,13 @@ struct MessageActionsAccessibility: ViewModifier {
 }
 
 extension View {
-    func messageActions(mine: Set<String>, react: ((String) -> Void)?, reply: (() -> Void)?, text: String) -> some View {
-        modifier(MessageActions(target: { MessageActionTarget(mine: mine, react: react, reply: reply, text: text) }))
+    func messageActions(mine: Set<String>, react: ((String) -> Void)?, reply: (() -> Void)?, text: String,
+                        delete: (() -> Void)? = nil) -> some View {
+        modifier(MessageActions(target: { MessageActionTarget(mine: mine, react: react, reply: reply, text: text, delete: delete) }))
     }
     func messageActionsHost() -> some View { modifier(MessageActionsHost()) }
-    func messageActionsAccessibility(mine: Set<String>, react: ((String) -> Void)?, reply: (() -> Void)?, text: String) -> some View {
-        modifier(MessageActionsAccessibility(target: { MessageActionTarget(mine: mine, react: react, reply: reply, text: text) }))
+    func messageActionsAccessibility(mine: Set<String>, react: ((String) -> Void)?, reply: (() -> Void)?, text: String,
+                                     delete: (() -> Void)? = nil) -> some View {
+        modifier(MessageActionsAccessibility(target: { MessageActionTarget(mine: mine, react: react, reply: reply, text: text, delete: delete) }))
     }
 }
