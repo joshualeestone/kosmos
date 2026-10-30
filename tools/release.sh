@@ -450,8 +450,9 @@ pointer_freeze_refuse "$SITE" release.sh || exit 1
 _whats_new_check() { node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" --platform=mac; }
 _whats_new_prod_check() { node "$REPO/tools/whats-new-pool.js" prod-check --pool="$REPO/release/whats-new-pool.json"; }
 # kosmos#7617: the committed list must still be what the pool builds for $V. A list built early (#7615: each cut builds
-# its own first) misses a pool item merged after it, and both checks above stay green. Offline is right here: it runs
-# after prod-check, which has just compared prod with the pool. Only the highlights are compared (key order aside):
+# its own first) misses a pool item merged after it, and both checks above stay green. Offline is right: it compares the
+# list with the pool in the same tree, which does not depend on prod (in whats_new_gate prod-check has just run; at
+# 2b-ii it has not, on the frozen tree, and need not). Only the highlights are compared (key order aside):
 # whats-new-check has already said the file is for $V, by "version" or by "also" (#4928), and a rebuild always writes
 # "version": $V. $1 is the tree (default $REPO; 2b-ii passes the frozen $BUILD). $2 = note prints the pass.
 _whats_new_fresh_check() {
@@ -464,12 +465,18 @@ _whats_new_fresh_check() {
     echo "release: the What's New pool does not build a list for $V (kosmos#7617, build exit $rc, its reason above), so web/whats-new.json cannot be checked against it. Fix release/whats-new-pool.json, then node tools/whats-new-pool.js build $V on a branch, merged to main." >&2
     return 1
   fi
+  # 1 = they differ; 2 = a list could not be read or parsed (its own reason, never reported as a stale list).
   node -e 'const fs = require("fs");
     const s = (v) => Array.isArray(v) ? v.map(s) : (v && typeof v === "object") ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, s(v[k])])) : v;
     const f = (p) => JSON.stringify(s(JSON.parse(fs.readFileSync(p, "utf8")).highlights));
-    process.exit(f(process.argv[1]) === f(process.argv[2]) ? 0 : 1);' "$tmp" "$dir/web/whats-new.json" || rc=1
+    let a, b;
+    try { a = f(process.argv[1]); b = f(process.argv[2]); } catch (e) { process.stderr.write(String(e && e.message || e) + "\n"); process.exit(2); }
+    process.exit(a === b ? 0 : 1);' "$tmp" "$dir/web/whats-new.json" || rc=$?
   rm -f "$tmp"
-  if [ "$rc" != 0 ]; then
+  if [ "$rc" = 2 ]; then
+    echo "release: the What's New freshness check (kosmos#7617) could not compare web/whats-new.json with what the pool builds for $V (the reason above), so the cut stops." >&2
+    return 1
+  elif [ "$rc" != 0 ]; then
     echo "release: web/whats-new.json is not what release/whats-new-pool.json builds for $V now (kosmos#7617: a pool item changed after the list was built). node tools/whats-new-pool.js build $V on a branch, merged to main, then cut again." >&2
     return 1
   fi
