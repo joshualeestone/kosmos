@@ -12,7 +12,10 @@ fails without the change; 50- and 100-post rooms and iOS 27 still open there.
   212 to 216, four short, and it stays there. iOS 27.0, same build, 220: Post 220.
 - So a real first open (50 posts) is fine. Measured short: posts arriving while the room opens, more than ~100 of them.
   Reasoned real case (not measured): reopening a long room read back through while new posts arrived, which sends the
-  jump through the first-page path.
+  jump through the first-page path. Review 5: on a reopened room atBottom can still hold its starting true (the end
+  marker never drawn), and then goEnd's retries do not run there either. Not fixed here: setting atBottom false before
+  each jump would stop the room following new posts whenever the end is already on screen. Part 2 (an id anchor) is
+  where a reopen that lands short gets settled.
 - Cause: RoomView jumps once (proxy.scrollTo("bottom")) in a LazyVStack whose rows above are estimated; the DM's #7265.
 
 ## Change
@@ -39,7 +42,9 @@ A person who flicks up within half a second of opening a long room is pulled bac
 ## Not this branch (part 2 of #7654)
 A person's own scroll to the end of a long room stops short on iOS 26 (six swipes: 212 to 218 of 220, with and
 without this change). Approach to measure: eager newest rows (the DM's iOS 16 path) or an id anchor (iOS 17+).
-#7645's testRoomNewestStaysAboveTheBox is its failing test and is NOT in ui-sample's list until then.
+#7645's testRoomNewestStaysAboveTheBox is its failing test and is NOT in ui-sample's list until then. It carries
+XCTExpectFailure (strict: false), so it reads green while it still fails: its log says "Expected failure in", and
+xcodebuild's "0 failures" summary does not count that. Part 2 removes the XCTExpectFailure to use it as the test.
 
 ## Known limits (review round 1)
 - atBottom is set by the end marker's onAppear/onDisappear, and a LazyVStack makes a row slightly before it is on
