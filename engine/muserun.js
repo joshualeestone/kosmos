@@ -43,75 +43,68 @@ const STOPPED = 'Stopped before Muse Code finished';
 /* The session is still held by a turn that is ending (#4569: the front retries a stop note on this). */
 const BUSY = 'Muse Code is still working on this agent\'s last turn';
 /* kosmos#7615 item 4 (Josh's 0.7.75 report): Meta's "429 Subscription quota exhausted", with its reset time, reached the
-   person only as COULD_NOT_RUN. Said as a quota, with Meta's own sentence quoted, because that sentence carries the
-   reset time in whatever form Meta writes it and stays true when their wording changes (engine/accountproblem.js
-   quotes a vendor's sentence for the same reason). Weakest premise: no capture of Muse's quota output exists, so every
-   rule here is narrow: a sentence must say the quota is exhausted or exceeded (or pair a 429 with a quota, close
-   together), and only a failure's own words are read, never the model's or a tool's. */
+   person only as COULD_NOT_RUN. Said as a quota, with Meta's words for the refusal and its reset time.
+   Review 7 changed the principle again, after six rounds each found new wordings on both sides (a rate limit read as a
+   quota; a key, path or e-mail address quoted beside the sentence). A missed quota leaves today's "could not run"; a
+   quota claimed wrongly sends the person to billing, and a line quoted whole can carry anything. So:
+   - a refusal names Meta's subscription or usage quota and the refusal word together, or is insufficient_quota;
+   - any sign of a rate limit, a notice, a fallback or a tool's limit on the line refuses it (NOT_A_REFUSAL);
+   - only the refusal's own words and a reset time are quoted, each a match of a pattern that admits letters, digits and
+     a few separators, so nothing else on the line can reach the person, however it is written.
+   Weakest premise: no capture of Muse's quota output exists, so Meta's real wording may be missed. That fails safe. */
 /* Review 4: "stopped", true whether the turn ran partway (its text is written before this) or not at all. */
 const QUOTA_HEAD = 'Meta\'s usage quota for Muse Code is used up, so Muse Code stopped';
-const QUOTA_LINE_MAX = 240;
-/* Review 4 changed the principle, after four rounds each found new loose wordings: when unsure, say what Kosmos said
-   before. A missed quota leaves today's "could not run"; a quota claimed wrongly sends the person to billing for a
-   context limit or a passing rate limit. So a 429 alone is never enough: a refusal names the quota and the refusal
-   word together (only a space or "_" between), or is one of the known codes. */
-const QUOTA_SAID = new RegExp([
-  /quota(?:\s+|_)?(?:is\s+|has\s+been\s+|was\s+)?(?:exhausted|exceeded)/.source,   // also QuotaExceeded, quota_exceeded
-  /(?:exhausted|exceeded)(?:\s+|_)(?:(?:your|the)\s+)?(?:(?:current|monthly|daily|usage|subscription)\s+)*quota/.source,
-  /\bRESOURCE_EXHAUSTED:\s*quota/.source,
-  /\binsufficient_quota\b/.source,
-  /\bout\s+of\s+quota\b/.source,
-  /\bno\s+quota\s+(?:is\s+)?(?:left|available|remaining)\b/.source,
+const QUOTA_REFUSED = new RegExp([
+  /(?<![a-z])(?:subscription|usage)(?:\s+|_)quota(?:\s+|_)(?:(?:is|has\s+been|was)\s+)?(?:exhausted|exceeded)(?![a-z])/.source,
+  /(?<![a-z])(?:exhausted|exceeded)\s+(?:your|the)\s+(?:(?:current|monthly|daily)\s+)?(?:subscription|usage)\s+quota(?![a-z])/.source,
+  /(?<![a-z])insufficient_quota(?![a-z])/.source,
 ].join('|'), 'i');
-/* Not a refusal: a negation ("not exceeded"), or a share of a quota below 100% ("80% of monthly quota exceeded" is a
-   notice, review 2). Only "N% of": "0% remaining" and a URL's "%3A" are not notices (review 4). */
-const NOT_REFUSED = /\bnot\s+(?:yet\s+)?(?:exhausted|exceeded)\b|\b[1-9]?\d(?:\.\d+)?\s*%\s+of\b/i;
-/* Review 5 BLOCKER: a quota on this computer (a disk or file quota, EDQUOT, a browser's storage quota) is not Meta's. */
-const LOCAL_QUOTA = /\b(?:disk|storage|file|inode|user|group)\b[^.;]{0,20}\bquota\b|\bEDQUOT\b/i;
-/* Review 5: and a line must say it is the provider's: a subscription or usage quota, a 429, or a provider's code. */
-const PROVIDER_SIDE = /(?<![a-z])(?:subscription|usage)(?![a-z])|\b429\b|insufficient_quota|RESOURCE_EXHAUSTED/i;   // "_" is a boundary too
-/* Review 1 and 2: a stderr line that says Muse is retrying is one it may have recovered from. Only "retrying": a final
-   refusal often says when to retry ("Retry after ..."), and that time is why Meta's sentence is quoted at all. */
-/* Review 3: "retried" too. Only the bare word "retry" is let through before "after" or "in" ("Retry after <time>",
-   "retry in 31s": a final refusal's reset time); "retrying in 2s" is a retry under way. */
-// Review 5: only "retrying" and "retried"; a bare "retry" ("Retry at ...", "retry-after: 21600s") is a final refusal's reset.
+/* Not a refusal, whatever else the line says (reviews 2 to 6): a negation; a false flag ("quota_exceeded": false); a
+   share below 100% or a threshold; a rate, a burst, a window or a concurrency limit; a fallback Muse moved past; a
+   tool's limit; or a quota on this computer (a disk or storage quota, EDQUOT). "0%" and "100%" are not notices, and a
+   URL's "%3A" is not a share. */
+const NOT_A_REFUSAL = new RegExp([
+  /\bnot\s+(?:yet\s+)?(?:exhausted|exceeded)\b/.source,
+  /(?:exhausted|exceeded)["']?\s*[:=]\s*["']?(?:false|0|no|null)\b(?!\s*%)/.source,
+  /\b[1-9]\d?(?:\.\d+)?\s*%(?![0-9A-Fa-f]{2})|\bpercent\b|\bthreshold\b/.source,
+  /\b(?:rate|burst|concurren\w*|parallel|throttl\w*|rpm|tpm|rps|qps)\b|\bper[\s-](?:second|minute|hour|request|key)\b/.source,
+  /\b(?:requests?|tokens?|calls?)[\s-]per\b|\b(?:fall(?:ing)?\s*back|fallback|switching|continuing)\b|\btools?\b/.source,
+  /\b(?:disk|storage|file|inode|user|group)\b[^.;]{0,20}\bquota\b|\bEDQUOT\b/.source,
+].join('|'), 'i');
+/* Review 1 and 2: a stderr line that says Muse is retrying is one it may have recovered from (review 3: "retried" too). */
 const RETRYING = /\bretr(?:ied|ying)\b/i;
-/* By characters, not UTF-16 units (review 1: a cut must never split a character). A key or token beside the sentence is
-   hidden first (review 4: a client that logs its request URL would otherwise put it in the conversation). */
-// Review 5: any separator after a key's name (=, :, a JSON "key":"value"), cookies and sessions, Basic auth, a URL password.
-const SECRET_FORMS = [
-  [/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{6,}/gi, '[hidden]'],
-  [/\b((?:x-)?api[_-]?key|key|access_token|token|secret|password|auth|cookie|session)(["']?\s*[:=]\s*["']?)[^\s"'&,;]+/gi, '$1$2[hidden]'],
-  [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 [hidden]'],
-  [/(\/\/)[^/\s:@]+:[^/\s@]+@/g, '$1[hidden]@'],
-];
-/* Review 5: only from the sentence that holds the refusal onward, so a path or a request logged before it on the same
-   line is never quoted; then any key or token left in it is hidden. */
-function fromRefusal(line) {
-  const m = QUOTA_SAID.exec(line);
-  if (!m) return line;
-  const before = line.slice(0, m.index);
-  const cut = Math.max(before.lastIndexOf('. '), before.lastIndexOf('; '), before.lastIndexOf('! '));
-  return cut < 0 ? line : line.slice(cut + 2);
+/* A wait of under an hour is a rate limit's, not a quota's reset (review 6): "try again in 2s", "retry-after: 30". */
+const SHORT_WAIT = /\b(?:(?:try\s+again|retry|wait)(?:\s+in)?|retry-after:?)\s*(\d+(?:\.\d+)?)\s*(ms|s|sec|secs|seconds?|m|mins?|minutes?)?(?![a-z])/gi;
+function shortWait(line) {
+  for (const m of line.matchAll(SHORT_WAIT)) {
+    const n = Number(m[1]); const u = (m[2] || 's').toLowerCase();
+    const secs = u === 'ms' ? n / 1000 : u[0] === 'm' ? n * 60 : n;
+    if (secs < 3600) return true;
+  }
+  return false;
 }
-function capped(raw) {
-  const line = SECRET_FORMS.reduce((t, [re, to]) => t.replace(re, to), fromRefusal(raw));
-  const chars = Array.from(line);
-  return chars.length > QUOTA_LINE_MAX ? chars.slice(0, QUOTA_LINE_MAX).join('') + '…' : line;
+/* The reset time, when the line gives one after the refusal: a date, a date and time, or a clock time, with Z or UTC. */
+const RESET_AT = /\b(?:resets?|reset\s+at|until|retry\s+(?:after|at)|try\s+again\s+(?:after|at))\b[:\s]+(?:(?:at|on)\s+)?(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?(?:\s?(?:Z|UTC))?|\d{1,2}:\d{2}(?:\s?(?:Z|UTC))?)/i;
+/* What is quoted: the refusal's own words, spaces made single, then the reset time in brackets. Nothing else. */
+function quoted(line) {
+  const m = QUOTA_REFUSED.exec(line);
+  const words = m[0].replace(/\s+/g, ' ');
+  const at = RESET_AT.exec(line.slice(m.index + m[0].length));
+  return at ? words + ' (resets ' + at[1].replace(/\s+/g, ' ') + ')' : words;
 }
-/* The LAST line of `text` that says a quota refused the run (review 1: an earlier one may be a refusal Muse recovered
-   from before failing for another reason), capped; null when none does. `skipRetrying` for stderr only (review 2: a
-   failure event is the run's end, never a retry in progress). */
+/* What Meta said, for the LAST line of `text` that says the quota refused the run (review 1: an earlier one may be a
+   refusal Muse recovered from before failing for another reason); null when none does. `skipRetrying` for stderr only
+   (review 2: a failure event is the run's end, never a retry in progress). */
 function quotaLine(text, skipRetrying = false) {
   let found = null;
   for (const raw of String(text || '').split('\n')) {
     const line = raw.trim();
-    if (QUOTA_SAID.test(line) && PROVIDER_SIDE.test(line) && !NOT_REFUSED.test(line) && !LOCAL_QUOTA.test(line)
+    if (QUOTA_REFUSED.test(line) && !NOT_A_REFUSAL.test(line) && !shortWait(line)
       && !(skipRetrying && RETRYING.test(line))) found = line;
   }
-  return found === null ? null : capped(found);
+  return found === null ? null : quoted(found);
 }
-const quotaBecause = (line) => QUOTA_HEAD + '. Meta said: ' + line;
+const quotaBecause = (words) => QUOTA_HEAD + '. Meta said: ' + words;
 /* The words the RUN's failure says, and only those (review 1: an allowlist). A run failure is a terminal event that did
    not complete, or an event of exactly type run.failed or run.error: never a tool's event (review 2: run.tool.failed
    carries a command's output). Its words are the strings `error`, `error.message`, `message` and `reason`, no deeper

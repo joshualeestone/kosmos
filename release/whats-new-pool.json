@@ -881,7 +881,7 @@
     },
     {
       "title": "A Meta agent out of quota says so",
-      "line": "When Meta's usage quota stops a Meta agent, Kosmos now says so and shows Meta's own message, instead of only saying it could not run.",
+      "line": "When Meta's usage quota stops a Meta agent, Kosmos now says so in Meta's words, and when it resets, instead of only that it could not run.",
       "icon": "shield",
       "platforms": [
         "mac"
