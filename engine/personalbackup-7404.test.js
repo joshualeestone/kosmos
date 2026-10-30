@@ -39,7 +39,7 @@ const TOKEN = 'h.' + Buffer.from(JSON.stringify({ org: ORG.id, version: 9 })).to
 function coordinator(over = {}) {
   const sent = [];
   // `member`: the preview MAKES the membership, bound to no computer (org.rs mac_personal_backup; code review 2).
-  let world = null, left = false, member = false;
+  let world = null, left = false, member = over.preexisting === true;
   return {
     sent,
     get member() { return member && !left; },
@@ -53,7 +53,7 @@ function coordinator(over = {}) {
         return { ok: true, data: { ok: true, org: over.enrollOrg || ORG, role: 'member', printPinned: true, enrolled: { computer: 'c1', world, thisComputer: over.notThisComputer ? false : true } } };
       }
       if (route === oe.ROUTES.status) {
-        if (over.statusAnswer) return over.statusAnswer;
+        if (over.statusAnswer && member && !left) return over.statusAnswer;
         if (!left && !world && member) return { ok: true, data: { member: true, org: ORG, role: 'member', computerSalt: SALT, enrolled: null } };
         if (left || !world) return { ok: true, data: { member: false } };
         // A policy token naming this org, so orgenroll's applyPolicy reaches the policy module's BUNDLE (code review 1).
@@ -264,7 +264,7 @@ test('#7404 blocker 1: a decline ends the membership the preview made, with an e
   const r = await pb.switchOn(p.ticket, false, { root, remote: c });
   assert.equal(r.declined, true);
   assert.equal(c.member, false, 'declined: the membership is ended');
-  assert.deepEqual(c.sent.filter((x) => x.route === oe.ROUTES.leave).map((x) => x.body), [{}], 'one leave, no print');
+  assert.deepEqual(c.sent.filter((x) => x.route === oe.ROUTES.leave).map((x) => x.body), [{ orgId: ORG.id }], 'one leave, no print, naming the org');
   assert.equal(opened(root), false);
   assert.equal(pb._TICKETS.has(p.ticket), false, 'the declined ticket is spent');
 });
@@ -310,7 +310,7 @@ test('#7404 blocker 1: a company, a family, another computer, or another persona
     const c = coordinator({ statusAnswer: { ok: true, data } });
     const p = await pb.preview({ root, remote: c });
     await pb.switchOn(p.ticket, false, { root, remote: c });
-    assert.equal(STATUS_N(c), 1, name + ': status was read');
+    assert.equal(STATUS_N(c), 2, name + ': status was read before the preview and at the decline');
     assert.equal(LEAVE_N(c), 0, name + ': nothing was left');
     assert.equal(opened(root), false, name + ': settled, so the marker goes');
   }
@@ -485,4 +485,32 @@ test('#7404: two switchOn calls on one ticket send one enroll', async (t) => {
   ]);
   assert.equal(c.sent.filter((x) => x.route === oe.ROUTES.enroll).length, 1, 'one enroll');
   assert.deepEqual([a.ok, b.code], [true, 'busy']);
+});
+
+/* Code review 3 premise (found reading db.rs): the coordinator reads a RETIRED computer's binding as none, so a real
+   personal backup whose Mac was lost reads enrolled:null. A membership that was there before this preview is never
+   ended from here, whatever status says, because this computer cannot tell it from an unbound one. */
+test('#7404: a personal membership that was there before the preview is never ended (a retired Mac reads unbound)', async (t) => {
+  const root = fresh(t);
+  const c = coordinator({ preexisting: true });
+  const p = await pb.preview({ root, remote: c });
+  assert.equal(fs.existsSync(path.join(root, PREVIEW_OPEN)), false, 'no marker: the account was already a member');
+  await pb.switchOn(p.ticket, false, { root, remote: c });
+  let now = Date.now() + 11 * 60 * 1000;
+  pb._resetFollowUpForTests();
+  await pb.followUp({ root, remote: c, now: () => now });
+  await pb.switchOff({ root, remote: c, orgenroll: oe });
+  assert.equal(LEAVE_N(c), 0, 'decline, expiry and off: nothing left');
+  assert.equal(c.member, true, 'the membership (and its backup) is still there');
+});
+
+test('#7404: no status answer before the preview writes no marker', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const real = c.macRequest;
+  let first = true;
+  c.macRequest = async (m, route, body) => { if (route === oe.ROUTES.status && first) { first = false; return { ok: false, because: 'unreachable' }; } return real(m, route, body); };
+  const p = await pb.preview({ root, remote: c });
+  assert.equal(p.ok, true);
+  assert.equal(fs.existsSync(path.join(root, PREVIEW_OPEN)), false);
 });
