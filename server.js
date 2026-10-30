@@ -5098,6 +5098,18 @@ const REMOTE_STEP_UP_SIGNIN = Object.freeze({
   error: 'From a remote session this needs a fresh sign-in. Press Sign in again at the foot of the page, sign in with your email code and authenticator code, then try again within 10 minutes. No Sign in again there? Sign out of Kosmos+ on this page and on the Kosmos+ sign-in site, then sign in again. Not using Kosmos+? Do this at the computer itself.',
   signInAgain: true,
 });
+/* kosmos#7625: the same refusal through the gate when the connector does NOT serve /_kosmos/signin?fresh=1 (no
+   connector does yet). The button then logs this browser out of the gate (POST /_kosmos/logout, which every connector
+   serves) and the gate's own sign-in page asks for the email code and the authenticator: a whole new sign-in, so it
+   is fresh (kosmos-relay gate.html makes its own session, never the sign-in site's). Measured on a cloud box, where a
+   new user met this ten minutes after signing up with no way through. No "at the computer itself": through the gate
+   the person is using Kosmos+, and on a cloud machine there is no other computer. */
+const REMOTE_STEP_UP_LOGOUT = Object.freeze({
+  code: 'remote_step_up',
+  error: 'From a remote session this needs a fresh sign-in. Press Sign in again at the foot of the page, sign in with your email code and authenticator code, then try again within 10 minutes. No Sign in again there? Log out in Settings, Kosmos+, then sign in again.',
+  signInAgain: true,
+  via: 'logout',
+});
 /* A sign-in that the gate says happened more than a minute AHEAD of this clock: signing in again cannot help, the
    clocks disagree, so it is told apart (review iteration 8). */
 const REMOTE_STEP_UP_CLOCK = Object.freeze({
@@ -5125,7 +5137,8 @@ function remoteStepUpRefusal(req, pathname, nowSecs, caps) {
      person put in front of the board, which never serves /_kosmos/signin (review iteration 3). A gate session from
      before kosmos-relay sessioniat-6595 sends neither header and gets the fallback sentence, which still works. */
   const viaGate = req.headers['x-kosmos-session-iat'] !== undefined || req.headers['x-kosmos-session-second'] !== undefined;
-  return said.has('fresh-signin') && viaGate ? REMOTE_STEP_UP_SIGNIN : REMOTE_STEP_UP;
+  if (!viaGate) return REMOTE_STEP_UP;
+  return said.has('fresh-signin') ? REMOTE_STEP_UP_SIGNIN : REMOTE_STEP_UP_LOGOUT;
 }
 /* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
    Kosmos+ reaches the board over loopback, which is why the header rule stays). */
@@ -28549,7 +28562,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   parseByteRange, // kosmos#6805: the Range parser, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
-  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616
+  remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616, #7625
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   claudeObservationsFor, overlayStuckCards, // #7212 slice 3 reviews 6-7: the badge's evidence and the route's step, for their test
   safeRoster, // #5811: its rows carry no geminiSeen, for its test

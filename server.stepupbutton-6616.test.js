@@ -25,7 +25,7 @@ process.env.AGENT_WORKFORCE_TUNNEL_BIN = path.join(SANDBOX, 'no-connector');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR } = require('./server');
+const { remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR } = require('./server');
 const { scriptOf, lift, liftAll } = require('./test-support/page');
 
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
@@ -46,11 +46,30 @@ test('R01b: a stale remote session is offered Sign in again only when the connec
   assert.match(got.error, /Press Sign in again/);
   // The fallback stays in the sentence: the button may be closed, or the running tunnel older than the binary.
   assert.match(got.error, /Sign out of Kosmos\+ on this page and on the Kosmos\+ sign-in site/);
-  // CONTROL: the same request through a connector without fresh-signin gets today's refusal, with no button.
+  // CONTROL: the same request through a connector without fresh-signin gets the log-out kind (kosmos#7625), not this one.
   const plain = remoteStepUpRefusal(req(stale), '/api/agents', t, new Set(['session-headers']));
-  assert.equal(plain, REMOTE_STEP_UP);
-  assert.equal('signInAgain' in plain, false);
-  assert.match(plain.error, /Sign out of Kosmos\+ on this page and on the Kosmos\+ sign-in site/);
+  assert.equal(plain, REMOTE_STEP_UP_LOGOUT);
+  assert.notEqual(plain.via, REMOTE_STEP_UP_SIGNIN.via);
+});
+
+test('kosmos#7625: through the gate, a connector without fresh-signin still gets Sign in again, by logging out', () => {
+  const t = now();
+  const stale = { 'x-kosmos-session-iat': String(t - 3600), 'x-kosmos-session-second': '1' };
+  const got = remoteStepUpRefusal(req(stale), '/api/agents', t, new Set(['session-headers']));
+  assert.equal(got, REMOTE_STEP_UP_LOGOUT);
+  assert.equal(got.code, 'remote_step_up', 'the code changed, so every page reading it would miss it');
+  assert.equal(got.signInAgain, true);
+  assert.equal(got.via, 'logout');
+  assert.match(got.error, /Press Sign in again/);
+  // Its fallback names the door the board has (Settings, Kosmos+, Log out), and never "the computer itself": through the
+  // gate the person uses Kosmos+, and a cloud machine has no other computer (the walk that found this).
+  assert.match(got.error, /Log out in Settings, Kosmos\+/);
+  assert.doesNotMatch(got.error, /computer itself/);
+  // CONTROL: a request that did not come through the gate (a proxy the owner set up) keeps the plain refusal, no button.
+  const proxied = remoteStepUpRefusal(req(), '/api/agents', t, new Set(['session-headers']));
+  assert.equal(proxied, REMOTE_STEP_UP);
+  assert.equal('signInAgain' in proxied, false);
+  assert.match(proxied.error, /computer itself/);
 });
 
 test('R01b: no button for a request that did not come through the gate (no session header: a proxy, or an old session)', () => {
@@ -99,6 +118,35 @@ test('R01b page: the ask shows only for remote_step_up with signInAgain true, in
     { ...REMOTE_STEP_UP_SIGNIN, error: 7 }, null, { error: 'x', signInAgain: true }]) {
     assert.equal(run(body)['stepup-ask'].hidden, true, JSON.stringify(body));
   }
+});
+
+test('kosmos#7625 page: Sign in again logs out when the refusal says so, and submits the form otherwise', () => {
+  const run = (body) => {
+    const d = fakeDoc();
+    d.els['stepup-form'] = { id: 'stepup-form' };
+    d.els['stepup-go'] = { id: 'stepup-go' };
+    const handlers = {};
+    d.document.addEventListener = (type, fn) => { (handlers[type] = handlers[type] || []).push(fn); };
+    const calls = [];
+    const ctx = { document: d.document, body, setTimeout: (fn) => fn(), kplusLogout: (out, msg) => calls.push([out.id, msg === d.els['stepup-words']]) };
+    // The submit handler is the one after showStepUpAsk's click handler: lifted from the page as written.
+    const at = SCRIPT.indexOf("document.addEventListener('submit'");
+    assert.ok(at > -1, 'the page no longer listens for the Sign in again submit');
+    const handler = SCRIPT.slice(at, SCRIPT.indexOf('});', at) + 3);
+    vm.runInNewContext(lift(SCRIPT, 'showStepUpAsk') + '\nshowStepUpAsk(body);\n' + handler, ctx);
+    let prevented = false;
+    for (const fn of handlers.submit || []) fn({ target: d.els['stepup-form'], preventDefault: () => { prevented = true; } });
+    return { shown: d.els['stepup-ask'].hidden === false, prevented, calls };
+  };
+  const out = run({ ...REMOTE_STEP_UP_LOGOUT });
+  assert.equal(out.shown, true, 'the log-out kind did not show the ask');
+  assert.equal(out.prevented, true, 'the form still submitted to a route this connector does not serve');
+  assert.deepEqual(out.calls, [['stepup-go', true]], 'Sign in again did not log out through the board\'s one log out');
+  // CONTROL: the fresh-signin kind keeps the form's own POST to /_kosmos/signin?fresh=1.
+  const fresh = run({ ...REMOTE_STEP_UP_SIGNIN });
+  assert.equal(fresh.shown, true);
+  assert.equal(fresh.prevented, false, 'a connector that serves the route lost its one-press path');
+  assert.deepEqual(fresh.calls, []);
 });
 
 test('R01b page: the button POSTs to the fixed gate address, and nothing in the page rewrites it', () => {

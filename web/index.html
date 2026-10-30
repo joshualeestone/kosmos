@@ -20920,12 +20920,23 @@ function showStepUpAsk(body, key) {
      element, and the same sentence written again changes nothing, so a second refusal would be silent. */
   const words = document.getElementById('stepup-words');
   box.stepUpFor = key || '';   // the refused request: only it, getting through later, takes the ask away
+  box.stepUpVia = body.via === 'logout' ? 'logout' : 'fresh';   // kosmos#7625: which way Sign in again goes
   box.hidden = false;
   words.textContent = '';
   setTimeout(() => { words.textContent = body.error; }, 0);
 }
 document.addEventListener('click', (e) => {
   if (e.target && e.target.closest && e.target.closest('#stepup-close')) { hideStepUpAsk(); stepUpFocusAway(); }
+});
+/* kosmos#7625: a connector that does not serve /_kosmos/signin?fresh=1 (server.js REMOTE_STEP_UP_LOGOUT) is asked
+   for a whole new sign-in another way: Sign in again logs this browser out of the gate, as Settings, Kosmos+, Log out
+   does (one function for every door), and the gate's own page then asks for both codes. The form keeps its fixed
+   address for a connector that does serve it. */
+document.addEventListener('submit', (e) => {
+  const box = document.getElementById('stepup-ask');
+  if (!e.target || e.target.id !== 'stepup-form' || !box || box.stepUpVia !== 'logout') return;
+  e.preventDefault();
+  kplusLogout(document.getElementById('stepup-go'), document.getElementById('stepup-words'));
 });
 
 /* ================= win32-board-copy: the platform copy layer =================
