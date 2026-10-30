@@ -1432,7 +1432,9 @@ test('#7404: a stop under ANOTHER root mid-tick does not stop this root\'s send;
      not make the company root's in-flight tick write withdrawn and send nothing. The count was process-wide; it is per
      root now. The own-root arm is the control: it shows this test can see a stop at all. Red on the pre-fix file in the
      other-root arm. */
-  // 'link' (code review 3, NIT 9): its own root spelled through a symlink is still its own root.
+  // 'link' (code review 3, NIT 9): its own root spelled through a symlink is still its own root. NOT a pin of rootKey's
+  // realpath: markWithdrawn also writes the withdrawn state through the link, and the tick reads that file, so this arm
+  // stays green with a path.resolve key too (measured, mutant M7). It shows the outcome, not which mechanism gave it.
   for (const own of [false, true, 'link']) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-7404-a-'));
     const other = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-7404-b-'));
