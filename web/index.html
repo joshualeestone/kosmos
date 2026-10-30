@@ -29673,14 +29673,18 @@ function paintAutobalance(ab, list) {
   if (recentBox && known && ab.on === true) {
     recentBox.innerHTML = ab.recording !== true
       ? line('Kosmos is not keeping a record of what it would move on this computer.')   // review 10: what is known, not why
-      : line('Kosmos does not move agents on its own yet. It keeps a record of what it would have moved.')
+      /* kosmos#7548: moving is an operator's switch on this computer (AGENT_WORKFORCE_AUTOMOVE=1); said only when the
+         board reports it moves (ab.moving), so the page never says it moves where it does not. */
+      : (ab.moving === true ? line('Kosmos moves them itself, one agent at a time, and says each move here.')
+        : line('Kosmos does not move agents on its own yet. It keeps a record of what it would have moved.'))
         /* Review 20: said when the last check could not measure every account, so a quiet record is not read as calm. */
         + (ab.lastTick === 'gap' || ab.lastTick === 'unreadable' || ab.unmeasuredNow === true ? line('Kosmos could not check everything at its last check, so the record may be missing a change.') : '')   // review 21: and while a written gap lasts
         + abRecentHtml(Array.isArray(ab.recent) ? ab.recent : [], label, who, line);
   }
   if (lines) lines.innerHTML = html;
 }
-/* Slice 3: the newest recorded decisions (engine/autobalance-sweep.js), newest first, a line per would-move. Accounts by
+/* Slice 3: the newest record entries (engine/autobalance-sweep.js), newest first, a line per would-move, and (kosmos#7548)
+   a line per move, sighting, skip or release the mover wrote. Accounts by
    the name the list shows, or the record's own label when the account is gone from the list. An entry from another day
    says which day. */
 function abRecentHtml(recent, label, who, line) {
@@ -29693,11 +29697,30 @@ function abRecentHtml(recent, label, who, line) {
   };
   const out = [];
   for (const e of recent) {
-    if (!e || typeof e !== 'object' || e.kind !== 'decision') continue;
+    if (!e || typeof e !== 'object') continue;
+    const when = at(e.at);
+    const lead = (rest) => (when ? when + rest : rest.charAt(0).toUpperCase() + rest.slice(1));
+    /* kosmos#7548 (slice 3b): the mover's own lines (engine/automove.js), one each. */
+    if (e.kind !== 'decision') {
+      const agent = esc(who(e.agent));
+      const from = esc(name(e.from, e.fromLabel));
+      const to = esc(name(e.to, e.toLabel));
+      if (e.kind === 'move' && e.outcome === 'changed') out.push(lead('Kosmos moved ' + agent + ' from ' + from + ' to ' + to + (e.why ? ', because ' + esc(e.why) : '') + '.'));
+      else if (e.kind === 'move' && e.outcome === 'stopped') out.push(lead('the move of ' + agent + ' to ' + to + ' was stopped, so it stays on ' + from + '.'));
+      else if (e.kind === 'move' && e.outcome === 'partial') out.push(lead('Kosmos saved ' + to + ' for ' + agent + ' but could not start it again, so it stays on ' + from + ' until it restarts.'));
+      else if (e.kind === 'move' && e.outcome === 'unknown') out.push(lead('Kosmos tried to move ' + agent + ' to ' + to + ' and could not tell whether it went through. Check which account it is on above.'));
+      else if (e.kind === 'move' && e.outcome === 'refused') out.push(lead('Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused, so it stays on ' + from + '.'));
+      else if (e.kind === 'skipped') out.push(lead('Kosmos did not move ' + agent + ', because it was no longer idle.'));
+      else if (e.kind === 'released') out.push(lead(agent + ' is no longer on ' + to + ' (it was moved or removed), so Kosmos leaves it where it is for a day.'));
+      else if (e.kind === 'works' && e.works === 'yes') out.push(lead(agent + ' was seen working on ' + to + '.'));
+      else if (e.kind === 'works' && e.works === 'no') out.push(lead(agent + "'s first request on " + to + ' was refused. Move it back if it needs to work now; Kosmos will not move agents to ' + to + ' for a day.'));
+      else if (e.kind === 'works' && e.works === 'not-seen') out.push(lead(agent + ' was not seen working on ' + to + ' in the day since it moved, so Kosmos waits a day before moving another agent there.'));
+      continue;
+    }
     for (const m of Array.isArray(e.moves) ? e.moves : []) {
       if (!m || typeof m !== 'object' || m.kind === 'login') continue;   // review 12: never made, so not drawn as a would-move
       const mv = esc(who(m.agent)) + ' from ' + esc(name(m.from, m.fromLabel)) + ' to ' + esc(name(m.to, m.toLabel));
-      const when = at(e.at);   // review 9: no time read from the entry, so the line starts with a capital
+      /* review 9: no time read from the entry, so the line starts with a capital */
       out.push((when ? when + 'it' : 'It') + ' would have moved ' + mv + (m.why ? ', because ' + esc(m.why) : '') + '.'
         + ((Array.isArray(e.unmeasured) && e.unmeasured.length) || (Array.isArray(e.notMeasured) && e.notMeasured.length) ? ' Some accounts could not be measured then.' : ''));   // review 20, 22
     }

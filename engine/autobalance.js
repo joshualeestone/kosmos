@@ -102,8 +102,8 @@ function signedIn(row) {
 }
 
 /* The best target for agents leaving `from`, or null. */
-function targetFor(from, rows, nowMs) {
-  const ok = rows.filter((r) => !sameAccount(r, from) && bulkTargetable(r, nowMs) && signedIn(r)
+function targetFor(from, rows, nowMs, skip) {
+  const ok = rows.filter((r) => !sameAccount(r, from) && !(typeof skip === 'function' && skip(r.dir)) && bulkTargetable(r, nowMs) && signedIn(r)
     && weeklyNow(r, nowMs) && weeklyNow(r, nowMs).usedPct < TARGET_MAX_PCT
     && !(fiveHourNow(r, nowMs) && fiveHourNow(r, nowMs).usedPct >= FIVE_HOUR_MAX_PCT));
   ok.sort((x, y) => (weeklyNow(x, nowMs).usedPct - weeklyNow(y, nowMs).usedPct)
@@ -121,13 +121,14 @@ function eligible(rows) {
 /**
  * The decision. `rows`: the Claude account rows (/api/accounts shape: dir, provider, email, organization,
  * memoryShared, offerable, apiKey, connection.badge, weekly, fiveHour, agentsHere.names and .complete).
- * `movable(session)`: whether that agent may move now. Returns { moves: [{ agent, from, to, why }], held: [{ from,
+ * `movable(session)`: whether that agent may move now. `skipTarget(dir)` (optional, slice 3b, kosmos#7548): targets the
+ * mover holds; the sweep's record never passes it, so its decisions stay the rule Settings shows. Returns { moves: [{ agent, from, to, why }], held: [{ from,
  * why }], short: [dir], atRisk: [{ from, why, kind: 'usage' | 'login' }] }: `held` names an at-risk account with movable agents but no target,
  * so the page can say nothing could take them; `short` names an at-risk account whose list of agents may be incomplete
  * (review 1), so the page does not read "nothing to move" as the whole truth; `atRisk` names every account at risk,
  * so an at-risk account with no idle agent on it is said, not silent (review 3).
  */
-function decide({ rows, movable, nowMs }) {
+function decide({ rows, movable, nowMs, skipTarget }) {
   const all = Array.isArray(rows) ? rows.filter((r) => r && r.provider === 'anthropic' && r.dir) : [];
   const moves = [];
   const held = [];
@@ -144,7 +145,7 @@ function decide({ rows, movable, nowMs }) {
     const moving = new Set(from.agentsHere && Array.isArray(from.agentsHere.moving) ? from.agentsHere.moving : []);
     const going = names.filter((n) => !moving.has(n) && typeof movable === 'function' && movable(n) === true);
     if (!going.length) continue;
-    const to = targetFor(from, all, nowMs);
+    const to = targetFor(from, all, nowMs, skipTarget);
     if (!to) { held.push({ from: from.dir, why }); continue; }
     for (const agent of going.slice().sort()) moves.push({ agent, from: from.dir, to: to.dir, why });
   }

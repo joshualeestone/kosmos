@@ -44,12 +44,14 @@ function readLines(file) {
 }
 
 /* Append one entry, keeping the newest KEEP_LINES. Written whole and renamed into place, so a reader never sees half a
-   file, under a temp name unique to the write. Never throws: a record that cannot be written must not stop the sweep. */
-function append(file, entry) {
+   file, under a temp name unique to the write. Never throws: a record that cannot be written must not stop the sweep.
+   appendAll writes several entries in one write (kosmos#7548: a person's move of many agents is one line each). */
+function append(file, entry) { return appendAll(file, [entry]); }
+function appendAll(file, entries) {
   const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
   try {
     const lines = readLines(file);
-    lines.push(entry);
+    lines.push(...entries);
     const keep = lines.slice(-KEEP_LINES);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(tmp, keep.map((l) => JSON.stringify(l)).join('\n') + '\n', { mode: 0o600 });
@@ -69,7 +71,12 @@ const objects = (x) => (Array.isArray(x) ? x : []).filter((y) => y && typeof y =
    show a move that will never happen. Throws when the record cannot be read (the route answers it as empty). */
 function recent(file, n = RECENT) {
   const now = Date.now();
-  return readLines(file).filter((l) => l.kind === 'decision' && objects(l.moves).some((m) => m.kind !== 'login') && Number.isFinite(l.at) && l.at <= now + CLOCK_SLACK_MS)   // review 10: as create() distrusts it
+  return readLines(file).filter((l) => Number.isFinite(l.at) && l.at <= now + CLOCK_SLACK_MS   // review 10: as create() distrusts it
+    && ((l.kind === 'decision' && objects(l.moves).some((m) => m.kind !== 'login'))
+      /* kosmos#7548 (slice 3b): the mover's own lines (engine/automove.js). A move that only started draws nothing (its
+         ending line says how it went), and a person's move is the mover's hold, not news. */
+      || (l.kind === 'move' && l.outcome !== 'started' && typeof l.agent === 'string')
+      || ((l.kind === 'works' || l.kind === 'skipped' || l.kind === 'released') && typeof l.agent === 'string')))
     .slice(-n).reverse();
 }
 
@@ -174,4 +181,4 @@ function create({ file, nowMs = Date.now() }) {
   return { tick, state };
 }
 
-module.exports = { create, recent, append, readLines, sweepOn, keyOf, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS, GAP_TICKS };
+module.exports = { create, recent, append, appendAll, readLines, sweepOn, keyOf, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS, GAP_TICKS };
