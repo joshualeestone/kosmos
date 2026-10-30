@@ -136,6 +136,7 @@ struct ChatView: View {
     @State private var emojiInsert: ComposerExtras.Pick?
     @StateObject private var dictation = Dictation()
     @State private var reactNote: String?
+    @State private var deleteNote: String?   // kosmos#7614 review 2: the delete's own line, cleared by a delete that works
     @State private var reacting: Set<String> = []
     // kosmos#7089: the search field's words. The thread shows only the loaded rows they match (Board.chatFilter).
     @State private var query = ""
@@ -1736,11 +1737,19 @@ struct ChatView: View {
                 if let t = thread { thread = Board.withoutMessage(t, at: at) }
                 // Review 1: with earlier messages open, the newest window shifts by one after a delete, so a row the
                 // earlier pages already hold would come back as a second copy. Start them again, as on a moved chat.
-                if !earlier.rows.isEmpty { earlier = Board.resetEarlier(earlier) }
-                // Review 1: only when there is something to say, so a standing line (Try again, a wait) is kept.
-                if let note = Board.deletedNote(told: told, names: [agent.session: shown.name]) { composerNote = note }
+                // Review 2: whenever they are open, also while their first page is still on its way. A reader scrolled up
+                // there jumps, as on a moved chat; the trade is taken over a row drawn twice.
+                if earlier.open || !earlier.rows.isEmpty { earlier = Board.resetEarlier(earlier) }
+                // Review 1: only when there is something to say, so a standing line (Try again, a wait) is kept; review 2:
+                // but an earlier delete's own refusal still showing is taken away.
+                if let note = Board.deletedNote(told: told, names: [agent.session: shown.name]) {
+                    composerNote = note; deleteNote = note
+                } else if let was = deleteNote, composerNote == was {
+                    composerNote = nil; deleteNote = nil
+                }
             case .refused(let why):
                 composerNote = why
+                deleteNote = why
             }
         }
     }

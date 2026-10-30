@@ -527,6 +527,8 @@ final class RoomStore: ObservableObject {
 
     // kosmos#7614: the person's own post deleted for everyone; the row goes at once and the room is re-read. Nil when the
     // answer belongs to another account or computer (switched meanwhile).
+    // Review 2: the line a delete put under the room's composer, so a later delete that works can take it away.
+    private var deleteNotes: [String: String] = [:]
     func delete(_ row: Board.RoomRow, in project: String) async -> Board.DeleteResult? {
         guard row.kind == .post, row.byPerson else { return .refused("Only your own messages can be deleted.") }
         #if DEBUG
@@ -541,9 +543,14 @@ final class RoomStore: ObservableObject {
         case .deleted(let told):
             rows[project]?.removeAll { $0.id == row.id }
             // Review 1: only when there is something to say, so the room's "not confirmed" line is kept otherwise.
-            if let note = Board.deletedNote(told: told, names: names) { notes[project] = note }
+            if let note = Board.deletedNote(told: told, names: names) {
+                notes[project] = note; deleteNotes[project] = note
+            } else if let was = deleteNotes[project], notes[project] == was {
+                notes[project] = nil; deleteNotes[project] = nil
+            }
         case .refused(let why):
             notes[project] = why
+            deleteNotes[project] = why
         }
         await loadRoom(project)
         return result
