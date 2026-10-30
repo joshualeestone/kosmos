@@ -1221,7 +1221,7 @@ const SCREENS = [
      the shape Josh saw run past the bubble. The room the board serves gets the post added on the way to the page, from
      chatAgent; nothing is written to the board. Scrolled to it, as room-notice-7189. */
   { name: 'room-table-7214', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
-    await page.route('**/api/project/*/room', async (r) => {
+    await page.route(/\/api\/project\/[^/]+\/room(\?[^#]*)?$/, async (r) => {   // the room reads a window (/room?...)
       try {
         if (r.request().method() !== 'GET') { await r.continue(); return; }
         const res = await r.fetch();
@@ -1250,7 +1250,8 @@ const SCREENS = [
      board, and the Delete dialog is shot open, never pressed. msgbar shows the agent post's bar (hovered on a computer,
      tapped on a phone, as a person opens it); msgmenu its "..." menu on the person's own post; msgdel the dialog. */
   { name: 'msgbar-7614', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
-    await page.route('**/api/project/*/room', async (r) => {
+    /* The room reads a window (/room?...), so the route matches with or without a query, as archiveRoute7365 does. */
+    await page.route(/\/api\/project\/[^/]+\/room(\?[^#]*)?$/, async (r) => {
       try {
         if (r.request().method() !== 'GET') { await r.continue(); return; }
         const res = await r.fetch();
@@ -1259,9 +1260,10 @@ const SCREENS = [
         if (!body || typeof body !== 'object') { await r.fulfill({ response: res }); return; }
         const rows = Array.isArray(body.rows) ? body.rows : [];
         const now = Date.now();
-        rows.push({ kind: 'post', id: 'm7614a', from: data.chatAgent, fromKind: 'agent', at: new Date(now - 120e3).toISOString(),
+        const a1 = new Date(now - 120e3).toISOString(), a2 = new Date(now - 60e3).toISOString();
+        rows.push({ kind: 'post', id: 'm7614a', from: data.chatAgent, fromKind: 'agent', at: a1, key: a1 + '|0',
           text: 'The catalogue proof is back from the printer. Four pages, colours look right.' });
-        rows.push({ kind: 'post', id: 'm7614b', operator: true, at: new Date(now - 60e3).toISOString(),
+        rows.push({ kind: 'post', id: 'm7614b', operator: true, at: a2, key: a2 + '|0',
           text: 'Thanks, I will check the cover tonight.' });
         body.rows = rows;
         await r.fulfill({ response: res, body: JSON.stringify(body) });
