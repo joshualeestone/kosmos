@@ -1049,3 +1049,42 @@ test('a restored project\'s git settings that run or load something are named be
   assert.equal(set('many').length, 21);
   assert.equal(set('many')[20], '.git/config sets 5 more git settings');
 });
+
+test('a git key keeps its name in view whatever its subsection; link, oversized and over-budget configs read as not checked', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const pr = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_PROJECTS;
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(pr, rel)), { recursive: true }); fs.writeFileSync(path.join(pr, rel), text); };
+  put('long/.git/config', `[remote "origin.url-and-nothing-else-here-just-a-plain-remote-url-${'x'.repeat(40)}"]\n\tuploadpack = x\n`);
+  put('big/.git/config', '[core]\n' + '#'.repeat(1024 * 1024 + 1) + '\n');
+  if (process.platform !== 'win32') {
+    put('linked/target', '[core]\n\tpager = x\n');
+    fs.mkdirSync(path.join(pr, 'linked', '.git'));
+    fs.symlinkSync(path.join(pr, 'linked', 'target'), path.join(pr, 'linked', '.git', 'config'));
+  }
+  for (const n of ['b1', 'b2', 'b3']) put(`${n}/.git/config`, '[core]\n\tpager = x\n');
+  const runsOf = (l) => Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
+  const runs = runsOf(rw.listRestoredAgents({ base, world: p.world, nameOk }));
+  const line = runs.long.find((r) => / sets /.test(r));
+  assert.match(line, /^\.git\/config sets remote\..{1,30}\.uploadpack$/, 'the name stays at the end of the line');
+  assert.ok(runs.big.includes('.git/config is too large to check its git settings'));
+  if (process.platform !== 'win32') assert.ok(runs.linked.includes('.git/config is a link, so its git settings were not checked'));
+  assert.ok(!Object.values(runs).flat().some((r) => /checked as many as it may/.test(r)), 'the default budget covers this listing');
+  // Four configs git would read (long, b1, b2, b3): with three reads allowed, exactly one says it was not checked.
+  const all = Object.values(runsOf(rw.listRestoredAgents({ base, world: p.world, nameOk, gitReads: 3 }))).flat();
+  assert.equal(all.filter((r) => /checked as many as it may/.test(r)).length, 1, 'past the read budget a config says so');
+});
+
+test('a project folder that cannot be listed still has its git settings named', { skip: process.platform === 'win32' ? 'POSIX modes' : (process.getuid && process.getuid() === 0 ? 'root reads through modes' : false) }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const pr = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_PROJECTS;
+  fs.mkdirSync(path.join(pr, 'shut', '.git'), { recursive: true });
+  fs.writeFileSync(path.join(pr, 'shut', '.git', 'config'), '[core]\n\tpager = x\n');
+  fs.chmodSync(path.join(pr, 'shut'), 0o311);
+  let l;
+  try { l = rw.listRestoredAgents({ base, world: p.world, nameOk }); } finally { fs.chmodSync(path.join(pr, 'shut'), 0o755); }
+  const row = l.shared.find((x) => x.label === 'shut');
+  assert.ok(row.runs.includes('(the folder could not be read)'));
+  assert.ok(row.runs.includes('.git/config sets core.pager'));
+});

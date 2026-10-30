@@ -27,3 +27,13 @@ runs or loads something once the agent's git reaches it. The review screen must 
   bare config, a broken config, a .git file, a commondir, and the 20-key cap. 58/58.
 - Mutation: the gitSettingsIn push replaced by a comment reds the new test (0 pass, 1 fail); restored.
 - engine.reachable, windows-coupling-audit-1732, win32-separator-guard: 78/78 with the file.
+
+## Review round 1 (opus): 3 WARNING, 1 CONVENTION, 3 NIT, all addressed
+- A long subsection pushed the key's name off its label (60-char cut), so `remote.<long>.uploadpack` read as a
+  remote URL. Now the section and name are shown whole and only the subsection is cut (keyLabelOf, 30 chars).
+- An unlistable folder returned before the settings scan; now it runs there too.
+- No bound on git runs (about 4,000 at 2.6 ms each): budget.gitReads, 400 per listing, then "not checked".
+- GIT_CEILING_DIRECTORIES stops git looking for a repository above the temporary folder.
+- The comment named a function that does not exist; the allowlist comment no longer says these keys hold no path.
+- Tests: the long subsection, a linked config, an oversized config, the read budget, an unlistable project.
+  Mutations (keyLabelOf back to labelOf, no budget decrement, no scan on unreadable) each red; restored green, 60/60.

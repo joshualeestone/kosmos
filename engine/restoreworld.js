@@ -72,8 +72,8 @@ const BARE = 'HEAD (git can read a folder holding it as a repository)';
 const CUT = '(the folder holds more entries than were checked)';
 const UNREADABLE = '(the folder could not be read)';
 const GIT_WHY = 'git runs its settings here (hooks, fsmonitor) when an agent uses git in this folder';
-/* Git settings that hold no command, path or program, matched against git's own key names (section and name lowercased,
-   a subsection as `*`). A repository's settings are read by git itself (readGitSettings); every key NOT here is named on
+/* Git settings that run nothing when git reads them, matched against git's own key names (section and name lowercased,
+   a subsection as `*`). A repository's settings are read by git itself (gitSettingsOf); every key NOT here is named on
    the screen before Enable, since 4c-1 switches off only hooks and fsmonitor, and a filter, a textconv, a pager, an
    sshCommand, a credential helper or an include runs or loads something the moment the agent's git reaches it. Listing
    too much is the safe direction: an unknown key is shown, never passed. */
@@ -94,6 +94,8 @@ const GIT_CONFIGS = ['config', 'config.worktree'];   // in a git folder; the sec
 const MAX_GIT_CONFIG_BYTES = 1024 * 1024;
 const MAX_GIT_KEYS_SHOWN = 20;   // per config file; past it one line says how many more
 const GIT_READ_MS = 5000;
+const MAX_GIT_READS = 400;   // git config runs per listing (review 1: four per folder across a thousand rows took 10 s)
+const MAX_SUBSECTION_CHARS = 30;   // shown of a key's subsection; its section and name are always shown whole
 /* Characters that draw nothing or only alter the one before, beside the classes cleanText drops: braille blank,
    Hangul and Khmer fillers, Mongolian and other variation selectors, the object replacement character. */
 const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180c, 0x180d, 0x034f, 0xfffc, ...Array.from({ length: 16 }, (_, i) => 0xfe00 + i), ...Array.from({ length: 240 }, (_, i) => 0xe0100 + i)].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
@@ -599,22 +601,31 @@ const isGit = (runs) => runs.some((r) => r === BARE || r.toLowerCase() === GIT);
    could not be checked. Read by git itself, never by a parser here (a partial parser fails open): --file with no
    --includes follows no include, the environment carries no GIT_* variable and no system or global config, and git runs
    from the system's temporary folder, never from the restored one. A missing or broken git reads as not checked. */
-function gitSettingsOf(file, shown) {
+function gitSettingsOf(file, shown, budget) {
   let st;
   try { st = fs.lstatSync(file); } catch { return []; }
   if (st.isSymbolicLink()) return [`${shown} is a link, so its git settings were not checked`];
   if (!st.isFile()) return [`${shown} is not a file, so its git settings were not checked`];
   if (st.size > MAX_GIT_CONFIG_BYTES) return [`${shown} is too large to check its git settings`];
+  if (budget.gitReads <= 0) return [`${shown} (its git settings were not checked: the listing has checked as many as it may)`];
+  budget.gitReads -= 1;
   const env = {};
   for (const [k, v] of Object.entries(process.env)) if (!/^GIT_/i.test(k)) env[k] = v;
-  Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull, GIT_TERMINAL_PROMPT: '0' });
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull, GIT_TERMINAL_PROMPT: '0', GIT_CEILING_DIRECTORIES: path.dirname(os.tmpdir()) });
   const r = childProcess.spawnSync('git', ['config', '--file', file, '--no-includes', '--null', '--name-only', '--list'],
     { cwd: os.tmpdir(), env, encoding: 'utf8', timeout: GIT_READ_MS, maxBuffer: 2 * MAX_GIT_CONFIG_BYTES, windowsHide: true });
   if (r.error || r.status !== 0) return [`${shown} (its git settings could not be checked)`];
   const keys = [...new Set(r.stdout.split('\0').filter(Boolean))].filter((k) => !GIT_PLAIN_KEYS.has(plainKeyOf(k)));
-  const out = keys.slice(0, MAX_GIT_KEYS_SHOWN).map((k) => `${shown} sets ${labelOf(k)}`);
+  const out = keys.slice(0, MAX_GIT_KEYS_SHOWN).map((k) => `${shown} sets ${keyLabelOf(k)}`);
   if (keys.length > MAX_GIT_KEYS_SHOWN) out.push(`${shown} sets ${keys.length - MAX_GIT_KEYS_SHOWN} more git settings`);
   return out;
+}
+/* A key as shown: its section and name whole (git allows only letters, digits and hyphens in both), its subsection
+   cleaned and cut, so a long subsection cannot push the name off the line (review 1). */
+function keyLabelOf(key) {
+  const first = key.indexOf('.'), last = key.lastIndexOf('.');
+  if (first === last) return labelOf(key);
+  return `${key.slice(0, first)}.${cleanText(key.slice(first + 1, last), MAX_SUBSECTION_CHARS, '(a name that cannot be shown)')}.${key.slice(last + 1)}`;
 }
 /* git's key `section.sub.name` (section and name lowercased by git, the subsection as written) as `section.*.name`. */
 function plainKeyOf(key) {
@@ -624,7 +635,7 @@ function plainKeyOf(key) {
 /* The git settings a repository in `folder` holds that run or load something (gitSettingsOf), for the screen to show
    before Enable. A .git that is a file or a link names a folder elsewhere, and a commondir moves the settings, so both
    read as not checked rather than as none. */
-function gitSettingsIn(folder, runs) {
+function gitSettingsIn(folder, runs, budget) {
   const out = [];
   const dirs = [];
   if (runs.some((r) => r.toLowerCase() === GIT)) {
@@ -637,17 +648,17 @@ function gitSettingsIn(folder, runs) {
   for (const [dir, shown] of dirs) {
     const at = (n) => (shown ? `${shown}/${n}` : n);
     try { fs.lstatSync(path.join(dir, 'commondir')); out.push(`${at('commondir')} moves its git settings elsewhere, so they were not checked`); } catch { /* absent */ }
-    for (const c of GIT_CONFIGS) out.push(...gitSettingsOf(path.join(dir, c), at(c)));
+    for (const c of GIT_CONFIGS) out.push(...gitSettingsOf(path.join(dir, c), at(c), budget));
   }
   return out;
 }
 
 /* What in a folder runs or loads something when a provider starts there: its dot-entries and PLAIN_AT_START names (a
    link counts, unopened), a git repository in either form, linked briefs, briefs that are not plain UTF-8 text, and
-   `@` imports in any brief. `budget.left` is the brief bytes the whole listing may still read. */
+   `@` imports in any brief. `budget.left` is the brief bytes the whole listing may still read, `budget.gitReads` the git config runs. */
 function runsIn(folder, budget) {
   const listed = namesIn(folder, MAX_ENTRIES_READ);
-  if (!listed) return [UNREADABLE, ...gitIn(folder)];   // git still finds what lstat can see
+  if (!listed) { const g = gitIn(folder); return [UNREADABLE, ...g, ...gitSettingsIn(folder, g, budget)]; }   // git still finds what lstat can see
   const out = [];
   for (const n of listed.names.filter((x) => x.startsWith('.') && !HARMLESS.has(x))) out.push(labelOf(n));
   // The start-time dot-names asked by exact name, for a spelling the filesystem opens as one of them.
@@ -681,7 +692,7 @@ function runsIn(folder, budget) {
     else if (/(^|[^\p{L}\p{N}_@.])@[^\s@]|@(\.{1,2}\/|~\/|\/)/u.test(head.toString('utf8'))) out.push(`${brief} imports`);
     if (bytes.length > MAX_BRIEF_BYTES) out.push(`${brief} (too large to check in full)`);
   }
-  out.push(...gitSettingsIn(folder, out));
+  out.push(...gitSettingsIn(folder, out, budget));
   return out;
 }
 
@@ -716,7 +727,7 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    files a shell hook (direnv, mise) would run on entering a folder. Nothing is registered, started or written.
    A world not on the list (no registry row, hidden, or its folder swapped for a link) answers with no rows and a
    `because`, so a refusal cannot read as an empty restore.
-   opts.maxListed lowers MAX_LISTED and opts.briefTotal lowers MAX_BRIEF_TOTAL (tests). */
+   opts.maxListed lowers MAX_LISTED and opts.briefTotal lowers MAX_BRIEF_TOTAL and opts.gitReads MAX_GIT_READS (tests). */
 function listRestoredAgents(opts = {}) {
   // create.js freezes store.ROOT when first required, so 4c's caller sets the store root before its first listing.
   const nameOk = opts.nameOk || ((n) => require('./create').NAME_RE.test(n));
@@ -726,7 +737,8 @@ function listRestoredAgents(opts = {}) {
   // An ordinary world's own agents are not restored ones: only a world prepare made is listed.
   if (!markCertainlyPresent(opts.base, opts.world)) return { agents: [], shared: [], more: false, because: 'this Kosmos was not made for a restore, so nothing in it is offered' };
   const roots = worlds.envOverridesFor(opts.base, opts.world);
-  const budget = { left: Number.isSafeInteger(opts.briefTotal) && opts.briefTotal >= 0 ? Math.min(opts.briefTotal, MAX_BRIEF_TOTAL) : MAX_BRIEF_TOTAL };
+  const budget = { left: Number.isSafeInteger(opts.briefTotal) && opts.briefTotal >= 0 ? Math.min(opts.briefTotal, MAX_BRIEF_TOTAL) : MAX_BRIEF_TOTAL,
+    gitReads: Number.isSafeInteger(opts.gitReads) && opts.gitReads >= 0 ? Math.min(opts.gitReads, MAX_GIT_READS) : MAX_GIT_READS };
   const cap = Number.isSafeInteger(opts.maxListed) && opts.maxListed > 0 ? Math.min(opts.maxListed, MAX_LISTED) : MAX_LISTED;
   const agents = [], shared = [];
   let more = false;
