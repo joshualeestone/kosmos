@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: personalswitch-7404
-diff_hash: bfcc4c465b99ab08b3ac55130c929ece743e171b0419a135d617060c1373140b
+diff_hash: 0e58e37c6e4dcaa42e5c73967d8bfd2ca96d0d164944e471565bd725575084dd
 validation: pending
 subdir_audit: passed
-timestamp: 2026-10-30T22:35:32Z
+timestamp: 2026-10-30T22:48:56Z
 iterations: 8
 converged: true
 ---
@@ -71,3 +71,5 @@ here: the full suite (that is CI's and the Mortals gate's).
 
 ## Final ledger
 BLOCKERs open: 0. Relay follow-ups owned elsewhere: #7658 (Mona Lisa), #7661 items 1 (Baron), 2 (Mona Lisa), 3 (Kitty).
+
+**Re-hash after CI (17:5x):** suite (node) failed on engine/computerprint-5532.test.js (my test file holds a fake ioreg dump, which only an excused file may). Fixed by excusing it beside orgenroll-print-5532.test.js with the same reason; control: without the excuse the guard fails exactly as CI did. Not a product change.
