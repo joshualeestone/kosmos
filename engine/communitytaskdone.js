@@ -82,26 +82,14 @@ function triesForSession(book, session, now) {
    (closed), the same contract engine/communityturn.js's tickOnce uses. */
 function on(f) { if (typeof f !== 'function') return false; try { return f() === true; } catch { return false; } }
 
-/*
- * Decide whether to prompt the agent that just finished a task, and if so, deliver it. Pure apart
- * from o.deliver and the injected reads; mutates the passed-in `book` Map when it records a dedup
- * entry, and returns { session, name, act, delivery, recorded }. Never throws.
- *
- * o = {
- *   projectId, taskNumber, session, name, trigger,   // the event ('built' | 'closed')
- *   now, book,                                        // ms, and the dedup book (Map key -> { at, session })
- *   liveAllowed, brakeOn, switchOn, prompterOn,       // gate predicates () => bool
- *   inCommunity,                                      // (session) => bool  (its instructions carry the block)
- *   postTimes,                                        // (session) => [ISO string] | null  (null = unreadable)
- *   deliver, DELIVERY,                                // (session, text) => verdict ; chat.DELIVERY
- * }
- */
-function promptOnTaskDone(o) {
+/* kosmos#7649: the decision before the delivery. Returns { done } (a result, nothing to send) or { p } (what to
+   send and how to book it). Shared by the synchronous and the awaited sender so the two cannot drift. Never throws. */
+function decide(o) {
   const skip = (act) => ({ session: o && o.session, name: (o && (o.name || o.session)) || null, act, delivery: null, recorded: false });
   try {
-    if (!o || typeof o.deliver !== 'function') return skip('bad-input');
+    if (!o || typeof o.deliver !== 'function') return { done: skip('bad-input') };
     const session = o.session ? String(o.session) : '';
-    if (!session || o.projectId == null || o.taskNumber == null) return skip('bad-input');
+    if (!session || o.projectId == null || o.taskNumber == null) return { done: skip('bad-input') };
     const name = o.name || session;
     const now = Number.isFinite(o.now) ? o.now : Date.now();
     const book = o.book instanceof Map ? o.book : new Map();
@@ -111,35 +99,42 @@ function promptOnTaskDone(o) {
     // Per-task dedup FIRST: one prompt per task ever. Checked before the gates so a task already
     // prompted is never re-prompted; a task NOT yet prompted falls through and is only booked when a
     // prompt actually lands (below), so a gated-off first mark does not silently burn the task.
-    if (book.has(key)) return { session, name, act: 'deduped', delivery: null, recorded: false };
+    if (book.has(key)) return { done: { session, name, act: 'deduped', delivery: null, recorded: false } };
 
     // The sweep's gates, in the sweep's order. Any off and nothing is sent or booked.
-    if (!on(o.liveAllowed)) return { session, name, act: 'off', delivery: null, recorded: false };
+    if (!on(o.liveAllowed)) return { done: { session, name, act: 'off', delivery: null, recorded: false } };
     // The operator brake is a STOP gate, so a throw must read as ENGAGED (fail-safe: if we cannot tell
     // whether the brake is on, do not prompt). on()'s throw -> false is the right polarity for the
     // PROCEED gates around it, but the wrong one here, so the brake gets its own check.
     let braked = false;
     if (typeof o.brakeOn === 'function') { try { braked = o.brakeOn() === true; } catch { braked = true; } }
-    if (braked) return { session, name, act: 'off', delivery: null, recorded: false };
-    if (!on(o.switchOn) || !on(o.prompterOn)) return { session, name, act: 'off', delivery: null, recorded: false };
+    if (braked) return { done: { session, name, act: 'off', delivery: null, recorded: false } };
+    if (!on(o.switchOn) || !on(o.prompterOn)) return { done: { session, name, act: 'off', delivery: null, recorded: false } };
     let inComm = false;
     try { inComm = o.inCommunity(session) === true; } catch { inComm = false; }
-    if (!inComm) return { session, name, act: 'not-in-community', delivery: null, recorded: false };
+    if (!inComm) return { done: { session, name, act: 'not-in-community', delivery: null, recorded: false } };
 
     // Daily post ceiling (same as the sweep's `due`): an agent that already posted the daily max is
     // not nudged to post again. An unreadable post history prompts nobody, as the sweep does.
     let times = null;
     try { times = o.postTimes(session); } catch { times = null; }
-    if (!Array.isArray(times)) return { session, name, act: 'posts-unreadable', delivery: null, recorded: false };
+    if (!Array.isArray(times)) return { done: { session, name, act: 'posts-unreadable', delivery: null, recorded: false } };
     const at = times.map((t) => Date.parse(t)).filter(Number.isFinite);
-    if (at.filter((t) => now - t < DAY_MS).length >= POSTS_PER_DAY_MAX) return { session, name, act: 'daily-max', delivery: null, recorded: false };
+    if (at.filter((t) => now - t < DAY_MS).length >= POSTS_PER_DAY_MAX) return { done: { session, name, act: 'daily-max', delivery: null, recorded: false } };
 
     // Per-agent daily event cap: a burst of task completions cannot spam one agent.
-    if (triesForSession(book, session, now) >= PROMPTS_PER_DAY) return { session, name, act: 'agent-daily-cap', delivery: null, recorded: false };
+    if (triesForSession(book, session, now) >= PROMPTS_PER_DAY) return { done: { session, name, act: 'agent-daily-cap', delivery: null, recorded: false } };
 
-    const text = taskDoneText(o.trigger);
-    let v = null;
-    try { v = o.deliver(session, text); } catch { v = { state: D.UNCONFIRMED }; }   // a throw after the paste is UNCONFIRMED (reached), as chat's contract reads
+    return { p: { session, name, now, book, D, key, text: taskDoneText(o.trigger) } };
+  } catch {
+    return { done: skip('error') };   // never throws: a prompt is best-effort
+  }
+}
+
+// The verdict, read and booked. Never throws.
+function settle(p, v) {
+  const { session, name, now, book, D, key } = p;
+  try {
     const state = v && v.state;
     const reached = state === D.PLACED || state === D.UNCONFIRMED;   // the states where text actually reached the pane
     const queued = reached && Boolean(v && v.queued === true);   // #5216: PLACED into a busy, mid-turn composer; submitted when the turn ends -> it DID land
@@ -155,8 +150,42 @@ function promptOnTaskDone(o) {
     const act = reached ? (queued ? 'queued' : 'prompted') : (held ? 'held' : (busy ? 'pane-busy' : 'not-reached'));
     return { session, name, act, delivery: state || null, recorded: reached };
   } catch {
-    return skip('error');   // never throws: a prompt is best-effort
+    return { session, name, act: 'error', delivery: null, recorded: false };
   }
+}
+
+/*
+ * Decide whether to prompt the agent that just finished a task, and if so, deliver it. Pure apart
+ * from o.deliver and the injected reads; mutates the passed-in `book` Map when it records a dedup
+ * entry, and returns { session, name, act, delivery, recorded }. Never throws.
+ *
+ * o = {
+ *   projectId, taskNumber, session, name, trigger,   // the event ('built' | 'closed')
+ *   now, book,                                        // ms, and the dedup book (Map key -> { at, session })
+ *   liveAllowed, brakeOn, switchOn, prompterOn,       // gate predicates () => bool
+ *   inCommunity,                                      // (session) => bool  (its instructions carry the block)
+ *   postTimes,                                        // (session) => [ISO string] | null  (null = unreadable)
+ *   deliver, DELIVERY,                                // (session, text) => verdict ; chat.DELIVERY
+ * }
+ */
+function promptOnTaskDone(o) {
+  const d = decide(o);
+  if (d.done) return d.done;
+  let v = null;
+  try { v = o.deliver(d.p.session, d.p.text); } catch { v = { state: d.p.D.UNCONFIRMED }; }   // a throw after the paste is UNCONFIRMED (reached), as chat's contract reads
+  return settle(d.p, v);
+}
+
+/* kosmos#7649: the same, with the delivery awaited (o.deliver may return a promise), so the board's event loop is
+   free while the pane is typed into. A rejection reads as a throw does: UNCONFIRMED. Never rejects. The book is read
+   before the delivery and booked after it, so the CALLER must not run two of these over one book at once (server.js
+   runs them one after another), or both could pass the dedup before either books. */
+async function promptOnTaskDoneAsync(o) {
+  const d = decide(o);
+  if (d.done) return d.done;
+  let v = null;
+  try { v = await o.deliver(d.p.session, d.p.text); } catch { v = { state: d.p.D.UNCONFIRMED }; }
+  return settle(d.p, v);
 }
 
 /* The dedup book on disk, so restarts cannot re-prompt a task. { "<projectId>\t<taskNumber>":
@@ -188,4 +217,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { taskDoneText, promptOnTaskDone, readBook, writeBook, bookFile, POST_CLAUSE, PROMPTS_PER_DAY, RETENTION_MS, DAY_MS };
+module.exports = { taskDoneText, promptOnTaskDone, promptOnTaskDoneAsync, readBook, writeBook, bookFile, POST_CLAUSE, PROMPTS_PER_DAY, RETENTION_MS, DAY_MS };
