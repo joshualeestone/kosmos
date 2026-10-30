@@ -122,7 +122,7 @@ struct AttachPanel: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .frame(minWidth: 220, alignment: .leading)
+                    .frame(minWidth: 220, maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -130,6 +130,8 @@ struct AttachPanel: View {
                 .accessibilityHint(atLimit ? limitHint : choice == .camera && camera == .notAllowed ? "Opens Settings, where the camera can be turned on for Kosmos." : "")
             }
         }
+        // Review 16: every row as wide as the widest, so a note under Camera cannot leave Photos and Files a short tap area.
+        .fixedSize(horizontal: true, vertical: false)
         .padding(.vertical, 8)
     }
 }
