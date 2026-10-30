@@ -34,3 +34,9 @@ would change the bytes.
 - build-kosmos-windows.sh: whats-new-check 0.7.76 --platform=windows exit 0.
 - server.test.js and tools.release-gate.test.js read only temp-dir fixtures, never the committed file.
 - Plan file: accurate on every point checked.
+
+## Final ledger
+
+- [WARNING] (reviewer's MINOR) no cut-time check that web/whats-new.json matches a fresh pool build --> DEFERRED to a follow-up card (pre-existing gap, not this diff); rebuilds for the two queued items are named in the plan.
+- [NIT] plan should say the online build equals an offline one only while prod and lastProd agree --> FIXED in the plan.
+- [STRENGTH] the committed file is byte-identical to a regeneration from the pool.
