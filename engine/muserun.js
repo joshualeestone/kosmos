@@ -48,28 +48,34 @@ const BUSY = 'Muse Code is still working on this agent\'s last turn';
    quotes a vendor's sentence for the same reason). Weakest premise: no capture of Muse's quota output exists, so every
    rule here is narrow: a sentence must say the quota is exhausted or exceeded (or pair a 429 with a quota, close
    together), and only a failure's own words are read, never the model's or a tool's. */
-const QUOTA_HEAD = 'Meta\'s usage quota for Muse Code is used up, so this turn did not run';
+/* Review 4: "stopped", true whether the turn ran partway (its text is written before this) or not at all. */
+const QUOTA_HEAD = 'Meta\'s usage quota for Muse Code is used up, so Muse Code stopped';
 const QUOTA_LINE_MAX = 240;
+/* Review 4 changed the principle, after four rounds each found new loose wordings: when unsure, say what Kosmos said
+   before. A missed quota leaves today's "could not run"; a quota claimed wrongly sends the person to billing for a
+   context limit or a passing rate limit. So a 429 alone is never enough: a refusal names the quota and the refusal
+   word together (only a space or "_" between), or is one of the known codes. */
 const QUOTA_SAID = new RegExp([
-  // Review 3 BLOCKER: only a space, "_" or ":" between the words, so "exceeded. Quota for this session" (two
-  // sentences, a context-length failure) is never read as a quota refusal.
-  /quota(?:\s+|_|:\s*)(?:is\s+|has\s+been\s+|was\s+)?(?:exhausted|exceeded)/.source,
-  // Review 2: the other order ("You have exhausted your quota", "exceeded your current quota", "RESOURCE_EXHAUSTED: quota").
-  /(?:exhausted|exceeded)(?:\s+|_|:\s*)(?:(?:your|the)\s+)?(?:(?:current|monthly|daily)\s+)?quota/.source,
-  // A 429 and a quota in one sentence (review 3: never across a ".", ";" or "!").
-  /\b429\b[^.;!]{0,40}\bquota/.source,
-  /\bquota\b[^.;!]{0,40}\b429\b/.source,
+  /quota(?:\s+|_)?(?:is\s+|has\s+been\s+|was\s+)?(?:exhausted|exceeded)/.source,   // also QuotaExceeded, quota_exceeded
+  /(?:exhausted|exceeded)(?:\s+|_)(?:(?:your|the)\s+)?(?:(?:current|monthly|daily)\s+)?quota/.source,
+  /\bRESOURCE_EXHAUSTED:\s*quota/.source,
+  /\binsufficient_quota\b/.source,
+  /\bout\s+of\s+quota\b/.source,
+  /\bno\s+quota\s+(?:is\s+)?(?:left|available|remaining)\b/.source,
 ].join('|'), 'i');
-/* Not a refusal: a negation; a share below 100% ("80% of monthly quota exceeded" is a notice, review 2; "100% used" is
-   a refusal, review 3); a quota said to be fine (review 3: "retried after 429, quota ok"). */
-const NOT_REFUSED = /\bnot\s+(?:yet\s+)?(?:exhausted|exceeded)\b|\b[1-9]?\d(?:\.\d+)?\s*%|\bquota\s+(?:is\s+)?(?:ok|fine|available|remaining)\b/i;
+/* Not a refusal: a negation ("not exceeded"), or a share of a quota below 100% ("80% of monthly quota exceeded" is a
+   notice, review 2). Only "N% of": "0% remaining" and a URL's "%3A" are not notices (review 4). */
+const NOT_REFUSED = /\bnot\s+(?:yet\s+)?(?:exhausted|exceeded)\b|\b[1-9]?\d(?:\.\d+)?\s*%\s+of\b/i;
 /* Review 1 and 2: a stderr line that says Muse is retrying is one it may have recovered from. Only "retrying": a final
    refusal often says when to retry ("Retry after ..."), and that time is why Meta's sentence is quoted at all. */
 /* Review 3: "retried" too. Only the bare word "retry" is let through before "after" or "in" ("Retry after <time>",
    "retry in 31s": a final refusal's reset time); "retrying in 2s" is a retry under way. */
 const RETRYING = /\bretr(?:ied|ying)\b|\bretry\b(?!\s+(?:after|in)\b)/i;
-// By characters, not UTF-16 units (review 1: a cut must never split a character).
-function capped(line) {
+/* By characters, not UTF-16 units (review 1: a cut must never split a character). A key or token beside the sentence is
+   hidden first (review 4: a client that logs its request URL would otherwise put it in the conversation). */
+const SECRETISH = /\b(?:sk|pk|rk)-[A-Za-z0-9_-]{6,}|\b((?:api_?key|key|access_token|token|secret|password|auth)=)[^\s&]+|\b(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi;
+function capped(raw) {
+  const line = raw.replace(SECRETISH, (m, kv, bearer) => (kv || bearer || '') + '[hidden]');
   const chars = Array.from(line);
   return chars.length > QUOTA_LINE_MAX ? chars.slice(0, QUOTA_LINE_MAX).join('') + '…' : line;
 }
@@ -301,7 +307,8 @@ function runTurn(input) {
           musestatus.markSignedOut(startedAt, atStart, Date.now());
         }
         // Timed out only when Kosmos stopped it (round 1): another signal is a crash, not a timeout.
-        else if (err) { const q = quotaRefusal(stderr, stdout); because = q ? quotaBecause(q) : COULD_NOT_RUN; }
+        // Review 4: never for a turn Muse says it completed.
+        else if (err) { const q = parsed.done ? null : quotaRefusal(stderr, stdout); because = q ? quotaBecause(q) : COULD_NOT_RUN; }
         else if (!parsed.done) {
           const q = quotaRefusal(stderr, stdout);
           because = q ? quotaBecause(q) : 'Muse Code stopped before finishing the turn';

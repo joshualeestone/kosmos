@@ -129,7 +129,6 @@ test('kosmos#7615 item 4: quotaLine reads only a sentence that says a quota refu
   assert.equal(run.quotaLine('429 Subscription quota exhausted. Resets at 2026-11-02T00:00:00Z'),
     '429 Subscription quota exhausted. Resets at 2026-11-02T00:00:00Z');
   assert.equal(run.quotaLine('noise\nerror: monthly QUOTA exceeded; try again later\n'), 'error: monthly QUOTA exceeded; try again later');
-  assert.equal(run.quotaLine('HTTP 429: quota'), 'HTTP 429: quota');
   assert.equal(run.quotaLine('your quota has been exhausted'), 'your quota has been exhausted');
   // Not a refusal (review 1): a 429 with no quota, a quota with no refusal, the two far apart, a negation, a retry.
   for (const no of ['429 Too Many Requests', 'your quota is 40% used', 'QuotaGuard: limit not exceeded',
@@ -142,7 +141,12 @@ test('kosmos#7615 item 4: quotaLine reads only a sentence that says a quota refu
     'max turns exceeded - quota of 50 turns per run', 'got 429. quota page: example.com',
     'Session quota. Exceeded context window by 2k tokens',
     // Review 3: a 429 the run got past.
-    'retried after 429, quota ok; panic: nil map']) {
+    'retried after 429, quota ok; panic: nil map',
+    // Review 4: a 429 alone is never a quota refusal, whatever else the sentence says.
+    'HTTP 429: quota', '429 rate limited (not a quota issue)', '429: per-minute burst limit, quota unaffected',
+    'HTTP 429 from proxy, quota check skipped', 'Request failed with status code 429',
+    'You have not exceeded your quota',   // only the negation refuses it
+    'Error: max_tokens exceeded: quota of 8k output tokens per turn']) {
     assert.equal(run.quotaLine(no), null, no);
   }
   // Review 2: wordings in the other order, a code, and a final refusal that says when to retry.
@@ -151,7 +155,10 @@ test('kosmos#7615 item 4: quotaLine reads only a sentence that says a quota refu
     '429 You exceeded your current quota. Please retry in 31s.',
     // Review 3: a refusal that shows a full share.
     '429 Subscription quota exhausted (100% used). Resets 2026-11-02',
-    'You have used 100% of your quota. Quota exhausted until 00:00 UTC']) {
+    'You have used 100% of your quota. Quota exhausted until 00:00 UTC',
+    // Review 4: codes, a refusal that shows what is LEFT, and a URL-encoded colon.
+    'QuotaExceeded', 'insufficient_quota', 'You are out of quota', '429: no quota available for this subscription',
+    'Quota exhausted: 0% remaining, resets 00:00', 'quota exhausted, resets at 10%3A00 UTC']) {
     assert.equal(run.quotaLine(yes), yes, yes);
   }
   // "retrying" is skipped only when asked (stderr), never in a run failure's own words.
@@ -160,6 +167,10 @@ test('kosmos#7615 item 4: quotaLine reads only a sentence that says a quota refu
   assert.equal(run.quotaLine(retrying), retrying);
   assert.equal(run.quotaLine('429 quota exhausted. Retry after 6h', true), '429 quota exhausted. Retry after 6h');
   assert.equal(run.quotaLine('quota exhausted, retried twice', true), null, 'review 3: "retried" is a retry too');
+  // Review 4: a key or token beside the sentence is hidden before it is quoted.
+  assert.equal(run.quotaLine('GET /v1/run?access_token=abc123&x=1 quota exhausted'), 'GET /v1/run?access_token=[hidden]&x=1 quota exhausted');
+  assert.equal(run.quotaLine('quota exhausted for sk-live_ABCDEF123456'), 'quota exhausted for [hidden]');
+  assert.equal(run.quotaLine('quota exhausted; Authorization: Bearer eyJhbGciOi.x.y'), 'quota exhausted; Authorization: Bearer [hidden]');
   // The LAST refusal, not the first (review 1).
   assert.equal(run.quotaLine('quota exceeded at 01:00\nquota exhausted, resets 02:00'), 'quota exhausted, resets 02:00');
   // Capped by characters: a cut never splits one (review 1).
@@ -246,6 +257,16 @@ test('kosmos#7615 item 4: a turn refused for quota says so, with Meta\'s own sen
     fakeMuse("echo '" + done + "'\nexit 1");
     r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
     assert.equal(r.because, run.COULD_NOT_RUN);
+    // Review 4: a turn Muse completed is never called a quota stop, even when it then exits non-zero after a refusal line.
+    fakeMuse("echo '" + done + "'\necho 'quota exhausted' >&2\nexit 1");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.because, run.COULD_NOT_RUN);
+    // A turn that ran partway: its text stays, and the line says Muse Code stopped (not that the turn "did not run").
+    const part = ev(81, 'run.output.delta', { kind: 'run_output_delta', text: 'Step 1 done.' });
+    fakeMuse("echo '" + part + "'\necho '" + failed + "'\nexit 1");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.text, 'Step 1 done.');
+    assert.match(r.because, /so Muse Code stopped\. Meta said: /);
     // Order (review 1): a sign-in failure that also mentions a quota still says not signed in.
     fakeMuse('echo "missing meta credential; quota exhausted" >&2\nexit 1');
     r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
