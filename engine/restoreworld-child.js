@@ -1,7 +1,7 @@
 'use strict';
 /*
- * kosmos#5536 slice 4c-2 part 2: the restore listing (restoreworld.listRestoredAgents), run away from the board's event
- * loop. A listing reads up to 32 MB of briefs and runs git for up to 22 s (400 reads), all synchronously, so
+ * The restore listing (restoreworld.listRestoredAgents), run away from the board's event loop (kosmos#5536 4c-2). A
+ * listing reads up to 32 MB of briefs and runs git for up to 22 s (400 reads), all synchronously, so
  * the board starts this file instead (restoreworld.listRestoredAgentsInChild) with the Restored world's folders
  * applied to the environment by worlds.applyWorldEnv, marker included. Anything here that loads create.js then fixes
  * its store root to that world, never to the one the board serves.
@@ -23,6 +23,7 @@ async function main(mode, base, worldId, restoreDir) {
   // list too, and an id the registry does not hold answers a refusal, not an empty restore.
   const world = worlds.readRegistry(base).worlds.find((w) => w.id === worldId);
   if (!world) return { ok: false, because: 'this is not a Kosmos on your list, so nothing in it is offered' };
+  // The store root is reported after the listing; it reads only, and the board refuses the whole answer on a mismatch.
   const listing = require('./restoreworld').listRestoredAgents({ base, world, restoreDir: restoreDir || undefined });
   return { ok: true, root: require('./store').ROOT, listing };
 }

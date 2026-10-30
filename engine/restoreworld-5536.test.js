@@ -1176,6 +1176,11 @@ test('a listing run in a child process answers exactly what a successful listing
   assert.deepEqual(away, here);
   assert.deepEqual(tree(base), before, 'neither listing wrote anything under the base');
   assert.ok(Object.isFrozen(away.agents) && Object.isFrozen(away.agents[0]), 'a shared answer is frozen, rows too');
+  assert.ok(away.shared.every((s) => Object.isFrozen(s.runs)), 'and their runs');
+  // A real child with the board's own env, not the Restored world's: its store root differs, so the answer is refused.
+  const wrongEnv = { execFile: (f, a, o, cb) => require('node:child_process').execFile(f, a, Object.assign({}, o, { env: process.env }), cb) };
+  const wrong = await rw.listRestoredAgentsInChild({ base, world: p.world, restoreDir: p.restoreDir }, wrongEnv);
+  assert.ok(wrong.agents.length === 0 && wrong.more === true && typeof wrong.because === 'string', 'a listing read from another store root is refused');
   const stranger = await rw.listRestoredAgentsInChild({ base, world: { id: 'not-a-world' } });
   assert.deepEqual(stranger, { agents: [], shared: [], more: true, because: 'this is not a Kosmos on your list, so nothing in it is offered' });
   // A world on the list that a restore did not make: listRestoredAgents refuses it, and the refusal keeps more: true.
@@ -1258,6 +1263,14 @@ test('one listing per world at a time; stopListings ends a running one as a refu
   rw.stopListings();
   rw.startListings();
 
+  // An answer that comes on a later tick, as a real child's does, frees the world's place for the next ask.
+  const ok = JSON.stringify({ ok: true, root: worlds.worldStoreRoot(base, p.world), listing: { agents: [], shared: [], more: false } }) + '\n';
+  const tick = { execFile: (file, args, opts, cb) => { calls += 1; setImmediate(() => cb(null, ok)); return { kill() {} }; } };
+  const was = calls;
+  await rw.listRestoredAgentsInChild({ base, world: p.world }, tick);
+  await rw.listRestoredAgentsInChild({ base, world: p.world }, tick);
+  assert.equal(calls, was + 2, 'each finished listing frees its place: the next ask starts a new child');
+
   // A real child calls back AFTER kill(), so a killed one can answer once a newer ask holds the world's place.
   const late = [];
   const lateDeps = { execFile: (file, args, opts, cb) => { calls += 1; late.push(cb); return { kill() {} }; } };
@@ -1265,11 +1278,11 @@ test('one listing per world at a time; stopListings ends a running one as a refu
   rw.stopListings();
   rw.startListings();
   const second = rw.listRestoredAgentsInChild({ base, world: p.world }, lateDeps);
-  assert.equal(calls, 4);
+  assert.equal(calls, was + 4);
   late[0](new Error('killed'), '');   // the killed child's callback, late
   assert.ok((await first).because);
   assert.equal(rw.listRestoredAgentsInChild({ base, world: p.world }, lateDeps), second, 'the newer ask still holds its place');
-  assert.equal(calls, 4, 'and no second child is started for the world');
+  assert.equal(calls, was + 4, 'and no second child is started for the world');
   rw.stopListings();
   late[1](new Error('killed'), '');
   rw.startListings();

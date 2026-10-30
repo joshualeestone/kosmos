@@ -873,8 +873,9 @@ let listingsStopped = false;   // between stopListings and startListings: the bo
 /* listRestoredAgents for `world`, run in a child process (engine/restoreworld-child.js) with that world's folders in
    its environment, so the board's event loop never waits on it and create.js there takes the Restored world's store
    root. Resolves to listRestoredAgents's own answer; any failure (the child timing out, printing too much, or saying
-   something that is not a listing) resolves to no rows, `more`, and a `because`. A consumer refuses on `because`,
-   which every refusal from either listing carries; `more` alone does not tell a refusal from a cut list.
+   something that is not a listing) resolves to no rows, `more`, and a `because`, as does a refusal from
+   listRestoredAgents itself (which in-process answers `more: false`). A consumer refuses on `because`, which every
+   refusal carries; `more` alone does not tell a refusal from a cut list.
    One listing per world at a time: a second ask while one runs gets the same answer (one object: do not change it).
    stopListings ends them all and refuses every ask until startListings (the board calls them as it stops and starts,
    so no child outlives a board). A refusal from listRestoredAgents itself is given the same shape (more: true).

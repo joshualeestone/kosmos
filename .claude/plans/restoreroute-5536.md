@@ -93,3 +93,11 @@ Design call: #5536 comment 6513912365.
   across worlds (one route, one person); the root check refuses a wrong answer, it cannot stop a wrong read (the doc
   says "checked").
 - Tests 86/86. Mutation (refusal unfrozen) red; restored.
+
+## Review round 6 (sonnet): 0 BLOCKER, 2 WARNING, 2 CONVENTION, 3 NIT
+- FIXED: the ordinary async cleanup (an answer on a later tick freeing the world's place) was untested; every stub
+  called back synchronously. Now a stub answers on setImmediate and two asks start two children.
+- FIXED: the root check had no real-child negative. A real child given the board's own env now has its answer refused.
+- FIXED: the child's header leads with what it does; a CLAUDE.md routing row for restoring (its sibling orgrollup-child
+  has one); the doc states that listRestoredAgents itself answers more: false in-process; runs freezing is asserted.
+- Tests 86/86; CLAUDE.md-reading tests 398/398. Mutations (no cleanup; no root check; runs unfrozen) each red; restored.
