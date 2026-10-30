@@ -130,7 +130,8 @@ async function driveCreate(page, agentsOutcome) {
     if (!refused.duringPostMadeShown) problems.push('refused: the progress screen was NOT shown immediately on click - the #2190 advance-on-click behavior is missing');
     if (!refused.nameShown) problems.push('refused: did not route back to the create screen');
     if (refused.madeShown) problems.push('refused: still on the progress screen (should have routed back)');
-    if (!/that name will not work/.test(refused.createMsg)) problems.push('refused: the message is not beside the field: "' + refused.createMsg + '"');
+    // kosmos#7640: the engine's reason is painted as a sentence (a capital and a full stop).
+    if (!/That name will not work\./.test(refused.createMsg)) problems.push('refused: the message is not beside the field, as a sentence: "' + refused.createMsg + '"');
     if (!refused.duringPostLoaderSet) problems.push('refused: the K-loader (MADE_MARK) was not started on click - it must start on nav, then be dropped on route-back');
     if (refused.finalLoaderSet) problems.push('refused: the K-loader (MADE_MARK) was NOT dropped on route-back - dropMyLoader must finish it and null MADE_MARK so no RAF is left running on the hidden canvas');
     // #3042 control: back on the create form (role/name), where leaving before

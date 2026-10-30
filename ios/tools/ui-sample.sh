@@ -21,14 +21,14 @@ while [ $# -gt 0 ]; do
   esac
 done
 # Each class and how many tests it holds: a filter that matches nothing also exits 0, so the count is what proves a run.
-classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:2"
+classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:3"
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest
 # "Timed out while evaluating UI query" on both CI runs, iOS 26.5, while it passes here). Run it alone on a Mac:
 #   TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/ChatOpensAtNewestUITests
-# KeyboardSlideUITests' third check (read higher up) waits on a clock and flakes under load (first CI run, iOS 26.5, and
-# once here); Mona Lisa is replacing that wait with a marker (branch kbrested-7609). Skipped here until it lands, then
-# back to 3 with the skip removed. ios/tools/ui-keyboard.sh still runs all three.
-skip="-skip-testing:KosmosUITests/KeyboardSlideUITests/testReadHigherUpStaysWhereItWas"
+# KeyboardSlideUITests' third check (read higher up) used to wait on a clock and flake under load; Mona Lisa's #7627
+# (kbrested-7609) replaced the wait with a marker, so all three run here again. It records the chat's scroll events
+# (KOSMOS_SAMPLE_TRACE=1): when it fails, the last of them are printed below while the simulator still exists.
+skip=""
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
   echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
   exit 1
@@ -81,5 +81,18 @@ fi
 why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\] : /\1.\2: /p' "$log" | head -3)"
 echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)${short:+; per class:$short}"
 [ -n "$why" ] && printf '%s\n' "$why"
+# kosmos#7609: as ui-keyboard.sh does, the read-higher-up check's scroll trace, read from the app's own data container
+# before cleanup deletes the simulator (--keep keeps the log, not the simulator). The bundle id is the built app's.
+if grep -q -E "^Test Case '-\[KosmosUITests\.KeyboardSlideUITests testReadHigherUpStaysWhereItWas\]' failed" "$log"; then
+  app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
+  bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
+  data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
+  if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
+    echo "  the chat's last scroll events (read-higher-up check):"
+    tail -60 "$data/Documents/trace.txt" | sed 's/^/    /'
+  else
+    echo "  (no scroll trace from the app)"
+  fi
+fi
 [ "$keep" = 1 ] || echo "  (run again with --keep to keep the log and result)"
 exit 1

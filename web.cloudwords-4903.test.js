@@ -206,10 +206,13 @@ test('#4903 seam H, engine half: the create and remove flows say engine sentence
   // import row, a create step, the Remove dialog). The words themselves are proven by the lifted arms above.
   // Guarded as the page guards thisMachine, so a test that lifts one of these functions alone still runs.
   const CW = "(typeof cloudWords === 'function' ? cloudWords : (x) => x)(";
+  // kosmos#7640: the create refusals also start with a capital and end with a full stop: asSentence, which applies
+  // cloudWords itself, guarded so a function lifted alone still says it through cloudWords.
+  const CS = "(typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(";
   for (const sink of [
-    'fail(' + CW + 'out.because || out.error ||',
-    'msg.textContent = ' + CW + "result.because || 'that name will not work');",
-    'msg.textContent = ' + CW + '(result && (result.error || result.because))',
+    'fail(' + CS + 'out.because || out.error ||',
+    'msg.textContent = ' + CS + "result.because || 'that name will not work');",
+    'msg.textContent = ' + CS + '(result && (result.error || result.because))',
     'const becauseSentence = ' + CW + "result.because || '')",
     "return tickLine('working', " + CW + 's.label));',
     "tickLine(s.ok ? 'done' : 'fail', " + CW + 's.label));',
