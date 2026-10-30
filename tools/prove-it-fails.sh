@@ -96,7 +96,12 @@ _restore_on_signal() {   # $1 the signal's number: the exit is 128 + it, as a sh
   trap - HUP INT TERM
   if [ -n "${_test_pid:-}" ]; then kill "$_test_pid" 2>/dev/null; wait "$_test_pid" 2>/dev/null; fi
   rm -f "${_outf:-}"
-  if [ "${#_broken[@]}" -gt 0 ]; then
+  # A signal can land after the break is written but before _broken is filled (or while node is mid-write, review
+  # 3). The tree was clean at the start, so whatever differs now is the break: restore that whole, unconditionally.
+  if [ "${#_broken[@]}" -eq 0 ] && ! git diff --quiet; then
+    git diff --name-only -z | xargs -0 git checkout -q --
+    git diff --quiet && echo "    interrupted while the break was being written: restored (clean)" || echo "    interrupted: restore incomplete"
+  elif [ "${#_broken[@]}" -gt 0 ]; then
     _restore && echo "    interrupted: restored (clean)" || echo "    interrupted: restore incomplete"
   else
     echo "    interrupted before the break was applied: nothing to restore"
@@ -113,13 +118,14 @@ const fs = require('node:fs');
 const paths = process.argv.slice(1);
 for (const f of paths) { let s = fs.readFileSync(f, 'utf8'); const was = s; ${EXPR}; if (s !== was) fs.writeFileSync(f, s); }
 " $(git ls-files '*.js' '*.html' '*.sh' 'install/kosmos' | tr '\n' ' ') 2>/dev/null
+[ -n "${PIF_TEST_PAUSE_AFTER_BREAK:-}" ] && sleep "$PIF_TEST_PAUSE_AFTER_BREAK"   # tests only: holds the window below open
 
 if git diff --quiet; then
   echo "    ⚠️  THE MUTATION DID NOT APPLY - nothing changed, so nothing was proven."
   exit 1
 fi
 git diff --stat | tail -1 | sed 's/^/    changed: /'
-while IFS= read -r _f; do _broken+=("$_f"); _broken_hash+=("$(git hash-object -- "$_f")"); done < <(git diff --name-only)
+while IFS= read -r -d '' _f; do _broken+=("$_f"); _broken_hash+=("$(git hash-object -- "$_f")"); done < <(git diff --name-only -z)
 
 # 🛑 A SHELL MUTATION CANNOT BE PROVED BY THE NODE SUITE, and this refuses
 # rather than leaving it to a person to remember. `yarn test` never executes

@@ -81,3 +81,38 @@ test('#7619 an ordinary run (no signal) still restores the break, through the sa
   assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 1;\n');
   assert.equal(execFileSync('git', ['-C', dir, 'status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }), '');
 });
+
+test('#7619 review 3: a TERM after the break is written but before it is recorded still restores it', async (t) => {
+  const dir = sandbox(t);
+  const env = { ...process.env, PIF_TEST_PAUSE_AFTER_BREAK: '3' }; delete env.NODE_TEST_CONTEXT;
+  const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'slow.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
+    { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
+  let out = '';
+  child.stdout.on('data', (d) => { out += d; });
+  const exited = new Promise((r) => child.on('exit', (code) => r(code)));
+  for (let i = 0; i < 100 && fs.readFileSync(path.join(dir, 'a.js'), 'utf8') !== 'const x = 2;\n'; i++) await sleep(50);
+  assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 2;\n', 'premise: the break was written');
+  assert.equal(fs.existsSync(path.join(dir, 'test.pid')), false, 'premise: the test has not started (still in the window)');
+  child.kill('SIGTERM');
+  assert.equal(await exited, 143, out);
+  assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 1;\n', 'the break was left in the tree: ' + out);
+  assert.match(out, /interrupted while the break was being written: restored \(clean\)/);
+});
+
+test('#7619 review 3: a broken file someone edits again mid-run is left alone and named, not overwritten', async (t) => {
+  const dir = sandbox(t);
+  const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+  const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'slow.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
+    { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
+  let out = '';
+  child.stdout.on('data', (d) => { out += d; });
+  const exited = new Promise((r) => child.on('exit', (code) => r(code)));
+  const pidFile = path.join(dir, 'test.pid');
+  for (let i = 0; i < 200 && !fs.existsSync(pidFile); i++) await sleep(50);
+  assert.ok(fs.existsSync(pidFile), 'premise: the slow test started: ' + out);
+  fs.writeFileSync(path.join(dir, 'a.js'), 'const x = 3;   // a colleague, mid-run\n');
+  child.kill('SIGTERM');
+  assert.equal(await exited, 143, out);
+  assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 3;   // a colleague, mid-run\n', 'their edit was overwritten');
+  assert.match(out, /NOT restored, changed again during the run \(check by hand\): a\.js/);
+});
