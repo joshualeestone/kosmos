@@ -50,52 +50,62 @@ const BUSY = 'Muse Code is still working on this agent\'s last turn';
    together), and only a failure's own words are read, never the model's or a tool's. */
 const QUOTA_HEAD = 'Meta\'s usage quota for Muse Code is used up, so this turn did not run';
 const QUOTA_LINE_MAX = 240;
-const QUOTA_SAID = /quota\W{0,3}(?:is\s+|has\s+been\s+|was\s+)?(?:exhausted|exceeded)|\b429\b.{0,40}\bquota|\bquota\b.{0,40}\b429\b/i;
-const NOT_REFUSED = /\bnot\s+(?:yet\s+)?(?:exhausted|exceeded)\b/i;
-// Review 1: a line that says Muse is retrying is one it recovered from, or may have.
-const RETRYING = /\bretry(?:ing)?\b/i;
+const QUOTA_SAID = new RegExp([
+  /quota[_\W]{0,3}(?:is\s+|has\s+been\s+|was\s+)?(?:exhausted|exceeded)/.source,
+  // Review 2: the other order ("You have exhausted your quota", "exceeded your current quota", "RESOURCE_EXHAUSTED: quota").
+  /(?:exhausted|exceeded)\W{1,3}(?:(?:your|the)\s+)?(?:(?:current|monthly|daily)\s+)?quota/.source,
+  /\b429\b.{0,40}\bquota/.source,
+  /\bquota\b.{0,40}\b429\b/.source,
+].join('|'), 'i');
+// Not a refusal: a negation, or a share of a quota ("80% of monthly quota exceeded" is a notice, review 2).
+const NOT_REFUSED = /\bnot\s+(?:yet\s+)?(?:exhausted|exceeded)\b|\d\s*%/i;
+/* Review 1 and 2: a stderr line that says Muse is retrying is one it may have recovered from. Only "retrying": a final
+   refusal often says when to retry ("Retry after ..."), and that time is why Meta's sentence is quoted at all. */
+const RETRYING = /\bretrying\b/i;
 // By characters, not UTF-16 units (review 1: a cut must never split a character).
 function capped(line) {
   const chars = Array.from(line);
   return chars.length > QUOTA_LINE_MAX ? chars.slice(0, QUOTA_LINE_MAX).join('') + '…' : line;
 }
-/* The LAST line of `text` that says a quota refused the run (review 1: an earlier one may be a refusal Muse retried and
-   recovered from before failing for another reason), capped; null when none does. */
-function quotaLine(text) {
+/* The LAST line of `text` that says a quota refused the run (review 1: an earlier one may be a refusal Muse recovered
+   from before failing for another reason), capped; null when none does. `skipRetrying` for stderr only (review 2: a
+   failure event is the run's end, never a retry in progress). */
+function quotaLine(text, skipRetrying = false) {
   let found = null;
   for (const raw of String(text || '').split('\n')) {
     const line = raw.trim();
-    if (QUOTA_SAID.test(line) && !NOT_REFUSED.test(line) && !RETRYING.test(line)) found = line;
+    if (QUOTA_SAID.test(line) && !NOT_REFUSED.test(line) && !(skipRetrying && RETRYING.test(line))) found = line;
   }
   return found === null ? null : capped(found);
 }
 const quotaBecause = (line) => QUOTA_HEAD + '. Meta said: ' + line;
-/* The words a FAILURE event says, and only those (review 1: an allowlist). A failure is a terminal event that did not
-   complete, or an event whose type names a failure or an error. Its words are the string leaves of its payload's
-   `error`, `message` and `reason`, nested ones included (`error.message`), a few levels deep. Never the event's JSON:
-   tool calls and results carry shell output and file contents, which must never be quoted to the person. */
-const FAILURE_TYPE = /(?:^|[._])(?:fail(?:ed|ure)?|errors?)(?:$|[._])/i;
+/* The words the RUN's failure says, and only those (review 1: an allowlist). A run failure is a terminal event that did
+   not complete, or an event of exactly type run.failed or run.error: never a tool's event (review 2: run.tool.failed
+   carries a command's output). Its words are the strings `error`, `error.message`, `message` and `reason`, no deeper
+   (review 2: deeper fields carry request headers). Never the event's JSON. */
+const RUN_FAILURE_TYPES = ['run.failed', 'run.error'];
 function failureWords(jsonl) {
   const out = [];
-  const leaves = (v, depth) => {
-    if (typeof v === 'string') { if (v.trim()) out.push(v); return; }
-    if (depth <= 0 || !v || typeof v !== 'object') return;
-    for (const x of Array.isArray(v) ? v : Object.values(v)) leaves(x, depth - 1);
-  };
   for (const l of String(jsonl || '').split('\n')) {
     let ev; try { ev = JSON.parse(l); } catch { continue; }
     if (!ev || typeof ev !== 'object' || typeof ev.payload_type !== 'string') continue;
     const p = ev.payload && typeof ev.payload === 'object' ? ev.payload : {};
-    const failed = (ev.payload_type === 'run.terminal.completed' && p.terminal !== 'completed') || FAILURE_TYPE.test(ev.payload_type);
+    const failed = (ev.payload_type === 'run.terminal.completed' && p.terminal !== 'completed')
+      || RUN_FAILURE_TYPES.includes(ev.payload_type);
     if (!failed) continue;
-    for (const k of ['error', 'message', 'reason']) leaves(p[k], 3);
+    const e = p.error;
+    for (const v of [e, e && typeof e === 'object' ? e.message : null, p.message, p.reason]) {
+      if (typeof v === 'string' && v.trim()) out.push(v);
+    }
   }
   return out.join('\n');
 }
-/* Which sentence says the quota refused this turn: a failure event's own words first (it is the run's own account of
-   why it ended), then stderr. */
+/* Which sentence says the quota refused this turn. A run failure with words of its own is the run's own account of why it
+   ended, so only those are read; stderr is read only when there is none (review 2: an earlier stderr warning must not
+   override a failure that names another cause). */
 function quotaRefusal(stderr, stdout) {
-  return quotaLine(failureWords(stdout)) || quotaLine(stderr);
+  const said = failureWords(stdout);
+  return said ? quotaLine(said) : quotaLine(stderr, true);
 }
 
 /**

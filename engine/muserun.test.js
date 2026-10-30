@@ -133,12 +133,23 @@ test('kosmos#7615 item 4: quotaLine reads only a sentence that says a quota refu
   assert.equal(run.quotaLine('your quota has been exhausted'), 'your quota has been exhausted');
   // Not a refusal (review 1): a 429 with no quota, a quota with no refusal, the two far apart, a negation, a retry.
   for (const no of ['429 Too Many Requests', 'your quota is 40% used', 'QuotaGuard: limit not exceeded',
-    'context window exceeded; quota 10% used', 'quota not yet exhausted', 'warn: 429 quota exceeded, retrying in 2s', '',
+    'context window exceeded; quota 10% used', 'quota not yet exhausted', '', 'note: 80% of monthly quota exceeded',
     // Each of these passes every rule but one, so each rule is needed (review 1 sweep):
     'HTTP 429: quota not exceeded',                                       // only the negation refuses it
     'quota usage report: 3 requests exceeded the soft limit']) {          // only the tight pattern refuses it
     assert.equal(run.quotaLine(no), null, no);
   }
+  // Review 2: wordings in the other order, a code, and a final refusal that says when to retry.
+  for (const yes of ['You have exhausted your quota', 'You exceeded your current quota, please check your plan',
+    'quota_exceeded', 'RESOURCE_EXHAUSTED: quota', '429 Subscription quota exhausted. Retry after 2026-11-02T00:00Z',
+    '429 You exceeded your current quota. Please retry in 31s.']) {
+    assert.equal(run.quotaLine(yes), yes, yes);
+  }
+  // "retrying" is skipped only when asked (stderr), never in a run failure's own words.
+  const retrying = 'warn: 429 quota exceeded, retrying in 2s';
+  assert.equal(run.quotaLine(retrying, true), null);
+  assert.equal(run.quotaLine(retrying), retrying);
+  assert.equal(run.quotaLine('429 quota exhausted. Retry after 6h', true), '429 quota exhausted. Retry after 6h');
   // The LAST refusal, not the first (review 1).
   assert.equal(run.quotaLine('quota exceeded at 01:00\nquota exhausted, resets 02:00'), 'quota exhausted, resets 02:00');
   // Capped by characters: a cut never splits one (review 1).
@@ -154,14 +165,25 @@ test('kosmos#7615 item 4: failureWords reads only a failure event\'s own words, 
     ev(7, 'run.terminal.completed', { kind: 'x', terminal: 'completed', text: 'quota exhausted' }),
     ev(8, 'run.terminal.completed', { kind: 'x', terminal: 'failed', reason: 'provider_error', error: { code: 429, message: 'Subscription quota exhausted' } }),
     ev(9, 'run.failed', { kind: 'x', message: 'boom' }),
-    // Not a failure, so its words are never read, even in a field a failure's would be read from.
+    // Not a run failure, so its words are never read, even in a field a failure's would be read from (review 2: a
+    // tool's failure is a tool's, and carries a command's output).
     ev(10, 'run.tool.result', { kind: 'x', message: '429 quota exceeded from a file it read' }),
+    ev(11, 'run.tool.failed', { kind: 'x', error: 'curl: 429 quota exceeded https://x?key=sk-SECRET' }),
+    ev(12, 'run.tool.call.error', { kind: 'x', message: '429 quota exhausted TOKEN=abc' }),
+    // Deeper than error.message is never read (review 2: request headers live there).
+    ev(13, 'run.error', { kind: 'x', error: { details: [{ request: 'Authorization: Bearer sk-x quota exceeded' }] } }),
     'not json at all: quota exhausted',
   ].join('\n');
   assert.equal(run.failureWords(lines), 'Subscription quota exhausted\nprovider_error\nboom');
   assert.equal(run.quotaRefusal('', lines), 'Subscription quota exhausted', 'a nested error.message was not read (review 1)');
-  // A failure event's words win over stderr (review 1).
+  // A failure event's words win over stderr (review 1)...
   assert.equal(run.quotaRefusal('quota exhausted on stderr', lines), 'Subscription quota exhausted');
+  // ...and when a run failure names ANOTHER cause, an earlier stderr quota warning is not read at all (review 2).
+  const panic = ev(9, 'run.terminal.completed', { kind: 'x', terminal: 'failed', error: 'panic: index out of range' });
+  assert.equal(run.quotaRefusal('warn: free-tier quota exceeded, using paid tier', panic), null);
+  // stderr is the fallback when no run failure has words, retry lines skipped there.
+  assert.equal(run.quotaRefusal('429 quota exhausted', ''), '429 quota exhausted');
+  assert.equal(run.quotaRefusal('warn: 429 quota exceeded, retrying in 2s', ''), null);
   // A tool's output alone is never read, however it is worded.
   assert.equal(run.quotaRefusal('', lines.split('\n')[0]), null);
 });
