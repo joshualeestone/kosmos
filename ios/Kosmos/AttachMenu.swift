@@ -3,24 +3,7 @@ import SwiftUI
 import UIKit
 
 // kosmos#7596 (Josh 10-29 21:27, his screenshot of ChatGPT's): the + in a chat and in a project room opens a larger panel,
-// each choice a round icon tile and its name, Camera first. Josh 21:28: only Camera, Photos and Files.
-enum AttachChoice: CaseIterable {
-    case camera, photos, files
-    var title: String {
-        switch self {
-        case .camera: return "Camera"
-        case .photos: return "Photos"
-        case .files: return "Files"
-        }
-    }
-    var symbol: String {
-        switch self {
-        case .camera: return "camera"
-        case .photos: return "photo.on.rectangle"
-        case .files: return "folder"
-        }
-    }
-}
+// each choice a round icon tile and its name, Camera first. The choices and their rules are in BoardLogic (AttachChoice).
 
 // The + and its panel. The choice is acted on once the panel has gone (its onDisappear), since iOS opens nothing from a
 // presentation still on its way out. A camera Kosmos may not use opens Settings instead, where it is turned back on.
@@ -31,10 +14,11 @@ struct AttachPlusButton: View {
     let onChoose: (AttachChoice) -> Void
     @State private var open = false
     @State private var chosen: AttachChoice?
+    @State private var cameraAtChoice = CameraState.none   // review 2: the camera state the person saw when choosing
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        Button { open = true } label: {
+        Button { chosen = nil; open = true } label: {
             // kosmos#7346: a plain + inside the box, a 44 pt target (Apple's minimum) on its 48 pt row.
             Image(systemName: "plus")
                 .font(.system(size: 19, weight: .regular))
@@ -45,15 +29,23 @@ struct AttachPlusButton: View {
         .accessibilityLabel(label)
         .accessibilityHint(hint)
         .popover(isPresented: $open, arrowEdge: .bottom) {
-            AttachPanel(atLimit: atLimit, limitHint: hint, camera: Self.camera) { choice in chosen = choice; open = false }
+            AttachPanel(atLimit: atLimit, limitHint: hint, camera: Self.camera) { choice, camera in
+                chosen = choice; cameraAtChoice = camera; open = false
+            }
                 .modifier(PopoverOnPhone())
                 .onDisappear {
                     guard let choice = chosen else { return }
                     chosen = nil
-                    if choice == .camera, Self.camera == .notAllowed {
-                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                    } else {
-                        onChoose(choice)
+                    guard choice == .camera else { onChoose(choice); return }
+                    switch cameraAtChoice {
+                    case .ready: onChoose(.camera)
+                    case .notAllowed: if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    // Review 2: asked here first, so a "Don't Allow" never opens a camera that cannot see.
+                    case .notAsked:
+                        AVCaptureDevice.requestAccess(for: .video) { granted in
+                            if granted { DispatchQueue.main.async { onChoose(.camera) } }
+                        }
+                    case .none: break
                     }
                 }
         }
@@ -68,17 +60,16 @@ struct AttachPlusButton: View {
     }
 
     static var camera: CameraState {
-        guard UIImagePickerController.isSourceTypeAvailable(.camera) else { return .none }
+        let auth: CameraAuth
         switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .denied, .restricted: return .notAllowed
-        default: return .ready
+        case .authorized: auth = .authorized
+        case .denied: auth = .denied
+        case .restricted: auth = .restricted
+        default: auth = .notDetermined
         }
+        return Board.cameraState(available: UIImagePickerController.isSourceTypeAvailable(.camera), auth: auth)
     }
 }
-
-// Whether the panel's Camera can open: a camera on this device, and Kosmos allowed to use it (not yet asked counts as
-// allowed: iOS asks the first time the camera opens).
-enum CameraState { case ready, notAllowed, none }
 
 // The panel's rows. A device with no camera (the simulator, some iPads) shows Camera dimmed, not missing; one where
 // Kosmos is not allowed the camera keeps it tappable, to open Settings. Each says why under its name.
@@ -86,24 +77,18 @@ struct AttachPanel: View {
     let atLimit: Bool
     let limitHint: String
     let camera: CameraState
-    let choose: (AttachChoice) -> Void
+    let choose: (AttachChoice, CameraState) -> Void
     @ScaledMetric(relativeTo: .body) private var symbolSize: CGFloat = 18
     @ScaledMetric(relativeTo: .body) private var tileSize: CGFloat = 44
+    @ScaledMetric(relativeTo: .body) private var rowWidth: CGFloat = 220
 
-    private func note(_ choice: AttachChoice) -> String? {
-        guard choice == .camera else { return nil }
-        switch camera {
-        case .ready: return nil
-        case .notAllowed: return "Turned off for Kosmos in Settings"
-        case .none: return "Not available on this device"
-        }
-    }
+    private func note(_ choice: AttachChoice) -> String? { choice == .camera ? Board.cameraNote(camera) : nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(AttachChoice.allCases, id: \.self) { choice in
-                let off = atLimit || (choice == .camera && camera == .none)
-                Button { choose(choice) } label: {
+                let off = Board.attachRowOff(choice, atLimit: atLimit, camera: camera)
+                Button { choose(choice, camera) } label: {
                     HStack(spacing: 14) {
                         Image(systemName: choice.symbol)
                             .font(.system(size: symbolSize, weight: .regular))
@@ -118,7 +103,7 @@ struct AttachPanel: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .frame(minWidth: 220, alignment: .leading)
+                    .frame(minWidth: rowWidth, alignment: .leading)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -137,12 +122,13 @@ private struct PopoverOnPhone: ViewModifier {
         if #available(iOS 16.4, *) {
             content.presentationCompactAdaptation(.popover).presentationBackground(.regularMaterial)
         } else {
-            content.presentationDetents([.height(240), .medium])
+            content.presentationDetents([.medium])   // review 2: room for the rows at any text size
         }
     }
 }
 
-// The camera, for one photo. Hands back the photo as JPEG, or nothing if the person cancels.
+// The camera, for one photo. Hands back the photo as JPEG, or nothing if the person cancels. Re-encoded from the image,
+// so the photo's location and other metadata are not sent.
 struct CameraCapture: UIViewControllerRepresentable {
     let done: (Data?) -> Void
 
