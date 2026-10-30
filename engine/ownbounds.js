@@ -260,8 +260,12 @@ function tellBounds({ rows, told, now, tell }) {
       const mark = row.key + '\u0000' + it.cls;
       if (row.ownNeedsYou) continue;                 // precedence: the agent's own question outranks ours
       if (told.has(mark)) continue;
-      told.add(mark);
-      try { tell(row.key, it, row.shown || row.key); } catch { /* a failed push is not retried this episode */ }
+      /* kosmos#7633: a tell that answers false (it did not tell the person: its push did not go out, or the board held it
+         for a stall that still stands) leaves the episode unmarked, so the next sweep asks again; any other answer, and a
+         throw, marks it as before. */
+      let answer;
+      try { answer = tell(row.key, it, row.shown || row.key); } catch { answer = undefined; }
+      if (answer !== false) told.add(mark);
     }
     // Clear told-marks for this agent's classes that are no longer raised, so a future episode re-pushes.
     for (const cls of CLASSES) if (!raisedClasses.has(cls)) told.delete(row.key + '\u0000' + cls);
