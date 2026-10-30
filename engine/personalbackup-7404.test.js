@@ -676,3 +676,23 @@ test('#7404 review 4 nit 5: a bind answered for another org writes no record and
   assert.equal(pb.isOn({ root }), false, 'no record: the sentence below is true');
   assert.match(r.because, /nothing was turned on/);
 });
+
+/* The marker refresh on its own (mutant M3 stayed green above, where the live ticket also keeps it): a restart after the
+   reopen loses the ticket, and the refreshed marker is then what keeps a nine-minute reopen from being ended at eleven. */
+test('#7404 review 4 warning 3: the re-preview refreshes the marker, which holds after a restart', async (t) => {
+  const root = fresh(t);
+  let now = 2_000_000_000_000;
+  const at = () => now;
+  const c = coordinator();
+  await pb.preview({ root, remote: c, now: at });
+  now += 9 * 60 * 1000;
+  await pb.preview({ root, remote: c, now: at });
+  pb._TICKETS.clear();
+  now += 2 * 60 * 1000;
+  pb._resetFollowUpForTests();
+  await pb.followUp({ root, remote: c, now: at });
+  assert.equal(LEAVE_N(c), 0, 'refreshed at nine minutes: two minutes old, not eleven');
+  now += 9 * 60 * 1000;
+  await pb.followUp({ root, remote: c, now: at });
+  assert.equal(LEAVE_N(c), 1, 'CONTROL: past its own ten minutes it is ended');
+});
