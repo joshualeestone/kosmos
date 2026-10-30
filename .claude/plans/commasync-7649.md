@@ -67,3 +67,14 @@ longer, that agent is booked as unconfirmed and its line may still land later: o
   Decided, not changed: W2 (a deadline then a late refusal costs the agent its turn) as round 1; the hour cap read once
   a pass (a limit lowered mid-pass applies from the next pass, at most two agents later); the roster re-read is the
   same snapshot every timer reads each tick, at most once a pass; the 30 ms clock test (Date.now has 1 ms resolution).
+- Round 5 (Opus, whole branch, nothing settled): no BLOCKER; it confirmed the timer cannot stop, no double prompt, the
+  hour log neither leaks nor steals, tickOnce, due()'s callers and chat.deliver's callers unchanged. Fixed, each with a
+  test and a red mutant:
+  - W a failed re-check dropped the agent from the idle marks whatever the reason (a quota hold, a failed read), so its
+    next turn came a pass late: now only when its fresh card is no longer idle. The round-2 test that pinned the old
+    drop for an idle agent that left the community now pins the new rule.
+  - N the delivery started a microtask after the busy check: it is now called in the same turn.
+  - N settle uses logAt (one copy of the time-ordered insert); the server comment says when the book is written.
+  Decided, not changed: the hour cap and the communityready prune list are read once a pass (bounded to the second
+  agent); paneBusyVerdict's catch can only swallow a throw deliver's own resolveCard raises first; the hour-log entry is
+  stamped at send start (at most the 3-minute deadline early); the one-pass flag is pinned by source text.

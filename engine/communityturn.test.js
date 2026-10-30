@@ -717,7 +717,7 @@ test('kosmos#7649 review 2: a switch turned off mid-pass stops it; an agent that
   const lv = tickArgs({ inCommunity: (s) => !left.has(s), deliver: () => { left.add('bea'); return later({ state: D.PLACED }); } });
   assert.deepEqual((await ct.tickOnceAsync(lv.o)).map((x) => x.session), ['ann']);
   assert.equal(lv.o.book.has('bea'), false);
-  assert.equal(lv.o.idleSeen.has('bea'), false, 'not counted as idle at this pass');
+  assert.equal(lv.o.idleSeen.has('bea'), true, 'review 5: still an idle card, so still idle at this pass');
 });
 
 test('kosmos#7649 review 2: without a fixed clock, each agent is booked when it was sent to, not when the pass began', async () => {
@@ -787,4 +787,27 @@ test('kosmos#7649 review 4: the book is saved only after a booking (not after a 
   const { o } = tickArgs({ roster: () => [card('ann')], saveBook: () => saves.push(1), deliver: () => later({ state: D.COULD_NOT, held: true }) });
   await ct.tickOnceAsync(o);
   assert.deepEqual(saves, []);
+});
+
+/* kosmos#7649 review 5. */
+test('kosmos#7649 review 5: a re-check that fails drops the agent from the idle marks only when its fresh card is no longer idle', async () => {
+  let bea = card('bea');
+  const w = tickArgs({ roster: () => [card('ann'), bea], deliver: (s) => { if (s === 'ann') bea = card('bea', { state: 'working' }); return later({ state: D.PLACED }); } });
+  await ct.tickOnceAsync(w.o);
+  assert.equal(w.o.idleSeen.has('bea'), false, 'working now: not idle at this pass');
+  let held = false;
+  const q = tickArgs({ quotaHeld: (s) => s === 'bea' && held, deliver: () => { held = true; return later({ state: D.PLACED }); } });
+  const r = await ct.tickOnceAsync(q.o);
+  assert.deepEqual(r.map((x) => x.session), ['ann'], 'CONTROL: the quota hold did skip bea');
+  assert.equal(q.o.idleSeen.has('bea'), true, 'still idle: its next turn is not a pass late');
+});
+
+test('kosmos#7649 review 5: the delivery starts in the same turn as the busy check, before anything queued meanwhile', async () => {
+  let queuedRan = false;
+  let sawQueued = null;
+  const { o } = tickArgs({ roster: () => [card('ann')],
+    paneBusy: () => { Promise.resolve().then(() => { queuedRan = true; }); return null; },
+    deliver: () => { sawQueued = queuedRan; return later({ state: D.PLACED }); } });
+  await ct.tickOnceAsync(o);
+  assert.equal(sawQueued, false);
 });

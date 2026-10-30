@@ -27967,7 +27967,8 @@ function start(port = PORT) {
          first run one interval after boot.
          kosmos#7649: the pass awaits each delivery (tickOnceAsync in engine/communityturn.js), so typing into a pane no longer holds
          the event loop. One pass at a time, as the reply nudge above: a pass still running when the next is due is
-         skipped, not stacked, so two passes cannot both book one agent. The book is written once the pass settles. */
+         skipped, not stacked, so two passes cannot both book one agent. The book is written after each booking (saveBook)
+         and once more when the pass has tried anyone. */
       const COMMUNITY_TURN_BOOK = communityturn.readBook();   // review 6: kept on disk, so a restart cannot reset the gaps
       const COMMUNITY_TURN_IDLE_SEEN = new Set();   // review 4: idle at the previous pass too
       let communityTurnRunning = false;

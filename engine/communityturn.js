@@ -331,11 +331,7 @@ function settle(p, d, v) {
   const busy = Boolean(v && v.busy === true);
   const reached = state === D.PLACED || state === D.UNCONFIRMED;
   if (!held && !busy) book.set(d.session, [...triesOf(book, d.session).filter((t) => now - t < DAY_MS), now]);   // any try backs off
-  if (reached) {
-    let i = sent.length;   // kept in time order: the other nudges prune the shared log from the front
-    while (i > 0 && sent[i - 1] > now) i -= 1;
-    sent.splice(i, 0, now);
-  }
+  if (reached) logAt(sent, now);   // kept in time order: the other nudges prune the shared log from the front
   const r = { session: d.session, name: d.name, act: held ? 'held' : (busy ? 'pane-busy' : (reached ? 'prompted' : 'not-reached')), delivery: state || null };
   results.push(r);
   keep(held ? { ...r, heldBy: v.heldBy, heldFor: v.heldFor } : r);   // why it was held stays out of the result callers compare
@@ -403,17 +399,23 @@ async function tickOnceAsync(o) {
         /* Review 3: the whole due() test again, for this one agent, on a fresh roster and projects and the current
            clock: idle long enough, not stood down, no post or try since, its quota, all judged as the first agent was. */
         let again = [];
+        let card;   // undefined: the fresh roster could not be read, so nothing is known about the card
         try {
           const r = o.roster();
           let pr = null;
           try { const x = typeof o.readProjects === 'function' ? o.readProjects() : null; pr = Array.isArray(x) ? x : null; } catch { pr = null; }
+          if (Array.isArray(r)) card = r.find((c) => c && c.sessionName === d.session) || null;
           if (Array.isArray(r) && pr) {
             roster = r;
             again = due({ roster: r, projects: pr, now: p.now, book: p.book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: p.seen, history: o.history, kosmosLines: o.kosmosLines, only: d.session });
           }
         } catch { again = []; }
-        if (!again.length) {   // not booked: due again at a later pass (and not counted as idle at this one)
-          if (o.idleSeen instanceof Set) o.idleSeen.delete(d.session);
+        if (!again.length) {   // not booked: due again at a later pass
+          /* Review 5: dropped from this pass's idle marks only when its fresh card is no longer idle (gone, or working).
+             A quota hold, a post, or a read that failed once keeps it, so its next turn is not a pass late. */
+          let idleNow = true;
+          if (card !== undefined) { try { idleNow = Boolean(card) && require('./agentnudge').nudgeableCard(card) === true; } catch { idleNow = true; } }
+          if (!idleNow && o.idleSeen instanceof Set) o.idleSeen.delete(d.session);
           continue;
         }
         d = again[0];
@@ -434,7 +436,10 @@ async function tickOnceAsync(o) {
       let timer = null;
       try {
         const late = new Promise((res) => { timer = setTimeout(() => res({ state: p.D.UNCONFIRMED }), ms); if (timer && timer.unref) timer.unref(); });
-        v = await Promise.race([Promise.resolve().then(() => o.deliver(d.session, text, roster)), late]);
+        // Review 5: called now, in the same turn as the busy check above, so nothing queued meanwhile can take the pane first.
+        let sending;
+        try { sending = Promise.resolve(o.deliver(d.session, text, roster)); } catch (e) { sending = Promise.reject(e); }
+        v = await Promise.race([sending, late]);
       } catch { v = { state: p.D.UNCONFIRMED }; } finally { clearTimeout(timer); }
       const held = p.sent.lastIndexOf(p.now);
       if (held !== -1) p.sent.splice(held, 1);   // given back: settle logs it again if it reached
