@@ -368,7 +368,16 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     return { did: ended.outcome === 'refused' ? 'refused' : ended.outcome === 'unknown' ? 'unknown' : 'moved', agent: m.agent, outcome: ended.outcome };
   }
 
-  return { tick, check, state, skipTarget, paused, passedOver: passedOverAt };
+  /* kosmos#7621 item 2: Settings' question, "does the mover leave this agent alone now?", with the person lines
+     read first (those in the record and those still waiting to be written), so a person's move made since the last
+     tick is not shown as one Kosmos will undo. A record that cannot be read answers from what the last tick read. */
+  const leftAlone = (nowMs = Date.now()) => {
+    try { readPeople(nowMs); } catch { /* the last tick's reading stands */ }
+    for (const l of waitingPeople()) if (l && typeof l.agent === 'string' && Number.isFinite(l.at) && nowMs - l.at < REST_MS) rest(l.agent, l.at);
+    return passedOverAt(nowMs);
+  };
+
+  return { tick, check, state, skipTarget, paused, passedOver: passedOverAt, leftAlone };
 }
 
 module.exports = { create, movesOn, personMoved, resetUnwrittenPeopleForTests: () => { unwrittenPeople.clear(); }, DAY_MS, WATCH_MS, FAILED_HOLD_MS, REST_MS, REFUSED_HOLD_MS, REFUSED_TIMES, previousTickMs, PERIOD_MS, SKIP_SAID_MS };

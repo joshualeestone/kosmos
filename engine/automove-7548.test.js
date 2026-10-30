@@ -944,7 +944,7 @@ test('#7548 review round 7: Settings marks an agent the mover leaves alone', asy
   assert.equal(run.passedOver(NOW + 2000)('nobody'), false, 'CONTROL');
   assert.equal(run.passedOver(Date.now() + automove.REST_MS + 60000)('ada'), false, 'CONTROL: a day later it is not left alone');   // the rest is stamped with the real clock
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /const left = automoveRun\.passedOver\(sentAt\); decision\.moves = decision\.moves\.map\(\(m\) => \(left\(m\.agent\) \? \{ \.\.\.m, leaving: true \} : m\)\);/,
+  assert.match(src, /const left = automoveRun\.leftAlone\(sentAt\); decision\.moves = decision\.moves\.map\(\(m\) => \(left\(m\.agent\) \? \{ \.\.\.m, leaving: true \} : m\)\);/,
     'the Settings read does not mark agents the mover leaves alone');
 });
 
@@ -981,4 +981,24 @@ test('kosmos#7621 item 4: a partial or unknown move tells the agent\'s thread wh
   const { d: dc, calls: cc } = deps();
   await twoTicks(c, dc);
   assert.equal(cc.tells.filter(([, x]) => /could not tell|could not start/.test(x)).length, 0, 'CONTROL: a clean move said it did not finish');
+});
+
+test('kosmos#7621 item 2: Settings sees a person\'s move made since the last tick, written or still waiting', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d } = deps();
+  await run.tick(d, NOW);
+  assert.equal(run.passedOver(NOW + 1000)('ada'), false, 'CONTROL: nothing holds ada yet');
+  automove.personMoved(file, ['ada'], '/u/.claude-spare', NOW + 500, ON);
+  assert.equal(run.passedOver(NOW + 1000)('ada'), false, 'CONTROL: the last tick has not read the person line');
+  assert.equal(run.leftAlone(NOW + 1000)('ada'), true, 'Settings would say Kosmos will move an agent a person just moved');
+  /* A person line the record could not take yet. */
+  const dir = fs.mkdtempSync(path.join(TMP, 'la-'));
+  const f2 = path.join(dir, 'r.jsonl');
+  const r2 = automove.create({ file: f2 });
+  fs.chmodSync(dir, 0o555);
+  try {
+    assert.equal(automove.personMoved(f2, ['bo'], '/u/.claude-spare', NOW, ON), false, 'CONTROL: the line waits');
+    assert.equal(r2.leftAlone(NOW + 1000)('bo'), true, 'a person line still waiting was not seen');
+  } finally { fs.chmodSync(dir, 0o755); automove.resetUnwrittenPeopleForTests(); }
 });

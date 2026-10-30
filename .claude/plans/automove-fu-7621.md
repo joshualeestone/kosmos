@@ -15,8 +15,10 @@ while moves are off. Items as numbered on the card.
 - Item 4: a partial or unknown move (including one whose start threw after its write) tells the agent's thread where
   it may be. The #7548 test that expected no message for a partial now checks only that none says it moved.
 
+- Item 2: Settings asks the mover leftAlone, which reads the person lines first (in the record and still waiting), so a
+  person's move made since the last tick is not shown as one Kosmos will undo.
+
 ## Still to do
 - Item 1: a test that runs the mover through the board's real deps.
-- Item 2: Settings reads person lines (written and waiting) when it marks agents the mover leaves alone.
 - Item 5: throughput (a moved idle agent may hold its target a day).
 - Item 7: the second agents walk per tick.

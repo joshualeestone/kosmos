@@ -13750,7 +13750,7 @@ const server = http.createServer(async (req, res) => {
               /* Review round 7: an agent the mover leaves alone now (moved or refused lately) is marked, so the page does not
                  say Kosmos will move it. */
               if (skipTarget) {
-                try { const left = automoveRun.passedOver(sentAt); decision.moves = decision.moves.map((m) => (left(m.agent) ? { ...m, leaving: true } : m)); }
+                try { const left = automoveRun.leftAlone(sentAt); decision.moves = decision.moves.map((m) => (left(m.agent) ? { ...m, leaving: true } : m)); }
                 catch { /* the lines stay as decide() made them */ }
               }
             }
