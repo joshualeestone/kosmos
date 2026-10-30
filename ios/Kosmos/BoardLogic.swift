@@ -436,6 +436,18 @@ enum Board {
         return (true, abs(x), .new)
     }
 
+    // kosmos#7420 (Josh 10-29 21:22, build 19): the record said "messages on screen again" over a screenshot that was still
+    // empty, because a row counts as on screen when SwiftUI says it appeared, not when it is drawn. The scroll view's own
+    // numbers say whether the band it shows touches the content at all: past its end, above its top, or on it (where an
+    // empty screen means rows not drawn, a different fault).
+    enum ScrollBand: String { case content = "on the content", pastEnd = "past the content's end", aboveTop = "above the content's top" }
+    static func scrollBand(offsetY: Double, contentHeight: Double, visibleHeight: Double, insetTop: Double, insetBottom: Double) -> ScrollBand {
+        let top = offsetY + insetTop, bottom = offsetY + visibleHeight - insetBottom
+        if top >= contentHeight - 0.5 { return .pastEnd }
+        if bottom <= 0.5 { return .aboveTop }
+        return .content
+    }
+
     // kosmos#7575: the chat's running count and when it goes. The count always runs (a shift before the chat's onAppear
     // is kept, review 3); flush() sends what was counted, if anything, and starts the next count at once. attach() gives
     // the sender (the chat showing on this computer); reset() drops the count (another computer: never sent elsewhere).

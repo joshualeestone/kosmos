@@ -97,6 +97,10 @@ struct ChatView: View {
     @State private var diagContentWidth: CGFloat = 0
     @State private var diagReport: String?
     @State private var diagDone = false   // once per open chat, even after the line is dismissed
+    // kosmos#7420 (build 19): the list's scroll view, read by the diagnostic (a reference, so setting it redraws nothing),
+    // and when the empty list was last put back (every time now, not once per chat; at most once in 2 s).
+    @State private var diagScroll = ScrollRef()
+    @State private var diagRecoveredAt: Date?
     @State private var diagWideDone = false   // review 2: a width finding has its own once, so it cannot use up the blank one
     @State private var diagShownOnce = false   // review 2: the record starts at the chat's first showing, not each return
     // Review 4: when this conversation's messages arrived, and whether any row has drawn since, for the never-drawn case.
@@ -516,7 +520,7 @@ struct ChatView: View {
                     })
                     // kosmos#7420 (Josh 10-28, builds 13 to 15): the list only scrolls up and down, so a sideways offset is put
                     // back to its rest and written in the diagnostic's record (see SideScrollLock).
-                    .background(SideScrollLock(off: Self.sampleNoLock) { x, scrolling, isNew in
+                    .background(SideScrollLock(off: Self.sampleNoLock, ref: diagScroll) { x, scrolling, isNew in
                         // kosmos#7575: counted for the report sent when this chat closes (sendShiftReport). The rows are
                         // walked only for a new largest offset, not on every shift (review 1: a cause that fires every frame).
                         shifts.add(offset: Double(x), isNew: isNew, dragging: scrolling) {
@@ -541,7 +545,12 @@ struct ChatView: View {
                 // kosmos#7420 diagnostic: the list's size, and a check whenever no message is on screen.
                 .background(GeometryReader { g in
                     Color.clear.onAppear { diagViewport = g.size }
-                        .onChange(of: g.size) { now in diagViewport = now; Self.trace("viewport \(Int(now.width))x\(Int(now.height))") }
+                        .onChange(of: g.size) { now in
+                            diagViewport = now; Self.trace("viewport \(Int(now.width))x\(Int(now.height)), " + diagGeometry().line)
+                            // kosmos#7420 (build 19): a resize can leave the band off the content with rows still counted as
+                            // shown, so no row leaving ever bumps the tick; checked here too.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { if diagGeometry().off { diagTick &+= 1 } }
+                        }
                 })
                 // Review 1: driven by a tick bumped only when the last row leaves (row()), never by reading onScreen here,
                 // which would redraw the whole chat on every row that scrolls in or out. Checked at 0.5 s and again at 1.5 s.
@@ -739,8 +748,30 @@ struct ChatView: View {
         // Review 3 and 4: a list never drawn never moved the end marker, so that arm needs no row drawn since the messages
         // arrived more than 2 s ago (never the moment after an account or computer change, before its rows appear).
         let neverDrew = !endSeen && !diagEverDrew && (diagThreadAt.map { Date().timeIntervalSince($0) > 2 } ?? false)
-        guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible || neverDrew, !topVisible, count > 0, thread != nil else { return }
+        // kosmos#7420 (build 19): or the scroll view's band is off the content, whatever the rows say (Josh's screenshot
+        // was empty under a record counting rows on screen).
+        let rowsGone = onScreen.isEmpty && (!endVisible || neverDrew) && !topVisible
+        guard visible, scenePhase == .active, !searchMode, rowsGone || diagGeometry().off, count > 0, thread != nil else { return }
+        // After the one report, an empty list is still put back each time, at most once in 2 s (a fault that comes back
+        // every frame cannot hold the list at the newest message).
+        if diagDone {
+            if let at = diagRecoveredAt, Date().timeIntervalSince(at) < 2 { return }
+            diagRecoveredAt = Date(); Self.trace("empty again (" + diagGeometry().line + "), trying the newest message"); goNewest(proxy)
+            return
+        }
+        diagRecoveredAt = Date()
         diagCapture(proxy, why: "no message on screen", count: count)
+    }
+
+    // kosmos#7420 (build 19): the scroll view's own numbers, and whether the band it shows misses the content (Board.scrollBand).
+    private func diagGeometry() -> (line: String, off: Bool) {
+        guard let sv = diagScroll.view else { return ("scroll view unknown", false) }
+        let inset = sv.adjustedContentInset
+        let band = Board.scrollBand(offsetY: Double(sv.contentOffset.y), contentHeight: Double(sv.contentSize.height),
+                                    visibleHeight: Double(sv.bounds.height), insetTop: Double(inset.top), insetBottom: Double(inset.bottom))
+        let line = "scroll y \(Int(sv.contentOffset.y)), content \(Int(sv.contentSize.height)), shown \(Int(sv.bounds.height)), "
+            + "insets \(Int(inset.top))/\(Int(inset.bottom)), \(band.rawValue)" + (sv.isDragging || sv.isDecelerating ? ", moving" : "")
+        return (line, band != .content)
     }
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
@@ -756,12 +787,17 @@ struct ChatView: View {
                      "list \(Int(diagViewport.width))x\(Int(diagViewport.height)), stack width \(Int(diagContentWidth)), keyboard \(Int(diagKeyboard))",
                      "messages \(count), on screen \(onScreen.count), end showing \(endVisible), top showing \(topVisible), at newest \(atBottom)",
                      "anchor \(anchor), id anchor \(Self.idAnchor), searching \(searchMode), keyboard focus \(composerFocused)",
+                     diagGeometry().line,
                      "recent events:"] + Self.diagRing
         guard recover else { diagReport = lines.joined(separator: "\n"); announceDiag(); return }   // review 1: a width finding moves nobody
         Self.trace("diag: \(why), trying the newest message")
         goNewest(proxy)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            lines.append("after one try: " + (onScreen.isEmpty ? "still nothing on screen" : "messages on screen again"))
+            // kosmos#7420 (build 19): rows counted are what SwiftUI says appeared, not what was drawn, so the band is the
+            // verdict and the count is written beside it.
+            let g = diagGeometry()
+            lines.append("after one try: " + (g.off || onScreen.isEmpty ? "still nothing on screen" : "the list shows the content again")
+                         + " (rows counted \(onScreen.count), " + g.line + ")")
             diagReport = lines.joined(separator: "\n")
             announceDiag()
         }
@@ -2195,17 +2231,22 @@ struct PositionTargets: ViewModifier {
 // the simulator did not), so the lock does not depend on the cause: it watches the scroll view the chat sits in and puts
 // any sideways offset back to its rest, writing it in the diagnostic's record. KOSMOS_SAMPLE_SIDEWAYS=<seconds> (Debug) gives it
 // one, as the phone did; KOSMOS_SAMPLE_NOLOCK=1 is the control.
+// kosmos#7420 (build 19): the chat list's scroll view, found by the side lock and read by the diagnostic.
+final class ScrollRef { weak var view: UIScrollView? }
+
 struct SideScrollLock: UIViewRepresentable {
     let off: Bool
+    var ref: ScrollRef? = nil
     // kosmos#7575: told of each new shift, and of a shift growing past its largest so far (the offset, whether the person
     // was scrolling, whether it is a new shift), for the chat's report.
     var onShift: ((CGFloat, Bool, Bool) -> Void)? = nil
-    func makeUIView(context: Context) -> Probe { let p = Probe(off: off); p.onShift = onShift; return p }
-    func updateUIView(_ view: Probe, context: Context) { view.onShift = onShift }
+    func makeUIView(context: Context) -> Probe { let p = Probe(off: off); p.onShift = onShift; p.ref = ref; return p }
+    func updateUIView(_ view: Probe, context: Context) { view.onShift = onShift; view.ref = ref }
 
     final class Probe: UIView {
         let off: Bool
         var onShift: ((CGFloat, Bool, Bool) -> Void)?
+        var ref: ScrollRef?
         private var peak: CGFloat = 0   // kosmos#7575 review 1: this shift's largest offset so far
         private var resumed = false     // kosmos#7575 review 2: the first reading after moving window
         private var wasShifted = false  // review 3: a shift was in place when it left its window
@@ -2245,6 +2286,7 @@ struct SideScrollLock: UIViewRepresentable {
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
             guard let scroll = up as? UIScrollView else { ChatView.trace("side lock: no scroll view"); return }
+            ref?.view = scroll
             #if DEBUG
             if let at = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIDEWAYS"].flatMap(Double.init), !Self.sampleShifted {
                 Self.sampleShifted = true

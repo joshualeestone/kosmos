@@ -4909,6 +4909,18 @@ do {
     check(step(10, resumed: true, was: true) == .none && st.peak == 16, "review 4: one that shrank is the same shift, not a new one")
     check(Board.sideShiftStep(x: 0.4, shifted: true, wasShifted: false, resumed: false, peak: 16) == (false, 0, .none), "back at rest clears the shift and its peak")
 
+    // kosmos#7420 (build 19): where the shown band sits against the content, from the scroll view's own numbers.
+    func band(_ y: Double, content: Double = 5000, visible: Double = 412, top: Double = 0, bottom: Double = 0) -> Board.ScrollBand {
+        Board.scrollBand(offsetY: y, contentHeight: content, visibleHeight: visible, insetTop: top, insetBottom: bottom)
+    }
+    check(band(4588) == .content, "CONTROL: at the newest message (offset = content - visible) the band is on the content")
+    check(band(5000) == .pastEnd && band(6000) == .pastEnd, "a band starting at or past the content's end shows nothing")
+    check(band(4999) == .content, "CONTROL: one point of content still showing is on the content")
+    check(band(-412) == .aboveTop && band(-1000) == .aboveTop, "a band ending at or above the content's top shows nothing")
+    check(band(-411) == .content, "CONTROL: one point of the top still showing is on the content")
+    check(band(-100, top: 100) == .content && band(4900, top: 100) == .pastEnd, "the top inset moves where the band starts")
+    check(band(-300, bottom: 120) == .aboveTop && band(-300) == .content, "the bottom inset (the keyboard) moves where it ends")
+
     // Review 3: the box over a chat's life.
     var sends: [Int] = []
     var box: Board.ShiftBox? = Board.ShiftBox()
