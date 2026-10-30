@@ -98,8 +98,7 @@ test('the board tells every card carrying a stall, through phonenotify, each min
   const at = src.indexOf('const sayStalls = () => {');
   assert.ok(at > 0, 'CONTROL: sayStalls is found');
   const body = src.slice(at, src.indexOf('} catch { /* said next minute */ }', at));
-  assert.match(body, /ds\.tellStalls\(r, \{ file: STALL_PUSH_FILE, send: \(ev\) => phonenotify\.happened\(ev\) \}\);/, 'the board does not hand its whole roster to tellStalls');
-  assert.match(src, /const STALL_PUSH_FILE = path\.join\(store\.ROOT, require\('\.\/engine\/deliverystreak'\)\.PUSH_FILE\);/);
+  assert.match(body, /try \{ ds\.tellStalls\(r, \{ file: path\.join\(store\.ROOT, ds\.PUSH_FILE\), send: \(ev\) => phonenotify\.happened\(ev\) \}\); \}/, 'the board does not hand its whole roster to tellStalls, in its own try, with the data root read each sweep');
 });
 
 test('review 3: the record is read once per sweep, not once per stalled card, while nothing can be sent', () => {
@@ -158,10 +157,16 @@ test('review 6 W1: a push Kosmos+ did not take is taken back, so its agents are 
   result(false);   // the network said no
   assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8'))), [], 'a push that never arrived stayed counted on disk');
   ds.tellStalls([card('s-a'), card('s-b')], { now: T0 + MIN, file, send });
-  assert.equal(sent.length, 2, 'a push that never arrived was not tried again (or waited out the 15 minutes)');
-  sent[1].onResult(true);
-  ds.tellStalls([card('s-a')], { now: T0 + 20 * MIN, file, send });
-  assert.equal(sent.length, 2, 'CONTROL: one that arrived stays counted');
+  assert.equal(sent.length, 1, 'review 8: a failed push was retried inside the 15-minute gap');
+  ds.tellStalls([card('s-a'), card('s-b')], { now: T0 + 16 * MIN, file, send });
+  assert.equal(sent.length, 2, 'a push that never arrived was not tried again after the gap');
+  sent[1].onResult(false);   // it failed again (a coordinator that delivers but answers late)
+  ds.tellStalls([card('s-a'), card('s-b')], { now: T0 + 40 * MIN, file, send });
+  assert.equal(sent.length, 2, 'review 8: a second failure the same day was taken back too, so it retries all day');
+  ds.tellStalls([card('s-c')], { now: T0 + 60 * MIN, file, send });
+  sent[2].onResult(false);
+  ds.tellStalls([card('s-c')], { now: T0 + 80 * MIN, file, send });
+  assert.equal(sent.length, 4, 'CONTROL: another agent still gets its one retry');
 });
 
 test('review 6 W2: a long name keeps its count whole within the 80-byte agent field', () => {

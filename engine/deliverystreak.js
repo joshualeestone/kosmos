@@ -225,7 +225,7 @@ function sweep(names) {
   for (const k of [...streaks.keys()]) if (!present.has(k)) streaks.delete(k);
 }
 
-function resetForTests() { streaks.clear(); pushedAt.clear(); lastStallPushAt = null; }   // kosmos#7212: the pushes' in-memory copy too
+function resetForTests() { streaks.clear(); pushedAt.clear(); takenBack.clear(); lastStallPushAt = null; }   // kosmos#7212: the pushes' in-memory copy too
 
 /* kosmos#7212 (#7615 item 1): the needs-you notification for a card's stall (its deliveryStall: a streak, or a stuck
    Windows turn), so the person is told away from the board, as a crash loop or a stuck terminal tells them. `card` is
@@ -303,11 +303,15 @@ function withMore(name, more) {
   while (head && Buffer.byteLength(head + suffix) > AGENT_BYTES) head = Array.from(head).slice(0, -1).join('');
   return head + suffix;
 }
-/* Review 6: a push that never reached Kosmos+ is taken back, so its agents are told at the next push, not a day later. */
+/* Review 6: a push that never reached Kosmos+ is taken back, so its agents are told at the next push, not a day later.
+   Review 8: bounded, because a coordinator can deliver and still answer late or with a 5xx: each agent is taken back at
+   most once a day (so at most two tries a day), and the 15-minute gap still holds after a failure. */
+const takenBack = new Map();   // session -> when it was last taken back
 function untold(sessions, at, file) {
   try {
+    sessions = sessions.filter((s) => { const t = takenBack.get(s); return !(Number.isFinite(t) && t <= at && at - t < PUSH_GAP_MS); });
+    for (const s of sessions) takenBack.set(s, at);
     for (const s of sessions) if (pushedAt.get(s) === at) pushedAt.delete(s);
-    if (lastStallPushAt === at) lastStallPushAt = null;
     if (typeof file !== 'string' || !file) return;
     const book = readPushes(file);
     let changed = false;

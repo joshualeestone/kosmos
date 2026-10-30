@@ -69,3 +69,8 @@ show, not for a usage-limit-only streak, again after a day; the turn callback; a
   every few minutes for the whole stall. engine.phonenotify-send-4163.test.js now runs the REAL defaultSend against a
   local coordinator and checks what onResult hears for 204, 401, 503, 429 and an unreachable one. Kept: a push still in
   flight when the board restarts stays counted (its answer never arrives), a window of seconds.
+- Round 8 (Opus, final read): no BLOCKER proven; its W1 is one if a coordinator can deliver and then answer late or
+  with a 5xx, so it is fixed as one. A failure no longer clears the 15-minute gap, and each agent is taken back at most
+  once a day, so at most two tries a day per agent. The push file's path is worked out each sweep, inside its try.
+  To a follow-up card (past round 8): an idle agent whose nudge gave up (ownbounds) can get that push and then a stall
+  push for the same problem, now that a stall has its own cooldown class.

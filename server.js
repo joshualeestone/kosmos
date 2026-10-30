@@ -26893,7 +26893,6 @@ function start(port = PORT) {
       const stallSaid = new Map();
       /* kosmos#7368: agents whose current stuck step was already said: name -> its clock and step, so each is said once. */
       const turnSaid = new Map();
-      const STALL_PUSH_FILE = path.join(store.ROOT, require('./engine/deliverystreak').PUSH_FILE);   // kosmos#7212: when each agent's stall was last pushed
       /* #7212 slice 2: an agent no message has been seen to reach for half an hour, whatever the cause, is said once per
          stall and again each day it lasts. Agents gone from the board lose their streaks (not on an empty read). */
       const sayStalls = () => {
@@ -26912,7 +26911,7 @@ function start(port = PORT) {
              also pushed to the person's phone as needs-you, as a crash loop or a stuck terminal is: one push at a time and
              at most one each 15 minutes (naming the first and how many more), each agent once a day, counted only when it
              went out (deliverystreak.tellStalls). Here, in its own try, so a log line below that throws cannot skip it. */
-          try { ds.tellStalls(r, { file: STALL_PUSH_FILE, send: (ev) => phonenotify.happened(ev) }); } catch { /* told next minute */ }
+          try { ds.tellStalls(r, { file: path.join(store.ROOT, ds.PUSH_FILE), send: (ev) => phonenotify.happened(ev) }); } catch { /* told next minute */ }
           require('./engine/stallsignin').sweep();   // #7212 slice 3: accounts no stuck card read for an hour are forgotten
           /* kosmos#7368: each stuck step is said once (deliverystreak.turnsToSay); the streak lines keep their own rule. */
           const isTurn = (n) => byName.get(n).deliveryStall.lastWhy === 'turn';
