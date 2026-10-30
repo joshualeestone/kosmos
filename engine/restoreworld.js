@@ -93,7 +93,8 @@ const GIT_PLAIN_KEYS = new Set([
 const GIT_CONFIGS = ['config', 'config.worktree'];   // in a git folder; the second is read when extensions.worktreeConfig is set
 const MAX_GIT_CONFIG_BYTES = 1024 * 1024;
 const MAX_GIT_KEYS_SHOWN = 20;   // per config file; past it one line says how many more
-const GIT_READ_MS = 5000;
+const GIT_READ_MS = 2000;
+const MAX_GIT_READ_TOTAL_MS = 20000;   // across one listing (review 2: 400 reads at the timeout each was a 13-minute bound)
 const MAX_GIT_READS = 400;   // git config runs per listing (review 1: four per folder across a thousand rows took 10 s)
 const MAX_SUBSECTION_CHARS = 30;   // shown of a key's subsection; its section and name are always shown whole
 /* Characters that draw nothing or only alter the one before, beside the classes cleanText drops: braille blank,
@@ -607,10 +608,10 @@ function gitSettingsOf(file, shown, budget) {
   if (st.isSymbolicLink()) return [`${shown} is a link, so its git settings were not checked`];
   if (!st.isFile()) return [`${shown} is not a file, so its git settings were not checked`];
   if (st.size > MAX_GIT_CONFIG_BYTES) return [`${shown} is too large to check its git settings`];
-  if (budget.gitReads <= 0) return [`${shown} (its git settings were not checked: the listing has checked as many as it may)`];
+  if (budget.gitReads <= 0 || Date.now() >= budget.gitUntil) return [`${shown} (its git settings were not checked: the listing has checked as many as it may)`];
   budget.gitReads -= 1;
   const env = {};
-  for (const [k, v] of Object.entries(process.env)) if (!/^GIT_/i.test(k)) env[k] = v;
+  for (const [k, v] of Object.entries(process.env)) if (!/^GIT_/i.test(k) || /^GIT_EXEC_PATH$/i.test(k)) env[k] = v;   // a relocated git needs its own
   Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull, GIT_TERMINAL_PROMPT: '0', GIT_CEILING_DIRECTORIES: path.dirname(os.tmpdir()) });
   const r = childProcess.spawnSync('git', ['config', '--file', file, '--no-includes', '--null', '--name-only', '--list'],
     { cwd: os.tmpdir(), env, encoding: 'utf8', timeout: GIT_READ_MS, maxBuffer: 2 * MAX_GIT_CONFIG_BYTES, windowsHide: true });
@@ -649,13 +650,17 @@ function gitSettingsIn(folder, runs, budget) {
     const at = (n) => (shown ? `${shown}/${n}` : n);
     try { fs.lstatSync(path.join(dir, 'commondir')); out.push(`${at('commondir')} moves its git settings elsewhere, so they were not checked`); } catch { /* absent */ }
     for (const c of GIT_CONFIGS) out.push(...gitSettingsOf(path.join(dir, c), at(c), budget));
+    // Submodules and linked worktrees keep configs of their own, which git reads when an agent works in them.
+    for (const n of ['modules', 'worktrees']) {
+      try { fs.lstatSync(path.join(dir, n)); out.push(`${at(n)} holds more git settings, which were not checked`); } catch { /* absent */ }
+    }
   }
   return out;
 }
 
 /* What in a folder runs or loads something when a provider starts there: its dot-entries and PLAIN_AT_START names (a
    link counts, unopened), a git repository in either form, linked briefs, briefs that are not plain UTF-8 text, and
-   `@` imports in any brief. `budget.left` is the brief bytes the whole listing may still read, `budget.gitReads` the git config runs. */
+   `@` imports in any brief. `budget.left` is the brief bytes the whole listing may still read, `budget.gitReads` the git config runs, `budget.gitUntil` when they stop. */
 function runsIn(folder, budget) {
   const listed = namesIn(folder, MAX_ENTRIES_READ);
   if (!listed) { const g = gitIn(folder); return [UNREADABLE, ...g, ...gitSettingsIn(folder, g, budget)]; }   // git still finds what lstat can see
@@ -704,8 +709,9 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    can share a label, so the screen tells rows apart by `folder`). `because` null means the screen may offer to enable
    it (create.installJob on that name, under this world's roots); otherwise it is the plain reason it cannot be.
    `runs` lists what would run or load at start, including each git setting a repository there holds that runs or
-   loads something (`.git/config sets core.pager`; gitSettingsIn). `shared` is what every agent below it would read: entries at the top
-   of the workers and projects folders other than plain-named folders, and each project with something in its `runs`.
+   loads something (`.git/config sets core.pager`; gitSettingsIn). `shared` is what every agent below it would read:
+   entries at the top of the workers and projects folders other than plain-named folders, and each project with
+   something in its `runs`.
    Contract for the screen (slice 4c): show `label`, never `folder` or `dir` (both carry the raw name); leave out a
    folder that already has a profile in this world (it was enabled before); show `runs` and `shared`; enable an agent whose
    `runs` is not empty, or while `shared` is not empty, only after the person acknowledges them, since a hook or an MCP
@@ -727,7 +733,7 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    files a shell hook (direnv, mise) would run on entering a folder. Nothing is registered, started or written.
    A world not on the list (no registry row, hidden, or its folder swapped for a link) answers with no rows and a
    `because`, so a refusal cannot read as an empty restore.
-   opts.maxListed lowers MAX_LISTED and opts.briefTotal lowers MAX_BRIEF_TOTAL and opts.gitReads MAX_GIT_READS (tests). */
+   opts.maxListed lowers MAX_LISTED and opts.briefTotal lowers MAX_BRIEF_TOTAL and opts.gitReads MAX_GIT_READS and opts.gitMs MAX_GIT_READ_TOTAL_MS (tests). */
 function listRestoredAgents(opts = {}) {
   // create.js freezes store.ROOT when first required, so 4c's caller sets the store root before its first listing.
   const nameOk = opts.nameOk || ((n) => require('./create').NAME_RE.test(n));
@@ -738,7 +744,8 @@ function listRestoredAgents(opts = {}) {
   if (!markCertainlyPresent(opts.base, opts.world)) return { agents: [], shared: [], more: false, because: 'this Kosmos was not made for a restore, so nothing in it is offered' };
   const roots = worlds.envOverridesFor(opts.base, opts.world);
   const budget = { left: Number.isSafeInteger(opts.briefTotal) && opts.briefTotal >= 0 ? Math.min(opts.briefTotal, MAX_BRIEF_TOTAL) : MAX_BRIEF_TOTAL,
-    gitReads: Number.isSafeInteger(opts.gitReads) && opts.gitReads >= 0 ? Math.min(opts.gitReads, MAX_GIT_READS) : MAX_GIT_READS };
+    gitReads: Number.isSafeInteger(opts.gitReads) && opts.gitReads >= 0 ? Math.min(opts.gitReads, MAX_GIT_READS) : MAX_GIT_READS,
+    gitUntil: Date.now() + (Number.isSafeInteger(opts.gitMs) && opts.gitMs >= 0 ? Math.min(opts.gitMs, MAX_GIT_READ_TOTAL_MS) : MAX_GIT_READ_TOTAL_MS) };
   const cap = Number.isSafeInteger(opts.maxListed) && opts.maxListed > 0 ? Math.min(opts.maxListed, MAX_LISTED) : MAX_LISTED;
   const agents = [], shared = [];
   let more = false;

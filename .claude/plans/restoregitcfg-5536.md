@@ -37,3 +37,16 @@ runs or loads something once the agent's git reaches it. The review screen must 
 - The comment named a function that does not exist; the allowlist comment no longer says these keys hold no path.
 - Tests: the long subsection, a linked config, an oversized config, the read budget, an unlistable project.
   Mutations (keyLabelOf back to labelOf, no budget decrement, no scan on unreadable) each red; restored green, 60/60.
+
+## Review round 2 (sonnet): 2 WARNING, 1 CONVENTION, 3 NIT
+- FIXED: the read count was bounded but not the time (400 x 5 s). Per-read timeout 2 s, and a 20 s total per
+  listing (budget.gitUntil), past which a config says it was not checked.
+- FIXED: .git/modules and .git/worktrees hold configs of their own; each is named as not checked.
+- FIXED: GIT_EXEC_PATH is kept, so a relocated git (MinGit) still reads.
+- FIXED: the reflowed contract comment line rewrapped.
+- DEFERRED: Windows searches the cwd (the temporary folder) for git.exe first. A restored backup cannot write there,
+  so it is outside this threat model; a planted git.exe there already runs for every other spawn on that machine.
+- DEFERRED: commondir is named as not checked whatever its type, and config.worktree is still read. Both fail safe.
+- Stated limit, not checked by this listing: nested repositories in a project's subfolders, and .gitattributes
+  (the filter or textconv it names is defined in config, which is checked).
+- Tests 61/61. Mutations (no time check; no modules/worktrees line) each red; restored green.

@@ -1088,3 +1088,19 @@ test('a project folder that cannot be listed still has its git settings named', 
   assert.ok(row.runs.includes('(the folder could not be read)'));
   assert.ok(row.runs.includes('.git/config sets core.pager'));
 });
+
+test('git reads stop at the listing\'s time budget; submodule and worktree configs are named as not checked', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const pr = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_PROJECTS;
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(pr, rel)), { recursive: true }); fs.writeFileSync(path.join(pr, rel), text); };
+  put('sub/.git/config', '[core]\n');
+  put('sub/.git/modules/lib/config', '[core]\n\tpager = x\n');
+  put('sub/.git/worktrees/wt/config.worktree', '[core]\n\tpager = x\n');
+  const runsOf = (l) => Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
+  const runs = runsOf(rw.listRestoredAgents({ base, world: p.world, nameOk }));
+  assert.ok(runs.sub.includes('.git/modules holds more git settings, which were not checked'));
+  assert.ok(runs.sub.includes('.git/worktrees holds more git settings, which were not checked'));
+  const late = runsOf(rw.listRestoredAgents({ base, world: p.world, nameOk, gitMs: 0 }));
+  assert.ok(late.sub.includes('.git/config (its git settings were not checked: the listing has checked as many as it may)'), 'no time left reads as not checked');
+});
