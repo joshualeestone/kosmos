@@ -45,38 +45,57 @@ const BUSY = 'Muse Code is still working on this agent\'s last turn';
 /* kosmos#7615 item 4 (Josh's 0.7.75 report): Meta's "429 Subscription quota exhausted", with its reset time, reached the
    person only as COULD_NOT_RUN. Said as a quota, with Meta's own sentence quoted, because that sentence carries the
    reset time in whatever form Meta writes it and stays true when their wording changes (engine/accountproblem.js
-   quotes a vendor's sentence for the same reason). Weakest premise: no capture of Muse's quota output exists, so the
-   matcher is any line naming a quota together with 429, exhausted or exceeded, on stderr or in the event stream. */
+   quotes a vendor's sentence for the same reason). Weakest premise: no capture of Muse's quota output exists, so every
+   rule here is narrow: a sentence must say the quota is exhausted or exceeded (or pair a 429 with a quota, close
+   together), and only a failure's own words are read, never the model's or a tool's. */
 const QUOTA_HEAD = 'Meta\'s usage quota for Muse Code is used up, so this turn did not run';
 const QUOTA_LINE_MAX = 240;
-function quotaLine(...texts) {
-  for (const t of texts) {
-    for (const raw of String(t || '').split('\n')) {
-      const line = raw.trim();
-      if (/quota/i.test(line) && /\b429\b|exhausted|exceeded/i.test(line)) {
-        return line.length > QUOTA_LINE_MAX ? line.slice(0, QUOTA_LINE_MAX) + '…' : line;
-      }
-    }
+const QUOTA_SAID = /quota\W{0,3}(?:is\s+|has\s+been\s+|was\s+)?(?:exhausted|exceeded)|\b429\b.{0,40}\bquota|\bquota\b.{0,40}\b429\b/i;
+const NOT_REFUSED = /\bnot\s+(?:yet\s+)?(?:exhausted|exceeded)\b/i;
+// Review 1: a line that says Muse is retrying is one it recovered from, or may have.
+const RETRYING = /\bretry(?:ing)?\b/i;
+// By characters, not UTF-16 units (review 1: a cut must never split a character).
+function capped(line) {
+  const chars = Array.from(line);
+  return chars.length > QUOTA_LINE_MAX ? chars.slice(0, QUOTA_LINE_MAX).join('') + '…' : line;
+}
+/* The LAST line of `text` that says a quota refused the run (review 1: an earlier one may be a refusal Muse retried and
+   recovered from before failing for another reason), capped; null when none does. */
+function quotaLine(text) {
+  let found = null;
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trim();
+    if (QUOTA_SAID.test(line) && !NOT_REFUSED.test(line) && !RETRYING.test(line)) found = line;
   }
-  return null;
+  return found === null ? null : capped(found);
 }
 const quotaBecause = (line) => QUOTA_HEAD + '. Meta said: ' + line;
-/* The event stream without the model's own words (output deltas, a COMPLETED turn's text): an agent that writes about a
-   quota, then fails for another reason, must not be reported as out of quota. A terminal event that did not complete
-   is kept: that is where a refused run may say why. */
-function notTheModelsWords(jsonl) {
+/* The words a FAILURE event says, and only those (review 1: an allowlist). A failure is a terminal event that did not
+   complete, or an event whose type names a failure or an error. Its words are the string leaves of its payload's
+   `error`, `message` and `reason`, nested ones included (`error.message`), a few levels deep. Never the event's JSON:
+   tool calls and results carry shell output and file contents, which must never be quoted to the person. */
+const FAILURE_TYPE = /(?:^|[._])(?:fail(?:ed|ure)?|errors?)(?:$|[._])/i;
+function failureWords(jsonl) {
   const out = [];
+  const leaves = (v, depth) => {
+    if (typeof v === 'string') { if (v.trim()) out.push(v); return; }
+    if (depth <= 0 || !v || typeof v !== 'object') return;
+    for (const x of Array.isArray(v) ? v : Object.values(v)) leaves(x, depth - 1);
+  };
   for (const l of String(jsonl || '').split('\n')) {
-    let ev; try { ev = JSON.parse(l); } catch { out.push(l); continue; }
-    if (!ev || typeof ev !== 'object') { out.push(l); continue; }
-    if (ev.payload_type === 'run.output.delta') continue;
+    let ev; try { ev = JSON.parse(l); } catch { continue; }
+    if (!ev || typeof ev !== 'object' || typeof ev.payload_type !== 'string') continue;
     const p = ev.payload && typeof ev.payload === 'object' ? ev.payload : {};
-    if (ev.payload_type === 'run.terminal.completed' && p.terminal === 'completed') continue;
-    // The event's own sentence when it names one, so the person reads Meta's words rather than a line of JSON.
-    const said = ['error', 'message', 'reason'].map((k) => p[k]).find((v) => typeof v === 'string' && v.trim());
-    out.push(said || l);
+    const failed = (ev.payload_type === 'run.terminal.completed' && p.terminal !== 'completed') || FAILURE_TYPE.test(ev.payload_type);
+    if (!failed) continue;
+    for (const k of ['error', 'message', 'reason']) leaves(p[k], 3);
   }
   return out.join('\n');
+}
+/* Which sentence says the quota refused this turn: a failure event's own words first (it is the run's own account of
+   why it ended), then stderr. */
+function quotaRefusal(stderr, stdout) {
+  return quotaLine(failureWords(stdout)) || quotaLine(stderr);
 }
 
 /**
@@ -263,9 +282,9 @@ function runTurn(input) {
           musestatus.markSignedOut(startedAt, atStart, Date.now());
         }
         // Timed out only when Kosmos stopped it (round 1): another signal is a crash, not a timeout.
-        else if (err) { const q = quotaLine(stderr, notTheModelsWords(stdout)); because = q ? quotaBecause(q) : COULD_NOT_RUN; }
+        else if (err) { const q = quotaRefusal(stderr, stdout); because = q ? quotaBecause(q) : COULD_NOT_RUN; }
         else if (!parsed.done) {
-          const q = quotaLine(stderr, notTheModelsWords(stdout));
+          const q = quotaRefusal(stderr, stdout);
           because = q ? quotaBecause(q) : 'Muse Code stopped before finishing the turn';
         }
         // #3939 3c-1: a completed turn proves the sign-in (a terminal `muse login` is seen only this way).
@@ -292,4 +311,4 @@ function setForTests(o) {
 }
 function resetForTests() { runMuse = REAL.runMuse; turnTimeoutMs = TURN_TIMEOUT_MS; hardCapMs = TURN_HARD_CAP_MS; maxBytes = TURN_MAX_BUFFER; platform = process.platform; }
 
-module.exports = { turnArgs, parseEvents, modelWatcher, runTurn, quotaLine, QUOTA_HEAD, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, STOPPED, BUSY, setForTests, resetForTests };
+module.exports = { turnArgs, parseEvents, modelWatcher, runTurn, quotaLine, failureWords, quotaRefusal, QUOTA_HEAD, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, STOPPED, BUSY, setForTests, resetForTests };
