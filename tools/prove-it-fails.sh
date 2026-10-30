@@ -33,8 +33,9 @@ if [ -n "$DIRTY" ]; then
   exit 1
 fi
 
-# Which files the expression touches is not knowable, so the whole tree is
-# restored — safe precisely because the tree was clean a moment ago.
+# Which files the expression touches is not knowable in advance, so it is read after the break: the files that
+# differ then (the tree was clean a moment ago) are the break, and only they are restored (kosmos#7619). A tracked
+# file the TEST itself changes is therefore left as the test left it, and is not reported.
 #
 # ⚠️ THE FILE LIST INCLUDES SHELL, AND IT DID NOT UNTIL 2026-08-22. It globbed
 # `*.js` and `*.html` only, so `install/setup.sh` — the file a stranger's whole
@@ -69,6 +70,52 @@ fi
 # (`${`, `$`, backticks) OUT of a `perl -e` pattern (prefer python3 + an assert);
 # and when a should-be-RED arm comes back GREEN, suspect the perturbation before
 # the guard. Both #1759 instances were hand plants that silently never applied.
+#
+# 🛑 KILLED MID-RUN, IT STILL RESTORES (kosmos#7619). The 10-30 08:29 tmux server death sent SIGHUP to every run in
+# every pane at once, and a mutation run that dies holding a break leaves that break in the tree for the next commit
+# to carry. A hangup, an interrupt or a terminate now restores the tree before exiting (safe for the same reason the
+# end is: the tree was clean a moment ago). The test it was running is a child, so it is ended too, or it would keep
+# testing a tree that is no longer broken. SIGKILL cannot be caught: the refusal above then names the file at the
+# next start.
+#
+# It restores only the files the break changed, and each only while it still holds the break: a whole-tree checkout
+# would also wipe an edit somebody else made in this worktree during the run (review 2). A file that changed again
+# since the break is left alone and named.
+_broken=()
+_broken_hash=()
+_restore() {
+  local i f now left=""
+  for i in "${!_broken[@]}"; do
+    f="${_broken[$i]}"
+    now="$(git hash-object -- "$f" 2>/dev/null)"
+    if [ "$now" = "${_broken_hash[$i]}" ]; then git checkout -q -- "$f" || left="$left $f"; else left="$left $f"; fi
+  done
+  [ -z "$left" ] || echo "    NOT restored, changed again during the run (check by hand):$left"
+  [ -z "$left" ]
+}
+# Every restore at an ending runs with the signals ignored (review 4): a second Ctrl-C, or a TERM after a HUP, must not
+# kill the restore halfway, and a signal during a normal finish must not re-run it over files it has just restored.
+_final_restore() { trap '' HUP INT TERM; _restore; }
+_restore_on_signal() {   # $1 the signal's number: the exit is 128 + it, as a shell reports a death by that signal
+  trap '' HUP INT TERM
+  if [ -n "${_test_pid:-}" ]; then kill "$_test_pid" 2>/dev/null; wait "$_test_pid" 2>/dev/null; fi
+  rm -f "${_outf:-}"
+  # A signal can land after the break is written but before _broken is filled (or while node is mid-write, review
+  # 3). The tree was clean at the start, so whatever differs now is the break: restore that whole, unconditionally.
+  # Known limit (review 6): an edit a colleague makes in this same instant cannot be told from the break, and goes too.
+  if [ "${#_broken[@]}" -eq 0 ] && ! git diff --quiet; then
+    git diff --name-only -z | xargs -0 git checkout -q --
+    git diff --quiet && echo "    interrupted while the break was being written: restored (clean)" || echo "    interrupted: restore incomplete"
+  elif [ "${#_broken[@]}" -gt 0 ]; then
+    _restore && echo "    interrupted: restored (clean)" || echo "    interrupted: restore incomplete"
+  else
+    echo "    interrupted before the break was applied: nothing to restore"
+  fi
+  exit $((128 + $1))
+}
+trap '_restore_on_signal 1' HUP
+trap '_restore_on_signal 2' INT
+trap '_restore_on_signal 15' TERM
 before="$(git rev-parse HEAD)"
 echo "── $LABEL"
 node -e "
@@ -76,12 +123,18 @@ const fs = require('node:fs');
 const paths = process.argv.slice(1);
 for (const f of paths) { let s = fs.readFileSync(f, 'utf8'); const was = s; ${EXPR}; if (s !== was) fs.writeFileSync(f, s); }
 " $(git ls-files '*.js' '*.html' '*.sh' 'install/kosmos' | tr '\n' ' ') 2>/dev/null
+[ -n "${PIF_TEST_PAUSE_AFTER_BREAK:-}" ] && sleep "$PIF_TEST_PAUSE_AFTER_BREAK"   # tests only: holds the window below open
 
 if git diff --quiet; then
   echo "    ⚠️  THE MUTATION DID NOT APPLY - nothing changed, so nothing was proven."
   exit 1
 fi
 git diff --stat | tail -1 | sed 's/^/    changed: /'
+# Built aside and published in one step (review 4): a signal mid-loop would otherwise see a list that is non-empty but
+# short, and restore only part of the break.
+_b=(); _h=()
+while IFS= read -r -d '' _f; do _b+=("$_f"); _h+=("$(git hash-object -- "$_f")"); done < <(git diff --name-only -z)
+_broken_hash=("${_h[@]}"); _broken=("${_b[@]}")
 
 # 🛑 A SHELL MUTATION CANNOT BE PROVED BY THE NODE SUITE, and this refuses
 # rather than leaving it to a person to remember. `yarn test` never executes
@@ -138,8 +191,7 @@ case "$TESTFILE" in
       echo "       phrase, an ordering check - that is a legitimate proof and this"
       echo "       is the wrong refusal. Say so and it runs:"
       echo "           SHELL_READ_ONLY=1 bash tools/prove-it-fails.sh ..."
-      git checkout -q -- .
-      echo "    restored"
+      _final_restore && echo "    restored"   # it names what it could not restore otherwise (review 5)
       exit 1
     fi
     if [ -n "$_changed_shell" ] && [ "${SHELL_READ_ONLY:-}" = "1" ]; then
@@ -162,14 +214,21 @@ esac
 # failure lands on the default — and the default is always success.
 #
 # 🔑 A UNIFORM RESULT IS AN INSTRUMENT SMELL, NOT A FINDING.
-out="$(node --test "$TESTFILE" 2>&1)"
+# In the background with a wait, not in $( ): bash runs a trap only after its foreground command ends, and `wait` is
+# the one thing a signal interrupts (#7619).
+_outf="$(mktemp "${TMPDIR:-/tmp}/prove-it-fails.XXXXXX")"
+node --test "$TESTFILE" > "$_outf" 2>&1 &
+_test_pid=$!
+wait "$_test_pid"
+_test_pid=""
+out="$(cat "$_outf")"; rm -f "$_outf"
 summary="$(printf '%s' "$out" | grep -E '^ℹ (pass|fail) ' | head -2)"
 failed="$(printf '%s' "$out" | sed -n '/failing tests:/,$p' | grep -c '^✖')"
 
 if [ -z "$summary" ]; then
   echo "    🛑 THE RUNNER PRODUCED NO SUMMARY, so nothing is proven either way."
   printf '%s\n' "$out" | head -4 | sed 's/^/      /'
-  git checkout -q -- .
+  _final_restore
   exit 1
 elif [ "$failed" -gt 0 ]; then
   printf '%s' "$out" | sed -n '/failing tests:/,$p' | grep '^✖' | sed 's/^/    /' | head -4
@@ -177,7 +236,6 @@ else
   echo "    ⚠️  NOTHING WENT RED. The break applied and no test noticed it."
   printf '%s' "$summary" | sed 's/^/      /'
 fi
-git checkout -q -- .
+_final_restore || { echo "    restore failed"; exit 1; }
 [ "$(git rev-parse HEAD)" = "$before" ] || { echo "    HEAD moved; something is wrong"; exit 1; }
-git diff --quiet || { echo "    restore failed"; exit 1; }
 echo "    restored"
