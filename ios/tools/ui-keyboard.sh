@@ -8,6 +8,7 @@
 #
 # Sample agents only (a Debug build): no account, no network, nothing of a person's. The simulator is new for each run
 # and deleted at the end, and so are the build and the results (--keep keeps them, for a failure to be looked at).
+# When the read-higher-up check fails, the chat's last scroll events are printed (they live in the simulator, not in --keep).
 # The checks need the on-screen keyboard. A fresh simulator shows it (measured 10-30 with the Simulator preference
 # ConnectHardwareKeyboard unset). That preference is shared by everyone on this Mac, so the runner never changes it: when
 # it is on, the run stops and says so.
@@ -53,5 +54,18 @@ if [ "$rc" -eq 0 ] && [ "$ran" -eq 3 ] && ! grep -q -i -E "Test Case .-\[KosmosU
 fi
 why="$(sed -n 's/.*error: -\[KosmosUITests\.[A-Za-z]* \([A-Za-z]*\)\] : /\1: /p' "$log" | head -1)"
 echo "FAIL  ui-keyboard: ${why:-xcodebuild test exited $rc, $ran of 3 checks ran}"
+# kosmos#7609: the read-higher-up check records the chat's scroll events; when that check failed, show the last of them
+# while the simulator still exists (it is deleted on exit, so --keep does not keep them).
+if grep -q -E "Test Case .-\[KosmosUITests\.KeyboardSlideUITests testReadHigherUpStaysWhereItWas\]. failed" "$log"; then
+  app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
+  bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
+  data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
+  if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
+    echo "  the chat's last scroll events (read-higher-up check):"
+    tail -60 "$data/Documents/trace.txt" | sed 's/^/    /'
+  else
+    echo "  (no scroll trace from the app)"
+  fi
+fi
 [ "$keep" = 1 ] || echo "  (run again with --keep to keep the log and result)"
 exit 1

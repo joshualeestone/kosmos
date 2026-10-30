@@ -29,12 +29,24 @@ const fs = require('fs');
 const dir = process.env.KOSMOS_RUN_MARKER_DIR;
 let n = 0; try { n = fs.readdirSync(dir).length; } catch {}
 fs.appendFileSync(process.env.STUB_LOG, '$tool ' + process.argv[2] + ' markers=' + n + '\n');
+// kosmos#7617: release.sh also runs the pool's build, offline, into --out and compares its highlights with the
+// committed list. The build writes the sandbox's list (fresh), or another one under STUB_BUILD_STALE=1, and exits 0;
+// STUB_RC_* stays the prod-check's answer.
+if ('$tool' === 'whats-new-pool' && process.argv[2] === 'build') {
+  const out = (process.argv.find((a) => a.startsWith('--out=')) || '').slice(6);
+  const list = JSON.parse(fs.readFileSync(process.env.STUB_LIST, 'utf8'));
+  if (process.env.STUB_BUILD_STALE) list.highlights.push({ title: 'merged after the list was built' });
+  fs.writeFileSync(out, process.env.STUB_BUILD_EMPTY ? '' : JSON.stringify(list));
+  process.exit(0);
+}
 const rc = Number(process.env['STUB_RC_' + '$tool'.replace(/-/g, '_')] || 0);
 if (rc) process.stderr.write('$tool stand-in refuses (' + rc + ')\n');
 else { process.stdout.write('$tool stand-in: 2 highlight(s) passing line\n'); process.stderr.write('$tool stand-in pass-time note\n'); }   // as the real tools can on a pass
 process.exit(rc);
 EOF
 done
+# The committed list the build stand-in reproduces (only its highlights are compared).
+mkdir -p "$RS/web"; printf '{"version":"0.0.0","highlights":[{"title":"one"},{"title":"two"}]}\n' > "$RS/web/whats-new.json"
 CURV="$(sed -n 's/.*"version":[[:space:]]*"\([0-9.]*\)".*/\1/p' "$HERE/../package.json" | head -1)"
 _p=$(( 10#${CURV##*.} + 1 )); NEXTV="${CURV%.*}.$(printf '%02d' "$_p")"   # the next patch: past the version-jump guard
 
@@ -52,7 +64,7 @@ run() {  # <check rc> <pool rc> [env...] : sets RC, OUT, LOG; each run gets a fr
   for v in $(compgen -e | grep -E '^(KOSMOS_|AGENT_WORKFORCE_)'); do drop+=(-u "$v"); done
   env "${drop[@]}" HOME="$sb/home" TMPDIR="$sb/tmp" KOSMOS_SITE="$S" KOSMOS_HARNESS_IGNORE_CUT=1 \
     KOSMOS_CUT_IGNORE_HARNESS=1 KOSMOS_CUT_IGNORE_SIDE=1 KOSMOS_CUT_IGNORE_PREPUSH=1 \
-    KOSMOS_RUN_MARKER_DIR="$sb/markers" STUB_LOG="$sb/stub.log" \
+    KOSMOS_RUN_MARKER_DIR="$sb/markers" STUB_LOG="$sb/stub.log" STUB_LIST="$RS/web/whats-new.json" \
     STUB_RC_whats_new_check="$crc" STUB_RC_whats_new_pool="$prc" "$@" \
     bash "$RS/tools/release.sh" "$NEXTV" > "$sb/out" 2>&1
   RC=$?; OUT="$(cat "$sb/out")"; LOG="$(cat "$sb/stub.log")"; SB="$sb"
@@ -89,6 +101,21 @@ run 0 0
   || bad "CONTROL current pool (rc=$RC): log=[$LOG] home=$(home_made && echo y || echo n) out=$(printf '%s' "$OUT" | tail -3)"
 { has "$OUT" "highlight(s) passing line" || has "$OUT" "pass-time note"; } && bad "the early check printed the tools' passing output (1b-ii prints it)" \
   || pass "the early check is quiet when it passes, stdout and a pass-time stderr note alike"
+
+# kosmos#7617: a list that is no longer what the pool builds stops the cut early too, after prod-check passed.
+run 0 0 STUB_BUILD_STALE=1
+{ [ "$RC" != 0 ] && has "$OUT" "$STOP" && has "$OUT" "is not what release/whats-new-pool.json builds for $NEXTV" \
+  && has "$LOG" "whats-new-pool build markers=0" && ! marked && ! home_made; } \
+  && pass "a list the pool no longer builds stops the cut before it marks itself (kosmos#7617)" \
+  || bad "stale list (rc=$RC): log=[$LOG] out=$(printf '%s' "$OUT" | tail -3)"
+
+# ...and a list that cannot be read is said as that, not as a stale list (review 2).
+run 0 0 STUB_BUILD_EMPTY=1
+{ [ "$RC" != 0 ] && has "$OUT" "$STOP" && has "$OUT" "could not compare web/whats-new.json" \
+  && ! has "$OUT" "is not what release/whats-new-pool.json builds" && has "$LOG" "whats-new-pool build markers=0" \
+  && ! marked && ! home_made; } \
+  && pass "an unreadable build is could-not-compare, not stale" \
+  || bad "unreadable build (rc=$RC): out=$(printf '%s' "$OUT" | tail -3)"
 
 # prod could not be read (exit 4): goes on, as at 1b-ii, and the early run does not print 1b-ii's NOTE.
 run 0 4
