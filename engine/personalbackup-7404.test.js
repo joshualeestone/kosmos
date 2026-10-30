@@ -305,7 +305,7 @@ test('#7404 warning 3: a lost join is aged by its own at, and an unreadable at r
 
 /* Code review 2, warning 4: the key-ready marker names its org and world, so one left by an ending this module did not
    see (a refresh that found the membership gone) never reads as 'on' for a later membership. */
-test('#7404 warning 4: a key marker for another world or org reads needs-key; a switch-on clears it first', async (t) => {
+test('#7404 warning 4: a key marker for another world or org reads needs-key; a re-accept of the same binding keeps it', async (t) => {
   const root = fresh(t);
   const c = coordinator();
   const p = await pb.preview({ root, remote: c });
@@ -319,11 +319,12 @@ test('#7404 warning 4: a key marker for another world or org reads needs-key; a 
   assert.equal(pb.state({ root }), 'needs-key', 'another org: the old marker does not count');
   fs.writeFileSync(f, JSON.stringify(rec));
   assert.equal(pb.state({ root }), 'on');
-  // A switch-on removes it before anything is sent, so a key step that then fails leaves needs-key, never a stale on.
+  // Review 6, NIT 4: a re-accept of the SAME binding keeps its marker, so a key step failing on a passing error does not
+  // make a working backup read needs-key (the org-and-world comparison above is what stops a stale one reading on).
   const p2 = await pb.preview({ root, remote: c });
   const r = await pb.switchOn(p2.ticket, true, { root, remote: c, personalbackupkey: { setUpPersonalKey: async () => ({ ok: false, code: 'x', because: 'down' }) } });
   assert.equal(r.ok, false);
-  assert.equal(pb.state({ root }), 'needs-key');
+  assert.equal(pb.state({ root }), 'on');
 });
 
 /* Code review 2, warning 5: switchOn says what actually happened for orgenroll's own refusals, driven through orgenroll

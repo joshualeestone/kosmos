@@ -101,7 +101,7 @@ function peek(id, now) {
   return t || null;
 }
 
-const ELSEWHERE = 'Personal backup is on for another of your computers. Turn it off there first, or remove that computer from your Kosmos+ account if it is lost; nothing changed here.';
+const ELSEWHERE = 'Personal backup is on for another of your computers. Turn it off there first (if you just did, try again in a few minutes), or remove that computer from your Kosmos+ account if it is lost; nothing changed here.';
 const SAY = {
   personal_backup_off: 'Personal backup is not available on Kosmos+ yet. Nothing was turned on.',
   personal_backup_in_org: 'This account is in a company or a family on Kosmos+, so a personal backup cannot be turned on. Nothing changed.',
@@ -163,6 +163,8 @@ async function preview(opts = {}) {
 async function switchOn(ticket, accepted, opts = {}) {
   const now = (opts.now || Date.now)();
   if (accepted !== true) {
+    // Code review 6, NIT 1: an accept on this ticket is already under way, so "nothing was turned on" may be false.
+    if (typeof ticket === 'string' && CLAIMED.has(ticket)) return { ok: false, code: 'busy', because: 'Personal backup is already being turned on. Wait a moment.' };
     // Declined: the ticket is spent. The membership the preview made is left for #7658 to end at a join (see above).
     if (typeof ticket === 'string') TICKETS.delete(ticket);
     return { ok: false, declined: true, because: 'Not accepted, so nothing was turned on.' };
@@ -172,7 +174,8 @@ async function switchOn(ticket, accepted, opts = {}) {
   if (typeof ticket === 'string' && CLAIMED.has(ticket)) return { ok: false, code: 'busy', because: 'Personal backup is already being turned on. Wait a moment.' };
   const t = peek(ticket, now);
   if (!t) {
-    return { ok: false, code: 'ticket', because: 'These words were shown too long ago. Open personal backup again to read them.' };
+    // Code review 6, NIT 3: expired, used, or from before a restart; the sentence must be true of all three.
+    return { ok: false, code: 'ticket', because: 'These words are no longer open here. Open personal backup again to read them.' };
   }
   CLAIMED.add(ticket);
   try { return await bindAndKey(ticket, t, opts); } finally { CLAIMED.delete(ticket); }
@@ -185,6 +188,9 @@ async function bindAndKey(ticket, t, opts) {
   const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
   if (!st) return { ok: false, because: UNREACHED };
   if (elsewhere(st)) { TICKETS.delete(ticket); return { ok: false, code: 'personal_on_elsewhere', because: ELSEWHERE }; }
+  /* Code review 6, warning 3: the account is in another org now (a company or family joined since the preview). An
+     enroll would be refused as org_consent_changed against that org's words, a false sentence; nothing is sent. */
+  if (st.data.member === true && st.data.org && st.data.org.id !== t.org.id) { TICKETS.delete(ticket); return { ok: false, code: 'org_other_org', because: SAY.org_other_org }; }
   // The hash was checked when the ticket was made (cleanPreview); it is what stops a hashless enroll moving a company's
   // binding here (design review 1, blocker 2).
   let r;
@@ -213,9 +219,9 @@ async function bindAndKey(ticket, t, opts) {
   }
   // Code review 4, NIT 5: orgenroll has written its record by now when r.ok, so "nothing was turned on" would be false.
   if (!r.org || r.org.id !== t.org.id) return { ok: false, because: 'Kosmos+ answered for a different backup than the one shown, so its key was not set up here. Turn personal backup off on this computer and open it again.' };
-  /* The key step runs again for this bind (warning 4), but only now that it landed: removed before, a failed enroll left
-     a backup whose key is fine reading needs-key (code review 3, warning 5). state() compares org and world anyway. */
-  try { fs.rmSync(path.join(root(opts), KEY_READY), { force: true }); } catch { /* state() compares it anyway */ }
+  /* The key-ready marker is NOT removed here (code review 6, NIT 4): state() compares its org and world with the record,
+     so a marker from another membership already reads needs-key, and one for this same binding stays true even when
+     the key step below fails on a passing error. switchOff removes it. */
   return setUpKey(opts);
 }
 
@@ -225,7 +231,18 @@ async function bindAndKey(ticket, t, opts) {
    { ok: false, code, because }. */
 const KEY_READY = 'personal-key-ready';
 async function setUpKey(opts = {}) {
-  if (!isOn(opts)) return { ok: false, code: 'not_on', because: 'Personal backup is not on for this computer yet.' };
+  const rec = record(opts);
+  if (!rec) return { ok: false, code: 'not_on', because: 'Personal backup is not on for this computer yet.' };
+  /* Code review 6, warning 4: personalbackupkey reads the ACCOUNT's current membership, whatever org that is, so a stale
+     record here (ended elsewhere, a company joined, before the next refresh) would set up or report keys for another
+     org. Kosmos+ must still name this record's personal org, bound to this computer. */
+  const remote = remoteOf(opts);
+  const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
+  if (!st) return { ok: false, code: 'unreached', because: 'Kosmos+ could not be reached just now, so the backup key was not set up yet. Try again in a minute.' };
+  const d = st.data;
+  if (!(d.member === true && d.org && d.org.kind === 'personal' && d.org.id === rec.org.id && d.enrolled && d.enrolled.thisComputer === true)) {
+    return { ok: false, code: 'not_on', because: 'Personal backup is no longer on for this computer on Kosmos+. Open personal backup again.' };
+  }
   const pk = opts.personalbackupkey || require('./personalbackupkey');
   let k;
   try { k = await pk.setUpPersonalKey({ macRequest: opts.macRequest || ((m, rt, b) => remoteOf(opts).macRequest(m, rt, b)) }); } catch { k = null; }
@@ -236,7 +253,6 @@ async function setUpKey(opts = {}) {
        shown and confirmed (a restart or a closed tab before the screen showed it) and say needs-key; this then runs
        again and personalbackupkey answers the same code (its resume path). org and member are returned for the
        screen's confirmRecoveryCodeSaved. */
-    const rec = record(opts);
     const who = k.ok && typeof k.org === 'string' && typeof k.member === 'string' ? { keyOrg: k.org, member: k.member } : {};
     try { fs.writeFileSync(path.join(root(opts), KEY_READY), JSON.stringify(Object.assign({ at: new Date().toISOString(), org: rec && rec.org.id, world: rec && rec.world }, who)) + '\n', { mode: 0o600 }); } catch { /* state() then says needs-key, and this runs again harmlessly */ }
     return k.ok ? { ok: true, code: k.code, epoch: k.epoch, org: k.org, member: k.member } : { ok: true, code: null, already: true };
@@ -245,11 +261,16 @@ async function setUpKey(opts = {}) {
   return { ok: false, code: k && k.code, because: 'Personal backup is on for this computer, but its backup key could not be made yet: ' + ((k && k.because) || 'try again') + '.' };
 }
 
-/** 'off', 'needs-key' (on, the key step not finished here, or its recovery code not yet confirmed), or 'on'; from this
-    computer's own files only. */
+/** 'off', 'pending' (a join's answer was lost; the follow-up settles it), 'needs-key' (on, the key step not finished
+    here, or its recovery code not yet confirmed), or 'on'; from this computer's own files only. */
+function joinUnsettled(opts) {
+  const oe = opts.orgenroll || require('./orgenroll');
+  try { return fs.existsSync(path.join(root(opts), oe.JOIN_UNKNOWN_FILE)); } catch { return true; }
+}
 function state(opts = {}) {
   const rec = record(opts);
-  if (!rec) return 'off';
+  // Code review 6, warning 2: a join whose answer was lost may have bound this computer; it is not 'off' until settled.
+  if (!rec) return joinUnsettled(opts) ? 'pending' : 'off';
   try {
     const k = JSON.parse(fs.readFileSync(path.join(root(opts), KEY_READY), 'utf8'));
     if (!(k && k.org === rec.org.id && k.world === rec.world)) return 'needs-key';
@@ -328,6 +349,12 @@ function startFollowUp(opts = {}) {
 /** Turn a personal backup off on this computer: the membership ends on Kosmos+ (orgenroll's leave, this root). */
 async function switchOff(opts = {}) {
   const oe = opts.orgenroll || require('./orgenroll');
+  /* Code review 6, warning 2: with a lost join and no record, orgenroll's leave clears locally and sends nothing, which
+     would strand a binding the join may have made. Settled first (one refresh); still unsettled, nothing is done. */
+  if (!isOn(opts) && joinUnsettled(opts)) {
+    try { await oe.refresh(enrollOpts(opts)); } catch { /* still unsettled below */ }
+    if (!isOn(opts) && joinUnsettled(opts)) return { ok: false, pending: true, because: 'It is not known yet whether this computer was bound. Kosmos asks Kosmos+ again in a few minutes; turn it off after that.' };
+  }
   let r;
   try { r = await oe.leave(enrollOpts(opts)); } catch { r = null; }
   // Stopped here (left, or a leave pending): the key marker goes too, so turning it on again runs the key step again.
