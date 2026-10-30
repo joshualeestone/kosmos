@@ -1563,7 +1563,7 @@ test('a length problem says it is a length problem', () => {
  * The fake records every call and answers from a scripted world. `has-session`
  * answers yes once and no afterwards, so every loop in the script terminates.
  */
-function runLauncher({ claim, paneCommands, env, model, runner }) {
+function runLauncher({ claim, paneCommands, env, model, runner, workdir }) {
   const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'launcher-'));
   const log = nodePath.join(dir, 'calls.log');
   const fake = nodePath.join(dir, 'tmux');
@@ -1598,7 +1598,7 @@ esac
   // assertion read the repo file, which worked only by order.
   create.installSupervisor();
   const argv = jobArguments('probe', { model, runner }).map((a) => {
-    if (a === create.workerDir('probe')) return nodePath.join(dir, 'work');
+    if (a === create.workerDir('probe')) return workdir || nodePath.join(dir, 'work');
     if (a === '/opt/homebrew/bin/tmux') return fake;
     return a;
   });
@@ -6865,6 +6865,94 @@ test('#1704 a NAMED-world launch hands the pane its Kosmos: KOSMOS_WORLD + the w
   const dataVar = passed.find((v) => v.startsWith('AGENT_WORKFORCE_DATA='));
   assert.ok(dataVar && dataVar.includes(nodePath.join('worlds', 'qa')),
     'the pane reaches the qa world store, not the default: ' + dataVar);
+});
+
+const GIT_GUARD_5536 = ['GIT_CONFIG_COUNT=2', 'GIT_CONFIG_KEY_0=core.hooksPath', 'GIT_CONFIG_VALUE_0=/dev/null',
+  'GIT_CONFIG_KEY_1=core.fsmonitor', 'GIT_CONFIG_VALUE_1=false'];
+function paneEnvIn5536(world, extra = {}) {
+  const savedWorld = process.env.KOSMOS_WORLD;
+  process.env.KOSMOS_WORLD = world;
+  try {
+    const set = runLauncher({ claim: `probe+${world}`, paneCommands: ['-zsh', 'bash'], workdir: extra.workdir,
+      env: { CLAUDE_CONFIG_DIR: undefined, CODEX_HOME: undefined, KOSMOS_PORT: undefined, KOSMOS_WORLD: world,
+        GIT_CONFIG_COUNT: undefined, ...(extra.env || {}) } });
+    assert.ok(set.newSession, `nothing was launched in ${world}`);
+    return set.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e');
+  } finally {
+    if (savedWorld === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = savedWorld;
+  }
+}
+
+test('kosmos#5536 4c-1: an agent in a world a restore made starts with git hooks and fsmonitor off; any other world does not', WIN_BASH_SUPERVISOR, () => {
+  // The world is made by the real producer (restoreworld.prepareRestoreWorld), not a hand-written mark, so this
+  // follows the mark wherever 4b keeps it. The base is the one the supervisor reads (baseRoot of the pre-world env).
+  const worlds = require('./worlds');
+  const restoreworld = require('./restoreworld');
+  const made = restoreworld.prepareRestoreWorld(worlds.baseRoot(process.env), { member: 'Probe Member', memberId: 'm-5536', now: Date.UTC(2026, 9, 29) });
+  assert.ok(made.ok, made.because || 'no restored world');
+  let made2 = null;
+  try {
+    assert.ok(restoreworld.isRestoredWorld(worlds.baseRoot(process.env), made.world), 'premise: the made world reads as restored');
+    const restored = paneEnvIn5536(made.world.id);
+    for (const v of GIT_GUARD_5536) assert.ok(restored.includes(v), `the restored world's pane lacks ${v}: ` + JSON.stringify(restored));
+    // CONTROL: an ordinary named world (no restore mark) gets none of it, so the guard is keyed on the mark, not on
+    // "a named world".
+    const plain = paneEnvIn5536('qa');
+    assert.ok(plain.includes('KOSMOS_WORLD=qa'), 'premise: the plain launch ran in qa: ' + JSON.stringify(plain));
+    assert.equal(plain.filter((v) => v.startsWith('GIT_CONFIG_')).length, 0, 'an ordinary world was given the git guard: ' + JSON.stringify(plain));
+    // CONTROL 2: a named world whose folder EXISTS and has no mark (qa above has no folder, so it only takes the
+    // certainly-absent branch).
+    made2 = worlds.createWorld(worlds.baseRoot(process.env), 'Plain 5536');
+    assert.ok(fs.existsSync(worlds.worldBaseDir(worlds.baseRoot(process.env), made2)), 'premise: the plain world has a folder');
+    const plain2 = paneEnvIn5536(made2.id);
+    assert.equal(plain2.filter((v) => v.startsWith('GIT_CONFIG_')).length, 0, 'an existing unmarked world was given the guard: ' + JSON.stringify(plain2));
+  } finally {
+    if (made2) { try { worlds.hideWorld(worlds.baseRoot(process.env), made2.id); } catch { /* the sandbox goes with the run */ } }
+    try { worlds.hideWorld(worlds.baseRoot(process.env), made.world.id); } catch { /* likewise */ }
+  }
+});
+
+test('kosmos#5536 4c-1: the mark beside the agent\'s own folder guards it even when the launch reads another base', WIN_BASH_SUPERVISOR, () => {
+  const worlds = require('./worlds');
+  const restoreworld = require('./restoreworld');
+  const made = restoreworld.prepareRestoreWorld(worlds.baseRoot(process.env), { member: 'Base Elsewhere', memberId: 'm-5536-b', now: Date.UTC(2026, 9, 29) });
+  assert.ok(made.ok, made.because || 'no restored world');
+  const workdir = nodePath.join(made.dir, 'workers', 'probe');
+  fs.mkdirSync(workdir, { recursive: true });
+  // The launch's own environment names another base, where this world does not exist (the board made it under the
+  // test's base), so isRestoredWorld answers "not there" and only the workdir check can see the mark.
+  const elsewhere = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'base-elsewhere-'));
+  try {
+    const env = paneEnvIn5536(made.world.id, { workdir, env: { AGENT_WORKFORCE_DATA: elsewhere } });
+    for (const v of GIT_GUARD_5536) assert.ok(env.includes(v), `the restored agent's pane lacks ${v} when the base differs: ` + JSON.stringify(env));
+    // CONTROL: the same other-base launch, its working folder two levels under a folder with no mark, gets no guard,
+    // so the check reads the mark rather than answering yes for any absolute folder.
+    const unmarked = nodePath.join(elsewhere, 'world-like', 'workers', 'probe');
+    fs.mkdirSync(unmarked, { recursive: true });
+    const plain = paneEnvIn5536(made.world.id, { workdir: unmarked, env: { AGENT_WORKFORCE_DATA: elsewhere } });
+    assert.equal(plain.filter((v) => v.startsWith('GIT_CONFIG_')).length, 0, 'a folder with no mark above it was guarded: ' + JSON.stringify(plain));
+  } finally {
+    fs.rmSync(elsewhere, { recursive: true, force: true });
+    try { worlds.hideWorld(worlds.baseRoot(process.env), made.world.id); } catch { /* the sandbox goes with the run */ }
+  }
+});
+
+test('kosmos#5536 4c-1: the supervisor names the same mark file as restoreworld.js', () => {
+  const sup = fs.readFileSync(nodePath.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
+  const mod = fs.readFileSync(nodePath.join(__dirname, 'restoreworld.js'), 'utf8');
+  const m = mod.match(/const RESTORED_MARK = '([^']+)'/);
+  assert.ok(m, 'restoreworld.js no longer defines RESTORED_MARK as a literal; re-aim this test');
+  assert.ok(sup.includes(`"$(dirname "$(dirname "$WORKDIR")")/${m[1]}"`), `the supervisor's workdir check does not name ${m[1]}`);
+});
+
+test('kosmos#5536 4c-1: the guard is never exported into the supervisor shell (a cold-started tmux server would hand it to every pane)', () => {
+  const src = fs.readFileSync(nodePath.join(__dirname, '..', 'bin', 'agent-supervisor.sh'), 'utf8');
+  assert.ok(/RESTORED_WORLD="\$\("\$NODE_BIN" -e/.test(src), 'the restored check moved; re-aim this test at it');
+  // A pin on the export forms only (export, declare -x, set -a), not on every way a value could leak.
+  assert.equal(/export[^\n]*GIT_CONFIG_/.test(src), false, 'a GIT_CONFIG_ variable is exported in the supervisor');
+  assert.equal(/export[^\n]*RESTORED_WORLD/.test(src), false, 'RESTORED_WORLD is exported in the supervisor');
+  assert.equal(/declare\s+-[a-z]*x[^\n]*(GIT_CONFIG_|RESTORED_WORLD)/.test(src), false, 'declare -x on the guard');
+  assert.equal(/^\s*set\s+-[a-z]*a/m.test(src), false, 'set -a would export every assignment, the guard included');
 });
 
 test('#3038: createdCount() counts creations (created + partial), never refusals -- so the beacon grows with creations, not the running roster', () => {

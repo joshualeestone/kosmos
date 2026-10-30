@@ -520,6 +520,7 @@ if [ -z "$adopt" ]; then
   # runs on (CLAUDE_CONFIG_DIR for claude, CODEX_HOME for codex). Absent
   # means the default, the plist's own rule, so nothing is passed for it.
   PANE_ENV=()
+  RESTORED_WORLD=""   # kosmos#5536 4c-1: 1 when KOSMOS_WORLD is a world a restore made (set after the world block)
   ENDPOINT_ARGS=()   # #5977: set by the codex block for a Qwen account; empty means the OpenAI launch
   SECRET_ENV=()
   SECRET_ENTRY=()
@@ -549,6 +550,43 @@ if [ -z "$adopt" ]; then
     # launch costs the fleet.
     KOSMOS_AGENT_TOKEN=""
     resolve_token_engine
+    # ── kosmos#5536 4c-1: A WORLD A RESTORE MADE ────────────────────────────
+    # Its projects keep their own .git, whose core.hooksPath and core.fsmonitor run commands
+    # when the provider runs git there, and those came from the backup. engine/restoreworld.js
+    # isRestoredWorld is the one test; any doubt reads as restored (it fails closed, and so does
+    # this: a throw, no answer, or no engine or node to ask with is "1" for a named world). It runs BEFORE the world block below, while this shell's
+    # roots are still the real base: that block exports the world's roots without the marker that
+    # records the originals, so a check after it reads the world folder as the base, finds no
+    # world there and answers "not restored" (the first version did exactly that; its test caught
+    # it). Kept in a shell variable, NEVER exported: a supervisor that cold-starts the tmux server
+    # hands it this shell's environment, and an exported guard would then reach every later pane
+    # in every world. It rides only this pane's -e, below.
+    if [ -n "${KOSMOS_WORLD:-}" ] && [ "$KOSMOS_WORLD" != default ]; then
+      if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/restoreworld.js" ]; then
+        RESTORED_WORLD="$("$NODE_BIN" -e '
+          try {
+            const w = require(process.argv[1] + "/worlds.js");
+            const r = require(process.argv[1] + "/restoreworld.js");
+            const base = w.baseRoot(w.preWorldEnv(process.env));
+            process.stdout.write(r.isRestoredWorld(base, { id: process.env.KOSMOS_WORLD }) ? "1" : "0");
+          } catch (e) { process.stdout.write("1"); }
+        ' "$_eng" 2>/dev/null || true)"
+        [ "$RESTORED_WORLD" = 0 ] || RESTORED_WORLD=1
+      else
+        RESTORED_WORLD=1   # a named world this launch cannot check reads as restored (an engine or node gone)
+      fi
+    fi
+    # The mark also beside the agent's own folder: a restored agent lives at <world>/workers/<name> (finishRestoreWorld
+    # moves it there), with the mark at <world>/restored-world.json. This needs no base, so a launch whose environment
+    # names another base than the board that made the world still sees it. The name is restoreworld.js's RESTORED_MARK
+    # (a test pins the two equal).
+    # Absolute paths only (a relative one would be read from this shell's cwd), and -L too, so a mark that is a link
+    # counts as present, as isRestoredWorld's lstat does.
+    case "${WORKDIR:-}" in
+      /*) _mark="$(dirname "$(dirname "$WORKDIR")")/restored-world.json"
+          if [ "$RESTORED_WORLD" != 1 ] && { [ -e "$_mark" ] || [ -L "$_mark" ]; }; then RESTORED_WORLD=1; fi
+          unset _mark ;;
+    esac
     # ── #1704: THIS AGENT'S KOSMOS ──────────────────────────────────────────
     # The plist set KOSMOS_WORLD for a named world (absent = the default world).
     # Resolve it into this world's store roots ONCE, here, and export them, so
@@ -940,6 +978,16 @@ if [ -z "$adopt" ]; then
   PANE_ENV+=(-e "AGENT_WORKFORCE_DATA=${AGENT_WORKFORCE_DATA:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_PROJECTS=${AGENT_WORKFORCE_PROJECTS:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_WORKERS=${AGENT_WORKFORCE_WORKERS:-}")
+  # kosmos#5536 4c-1: in a world a restore made, every git the provider runs starts with the folder's hooks and
+  # fsmonitor off (GIT_CONFIG_COUNT needs git 2.31 or later; an older git ignores it silently). ONLY those two: a restored .git/config can still run commands through keys env config cannot switch
+  # off in general (a filter driver named by .gitattributes, textconv, core.pager, core.sshCommand, a credential helper,
+  # an include). Those are for the review screen (4c-2) to show before the person enables the agent. An inherited
+  # GIT_CONFIG_COUNT is replaced, not extended: its entries are lost in this pane, which errs toward the guard. Git's environment config is command scope, so it outranks a repo's own .git/config (measured on
+  # git 2.53: a pre-commit hook and an fsmonitor command each ran once without it and not at all with it).
+  if [ "$RESTORED_WORLD" = 1 ]; then
+    PANE_ENV+=(-e "GIT_CONFIG_COUNT=2" -e "GIT_CONFIG_KEY_0=core.hooksPath" -e "GIT_CONFIG_VALUE_0=/dev/null" \
+      -e "GIT_CONFIG_KEY_1=core.fsmonitor" -e "GIT_CONFIG_VALUE_1=false")
+  fi
   # #4466: ALWAYS, so the `kosmos` CLI can tell an agent from a person and refuse an agent's
   # stop/restart of a board that answers (an agent restarted a busy board 140 times in an hour).
   # Not a secret: the session name. The token above can be absent (a failed mint), this cannot.
