@@ -138,3 +138,15 @@ test('#6239: Connect stops after a family preview to show the words; Cancel and 
   assert.match(PAGE, /<div id="plus-org-family" role="group" aria-label="The family's words" hidden>/);
   assert.match(PAGE, /getElementById\('plus-org-code'\)\.addEventListener\('input', \(\) => \{ if \(PLUS_ORG_FAMILY && !PLUS_ORG\.busy\) plusOrgFamilyHide\(\); \}\)/);
 });
+
+test('kosmos#5537 review 2: a family review refused with audit_unavailable says to press Accept again, not to re-read the words', () => {
+  const say = new Function(fn('function plusOrgReviewSay(') + '\nreturn plusOrgReviewSay;')();
+  const line = 'Your family did not take the acceptance. Nothing changed on this computer; Kosmos tries again on its own.';
+  for (const code of ['audit_unavailable', 'org_bad_world']) {
+    const t = say({ ok: false, code, because: line });
+    assert.match(t, /Press Accept to try again\.$/, code + ': ' + t);
+    assert.doesNotMatch(t, /Read the family/, code + ' was told to read the words again, though its ticket is kept: ' + t);
+  }
+  // CONTROL: a code that spends the ticket is told to read the words again.
+  assert.match(say({ ok: false, code: 'org_code_used', because: line }), /Press Read the family’s words to read them again\.$/);
+});

@@ -251,7 +251,8 @@ test('kosmos#5537: audit_unavailable (the company could not record it, nothing c
     if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
     if (route === oe.ROUTES.enroll) return bad ? { ok: false, because: '503 {"because":"audit_unavailable"}' } : { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
     if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
-    if (route === oe.ROUTES.status) { const w = oe.worldId(); return { ok: true, data: { member: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: w, thisComputer: true } } }; }
+    // Review 2: the refusal changed nothing, so the company does not name this world (a status read must agree).
+    if (route === oe.ROUTES.status) return { ok: true, data: { member: false } };
     return { ok: false, because: 'unexpected ' + route };
   };
   t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
