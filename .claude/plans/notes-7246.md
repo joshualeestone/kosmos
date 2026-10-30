@@ -15,3 +15,10 @@ rank here is a placeholder he can move.
 
 ## Tests
 The What's New tests (pool, pool sync, check, releasenotes, whatsnew, the page): 86/86.
+
+## Review
+- Round 1 (Sonnet, whole branch): no BLOCKER; the words are true to engine/messages.js deliverOne (an agent's post is
+  quiet for a member it does not ask; a person's post is unchanged; @all and a "Name ->" header count as addressing).
+  Taken: plainer words (not "wake") and the item placed before the 0.7.76 one. Found while testing: the reviewer's
+  suggested line was 145 characters and the window allows 140 (tools/whats-new-pool.js build refused it), so it is cut
+  to 121.
