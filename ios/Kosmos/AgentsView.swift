@@ -631,6 +631,10 @@ enum Palette {
         return Color(UIColor { $0.userInterfaceStyle == .dark ? color(dark, darkAlpha) : color(light, lightAlpha) })
     }
     static let ground = pair(0xfaf9f7, 0x0c0d0f)
+    // kosmos#7628 (Josh 10-30): the ground of a conversation (a DM, a project room), as the desktop board paints its
+    // own: #d-talk-box and #pj-room measured rgb(255,255,255) light and rgb(0,0,0) dark, while the page around them is
+    // `ground`. The bubbles on it are unchanged (agentBubble already matches the board's --agent-msg).
+    static let chatGround = pair(0xffffff, 0x000000)
     static let card = pair(0xffffff, 0x17191c)
     static let primary = pair(0x14161a, 0xf5f5f4)
     static let secondary = pair(0x4a4f57, 0xa9adb3)
