@@ -53,7 +53,7 @@ lock in place (it is on main).
 fresh simulator (no CI job runs the UI tests target, so the runner is what makes the guard runnable):
 
 1. short chat at its newest message: the newest stays above the box and keyboard;
-2. long chat of varied message heights (KOSMOS_SAMPLE_LONG=varied) scrolled to its newest message: the same;
+2. long chat (KOSMOS_SAMPLE_LONG=1) at its newest message after the reader's own scroll comes to rest there: the same;
 3. long chat read higher up (KOSMOS_SAMPLE_SCROLLUP=40 moves the reader up the thread): the highest row on screen stays where it was.
 
 Each of 1 and 2 carries a control that the newest message was above the box before the keyboard.
@@ -70,9 +70,20 @@ only the runs that had both.
 Check 3 passed in every run on both arms (the change does not pull a reader down). Its own control, after review
 round 1: with `keepNewestInView` forced true (a local edit, never committed), check 3 **fails** (the row read higher up
 leaves the screen) while 1 and 2 pass, so it can see a pull-down. Round-1 arms with the reworked checks: with the change
-3 of 3 pass; without it 1 and 2 fail; forced, 3 fails. Round 4 (check 2 on varied heights, check 3 waiting for the
+3 of 3 pass; without it 1 and 2 fail; forced, 3 fails. Round 4 (check 2 briefly on varied heights, check 3 waiting for the
 scroll up rather than sleeping, the shared Simulator preference untouched): with the change 3 of 3 pass; without it 1
 fails and 2 passed (the defect is intermittent, as below); forced, 3 fails. **The defect is intermittent, and so is
 each check alone**, which fits Josh seeing it sometimes rather than always. Neither check is a certain guard alone. The
 two together caught it every time without the change, and never fired with it. Weakest premise: four runs are a small
 sample for "every time"; ui-keyboard.sh is the way to add more.
+
+## After review round 5
+
+- **Check 2 is back on the uniform long sample.** For one round it ran on `KOSMOS_SAMPLE_LONG=varied`, and its only
+  no-fix run there passed, so that version was never seen to catch the defect. The uniform version is the one with
+  no-fix failures on record. **Measured after round 5, the checks as committed:** with the change 3 of 3 pass; without
+  it, check 2 alone **failed 3 of 3 runs**. **Not covered:** a tall newest message from the agent. The varied sample's newest row is a
+  one-line message from the person, so no check puts a tall message at the end.
+- **The user-facing cost of not animating:** under the id anchor the move runs once the keyboard is up, so the newest
+  message is covered while the keyboard rises, then jumps into place. That is the price of not fighting the side lock
+  (above). Do not "fix" it by adding an animation here.

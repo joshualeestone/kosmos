@@ -19,11 +19,11 @@ final class KeyboardSlideUITests: XCTestCase {
         Self.assertAbove(newest, box, app.keyboards.firstMatch)
     }
 
-    // A long chat (KOSMOS_SAMPLE_LONG=varied: 260 rows of one line to many paragraphs, as a real chat's) the reader has
-    // scrolled down to its newest message. Reached by the reader's own swipes, as on the phone: a run that skipped them
-    // left the defect unseen (10-30 control run).
+    // A long chat (KOSMOS_SAMPLE_LONG, 260 rows) at its newest message, after the reader's own scrolling. The chat opens at
+    // its newest message; the swipes past its end are a person's scroll coming to rest there, which is what the chat reads
+    // "at the newest message" from. A run without them left the defect unseen (10-30 control run), so keep them.
     func testLongChatNewestStaysAboveTheBox() throws {
-        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "varied"])
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1"])
         let box = Self.box(app)
         for _ in 0..<6 { app.swipeUp(velocity: .fast) }
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
