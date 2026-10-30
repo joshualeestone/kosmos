@@ -45,7 +45,7 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         // The control: scrolled up, the same check must say the newest message is NOT on screen (the list is lazy, so it
         // may be gone from the hierarchy altogether, which also counts). This is what shows the check can fail, and it
         // leaves the chat scrolled away from its end, so the reopen below has to bring it back.
-        for _ in 0..<4 { app.swipeDown(velocity: .fast) }
+        for _ in 0..<2 { app.swipeDown(velocity: .fast) }
         Thread.sleep(forTimeInterval: 1.0)
         let newest = message(260, in: app)
         XCTAssertFalse(newest.exists && onScreen(newest, app).0, "scrolled up, the newest message still reads as on screen")
@@ -55,7 +55,12 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         // gone and the Agents list showing, then Dana's ROW in that list, never one of her bubbles.
         let back = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label == 'Back'")).firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 5), "no Back button in the chat's top bar")
+        print("BACK-BUTTON: id=\(back.identifier) label=\(back.label)")
         back.tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        let after = XCTAttachment(screenshot: app.screenshot()); after.name = "after Back"; after.lifetime = .keepAlways; add(after)
+        let still = message(260, in: app)
+        if still.exists { print("STILL-260: " + still.debugDescription.prefix(600)) }
         let list = app.descendants(matching: .any).matching(identifier: "agents-list").firstMatch
         XCTAssertTrue(list.waitForExistence(timeout: 10), "the Agents list did not come back")
         let gone = NSPredicate(format: "exists == false")
