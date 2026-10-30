@@ -10,18 +10,27 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 const SRC = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
-const at = SRC.indexOf('communityturn.tickOnce({');   // const done = communityturn.tickOnce({ ... })
+const at = SRC.indexOf('communityturn.tickOnceAsync({');   // const done = await communityturn.tickOnceAsync({ ... })
 const w = at === -1 ? '' : SRC.slice(at, SRC.indexOf('});', at));
 
-test('the community-turn timer exists and calls communityturn.tickOnce', () => {
-  assert.notEqual(at, -1, 'no communityturn.tickOnce call in server.js');
+test('the community-turn timer exists and calls communityturn.tickOnceAsync (kosmos#7649)', () => {
+  assert.notEqual(at, -1, 'no communityturn.tickOnceAsync call in server.js');
   assert.ok(w.includes('DELIVERY:') && w.includes('log:'), 'review 6: the pinned window does not reach the end of the call');
-  assert.equal(SRC.indexOf('communityturn.tickOnce({', at + 1), -1, 'more than one community-turn call');
+  // Either sender, anywhere in the file: the synchronous tickOnce held the event loop while a pane was typed into.
+  assert.equal(SRC.split('communityturn.tickOnce').length - 1, 1, 'more than one community-turn call, or the synchronous one is back');
 });
 
-test('it sends through chat.deliverAutomatic (the quota hold and the Gemini cap apply), never plain deliver', () => {
-  assert.match(w, /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r, undefined, undefined\)/);
+test('it sends through chat.deliverAutomaticAsync (the quota hold and the Gemini cap apply), never plain deliver or the synchronous sender', () => {
+  assert.match(w, /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomaticAsync\(session, text, r, undefined, undefined\)/);
   assert.doesNotMatch(w, /chat\.deliver\(/);
+  assert.doesNotMatch(w, /chat\.deliverAutomatic\(/, 'kosmos#7649: the synchronous sender holds the event loop');
+});
+
+test('kosmos#7649: one pass at a time; a pass still running when the next is due is skipped, and the flag is cleared however the pass ends', () => {
+  const pre = SRC.slice(SRC.lastIndexOf('const communityTurnTick', at), at);
+  assert.match(pre, /setInterval\(\(\) => \{\s*if \(communityTurnRunning\) return;\s*communityTurnRunning = true;\s*\(async \(\) => \{/);
+  const after = SRC.slice(at, SRC.indexOf('communityTurnTick.unref', at));
+  assert.match(after, /\}\)\(\)\.catch\(\(\) => null\)\.finally\(\(\) => \{ communityTurnRunning = false; \}\);\s*\}, Number\(process\.env\.AGENT_WORKFORCE_COMMUNITY_TURN_MS\)/);
 });
 
 test('it passes every gate: live execution, the community switch, the Prompter\'s switch, and the env for the brake', () => {
