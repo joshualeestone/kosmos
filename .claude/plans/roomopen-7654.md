@@ -10,7 +10,9 @@ fails without the change; 50- and 100-post rooms and iOS 27 still open there.
 ## Measured before the change (iOS 26.5 simulator, 8 s after opening, no other hooks)
 - 50 posts (a real room's first page, RoomStore.pageSize): Post 50. 100: Post 100. 150: half a post short. 220: Posts
   212 to 216, four short, and it stays there. iOS 27.0, same build, 220: Post 220.
-- So a first open is fine; it bites on a room opened again after older pages were read (the store keeps them).
+- So a real first open (50 posts) is fine. Measured short: posts arriving while the room opens, more than ~100 of them.
+  Reasoned real case (not measured): reopening a long room read back through while new posts arrived, which sends the
+  jump through the first-page path.
 - Cause: RoomView jumps once (proxy.scrollTo("bottom")) in a LazyVStack whose rows above are estimated; the DM's #7265.
 
 ## Change
@@ -20,13 +22,15 @@ fails without the change; 50- and 100-post rooms and iOS 27 still open there.
   in the archive. endJumps: a newer goEnd cancels an older one's retries. The other jumps (new post, pending post,
   search cleared, archive) are untouched.
 - ios/KosmosUITests/RoomOpensAtNewestUITests.swift: 150 and 220 posts open on the newest, above the box, and 220 opened
-  AGAIN (Back, then the row: the onAppear path, the real-world case). Presence first (some post of the room is drawn),
-  then the newest. The box is pinned by app.textFields and its placeholder.
+  AGAIN (Back, then the row). Presence first (some post of the room is drawn), then the newest. The reopen check is a
+  guard on reopening, NOT proof of goEnd there: a control with the retries removed only from the onAppear path passes it
+  (a reopened room appears with its posts already loaded, and its single jump lands at 220 posts on iOS 26.5). The box is pinned by app.textFields and its placeholder.
 - ios/tools/ui-sample.sh: the new class, 3 tests, in the CI run's class list and header (--help range bumped to 2,13
   for the extra header line). .github/workflows/ios.yml: the ui job's comment names what it now guards.
 
 ## Verified
-- iOS 26.5: RoomOpensAtNewest 150 and 220 PASS with the change; CONTROL (same tree, RoomView from HEAD~1) both FAIL.
+- iOS 26.5: RoomOpensAtNewest 150, 220 and 220-again PASS with the change; CONTROL (goEnd's retries removed) all three
+  FAIL (the reopen check at its first open). Reopen-only control (retries kept on first open): all PASS, see above.
 - Screenshots: 150 and 220 open on their newest with the change.
 
 ## Known trade-off
