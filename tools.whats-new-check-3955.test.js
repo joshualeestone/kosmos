@@ -119,6 +119,9 @@ test('#3955: release.sh runs the check at 1b-ii, after the versions entry and be
   assert.equal((sh.match(/^[^#\n]*_whats_new_fresh_check "\$(REPO|BUILD)"/gm) || []).length, 2, 'the freshness check runs some other number of times than twice (in whats_new_gate, and at 2b-ii)');
   const doc = fs.readFileSync(path.join(__dirname, 'docs', 'releasing.md'), 'utf8');
   assert.match(doc, /KOSMOS_CUT_NO_WHATS_NEW=1 yarn release/, 'docs/releasing.md does not say how to skip it');
+  // kosmos#7617: the operator's own pre-hold check names the freshness check, or the doc sends them to hold merges on two.
+  assert.match(doc, /run the three checks yourself/, 'docs/releasing.md does not name the #7617 freshness check');
+  assert.match(doc, /whats-new-pool\.js build <V> --offline/, 'docs/releasing.md does not give the freshness check command');
 });
 
 test('#3955 round 13: a check that cannot run is not "not ready": a broken engine module exits 2, never 3', () => {
