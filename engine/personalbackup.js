@@ -115,9 +115,13 @@ const UNREACHED = 'Kosmos+ could not be reached just now. Nothing was turned on;
    or an off with no record would leave the account in its personal org, and every company or family invite would be
    refused org_other_org. A preview leaves a marker here; whatever does not bind this computer ends the membership, but
    only when status names an org of kind 'personal' that no computer is bound to (never a company's or a family's, and
-   never a personal backup another computer of this account runs), and the marker's org when there is one. Weakest
-   premise: the account joins a company between that status read and the leave, and mac_leave ends whatever membership
-   exists; the relay follow-up (end a personal membership with no enrolled computer at a company join) removes it. */
+   never a personal backup another computer of this account runs), and only the org THIS preview made: the marker is
+   written only when a status read just before the preview said the account was in no org. A personal membership that
+   was already there is never ended from here, because the coordinator reads a RETIRED computer's binding as none
+   (db.rs ORG_MEMBERSHIP_SELECT): a real backup whose Mac was lost looks unbound, and its owner is exactly who opens this
+   on a new Mac. The leave names the org it means (`orgId`, kosmos#7658); a coordinator that reads it refuses a leave of
+   any other org, and an older one ignores it. Weakest premise, with an older coordinator: the account joins a company
+   between the status read and the leave. */
 const PREVIEW_OPEN = 'personal-preview-open.json';
 const STATUS = '/v1/mac/org/status';
 const LEAVE = '/v1/mac/org/leave';
@@ -136,6 +140,7 @@ function joinPending(opts) {
    nothing of ours to end), { ok: true, kept: true } while this computer holds it or a join is unsettled, { ok: false }
    when Kosmos+ did not answer (the marker stays, so the follow-up asks again). */
 async function endUnbound(opts, orgId) {
+  if (!orgId) return { ok: true, left: false };   // only a membership this computer's own preview made (see above)
   if (isOn(opts) || joinPending(opts)) return { ok: true, kept: true };
   const remote = remoteOf(opts);
   if (!remote || typeof remote.macRequest !== 'function') return { ok: false };
@@ -143,11 +148,11 @@ async function endUnbound(opts, orgId) {
   try { st = await remote.macRequest('POST', STATUS, {}); } catch { st = null; }
   if (!st || !st.ok || !st.data || typeof st.data !== 'object') return { ok: false };
   const d = st.data;
-  const ours = d.member === true && d.org && d.org.kind === 'personal' && d.enrolled == null && (!orgId || d.org.id === orgId);
+  const ours = d.member === true && d.org && d.org.kind === 'personal' && d.enrolled == null && d.org.id === orgId;
   if (!ours) { forgetPreview(opts); return { ok: true, left: false }; }
-  // No computer is bound, so the relay checks no print (org.rs mac_leave): an empty body.
+  // No computer is bound, so the relay checks no print (org.rs mac_leave); the org it means, so a newer relay ends no other.
   let r;
-  try { r = await remote.macRequest('POST', LEAVE, {}); } catch { r = null; }
+  try { r = await remote.macRequest('POST', LEAVE, { orgId }); } catch { r = null; }
   if (r && (r.ok || codeOf(r) === 'org_not_member')) { forgetPreview(opts); return { ok: true, left: true }; }
   return { ok: false };
 }
@@ -156,13 +161,17 @@ async function endUnbound(opts, orgId) {
 async function preview(opts = {}) {
   const remote = remoteOf(opts);
   if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: UNREACHED };
+  /* In no org just before: the membership the preview answers with is one this preview made, and this computer may end
+     it. Anything else (a member already, or no answer) writes no marker, so nothing here ever ends it. */
+  let inNone = false;
+  if (!isOn(opts)) { try { const st = await remote.macRequest('POST', STATUS, {}); inNone = !!(st && st.ok && st.data && st.data.member === false); } catch { /* no marker */ } }
   let r;
   try { r = await remote.macRequest('POST', ROUTE, {}); } catch { return { ok: false, because: UNREACHED }; }
   if (!r || !r.ok) { const c = codeOf(r); return c && SAY[c] ? { ok: false, code: c, because: SAY[c] } : { ok: false, because: UNREACHED }; }
   const served = cleanPreview(r.data);
   if (!served) return { ok: false, because: 'Kosmos+ answered in a form this Kosmos does not read. Nothing was turned on.' };
   const now = (opts.now || Date.now)();
-  if (!isOn(opts)) notePreview(served.org.id, now, opts);
+  if (inNone) notePreview(served.org.id, now, opts);
   return { ok: true, ticket: issue(served, now), words: served.words };
 }
 
@@ -172,10 +181,9 @@ async function switchOn(ticket, accepted, opts = {}) {
   const now = (opts.now || Date.now)();
   if (accepted !== true) {
     // Declined: the ticket is spent and the membership the preview made is ended (blocker 1).
-    const d = peek(ticket, now);
     if (typeof ticket === 'string') TICKETS.delete(ticket);
     const open = readPreview(opts);
-    await endUnbound(opts, (d && d.org.id) || (open && open.org) || null);
+    if (open) await endUnbound(opts, open.org);
     return { ok: false, declined: true, because: 'Not accepted, so nothing was turned on.' };
   }
   /* Code review 2 NIT: claimed synchronously, so two switchOn calls on one ticket (a double press) cannot both enroll;
