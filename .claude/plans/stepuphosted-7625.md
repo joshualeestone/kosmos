@@ -36,3 +36,10 @@ server.stepupbutton-6616.test.js: the log-out kind through the gate (code, via, 
 proxy CONTROL, the page's submit handler (logs out for `logout`, CONTROL: the fresh kind keeps the form's POST;
 mutation of the via check turns it red). server.remotestepup-6595.test.js: gate-forwarded stale requests now expect
 the log-out kind. Related readers and render-stepupask-6616.js pass.
+
+## Review ledger (2 blind rounds, converged)
+- Round 1: 0B 0W 2N. N1 taken: a gate session with no second factor would sign in again and be refused the same way, so it keeps the plain refusal (no log-out button). N2 kept: after logging out the person returns to / and retries (the sentence says "then try again").
+- Round 2: CONVERGED, no blocker or warning (a test comment put on its own line).
+
+## Measured on a real cloud box (10-30 10:48 to 11:03, cloud-6d62aeb4, coordinator 0f80d2013)
+CONTROL fresh 400; 11 min old 400 (the board's window is 12); 13 min old 403 remote_step_up; POST /_kosmos/logout 200 plus a reload gave the gate's own "You're signed out" page; email code and authenticator there; then POST /api/agents 400 (passes the gate). This is the path Sign in again runs (kplusLogout reloads, which a fragment-only navigation would not). Posted on #7625.
