@@ -21,6 +21,9 @@ const path = require('node:path');
 const ab = require('./autobalance');
 
 const FILE = 'autobalance-record.jsonl';
+/* kosmos#7548 review round 7: shared by decisions, the mover's lines and person lines, and the mover rebuilds its holds
+   from them (rules 7, 8, 10). A decision is written only when it changes, so 500 is days of lines at the default
+   period; a sweep set to its one-minute floor with many bulk moves could push a live hold out within a day. */
 const KEEP_LINES = 500;
 const RECENT = 10;
 const CLOCK_SLACK_MS = 60 * 1000;   // a record line stamped further ahead than this is not trusted

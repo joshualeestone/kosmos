@@ -87,6 +87,10 @@ const CASES = {
     moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' },
       { agent: 's-x', from: '/home/.claude-full', to: '/home/.claude-spare', why: 'its login has stopped working', kind: 'login' }],
     atRisk: [{ from: '/home/.claude-full', why: WHY, kind: 'usage' }] } },
+  /* Review round 7: a move the mover is leaving alone for now (moved or refused lately). */
+  movingLeft: { accounts: TWO, autobalance: { on: true, eligible: 2, held: [], short: [], recording: true, moving: true, recent: [],
+    moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage', leaving: true }],
+    atRisk: [{ from: '/home/.claude-full', why: WHY, kind: 'usage' }] } },
   /* Review 20: the last check could not measure every account, and a recorded line made during a gap. */
   gapRecent: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, lastTick: 'gap',
     recent: [{ kind: 'decision', at: now - 60e3, unmeasured: ['/home/.claude-spare'], moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }] }] } },
@@ -257,7 +261,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         /^At 11:59\sAM, Ada's first request on Spare was refused\. Move it back if it needs to work now; Kosmos will not move agents to Spare for a day\.$/,
         /^At 11:58\sAM, Ada was seen working on Spare\.$/,
         /^At 11:57\sAM, Ada was not seen working on Spare in the day since it moved, so Kosmos waits a day before moving another agent there\.$/,
-        /^At 11:56\sAM, Ada is not on Spare now \(a person moved it, or the move did not go through\), so Kosmos leaves it where it is for a day\.$/,
+        /^At 11:56\sAM, Ada is not on Spare now \(a person moved it or removed it, or the move did not go through\), so Kosmos leaves it where it is for a day\.$/,
         /^At 11:55\sAM, Kosmos did not move <b>Bo<\/b>, because it was no longer idle\.$/,
         /^At 11:54\sAM, Kosmos tried to move Ada to Spare, and the move was refused, so it stays on Work\.$/,
         /^At 11:53\sAM, Kosmos tried to move Ada to Spare and could not tell whether it went through\. Check which account it is on above\.$/,
@@ -272,6 +276,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         tag + ' moves switched off after a run: the header does not say "not yet" above a move', JSON.stringify(r.movedThenOff && r.movedThenOff.recent));
       say(r.movingPaused && r.movingPaused.recent[0] === 'Kosmos has stopped moving agents for now, because it could not write its record. It starts again once it can.',
         tag + ' a moving board waiting for its record says so', JSON.stringify(r.movingPaused && r.movingPaused.recent));
+      say(r.movingLeft && r.movingLeft.lines.length === 1 && r.movingLeft.lines[0] === 'Kosmos would move Ada from Work to Spare, because ' + WHY + ', but it was moved lately, or a move of it was refused, so Kosmos leaves it where it is for now.',
+        tag + ' with moves on, an agent the mover leaves alone is not said to be moved', JSON.stringify(r.movingLeft && r.movingLeft.lines));
       const mn = r.movingNow && r.movingNow.lines;
       say(mn && mn.length === 2 && mn[0] === 'Kosmos will move Ada from Work to Spare once it is idle at two checks in a row, because ' + WHY + '.'
         && mn[1] === '<b>Bo</b> is on Work, which cannot be used right now. Kosmos moves agents only when an account is running out, so move it yourself if it needs to work.' && !r.movingNow.markup,

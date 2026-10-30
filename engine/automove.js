@@ -106,7 +106,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     if (typeof l.agent !== 'string' || !l.agent) continue;   // decisions, and a line that names no agent
     const fresh = (ms) => nowMs - l.at < ms;
     if (l.kind === 'person' && fresh(REST_MS)) rest(l.agent, l.at);   // rule 7
-    if (l.kind === 'works' && (l.works === 'no' || l.works === 'not-seen') && fresh(FAILED_HOLD_MS)) state.failed.set(l.to, l.at);
+    if (l.kind === 'works' && (l.works === 'no' || l.works === 'not-seen') && fresh(FAILED_HOLD_MS)) state.failed.set(l.to, Math.max(l.at, state.failed.get(l.to) || 0));   // review round 7: the newest hold, as the record can be out of time order
     if (l.kind === 'works' && l.works === 'no' && fresh(REST_MS)) rest(l.agent, l.at);
     if (l.kind === 'released' && fresh(REST_MS)) rest(l.agent, l.at);
     if (l.kind === 'move') {
@@ -232,17 +232,19 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
        be on its new account (create() ends it as unknown and watches it). */
     keep({ ...base, at: Date.now(), outcome: 'started' });
     try { await started.done; } catch { /* the move's record says how it went */ }
-    let outcome = 'partial';
+    /* Review round 7: only the move's own record says partial. One that cannot be read, or says anything else, is
+       unknown: the move may well have gone through, so the page must not say it stayed on its old account. */
+    let outcome = 'unknown';
     try {
       const after = deps.readMove ? deps.readMove(started.body.id) : null;
       const a = after && Array.isArray(after.agents) ? after.agents[0] : null;
-      outcome = a && (a.outcome === 'changed' || a.outcome === 'stopped') ? a.outcome : 'partial';   // a stop puts it back
-    } catch { outcome = 'partial'; }
+      outcome = a && (a.outcome === 'changed' || a.outcome === 'stopped' || a.outcome === 'partial') ? a.outcome : 'unknown';   // a stop puts it back
+    } catch { outcome = 'unknown'; }
     const ended = { ...base, at: Date.now(), outcome };
     keep(ended);
-    /* A partial move is saved on the target and lands there at its next restart, so it is watched (and the target
-       unproven) too (rule 9). Rules 7 and 8: every ending rests the agent a day. */
-    if (outcome === 'changed' || outcome === 'partial') watch(m, movedAt, outcome === 'partial');
+    /* A partial move is saved on the target and lands there at its next restart, and an unknown one may have gone
+       through, so both are watched (and the target unproven) too (rule 9). Rules 7 and 8: every ending rests the agent a day. */
+    if (outcome === 'changed' || outcome === 'partial' || outcome === 'unknown') watch(m, movedAt, outcome !== 'changed');
     rest(m.agent, Date.now());
     if (outcome === 'changed') {
       try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because ${m.why}.`); }
@@ -272,6 +274,15 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
      Settings read's (server.js), so the page never names a target the mover would not use. */
   const skipTarget = (nowMs = Date.now()) => (dir) => (state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS)
     || state.watching.some((w) => w.to === dir);
+  /* Rules 7 and 8, and the refusal holds: an agent the mover leaves alone now. Also Settings' (review round 7), so a move
+     line never says Kosmos will move an agent it is leaving; a person's move made since the last tick is read at the next. */
+  const passedOverAt = (nowMs = Date.now()) => (agent) => {
+    if (state.resting.has(agent) && nowMs - state.resting.get(agent) < REST_MS) return true;   // rules 7 and 8
+    if (!state.refused.has(agent)) return false;
+    const since = nowMs - state.refused.get(agent);
+    const inDay = (state.refusedTimes.get(agent) || []).filter((t) => nowMs - t < DAY_MS).length;
+    return inDay >= REFUSED_TIMES ? since < DAY_MS : since < REFUSED_HOLD_MS;
+  };
   /* Review round 6: why the mover moves nobody now, or null. Settings says it. */
   const paused = () => (state.unwritten.length || waitingPeople().length ? 'record' : null);
 
@@ -308,13 +319,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     state.lastMovable = new Set(decision.moves.map((x) => `${x.agent}\n${x.from}`));
     state.lastMovableAt = nowMs;
     if (deps.accountBusy() || deps.boardRestarting()) return { did: 'nothing', because: 'busy' };
-    const passedOver = (agent) => {
-      if (state.resting.has(agent) && nowMs - state.resting.get(agent) < REST_MS) return true;   // rules 7 and 8
-      if (!state.refused.has(agent)) return false;
-      const since = nowMs - state.refused.get(agent);
-      const inDay = (state.refusedTimes.get(agent) || []).filter((t) => nowMs - t < DAY_MS).length;
-      return inDay >= REFUSED_TIMES ? since < DAY_MS : since < REFUSED_HOLD_MS;
-    };
+    const passedOver = passedOverAt(nowMs);
     /* Rule 3: usage only. A move off an account whose login has stopped stays a would-move line in the sweep's record.
        Rule 2: movable on the previous tick too. Held and unproven targets are skipTarget's, inside decide(). */
     const next = decision.moves.find((x) => kindOf(x.from) === 'usage' && !passedOver(x.agent) && before.has(`${x.agent}\n${x.from}`));
@@ -348,7 +353,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     return { did: ended.outcome === 'refused' ? 'refused' : ended.outcome === 'unknown' ? 'unknown' : 'moved', agent: m.agent, outcome: ended.outcome };
   }
 
-  return { tick, check, state, skipTarget, paused };
+  return { tick, check, state, skipTarget, paused, passedOver: passedOverAt };
 }
 
 module.exports = { create, movesOn, personMoved, resetUnwrittenPeopleForTests: () => { unwrittenPeople.clear(); }, DAY_MS, WATCH_MS, FAILED_HOLD_MS, REST_MS, REFUSED_HOLD_MS, REFUSED_TIMES, previousTickMs, PERIOD_MS, SKIP_SAID_MS };

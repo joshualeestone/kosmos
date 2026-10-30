@@ -907,3 +907,43 @@ test('#7548 review round 6: while the mover runs, Settings skips its held target
   assert.match(src, /autobalance\.movePaused = autobalance\.moving === true \? automoveRun\.paused\(\) : null/, 'Settings is not told the mover waits');
   assert.match(src, /const said = why !== null && why === automoveSaid;/, 'the board logs the same reason every tick');
 });
+
+test('#7548 review round 7: a move whose ending cannot be read is unknown, watched, and not called partial', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d } = deps();
+  d.readMove = () => { throw new Error('the move record could not be read'); };
+  const r = await twoTicks(run, d);
+  assert.equal(r.did, 'unknown', 'an unreadable ending was not unknown');
+  assert.deepEqual(lines(file).filter((l) => l.kind === 'move').map((l) => l.outcome), ['started', 'unknown']);
+  assert.deepEqual(run.state.watching.map((w) => [w.agent, w.uncertain]), [['ada', true]], 'an unknown move was not watched as uncertain');
+  /* CONTROL: the move's own record saying partial is still partial. */
+  const f2 = fileFor();
+  const r2 = automove.create({ file: f2 });
+  const { d: d2 } = deps();
+  d2.readMove = () => ({ agents: [{ name: 'ada', outcome: 'partial' }] });
+  await twoTicks(r2, d2);
+  assert.deepEqual(lines(f2).filter((l) => l.kind === 'move').map((l) => l.outcome), ['started', 'partial']);
+});
+
+test('#7548 review round 7: the rebuild keeps a target\'s newest hold, whatever order the record holds it in', () => {
+  const file = fileFor();
+  const t = Date.now();
+  sweep.appendAll(file, [
+    { kind: 'works', at: t - 1000, agent: 'ada', from: '/a', to: '/b', works: 'no' },
+    { kind: 'works', at: t - 20 * 60 * 60000, agent: 'bo', from: '/a', to: '/b', works: 'not-seen' },   // older, written late
+  ]);
+  assert.equal(automove.create({ file }).state.failed.get('/b'), t - 1000, 'an older hold written late shortened the newer one');
+});
+
+test('#7548 review round 7: Settings marks an agent the mover leaves alone', async () => {
+  const run = automove.create({ file: fileFor() });
+  const { d } = deps();
+  await twoTicks(run, d);
+  assert.equal(run.passedOver(NOW + 2000)('ada'), true, 'a moved agent is not reported as left alone');
+  assert.equal(run.passedOver(NOW + 2000)('nobody'), false, 'CONTROL');
+  assert.equal(run.passedOver(Date.now() + automove.REST_MS + 60000)('ada'), false, 'CONTROL: a day later it is not left alone');   // the rest is stamped with the real clock
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /const left = automoveRun\.passedOver\(sentAt\); decision\.moves = decision\.moves\.map\(\(m\) => \(left\(m\.agent\) \? \{ \.\.\.m, leaving: true \} : m\)\);/,
+    'the Settings read does not mark agents the mover leaves alone');
+});

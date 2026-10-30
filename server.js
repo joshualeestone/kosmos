@@ -13747,6 +13747,12 @@ const server = http.createServer(async (req, res) => {
               let skipTarget = null;
               try { skipTarget = automoveRun && automove.movesOn() ? automoveRun.skipTarget(sentAt) : null; } catch { skipTarget = null; }
               decision = ab.decide({ rows: claude, movable, nowMs: sentAt, ...(skipTarget ? { skipTarget } : {}) });
+              /* Review round 7: an agent the mover leaves alone now (moved or refused lately) is marked, so the page does not
+                 say Kosmos will move it. */
+              if (skipTarget) {
+                try { const left = automoveRun.passedOver(sentAt); decision.moves = decision.moves.map((m) => (left(m.agent) ? { ...m, leaving: true } : m)); }
+                catch { /* the lines stay as decide() made them */ }
+              }
             }
             autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, ...decision };   // review 5: ok, so a corrupt file is not a confident Off
           } catch { autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, moves: [], held: [], short: [], atRisk: [], unreadable: true }; }

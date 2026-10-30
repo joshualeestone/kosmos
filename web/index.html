@@ -29655,11 +29655,14 @@ function paintAutobalance(ab, list) {
     const held = Array.isArray(ab.held) ? ab.held : [];
     const short = Array.isArray(ab.short) ? ab.short : [];
     /* kosmos#7548 review round 6: while this board moves, a move line says what the mover will do (it waits for two idle
-       checks), and a move off a stopped login says the mover leaves it, since it moves for usage only. */
+       checks), a move off a stopped login says the mover leaves it, since it moves for usage only, and (review round 7) an
+       agent the mover is leaving alone for now says so. */
     const moveLine = (m) => (ab.moving !== true
       ? 'Would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '.'
       : m.kind === 'login'
         ? esc(who(m.agent)) + ' is on ' + esc(label(m.from)) + ', which cannot be used right now. Kosmos moves agents only when an account is running out, so move it yourself if it needs to work.'
+      : m.leaving === true
+        ? 'Kosmos would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + ', but it was moved lately, or a move of it was refused, so Kosmos leaves it where it is for now.'
         : 'Kosmos will move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ' once it is idle at two checks in a row, because ' + esc(m.why) + '.');
     html = moves.map((m) => line(moveLine(m))).join('')
       /* Review 1: the engine does not say why no account could take them (room, memory, a limit, a login), so this does not either. */
@@ -29727,7 +29730,7 @@ function abRecentHtml(recent, label, who, line) {
       else if (e.kind === 'move' && e.outcome === 'unknown') out.push(lead('Kosmos tried to move ' + agent + ' to ' + to + ' and could not tell whether it went through. Check which account it is on above.'));
       else if (e.kind === 'move' && e.outcome === 'refused') out.push(lead('Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused, so it stays on ' + from + '.'));
       else if (e.kind === 'skipped') out.push(lead('Kosmos did not move ' + agent + ', because it was no longer idle.'));
-      else if (e.kind === 'released') out.push(lead(agent + ' is not on ' + to + ' now (a person moved it, or the move did not go through), so Kosmos leaves it where it is for a day.'));
+      else if (e.kind === 'released') out.push(lead(agent + ' is not on ' + to + ' now (a person moved it or removed it, or the move did not go through), so Kosmos leaves it where it is for a day.'));
       else if (e.kind === 'works' && e.works === 'yes') out.push(lead(agent + ' was seen working on ' + to + '.'));
       else if (e.kind === 'works' && e.works === 'no') out.push(lead(agent + "'s first request on " + to + ' was refused. Move it back if it needs to work now; Kosmos will not move agents to ' + to + ' for a day.'));
       else if (e.kind === 'works' && e.works === 'not-seen') out.push(lead(agent + ' was not seen working on ' + to + ' in the day since it moved, so Kosmos waits a day before moving another agent there.'));

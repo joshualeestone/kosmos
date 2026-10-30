@@ -94,3 +94,11 @@ tests for 7, 11 and 12, and a page check for the new lines (docs/browser-checks/
   restart (the pre-move write check then refuses a record that still cannot be written); an agent created on a chosen
   account leaves no person line (placed, not moved; said in personMoved's comment); with the person's switch off the
   works-again check waits too (said in step()).
+- Round 7 (Sonnet, whole branch, nothing settled): BLOCKER, the orphan guard's excuse still named the old test seam
+  (resetPersonMissedForTests); renamed and reworded (control: the old name is red). A move whose ending cannot be read
+  is now unknown (watched, rests), never partial, so the page does not say it stayed on its old account. Settings marks
+  an agent the mover is leaving alone (moved or refused lately: the mover's passedOver) and says so. The rebuild keeps a
+  target's newest hold. The released line allows for a removed agent. The cap's limit is a comment on KEEP_LINES.
+  Not changed: the reviewer's W3 (movableFor non-strict no longer reads a throwing commitment as none): measured, it
+  returns false either way, because assigner.commitmentsFree(null) is false. Source pins for the route wiring stay, as
+  the repo tests wiring.
