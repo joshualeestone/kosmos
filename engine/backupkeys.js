@@ -157,6 +157,108 @@ function unwrapMemberKey(recipientSk, wrapped, ctx, verifiedMemberPk) {
   } catch { return null; }
 }
 
+/* ---- kosmos#7404 step 3, END TO END: a personal backup's member key, wrapped to a key made from a RECOVERY CODE ----
+ *
+ * The code: 128 random bits, shown once as 26 characters of Crockford base32 in groups (newRecoveryCode). Read back
+ * forgivingly (recoveryCodeBytes): case, spaces and dashes do not matter, and I/L read as 1 and O as 0, the letters a
+ * person mistypes for digits. Because it is random and that long, HKDF is enough to make keys from it: no slow
+ * password hash, and nothing a person picks.
+ *
+ * Two keys come from it (recoveryKeysFromCode), separated by their HKDF info:
+ *   - an X25519 pair. The member private key is wrapped to its public half: KBR1, the KBK1 layout and HPKE suite,
+ *     with associated data "kosmos-backup v1 member-key-recovery\norg=..\nmember=..\nepoch=.." (the coordinator's
+ *     docs/coordinator-api.md names those bytes; it stores the wrap and the public half and cannot open it).
+ *   - a 32-byte AUTHENTICATION key, which never leaves the computer, for recoveryBindingTag.
+ *
+ * WHY THE TAG. HPKE base mode is not authenticated, and the coordinator holds the recovery PUBLIC key, so it could make
+ * a KBR1 wrap of a member key of its OWN that opens under the person's code. A computer that restored that key and
+ * went on backing up with it would be backing up readably to Kosmos, which end to end exists to rule out. Opening a
+ * wrap therefore proves nothing about whose key it is. Only the code holder can compute recoveryBindingTag over
+ * (context, member public key), so a restore that requires a matching tag cannot be handed a forged key. (Old data
+ * is safe either way: a forged key cannot open chunks sealed to the real one.) Where the tag is kept is the caller's
+ * business; it is not secret, only unforgeable without the code.
+ */
+const RECOVERY_MAGIC = Buffer.from('KBR1');   // Kosmos Backup key, wrapped to a Recovery key, format 1
+const recoveryContext = (ctx) => contextBytes('member-key-recovery', MEMBER_FIELDS, ctx);
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const CODE_BYTES = 16, CODE_CHARS = 26;   // 128 bits in 26 five-bit characters; the last carries 2 bits that must be 0
+const RECOVERY_SALT = Buffer.from(`kosmos-backup v${FORMAT} recovery-code`);
+
+/** A fresh recovery code, for showing once: 26 Crockford base32 characters in groups of four ("ABCD-EFGH-...-XY"). */
+function newRecoveryCode() { return formatRecoveryCode(crypto.randomBytes(CODE_BYTES)); }
+
+function formatRecoveryCode(bytes) {
+  const b = asBuf(bytes);
+  if (!b || b.length !== CODE_BYTES) throw new Error('backupkeys: a recovery code is 16 bytes');
+  let bits = 0, n = 0, out = '';
+  for (const byte of b) {
+    bits = (bits << 8) | byte; n += 8;
+    while (n >= 5) { out += CROCKFORD[(bits >> (n - 5)) & 31]; n -= 5; }
+  }
+  out += CROCKFORD[(bits << (5 - n)) & 31];   // the last 3 bits, padded with 2 zero bits
+  return out.match(/.{1,4}/g).join('-');
+}
+
+/** The 16 bytes of a typed recovery code, or null if it is not one. Forgiving of case, spaces, dashes, and I/L/O
+    for 1/1/0; strict about everything else, including the 2 padding bits (which catch some mistyped last letters). */
+function recoveryCodeBytes(code) {
+  if (typeof code !== 'string') return null;
+  const s = code.toUpperCase().replace(/[\s-]/g, '').replace(/[IL]/g, '1').replace(/O/g, '0');
+  if (s.length !== CODE_CHARS) return null;
+  let bits = 0, n = 0;
+  const out = [];
+  for (const ch of s) {
+    const v = CROCKFORD.indexOf(ch);
+    if (v < 0) return null;
+    bits = ((bits << 5) | v) & 0xffff; n += 5;
+    if (n >= 8) { out.push((bits >> (n - 8)) & 255); n -= 8; }
+  }
+  if (out.length !== CODE_BYTES || (bits & ((1 << n) - 1)) !== 0) return null;
+  return Buffer.from(out);
+}
+
+/** The keys a recovery code makes: { sk, pk } (X25519, for the KBR1 wrap) and authKey (32 bytes, for the binding
+    tag); null if the code is not a code. Deterministic: the same code always makes the same keys. */
+function recoveryKeysFromCode(code) {
+  const ikm = recoveryCodeBytes(code);
+  if (!ikm) return null;
+  const sk = Buffer.from(crypto.hkdfSync('sha256', ikm, RECOVERY_SALT, Buffer.from('x25519 wrap key'), KEY_LEN));
+  const authKey = Buffer.from(crypto.hkdfSync('sha256', ikm, RECOVERY_SALT, Buffer.from('binding tag key'), KEY_LEN));
+  return { sk, pk: publicKeyOf(sk), authKey };
+}
+
+/** Wrap a member private key to a recovery public key (KBR1). Throws on a caller mistake. */
+function wrapMemberKeyToRecovery(memberSk, recoveryPk, ctx) {
+  const sk = key32(memberSk, 'the member key');
+  const pk = key32(recoveryPk, 'the recovery public key');
+  return wrap(RECOVERY_MAGIC, INFO, recoveryContext(ctx), sk, pk);
+}
+
+/** The binding tag: HMAC-SHA256 under the code's authKey over (context, member public key), hex. Only the code
+    holder can make it, so it says the code holder registered THIS member key for THIS context. */
+function recoveryBindingTag(authKey, ctx, memberPk) {
+  const k = key32(authKey, 'the recovery authentication key');
+  const pk = key32(memberPk, 'the member public key');
+  return crypto.createHmac('sha256', k).update(recoveryContext(ctx)).update(Buffer.from([0])).update(pk).digest('hex');
+}
+
+/** The member private key from a KBR1 wrap, with the recovery keys made from the person's code, only if BOTH the
+    wrap opens to a key deriving to memberPk AND tag is the code holder's binding tag for (ctx, memberPk). null on ANY
+    failure. Never throws. memberPk and tag come from wherever the caller keeps them (the coordinator, the bucket):
+    neither can be forged without the code, so neither source needs to be trusted. Same raw-bytes CONTRACT as
+    unwrapMemberKey. */
+function unwrapMemberKeyFromRecovery(recoveryKeys, wrapped, ctx, memberPk, tag) {
+  try {
+    const sk = asBuf(recoveryKeys && recoveryKeys.sk), ak = asBuf(recoveryKeys && recoveryKeys.authKey), want = asBuf(memberPk);
+    if (!sk || sk.length !== KEY_LEN || !ak || ak.length !== KEY_LEN || !want || want.length !== KEY_LEN) return null;
+    if (typeof tag !== 'string' || !/^[0-9a-f]{64}$/.test(tag)) return null;
+    if (!crypto.timingSafeEqual(Buffer.from(recoveryBindingTag(ak, ctx, want)), Buffer.from(tag))) return null;
+    const member = unwrap(RECOVERY_MAGIC, INFO, recoveryContext(ctx), sk, wrapped);
+    if (!member) return null;
+    return crypto.timingSafeEqual(publicKeyOf(member), want) ? member : null;
+  } catch { return null; }
+}
+
 /** Wrap one period's naming key to the member public key. Throws on a caller mistake. */
 function wrapNamingKey(namingKey, memberPk, ctx) {
   const nk = key32(namingKey, 'the naming key');
@@ -189,7 +291,16 @@ module.exports = {
   ID_RE,
   // The public half of a raw X25519 private key, so a kept key pair can be checked (kosmos#5744).
   publicKeyOf,
+  // kosmos#7404: a personal backup's recovery code, its keys, the KBR1 wrap and the binding tag (see above).
+  newRecoveryCode,
+  formatRecoveryCode,
+  recoveryCodeBytes,
+  recoveryKeysFromCode,
+  wrapMemberKeyToRecovery,
+  unwrapMemberKeyFromRecovery,
+  recoveryBindingTag,
   // The associated-data bytes, exported for any other implementation of the unwrap service to match.
   memberContextBytes: memberContext,
   namingContextBytes: namingContext,
+  recoveryContextBytes: recoveryContext,
 };
