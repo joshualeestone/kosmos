@@ -2,13 +2,31 @@
 pre_challenge: true
 method: challenge-loop
 branch: ownerlink-7215
-diff_hash: caae585af98a484353a809bb5940908e903037b7b0b652abd4473f874676b4c5
-validation: focused and related tests passed locally; full suite left to CI (see Final validation)
+diff_hash: 03b95d473cc7d4f103e078f2ede39a19aee468a12ab915cef2420e59c0e3cf82
+validation: passed
 subdir_audit: passed
-timestamp: 2026-10-27T07:31:57Z
+timestamp: 2026-10-30T21:58:20Z
 iterations: 38
 converged: true
 ---
+
+## Rebases after convergence (2026-10-30)
+
+The branch was rebased twice onto kosmos main with no code change of its own; each resolution was re-checked by Raiden
+by content (COMMENT reviews on the PR), and the loop's record below is unchanged.
+
+- **fe33bf74fc** (onto 5680fd51b1, about 850 commits): two conflicts. `engine/phonenotify.js` module.exports: main's
+  line with `plusLive` added. `tools/test-connector-verbs.sh` caller list: main's `companycommunity.js` (kosmos#7541)
+  and this branch's `communitysend.js`, both reason paragraphs kept, fifteen entries.
+- **68a5dcf133** (onto current main, 83 more commits): one conflict, the same caller list: main's
+  `personalbackupkey.js` (kosmos#7404) added beside the others, sixteen entries, the count word sixteen. The asserted
+  list equals the real `grep -l macRequest(` output.
+
+**Final validation at 68a5dcf133:** a queued heavy turn on the box ending 16:57 CDT 2026-10-30.
+`validation_log_run_or_skip` ran the full suite, 25913 tests, 25493 pass, 0 fail, 420 skipped (the platform's own
+skips), and PASSED (hash 03b95d473cc7, this file's diff_hash); the subdir CLAUDE.md audit passed. Before it, at the
+same head: communityowner-7215 42/42, engine.reachable 8/8, connector-verbs 27/27. This replaces the earlier
+"full suite left to CI" line: the suite has now run clean locally.
 
 ## [CHALLENGE-LOOP] Summary
 
