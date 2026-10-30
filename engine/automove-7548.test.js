@@ -216,7 +216,12 @@ test('#7548: no move while another account move runs; refused, partial and stopp
     const { d: dx, calls: cx } = deps({ moveOutcome: outcome });
     await twoTicks(automove.create({ file: f }), dx);
     assert.equal(lines(f).pop().outcome, outcome, `a ${outcome} move was recorded as something else`);
-    assert.deepEqual(cx.tells, [], `an agent whose move was ${outcome} was told it moved`);
+    /* kosmos#7621 item 4 and review 2: a stopped move tells nothing; a partial one is told once, never as moved. */
+    if (outcome === 'stopped') assert.deepEqual(cx.tells, [], `an agent whose move was ${outcome} was told something`);
+    else {
+      assert.equal(cx.tells.length, 1, `an agent whose move was ${outcome} was not told exactly once`);
+      assert.doesNotMatch(cx.tells[0][1], /^Kosmos moved this agent/, `an agent whose move was ${outcome} was told it moved`);
+    }
   }
 });
 
@@ -619,7 +624,7 @@ test('#7548: the board wires the mover through the bulk move\'s own deps, and on
     'the bulk route names refused agents as moved by a person');
   /* Inert unless switched on: the mover is made, ticked and shown as moving only when moves are on. */
   assert.match(src, /if \(abSweep && automove\.movesOn\(\)\) \{\s*(?:\/\*[^*]*\*\/\s*)?try \{ automoveRun = automove\.create\(/, 'the mover is made with moves off');
-  assert.match(src, /\.then\(\(\) => \(automoveRun && automove\.movesOn\(\) && autobalanceSweepRuns\(\{ forTick: true \}\) \? automoveRun\.tick\(automoveDeps\(\)\)/, 'the mover ticks with moves off');
+  assert.match(src, /\.then\(\(\) => \(automoveRun && automove\.movesOn\(\) && autobalanceSweepRuns\(\{ forTick: true \}\) \? automoveRun\.tick\(automoveDeps\(sweepDeps\)\)/, 'the mover ticks with moves off');
   assert.match(src, /autobalance\.moving = autobalance\.recording === true && !!automoveRun && automove\.movesOn\(\);/, 'Settings says moving with moves off');
 });
 
@@ -944,6 +949,130 @@ test('#7548 review round 7: Settings marks an agent the mover leaves alone', asy
   assert.equal(run.passedOver(NOW + 2000)('nobody'), false, 'CONTROL');
   assert.equal(run.passedOver(Date.now() + automove.REST_MS + 60000)('ada'), false, 'CONTROL: a day later it is not left alone');   // the rest is stamped with the real clock
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /const left = automoveRun\.passedOver\(sentAt\); decision\.moves = decision\.moves\.map\(\(m\) => \(left\(m\.agent\) \? \{ \.\.\.m, leaving: true \} : m\)\);/,
+  assert.match(src, /const left = automoveRun\.leftAlone\(sentAt\); decision\.moves = decision\.moves\.map\(\(m\) => \(left\(m\.agent\) \? \{ \.\.\.m, leaving: true \} : m\)\);/,
     'the Settings read does not mark agents the mover leaves alone');
+});
+
+test('kosmos#7621 item 8: an agent whose re-check cannot be made is set aside, so the next candidate gets its turn', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const cards = realCards(['ada'], ['bo']);
+  const { d, calls } = deps({ cards, names: ['ada', 'bo'], freshRoster: () => cards.filter((c) => c.sessionName !== 'ada' && c.name !== 'ada') });
+  await run.tick(d, NOW);
+  const r2 = await run.tick(d, NOW + 1000);
+  assert.equal(r2.did, 'unreadable', 'CONTROL: the first candidate\'s re-check could not be made');
+  assert.deepEqual(calls.starts, []);
+  await run.tick(d, NOW + 2000);
+  assert.deepEqual(calls.starts.map((s) => s.names[0]), ['bo'], 'one agent whose re-check failed blocked every move');
+  assert.ok(lines(file).some((l) => l.kind === 'move' && l.agent === 'bo'), 'CONTROL: this is the record the mover writes');
+  assert.deepEqual(lines(file).filter((l) => l.kind === 'skipped'), [], 'a re-check that could not be made wrote a skipped line');
+});
+
+test('kosmos#7621 item 4: a partial or unknown move tells the agent\'s thread where it may be', async () => {
+  const p = automove.create({ file: fileFor() });
+  const { d: dp, calls: cp } = deps({ moveOutcome: 'partial' });
+  await twoTicks(p, dp);
+  assert.deepEqual(cp.tells.map(([a, t]) => [a, /^Kosmos saved spare for this agent but did not see it restart there/.test(t)]), [['ada', true]], 'a partial move told nothing');
+  const u = automove.create({ file: fileFor() });
+  const { d: du, calls: cu } = deps();
+  du.readMove = () => { throw new Error('unreadable'); };
+  await twoTicks(u, du);
+  assert.equal(cu.tells.filter(([, t]) => /could not tell whether it went through/.test(t)).length, 1, 'an unknown move told nothing');
+  const t = automove.create({ file: fileFor() });
+  const { d: dt, calls: ct } = deps({ start: () => { const e = new Error('boom'); e.wroteAccount = true; throw e; } });
+  await twoTicks(t, dt);
+  assert.equal(ct.tells.filter(([, x]) => /could not tell whether it went through/.test(x)).length, 1, 'a move that threw after its write told nothing');
+  const c = automove.create({ file: fileFor() });
+  const { d: dc, calls: cc } = deps();
+  await twoTicks(c, dc);
+  assert.equal(cc.tells.filter(([, x]) => /could not tell|could not start/.test(x)).length, 0, 'CONTROL: a clean move said it did not finish');
+});
+
+test('kosmos#7621 item 2: Settings sees a person\'s move made since the last tick, written or still waiting', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d } = deps();
+  await run.tick(d, NOW);
+  assert.equal(run.passedOver(NOW + 1000)('ada'), false, 'CONTROL: nothing holds ada yet');
+  automove.personMoved(file, ['ada'], '/u/.claude-spare', NOW + 500, ON);
+  assert.equal(run.passedOver(NOW + 1000)('ada'), false, 'CONTROL: the last tick has not read the person line');
+  assert.equal(run.leftAlone(NOW + 1000)('ada'), true, 'Settings would say Kosmos will move an agent a person just moved');
+  /* A person line the record could not take yet. */
+  const dir = fs.mkdtempSync(path.join(TMP, 'la-'));
+  const f2 = path.join(dir, 'r.jsonl');
+  const r2 = automove.create({ file: f2 });
+  fs.chmodSync(dir, 0o555);
+  try {
+    assert.equal(automove.personMoved(f2, ['bo'], '/u/.claude-spare', NOW, ON), false, 'CONTROL: the line waits');
+    assert.equal(r2.leftAlone(NOW + 1000)('bo'), true, 'a person line still waiting was not seen');
+  } finally { fs.chmodSync(dir, 0o755); automove.resetUnwrittenPeopleForTests(); }
+});
+
+test('kosmos#7621 item 7: the sweep and the mover share one tick\'s deps, so the agents are walked once a tick', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /const sweepDeps = autobalanceSweepDeps\(\);[^\n]*\n\s+try \{ ticking = abSweep\.tick\(sweepDeps\); \}/, 'the sweep does not use the tick\'s deps');
+  assert.match(src, /automoveRun\.tick\(automoveDeps\(sweepDeps\)\)/, 'the mover builds a second walk each tick');
+  assert.match(src, /function automoveDeps\(sweepDeps = null\) \{\n(?:\s+\/\*[\s\S]*?\*\/\n)?\s+const d = sweepDeps \|\| autobalanceSweepDeps\(\);/);
+});
+
+test('kosmos#7621 review 1: the set-aside shows in Settings, holds only the agent the re-check failed for, and ends when one works', async () => {
+  const cards = realCards(['ada'], ['bo']);
+  /* A roster that cannot be read at all is every agent's: nobody is set aside. */
+  const r1 = automove.create({ file: fileFor() });
+  const { d: d1 } = deps({ cards, names: ['ada', 'bo'], freshRoster: () => { throw new Error('tmux did not answer'); } });
+  await twoTicks(r1, d1);
+  assert.equal(r1.state.recheckFailed.size, 0, 'an unreadable roster set an innocent agent aside');
+  /* The agent missing from the fresh roster is set aside, and Settings says Kosmos leaves it alone. */
+  let missing = true;
+  const r2 = automove.create({ file: fileFor() });
+  const { d: d2, calls } = deps({ cards, names: ['ada', 'bo'], freshRoster: () => (missing ? cards.filter((c) => c.name !== 'ada' && c.sessionName !== 'ada') : cards) });
+  await twoTicks(r2, d2);
+  assert.equal(r2.state.recheckFailed.has('ada'), true, 'CONTROL: ada was set aside');
+  assert.equal(r2.leftAlone(NOW + 2000)('ada'), true, 'Settings would say Kosmos will move an agent it set aside');
+  /* The roster has her again: once a re-check of her works, the hold ends. */
+  missing = false;
+  r2.state.recheckFailed.set('ada', NOW - 2 * 60 * 60 * 1000);   // the hour is up
+  await run2(r2, d2);
+  assert.equal(r2.state.recheckFailed.has('ada'), false, 'a re-check that worked did not end the hold');
+  assert.ok(calls.starts.length >= 1, 'CONTROL: a move went ahead');
+  async function run2(r, d) { await r.tick(d, NOW + 3000); await r.tick(d, NOW + 4000); }
+});
+
+test('kosmos#7621 review 2: any re-check that fails for one agent alone (its box unreadable) sets it aside, not only a missing one', async () => {
+  const cards = realCards(['ada'], ['bo']);
+  const isAda = (c) => c.name === 'ada' || c.sessionName === 'ada';
+  const fresh = () => cards.map((c) => (isAda(c) ? Object.defineProperty({ ...c }, 'unsentInput', { get() { throw new Error('the box could not be read'); } }) : c));
+  const run = automove.create({ file: fileFor() });
+  const { d, calls } = deps({ cards, names: ['ada', 'bo'], freshRoster: fresh });
+  await run.tick(d, NOW);
+  const r2 = await run.tick(d, NOW + 1000);
+  assert.equal(r2.did, 'unreadable', 'CONTROL: ada\'s re-check could not be made');
+  assert.equal(run.state.recheckFailed.has('ada'), true, 'an agent whose box could not be read was not set aside');
+  await run.tick(d, NOW + 2000);
+  assert.deepEqual(calls.starts.map((s) => s.names[0]), ['bo'], 'one agent with an unreadable box blocked every move');
+});
+
+test('kosmos#7621 review 4: Settings sees a person\'s move at once, inside its 30-second read window', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d } = deps();
+  await run.tick(d, NOW);
+  assert.equal(run.leftAlone(NOW + 1000)('ada'), false, 'CONTROL: nothing holds ada yet, and the record was just read');
+  automove.personMoved(file, ['ada'], '/u/.claude-spare', NOW + 2000, ON);
+  assert.equal(run.leftAlone(NOW + 3000)('ada'), true, 'a person\'s move 2 seconds after Settings read was not seen for 30 seconds');
+});
+
+test('kosmos#7621 review 4: a guide check that cannot be made is everyone\'s, so it sets nobody aside', async () => {
+  const cards = realCards(['ada'], ['bo']);
+  const run = automove.create({ file: fileFor() });
+  let guideBroken = false;
+  const { d } = deps({ cards, names: ['ada', 'bo'] });
+  d.isGuide = () => { if (guideBroken) throw new Error('the guide record could not be read'); return false; };
+  /* Broken only for the re-check (it reads a fresh roster first): broken for the decision too, nobody is a candidate. */
+  const fresh = d.freshRoster;
+  d.freshRoster = () => { guideBroken = true; return fresh(); };
+  await run.tick(d, NOW);
+  const r = await run.tick(d, NOW + 1000);
+  assert.equal(r.did, 'unreadable', 'CONTROL: the re-check could not be made');
+  assert.equal(run.state.recheckFailed.size, 0, 'a guide record everyone shares set one agent aside');
 });

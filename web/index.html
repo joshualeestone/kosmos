@@ -29694,12 +29694,19 @@ function paintAutobalance(ab, list) {
       ? 'Would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '.'
       : kindOf(m) === 'login'
         ? esc(who(m.agent)) + ' is on ' + esc(label(m.from)) + ', which cannot be used right now. Kosmos moves agents only when an account is running out, so move it yourself if it needs to work.'
-      : m.leaving === true
-        ? 'Kosmos would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + ', but it was moved lately, or a move of it was refused, so Kosmos leaves it where it is for now.'
+      : m.leaving === true   // review 2: before the pause, since a moved agent stays put after the record is written
+        ? 'Kosmos would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + ', but Kosmos leaves it where it is for now.'   // kosmos#7621 review 1: moved, refused or not checkable lately, so the reason is not named
+      /* kosmos#7621 item 6: while the mover waits for its record, the header says moves stopped, so the lines do too. */
+      : ab.movePaused === 'record'
+        ? 'Kosmos would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + ', once it can write its record again.'
         : 'Kosmos will move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ' once it is idle at two checks in a row, because ' + esc(m.why) + '.');
     html = moves.map((m) => line(moveLine(m))).join('')
       /* Review 1: the engine does not say why no account could take them (room, memory, a limit, a login), so this does not either. */
-      + held.map((h) => line('Would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
+      + held.map((h) => line(ab.moving === true && kindOf(h) === 'login'   // kosmos#7621 review 1: the mover moves for usage only
+        ? 'The idle agents on ' + esc(label(h.from)) + ' cannot be used right now. Kosmos moves agents only when an account is running out, so move them yourself if they need to work.'
+        : ab.moving === true   // kosmos#7621 item 3: while moving, an account the mover holds counts as one that cannot take them
+        ? 'Kosmos would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no account it can use takes them right now.'
+        : 'Would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
       /* Review 5: with the reason, so an account whose list is short still says why it is running out (review 7: unless
          a move or held line above already said it). */
       + short.map((d) => { const r = moves.some((m) => m.from === d) || held.some((h) => h.from === d) ? null : (Array.isArray(ab.atRisk) ? ab.atRisk : []).find((x) => x.from === d);
@@ -29759,7 +29766,7 @@ function abRecentHtml(recent, label, who, line) {
       const to = esc(name(e.to, e.toLabel));
       if (e.kind === 'move' && e.outcome === 'changed') out.push(lead('Kosmos moved ' + agent + ' from ' + from + ' to ' + to + (e.why ? ', because ' + esc(e.why) : '') + '.'));
       else if (e.kind === 'move' && e.outcome === 'stopped') out.push(lead('the move of ' + agent + ' to ' + to + ' was stopped. Check which account it is on above.', 'The move of ' + agent + ' to ' + to + ' was stopped. Check which account it is on above.'));   // review round 8: a stop can leave it where a person put it since
-      else if (e.kind === 'move' && e.outcome === 'partial') out.push(lead('Kosmos saved ' + to + ' for ' + agent + ' but could not start it again, so it stays on ' + from + ' until it restarts.'));
+      else if (e.kind === 'move' && e.outcome === 'partial') out.push(lead('Kosmos saved ' + to + ' for ' + agent + ' but did not see it restart there. Check which account it is on above.'));   // kosmos#7621 review 2: a late restart or a stop can be partial too
       else if (e.kind === 'move' && e.outcome === 'unknown') out.push(lead('Kosmos tried to move ' + agent + ' to ' + to + ' and could not tell whether it went through. Check which account it is on above.'));
       else if (e.kind === 'move' && e.outcome === 'refused') out.push(lead('Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused, so it stays on ' + from + '.'));
       else if (e.kind === 'skipped') out.push(lead('Kosmos did not move ' + agent + ', because it was no longer idle.'));

@@ -39,6 +39,9 @@ const REFUSED_TIMES = 3;          // refused this many times in a day, it is pas
 const PERIOD_MS = require('./usagepoll').POLL_MS;
 const previousTickMs = (periodMs) => 2.5 * (Number.isFinite(periodMs) && periodMs > 0 ? periodMs : PERIOD_MS);
 const SKIP_SAID_MS = 60 * 60 * 1000;   // a "no longer idle" line for one agent at most once an hour
+/* kosmos#7621 item 8: an agent whose re-check could not be made is set aside this long (ten minutes), in memory and with no line, so
+   the next candidate gets its turn (the first candidate is always tried first, so one such agent blocked every move). */
+const RECHECK_HOLD_MS = 10 * 60 * 1000;   // review 3: long enough for the next candidate, short for one bad roster read
 
 function movesOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOMOVE === '1' && env.AGENT_WORKFORCE_AUTOMOVE_OFF !== '1'; }
 
@@ -66,10 +69,12 @@ function personMoved(file, names, to, nowMs = Date.now(), env = process.env) {
   const waiting = unwrittenPeople.get(file) || [];
   let wrote = false;
   if (!waiting.length) { try { wrote = sweep.appendAll(file, lines); } catch { wrote = false; } }
+  if (wrote) peopleWrites.set(file, (peopleWrites.get(file) || 0) + 1);   // kosmos#7621 review 4: Settings reads it next time
   if (!wrote) unwrittenPeople.set(file, [...waiting, ...lines]);
   return wrote;
 }
 const unwrittenPeople = new Map();   // record file -> person lines it could not take yet, oldest first
+const peopleWrites = new Map();      // record file -> how many person writes it took (kosmos#7621 review 4)
 
 /**
  * The mover's state, rebuilt from the record (rule 10: a board restarts several times a day): the moves being watched,
@@ -80,7 +85,7 @@ const unwrittenPeople = new Map();   // record file -> person lines it could not
 function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
   const PREVIOUS_TICK_MS = previousTickMs(periodMs);
   const state = { lastMovable: new Set(), lastMovableAt: null, watching: [], failed: new Map(), resting: new Map(), refused: new Map(),
-    refusedTimes: new Map(), skippedAt: new Map(), unwritten: [] };
+    refusedTimes: new Map(), skippedAt: new Map(), recheckFailed: new Map(), unwritten: [] };
   /* Review round 6: every line goes through keep(). One the record could not take waits in state.unwritten, and so does
      every line after it, so the record keeps their order; each tick writes them first. While any wait, the mover moves
      nobody (a restart would forget the move, its rest and its watch, rules 8 and 10) and Settings says so. A board
@@ -90,7 +95,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
   const flush = () => {
     if (state.unwritten.length && sweep.appendAll(file, state.unwritten)) state.unwritten = [];
     const people = unwrittenPeople.get(file) || [];
-    if (people.length && sweep.appendAll(file, people)) unwrittenPeople.delete(file);
+    if (people.length && sweep.appendAll(file, people)) { unwrittenPeople.delete(file); peopleWrites.set(file, (peopleWrites.get(file) || 0) + 1); }
   };
   const waitingPeople = () => unwrittenPeople.get(file) || [];
   const watched = new Map();   // agent -> its watch, from its newest move, until a works or released line closes it
@@ -217,6 +222,8 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       keep(unknown);
       rest(m.agent, nowMs);
       watch(m, movedAt, true);
+      try { deps.tell(m.agent, `Kosmos tried to move this agent to ${m.toLabel || 'another account'} and could not tell whether it went through. Settings, AI Models shows which account it is on.`); }   // kosmos#7621 item 4
+      catch { /* telling is best-effort; the record has it */ }
       return unknown;
     }
     /* A 409 is the board saying no move may start now: nothing about this agent, so no hold and no line. */
@@ -250,6 +257,15 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because ${m.fromLabel || 'its account'} was running out (${m.why}).`); }
       catch { /* telling is best-effort; the record has it */ }
     }
+    /* kosmos#7621 item 4: a move that did not finish cleanly is told too, so the thread says where the agent may be. */
+    if (outcome === 'partial' || outcome === 'unknown') {
+      const to = m.toLabel || 'another account';
+      try {
+        deps.tell(m.agent, outcome === 'partial'
+          ? `Kosmos saved ${to} for this agent but did not see it restart there. Settings, AI Models shows which account it is on.`   // review 2: a late restart or a stop can be partial too
+          : `Kosmos tried to move this agent to ${to} and could not tell whether it went through. Settings, AI Models shows which account it is on.`);
+      } catch { /* telling is best-effort; the record has it */ }
+    }
     return ended;
   }
 
@@ -274,9 +290,11 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
      Settings read's (server.js), so the page never names a target the mover would not use. */
   const skipTarget = (nowMs = Date.now()) => (dir) => (state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS)
     || state.watching.some((w) => w.to === dir);
-  /* Rules 7 and 8, and the refusal holds: an agent the mover leaves alone now. Also Settings' (review round 7), so a move
-     line never says Kosmos will move an agent it is leaving; a person's move made since the last tick is read at the next. */
+  /* Rules 7 and 8, the refusal holds and (kosmos#7621) the re-check set-aside: an agent the mover leaves alone now.
+     Settings asks through leftAlone below, which reads a person's move made since the last tick first. */
   const passedOverAt = (nowMs = Date.now()) => (agent) => {
+    /* kosmos#7621 review 1: an agent set aside after a re-check that could not be made (item 8), so Settings says so too. */
+    if (state.recheckFailed.has(agent) && nowMs - state.recheckFailed.get(agent) < RECHECK_HOLD_MS) return true;
     if (state.resting.has(agent) && nowMs - state.resting.get(agent) < REST_MS) return true;   // rules 7 and 8
     if (!state.refused.has(agent)) return false;
     const since = nowMs - state.refused.get(agent);
@@ -330,7 +348,14 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
        check that throws) writes nothing and moves nothing. */
     let stillFree;
     try { stillFree = ab.movableFor(movableArgs(deps.freshRoster(), deps.freshRecords, true))(m.agent); }
-    catch (err) { return { did: 'unreadable', because: `the re-check: ${String((err && err.message) || err)}` }; }
+    catch (err) {
+      /* Reviews 1 and 2: only a re-check that failed for THIS agent (autobalance.movableFor marks it perAgent: not on the
+         fresh roster, its box, the guide check or its commitments unreadable) sets it aside; a roster or a project that
+         could not be read at all is every agent's, so it holds nobody. */
+      if (err && err.perAgent === true) state.recheckFailed.set(m.agent, nowMs);
+      for (const [a, t] of state.recheckFailed) if (nowMs - t >= RECHECK_HOLD_MS) state.recheckFailed.delete(a);   // pruned, as skippedAt is
+      return { did: 'unreadable', because: `the re-check: ${String((err && err.message) || err)}` }; }
+    state.recheckFailed.delete(m.agent);   // review 1: a re-check that could be made ends the hold
     if (stillFree !== true) {
       /* Review round 4: seen working, so this tick is not an idle one for rule 2. */
       state.lastMovable.delete(`${m.agent}\n${m.from}`);
@@ -353,7 +378,23 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     return { did: ended.outcome === 'refused' ? 'refused' : ended.outcome === 'unknown' ? 'unknown' : 'moved', agent: m.agent, outcome: ended.outcome };
   }
 
-  return { tick, check, state, skipTarget, paused, passedOver: passedOverAt };
+  /* kosmos#7621 item 2: Settings' question, "does the mover leave this agent alone now?", with the person lines
+     read first (those in the record and those still waiting to be written), so a person's move made since the last
+     tick is not shown as one Kosmos will undo. A record that cannot be read answers from what the last tick read. */
+  let peopleReadAt = null;   // review 3: Settings polls; the record is read for it at most every 30 seconds
+  let peopleWritesSeen = 0;   // review 4: ...and at once after a person's move was written
+  const leftAlone = (nowMs = Date.now()) => {
+    const writes = peopleWrites.get(file) || 0;
+    if (writes !== peopleWritesSeen || !(Number.isFinite(peopleReadAt) && peopleReadAt <= nowMs && nowMs - peopleReadAt < 30 * 1000)) {
+      peopleWritesSeen = writes;
+      peopleReadAt = nowMs;
+      try { readPeople(nowMs); } catch { /* the last tick's reading stands */ }
+    }
+    for (const l of waitingPeople()) if (l && typeof l.agent === 'string' && Number.isFinite(l.at) && l.at <= nowMs + sweep.CLOCK_SLACK_MS && nowMs - l.at < REST_MS) rest(l.agent, l.at);
+    return passedOverAt(nowMs);
+  };
+
+  return { tick, check, state, skipTarget, paused, passedOver: passedOverAt, leftAlone };
 }
 
 module.exports = { create, movesOn, personMoved, resetUnwrittenPeopleForTests: () => { unwrittenPeople.clear(); }, DAY_MS, WATCH_MS, FAILED_HOLD_MS, REST_MS, REFUSED_HOLD_MS, REFUSED_TIMES, previousTickMs, PERIOD_MS, SKIP_SAID_MS };

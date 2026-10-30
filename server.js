@@ -3145,8 +3145,11 @@ function autobalanceSweepDeps() {
 /* kosmos#7548 (slice 3b): what the automatic move reads and does: the sweep's own reads (so the two decide from one
    rule), plus the move itself through the bulk move's deps (rule 1) and the re-check just before it, which reads the
    roster and the projects AGAIN, on purpose (rule 2). A function, so a test can drive a real tick on the real wiring. */
-function automoveDeps() {
-  const d = autobalanceSweepDeps();
+function automoveDeps(sweepDeps = null) {
+  /* kosmos#7621 item 7: the tick's own sweep deps, so one agents walk serves both. Review 3: that walk is as old as the
+     sweep's start, so a watch's "released" check can see a person's move a tick late (harmless); the re-check before a
+     move reads a fresh roster and fresh projects (freshRoster, freshRecords below), never the shared walk. */
+  const d = sweepDeps || autobalanceSweepDeps();
   return {
     ...d,
     movesOn: () => automove.movesOn(),
@@ -13822,10 +13825,10 @@ const server = http.createServer(async (req, res) => {
               let skipTarget = null;
               try { skipTarget = automoveRun && automove.movesOn() ? automoveRun.skipTarget(sentAt) : null; } catch { skipTarget = null; }
               decision = ab.decide({ rows: claude, movable, nowMs: sentAt, ...(skipTarget ? { skipTarget } : {}) });
-              /* Review round 7: an agent the mover leaves alone now (moved or refused lately) is marked, so the page does not
-                 say Kosmos will move it. */
+              /* Review round 7: an agent the mover leaves alone now (moved by a person or by Kosmos, refused, or set aside after a
+                 re-check that could not be made: kosmos#7621) is marked, so the page does not say Kosmos will move it. */
               if (skipTarget) {
-                try { const left = automoveRun.passedOver(sentAt); decision.moves = decision.moves.map((m) => (left(m.agent) ? { ...m, leaving: true } : m)); }
+                try { const left = automoveRun.leftAlone(sentAt); decision.moves = decision.moves.map((m) => (left(m.agent) ? { ...m, leaving: true } : m)); }
                 catch { /* the lines stay as decide() made them */ }
               }
             }
@@ -27458,7 +27461,8 @@ function start(port = PORT) {
           const started = Date.now();
           abSweepBusy = started;
           let ticking;
-          try { ticking = abSweep.tick(autobalanceSweepDeps()); } catch (err) { ticking = Promise.reject(err); }
+          const sweepDeps = autobalanceSweepDeps();   // kosmos#7621 item 7: shared with the mover below, one walk a tick
+          try { ticking = abSweep.tick(sweepDeps); } catch (err) { ticking = Promise.reject(err); }
           ticking
             .then((r) => {
               if (r && r.did === 'recorded') process.stdout.write('autobalance-sweep: recorded a changed decision\n');
@@ -27472,7 +27476,7 @@ function start(port = PORT) {
             .catch(() => { /* best-effort, like the sweeps above */ })
             /* kosmos#7548: the move waits for the sweep's record of the same period. A move can take minutes, so the busy
                flag spans it (the backstop above, three usage polls). Nothing here may throw into the board. */
-            .then(() => (automoveRun && automove.movesOn() && autobalanceSweepRuns({ forTick: true }) ? automoveRun.tick(automoveDeps()) : null))
+            .then(() => (automoveRun && automove.movesOn() && autobalanceSweepRuns({ forTick: true }) ? automoveRun.tick(automoveDeps(sweepDeps)) : null))
             .then((r) => {
               const why = r && r.did === 'unreadable' ? String(r.because) : null;
               const said = why !== null && why === automoveSaid;
