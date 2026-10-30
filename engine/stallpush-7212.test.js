@@ -104,7 +104,7 @@ test('the board tells every card carrying a stall, through phonenotify, each min
   const at = src.indexOf('const sayStalls = () => {');
   assert.ok(at > 0, 'CONTROL: sayStalls is found');
   const body = src.slice(at, src.indexOf('} catch { /* said next minute */ }', at));
-  assert.match(body, /try \{ ds\.tellStalls\(r, \{ file: path\.join\(store\.ROOT, ds\.PUSH_FILE\), send: \(ev\) => phonenotify\.happened\(ev\) \}\); \}/, 'the board does not hand its whole roster to tellStalls, in its own try, with the data root read each sweep');
+  assert.match(body, /try \{ ds\.tellStalls\(r, \{ file: path\.join\(store\.ROOT, ds\.PUSH_FILE\), send: \(ev\) => phonenotify\.happened\(ev\), ownBound: \(c\) => ownBoundTold\(c\) \}\); \}/, 'the board does not hand its whole roster to tellStalls, in its own try, with the data root read each sweep and own-bounds asked');
 });
 
 test('review 3: the record is read once per sweep, not once per stalled card, while nothing can be sent', () => {
@@ -199,4 +199,21 @@ test('review 6: phonenotify takes a push back when Kosmos+ does not answer 2xx, 
   assert.match(src, /req\.on\('error', \(err\) => \{\n[^\n]*\n    tell\(false\);/, 'a network error is not reported');
   assert.match(src, /body, typeof event\.onResult === 'function' \? event\.onResult : null\);/);
   assert.match(src, /if \(last !== undefined && last <= now && now - last < route\.ms\) return false;/, 'a cooldown stamp from the future still holds');
+});
+
+test('kosmos#7633: an agent a Kosmos helper gave up on is not pushed again here; the rest still are', () => {
+  const a = sender();
+  const asked = [];
+  const ownBound = (c) => { asked.push(c.sessionName); return c.sessionName === 's-gave' ? { raised: true, items: [{ cls: 'nudge' }] } : { raised: false, items: [] }; };
+  ds.tellStalls([card('s-gave'), card('s-other')], { now: T0, file: fileIn(), send: a.send, ownBound });
+  assert.deepEqual(a.sent.map((e) => [e.session, e.agent]), [['s-other', 'S-OTHER']], 'an agent the own-bounds push already covers was pushed again');
+  assert.deepEqual(asked.sort(), ['s-gave', 's-other'], 'CONTROL: own-bounds was asked about each stalled card');
+  ds.resetForTests();   // the 15-minute gap after the push above
+  const b = sender();
+  ds.tellStalls([card('s-gave')], { now: T0, file: fileIn(), send: b.send, ownBound: () => { throw new Error('unreadable'); } });
+  assert.equal(b.sent.length, 1, 'an own-bounds record that could not be read silenced the stall push');
+  ds.resetForTests();
+  const c = sender();
+  ds.tellStalls([card('s-gave')], { now: T0, file: fileIn(), send: c.send });
+  assert.equal(c.sent.length, 1, 'CONTROL: without the hook, it is pushed');
 });

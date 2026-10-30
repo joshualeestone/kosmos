@@ -268,6 +268,15 @@ function readPushes(file) {
   } catch { /* nobody told */ }
   return book;
 }
+/* kosmos#7633 review 3: whether this agent's stall was pushed within the day (the in-memory copy, then the file), so the
+   own-bounds push (server.js) does not push the same problem again when the stall push went first. Never throws. */
+function stallToldWithin(session, now, file) {
+  try {
+    if (typeof session !== 'string' || !session) return false;
+    const fresh = (t) => Number.isFinite(t) && t <= now && now - t < PUSH_GAP_MS;
+    return fresh(pushedAt.get(session)) || (typeof file === 'string' && !!file && fresh(readPushes(file)[session]));
+  } catch { return false; }
+}
 /* `bookOf()` reads the file at most once per sweep (review 3: not once per stalled card per minute). */
 function pushDue(session, now, bookOf) {
   try {
@@ -319,7 +328,7 @@ function untold(sessions, at, file) {
     if (changed) require('./store').saveFlushed(file, JSON.stringify(book) + '\n');
   } catch { /* the in-memory copy is already taken back */ }
 }
-function tellStalls(cards, { now = Date.now(), file, send }) {
+function tellStalls(cards, { now = Date.now(), file, send, ownBound = null }) {
   try {
     let book = null;
     const bookOf = () => book || (book = typeof file === 'string' && file ? readPushes(file) : Object.create(null));
@@ -328,6 +337,12 @@ function tellStalls(cards, { now = Date.now(), file, send }) {
       try {
         /* Review 6: a card in a crash loop is said by the crash-loop push (server.js), not again here. */
         if (!c || !c.deliveryStall || (c.crashLoop && c.crashLoop.looping === true)) continue;
+        /* kosmos#7633: an agent the own-bounds sweep already told (server.js ownBoundTold: its idle nudge gave up, and that
+           push went out within a day) is not pushed again here for the same problem. Only a push that went out counts,
+           so a give-up whose push was held or failed still lets the stall push through. */
+        let gaveUp = null;
+        try { gaveUp = typeof ownBound === 'function' ? ownBound(c) : null; } catch { gaveUp = null; }
+        if (gaveUp && gaveUp.raised === true) continue;
         const ev = stallEvent(c, now);
         if (ev && pushDue(ev.session, now, bookOf) && !due.some((d) => d.session === ev.session)) due.push(ev);
       } catch { /* the next card is still looked at */ }
@@ -340,4 +355,4 @@ function tellStalls(cards, { now = Date.now(), file, send }) {
   } catch { /* told next minute */ }
 }
 
-module.exports = { stallEvent, tellStalls, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+module.exports = { stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
