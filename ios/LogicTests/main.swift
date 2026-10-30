@@ -4924,6 +4924,8 @@ do {
           "a restricted camera is dimmed (Settings cannot undo it) and says something other than the Settings line")
     check(AttachChoice.allCases.allSatisfy { Board.attachRowOff($0, atLimit: true, camera: .ready) }, "at the file limit every row is off")
     check(Board.cameraDeniedLine.contains("Settings") && !Board.cameraDeniedLine.contains("\u{2014}"), "a Don't Allow says where the camera is turned back on")
+    check(([Board.cameraDeniedLine] + [CameraState.notAllowed, .blocked, .unavailable].compactMap { Board.cameraNote($0) } + AttachChoice.allCases.map(\.title))
+            .allSatisfy { !$0.contains("\u{2014}") }, "none of the panel's words has an em dash")
     check(Board.cameraNote(.ready) == nil && Board.cameraNote(.notAsked) == nil && Board.cameraNote(.notAllowed) != nil
           && Board.cameraNote(.blocked) != nil && Board.cameraNote(.unavailable) != nil,
           "Camera says why only when it will not open the camera")

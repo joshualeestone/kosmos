@@ -19,7 +19,7 @@ final class AttachMenuUITests: XCTestCase {
         let plus = app.buttons["Add a photo or file"]
         XCTAssertTrue(plus.waitForExistence(timeout: 20), "the chat's + did not show")
         plus.tap()
-        let row = app.buttons[choice]
+        let row = app.descendants(matching: .any)["attach-panel"].buttons[choice]
         XCTAssertTrue(row.waitForExistence(timeout: 5), "the panel did not offer \(choice)")
         shot(app, "panel before \(choice)")
         row.tap()
@@ -49,9 +49,10 @@ final class AttachMenuUITests: XCTestCase {
         let plus = app.buttons["Add a photo or file"]
         XCTAssertTrue(plus.waitForExistence(timeout: 20), "the chat's + did not show")
         plus.tap()
-        XCTAssertTrue(app.buttons["Photos"].waitForExistence(timeout: 5), "the panel did not open")
+        let panelPhotos = app.descendants(matching: .any)["attach-panel"].buttons["Photos"]
+        XCTAssertTrue(panelPhotos.waitForExistence(timeout: 5), "the panel did not open")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()   // outside the panel
-        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["Photos"])
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: panelPhotos)
         waitForExpectations(timeout: 5)   // the panel closed
         let open = NSPredicate(format: "isHittable == true")
         expectation(for: open, evaluatedWith: plus)
