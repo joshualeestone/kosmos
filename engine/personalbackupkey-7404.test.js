@@ -64,7 +64,7 @@ function allFileText(dir) {
 test('#7404: setUp registers a KBR1 wrap with the recovery key and tag, keeps the key, and answers the code once', async () => {
   forget();
   const c = fakeCoordinator();
-  const r = await pk.setUp({ macRequest: c.macRequest });
+  const r = await pk.setUpPersonalKey({ macRequest: c.macRequest });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.match(r.code, /^([0-9A-HJKMNP-TV-Z]{4}-){6}[0-9A-HJKMNP-TV-Z]{2}$/);
   const row = c.rows.get(1);
@@ -77,24 +77,74 @@ test('#7404: setUp registers a KBR1 wrap with the recovery key and tag, keeps th
   // The code opens what was registered, with its tag.
   const opened = backupkeys.unwrapMemberKeyFromRecovery(rk, Buffer.from(row.wrap, 'base64url'), { org: ORG, member: MEMBER, epoch: '1' }, kept.keys['1'].pk, row.recovery_tag);
   assert.ok(opened && opened.equals(kept.keys['1'].sk));
-  // The code itself is written nowhere this module touches (every file under the data root).
-  const text = allFileText(SANDBOX);
-  assert.ok(text.length > 0, 'CONTROL: the data root holds the key file');
-  for (const form of [r.code, r.code.replace(/-/g, '')]) assert.ok(!text.includes(form), 'the recovery code was written to disk');
+  // Until the person confirms they saved it, this computer keeps the code (review 1: a lost answer or a crash before
+  // the screen must not strand a code nobody saw). After the confirm, no form of it, or of its keys, is on disk.
+  const forms = (code) => {
+    const bytes = backupkeys.recoveryCodeBytes(code), k = backupkeys.recoveryKeysFromCode(code);
+    return [code, code.replace(/-/g, ''), b64(bytes), bytes.toString('hex'), b64(k.sk), k.sk.toString('hex'), b64(k.authKey), k.authKey.toString('hex')];
+  };
+  const before = allFileText(SANDBOX);
+  assert.ok(before.includes(b64(backupkeys.recoveryCodeBytes(r.code))), 'CONTROL: the pending code is kept until confirmed');
+  assert.equal((await pk.confirmRecoveryCodeSaved({ macRequest: c.macRequest })).ok, true);
+  const after = allFileText(SANDBOX);
+  assert.ok(after.length > 0, 'CONTROL: the data root still holds the key file');
+  for (const form of forms(r.code)) assert.ok(!after.includes(form), 'a form of the recovery code is still on disk: ' + form.slice(0, 8));
+});
+
+test('#7404 (review 1, the BLOCKER): an answer lost AFTER Kosmos+ kept the key: the retry answers the SAME code and finishes', async () => {
+  forget();
+  const c = fakeCoordinator();
+  let lose = true;
+  // The coordinator KEEPS the row, then the answer never arrives.
+  const lossy = async (m, route, body) => {
+    const res = await c.macRequest(m, route, body);
+    if (route === mk.MEMBER_KEY_ROUTE && lose) { lose = false; throw new Error('connection reset after the write'); }
+    return res;
+  };
+  const first = await pk.setUpPersonalKey({ macRequest: lossy });
+  assert.equal(first.ok, false);
+  assert.equal(c.rows.size, 1, 'CONTROL: Kosmos+ did keep the row');
+  const second = await pk.setUpPersonalKey({ macRequest: lossy });
+  assert.equal(second.ok, true, JSON.stringify(second));
+  assert.equal(second.resumed, true);
+  // The code it answers really opens what Kosmos+ kept (the person can restore with it).
+  forget();
+  const back = await pk.restorePersonalKey(second.code, { macRequest: c.macRequest });
+  assert.equal(back.ok, true, 'the code answered on the retry restores the kept key');
+});
+
+test('#7404 (review 1): setUp never replaces or buries a registered key, and leaves the file readable', async () => {
+  // (a) a registered epoch 1 here, Kosmos+ lists none (a reset): refused, the key kept.
+  forget();
+  const k1 = backupkeys.newMemberKey();
+  mk.writeKeys(ORG, MEMBER, { 1: { sk: k1.sk, pk: k1.pk, registered: true } });
+  const a = await pk.setUpPersonalKey({ macRequest: fakeCoordinator().macRequest });
+  assert.equal(a.ok, false);
+  const ka = mk.readKeys(ORG, MEMBER);
+  assert.ok(ka.ok && ka.keys['1'].sk.equals(k1.sk) && ka.keys['1'].registered, 'the registered key was replaced');
+  // (b) a registered epoch 2 here: refused, nothing written below it, the file still reads.
+  forget();
+  const k2 = backupkeys.newMemberKey();
+  mk.writeKeys(ORG, MEMBER, { 2: { sk: k2.sk, pk: k2.pk, registered: true } });
+  const b = await pk.setUpPersonalKey({ macRequest: fakeCoordinator().macRequest });
+  assert.equal(b.ok, false);
+  const kb = mk.readKeys(ORG, MEMBER);
+  assert.ok(kb.ok, 'the key file no longer reads');
+  assert.deepEqual(Object.keys(kb.keys), ['2']);
 });
 
 test('#7404: on a new computer, restore with the code gets back the SAME key; a wrong code gets nothing', async () => {
   forget();
   const c = fakeCoordinator();
-  const set = await pk.setUp({ macRequest: c.macRequest });
+  const set = await pk.setUpPersonalKey({ macRequest: c.macRequest });
   const original = mk.readKeys(ORG, MEMBER).keys['1'];
   forget();   // the new computer has no key file
 
-  const wrong = await pk.restore(backupkeys.newRecoveryCode(), { macRequest: c.macRequest });
+  const wrong = await pk.restorePersonalKey(backupkeys.newRecoveryCode(), { macRequest: c.macRequest });
   assert.equal(wrong.ok, false); assert.equal(wrong.code, 'wrong_code');
   assert.deepEqual(mk.readKeys(ORG, MEMBER).keys, {}, 'a wrong code wrote nothing');
 
-  const r = await pk.restore(set.code.toLowerCase().replace(/-/g, ' '), { macRequest: c.macRequest });
+  const r = await pk.restorePersonalKey(set.code.toLowerCase().replace(/-/g, ' '), { macRequest: c.macRequest });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.deepEqual(r.epochs, [1]);
   const back = mk.readKeys(ORG, MEMBER).keys['1'];
@@ -104,7 +154,7 @@ test('#7404: on a new computer, restore with the code gets back the SAME key; a 
 test('#7404: a coordinator that FORGES a key (its own, wrapped to the person\'s recovery key) is refused, and nothing is restored', async () => {
   forget();
   const c = fakeCoordinator();
-  const set = await pk.setUp({ macRequest: c.macRequest });
+  const set = await pk.setUpPersonalKey({ macRequest: c.macRequest });
   forget();
   // It holds the recovery PUBLIC key, so it can wrap a key of its own that the code really opens. It cannot make the
   // tag (that needs the code), so it keeps the person's real tag beside its forged key.
@@ -113,7 +163,7 @@ test('#7404: a coordinator that FORGES a key (its own, wrapped to the person\'s 
   const recoveryPk = Buffer.from(row.recovery_public, 'base64url');
   c.rows.set(1, { ...row, member_public: b64(forged.pk),
     wrap: b64(backupkeys.wrapMemberKeyToRecovery(forged.sk, recoveryPk, { org: ORG, member: MEMBER, epoch: '1' })) });
-  const r = await pk.restore(set.code, { macRequest: c.macRequest });
+  const r = await pk.restorePersonalKey(set.code, { macRequest: c.macRequest });
   assert.equal(r.ok, false); assert.equal(r.code, 'not_bound');
   assert.deepEqual(mk.readKeys(ORG, MEMBER).keys, {}, 'the forged key was kept');
 });
@@ -121,23 +171,23 @@ test('#7404: a coordinator that FORGES a key (its own, wrapped to the person\'s 
 test('#7404: one bad row refuses the WHOLE restore (never half a backup), and a withheld tag fails closed', async () => {
   forget();
   const c = fakeCoordinator();
-  const set = await pk.setUp({ macRequest: c.macRequest });
+  const set = await pk.setUpPersonalKey({ macRequest: c.macRequest });
   // A second epoch the code holder made (good), then epoch 1's tag withheld: the restore must keep neither.
   const rk = backupkeys.recoveryKeysFromCode(set.code);
   const k2 = backupkeys.newMemberKey(), ctx2 = { org: ORG, member: MEMBER, epoch: '2' };
   c.rows.set(2, { member_public: b64(k2.pk), wrap: b64(backupkeys.wrapMemberKeyToRecovery(k2.sk, rk.pk, ctx2)),
     recovery_public: b64(rk.pk), recovery_tag: backupkeys.recoveryBindingTag(rk.authKey, ctx2, k2.pk) });
   forget();
-  const good = await pk.restore(set.code, { macRequest: c.macRequest });
+  const good = await pk.restorePersonalKey(set.code, { macRequest: c.macRequest });
   assert.equal(good.ok, true, 'CONTROL: both rows restore with their tags');
   assert.deepEqual(good.epochs, [1, 2]);
   forget();
   c.rows.set(1, { ...c.rows.get(1), recovery_tag: '0'.repeat(64) });   // corrupted
-  const bad = await pk.restore(set.code, { macRequest: c.macRequest });
+  const bad = await pk.restorePersonalKey(set.code, { macRequest: c.macRequest });
   assert.equal(bad.ok, false); assert.equal(bad.code, 'not_bound');
   assert.deepEqual(mk.readKeys(ORG, MEMBER).keys, {}, 'epoch 2 was kept although epoch 1 failed');
   c.rows.set(1, { ...c.rows.get(1), recovery_tag: null });   // withheld entirely
-  const none = await pk.restore(set.code, { macRequest: c.macRequest });
+  const none = await pk.restorePersonalKey(set.code, { macRequest: c.macRequest });
   assert.equal(none.ok, false);
   assert.deepEqual(mk.readKeys(ORG, MEMBER).keys, {});
 });
@@ -145,13 +195,14 @@ test('#7404: one bad row refuses the WHOLE restore (never half a backup), and a 
 test('#7404: setUp refuses when the backup already has a key, and restore refuses a non-code or an empty backup', async () => {
   forget();
   const c = fakeCoordinator();
-  assert.equal((await pk.setUp({ macRequest: c.macRequest })).ok, true);
-  const again = await pk.setUp({ macRequest: c.macRequest });
+  assert.equal((await pk.setUpPersonalKey({ macRequest: c.macRequest })).ok, true);
+  const again = await pk.setUpPersonalKey({ macRequest: c.macRequest });
   assert.equal(again.ok, false);
-  assert.match(again.because, /already has a recovery code/);
+  // Refused at the first fence it meets: this computer already holds the registered key (review 1's file guard).
+  assert.match(again.because, /already (has a recovery code|holds backup keys)/);
   assert.equal(c.rows.size, 1, 'no second key was registered');
-  assert.equal((await pk.restore('not a code', { macRequest: c.macRequest })).code, 'not_a_code');
-  assert.equal((await pk.restore(backupkeys.newRecoveryCode(), { macRequest: fakeCoordinator().macRequest })).code, 'no_keys');
+  assert.equal((await pk.restorePersonalKey('not a code', { macRequest: c.macRequest })).code, 'not_a_code');
+  assert.equal((await pk.restorePersonalKey(backupkeys.newRecoveryCode(), { macRequest: fakeCoordinator().macRequest })).code, 'no_keys');
 });
 
 test('#7404: an answer lost after the key was kept: the retry sends the SAME member key, with a new code', async () => {
@@ -162,11 +213,11 @@ test('#7404: an answer lost after the key was kept: the retry sends the SAME mem
     if (route === mk.MEMBER_KEY_ROUTE && fail) { fail = false; throw new Error('connection reset'); }
     return c.macRequest(m, route, body);
   };
-  const first = await pk.setUp({ macRequest: flaky });
+  const first = await pk.setUpPersonalKey({ macRequest: flaky });
   assert.equal(first.ok, false);
   const pending = mk.readKeys(ORG, MEMBER).keys['1'];
   assert.ok(pending && !pending.registered, 'the key was kept BEFORE it was sent');
-  const second = await pk.setUp({ macRequest: flaky });
+  const second = await pk.setUpPersonalKey({ macRequest: flaky });
   assert.equal(second.ok, true, JSON.stringify(second));
   assert.equal(c.rows.get(1).member_public, b64(pending.pk), 'the retry sent the key it had kept');
   assert.ok(mk.readKeys(ORG, MEMBER).keys['1'].registered);
@@ -176,8 +227,8 @@ test('#7404: the coordinator\'s refusal code is passed on (here: the switch is o
   forget();
   const off = async (m, route) => (route === pk.MINE_ROUTE
     ? refuse(409, 'personal_backup_key_pending', 'off') : { ok: false, because: 'unreached' });
-  const r = await pk.setUp({ macRequest: off });
+  const r = await pk.setUpPersonalKey({ macRequest: off });
   assert.equal(r.ok, false); assert.equal(r.code, 'personal_backup_key_pending');
-  const r2 = await pk.restore(backupkeys.newRecoveryCode(), { macRequest: off });
+  const r2 = await pk.restorePersonalKey(backupkeys.newRecoveryCode(), { macRequest: off });
   assert.equal(r2.code, 'personal_backup_key_pending');
 });
