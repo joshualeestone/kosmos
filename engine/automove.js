@@ -5,7 +5,8 @@
  * then watches whether the moved agent works on its new account.
  *
  * 🛑 OFF UNLESS AGENT_WORKFORCE_AUTOMOVE=1 (the card's call, comment 6521685101): a day of recorded decisions never
- * exercised a move, so moving stays an operator's switch. AGENT_WORKFORCE_AUTOMOVE_OFF=1 is the brake.
+ * exercised a move, so moving stays an operator's switch. AGENT_WORKFORCE_AUTOMOVE_OFF=1 is the brake. Both are read
+ * from the board's environment, which does not change while it runs, so either takes effect at a board restart.
  *
  * Plan: .claude/plans/automove-3b-7548.md, with the twelve rules it must satisfy; each is named below where it lands.
  * The board wires it (server.js automoveDeps(), run after the sweep's tick); every effect is a dep, so a test drives
@@ -44,12 +45,18 @@ function movesOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOMOVE === '1
  */
 function personMoved(file, names, to, nowMs = Date.now(), env = process.env) {
   if (!movesOn(env)) return true;
+  let wrote = false;
   try {
     const agents = (Array.isArray(names) ? names : []).filter((n) => typeof n === 'string' && n);
     if (!agents.length) return true;
-    return sweep.appendAll(file, agents.map((agent) => ({ kind: 'person', at: nowMs, agent, ...(typeof to === 'string' ? { to } : {}) })));
-  } catch { return false; }
+    wrote = sweep.appendAll(file, agents.map((agent) => ({ kind: 'person', at: nowMs, agent, ...(typeof to === 'string' ? { to } : {}) })));
+  } catch { wrote = false; }
+  /* Review round 2: a person's move the record could not keep is still a person's move. The mover cannot tell whose it
+     was, so it moves nobody for a day (personMissedAt); the routes' own move is not refused for it. */
+  if (!wrote) personMissedAt = nowMs;
+  return wrote;
 }
+let personMissedAt = null;
 
 /**
  * The mover's state, rebuilt from the record (rule 10: a board restarts several times a day): the moves being watched,
@@ -121,14 +128,15 @@ function create({ file, nowMs = Date.now() }) {
       }
       /* Rule 9: after a partial or unknown move the agent may still run on its OLD account (it lands at its next
          restart), and a sighting is keyed by agent alone, so it says nothing about the target until its session has
-         restarted since the move. tmux reads whole seconds, so a start read at or after the move's own time is after it. */
+         restarted since the move. */
       /* Review round 1: a CHANGED move waits for the restart too, when the board can read a session's start. The account
          is written before the restart, so the OLD session's last call could otherwise read as the new account's first. */
       const restarts = typeof deps.sessionStart === 'function';
       if (restarts && !Number.isFinite(w.since)) {
         let s = null;
         try { s = await deps.sessionStart(w.agent); } catch { s = null; }
-        if (Number.isFinite(s) && s >= w.movedAt) { w.uncertain = false; w.since = s; }
+        /* tmux reads whole seconds: a restart in the move's own second reads as the start of that second. */
+        if (Number.isFinite(s) && s >= Math.floor(w.movedAt / 1000) * 1000) { w.uncertain = false; w.since = s; }
       }
       let seen = null;
       if (restarts ? Number.isFinite(w.since) : !w.uncertain) { try { seen = deps.lastSeen(w.agent); } catch { seen = null; } }
@@ -226,6 +234,10 @@ function create({ file, nowMs = Date.now() }) {
   async function tick(deps, nowMs = Date.now()) {
     if (deps.movesOn() !== true || deps.settingOn() !== true) { state.lastMovable = new Set(); return { did: 'off' }; }
     try { readPeople(nowMs); } catch (err) { state.lastMovable = new Set(); return { did: 'unreadable', because: `the record: ${String((err && err.message) || err)}` }; }
+    if (Number.isFinite(personMissedAt) && nowMs - personMissedAt < REST_MS) {
+      state.lastMovable = new Set();
+      return { did: 'unreadable', because: 'a person\'s move could not be recorded, so Kosmos moves nobody for a day' };
+    }
     await check(deps, nowMs);
     const heldTarget = (dir) => state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS;
     const unproven = (dir) => state.watching.some((w) => w.to === dir);   // rule 6
@@ -268,6 +280,13 @@ function create({ file, nowMs = Date.now() }) {
       sweep.append(file, { kind: 'skipped', at: nowMs, agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, because: 'it was no longer idle' });
       return { did: 'skipped', agent: m.agent };
     }
+    /* Review round 2: a person can move the agent while this tick awaits (the session-start reads in check()), and the
+       route writes its person line then. Read them again last, so the decision never undoes a move made meanwhile. */
+    try { readPeople(nowMs); } catch (err) { return { did: 'unreadable', because: `the record: ${String((err && err.message) || err)}` }; }
+    if (passedOver(m.agent)) return { did: 'nothing' };
+    /* Review round 2: no move the record cannot keep. Without its lines a restart forgets the move, its rest and its
+       watch (rules 8 and 10), so a record that cannot be written (a full disk, a read-only folder) moves nobody. */
+    if (!sweep.appendAll(file, [])) return { did: 'unreadable', because: 'the record could not be written' };
     const ended = await move(deps, nowMs, m);
     if (!ended) return { did: 'nothing', because: 'busy' };
     return { did: ended.outcome === 'refused' ? 'refused' : ended.outcome === 'unknown' ? 'unknown' : 'moved', agent: m.agent, outcome: ended.outcome };
@@ -276,4 +295,4 @@ function create({ file, nowMs = Date.now() }) {
   return { tick, check, state };
 }
 
-module.exports = { create, movesOn, personMoved, DAY_MS, WATCH_MS, FAILED_HOLD_MS, REST_MS, REFUSED_HOLD_MS, REFUSED_TIMES };
+module.exports = { create, movesOn, personMoved, _resetPersonMissed: () => { personMissedAt = null; }, DAY_MS, WATCH_MS, FAILED_HOLD_MS, REST_MS, REFUSED_HOLD_MS, REFUSED_TIMES };

@@ -29699,14 +29699,15 @@ function abRecentHtml(recent, label, who, line) {
   for (const e of recent) {
     if (!e || typeof e !== 'object') continue;
     const when = at(e.at);
-    const lead = (rest) => (when ? when + rest : rest.charAt(0).toUpperCase() + rest.slice(1));
+    /* A line opens with an agent's name or "Kosmos", so it needs no capital; the one that does not names its own. */
+    const lead = (rest, first = rest) => (when ? when + rest : first);
     /* kosmos#7548 (slice 3b): the mover's own lines (engine/automove.js), one each. */
     if (e.kind !== 'decision') {
       const agent = esc(who(e.agent));
       const from = esc(name(e.from, e.fromLabel));
       const to = esc(name(e.to, e.toLabel));
       if (e.kind === 'move' && e.outcome === 'changed') out.push(lead('Kosmos moved ' + agent + ' from ' + from + ' to ' + to + (e.why ? ', because ' + esc(e.why) : '') + '.'));
-      else if (e.kind === 'move' && e.outcome === 'stopped') out.push(lead('the move of ' + agent + ' to ' + to + ' was stopped, so it stays on ' + from + '.'));
+      else if (e.kind === 'move' && e.outcome === 'stopped') out.push(lead('the move of ' + agent + ' to ' + to + ' was stopped, so it stays on ' + from + '.', 'The move of ' + agent + ' to ' + to + ' was stopped, so it stays on ' + from + '.'));
       else if (e.kind === 'move' && e.outcome === 'partial') out.push(lead('Kosmos saved ' + to + ' for ' + agent + ' but could not start it again, so it stays on ' + from + ' until it restarts.'));
       else if (e.kind === 'move' && e.outcome === 'unknown') out.push(lead('Kosmos tried to move ' + agent + ' to ' + to + ' and could not tell whether it went through. Check which account it is on above.'));
       else if (e.kind === 'move' && e.outcome === 'refused') out.push(lead('Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused, so it stays on ' + from + '.'));

@@ -178,6 +178,20 @@ test('#7548 rule 12: a re-check that cannot be made is not "no longer idle": not
   const r = await twoTicks(automove.create({ file }), d);
   assert.equal(r.did, 'unreadable', 'a commitment that could not be read at the re-check was taken as busy');
   assert.deepEqual([calls.starts, lines(file)], [[], []]);
+  /* Review round 2: the other "could not check" answers at the re-check are not "no longer idle" either. */
+  const unsure = (card) => Object.defineProperty({ ...card }, 'unsentInput', { get() { throw new Error('the box could not be read'); }, enumerable: true });
+  for (const [what, set] of [
+    ['an agent gone from the new roster', (dd) => { dd.freshRoster = () => realCards(['bo']); }],
+    ['a box that cannot be read', (dd) => { const [c] = realCards(['ada']); dd.freshRoster = () => [unsure(c)]; }],
+    ['a guide check that throws', (dd) => { let g = 0; dd.isGuide = () => { g += 1; if (g > 2) throw new Error('the guide record is half-written'); return false; }; }],
+  ]) {
+    const f = fileFor();
+    const { d: dd, calls: cc } = deps();
+    set(dd);
+    const rr = await twoTicks(automove.create({ file: f }), dd);
+    assert.equal(rr.did, 'unreadable', `${what}: read as ${rr.did}`);
+    assert.deepEqual([cc.starts, lines(f)], [[], []], `${what}: moved, or wrote "no longer idle"`);
+  }
 });
 
 test('#7548: no move while another account move runs; refused, partial and stopped moves are recorded as such', async () => {
@@ -594,9 +608,73 @@ test('#7548: the board wires the mover through the bulk move\'s own deps, and on
   assert.match(src, /accountmove\.start\(body, accountMoveDeps\(\)\)/, 'the bulk route does not use the shared deps');
   assert.match(src, /startMove: \(body\) => accountmove\.start\(body, accountMoveDeps\(\)\)/, 'the mover does not use the shared deps');
   assert.equal((src.match(/setAccount: \(n, dir\) => \{ fromDirs\.set/g) || []).length, 1, 'a second copy of the move\'s deps came back');
-  /* Rule 7: both routes write the person line. */
+  /* Rule 7: both routes write the person line, and only for an account they wrote. */
   assert.equal((src.match(/automove\.personMoved\(AUTOBALANCE_RECORD,/g) || []).length, 2, 'a route does not write the person line');
+  assert.match(src, /sendJson\(res, 400, \{ outcome: 'refused', because: wrote\.because \}\);\s*return;\s*\}[\s\S]{0,200}automove\.personMoved\(AUTOBALANCE_RECORD, \[name\]/,
+    'the one-agent route writes its person line before its refusal returns');
+  assert.match(src, /automove\.personMoved\(AUTOBALANCE_RECORD, started\.body\.agents\.filter\(\(x\) => x && x\.outcome !== 'refused'\)/,
+    'the bulk route names refused agents as moved by a person');
+  /* Inert unless switched on: the mover is made, ticked and shown as moving only when moves are on. */
+  assert.match(src, /if \(abSweep && automove\.movesOn\(\)\) \{\s*try \{ automoveRun = automove\.create\(/, 'the mover is made with moves off');
+  assert.match(src, /\.then\(\(\) => \(automoveRun && automove\.movesOn\(\) && autobalanceSweepRuns\(\{ forTick: true \}\) \? automoveRun\.tick\(automoveDeps\(\)\)/, 'the mover ticks with moves off');
+  assert.match(src, /autobalance\.moving = autobalance\.recording === true && !!automoveRun && automove\.movesOn\(\);/, 'Settings says moving with moves off');
 });
+
+test('#7548 review round 2: no move the record cannot keep', async () => {
+  const dir = fs.mkdtempSync(path.join(TMP, 'ro-'));
+  const file = path.join(dir, 'record.jsonl');
+  const run = automove.create({ file });
+  const { d, calls } = deps();
+  await run.tick(d, NOW);
+  fs.chmodSync(dir, 0o555);   // readable, not writable: a write fails, a read works
+  try {
+    const r = await run.tick(d, NOW + 1000);
+    assert.deepEqual([r.did, r.because], ['unreadable', 'the record could not be written'], 'a move ran with a record that could not keep it');
+    assert.deepEqual(calls.starts, []);
+  } finally { fs.chmodSync(dir, 0o755); }
+  await run.tick(d, NOW + 2000);
+  assert.equal(calls.starts.length, 1, 'CONTROL: a writable record lets it move');
+});
+
+test('#7548 review round 2: a person\'s move made while the tick runs is read again just before the move', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d, calls } = deps();
+  const roster = d.freshRoster;
+  d.freshRoster = () => { automove.personMoved(file, ['ada'], '/u/.claude-third', NOW + 900, ON); return roster(); };
+  const r = await twoTicks(run, d);
+  assert.equal(r.did, 'nothing');
+  assert.deepEqual(calls.starts, [], 'a person\'s move made during the tick was undone');
+});
+
+test('#7548 review round 2: a person\'s move the record could not keep stops every move for a day', async () => {
+  const dir = fs.mkdtempSync(path.join(TMP, 'pm-'));
+  fs.chmodSync(dir, 0o555);
+  try { assert.equal(automove.personMoved(path.join(dir, 'r.jsonl'), ['zed'], '/x', NOW, ON), false); }
+  finally { fs.chmodSync(dir, 0o755); }
+  try {
+    const { d, calls } = deps();
+    const run = automove.create({ file: fileFor() });
+    const r = await twoTicks(run, d);
+    assert.equal(r.did, 'unreadable', 'a person\'s move that was not recorded let the mover move');
+    assert.deepEqual(calls.starts, []);
+    await twoTicks(run, d, NOW + automove.REST_MS + 1000);
+    assert.equal(calls.starts.length, 1, 'CONTROL: a day later it moves');
+  } finally { automove._resetPersonMissed(); }
+});
+
+test('#7548 review round 2: a restart in the move\'s own second (tmux reads whole seconds) counts as after it', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  let started = null;
+  const { d } = deps({ lastSeen: () => ({ outcome: 'ok', at: Date.now() + 5000 }), sessionStart: async () => started });
+  await twoTicks(run, d);
+  const movedAt = run.state.watching[0].movedAt;
+  started = Math.floor(movedAt / 1000) * 1000;
+  await run.tick(d, NOW + 2000);
+  assert.equal(lines(file).filter((l) => l.kind === 'works').pop()?.works, 'yes', 'a restart in the same second was never taken as one');
+});
+
 
 test('#7548 review round 1: after a changed move, a call from the session that ran before the restart is no proof', async () => {
   const file = fileFor();
