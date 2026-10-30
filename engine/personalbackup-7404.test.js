@@ -38,12 +38,14 @@ const TOKEN = 'h.' + Buffer.from(JSON.stringify({ org: ORG.id, version: 9 })).to
    served hash and wordsShown (org.rs: personal_backup_words_unseen); status names this world until a leave. */
 function coordinator(over = {}) {
   const sent = [];
-  let world = null, left = false;
+  // `member`: the preview MAKES the membership, bound to no computer (org.rs mac_personal_backup; code review 2).
+  let world = null, left = false, member = false;
   return {
     sent,
+    get member() { return member && !left; },
     macRequest: async (m, route, body) => {
       sent.push({ route, body: body == null ? null : JSON.parse(JSON.stringify(body)) });
-      if (route === pb.ROUTE) return over.preview || { ok: true, data: { org: ORG, role: 'admin', consent: WORDS, consentHash: HASH, computerSalt: SALT } };
+      if (route === pb.ROUTE) { if (!over.preview) { member = true; left = false; } return over.preview || { ok: true, data: { org: ORG, role: 'admin', consent: WORDS, consentHash: HASH, computerSalt: SALT } }; }
       if (route === oe.ROUTES.enroll) {
         if (over.enrollRefuse) return { ok: false, because: '409 {"code":"' + over.enrollRefuse + '"}', refusal: { status: 409, code: over.enrollRefuse } };
         if (body.consentHash !== HASH || body.wordsShown !== true) return { ok: false, because: '409 {"code":"personal_backup_words_unseen"}', refusal: { status: 409, code: 'personal_backup_words_unseen' } };
@@ -51,11 +53,13 @@ function coordinator(over = {}) {
         return { ok: true, data: { ok: true, org: over.enrollOrg || ORG, role: 'member', printPinned: true, enrolled: { computer: 'c1', world, thisComputer: true } } };
       }
       if (route === oe.ROUTES.status) {
+        if (over.statusAnswer) return over.statusAnswer;
+        if (!left && !world && member) return { ok: true, data: { member: true, org: ORG, role: 'member', computerSalt: SALT, enrolled: null } };
         if (left || !world) return { ok: true, data: { member: false } };
         // A policy token naming this org, so orgenroll's applyPolicy reaches the policy module's BUNDLE (code review 1).
         return { ok: true, data: { member: true, org: ORG, role: 'member', computerSalt: SALT, policy: TOKEN, enrolled: { computer: 'c1', world, thisComputer: true } } };
       }
-      if (route === oe.ROUTES.leave) { left = true; return { ok: true, data: { ok: true, left: true } }; }
+      if (route === oe.ROUTES.leave) { if (over.leaveDown) return { ok: false, because: 'unreachable' }; left = true; world = null; return { ok: true, data: { ok: true, left: true } }; }
       return { ok: false, because: 'unexpected route ' + route };
     },
   };
@@ -241,4 +245,98 @@ test('#7404: a coded personal refusal on enroll is told as refused, and leaves n
     assert.equal(on.code, code, code);
     assert.equal(fs.existsSync(path.join(root, oe.JOIN_UNKNOWN_FILE)), false, code + ' left a lost-join marker');
   }
+});
+
+/* Code review 2, blocker 1: the preview makes the membership, so whatever does not bind this computer ends it, and ONLY
+   an unbound personal one (never a company's, a family's, or a personal backup another computer of the account runs). */
+const STATUS_N = (c) => c.sent.filter((x) => x.route === oe.ROUTES.status).length;
+const LEAVE_N = (c) => c.sent.filter((x) => x.route === oe.ROUTES.leave).length;
+const opened = (root) => fs.existsSync(path.join(root, pb._PREVIEW_OPEN));
+
+test('#7404 blocker 1: a decline ends the membership the preview made, with an empty leave', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  assert.equal(c.member, true, 'precondition: the preview made a membership');
+  assert.equal(opened(root), true, 'the preview leaves its marker');
+  const r = await pb.switchOn(p.ticket, false, { root, remote: c });
+  assert.equal(r.declined, true);
+  assert.equal(c.member, false, 'declined: the membership is ended');
+  assert.deepEqual(c.sent.filter((x) => x.route === oe.ROUTES.leave).map((x) => x.body), [{}], 'one leave, no print');
+  assert.equal(opened(root), false);
+  assert.equal(pb._TICKETS.has(p.ticket), false, 'the declined ticket is spent');
+});
+
+test('#7404 blocker 1: an expired preview is ended by the follow-up, and by a late switchOn', async (t) => {
+  const root = fresh(t);
+  let now = 1_000_000;
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c, now: () => now });
+  pb._resetFollowUpForTests();
+  await pb.followUp({ root, remote: c, now: () => now });
+  assert.equal(c.member, true, 'inside the ticket life nothing is ended');
+  assert.equal(LEAVE_N(c), 0);
+  now += 11 * 60 * 1000;
+  await pb.followUp({ root, remote: c, now: () => now });
+  assert.equal(c.member, false, 'past the ticket life the follow-up ends it (a restart loses tickets, not the marker)');
+  assert.equal(opened(root), false);
+  // The late switchOn on the same (expired) preview: told to open it again, nothing more sent.
+  const before = c.sent.length;
+  const r = await pb.switchOn(p.ticket, true, { root, remote: c, now: () => now });
+  assert.equal(r.code, 'ticket');
+  assert.equal(c.sent.length, before, 'no marker left, so nothing is sent');
+});
+
+test('#7404 blocker 1: off with no record here ends an unbound personal membership', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  await pb.preview({ root, remote: c });
+  const r = await pb.switchOff({ root, remote: c, orgenroll: oe });
+  assert.equal(r.ok, true);
+  assert.equal(c.member, false);
+});
+
+test('#7404 blocker 1: a company, a family, another computer, or another personal org are never left', async (t) => {
+  for (const [name, data] of [
+    ['company', { member: true, org: { id: 'acme', kind: 'company' }, enrolled: null }],
+    ['family', { member: true, org: { id: 'fam', kind: 'family' }, enrolled: null }],
+    ['no kind (an older coordinator)', { member: true, org: { id: ORG.id }, enrolled: null }],
+    ['another computer runs it', { member: true, org: ORG, enrolled: { computer: 'c2', world: 'w2', thisComputer: false } }],
+    ['another personal org', { member: true, org: { id: 'porg_other', kind: 'personal' }, enrolled: null }],
+  ]) {
+    const root = fresh(t);
+    const c = coordinator({ statusAnswer: { ok: true, data } });
+    const p = await pb.preview({ root, remote: c });
+    await pb.switchOn(p.ticket, false, { root, remote: c });
+    assert.equal(STATUS_N(c), 1, name + ': status was read');
+    assert.equal(LEAVE_N(c), 0, name + ': nothing was left');
+    assert.equal(opened(root), false, name + ': settled, so the marker goes');
+  }
+});
+
+test('#7404 blocker 1 CONTROL: the same decline against an unbound personal status DOES leave', async (t) => {
+  const root = fresh(t);
+  const c = coordinator({ statusAnswer: { ok: true, data: { member: true, org: ORG, enrolled: null } } });
+  const p = await pb.preview({ root, remote: c });
+  await pb.switchOn(p.ticket, false, { root, remote: c });
+  assert.equal(LEAVE_N(c), 1);
+});
+
+test('#7404 blocker 1: an unanswered leave keeps the marker, and a bound computer is never left', async (t) => {
+  const root = fresh(t);
+  const c = coordinator({ leaveDown: true });
+  const p = await pb.preview({ root, remote: c });
+  await pb.switchOn(p.ticket, false, { root, remote: c });
+  assert.equal(opened(root), true, 'not settled: the follow-up asks again');
+  // Bound here: the decline path reads nothing and leaves nothing.
+  const root2 = fresh(t);
+  const c2 = coordinator();
+  const p2 = await pb.preview({ root: root2, remote: c2 });
+  const on = await pb.switchOn(p2.ticket, true, { root: root2, remote: c2, personalbackupkey: KEY_OK });
+  assert.equal(on.ok, true);
+  assert.equal(opened(root2), false, 'bound: the marker goes');
+  const p3 = await pb.preview({ root: root2, remote: c2 });
+  const n = c2.sent.length;
+  await pb.switchOn(p3.ticket, false, { root: root2, remote: c2 });
+  assert.equal(c2.sent.length, n, 'on here: a decline sends nothing');
 });

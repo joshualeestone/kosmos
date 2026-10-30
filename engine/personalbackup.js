@@ -111,6 +111,47 @@ const SAY = {
 };
 const UNREACHED = 'Kosmos+ could not be reached just now. Nothing was turned on; try again in a minute.';
 
+/* Code review 2, blocker 1: preview MAKES the membership (org.rs mac_personal_backup), so a decline, an expired ticket,
+   or an off with no record would leave the account in its personal org, and every company or family invite would be
+   refused org_other_org. A preview leaves a marker here; whatever does not bind this computer ends the membership, but
+   only when status names an org of kind 'personal' that no computer is bound to (never a company's or a family's, and
+   never a personal backup another computer of this account runs), and the marker's org when there is one. Weakest
+   premise: the account joins a company between that status read and the leave, and mac_leave ends whatever membership
+   exists; the relay follow-up (end a personal membership with no enrolled computer at a company join) removes it. */
+const PREVIEW_OPEN = 'personal-preview-open.json';
+const STATUS = '/v1/mac/org/status';
+const LEAVE = '/v1/mac/org/leave';
+function notePreview(orgId, now, opts) {
+  try { fs.mkdirSync(root(opts), { recursive: true, mode: 0o700 }); fs.writeFileSync(path.join(root(opts), PREVIEW_OPEN), JSON.stringify({ org: orgId, at: now }) + '\n', { mode: 0o600 }); } catch { /* best effort: decline and off still end it */ }
+}
+function readPreview(opts) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(root(opts), PREVIEW_OPEN), 'utf8')); return j && ID.test(String(j.org || '')) && Number.isFinite(j.at) ? j : null; } catch { return null; }
+}
+function forgetPreview(opts) { try { fs.rmSync(path.join(root(opts), PREVIEW_OPEN), { force: true }); } catch { /* the next pass reads status again: harmless */ } }
+function joinPending(opts) {
+  const oe = opts.orgenroll || require('./orgenroll');
+  try { return fs.existsSync(path.join(root(opts), oe.JOIN_UNKNOWN_FILE)); } catch { return true; }
+}
+/* End a personal membership this computer previewed and did not bind. { ok: true, left } once settled (left, or
+   nothing of ours to end), { ok: true, kept: true } while this computer holds it or a join is unsettled, { ok: false }
+   when Kosmos+ did not answer (the marker stays, so the follow-up asks again). */
+async function endUnbound(opts, orgId) {
+  if (isOn(opts) || joinPending(opts)) return { ok: true, kept: true };
+  const remote = remoteOf(opts);
+  if (!remote || typeof remote.macRequest !== 'function') return { ok: false };
+  let st;
+  try { st = await remote.macRequest('POST', STATUS, {}); } catch { st = null; }
+  if (!st || !st.ok || !st.data || typeof st.data !== 'object') return { ok: false };
+  const d = st.data;
+  const ours = d.member === true && d.org && d.org.kind === 'personal' && d.enrolled == null && (!orgId || d.org.id === orgId);
+  if (!ours) { forgetPreview(opts); return { ok: true, left: false }; }
+  // No computer is bound, so the relay checks no print (org.rs mac_leave): an empty body.
+  let r;
+  try { r = await remote.macRequest('POST', LEAVE, {}); } catch { r = null; }
+  if (r && (r.ok || codeOf(r) === 'org_not_member')) { forgetPreview(opts); return { ok: true, left: true }; }
+  return { ok: false };
+}
+
 /** Step 1: the words to show. { ok, ticket, words } (words: reports, backsUp, readers, never), or { ok: false }. */
 async function preview(opts = {}) {
   const remote = remoteOf(opts);
@@ -120,15 +161,29 @@ async function preview(opts = {}) {
   if (!r || !r.ok) { const c = codeOf(r); return c && SAY[c] ? { ok: false, code: c, because: SAY[c] } : { ok: false, because: UNREACHED }; }
   const served = cleanPreview(r.data);
   if (!served) return { ok: false, because: 'Kosmos+ answered in a form this Kosmos does not read. Nothing was turned on.' };
-  return { ok: true, ticket: issue(served, (opts.now || Date.now)()), words: served.words };
+  const now = (opts.now || Date.now)();
+  if (!isOn(opts)) notePreview(served.org.id, now, opts);
+  return { ok: true, ticket: issue(served, now), words: served.words };
 }
 
 /** Step 2: the person accepted the words on `ticket`. Binds this computer, then makes the key and the recovery code.
     { ok: true, code, epoch } with the recovery code to show once, or { ok: false, because, code?, unknown? }. */
 async function switchOn(ticket, accepted, opts = {}) {
-  if (accepted !== true) return { ok: false, declined: true, because: 'Not accepted, so nothing was sent.' };
-  const t = peek(ticket, (opts.now || Date.now)());
-  if (!t) return { ok: false, code: 'ticket', because: 'These words were shown too long ago. Open personal backup again to read them.' };
+  const now = (opts.now || Date.now)();
+  if (accepted !== true) {
+    // Declined: the ticket is spent and the membership the preview made is ended (blocker 1).
+    const d = peek(ticket, now);
+    if (typeof ticket === 'string') TICKETS.delete(ticket);
+    const open = readPreview(opts);
+    await endUnbound(opts, (d && d.org.id) || (open && open.org) || null);
+    return { ok: false, declined: true, because: 'Not accepted, so nothing was turned on.' };
+  }
+  const t = peek(ticket, now);
+  if (!t) {
+    const open = readPreview(opts);
+    if (open) await endUnbound(opts, open.org);
+    return { ok: false, code: 'ticket', because: 'These words were shown too long ago. Open personal backup again to read them.' };
+  }
   const oe = opts.orgenroll || require('./orgenroll');
   // The hash was checked when the ticket was made (cleanPreview); it is what stops a hashless enroll moving a company's
   // binding here (design review 1, blocker 2).
@@ -151,6 +206,7 @@ async function switchOn(ticket, accepted, opts = {}) {
     return { ok: false, code: c, because: 'Kosmos+ did not bind this computer just now. Nothing was turned on; try again in a minute.' };
   }
   if (!r.org || r.org.id !== t.org.id) return { ok: false, because: 'Kosmos+ did not confirm this computer, so nothing was turned on.' };
+  forgetPreview(opts);
   return setUpKey(opts);
 }
 
@@ -197,8 +253,15 @@ function pendingAge(opts, now) {
    record or a pending step is here; nothing at all otherwise. */
 const HOUR = 60 * 60 * 1000;
 let LAST_REFRESH = 0;
+let LAST_END = 0;
 async function followUp(opts = {}) {
   const now = (opts.now || Date.now)();
+  const open = readPreview(opts);
+  if (open) {
+    if (isOn(opts)) forgetPreview(opts);
+    // A preview not bound within its ticket's life (or before a restart lost the ticket) is ended (blocker 1).
+    else if (now - open.at > TICKET_MS && (now - open.at < 24 * HOUR || now - LAST_END >= HOUR)) { LAST_END = now; await endUnbound(opts, open.org); }
+  }
   const age = pendingAge(opts, now);
   const on = isOn(opts);
   if (age === null && !on) return { ok: true, idle: true };
@@ -221,6 +284,8 @@ async function switchOff(opts = {}) {
   const oe = opts.orgenroll || require('./orgenroll');
   let r;
   try { r = await oe.leave(enrollOpts(opts)); } catch { r = null; }
+  // No record here: a preview may still hold a membership nothing bound (blocker 1). Ended, or the follow-up does it.
+  if (r && r.ok && r.localOnly) { const open = readPreview(opts); await endUnbound(opts, open ? open.org : null); }
   // Stopped here (left, or a leave pending): the key marker goes too, so turning it on again runs the key step again.
   if (r && (r.ok || r.pending)) { try { fs.rmSync(path.join(root(opts), KEY_READY), { force: true }); } catch { /* best effort */ } }
   if (r && r.ok) return { ok: true };
@@ -228,4 +293,4 @@ async function switchOff(opts = {}) {
   return { ok: false, because: 'Kosmos+ could not be reached just now. Personal backup is still on; try again in a minute.' };
 }
 
-module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, state, isOn, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; } };
+module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, state, isOn, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; LAST_END = 0; }, _PREVIEW_OPEN: PREVIEW_OPEN };
