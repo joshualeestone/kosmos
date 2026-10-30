@@ -19,10 +19,11 @@ final class KeyboardSlideUITests: XCTestCase {
         Self.assertAbove(newest, box, app.keyboards.firstMatch)
     }
 
-    // A long chat (KOSMOS_SAMPLE_LONG, 260 rows) the reader has scrolled down to its newest message. Reached by the
-    // reader's own swipes, as on the phone: a run that skipped them left the defect unseen (10-30 control run).
+    // A long chat (KOSMOS_SAMPLE_LONG=varied: 260 rows of one line to many paragraphs, as a real chat's) the reader has
+    // scrolled down to its newest message. Reached by the reader's own swipes, as on the phone: a run that skipped them
+    // left the defect unseen (10-30 control run).
     func testLongChatNewestStaysAboveTheBox() throws {
-        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1"])
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "varied"])
         let box = Self.box(app)
         for _ in 0..<6 { app.swipeUp(velocity: .fast) }
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
@@ -40,21 +41,21 @@ final class KeyboardSlideUITests: XCTestCase {
         let box = Self.box(app)
         let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15), "no sample rows")
-        sleep(4)   // the hook scrolls 3 s after opening
+        // The chat opens at its newest message; the hook's scroll up has happened once that has left the screen.
+        let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == false"), object: newest)
+        XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 15), .completed, "the scroll up never moved the reader off the newest message")
         Self.settle(rows.firstMatch)
         // The highest row on screen below the header, by its own label so it can be found again after the keyboard.
         guard let top = rows.allElementsBoundByIndex.filter({ $0.isHittable && $0.frame.minY > 120 }).min(by: { $0.frame.minY < $1.frame.minY }) else {
             XCTFail("no row on screen after the scroll up"); return
         }
         let label = top.label, y0 = top.frame.minY
-        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch.isHittable,
-                       "control: the scroll up left the newest message on screen, so this run cannot tell a pull-down")
         let row = app.staticTexts[label]
         try Self.keyboardUp(app, box, row, shot: "read-higher-keyboard-up", test: self)
         XCTAssertTrue(row.exists && row.isHittable, "'\(label)', read higher up, left the screen when the keyboard came up")
         XCTAssertEqual(row.frame.minY, y0, accuracy: 4, "'\(label)' moved from \(y0) to \(row.frame.minY)")
-        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch.isHittable,
-                       "the reader was pulled down to the newest message")
+        XCTAssertFalse(newest.isHittable, "the reader was pulled down to the newest message")
     }
 
     private static func launch(_ env: [String: String]) -> XCUIApplication {
@@ -75,9 +76,11 @@ final class KeyboardSlideUITests: XCTestCase {
 
     // Until the element's frame reads the same twice, 0.5 s apart (at most 8 s): a scroll or the keyboard has finished.
     private static func settle(_ e: XCUIElement) {
+        guard e.exists else { return }   // gone already: the caller's own assertion says what that means
         var last = e.frame
         for _ in 0..<16 {
             Thread.sleep(forTimeInterval: 0.5)
+            guard e.exists else { return }
             let now = e.frame
             if now == last { return }
             last = now
