@@ -532,6 +532,9 @@ struct ChatView: View {
                              Board.chatRowKinds(items, onScreen: onScreen, working: working))
                         }
                     })
+                    // kosmos#7609: a reader higher up stays where they were when the keyboard comes up (iOS 26 moved them).
+                    // Exactly when the keyboard handler below does not keep the newest message in view.
+                    .background(KeyboardHold(hold: visible && !(atBottom || (searchOpen && openedAtNewest && !searching))))
                     .modifier(PositionTargets(on: Self.idAnchor))
                 }
                 .modifier(PositionById(on: Self.idAnchor, id: $positionId))
@@ -2223,6 +2226,66 @@ struct PersonScroll: ViewModifier {
             }
         } else {
             content
+        }
+    }
+}
+
+// kosmos#7609 (10-30, measured on the iOS 26.5 simulator and CI's runner): bringing the keyboard up while reading higher
+// up moved the conversation (the reader's row 149 to 186..225, or off the screen), with the side lock and with the id
+// anchor each switched off, so it is iOS 26's own keyboard handling; iOS 27 keeps the row where it was. Not caused here,
+// so not prevented here: undone. The scroll view's vertical offset is kept when the keyboard starts to show while the
+// reader is not at the newest message (`hold`), and put back once it is up if iOS moved it and nobody is scrolling. At the
+// newest message the chat's own keep (keepNewestInView) moves it on purpose, so nothing is held then.
+// KOSMOS_SAMPLE_NOKBHOLD=1 (Debug) is the control.
+struct KeyboardHold: UIViewRepresentable {
+    let hold: Bool
+    func makeUIView(context: Context) -> Probe { let p = Probe(); p.hold = hold; return p }
+    func updateUIView(_ view: Probe, context: Context) { view.hold = hold }
+
+    final class Probe: UIView {
+        var hold = false
+        private var saved: CGFloat?
+        private var observers: [NSObjectProtocol] = []
+        private weak var scroll: UIScrollView?
+        #if DEBUG
+        static let off = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOKBHOLD"] == "1"
+        #else
+        static let off = false
+        #endif
+        override init(frame: CGRect) { super.init(frame: frame); isUserInteractionEnabled = false; isHidden = true }
+        required init?(coder: NSCoder) { nil }
+        deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            observers.forEach(NotificationCenter.default.removeObserver); observers = []; saved = nil
+            guard window != nil, !Self.off else { return }
+            var up = superview
+            while let v = up, !(v is UIScrollView) { up = v.superview }
+            scroll = up as? UIScrollView
+            let nc = NotificationCenter.default
+            observers.append(nc.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
+                guard let self, let sv = self.scroll else { return }
+                // A keyboard already up (a second will-show, say for the emoji panel) keeps the first reading.
+                if self.saved == nil, self.hold, !sv.isDragging, !sv.isDecelerating { self.saved = sv.contentOffset.y }
+            })
+            observers.append(nc.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
+                guard let self, let y = self.saved, let sv = self.scroll else { return }
+                self.saved = nil
+                // Once now, and once after the frame's layout settles: iOS 26 moves it again in the pass after did-show.
+                for delay in [0.0, 0.15] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak sv] in
+                        guard let sv, !sv.isDragging, !sv.isDecelerating, abs(sv.contentOffset.y - y) > 1 else { return }
+                        let moved = sv.contentOffset.y - y   // how far iOS moved it, the one number the record keeps
+                        ChatView.trace("keyboard hold: put back \(Int(moved))")
+                        sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: y)
+                    }
+                }
+            })
+            // A keyboard that hides before it finished showing leaves nothing held.
+            observers.append(nc.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.saved = nil
+            })
         }
     }
 }

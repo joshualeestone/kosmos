@@ -504,7 +504,8 @@ let traceLines = chatSource.components(separatedBy: "\n").filter { $0.contains("
 let allowedInTrace: Set<String> = ["atBottom", "earlier.filling", "earlier.loading", "earlier.open", "earlier.rows.count", "endSeen",
     "endVisible", "fresh.olderCount", "fresh.rows.count", "Int(diagKeyboard)", "Int(now.height)", "Int(now.width)", "mine",
     "personScrolling", "phase == .active ? \"active\" : phase == .background ? \"background\" : \"inactive\"", "pinned", "settledAtEnd", "why",
-    "Int(x.rounded())", "self.shifts"]   // build 16: the stack's width and a sideways offset, both numbers
+    "Int(x.rounded())", "self.shifts",   // build 16: the stack's width and a sideways offset, both numbers
+    "Int(moved)"]   // kosmos#7609: how far iOS 26 moved the list when the keyboard came up (a number of points)
 var tracedValues: [String] = []
 for l in traceLines {
     var rest = Substring(l)
