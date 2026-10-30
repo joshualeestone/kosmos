@@ -17,3 +17,11 @@ arm each attempt, each passing on the other attempt, at identical geometry. Not 
 
 ## Not changing
 web/index.html. If `hitWas` later names a real element covering the pill, that is a product bug and gets its own card.
+
+## Results
+
+- Review: three blind rounds so far (opus, sonnet, opus). Round 1 added the call-counting control; round 2 moved the
+  count into the forced poll's own evaluate and stopped the comment claiming more than it checks.
+- Local browser run and the mutation control: **not yet run.** Baron's 0.7.76 staging cut is in progress, and
+  tools/browser-checks.sh forbids any browser check on this machine during a cut. They run when it serves on staging,
+  and their results are recorded here before the pull request is opened.
