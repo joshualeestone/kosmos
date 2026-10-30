@@ -31,7 +31,7 @@
 
 const communitysend = require('./communitysend');
 const feedguard = require('./feedguard');
-const { nameOf, NAME_MAX } = require('./communityfollow');
+const { nameOf, NAME_MAX, byHandle } = require('./communityfollow');
 const { serviceTextProblem } = require('./feedpublish');
 
 const TEXT_MAX = 500;   // the service's EndorsementIn.text max_length (Python len: code points)
@@ -66,25 +66,30 @@ function reviewOf(v, agentKey) {
  *  every request that reached the community. A refusal from this board alone (switched off, busy, no account) does not
  *  count. engine/communityendorse.test.js asserts each of the three. */
 async function endorse(agentKey, name, stars, text) {
-  const who = nameOf(name);
-  if (!who) return { ok: false, because: 'name the agent to endorse, as it appears in the community (up to ' + NAME_MAX + ' characters, no slashes)' };
+  const asked = nameOf(name);
+  if (!asked) return { ok: false, because: 'name the agent to endorse, as it appears in the community (its name or its @handle, up to ' + NAME_MAX + ' characters, no slashes)' };
   const s = String(stars == null ? '' : stars).trim();
   if (!STARS_RE.test(s)) return { ok: false, because: 'give 1 to 5 stars' };
   const review = reviewOf(text, agentKey);
   if (review.scrubbed) return { ok: false, counts: true, because: review.because };
   if (!review.text) return { ok: false, because: review.because };
-  const { answer, reached } = await send(agentKey, who, Number(s), review.text);
+  // kosmos#7660: an @handle names the agent too; the lookup counts against the call's own budget (budgetFrom).
+  const began = Date.now();
+  const resolved = await byHandle(asked, began + communitysend.agentBudget());
+  if (!resolved.ok) return resolved.result;
+  const { answer, reached } = await send(agentKey, resolved.name, Number(s), review.text, began);
   return reached ? { ...answer, counts: true } : answer;
 }
 
 /* { answer, reached }: `reached` is false when nothing left this board (switched off, busy, no keys, no account), so
    the caller does not count it against the agent's hourly community writes. */
-async function send(agentKey, who, n, text) {
+async function send(agentKey, who, n, text, budgetFrom) {
   const here = (answer) => ({ answer, reached: false });
   const there = (answer) => ({ answer, reached: true });
   const r = await communitysend.agentCall(agentKey, 'PUT', '/agents/by-name/' + encodeURIComponent(who) + '/endorsement', {
     body: { stars: n, text },
     register: false,
+    budgetFrom,
   });
   if (!r.ok) return (r.local ? here : there)({ ok: false, upstream: !r.local, maybe: r.sent === true, because: r.because });
   if (r.unregistered) return here({ ok: false, because: r.joining || 'you have no community account yet. An agent can endorse once it has public work: post or comment first' });
@@ -114,9 +119,13 @@ async function send(agentKey, who, n, text) {
 
 /** Take back `agentKey`'s endorsement of `name`. { ok: true, text } or { ok: false, because }. */
 async function takeBack(agentKey, name) {
-  const who = nameOf(name);
-  if (!who) return { ok: false, because: 'name the agent whose endorsement you are taking back, as it appears in the community (up to ' + NAME_MAX + ' characters, no slashes)' };
-  const r = await communitysend.agentCall(agentKey, 'DELETE', '/agents/by-name/' + encodeURIComponent(who) + '/endorsement', { register: false });
+  const asked = nameOf(name);
+  if (!asked) return { ok: false, because: 'name the agent whose endorsement you are taking back, as it appears in the community (its name or its @handle, up to ' + NAME_MAX + ' characters, no slashes)' };
+  const began = Date.now();   // kosmos#7660: as endorse
+  const resolved = await byHandle(asked, began + communitysend.agentBudget());
+  if (!resolved.ok) return resolved.result;
+  const who = resolved.name;
+  const r = await communitysend.agentCall(agentKey, 'DELETE', '/agents/by-name/' + encodeURIComponent(who) + '/endorsement', { register: false, budgetFrom: began });
   if (!r.ok) return { ok: false, upstream: !r.local, maybe: r.sent === true, because: r.because };
   const none = { ok: true, text: 'You had no endorsement of ' + who + ' to take back.' };
   if (r.unregistered) return none;

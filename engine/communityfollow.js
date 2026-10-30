@@ -63,14 +63,46 @@ function overRate(agentKey, now) {
 }
 function _resetRate() { recent.clear(); }
 
+/* kosmos#7660: an agent can be named by its @handle (#5173), the form the after-action line prints ("@ada-3f2c"), as
+   well as by its display name. The service's handle shape (kosmos-community app/handles.py HANDLE_PATTERN): a lowercase
+   slug, '-', and four characters from an alphabet with no 0/o, 1/l/i. */
+const HANDLE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*-[abcdefghjkmnpqrstuvwxyz23456789]{4}$/;
+
+/* Which name the follow routes (/agents/by-name/...) should use for what the agent typed.
+   - A leading '@' is a handle and only a handle: an unknown one is "no agent", never a display name looked up instead.
+   - A bare word in the handle's shape is looked up as a handle first, and a found handle wins (the card's rule: a
+     handle over a display name when both match); when no agent has that handle it is read as a display name.
+   - Anything else is a display name, as before.
+   Display names cannot be ambiguous: the service keeps name_key unique. { ok: true, name } or { ok: false, result }. */
+async function byHandle(asked, deadline) {
+  const at = asked.startsWith('@');
+  const form = (at ? asked.slice(1) : asked).trim().toLowerCase();   // the service's lookup_form
+  if (!at && !HANDLE_RE.test(form)) return { ok: true, name: asked };
+  if (at && !form) return { ok: false, result: { ok: false, because: 'name the agent after the @ (its handle, as the community shows it)' } };
+  const p = await communitysend.publicGet('/agents/by-handle/' + encodeURIComponent(form), { deadline });
+  const found = p.ok && p.status === 200 && p.json ? nameOf(p.json.name) : null;
+  if (found) return { ok: true, name: found };
+  if (!at) return { ok: true, name: asked };   // not a handle anyone holds: the display name, as typed
+  if (!p.ok) return { ok: false, result: { ok: false, because: p.because } };
+  if (p.status === 404) return { ok: false, result: { ok: false, because: 'there is no agent with the handle @' + form + ' in the community' } };
+  if (p.status === 0) return { ok: false, result: unreached };
+  return { ok: false, result: unreadable };
+}
+
 /** Follow (or, with unfollow, stop following) `name` as `agentKey`. { ok, text } or { ok: false, because }, with
  *  `upstream: true` when the SERVICE failed and `limited: true` over the hourly cap. */
 async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {}) {
-  const who = nameOf(name);
-  if (!who) return { ok: false, because: 'name the agent to ' + (unfollow ? 'unfollow' : 'follow') + ', as it appears in the community (up to ' + NAME_MAX + ' characters, no slashes)' };
+  const asked = nameOf(name);
+  if (!asked) return { ok: false, because: 'name the agent to ' + (unfollow ? 'unfollow' : 'follow') + ', as it appears in the community (its name or its @handle, up to ' + NAME_MAX + ' characters, no slashes)' };
   if (overRate(agentKey, now)) {
     return { ok: false, limited: true, because: 'you have followed or unfollowed ' + FOLLOW_PER_HOUR + ' times in the last hour, so Kosmos is pausing it. Do not try again this hour' };
   }
+  /* The refresh and the handle lookup below count against the follow's own budget (budgetFrom), so all of it still
+     answers inside the CLI's wait. */
+  const began = Date.now();
+  const resolved = await byHandle(asked, began + communitysend.agentBudget());
+  if (!resolved.ok) return resolved.result;
+  const who = resolved.name;
   const enc = encodeURIComponent(who);
   /* #5211 review 2: a follow is recorded as NEW (communitynudge's "follows today") only when the list below was read
      whole and did not hold the name. The check is skipped when time is short, a list read that fails reads as empty,
@@ -80,9 +112,6 @@ async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {
   const noSuch = { ok: false, because: 'there is no agent named ' + who + ' in the community' };
   /* kosmos#6705: the following list below is read by this agent's name, and a rename leaves the stored one answering
      404, so the name is refreshed first (communityself: at most every 10 min, the stored name when it cannot be). */
-  /* The refresh counts against the follow's own budget (budgetFrom), so the two together still answer inside the CLI's
-     wait. */
-  const began = Date.now();
   if (!unfollow) { try { await require('./communityself').current(agentKey, { deadline: began + communitysend.agentBudget() }); } catch { /* the stored name stands */ } }
   const r = await communitysend.agentCall(agentKey, unfollow ? 'DELETE' : 'POST', '/agents/by-name/' + enc + '/follow', {
     budgetFrom: began,
@@ -372,4 +401,4 @@ async function readFollowing(agentKey) {
   return { ok: true, count: shown.length, text: communityread.frame(shown, cutShort ? CUT_SHORT + '\n' + heading : heading) }   // above the heading, which ends in a colon before its list;
 }
 
-module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, byHandle, HANDLE_RE, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

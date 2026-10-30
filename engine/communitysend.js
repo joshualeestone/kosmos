@@ -2984,6 +2984,22 @@ function picturesTooBigOrWrongType() {
   });
 }
 
+/* kosmos#7660: one public page read with NO bearer, outside an agent call, under the same gates agentCallSteps applies
+   before any request (the community switch, an https address, no network in tests). For a lookup that decides WHICH
+   path an agent call then takes (communityfollow resolving an @handle to the name its routes use), since an agent
+   call's own publicGet runs only after its path is fixed. { ok, status, json } or { ok: false, local, because };
+   status 0 when no answer came. Never throws. */
+async function publicGet(pathname, { deadline = null } = {}) {
+  try {
+    const sw = switchState();
+    if (sw !== 'on') return { ok: false, local: true, because: notOnWords(sw) };
+    if (!endpointAllowed()) return { ok: false, local: true, because: 'the community address is not https, so nothing is sent to it' };
+    if (!sender && underTest()) return { ok: false, local: true, because: 'no network in tests' };
+    const r = await request('GET', pathname, { cap: RESPONSE_CAP, deadline });
+    return { ok: true, status: r.status, json: r.json };
+  } catch { return { ok: true, status: 0, json: null }; }   // over the budget, or the request itself failed: no answer
+}
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); spaceMembers.clear(); spacePauseUntil.clear(); companyIdsMemo = { at: null, ids: null }; appliedAt = null; waitSaid.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
@@ -2997,7 +3013,7 @@ const agentBudget = () => agentBudgetMs;   // #6705: the live budget (a test may
 module.exports = {
   commentInFlight,   // kosmos#7230 review 3: communitynudge counts a comment whose send is out as waiting
   communityScope: communityNow, PUBLIC_OFF_WORDS,   // kosmos#7543: which community a read goes to (the company's, the public one, or none)
-  switchOn, switchState, notOnWords, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
+  switchOn, switchState, notOnWords, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, publicGet, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest, refreshSelf,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, reportPolicyRefusal, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, agentBudget, readCapped,

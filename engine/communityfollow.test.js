@@ -36,6 +36,13 @@ function backend() {
       const send = (code, obj) => (st.slowMs ? setTimeout(() => sendNow(code, obj), st.slowMs) : sendNow(code, obj));   // review 2: every answer late
       if (st.hang && st.hang(req)) return undefined;                  // a service that never answers
       const known = (n) => ['quill', 'Echo Two'].includes(n) || [...st.agents.values()].some((a) => a.name === n);
+      // kosmos#7660: the public profile by @handle (any case, one leading '@' dropped, as the service's lookup_form).
+      const byh = req.method === 'GET' && req.url.match(/^\/agents\/by-handle\/([^/?]+)$/);
+      if (byh) {
+        const h = decodeURIComponent(byh[1]).replace(/^@/, '').toLowerCase();
+        const HANDLES = { 'quill-ab3k': 'quill', 'echo-two-x7mn': 'Echo Two' };
+        return HANDLES[h] ? send(200, { name: HANDLES[h], handle: h }) : send(404, { detail: 'agent not found' });
+      }
       // The public routes (no bearer): an agent's profile and its following list.
       const pub = req.method === 'GET' && req.url.match(/^\/agents\/by-name\/([^/?]+)(\/following\?limit=(\d+))?$/);
       if (pub) {
@@ -1041,4 +1048,43 @@ test('#5636 F7c: frame numbers only unlabelled items, and takes a label only in 
   for (const bad of ['', '5', 'r0', 'R1', 'r1]', 'x1', 'r1234', 7]) {
     assert.deepEqual(heads([it('a', bad), it('b')]), ['[1]', '[2]'], 'frame took the label ' + JSON.stringify(bad));
   }
+});
+
+/* kosmos#7660: an agent can be named by its @handle. */
+test('kosmos#7660 follow by @handle: with or without the @, any case, it follows the agent the handle names; the display name still works', async () => {
+  fresh(); const b = await backend();
+  try {
+    const r = await cf.follow('mara', '@echo-two-x7mn');
+    assert.deepEqual(r, { ok: true, text: 'You now follow Echo Two.' });
+    assert.ok(b.st.seen.some((s) => s.method === 'POST' && s.url === '/agents/by-name/Echo%20Two/follow'), 'the follow went to the name the handle resolves to');
+    assert.ok(b.st.seen.some((s) => s.url === '/agents/by-handle/echo-two-x7mn' && s.auth === null), 'the handle was looked up publicly, in its lookup form');
+    const r2 = await cf.follow('mara', 'QUILL-AB3K');
+    assert.deepEqual(r2, { ok: true, text: 'You now follow quill.' }, 'bare and in capitals');
+    const me = [...b.st.agents.values()][0].name;
+    assert.deepEqual(follows(b.st), [me + '>Echo Two', me + '>quill']);
+    // CONTROL: the display name still works, and it is not looked up as a handle (it is not in the handle's shape).
+    const seenBefore = b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length;
+    const r3 = await cf.follow('mara', 'Echo Two', { unfollow: true });
+    assert.deepEqual(r3, { ok: true, text: 'You no longer follow Echo Two.' });
+    assert.equal(b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length, seenBefore);
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660: an unknown @handle is "no agent", never a display name; a handle-shaped word nobody holds is read as a display name', async () => {
+  fresh(); const b = await backend();
+  try {
+    const r = await cf.follow('mara', '@nobody-zz99');
+    assert.deepEqual(r, { ok: false, because: 'there is no agent with the handle @nobody-zz99 in the community' });
+    assert.equal(b.st.seen.some((s) => s.url.startsWith('/agents/by-name/')), false, 'an @handle is never tried as a display name');
+    const r2 = await cf.follow('mara', 'nobody-zz99');
+    assert.deepEqual(r2, { ok: false, because: 'there is no agent named nobody-zz99 in the community' });
+    assert.ok(b.st.seen.some((s) => s.url === '/agents/by-name/nobody-zz99'), 'CONTROL: the bare word fell back to the display name');
+    const r3 = await cf.follow('mara', '@');
+    assert.equal(r3.ok, false);
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660: the handle shape matches the service (lowercase slug, dash, four letters with no 0/o/1/l/i)', () => {
+  for (const h of ['ada-3f2c', 'echo-two-x7mn', 'a1-b2-zz99']) assert.ok(cf.HANDLE_RE.test(h), h);
+  for (const h of ['Echo Two', 'quill', 'ada-3f20', 'ada-oooo', 'ada-3f2', '-ada-3f2c']) assert.ok(!cf.HANDLE_RE.test(h), h);
 });

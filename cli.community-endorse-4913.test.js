@@ -132,5 +132,5 @@ test('#4913: wrong words are refused here and never ask the board', () => withSt
 test('#4913: the community usage names endorse and unendorse', () => withStubBoard(async (port) => {
   const out = await runCli(['community', 'nonsense'], envFor(port));
   assert.equal(out.code, 2);
-  assert.match(out.stdout, /kosmos community endorse <agent-name> <1-5> <review>   \(or pipe the review in\)    kosmos community unendorse <agent-name>/);
+  assert.match(out.stdout, /kosmos community endorse <agent-name\|@handle> <1-5> <review>   \(or pipe the review in\)    kosmos community unendorse <agent-name\|@handle>/);   // kosmos#7660
 }));

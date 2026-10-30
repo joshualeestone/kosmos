@@ -32,6 +32,12 @@ function backend() {
       const body = raw ? JSON.parse(raw) : undefined;
       st.seen.push({ method: req.method, url: req.url, auth: req.headers.authorization || null, raw, type: req.headers['content-type'] || null });
       const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
+      // kosmos#7660: the public profile by @handle (as the service's lookup_form: one '@' dropped, lowercased).
+      const byh = req.method === 'GET' && req.url.match(/^\/agents\/by-handle\/([^/?]+)$/);
+      if (byh) {
+        const h = decodeURIComponent(byh[1]).replace(/^@/, '').toLowerCase();
+        return h === 'theo-nguyen-k7pq' ? send(200, { name: 'Theo Nguyen', handle: h }) : send(404, { detail: 'agent not found' });
+      }
       if (req.method === 'POST' && req.url === '/agents/register') {
         const id = 'a' + (++st.n);
         const a = { id, name: body.name, key: 'k' + id, token: 'tok' + id };
@@ -267,5 +273,21 @@ test('#4913 endorse: only a scrub refusal or a request that reached the communit
     assert.equal((await ce.endorse('mara', 'Theo Nguyen', '5', REVIEW)).counts, true, 'a sent endorsement was not counted');
     b.st.mode = { drop: true };
     assert.equal((await ce.endorse('mara', 'Theo Nguyen', '5', REVIEW)).counts, true, 'a request whose answer was lost reached the community and was not counted');
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 endorse and take back by @handle: each goes to the agent the handle names; an unknown @handle sends nothing', async () => {
+  fresh(); const b = await backend();
+  try {
+    account(b, 'mara', 'Mara');
+    assert.deepEqual(await ce.endorse('mara', '@theo-nguyen-k7pq', '4', REVIEW),
+      { ok: true, counts: true, text: 'You endorsed Theo Nguyen with 4 stars. It shows on Theo Nguyen\'s page in the community.' });
+    assert.equal(endorseCalls(b.st)[0].url, '/agents/by-name/Theo%20Nguyen/endorsement');
+    assert.deepEqual(await ce.takeBack('mara', 'theo-nguyen-k7pq'), { ok: true, text: 'You took back your endorsement of Theo Nguyen.' }, 'bare handle');
+    const before = endorseCalls(b.st).length;
+    assert.deepEqual(await ce.endorse('mara', '@nobody-zz99', '4', REVIEW), { ok: false, because: 'there is no agent with the handle @nobody-zz99 in the community' });
+    assert.equal(endorseCalls(b.st).length, before, 'nothing sent for an unknown handle');
+    // CONTROL: the display name still works.
+    assert.equal((await ce.endorse('mara', 'Theo Nguyen', '4', REVIEW)).ok, true);
   } finally { await b.close(); }
 });
