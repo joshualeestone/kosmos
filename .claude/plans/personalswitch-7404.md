@@ -125,7 +125,7 @@ Decided, not changed (recorded so nobody re-derives it):
 
 ## Code review 2 (blind, 16:2x 10-30): two blockers, five warnings. TO DO, in this order
 
-1. **BLOCKER, preview leaves a membership nothing ends.** The coordinator's personal-backup (org.rs mac_personal_backup)
+1. **DONE (f87954d47b; 4 mutants red: no end on decline, no enrolled check, no kind check, no follow-up end). BLOCKER, preview leaves a membership nothing ends.** Built: a preview marker; decline, an expired ticket (follow-up past ten minutes, hourly after a day) and an off with no record read status and leave only an UNBOUND personal org (enrolled null, the marker's org when there is one); a personal org another computer of the account runs is never left. Relay card still to file. The coordinator's personal-backup (org.rs mac_personal_backup)
    MAKES the membership at preview. Decline, an expired ticket, or switchOff with no record send nothing
    (orgenroll.js:956-961 clears locally), so the account stays in its personal org and every company or family invite is
    refused org_other_org. **Decided (board side, now):** on decline, expiry, or an off with no record, read status and
