@@ -5,7 +5,8 @@ again" after one try, but his screenshot, taken after that line, was still empty
 
 ## Finished looks like
 - The diagnostic record carries the list's scroll view numbers (offset, content height, shown height, insets) and whether
-  the shown band misses the content (`Board.scrollBand`), at capture, at every resize in the trace, and after the one try.
+  the shown band misses the content (`Board.scrollBand`), at capture, in the trace once a resize has held for 0.5 s, and
+  twice after the one try (0.6 s and 1.5 s).
 - "After one try" is decided by the band, with the onAppear row count written beside it, never by the count alone.
 - A resize that leaves the band off the content triggers the check (no row leaving would bump the tick).
 - After the one report, an empty list is still put back (to the newest message), at most once in 2 s.

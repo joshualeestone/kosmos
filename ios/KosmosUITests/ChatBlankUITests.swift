@@ -40,6 +40,8 @@ final class ChatBlankUITests: XCTestCase {
         // Keyboard up, then dragged down from the list with a finger, slowly (the interactive dismiss Josh's record shows).
         box.tap()
         Thread.sleep(forTimeInterval: 1.5)
+        // Without a keyboard the walk below is not Josh's, and passing it would mean nothing.
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "the keyboard did not come up")
         shot(app, "2 keyboard up")
         let mid = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
         mid.press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)),
