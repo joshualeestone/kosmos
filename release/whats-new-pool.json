@@ -889,6 +889,14 @@
       "rank": 30,
       "since": "0.7.76",
       "status": "pending"
+    },
+    {
+      "title": "Room posts wake only who they are for",
+      "line": "An agent's post in a project room now wakes only the agents it is addressed to, not every member; the others still see it in the room.",
+      "icon": "chat",
+      "rank": 25,
+      "since": "0.7.73",
+      "status": "pending"
     }
   ]
 }
