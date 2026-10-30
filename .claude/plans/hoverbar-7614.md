@@ -45,3 +45,24 @@ card, and it ships in a staging build.
 - That the note reaches an agent in time to matter. It cannot undo what the agent already did; the confirm says so.
 - That every room reader goes through one place that can drop deleted posts. To be measured in slice 1 by listing every
   reader of `kind:'post'` rows, not assumed.
+
+## As built (10-30 09:30 CDT, before review round 1)
+
+- Slices 1 and 2 as planned (6/6, 7/7, 4/4 route and engine tests, mutation controls). Spill-file removal in
+  deletePostAsync (unspillFor) has NO test of its own: a long post's spill file going is reasoned from the code only.
+- Slice 3, the bar: quick reactions, `.rxn-div` (computer only; hidden at thumb size so the touch bar keeps #4409's
+  seven buttons at its old width: at 412px the divider pushed an agent's open bar over the corner of the person's
+  message below), add reaction, read aloud, Reply, then `.rxn-dots` ("..."). Copy message and Copy message id left the
+  bar for the "..." menu (#msg-menu). Delete message (#msg-menu-del) is last, on rows with data-own="1": room rows
+  `isOp && id && !archived`, the person's DM rows with an `at` (which now carry a bar holding "..." alone).
+- Decided: on a phone, a tap on the person's own DM opens its bar ("..." alone). It used to open nothing, but a phone
+  has no other way to reach Delete there. Its bar sits at the message's right end (`#d-dmthread .msg.you .rxn-quick`).
+- Dialog #msgdel-modal: the agreed words, Keep it focused, Escape and the backdrop close it, an error shows in
+  #msgdel-msg as a sentence and Delete can be pressed again; success toasts "Deleted." or "Deleted. Kosmos told X you
+  withdrew it." and repaints: the room by loadRoom, a DM by paintTalk while that agent's page is still open.
+- Two bugs the new browser check (render-msgdelete-7614) found and that are fixed, each with a control:
+  the room's project came from PJS_HOOKS.projectId (the webhooks pane: null until opened, another project's after,
+  where the same message id could name a different post), now PJ_CURRENT; and a DM delete called loadThread (a
+  project's thread), now paintTalk.
+- Checks: 8 older browser checks updated for the new bar; 19 more named by the surface gate ran and pass unchanged.
+- Known and kept: like every touch bar, an open bar floats above its message and can cover the corner of the one above.
