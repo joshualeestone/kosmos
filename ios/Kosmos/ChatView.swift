@@ -1746,8 +1746,10 @@ struct ChatView: View {
                 // but an earlier delete's own refusal still showing is taken away.
                 if let note = Board.deletedNote(told: told, names: [agent.session: shown.name]) {
                     composerNote = note; deleteNote = note
-                } else if let was = deleteNote, composerNote == was {
-                    composerNote = nil; deleteNote = nil
+                } else {
+                    // Review 4: the earlier delete's line goes if it still shows; either way it is no longer this delete's.
+                    if let was = deleteNote, composerNote == was { composerNote = nil }
+                    deleteNote = nil
                 }
             case .refused(let why):
                 composerNote = why

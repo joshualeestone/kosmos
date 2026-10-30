@@ -141,6 +141,7 @@ check(Board.roomDeleteRequest(mac: URL(string: "https://studio.kosmosplus.com")!
 // Review 3: a read in the air when the delete landed still carries the post; the merge only adds, so it is filtered out.
 let delMine = Board.RoomRow(id: "m1357", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "gone")
 let delKept = Board.RoomRow(id: "m1358", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "kept")
+// Review 4: as it happens: the post is already out of what is shown, and the late page brings it.
 let lateMerge = Board.mergeRoom([delKept], with: [delMine, delKept])
 check(lateMerge.contains { $0.id == "m1357" }, "CONTROL: a late read merged in puts the deleted post back")
 check(Board.withoutDeleted(lateMerge, ["m1357"]).map(\.id) == ["m1358"], "the posts deleted here stay out of a late read; the rest stay")
@@ -1138,6 +1139,10 @@ check(roomBody.contains("if searchMode { searchBar }\n            // kosmos#7137
       && (roomBody.range(of: sealDraw)?.lowerBound ?? roomBody.endIndex) < (roomBody.range(of: "            thread\n")?.lowerBound ?? roomBody.startIndex),
       "the room draws the line in callout and the third colour, above the conversation")
 let projectsSource = (try? String(contentsOf: here.appendingPathComponent("../../Kosmos/ProjectsView.swift"), encoding: .utf8)) ?? ""
+// kosmos#7614 review 4: post ids repeat across computers, so a switch forgets the posts deleted on the one before.
+let resetBody = projectsSource.components(separatedBy: "    func reset() {").dropFirst().first?.components(separatedBy: "\n    }").first ?? ""
+check(!resetBody.isEmpty && resetBody.contains("deletedPosts = [:]") && resetBody.contains("deleteNotes = [:]"),
+      "a switch of account or computer clears the posts deleted here and their line")
 check(projectsSource.contains("guard client.fedShown else { ownCompare[project] = nil; return }"), "the store reads own-compare only while the UI shows, and forgets it otherwise")
 check(projectsSource.contains("guard same(epoch), ownSeq[project] == seq else { return }"), "only the newest read for a project writes (the board's FED_OWN_SEQ)")
 check(projectsSource.contains("let read = answer.flatMap { (200...299).contains($0.1.statusCode) ? Board.parseOwnCompare($0.0) : nil }\n        ownCompare[project] = Board.ownCompareAfter(ownCompare[project], answer: read)"),
