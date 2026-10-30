@@ -126,3 +126,12 @@ handle stops being looked up (an @handle still is). The test pins the shape the 
   for its own public lookup; "could not be reached" when the budget is spent is unreachable in production (the lookup
   is the first step of a 25 s budget); a bare "Quill-AB3K" (a handle in capitals) is a display name, as decided in round
   5; a take-back reads the public site while the public community is off, as its DELETE does.
+- Round 8 (Sonnet, whole branch, nothing settled; the last round): no BLOCKER; converged. It confirmed the handle
+  pattern, the route, the gates and take-backs, the budget, other agentCall callers, both allowances, and the CLIs'
+  string escaping. No code changed after it. Decided:
+  - W a lowercase display name in the handle's shape costs one lookup per follow or endorse and uses the lookup
+    allowance; a slow service spends up to 5 s of the 25 s budget before the fallback by name (rounds 4 and 5).
+  - W an endorse by @handle from an agent with no community account hears "no agent with the handle" before "no
+    account yet" when the handle is unknown: a bounded ordering of words, nothing sent wrongly.
+  - N the byHandle comment ("below PROFILE_CAP and the lookup allowance it uses") is accurate: both are defined above
+    it. The endorse usage lines carry no PowerShell hint: said on the card.
