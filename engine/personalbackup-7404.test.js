@@ -65,7 +65,6 @@ function coordinator(over = {}) {
   };
 }
 const HOUR_MS = 60 * 60 * 1000;
-const PREVIEW_OPEN = 'personal-preview-open.json';   // engine/personalbackup.js's marker, by name: not exported
 const KEY_OK = { setUpPersonalKey: async () => ({ ok: true, code: 'TEST-CODE', epoch: 1 }) };
 
 function fresh(t) {
@@ -250,99 +249,8 @@ test('#7404: a coded personal refusal on enroll is told as refused, and leaves n
   }
 });
 
-/* Code review 2, blocker 1: the preview makes the membership, so whatever does not bind this computer ends it, and ONLY
-   an unbound personal one (never a company's, a family's, or a personal backup another computer of the account runs). */
 const STATUS_N = (c) => c.sent.filter((x) => x.route === oe.ROUTES.status).length;
 const LEAVE_N = (c) => c.sent.filter((x) => x.route === oe.ROUTES.leave).length;
-const opened = (root) => fs.existsSync(path.join(root, PREVIEW_OPEN));
-
-test('#7404 blocker 1: a decline ends the membership the preview made, with an empty leave', async (t) => {
-  const root = fresh(t);
-  const c = coordinator();
-  const p = await pb.preview({ root, remote: c });
-  assert.equal(c.member, true, 'precondition: the preview made a membership');
-  assert.equal(opened(root), true, 'the preview leaves its marker');
-  const r = await pb.switchOn(p.ticket, false, { root, remote: c });
-  assert.equal(r.declined, true);
-  assert.equal(c.member, false, 'declined: the membership is ended');
-  assert.deepEqual(c.sent.filter((x) => x.route === oe.ROUTES.leave).map((x) => x.body), [{ orgId: ORG.id, unboundOnly: true }], 'one leave, no print, naming the org, only while unbound');
-  assert.equal(opened(root), false);
-  assert.equal(pb._TICKETS.has(p.ticket), false, 'the declined ticket is spent');
-});
-
-test('#7404 blocker 1: an expired preview is ended by the follow-up, and by a late switchOn', async (t) => {
-  const root = fresh(t);
-  let now = 1_000_000;
-  const c = coordinator();
-  const p = await pb.preview({ root, remote: c, now: () => now });
-  pb._resetFollowUpForTests();
-  await pb.followUp({ root, remote: c, now: () => now });
-  assert.equal(c.member, true, 'inside the ticket life nothing is ended');
-  assert.equal(LEAVE_N(c), 0);
-  now += 11 * 60 * 1000;
-  await pb.followUp({ root, remote: c, now: () => now });
-  assert.equal(c.member, false, 'past the ticket life the follow-up ends it (a restart loses tickets, not the marker)');
-  assert.equal(opened(root), false);
-  // The late switchOn on the same (expired) preview: told to open it again, nothing more sent.
-  const before = c.sent.length;
-  const r = await pb.switchOn(p.ticket, true, { root, remote: c, now: () => now });
-  assert.equal(r.code, 'ticket');
-  assert.equal(c.sent.length, before, 'no marker left, so nothing is sent');
-});
-
-test('#7404 blocker 1: off with no record here ends an unbound personal membership', async (t) => {
-  const root = fresh(t);
-  const c = coordinator();
-  await pb.preview({ root, remote: c });
-  const r = await pb.switchOff({ root, remote: c, orgenroll: oe });
-  assert.equal(r.ok, true);
-  assert.equal(c.member, false);
-});
-
-test('#7404 blocker 1: a company, a family, another computer, or another personal org are never left', async (t) => {
-  for (const [name, data] of [
-    ['company', { member: true, org: { id: 'acme', kind: 'company' }, enrolled: null }],
-    ['family', { member: true, org: { id: 'fam', kind: 'family' }, enrolled: null }],
-    ['no kind (an older coordinator)', { member: true, org: { id: ORG.id }, enrolled: null }],
-    ['another computer runs it', { member: true, org: ORG, enrolled: { computer: 'c2', world: 'w2', thisComputer: false } }],
-    ['another personal org', { member: true, org: { id: 'porg_other', kind: 'personal' }, enrolled: null }],
-  ]) {
-    const root = fresh(t);
-    const c = coordinator({ statusAnswer: { ok: true, data } });
-    const p = await pb.preview({ root, remote: c });
-    await pb.switchOn(p.ticket, false, { root, remote: c });
-    assert.equal(STATUS_N(c), 2, name + ': status was read before the preview and at the decline');
-    assert.equal(LEAVE_N(c), 0, name + ': nothing was left');
-    assert.equal(opened(root), false, name + ': settled, so the marker goes');
-  }
-});
-
-test('#7404 blocker 1 CONTROL: the same decline against an unbound personal status DOES leave', async (t) => {
-  const root = fresh(t);
-  const c = coordinator({ statusAnswer: { ok: true, data: { member: true, org: ORG, enrolled: null } } });
-  const p = await pb.preview({ root, remote: c });
-  await pb.switchOn(p.ticket, false, { root, remote: c });
-  assert.equal(LEAVE_N(c), 1);
-});
-
-test('#7404 blocker 1: an unanswered leave keeps the marker, and a bound computer is never left', async (t) => {
-  const root = fresh(t);
-  const c = coordinator({ leaveDown: true });
-  const p = await pb.preview({ root, remote: c });
-  await pb.switchOn(p.ticket, false, { root, remote: c });
-  assert.equal(opened(root), true, 'not settled: the follow-up asks again');
-  // Bound here: the decline path reads nothing and leaves nothing.
-  const root2 = fresh(t);
-  const c2 = coordinator();
-  const p2 = await pb.preview({ root: root2, remote: c2 });
-  const on = await pb.switchOn(p2.ticket, true, { root: root2, remote: c2, personalbackupkey: KEY_OK });
-  assert.equal(on.ok, true);
-  assert.equal(opened(root2), false, 'bound: the marker goes');
-  const p3 = await pb.preview({ root: root2, remote: c2 });
-  const n = c2.sent.length;
-  await pb.switchOn(p3.ticket, false, { root: root2, remote: c2 });
-  assert.equal(c2.sent.length, n, 'on here: a decline sends nothing');
-});
 
 /* Code review 2, warning 3: a pending leave's age is when this module first saw it, not the file's mtime (leaveNow
    rewrites that file on every try), so a leave nobody answers falls back to hourly after its first day. */
@@ -449,7 +357,6 @@ test('#7404 warning 5: an unwritable data folder before anything is sent: says s
   const root = fresh(t);
   const c = coordinator();
   const p = await pb.preview({ root, remote: c });
-  fs.rmSync(path.join(root, PREVIEW_OPEN), { force: true });
   fs.chmodSync(root, 0o500);
   t.after(() => { try { fs.chmodSync(root, 0o700); } catch { /* already removed */ } });
   const r = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
@@ -488,34 +395,6 @@ test('#7404: two switchOn calls on one ticket send one enroll', async (t) => {
   assert.deepEqual([a.ok, b.code], [true, 'busy']);
 });
 
-/* Code review 3 premise (found reading db.rs): the coordinator reads a RETIRED computer's binding as none, so a real
-   personal backup whose Mac was lost reads enrolled:null. A membership that was there before this preview is never
-   ended from here, whatever status says, because this computer cannot tell it from an unbound one. */
-test('#7404: a personal membership that was there before the preview is never ended (a retired Mac reads unbound)', async (t) => {
-  const root = fresh(t);
-  const c = coordinator({ preexisting: true });
-  const p = await pb.preview({ root, remote: c });
-  assert.equal(fs.existsSync(path.join(root, PREVIEW_OPEN)), false, 'no marker: the account was already a member');
-  await pb.switchOn(p.ticket, false, { root, remote: c });
-  let now = Date.now() + 11 * 60 * 1000;
-  pb._resetFollowUpForTests();
-  await pb.followUp({ root, remote: c, now: () => now });
-  await pb.switchOff({ root, remote: c, orgenroll: oe });
-  assert.equal(LEAVE_N(c), 0, 'decline, expiry and off: nothing left');
-  assert.equal(c.member, true, 'the membership (and its backup) is still there');
-});
-
-test('#7404: no status answer before the preview writes no marker', async (t) => {
-  const root = fresh(t);
-  const c = coordinator();
-  const real = c.macRequest;
-  let first = true;
-  c.macRequest = async (m, route, body) => { if (route === oe.ROUTES.status && first) { first = false; return { ok: false, because: 'unreachable' }; } return real(m, route, body); };
-  const p = await pb.preview({ root, remote: c });
-  assert.equal(p.ok, true);
-  assert.equal(fs.existsSync(path.join(root, PREVIEW_OPEN)), false);
-});
-
 /* Code review 3, blocker 1: a personal backup another computer of the account runs is never moved here. */
 const ON_B = { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'B', world: 'b'.repeat(32), thisComputer: false } } };
 test('#7404 review 3 blocker 1: bound on another computer: the preview is refused and nothing is made', async (t) => {
@@ -539,31 +418,6 @@ test('#7404 review 3 blocker 1: bound on another computer after the preview: swi
   assert.equal(r.code, 'personal_on_elsewhere');
   assert.equal(c.sent.filter((x) => x.route === oe.ROUTES.enroll).length, 0);
   assert.equal(pb._TICKETS.has(p.ticket), false);
-});
-
-/* Warning 3: no leave while a switch-on here may be binding. */
-test('#7404 review 3 warning 3: the follow-up ends nothing while a switch-on is in flight', async (t) => {
-  const root = fresh(t);
-  let release;
-  const gate = new Promise((res) => { release = res; });
-  t.after(() => release());   // a red assertion must not leave orgenroll's queue held for the tests after it
-  const c = coordinator();
-  const p = await pb.preview({ root, remote: c });
-  const real = c.macRequest;
-  c.macRequest = async (m, route, body) => { if (route === oe.ROUTES.enroll) await gate; return real(m, route, body); };
-  const on = pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
-  await new Promise((res) => setImmediate(res));
-  await new Promise((res) => setTimeout(res, 20));
-  pb._resetFollowUpForTests();
-  // Not awaited before the check: a pass that did send would then wait on orgenroll's queue, which the held enroll owns,
-  // and a deadlocked test reads as a hang rather than a red (measured on the mutant).
-  const fu = pb.followUp({ root, remote: c, now: () => Date.now() + 11 * 60 * 1000 });
-  await new Promise((res) => setTimeout(res, 50));
-  assert.equal(LEAVE_N(c), 0, 'no leave while the enroll is in flight');
-  release();
-  await fu;
-  assert.equal((await on).ok, true);
-  assert.equal(c.member, true);
 });
 
 /* Warning 5: a failed enroll does not erase a good key marker. */
@@ -591,80 +445,6 @@ test('#7404 review 3 warning 2: org_not_member on accept says open it again', as
   assert.doesNotMatch(r.because, /try again in a minute/);
 });
 
-/* NIT 7: a marker dated in the future (the clock set back) is treated as old, so it is still ended. */
-test('#7404 review 3 nit 7: a preview marker from the future is ended', async (t) => {
-  const root = fresh(t);
-  const c = coordinator();
-  await pb.preview({ root, remote: c });
-  const f = path.join(root, PREVIEW_OPEN);
-  const j = JSON.parse(fs.readFileSync(f, 'utf8'));
-  fs.writeFileSync(f, JSON.stringify(Object.assign(j, { at: Date.now() + 365 * 24 * HOUR_MS })));
-  pb._TICKETS.clear();   // a restart: the preview's own ticket would keep it (review 4)
-  pb._resetFollowUpForTests();
-  await pb.followUp({ root, remote: c });
-  assert.equal(c.member, false);
-});
-
-/* kosmos#7658: a coordinator that reads the leave's orgId refuses another org's; that settles it, nothing retried. */
-test('#7404: org_not_that_org on the leave settles the marker', async (t) => {
-  const root = fresh(t);
-  const c = coordinator();
-  const p = await pb.preview({ root, remote: c });
-  const real = c.macRequest;
-  c.macRequest = async (m, route, body) => (route === oe.ROUTES.leave ? (c.sent.push({ route, body }), { ok: false, because: '409 {"code":"org_not_that_org"}', refusal: { status: 409, code: 'org_not_that_org' } }) : real(m, route, body));
-  await pb.switchOn(p.ticket, false, { root, remote: c });
-  assert.equal(LEAVE_N(c), 1);
-  assert.equal(fs.existsSync(path.join(root, PREVIEW_OPEN)), false, 'settled: no retry');
-});
-
-/* Code review 4, blocker 1: the personal org is reused across computers, so the relay must end it only while unbound. */
-test('#7404 review 4 blocker 1: org_now_bound on the leave settles the marker and ends nothing', async (t) => {
-  const root = fresh(t);
-  const c = coordinator();
-  const p = await pb.preview({ root, remote: c });
-  const real = c.macRequest;
-  c.macRequest = async (m, route, body) => (route === oe.ROUTES.leave ? (c.sent.push({ route, body }), { ok: false, because: '409 {"code":"org_now_bound"}', refusal: { status: 409, code: 'org_now_bound' } }) : real(m, route, body));
-  await pb.switchOn(p.ticket, false, { root, remote: c });
-  assert.equal(LEAVE_N(c), 1);
-  assert.equal(c.member, true, 'nothing ended');
-  assert.equal(fs.existsSync(path.join(root, PREVIEW_OPEN)), false, 'settled: no retry');
-});
-
-/* Warnings 2 and 3: a live ticket for the org (someone reading) keeps it; a re-preview refreshes the marker's age. */
-test('#7404 review 4 warning 3: reopened at nine minutes, the follow-up does not end it at eleven', async (t) => {
-  const root = fresh(t);
-  let now = 2_000_000_000_000;
-  const at = () => now;
-  const c = coordinator();
-  await pb.preview({ root, remote: c, now: at });
-  now += 9 * 60 * 1000;
-  const p2 = await pb.preview({ root, remote: c, now: at });
-  now += 2 * 60 * 1000;
-  pb._resetFollowUpForTests();
-  await pb.followUp({ root, remote: c, now: at });
-  assert.equal(LEAVE_N(c), 0, 'not ended while the second preview is read');
-  const r = await pb.switchOn(p2.ticket, true, { root, remote: c, personalbackupkey: KEY_OK, now: at });
-  assert.equal(r.ok, true);
-});
-
-test('#7404 review 4 warning 2: a live ticket for the org keeps it, even with an old marker', async (t) => {
-  const root = fresh(t);
-  let now = 2_000_000_000_000;
-  const at = () => now;
-  const c = coordinator();
-  await pb.preview({ root, remote: c, now: at });
-  // The marker aged past the ticket life by hand; a ticket issued just now for the same org is still live.
-  const f = path.join(root, PREVIEW_OPEN);
-  fs.writeFileSync(f, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(f, 'utf8')), { at: now - 20 * 60 * 1000 })));
-  pb._resetFollowUpForTests();
-  await pb.followUp({ root, remote: c, now: at });
-  assert.equal(LEAVE_N(c), 0, 'a live ticket: kept');
-  now += 11 * 60 * 1000;
-  await pb.followUp({ root, remote: c, now: at });
-  assert.equal(LEAVE_N(c), 1, 'CONTROL: once the ticket has lapsed it is ended');
-});
-
-/* NITs 5 and 6: sentences that say what happened. */
 /* NIT 5 measured: orgenroll itself refuses an answer naming another org (opts.orgId, its review 39) and writes no
    record, so "nothing was turned on" is true there; personalbackup's own org check is a second line. */
 test('#7404 review 4 nit 5: a bind answered for another org writes no record and says nothing was turned on', async (t) => {
@@ -677,22 +457,77 @@ test('#7404 review 4 nit 5: a bind answered for another org writes no record and
   assert.match(r.because, /nothing was turned on/);
 });
 
-/* The marker refresh on its own (mutant M3 stayed green above, where the live ticket also keeps it): a restart after the
-   reopen loses the ticket, and the refreshed marker is then what keeps a nine-minute reopen from being ended at eleven. */
-test('#7404 review 4 warning 3: the re-preview refreshes the marker, which holds after a restart', async (t) => {
+/* Code review 5, as decided: the board never ends a membership its preview made. A decline, an expired ticket, an off
+   with no record and the follow-up send NO leave; kosmos#7658 ends an unbound personal membership at a company or
+   family join instead. Each arm checks a leave could be seen: the CONTROL arm turns it on and off, which does leave. */
+test('#7404 review 5: decline, expiry, off with no record and the follow-up send no leave', async (t) => {
   const root = fresh(t);
   let now = 2_000_000_000_000;
   const at = () => now;
   const c = coordinator();
-  await pb.preview({ root, remote: c, now: at });
-  now += 9 * 60 * 1000;
-  await pb.preview({ root, remote: c, now: at });
-  pb._TICKETS.clear();
-  now += 2 * 60 * 1000;
+  const p = await pb.preview({ root, remote: c, now: at });
+  await pb.switchOn(p.ticket, false, { root, remote: c, now: at });
+  const p2 = await pb.preview({ root, remote: c, now: at });
+  now += 11 * 60 * 1000;
+  assert.equal((await pb.switchOn(p2.ticket, true, { root, remote: c, now: at })).code, 'ticket');
   pb._resetFollowUpForTests();
   await pb.followUp({ root, remote: c, now: at });
-  assert.equal(LEAVE_N(c), 0, 'refreshed at nine minutes: two minutes old, not eleven');
-  now += 9 * 60 * 1000;
-  await pb.followUp({ root, remote: c, now: at });
-  assert.equal(LEAVE_N(c), 1, 'CONTROL: past its own ten minutes it is ended');
+  await pb.switchOff({ root, remote: c, orgenroll: oe });
+  assert.equal(LEAVE_N(c), 0, 'no leave from any of the four');
+  assert.equal(c.member, true, 'the membership is left for the relay to end at a join');
+  const root2 = fresh(t);
+  const c2 = coordinator();
+  const p3 = await pb.preview({ root: root2, remote: c2 });
+  assert.equal((await pb.switchOn(p3.ticket, true, { root: root2, remote: c2, personalbackupkey: KEY_OK })).ok, true);
+  await pb.switchOff({ root: root2, remote: c2, orgenroll: oe });
+  assert.equal(LEAVE_N(c2), 1, 'CONTROL: on then off does send the leave');
 });
+
+/* Code review 5, warning 1: a preview whose status read is unanswered sends nothing (it could not check for a backup
+   another computer runs, and would make a membership unseen); the same before an enroll, keeping the ticket. */
+test('#7404 review 5: no status answer: no preview made, no enroll sent', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const real = c.macRequest;
+  let down = true;
+  c.macRequest = async (m, route, body) => (route === oe.ROUTES.status && down ? (c.sent.push({ route, body }), { ok: false, because: 'unreachable' }) : real(m, route, body));
+  const r = await pb.preview({ root, remote: c });
+  assert.equal(r.ok, false);
+  assert.equal(c.sent.filter((x) => x.route === pb.ROUTE).length, 0, 'no membership made');
+  down = false;
+  const p = await pb.preview({ root, remote: c });
+  down = true;
+  const on = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  assert.equal(on.ok, false);
+  assert.equal(c.sent.filter((x) => x.route === oe.ROUTES.enroll).length, 0, 'no enroll sent');
+  assert.equal(pb._TICKETS.has(p.ticket), true, 'nothing sent: the ticket is kept for a retry');
+});
+
+/* Code review 5, NIT: status is read even with a record here, so a stale record (another computer took the binding
+   since the last refresh) cannot move it back. */
+test('#7404 review 5: a stale record here does not skip the elsewhere check', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true);
+  assert.equal(pb.isOn({ root }), true, 'precondition: a record here');
+  const real = c.macRequest;
+  c.macRequest = async (m, route, body) => (route === oe.ROUTES.status ? (c.sent.push({ route, body }), ON_B) : real(m, route, body));
+  assert.equal((await pb.preview({ root, remote: c })).code, 'personal_on_elsewhere');
+});
+
+/* Code review 5, warning 2: a recovery code still waiting to be shown and confirmed reads needs-key, so the screen runs
+   the key step again (which answers the same code); confirmed, it reads on. */
+test('#7404 review 5: a recovery code not yet confirmed reads needs-key', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  let pending = true;
+  const keys = { setUpPersonalKey: async () => ({ ok: true, code: 'TEST-CODE', epoch: 1, org: ORG.id, member: 'acct_1' }), hasPendingCode: (o, m) => pending && o === ORG.id && m === 'acct_1' };
+  const p = await pb.preview({ root, remote: c });
+  const r = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: keys });
+  assert.deepEqual([r.ok, r.org, r.member], [true, ORG.id, 'acct_1'], 'the screen gets what confirm needs');
+  assert.equal(pb.state({ root, personalbackupkey: keys }), 'needs-key');
+  pending = false;
+  assert.equal(pb.state({ root, personalbackupkey: keys }), 'on', 'CONTROL: confirmed reads on');
+});
+

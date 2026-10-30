@@ -259,4 +259,11 @@ async function restoreNow(code, opts) {
   } catch { return refused('restoring the backup keys failed on this computer'); }
 }
 
-module.exports = { setUpPersonalKey, confirmRecoveryCodeSaved, restorePersonalKey, MINE_ROUTE };
+/** kosmos#7404 (personalswitch-7404 review 5): whether a recovery code is still waiting to be confirmed for (org,
+    member), read locally. True for an unreadable file too: setup then stops and says so rather than look finished. */
+function hasPendingCode(org, member) {
+  if (typeof org !== 'string' || typeof member !== 'string') return false;
+  return readPending(org, member) !== null;
+}
+
+module.exports = { setUpPersonalKey, confirmRecoveryCodeSaved, restorePersonalKey, hasPendingCode, MINE_ROUTE };
