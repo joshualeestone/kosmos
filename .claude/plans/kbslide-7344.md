@@ -87,3 +87,11 @@ sample for "every time"; ui-keyboard.sh is the way to add more.
 - **The user-facing cost of not animating:** under the id anchor the move runs once the keyboard is up, so the newest
   message is covered while the keyboard rises, then jumps into place. That is the price of not fighting the side lock
   (above). Do not "fix" it by adding an animation here.
+
+## After review round 6
+
+- Check 3 finds "the highest row on screen" below the navigation bar's own bottom edge, not a fixed 120 points, and
+  treats the newest message as gone when it no longer exists (a lazy list drops rows far off screen) as well as when it
+  is not hittable. **Measured 10-30 04:2x CDT on a fresh simulator, the checks as committed:** with the change 3 of 3
+  pass; with `keepNewestInView` forced true (local edit, reverted), check 3 **fails** ("Message 213 of 260", read
+  higher up, left the screen). One run per arm.

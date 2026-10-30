@@ -43,11 +43,12 @@ final class KeyboardSlideUITests: XCTestCase {
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15), "no sample rows")
         // The chat opens at its newest message; the hook's scroll up has happened once that has left the screen.
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
-        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == false"), object: newest)
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false OR isHittable == false"), object: newest)
         XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 15), .completed, "the scroll up never moved the reader off the newest message")
         Self.settle(rows.firstMatch)
         // The highest row on screen below the header, by its own label so it can be found again after the keyboard.
-        guard let top = rows.allElementsBoundByIndex.filter({ $0.isHittable && $0.frame.minY > 120 }).min(by: { $0.frame.minY < $1.frame.minY }) else {
+        let header = app.navigationBars.firstMatch.frame.maxY   // rows under the top bar are not the reader's place
+        guard let top = rows.allElementsBoundByIndex.filter({ $0.isHittable && $0.frame.minY > header }).min(by: { $0.frame.minY < $1.frame.minY }) else {
             XCTFail("no row on screen after the scroll up"); return
         }
         let label = top.label, y0 = top.frame.minY
@@ -55,7 +56,7 @@ final class KeyboardSlideUITests: XCTestCase {
         try Self.keyboardUp(app, box, row, shot: "read-higher-keyboard-up", test: self)
         XCTAssertTrue(row.exists && row.isHittable, "'\(label)', read higher up, left the screen when the keyboard came up")
         XCTAssertEqual(row.frame.minY, y0, accuracy: 4, "'\(label)' moved from \(y0) to \(row.frame.minY)")
-        XCTAssertFalse(newest.isHittable, "the reader was pulled down to the newest message")
+        XCTAssertFalse(newest.exists && newest.isHittable, "the reader was pulled down to the newest message")
     }
 
     private static func launch(_ env: [String: String]) -> XCUIApplication {
