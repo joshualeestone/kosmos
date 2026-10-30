@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: fr-conn-url fr-conn-cloudsay-code fr-conn-cloudsay-open frCloudSigninDetail frConnPaintUrl fr-conn-code data-cloud-hide data-cloud-copy boardEmpty d-rename-hint import-folder fr-pane-5
+// Browser-check-surface: pollWaiting asSentence fr-conn-url fr-conn-cloudsay-code fr-conn-cloudsay-open frCloudSigninDetail frConnPaintUrl fr-conn-code data-cloud-hide data-cloud-copy boardEmpty d-rename-hint import-folder fr-pane-5
 /**
  * kosmos#4903 S5 design (Mona Lisa, card comment 6433522198), first run's Claude sign-in on a Kosmos cloud machine:
  *   1. the sign-in link is the PRIMARY button, gold and filled, no underline, full width on a phone. It used to lose to
@@ -80,7 +80,7 @@ async function hideArm(browser, cloud) {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(() => { window.setInterval = () => 0; });
   await page.goto('file://' + PAGE);
-  const got = await page.evaluate((cloud) => {
+  const got = await page.evaluate(async (cloud) => {
     // A real cloud machine is a Linux board as well (review 7), so the cloud arm is Linux plus the cloud meta.
     const meta = (name, content) => {
       let m = document.querySelector('meta[name="' + name + '"]');
@@ -111,6 +111,27 @@ async function hideArm(browser, cloud) {
       // Seam H, the engine's half: an engine reason as the page says it (the presence line's funnel, and a restart failure).
       reason: typeof pjSentence === 'function' ? pjSentence('we cannot see an agent by exactly this name on this computer right now') : 'NO pjSentence',
       restart: typeof restartFailureLine === 'function' ? restartFailureLine({ because: 'we could not find Claude Code on this computer' }) : 'NO restartFailureLine',
+      // kosmos#7640: the subscription sentence, in the Model step lead and in a sign-in panel, as painted.
+      keys: [...document.querySelectorAll('p')].map((p) => p.textContent).filter((t) => /It stays on /.test(t))
+        .map((t) => (t.match(/It stays on (your cloud machine|this computer)\b/) || [])[1] || t),
+      subs: [...document.querySelectorAll('p')].map((p) => p.textContent).filter((t) => /on your own subscription, on /.test(t))
+        .map((t) => (t.match(/on your own subscription, on ([a-z ]+)\./) || [])[1] || t),   // review 1: an odd sentence is reported, not thrown
+      // kosmos#7640: the create form's refusal as the page says it (asSentence applies cloudWords).
+      refusal: typeof asSentence === 'function' ? asSentence('there is no Claude account signed in on this computer, so an agent created on Claude could not run.') : 'NO asSentence',
+      // kosmos#7640: the waiting-list poll, three times against a 403, from a page reached through Kosmos+ (kplusRemote
+      // stubbed true: a file:// page is not one) and from a local tab (a signed-out tab is refused the same way).
+      polls: await (async () => {
+        if (typeof pollWaiting !== 'function' || typeof kplusRemote !== 'function') return null;
+        const count = async (remote) => {
+          let n = 0;
+          const realFetch = window.fetch; const realRemote = kplusRemote;
+          window.fetch = async (u) => { if (String(u).includes('/api/remote/waiting')) n += 1; return new Response('{}', { status: 403 }); };
+          kplusRemote = () => remote;
+          try { await pollWaiting(); await pollWaiting(); await pollWaiting(); } finally { window.fetch = realFetch; kplusRemote = realRemote; }
+          return n;
+        };
+        return { remote: await count(true), local: await count(false) };
+      })(),
     };
   }, cloud);
   got.errors = errors;
@@ -153,6 +174,15 @@ async function hideArm(browser, cloud) {
     check('CONTROL mac: No agents yet keeps "this computer"', /runs on this computer/.test(hm.empty), hm.empty.slice(0, 160));
     check('cloud: the rename hint says your cloud machine', /where they live on your cloud machine,/.test(hc.hint), hc.hint);
     check('CONTROL mac: the rename hint says this computer', /where they live on this computer,/.test(hm.hint), hm.hint);
+    // kosmos#7640 (the 10-30 Cloud walk, items 2 and 6).
+    check('cloud: every subscription sentence says your cloud machine', hc.subs.length >= 4 && hc.subs.every((w) => w === 'your cloud machine'), JSON.stringify(hc.subs));
+    check('cloud: every API-key callout says your cloud machine', hc.keys.length === 3 && hc.keys.every((w) => w === 'your cloud machine'), JSON.stringify(hc.keys));
+    check('CONTROL mac: the API-key callouts say this computer', hm.keys.length === 3 && hm.keys.every((w) => w === 'this computer'), JSON.stringify(hm.keys));
+    check('CONTROL mac: the subscription sentences say this computer', hm.subs.length >= 4 && hm.subs.every((w) => w === 'this computer'), JSON.stringify(hm.subs));
+    check('cloud: the no-Claude refusal reads as a sentence and names your cloud machine', /^There is no Claude account signed in on your cloud machine,/.test(hc.refusal), hc.refusal);
+    check('CONTROL mac: the refusal is a sentence that keeps this computer', /^There is no Claude account signed in on this computer,/.test(hm.refusal), hm.refusal);
+    check('a page reached through Kosmos+ never asks for the waiting list', !!hc.polls && hc.polls.remote === 0 && hm.polls.remote === 0, JSON.stringify([hc.polls, hm.polls]));
+    check('CONTROL: a local tab refused (signed out) keeps asking', !!hc.polls && hc.polls.local === 3 && hm.polls.local === 3, JSON.stringify([hc.polls, hm.polls]));
     check('cloud: the age line is Claude\'s alone (the OpenAI or Grok line is hidden)', JSON.stringify(hc.ages) === JSON.stringify(['Claude needs you to be 18 or over. Age rules vary by country.']), JSON.stringify(hc.ages));
     check('CONTROL mac: the age line names the under-18 choice', hm.ages.length === 1 && /choose OpenAI or Grok/.test(hm.ages[0]), JSON.stringify(hm.ages));
     check('cloud: the hidden providers\' status boxes are hidden too', hc.msgs.every((v) => !v), JSON.stringify(hc.msgs));

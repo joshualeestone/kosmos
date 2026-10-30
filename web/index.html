@@ -14812,7 +14812,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="dhint" style="margin:8px 0 0;">A Grok subscription signs in through xAI, with nothing to paste. An API key is a string you create on xAI's site.</p>
       </div>
       <div id="acct-grok-sub-step" hidden>
-        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your Grok subscription.</b> xAI's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own subscription, on this computer.</p>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your Grok subscription.</b> xAI's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own subscription, on <span data-cloud-copy="thisMachine">this computer</span>.</p>
         <div class="frow" style="margin-top:12px;">
           <button class="btn uprime" id="acct-grok-sub-go" type="button">Sign in with Grok</button>
         </div>
@@ -14858,7 +14858,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="dhint" style="margin:8px 0 0;">A Google subscription signs in through Google, with nothing to paste. An API key is a string you create on Google's site.</p>
       </div>
       <div id="acct-gemini-sub-step" hidden>
-        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your Google subscription.</b> Gemini on a subscription runs on Google's Antigravity, which signs in with Google in your browser; Kosmos never sees your password. Your agents then run on your own subscription, on this computer.</p>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your Google subscription.</b> Gemini on a subscription runs on Google's Antigravity, which signs in with Google in your browser; Kosmos never sees your password. Your agents then run on your own subscription, on <span data-cloud-copy="thisMachine">this computer</span>.</p>
         <div class="frow" style="margin-top:12px;">
           <button class="btn uprime" id="acct-gemini-sub-go" type="button">Sign in with Google</button>
         </div>
@@ -14895,7 +14895,7 @@ window.kosmosMeasureScrollbarWidth();
          logs it, never puts it in a URL. Same neutral .dwarn callout as the other key
          steps: a key not yet added must not wear the connected-green. -->
     <div id="acct-apikey-flow" hidden style="margin-top: var(--space-5);">
-      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b id="acct-apikey-head">Paste an API key.</b> It stays on this computer, and Kosmos will not show it again.</p>
+      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b id="acct-apikey-head">Paste an API key.</b> It stays on <span data-cloud-copy="thisMachine">this computer</span>, and Kosmos will not show it again.</p>
       <div class="frow">
         <input type="password" id="acct-apikey-key" autocomplete="new-password" spellcheck="false"
                aria-label="API key" placeholder="API key">
@@ -15046,7 +15046,7 @@ window.kosmosMeasureScrollbarWidth();
            (#2164), not the subscription flow's red: a key not yet added must not wear
            the connected-green, and this reassures rather than warns. -->
       <div id="acct-claude-key-step" hidden>
-        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Paste an Anthropic API key.</b> It stays on this computer, read by Claude Code the same as if you had set it there yourself, and Kosmos will not show it again.</p>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Paste an Anthropic API key.</b> It stays on <span data-cloud-copy="thisMachine">this computer</span>, read by Claude Code the same as if you had set it there yourself, and Kosmos will not show it again.</p>
         <div class="frow">
           <input type="password" id="acct-claude-key" autocomplete="new-password" spellcheck="false"
                  aria-label="Anthropic API key" placeholder="sk-ant-…">
@@ -15114,7 +15114,7 @@ window.kosmosMeasureScrollbarWidth();
            types on OpenAI's OWN page. So the shape is start -> open the page ->
            wait, with no code field in Kosmos. Kosmos never sees the password. -->
       <div id="acct-openai-sub-step" hidden>
-        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your ChatGPT subscription.</b> <span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</span></p>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your ChatGPT subscription.</b> <span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on <span data-cloud-copy="thisMachine">this computer</span>.</span></p>
         <!-- #2913: no name field here. The subscription sign-in pulls in the account's
              email automatically, and that is what tells one subscription account apart
              from another -- so asking for a name is extra work for nothing. (The API-key
@@ -15144,7 +15144,7 @@ window.kosmosMeasureScrollbarWidth();
            bold lead -- so the two providers read alike. The marker is neutral ink,
            not the Claude flow's red (this reassures rather than warns) and not the
            connected-green (a key not yet added must not wear the connected mark). -->
-      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Paste an OpenAI API key.</b> It stays on this computer with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
+      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Paste an OpenAI API key.</b> It stays on <span data-cloud-copy="thisMachine">this computer</span> with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
       <div class="frow">
         <input type="password" id="acct-openai-key" autocomplete="new-password" spellcheck="false"
                aria-label="OpenAI API key" placeholder="sk-…">
@@ -15826,7 +15826,7 @@ window.kosmosMeasureScrollbarWidth();
                      unknown one enters a drive whose REPL detection says "we could
                      not confirm" rather than forcing credential entry (the painter
                      comment states the guarantee precisely). -->
-                <p>Your agents run on your own subscription, on this computer.</p>
+                <p>Your agents run on your own subscription, on <span data-cloud-copy="thisMachine">this computer</span>.</p>
                 <!-- #5856 (Josh set the Play audience to 13+, 2026-10-11): Claude's consumer terms are 18+, so a teen who
                      picks it hits a wall that is not ours to lift. Say so here, and name who a teen can pick. No age
                      question (ruled on the card). The list names Meta Muse only where Muse is live (frPaintMeta).
@@ -21179,7 +21179,7 @@ function windowsCopyTable() {
        below is the way back to it if the browser window lands behind; and the line above
        the code names the address, so the screen still makes sense if the person has to
        go and find the browser. %ADDR% is filled in by openaiSubDeviceMarkup. */
-    openaiSubHow: 'Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code to type there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
+    openaiSubHow: 'Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code to type there. Kosmos never sees your password. Your agents then run on your own subscription, on <span data-cloud-copy="thisMachine">this computer</span>.',
     /* #6521: the first-run Model step already leads with the subscription sentence, so its sign-in panel does not repeat it. */
     frOpenaiSubHow: 'Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code to type there. Kosmos never sees your password.',
     openaiSubOpen: 'Open the sign-in page again',
@@ -53795,7 +53795,7 @@ function waitForgetRows() {
 }
 /* Started here, beside its state, not with pollAsk's timer: web.plus-stale.test.js runs the panel script after this block
    on its own. Answers v2 false, and nothing shows, until the board-v2 marker exists. */
-setTimeout(() => { pollWaiting(); setInterval(pollWaiting, 5000); }, 0);
+setTimeout(() => { if (typeof kplusRemote === 'function' && kplusRemote()) return; pollWaiting(); setInterval(pollWaiting, 5000); }, 0);   // kosmos#7640: never on a page reached through Kosmos+
 /* What the section would draw from: a poll repaints only when this changes (CI's render-snav-head-4979: without the
    marker this poll ran paintAsk every 5 s for nothing, doubling the repaints of a board that should be unchanged). */
 function waitSig() {
@@ -53805,12 +53805,18 @@ function waitSig() {
     WAIT.rows.map((w) => [w.knockId, w.firstSeen, w.uaClass, w.net, w.vouched])]);
 }
 async function pollWaiting() {
+  /* kosmos#7640: a page reached through Kosmos+ (its own address is not loopback, kplusRemote) is a remote session for
+     its whole life, and a remote session is refused this list by design, so it never asks (on a cloud machine every
+     session is remote: an open tab asked 720 times an hour, every answer a 403). Review 1: keyed on the page's address,
+     not on a 403, because a LOCAL tab that is merely signed out is refused the same way and recovers in place. */
+  if (typeof kplusRemote === 'function' && kplusRemote()) return;
   // Against what was last DRAWN (paintWaiting records it), so a change learned between polls is drawn too.
   const repaint = () => { if (waitSig() !== WAIT.paintedSig) paintAsk(); };
   let res = null;
   try { res = await fetch('/api/remote/waiting', { cache: 'no-store' }); } catch { res = null; }
   if (!res) return;   // a blip keeps the last paint
-  // A remote session is refused this list by design: nothing to show there, and nothing to say about it.
+  // A LOCAL tab refused this list (signed out, no board cookie; a remote page never gets here): nothing to show, nothing
+  // to say, and it keeps asking, since it recovers in place once it is signed in again.
   if (res.status === 403) { WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; waitForgetRows(); repaint(); return; }
   const r = await res.json().catch(() => null);
   if (!res.ok) {
@@ -65097,7 +65103,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
   /* `because` is the parse route's refusal reason (a 200 {ok:false, because}); `error`
      is its transport/500 sentence (a 400/500 {error}). Read both so a server error is
      not mislabelled "that is not an agent file". */
-  if (!data.ok) { fail(data.because || data.error || 'That is not an agent file we can bring in.'); return; }
+  if (!data.ok) { fail((typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(data.because || data.error || 'That is not an agent file we can bring in.')); return; }   // kosmos#7640: as a sentence
   /* What the person typed wins when the row asked for it; the engine folds it into a machine name
      ("Claude Pip" is claude-pip) and refuses one it cannot use, with a reason this row shows. A raw CLAUDE.md may
      carry no derivable name (recognizedFromContent): a row with a Name field asks for one there; a row without one
@@ -65159,7 +65165,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      from the cross-site guard, a 5xx), none of which carry outcome==='refused'. A partial
      is "not made", so it re-enables and shows its reason like any other failure; this
      one-click add has no made-screen to advance a partial to. */
-  if (!res.ok || out.outcome !== 'created') { fail((typeof cloudWords === 'function' ? cloudWords : (x) => x)(out.because || out.error || 'We could not make it, and we cannot tell you why.'), out.field === 'name'); return; }
+  if (!res.ok || out.outcome !== 'created') { fail((typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(out.because || out.error || 'We could not make it, and we cannot tell you why.'), out.field === 'name'); return; }
 
   /* ⚠️ THE BUTTON BECOMES THE RECEIPT rather than vanishing -- the same pattern the
      found/scan Add rows keep, on a screen where a person is about to press several
@@ -66065,9 +66071,9 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // 'name') lands beside the name field, red-bordered and focused; anything the
     // server does not tag to a field stays in the after-the-button slot.
     if (result.field === 'name') {
-      pjFieldBad('create-name', 'create-name-err', result.because || 'that name will not work');
+      pjFieldBad('create-name', 'create-name-err', (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(result.because || 'that name will not work'));   // kosmos#7640: as a sentence, as the line below
     } else {
-      msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(result.because || 'that name will not work');
+      msg.textContent = (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(result.because || 'that name will not work');   // kosmos#7640: as a sentence (asSentence applies cloudWords too)
     }
     return;
   }
@@ -66088,8 +66094,8 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // beside the field, not on the progress screen we advanced to on click.
     dropMyLoader();
     cstep('name');
-    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((result && (result.error || result.because))
-      || 'we could not make it, and we cannot tell you why');
+    msg.textContent = (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))((result && (result.error || result.because))
+      || 'we could not make it, and we cannot tell you why');   // kosmos#7640: as a sentence (asSentence applies cloudWords too)
     // The own gate's sentence is about the Role label at the top of a
     // scrolled form; put the person where the fix is (the live region has
     // already announced the words).

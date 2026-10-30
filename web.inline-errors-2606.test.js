@@ -65,7 +65,8 @@ test('Create an Agent routes a name refusal and the empty-role gate to the field
   const h = region("document.getElementById('create-go').addEventListener");
   // A server refusal tagged as the name lands at the name field, not below the button.
   assert.match(h, /result\.field === 'name'/, 'the refusal is not routed by field');
-  assert.match(h, /pjFieldBad\('create-name', 'create-name-err', result\.because/,
+  // kosmos#7640: the engine's reason as a sentence (guarded asSentence, which applies cloudWords).
+  assert.ok(h.includes("pjFieldBad('create-name', 'create-name-err', (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(result.because"),
     'a name refusal does not reach the name field');
   // The empty-Role gate flags the Role field (and focuses it) rather than writing
   // below the button and hand-rolling focus.

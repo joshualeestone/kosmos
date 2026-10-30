@@ -1408,6 +1408,65 @@ const connlostHeal = require('./engine/connlost-heal'); // #3410 PR 2b: nudge a 
 const crashloop = require('./engine/crashloop'); // #5154 slice A: an agent that keeps crashing on start, said on its card
 const stuckterminal = require('./engine/stuckterminal'); // #5154 slice C: an agent stuck on a recurring terminal error (auth_failed / rate_limited), said on its card
 const ownbounds = require('./engine/ownbounds'); // #5154 slice B: a Kosmos helper (quota resume / idle nudge / first-reply nudge) gave up on an agent, said on its card instead of only in a log
+/* kosmos#7633: when each own-bounds needs-you was handed to Kosmos+ (ownboundsPushKey(session, class) -> { at }), so the stall push skips
+   only an agent whose give-up was actually told, and only for a day. Cleared when Kosmos+ says it did not arrive. */
+const ownboundsPushed = new Map();
+/* The stall push's question (deliverystreak.tellStalls ownBound): was this agent told, within a day, that its idle nudge
+   gave up? Only the nudge class is the same problem as "Messages stuck"; a quota or first-reply give-up is not, and an
+   own-bounds push older than a day lets the stall's daily reminder through. */
+/* Review 2: keyed by store.safeKey and the class on both sides, so a name with a capital or a dot matches and a later
+   quota give-up does not overwrite the nudge's record; and the nudge must still be raised now (ownbounds.peek), so a
+   give-up that recovered does not hold a new stall's push for the rest of the day. */
+const ownboundsPushKey = (session, cls) => store.safeKey(session) + '\u0000' + cls;
+function ownBoundTold(card, now = Date.now()) {
+  if (!card || typeof card.sessionName !== 'string') return null;
+  const p = ownboundsPushed.get(ownboundsPushKey(card.sessionName, 'nudge'));
+  if (!(p && p.at <= now && now - p.at < require('./engine/deliverystreak').PUSH_GAP_MS)) return null;
+  let still = null;
+  try { still = ownbounds.peek(card.sessionName, card.state, now); } catch { still = null; }
+  const raised = !!(still && still.raised === true && Array.isArray(still.items) && still.items.some((i) => i && i.cls === 'nudge'));
+  return raised ? { raised: true } : null;
+}
+/* #5154 slice B's own-bounds push, for one give-up (ownbounds.sweepRoster's tell). kosmos#7633: counted in
+   ownboundsPushed only when it went out, and taken back when Kosmos+ says it did not arrive: set before the send and
+   dropped after it if it did not go (review 2: a sender that answers at once cannot leave a failed push counted; the `at`
+   guard keeps an older answer from dropping a newer push). Review 3: an idle-nudge give-up for an agent whose stall was
+   pushed within the day is the same problem, already told, so it is not pushed again; review 4: only while that stall
+   still stands on the agent's card (deps.stallStands), so a give-up that comes after the stall cleared is told. An
+   own-bounds sweep that cannot say pushes. `deps` is also for its test. */
+function tellOwnBound(key, it, shown, deps = {}) {
+  const happened = deps.happened || ((ev) => phonenotify.happened(ev));
+  const at = Number.isFinite(deps.now) ? deps.now : Date.now();
+  const ds = require('./engine/deliverystreak');
+  let stands = false;
+  try { stands = typeof deps.stallStands === 'function' && deps.stallStands(key) === true; } catch { stands = false; }
+  /* Review 5: a false answer leaves the episode unmarked in ownbounds.tellBounds, so this is asked again each minute
+     until it is told; each log line is said once per episode, not each minute. */
+  const pk = ownboundsPushKey(key, it.cls);
+  const sayOnce = (what, line) => {
+    const mark = pk + '\u0000' + it.sinceAt + '\u0000' + what;
+    if (ownboundsSaid.has(mark)) return;
+    if (ownboundsSaid.size > 500) ownboundsSaid.clear();
+    ownboundsSaid.add(mark);
+    process.stdout.write(line);
+  };
+  if (it.cls === 'nudge' && stands && ds.stallToldWithin(key, at, deps.stallFile || path.join(store.ROOT, ds.PUSH_FILE))) {
+    sayOnce('held', `own-bound: ${shown} (${key}) ${it.cls} gave up; its stall was already told today, so it waits until the stall clears\n`);
+    return false;
+  }
+  const drop = () => { if ((ownboundsPushed.get(pk) || {}).at === at) ownboundsPushed.delete(pk); };
+  ownboundsPushed.set(pk, { at });
+  for (const [k, v] of ownboundsPushed) if (at - v.at >= 2 * ds.PUSH_GAP_MS) ownboundsPushed.delete(k);   // pruned after two days
+  let sent = false;
+  try {
+    sent = happened({ kind: 'needs_you', id: 'ownbounds:' + it.cls + ':' + key + ':' + it.sinceAt, agent: shown, session: key, project: null,
+      onResult: (ok) => { if (ok === false) drop(); } });
+  } catch { sent = false; }
+  if (sent !== true) drop();
+  else sayOnce('told', `own-bound: ${shown} (${key}) ${it.cls} gave up ${Math.round(it.forMs / 60000)} min ago (${it.evidence}); told the person\n`);
+  return sent === true;
+}
+const ownboundsSaid = new Set();   // review 5: own-bounds log lines already said, per episode
 const firstreplyNudge = require('./engine/firstreply-nudge'); // #3226: one reminder to an agent that has not answered its first message
 const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 /* #3410: the self-heal's per-agent record, at module scope so /api/status can say where a
@@ -27014,7 +27073,7 @@ function start(port = PORT) {
              also pushed to the person's phone as needs-you, as a crash loop or a stuck terminal is: one push at a time and
              at most one each 15 minutes (naming the first and how many more), each agent once a day, counted only when it
              went out (deliverystreak.tellStalls). Here, in its own try, so a log line below that throws cannot skip it. */
-          try { ds.tellStalls(r, { file: path.join(store.ROOT, ds.PUSH_FILE), send: (ev) => phonenotify.happened(ev) }); } catch { /* told next minute */ }
+          try { ds.tellStalls(r, { file: path.join(store.ROOT, ds.PUSH_FILE), send: (ev) => phonenotify.happened(ev), ownBound: (c) => ownBoundTold(c) }); } catch { /* told next minute */ }   // kosmos#7633: own-bounds asked
           require('./engine/stallsignin').sweep();   // #7212 slice 3: accounts no stuck card read for an hour are forgotten
           /* kosmos#7368: each stuck step is said once (deliverystreak.turnsToSay); the streak lines keep their own rule. */
           const isTurn = (n) => byName.get(n).deliveryStall.lastWhy === 'turn';
@@ -28027,10 +28086,8 @@ function start(port = PORT) {
              removed agent is ownbounds.forget (wired into create/remove/delete-leftover beside stuckterminal.forget). */
           ownbounds.sweepRoster({
             roster: roster, told: OWNBOUNDS_TOLD, now: Date.now(),
-            tell: (key, it, shown) => {
-              process.stdout.write(`own-bound: ${shown} (${key}) ${it.cls} gave up ${Math.round(it.forMs / 60000)} min ago (${it.evidence}); told the person\n`);
-              phonenotify.happened({ kind: 'needs_you', id: 'ownbounds:' + it.cls + ':' + key + ':' + it.sinceAt, agent: shown, session: key, project: null });
-            },
+            /* kosmos#7633: counted, and not twice for a stall that still stands on the card (the same roster read). */
+            tell: (key, it, shown) => tellOwnBound(key, it, shown, { stallStands: (k) => !!((roster || []).find((a) => a && (a.sessionName === k || store.safeKey(a.sessionName) === k)) || {}).deliveryStall }),
           });
         } catch { /* never breaks the board */ }
       }, 60 * 1000);
@@ -28650,6 +28707,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
   _autobalanceSweepDepsForTest: autobalanceSweepDeps, // kosmos#7152 slice 3: the sweep's wiring, for its test
+  _tellOwnBoundForTest: tellOwnBound, _ownBoundToldForTest: ownBoundTold, _ownboundsPushedForTest: ownboundsPushed, _ownboundsPushKeyForTest: ownboundsPushKey, // kosmos#7633: the stall push's own-bounds question, for its test
   _automoveDepsForTest: automoveDeps, _accountMoveDepsForTest: accountMoveDeps, // kosmos#7548: the mover's wiring, for its test
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   watchSlowRequest, SLOW_REQUEST_MS, safeLogUrl, // kosmos#6721: the slow-request log, for its test
