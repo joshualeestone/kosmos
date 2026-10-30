@@ -187,8 +187,9 @@ function turnLine(name, s) {
 /* kosmos#7368 (review 4 W1): which stuck steps the board log says now, each ONCE per step (its clock and step are the
    key). `cards` is the board's roster ({ sessionName, deliveryStall }); `said` a Map the caller keeps. A name keeps its
    key while it is still on the board, so one read that missed the stall does not say it again; a name gone from the
-   board is forgotten. Returns the lines to write. Never throws. */
-function turnsToSay(cards, said) {
+   board is forgotten. Returns the lines to write. kosmos#7212 (#7615 item 1): `tell(card, stall)`, when given, is
+   called for each one said, so the person is told at the same moment. Never throws. */
+function turnsToSay(cards, said, tell = null) {
   const out = [];
   try {
     const present = new Set();
@@ -201,6 +202,7 @@ function turnsToSay(cards, said) {
       if (said.get(c.sessionName) === key) continue;
       said.set(c.sessionName, key);
       out.push(turnLine(c.sessionName, st));
+      if (typeof tell === 'function') { try { tell(c, st); } catch { /* the line is still said */ } }
     }
     for (const n of [...said.keys()]) if (!present.has(n)) said.delete(n);
   } catch { /* said next minute */ }
@@ -225,4 +227,18 @@ function sweep(names) {
 
 function resetForTests() { streaks.clear(); }
 
-module.exports = { turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+/* kosmos#7212 (#7615 item 1): the needs-you notification for a stall the board says (stallsToSay, or a stuck turn from
+   turnsToSay), so the person is told away from the board, as a crash loop or a stuck terminal tells them. The id names
+   the stall (its session and since), so each stall is one event; the phone shows the plain notice for it (phonenotice
+   cannot ask about a stall:/turn: id). `card` is the board's card for it ({ sessionName, name }). Null when there is
+   nothing to name. Never throws. */
+function stallEvent(card, stall) {
+  try {
+    const session = card && typeof card.sessionName === 'string' && card.sessionName ? card.sessionName : null;
+    if (!session || !stall || typeof stall.since !== 'string') return null;
+    const kind = stall.lastWhy === 'turn' ? 'turn' : 'stall';
+    return { kind: 'needs_you', id: kind + ':' + session + ':' + stall.since, agent: (typeof card.name === 'string' && card.name) || session, session, project: null };
+  } catch { return null; }
+}
+
+module.exports = { stallEvent, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
