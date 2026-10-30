@@ -194,3 +194,19 @@ org_not_that_org settles the marker (M5 red). Untested: startFollowUp's live gat
 NITs: 5 measured unreachable (orgenroll refuses another org first and writes no record; test asserts that). 6 switchOff
 says "stopped here" when a leave threw after the record went. 7 ELSEWHERE names removing a lost computer
 (/v1/account/macs/remove exists). Also: decline and off close this org's other open tickets (M5 red).
+
+## Code review 5 (blind, 17:0x 10-30): two blockers, four warnings. DECIDED: the board no longer ends anything (7f19db4e72)
+
+Blocker 1 (relay): personal_unbound_on counted ANY key row, and key rows are never deleted while the personal org is
+reused, so a backup once on, turned off and reopened could never be ended at a join. Mona Lisa fixed it in
+unboundjoin-7658 at 79d780e13a (only key rows created at or after this membership's joined_at; mutant red).
+Blocker 2 (board): status-then-leave is two requests, so on a relay that ignores orgId/unboundOnly the leave could end
+a company membership (this Mac's own join landing in between) or another computer's fresh bind.
+DECISION: the board sends NO leave for a membership its preview made. A decline, an expired ticket, an off with no
+record and the follow-up leave it; #7658 ends an unbound personal membership inside the company or family join, the
+only moment it gets in the way. Rejected: a board-side leave behind a relay capability flag (all the race machinery of
+rounds 2 to 5, for what #7658 already does). Weakest premise: KOSMOS_PERSONAL_BACKUP goes on before #7658 is deployed;
+then an abandoned preview blocks a company join until the person turns personal backup on and off. Recorded on #7404.
+Also: no status answer before a preview or an enroll sends nothing (warning 1); status is read even with a record here
+(stale-record NIT); a recovery code not yet confirmed reads needs-key and setUpKey returns org and member for the
+screen's confirm (warning 2). Warnings 3 and 4 went with the ending code. Mutants: M1 to M4 red.
