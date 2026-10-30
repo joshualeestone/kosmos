@@ -120,11 +120,12 @@ final class SignInUITests: XCTestCase {
         }
     }
 
-    /// The open room's title: the top bar's name and agent count are one element ("<name>, N agents"), so it is matched
-    /// as exactly the name or the name then a comma, never a longer name that starts with it.
+    /// The open room's title (RoomView's "room-title", never the back button, which can carry another room's name). Its
+    /// name and agent count are one element, so the whole label is matched: "<name>, N agent(s)", nothing longer.
     static func roomTitle(_ app: XCUIApplication, _ name: String) -> XCUIElement {
-        app.navigationBars.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", name, name + ",")).firstMatch
+        let shape = NSRegularExpression.escapedPattern(for: name) + ", [0-9]+ agents?"
+        return app.descendants(matching: .any).matching(identifier: "room-title")
+            .matching(NSPredicate(format: "label MATCHES %@", shape)).firstMatch
     }
 
     /// Runs one named step, so a failure says which one and leaves a screenshot of it in the result.
