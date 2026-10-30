@@ -1,7 +1,6 @@
 import XCTest
 
-// kosmos#7654: a long room opens on its newest post, the first time and when it is opened again with its posts already
-// read (the second open takes a different path in RoomView). Sample room (a Debug build), Spring catalogue made long
+// kosmos#7654: a long room opens on its newest post, the first time and when it is opened again. Sample room (a Debug build), Spring catalogue made long
 // (KOSMOS_SAMPLE_ROOM_LONG). Nothing in the room is touched: the room's own opening is what is checked. Run in CI by the
 // ios workflow's "ui tests (sample board)" job (ios/tools/ui-sample.sh).
 final class RoomOpensAtNewestUITests: XCTestCase {
@@ -17,8 +16,7 @@ final class RoomOpensAtNewestUITests: XCTestCase {
         Self.assertOnNewest(app, 220, shot: "room-220-opened", test: self)
     }
 
-    // Back to the projects list, then the same room again: its posts are already in the store, so the room is placed by
-    // its appearance, not by a new last post.
+    // Back to the projects list, then the same room again.
     func testRoomOf220OpenedAgainOpensOnItsNewestPost() throws {
         let app = Self.launch(220)
         Self.assertOnNewest(app, 220, shot: "room-220-first-open", test: self)
