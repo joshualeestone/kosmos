@@ -1024,10 +1024,10 @@ test('#7212 a stall push and a needs-you buzz for one agent do not share a coold
   await call('PUT', '/api/phone-notify', { body: { on: true } });
   sent.length = 0;
   phonenotify.happened({ kind: 'needs_you', id: 'report:1:leo', agent: 'leo', session: 'leo', project: null });
-  phonenotify.happened({ kind: 'needs_you', id: 'stall:leo:2026-10-30T12:00:00.000Z:0', agent: 'leo', session: 'leo', project: null, stall: true });
+  assert.equal(phonenotify.happened({ kind: 'needs_you', id: 'stall:0:2026-10-30T12:00:00.000Z:leo', agent: 'leo', session: 'leo', project: null, stall: true }), true, 'a push that went out did not say so');
   assert.equal(sent.length, 2, 'a stall push inside a needs-you window was swallowed');
   assert.equal(Object.hasOwn(sent[1].body, 'stall'), false, 'the board-side stall flag was sent');
-  phonenotify.happened({ kind: 'needs_you', id: 'stall:leo:2026-10-30T12:00:00.000Z:1', agent: 'leo', session: 'leo', project: null, stall: true });
+  assert.equal(phonenotify.happened({ kind: 'needs_you', id: 'stall:1:2026-10-30T12:00:00.000Z:leo', agent: 'leo', session: 'leo', project: null, stall: true }), false, 'a push held by its cooldown said it went out');
   phonenotify.happened({ kind: 'needs_you', id: 'report:2:leo', agent: 'leo', session: 'leo', project: null });
   assert.equal(sent.length, 2, 'CONTROL: each class still keeps its own window');
 });

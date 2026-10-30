@@ -35,3 +35,11 @@ show, not for a usage-limit-only streak, again after a day; the turn callback; a
   Left as it is: the session is the roster's sessionName, as the needs_you report path uses (crash loops use safeKey).
   Also found while testing: my first related-tests run named a file that does not exist (engine/phonenotify.test.js)
   and node --test said nothing; the run now asserts each file exists (14 files, 193 tests).
+- Round 2 (Opus): no BLOCKER. The push is now driven by the card, not by the log's said rule: each minute every card
+  carrying a stall is told if its agent is due (deliverystreak.tellStalls), and a push counts only when
+  phonenotify.happened says it went out (happened now returns that). So a phone set up ten minutes after a stall is
+  told then, not a day later, and a restart 23 hours after a push no longer stretches the gap toward two days. The
+  record has an in-memory copy, so an unwritable file still holds it to once a day; it is an Object.create(null) map,
+  so a session named __proto__ is gated; an entry from the future reads as nobody told. The id is
+  `stall:<day>:<since>:<session>`, session last, so a long name cut to fit loses only its tail. turnsToSay is back to
+  main's. storecheck names stall-pushes.json in the person's words. The module header says the file exists.

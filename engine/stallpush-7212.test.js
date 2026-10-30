@@ -2,90 +2,100 @@
 require('../test-support/tmpscope');   // #4273: this file's temp dirs are removed when it exits
 
 /**
- * kosmos#7212 (#7615 item 1, Josh's 0.7.75 report: an agent unreachable for ten days, and nobody told): a stall the
- * board says is also pushed to the person's phone as needs-you, as a crash loop or a stuck terminal is.
+ * kosmos#7212 (#7615 item 1, Josh's 0.7.75 report: an agent unreachable for ten days, and nobody told): every card
+ * carrying a stall is also pushed to the person's phone as needs-you, as a crash loop or a stuck terminal is, at most
+ * once a day per agent, counted only when a push went out (deliverystreak.tellStalls).
  *
  *   node --test engine/stallpush-7212.test.js
  */
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const ds = require('./deliverystreak');
 
 const MIN = 60 * 1000;
+const DAY = 24 * 60 * MIN;
 const T0 = Date.parse('2026-10-30T12:00:00Z');
-const refused = { state: 'could_not', because: 'x' };
+const SINCE = '2026-10-30T11:20:00.000Z';
+const fileIn = () => path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-stallpush-')), ds.PUSH_FILE);
+const card = (sessionName, extra = {}) => ({ sessionName, name: sessionName.toUpperCase(), deliveryStall: { since: SINCE, count: 4, lastWhy: 'refused' }, ...extra });
+const sender = (answer = true) => { const sent = []; return { sent, send: (ev) => { sent.push(ev); return typeof answer === 'function' ? answer(ev) : answer; } }; };
 
 test.beforeEach(() => ds.resetForTests());
 
-test('a stall said once is one needs-you event, named by its session and since; again only after a day', () => {
-  for (let i = 0; i < 3; i += 1) ds.note('s-ada', refused, T0 + i * MIN);
-  ds.note('s-ada', refused, T0 + 31 * MIN);
-  const said = new Map();
-  const card = { sessionName: 's-ada', name: 'Ada' };
-  const first = ds.stallsToSay(['s-ada'], said, { now: T0 + 32 * MIN });
-  assert.equal(first.length, 1, 'CONTROL: the stall is said');
-  assert.deepEqual(ds.stallEvent(card, first[0], T0 + 32 * MIN),
-    { kind: 'needs_you', id: 'stall:s-ada:' + new Date(T0).toISOString() + ':0', agent: 'Ada', session: 's-ada', project: null, stall: true });
-  assert.equal(ds.stallsToSay(['s-ada'], said, { now: T0 + 40 * MIN }).length, 0, 'said (and so pushed) again the next minute');
-  ds.note('s-ada', refused, T0 + 24 * 60 * MIN);
-  assert.equal(ds.stallsToSay(['s-ada'], said, { now: T0 + 24 * 60 * MIN + 33 * MIN }).length, 1, 'a day later it was not said again');
-  assert.match(ds.stallEvent(card, first[0], T0 + 24 * 60 * MIN + 33 * MIN).id, /:1$/, 'a day later, the same id: the second day is not its own event');
+test('a card carrying a stall is one needs-you event, named by its day, since and session', () => {
+  assert.deepEqual(ds.stallEvent(card('s-ada'), T0),
+    { kind: 'needs_you', id: 'stall:0:' + SINCE + ':s-ada', agent: 'S-ADA', session: 's-ada', project: null, stall: true });
+  assert.equal(ds.stallEvent(card('s-ada'), T0 + DAY).id, 'stall:1:' + SINCE + ':s-ada', 'a day later the id did not move on');
+  const turn = card('s-cy', { deliveryStall: { since: SINCE, count: 2, lastWhy: 'turn', step: 'x' } });
+  assert.match(ds.stallEvent(turn, T0).id, /^turn:0:/);
+  assert.equal(ds.stallEvent({ sessionName: 's' }, T0), null, 'a card with no stall named one');
+  assert.equal(ds.stallEvent(null, T0), null);
+  assert.equal(ds.stallEvent({ sessionName: '', deliveryStall: { since: SINCE } }, T0), null);
+  assert.equal(ds.stallEvent({ sessionName: 's', deliveryStall: { since: SINCE } }, T0).agent, 's', 'no name: the session');
 });
 
-test('a run of usage-limit holds the card already shows is not a stall, so nothing is pushed', () => {
-  const limit = { state: 'could_not', held: true, heldBy: 'limit' };
-  for (let i = 0; i < 4; i += 1) ds.note('s-bo', limit, T0 + i * 10 * MIN);
-  assert.deepEqual(ds.stallsToSay(['s-bo'], new Map(), { now: T0 + 35 * MIN, limitShownOf: () => true }), []);
-  assert.equal(ds.stallsToSay(['s-bo'], new Map(), { now: T0 + 35 * MIN, limitShownOf: () => false }).length, 1, 'CONTROL: unshown, it is one');
+test('told at most once a day per agent, across a restart and a stall that ends and starts again', () => {
+  const file = fileIn();
+  const a = sender();
+  ds.tellStalls([card('s-ada'), card('s-bo')], { now: T0, file, send: a.send });
+  assert.deepEqual(a.sent.map((e) => e.session), ['s-ada', 's-bo']);
+  ds.tellStalls([card('s-ada', { deliveryStall: { since: '2026-10-30T12:40:00.000Z', count: 3, lastWhy: 'input' } })], { now: T0 + 70 * MIN, file, send: a.send });
+  assert.equal(a.sent.length, 2, 'a stall that ended and started again was told again within the day');
+  ds.resetForTests();   // a board restart: nothing in memory, only the file
+  ds.tellStalls([card('s-ada')], { now: T0 + 2 * 60 * MIN, file, send: a.send });
+  assert.equal(a.sent.length, 2, 'a board restart told the person again');
+  ds.tellStalls([card('s-ada')], { now: T0 + DAY, file, send: a.send });
+  assert.equal(a.sent.length, 3, 'a day later it was not told again');
 });
 
-test('a stuck Windows turn is told once per step, with a turn: id; without tell, turnsToSay is unchanged', () => {
-  const st = { since: '2026-10-30T10:00:00.000Z', count: 2, lastWhy: 'turn', step: 'running "x"' };
-  const card = { sessionName: 's-cy', name: 'Cy', deliveryStall: st };
-  const told = [];
-  const said = new Map();
-  const lines = ds.turnsToSay([card], said, (c, s) => told.push(ds.stallEvent(c, s, Date.parse('2026-10-30T11:30:00Z'))));
-  assert.equal(lines.length, 1);
-  assert.deepEqual(told, [{ kind: 'needs_you', id: 'turn:s-cy:2026-10-30T10:00:00.000Z:0', agent: 'Cy', session: 's-cy', project: null, stall: true }]);
-  ds.turnsToSay([card], said, (c, s) => told.push(ds.stallEvent(c, s)));
-  assert.equal(told.length, 1, 'the same stuck step was told twice');
-  assert.equal(ds.turnsToSay([{ ...card, sessionName: 's-dee' }], new Map()).length, 1, 'CONTROL: no tell, still says the line');
-  assert.equal(ds.turnsToSay([{ ...card, sessionName: 's-eve' }], new Map(), () => { throw new Error('x'); }).length, 1, 'a tell that throws lost the line');
+test('review 2 W1: a push the phone side did not send is not counted, so it goes once it can', () => {
+  const file = fileIn();
+  const off = sender(false);
+  ds.tellStalls([card('s-ada')], { now: T0, file, send: off.send });
+  assert.equal(off.sent.length, 1, 'CONTROL: it was tried');
+  const on = sender(true);
+  ds.tellStalls([card('s-ada')], { now: T0 + 10 * MIN, file, send: on.send });
+  assert.equal(on.sent.length, 1, 'a phone set up ten minutes later was not told until the next day');
+  ds.tellStalls([card('s-ada')], { now: T0 + 11 * MIN, file, send: on.send });
+  assert.equal(on.sent.length, 1, 'CONTROL: once sent, it is counted');
 });
 
-test('stallEvent names nothing it cannot name', () => {
-  assert.equal(ds.stallEvent(null, { since: 'x' }), null);
-  assert.equal(ds.stallEvent({ sessionName: '' }, { since: 'x' }), null);
-  assert.equal(ds.stallEvent({ sessionName: 's' }, {}), null);
-  assert.equal(ds.stallEvent({ sessionName: 's' }, { since: 'x' }).agent, 's', 'no name: the session');
+test('review 2 W2: a record that cannot be written still holds it to once a day while the board runs', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-stallpush-'));
+  fs.writeFileSync(path.join(dir, 'blocked'), 'not a folder');
+  const file = path.join(dir, 'blocked', ds.PUSH_FILE);
+  const a = sender();
+  ds.tellStalls([card('s-ada')], { now: T0, file, send: a.send });
+  assert.equal(a.sent.length, 1, 'an unwritable record silenced the push');
+  ds.tellStalls([card('s-ada', { deliveryStall: { since: '2026-10-30T13:00:00.000Z', count: 3, lastWhy: 'refused' } })], { now: T0 + 60 * MIN, file, send: a.send });
+  assert.equal(a.sent.length, 1, 'with an unwritable record a new stall pushed again within the day');
 });
 
-test('the board pushes each stall it says (server.js sayStalls)', () => {
+test('review 2: odd records and names do not break the gate', () => {
+  const file = fileIn();
+  fs.writeFileSync(file, '{ not json');
+  const a = sender();
+  ds.tellStalls([card('__proto__')], { now: T0, file, send: a.send });
+  assert.equal(a.sent.length, 1, 'a corrupt record silenced the push');
+  ds.resetForTests();
+  ds.tellStalls([card('__proto__')], { now: T0 + MIN, file, send: a.send });
+  assert.equal(a.sent.length, 1, 'a session named __proto__ was never gated');
+  fs.writeFileSync(file, JSON.stringify({ 's-bo': T0 + 5 * DAY }));   // a clock that went back
+  ds.tellStalls([card('s-bo')], { now: T0, file, send: a.send });
+  assert.equal(a.sent.length, 2, 'an entry from the future silenced the agent');
+  ds.tellStalls([card('s-cy')], { now: T0, file, send: () => { throw new Error('x'); } });
+  ds.tellStalls([card('s-cy')], { now: T0, file, send: a.send });
+  assert.equal(a.sent.length, 3, 'a send that threw counted as told');
+});
+
+test('the board tells every card carrying a stall, through phonenotify, each minute (server.js sayStalls)', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const at = src.indexOf('const sayStalls = () => {');
   assert.ok(at > 0, 'CONTROL: sayStalls is found');
   const body = src.slice(at, src.indexOf('} catch { /* said next minute */ }', at));
-  assert.match(body, /const ev = ds\.stallEvent\(card, st, now\); if \(ev && ds\.pushDue\(ev\.session, now, STALL_PUSH_FILE\)\) phonenotify\.happened\(ev\);/, 'a stall push does not go through the once-a-day gate');
-  assert.match(body, /ds\.turnsToSay\(r, turnSaid, tellStall\)/, 'a stuck turn is not pushed');
-  assert.match(body, /process\.stdout\.write\(ds\.stallLine\(st\)\);\n\s+try \{ tellStall\(byName\.get\(st\.name\), st\); \}/, 'a stall is not pushed where it is said');
-});
-
-test('review 1 W1/W3: one agent is told at most once a day, across a restart and a stall that ends and starts again', () => {
-  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-stallpush-'));
-  const file = path.join(dir, 'stall-pushes.json');
-  assert.equal(ds.pushDue('s-ada', T0, file), true, 'the first stall was not told');
-  assert.equal(ds.pushDue('s-ada', T0 + 40 * MIN, file), false, 'a stall that ended and started again was told again within the day');
-  assert.equal(ds.pushDue('s-bo', T0 + 40 * MIN, file), true, 'CONTROL: another agent is told');
-  /* A restart: nothing in memory, only the file. */
-  delete require.cache[require.resolve('./deliverystreak')];
-  const fresh = require('./deliverystreak');
-  assert.equal(fresh.pushDue('s-ada', T0 + 60 * MIN, file), false, 'a board restart told the person again');
-  assert.equal(fresh.pushDue('s-ada', T0 + ds.PUSH_GAP_MS, file), true, 'a day later it was not told again');
-  assert.equal(fresh.pushDue('', T0, file), false);
-  /* A record that cannot be written still tells (the in-memory said marks hold it to once a day while the board runs). */
-  const blocked = path.join(dir, 'blocked');
-  fs.writeFileSync(blocked, 'not a folder');
-  assert.equal(fresh.pushDue('s-cy', T0, path.join(blocked, 'stall-pushes.json')), true, 'an unwritable record silenced the push');
+  assert.match(body, /ds\.tellStalls\(shown\.map\(\(n\) => byName\.get\(n\)\), \{ file: STALL_PUSH_FILE, send: \(ev\) => phonenotify\.happened\(ev\) \}\);/);
+  assert.match(src, /const STALL_PUSH_FILE = path\.join\(store\.ROOT, require\('\.\/engine\/deliverystreak'\)\.PUSH_FILE\);/);
 });

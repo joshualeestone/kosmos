@@ -42,6 +42,7 @@ const HOLDS = {
   'community.json': 'your Community setting',
   'org-enrollment.json': 'your company\'s Kosmos+ enrollment',
   'service-keys.json': 'the keys for services you connected',
+  'stall-pushes.json': 'when Kosmos last told your phone that an agent\'s messages were stuck',   // kosmos#7212
 };
 // Store folders, one level deep, and what one file in each holds.
 const FOLDERS = {

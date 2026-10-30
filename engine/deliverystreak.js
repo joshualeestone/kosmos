@@ -14,7 +14,9 @@
  * UNCONFIRMED counts because only PLACED is seen to land: a line typed with its Enter swallowed comes back unconfirmed
  * every time, and the report does not say which verdict the stalled agent's lines got.
  *
- * In memory, on the board: a restart starts every streak again (stated in the plan). Never throws.
+ * In memory, on the board: a restart starts every streak again (stated in the plan). kosmos#7212 (#7615 item 1): when
+ * each agent's stall was last pushed to the person is also kept in stall-pushes.json under the data root (tellStalls),
+ * safe to delete (the next stall is then told again). Never throws.
  */
 
 const STALL_MS = 30 * 60 * 1000;
@@ -187,9 +189,8 @@ function turnLine(name, s) {
 /* kosmos#7368 (review 4 W1): which stuck steps the board log says now, each ONCE per step (its clock and step are the
    key). `cards` is the board's roster ({ sessionName, deliveryStall }); `said` a Map the caller keeps. A name keeps its
    key while it is still on the board, so one read that missed the stall does not say it again; a name gone from the
-   board is forgotten. Returns the lines to write. kosmos#7212 (#7615 item 1): `tell(card, stall)`, when given, is
-   called for each one said, so the person is told at the same moment. Never throws. */
-function turnsToSay(cards, said, tell = null) {
+   board is forgotten. Returns the lines to write. Never throws. */
+function turnsToSay(cards, said) {
   const out = [];
   try {
     const present = new Set();
@@ -202,7 +203,6 @@ function turnsToSay(cards, said, tell = null) {
       if (said.get(c.sessionName) === key) continue;
       said.set(c.sessionName, key);
       out.push(turnLine(c.sessionName, st));
-      if (typeof tell === 'function') { try { tell(c, st); } catch { /* the line is still said */ } }
     }
     for (const n of [...said.keys()]) if (!present.has(n)) said.delete(n);
   } catch { /* said next minute */ }
@@ -225,50 +225,76 @@ function sweep(names) {
   for (const k of [...streaks.keys()]) if (!present.has(k)) streaks.delete(k);
 }
 
-function resetForTests() { streaks.clear(); }
+function resetForTests() { streaks.clear(); pushedAt.clear(); }   // kosmos#7212: the pushes' in-memory copy too
 
-/* kosmos#7212 (#7615 item 1): the needs-you notification for a stall the board says (stallsToSay, or a stuck turn from
-   turnsToSay), so the person is told away from the board, as a crash loop or a stuck terminal tells them. The id names
-   the stall (its session and since), so each stall is one event; the phone shows the plain notice for it (phonenotice
-   cannot ask about a stall:/turn: id). `card` is the board's card for it ({ sessionName, name }). The id ends with the
-   stall's day (0 on its first, 1 a day later), so each day's telling is its own event (review 1 W4). `stall: true`
-   is board-side: phonenotify keys its own cooldown on it and never sends it. Null when there is nothing to name.
-   Never throws. */
-function stallEvent(card, stall, now = Date.now()) {
+/* kosmos#7212 (#7615 item 1): the needs-you notification for a card's stall (its deliveryStall: a streak, or a stuck
+   Windows turn), so the person is told away from the board, as a crash loop or a stuck terminal tells them. `card` is
+   the board's card ({ sessionName, name, deliveryStall }). The id is `stall:<day>:<since>:<session>` (or `turn:`): one
+   event per stall per day (review 1 W4), with the session last so a long name cut to fit loses only its own tail
+   (review 2). The phone shows the plain notice for it (phonenotice cannot ask about a stall:/turn: id). `stall: true` is
+   board-side: phonenotify keys its own cooldown on it and never sends it. Null when there is nothing to name. Never
+   throws. */
+function stallEvent(card, now = Date.now()) {
   try {
     const session = card && typeof card.sessionName === 'string' && card.sessionName ? card.sessionName : null;
+    const stall = card && card.deliveryStall;
     if (!session || !stall || typeof stall.since !== 'string') return null;
     const kind = stall.lastWhy === 'turn' ? 'turn' : 'stall';
     const since = Date.parse(stall.since);
     const day = Number.isFinite(since) && now > since ? Math.floor((now - since) / RESAY_MS) : 0;
-    return { kind: 'needs_you', id: kind + ':' + session + ':' + stall.since + ':' + day, agent: (typeof card.name === 'string' && card.name) || session,
+    return { kind: 'needs_you', id: kind + ':' + day + ':' + stall.since + ':' + session, agent: (typeof card.name === 'string' && card.name) || session,
       session, project: null, stall: true };
   } catch { return null; }
 }
 
-/* kosmos#7212 review 1 (W1, W3): the person is told about one agent's stalls at most once per PUSH_GAP_MS, whatever
-   ends and starts them: a board restart (the streaks and the said marks are in memory, so every stalled card would be
-   said again) or a stall that ends with one landed line and starts again. Kept in a small file under the data root, so
-   a restart does not tell again. True when the push should go now (and records it). A file that cannot be read reads
-   as nobody told; one that cannot be written still pushes (the in-memory said marks still hold it to once a day while
-   the board runs). Never throws. */
+/* kosmos#7212 reviews 1 and 2: the person is told about one agent's stalls at most once per PUSH_GAP_MS, whatever ends
+   and starts them (a board restart, or a stall that ends with one landed line and starts again), and only a push that
+   went out counts (pushTold, after phonenotify.happened says it sent: a phone set up ten minutes later is told then,
+   not a day later). Kept in a small file under the data root, so a restart does not tell again, and in memory too, so
+   a file that cannot be written still holds it to once a day while the board runs. A file that cannot be read, or an
+   entry from the future (a clock that went back), reads as nobody told. Never throws. */
 const PUSH_GAP_MS = RESAY_MS;
+const PUSH_FILE = 'stall-pushes.json';
+const pushedAt = new Map();   // session -> ms, the in-memory copy
+function readPushes(file) {
+  const book = Object.create(null);   // review 2: a session named __proto__ is an entry, not the prototype
+  try {
+    const b = JSON.parse(require('fs').readFileSync(file, 'utf8'));
+    if (b && typeof b === 'object' && !Array.isArray(b)) for (const [k, t] of Object.entries(b)) if (Number.isFinite(t)) book[k] = t;
+  } catch { /* nobody told */ }
+  return book;
+}
 function pushDue(session, now, file) {
   try {
-    if (typeof session !== 'string' || !session || typeof file !== 'string' || !file) return false;
-    const fs = require('fs');
-    let book = {};
-    try { const b = JSON.parse(fs.readFileSync(file, 'utf8')); if (b && typeof b === 'object' && !Array.isArray(b)) book = b; } catch { book = {}; }
-    const last = book[session];
-    if (Number.isFinite(last) && last <= now && now - last < PUSH_GAP_MS) return false;
-    book[session] = now;
-    for (const [k, t] of Object.entries(book)) if (!Number.isFinite(t) || now - t >= 2 * PUSH_GAP_MS) delete book[k];
-    try {
-      fs.mkdirSync(require('path').dirname(file), { recursive: true });
-      require('./store').saveFlushed(file, JSON.stringify(book) + '\n');
-    } catch { /* still pushes */ }
-    return true;
+    if (typeof session !== 'string' || !session) return false;
+    const fresh = (t) => Number.isFinite(t) && t <= now && now - t < PUSH_GAP_MS;
+    if (fresh(pushedAt.get(session))) return false;
+    return !(typeof file === 'string' && file && fresh(readPushes(file)[session]));
   } catch { return false; }
 }
+function pushTold(session, now, file) {
+  try {
+    if (typeof session !== 'string' || !session) return;
+    pushedAt.set(session, now);
+    if (typeof file !== 'string' || !file) return;
+    const book = readPushes(file);
+    book[session] = now;
+    for (const k of Object.keys(book)) if (now - book[k] >= 2 * PUSH_GAP_MS || book[k] > now + PUSH_GAP_MS) delete book[k];
+    const fs = require('fs');
+    fs.mkdirSync(require('path').dirname(file), { recursive: true });
+    require('./store').saveFlushed(file, JSON.stringify(book) + '\n');
+  } catch { /* the in-memory copy still holds it */ }
+}
+/* The board's minute sweep: tell the person about each card carrying a stall that is due. `send` is
+   phonenotify.happened (true when it sent). Never throws. */
+function tellStalls(cards, { now = Date.now(), file, send }) {
+  for (const c of cards || []) {
+    try {
+      const ev = stallEvent(c, now);
+      if (!ev || !pushDue(ev.session, now, file)) continue;
+      if (send(ev) === true) pushTold(ev.session, now, file);
+    } catch { /* the next card is still told */ }
+  }
+}
 
-module.exports = { stallEvent, pushDue, PUSH_GAP_MS, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+module.exports = { stallEvent, pushDue, pushTold, tellStalls, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };

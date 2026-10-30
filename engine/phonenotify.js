@@ -575,25 +575,27 @@ function levelAllows(event, route) {
 }
 
 /** Tell the coordinator something happened. Never throws, never awaited. Sends
-    only when on, connected, holding a token, and the kind is one we send. */
+    only when on, connected, holding a token, and the kind is one we send. kosmos#7212 review 2: returns true when it
+    handed a notification to the coordinator (whether the coordinator got it is not known here), false otherwise. */
 function happened(event) {
+  let sent = false;   // kosmos#7212 review 2: whether this call handed a notification to the coordinator
   try {
-    if (!available) return;
-    if (!event || !KINDS.has(event.kind)) return;
-    if (noPush()) return;   // #7448: a demo or test install never reaches a phone
+    if (!available) return false;
+    if (!event || !KINDS.has(event.kind)) return false;
+    if (noPush()) return false;   // #7448: a demo or test install never reaches a phone
     const route = routeFor(event);
-    if (!route) return;
-    if (!levelAllows(event, route)) return;   // #7210, before the cooldown so a muted event spends no window
-    if (!sender && process.env.NODE_TEST_CONTEXT) return;
+    if (!route) return false;
+    if (!levelAllows(event, route)) return false;   // #7210, before the cooldown so a muted event spends no window
+    if (!sender && process.env.NODE_TEST_CONTEXT) return false;
     const s = readState();
-    if (!s.on || !s.token || !s.notifyId) return;
-    if (!s.kinds[route.sw]) return;   // #6254: this kind's sub-switch is off
-    if (!plusLive()) return;   // #6488: signed in is not enough; Kosmos+ switched off here sends nothing
+    if (!s.on || !s.token || !s.notifyId) return false;
+    if (!s.kinds[route.sw]) return false;   // #6254: this kind's sub-switch is off
+    if (!plusLive()) return false;   // #6488: signed in is not enough; Kosmos+ switched off here sends nothing
     if (route.cls) {
       const ckey = route.cls + ':' + route.key;
       const now = clock();
       const last = lastSent.get(ckey);
-      if (last !== undefined && now - last < route.ms) return;
+      if (last !== undefined && now - last < route.ms) return false;
       if (lastSent.size > 500) {
         for (const [k, t] of lastSent) if (now - t >= COOLDOWN_PRUNE_MS) lastSent.delete(k);
       }
@@ -602,6 +604,7 @@ function happened(event) {
     const url = coordinatorUrl(NOTIFY_ROUTE);
     const body = JSON.stringify(payload(s.notifyId, event));
     (sender || defaultSend)(url, { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body);
+    sent = true;
     // kosmos#6487: a plain lock-screen notice is explained by this line and the phonenotice line after it. The id's
     // kind and the session only, never the words. Written after the send, so a send that throws logs nothing. The
     // phone asks with the id AS SENT (cut to CAPS.id), so judge that one.
@@ -613,6 +616,7 @@ function happened(event) {
     const who = notice.logName(event.session);
     process.stderr.write('phonenotify: sent ' + event.kind + ' (' + notice.idKind(event.id) + ') ref ' + notice.idRef(sentId) + (who ? ' for ' + who : '') + can + '\n');
   } catch { /* a notification is never a reason to fail the report it rides on */ }
+  return sent;
 }
 
 module.exports = { noPush, NO_PUSH_WHY, reportPhoneNotices, PHONE_NOTICES_ROUTE, resetNoticesReportedForTests: () => { noticesReported = null; }, whenNoticesIdle: () => (noticesInFlight || Promise.resolve()).catch(() => {}), setProjectLevel, PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };

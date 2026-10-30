@@ -26843,7 +26843,7 @@ function start(port = PORT) {
       const stallSaid = new Map();
       /* kosmos#7368: agents whose current stuck step was already said: name -> its clock and step, so each is said once. */
       const turnSaid = new Map();
-      const STALL_PUSH_FILE = path.join(store.ROOT, 'stall-pushes.json');   // kosmos#7212 review 1: when each agent's stall was last pushed
+      const STALL_PUSH_FILE = path.join(store.ROOT, require('./engine/deliverystreak').PUSH_FILE);   // kosmos#7212: when each agent's stall was last pushed
       /* #7212 slice 2: an agent no message has been seen to reach for half an hour, whatever the cause, is said once per
          stall and again each day it lasts. Agents gone from the board lose their streaks (not on an empty read). */
       const sayStalls = () => {
@@ -26861,14 +26861,12 @@ function start(port = PORT) {
           require('./engine/stallsignin').sweep();   // #7212 slice 3: accounts no stuck card read for an hour are forgotten
           /* kosmos#7368: each stuck step is said once (deliverystreak.turnsToSay); the streak lines keep their own rule. */
           const isTurn = (n) => byName.get(n).deliveryStall.lastWhy === 'turn';
-          /* kosmos#7212 (#7615 item 1: an agent unreachable for ten days, and nobody told): each stall said here is also
-             pushed to the person's phone as needs-you, as a crash loop or a stuck terminal is (deliverystreak.stallEvent). */
-          const tellStall = (card, st) => { const now = Date.now(); const ev = ds.stallEvent(card, st, now); if (ev && ds.pushDue(ev.session, now, STALL_PUSH_FILE)) phonenotify.happened(ev); };
-          for (const line of ds.turnsToSay(r, turnSaid, tellStall)) process.stdout.write(line);
-          for (const st of ds.stallsToSay(shown.filter((n) => !isTurn(n)), stallSaid, { limitShownOf })) {
-            process.stdout.write(ds.stallLine(st));
-            try { tellStall(byName.get(st.name), st); } catch { /* the line is still said */ }
-          }
+          for (const line of ds.turnsToSay(r, turnSaid)) process.stdout.write(line);
+          for (const st of ds.stallsToSay(shown.filter((n) => !isTurn(n)), stallSaid, { limitShownOf })) process.stdout.write(ds.stallLine(st));
+          /* kosmos#7212 (#7615 item 1: an agent unreachable for ten days, and nobody told): every card carrying a stall is
+             also pushed to the person's phone as needs-you, as a crash loop or a stuck terminal is, at most once a day per
+             agent, counted only when a push went out (deliverystreak.tellStalls). */
+          ds.tellStalls(shown.map((n) => byName.get(n)), { file: STALL_PUSH_FILE, send: (ev) => phonenotify.happened(ev) });
         } catch { /* said next minute */ }
       };
       const sweep = setInterval(() => {
