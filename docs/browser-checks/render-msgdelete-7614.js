@@ -13,6 +13,7 @@
  *   D7  a direct message: the person's own row has "..." alone; its menu has Delete message; an agent's row has none
  *   D8  Delete posts {at} to the DM route, says "Deleted.", and the thread repaints without the message
  *   D9  a DM refusal (an earlier part was already given) shows in the dialog
+ *   D11 the person's row from an earlier part of the conversation offers no Delete (the server keeps those as they were)
  *   D10 a message already gone (another tab deleted it, 404): the dialog closes, says so, and the thread repaints
  *
  * CONTROL: D6 runs with the webhooks pane open on ANOTHER project, so a page that read that pane's project fails it.
@@ -213,6 +214,23 @@ const menuItems = () => { const m = document.getElementById('msg-menu');
       gone: !document.querySelector('#d-dmthread .rxns[data-at="' + OWN + '"]') }), OWN);
     chk(!d10.open && d10.n === 1 && d10.toast === 'That message was already gone.' && d10.gone,
       'D10 a message already gone (404): the dialog closes, says so, and the thread repaints without it', JSON.stringify(d10));
+
+    // D11: a row from an earlier part of the conversation (those files are kept as they were): no Delete offered.
+    const EARLY = '2026-10-30T12:00:01.000Z';
+    await page.evaluate(({ f, EARLY }) => {
+      window.__fx = f;
+      Object.assign(EARLIER, { session: 'april', open: true, before: 0, rows: [{ at: EARLY, text: 'from an earlier part' }] });
+    }, { f: FX, EARLY });
+    await page.evaluate(() => paintTalk('april', 'April'));
+    await page.waitForTimeout(200);
+    const d11 = await page.evaluate(({ EARLY, OWN }) => {
+      const row = (at) => { const b = document.querySelector('#d-dmthread .rxns[data-at="' + at + '"]'); return b ? b.closest('.msg') : null; };
+      const early = [...document.querySelectorAll('#d-dmthread .msg.you')].find((r) => /from an earlier part/.test(r.textContent));
+      return { earlyShown: !!early, earlyOwn: early ? early.getAttribute('data-own') : 'none', earlyBar: early ? !!early.querySelector('.rxn-dots') : null,
+        tailOwn: row(OWN) ? row(OWN).getAttribute('data-own') : null };
+    }, { EARLY, OWN });
+    chk(d11.earlyShown && d11.earlyOwn === null && d11.earlyBar === false && d11.tailOwn === '1',
+      'D11 the person\'s row from an earlier part shows no "..." and no Delete; the same kind of row in the current part still has it', JSON.stringify(d11));
   } catch (e) {
     chk(false, 'the run finished', e && e.message ? e.message.split('\n')[0] : String(e));
   }

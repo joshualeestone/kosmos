@@ -58,6 +58,9 @@ test.before(async () => {
     { kind: 'post', id: 'm903', project: pid, from: 'you', operator: true, to: ['delta'], text: 'held then told', at: at(4), outcomes: { delta: 'held' } },
     // A control: the person's post nobody deletes.
     { kind: 'post', id: 'm904', project: pid, from: 'you', operator: true, to: ['alpha'], text: 'stays', at: at(5), outcomes: { alpha: 'placed' } },
+    // Review 2: a long post spilled to a file in alpha's Inbox (Kosmos's, marked) and in epsilon's (not marked, so not ours).
+    { kind: 'post', id: 'm906', project: pid, from: 'you', operator: true, to: ['alpha', 'epsilon'], text: 'a long one', at: at(6),
+      outcomes: { alpha: 'placed', epsilon: 'placed' } },
   ];
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.appendFileSync(path.join(store.ROOT, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
@@ -137,6 +140,21 @@ test('#7614 review 1: a held post deleted while a flush was typing it is not put
   messages._restoreHeld('beta', pid, ['m901', 'm904']);
   assert.deepEqual(roomhold.heldIn('beta', pid).map(roomhold.plainId), ['m904'], 'only the post still in the room goes back');
   roomhold.take('beta', pid);
+});
+
+test('#7614 review 2: a deleted long post\'s spill file goes from the Inbox Kosmos made, and a folder it did not make is left alone', async () => {
+  const instructions = require('./engine/instructions');
+  const inbox = (name) => path.join(path.dirname(instructions.fileFor(name)), 'Inbox');
+  const ours = inbox('alpha'); const theirs = inbox('epsilon');
+  fs.mkdirSync(ours, { recursive: true }); fs.mkdirSync(theirs, { recursive: true });
+  fs.writeFileSync(path.join(ours, '.gitignore'), '*\n');   // the marker spillInto writes
+  fs.writeFileSync(path.join(ours, 'm906.txt'), 'a long one');
+  fs.writeFileSync(path.join(theirs, 'm906.txt'), 'the person\'s own file');   // no marker: not Kosmos's folder
+  const res = await del('m906');
+  assert.equal(res.status, 200);
+  assert.ok(!fs.existsSync(path.join(ours, 'm906.txt')), 'the spill file is gone');
+  assert.ok(fs.existsSync(path.join(theirs, 'm906.txt')), 'a folder Kosmos did not make keeps its file');
+  assert.ok(fs.existsSync(path.join(ours, '.gitignore')), 'the Inbox itself stays');
 });
 
 test('#7614: a post held for a member and since told to it (no hold left) earns that member the note', async () => {

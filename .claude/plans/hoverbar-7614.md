@@ -14,7 +14,7 @@ card, and it ships in a staging build.
 ## Slices, in order (each its own commit, tests with it)
 
 1. **Room delete, engine and route.** `engine/messages.js`: a `deletePost` that appends an event row
-   `{kind:'deleted', project, of, at, operator:true}` (the log is append-only, like reactions' `op:'remove'`), accepted
+   `{kind:'post-deleted', project, of, at, operator:true}` (named 'deleted' in the first draft of this plan) (the log is append-only, like reactions' `op:'remove'`), accepted
    by `rowShaped`. Every room reader drops a post with such a row. Held copies are dropped (`roomhold.dropShown` for each
    name in `to`); long-post spill files are removed (`unspill`). Agents whose outcome was delivered get the note.
    Route: `POST /api/project/:id/room/:postId/delete`, the person only.
@@ -91,3 +91,13 @@ Findings file: ~/.cache/monalisa-review/review-7614-round1.md. No blockers; 5 wa
 - DEFERRED, archived posts: the server deletes any of the person's posts, archived or not; the page leaves Delete out
   of the archive view because that view is a read-only record (#7365). An archived post reaches no member, so deleting
   one from the server is harmless. Revisit if Josh wants Delete in the archive view.
+
+## After review round 2 (sonnet, 09:5x CDT)
+
+Findings file: ~/.cache/monalisa-review/review-7614-round2.md. No blockers; 1 warning, 4 nits.
+- FIXED W: unspillFor now has a test: a deleted long post's spill file goes from the Inbox Kosmos made; a folder
+  without Kosmos's marker keeps its file; the Inbox stays. Control (no unspillFor call) goes red.
+- FIXED nit: the person's rows from an earlier part of a DM (files kept as they were, the server answers 409) get no
+  "..." and no Delete (DM_EARLIER_ATS). Browser check D11, with control.
+- FIXED nits: the plan names the row kind 'post-deleted'; comments on the deletion row reserving no id, and on the
+  'held' literal.

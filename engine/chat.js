@@ -5292,6 +5292,7 @@ async function deleteDirectAsync(agent, at, roster) {
   const state = out.delivery && out.delivery.state;
   let given = state === DELIVERY.PLACED || state === DELIVERY.UNCONFIRMED;
   const limitqueue = require('./limitqueue');
+  // 'held' as a literal: DELIVERY has no HELD member; it is the state the limit queue writes on a kept row.
   if (state === 'held') {
     const kept = limitqueue.list(name).filter((e) => e && e.kind === 'dm' && e.at === when);
     const inFlight = [];

@@ -1117,6 +1117,8 @@ function rowShaped(m) {
   }
   /* kosmos#7614: the person deleted their own post. Never handed to a reader: record() reads it from the parsed rows and
      drops the post it names (and that post's reactions) from every reader's rows. */
+  /* kosmos#7614: a deletion row is no reader's. It carries `of`, never `id`, so it reserves no id; the deleted post's own
+     row stays in `parsed`, which keeps ITS id reserved, so a number is never reissued. */
   if (m.kind === 'post-deleted') return false;
   return true;
 }

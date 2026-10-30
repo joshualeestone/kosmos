@@ -42570,7 +42570,8 @@ function dmRow(m, name, replyAdjacent) {
      own words and gets no failed line. */
   const failedLine = (m.delivery && (m.delivery.state === 'could_not' || retryingHere) && !m.delivery.duplicateOf && typeof dmFailedLine === 'function') ? dmFailedLine(m) : '';   // guarded: the lifted dmRow tests
   /* kosmos#7614: the person's own message, deletable from "..." (the bar has nothing else for it: no reaction on one's own). */
-  const ownBar = (typeof m.at === 'string' && m.at && typeof rxnsInner === 'function')
+  const earlierPart = typeof DM_EARLIER_ATS !== 'undefined' && DM_EARLIER_ATS.has(m.at);   // kept as it was: not deletable
+  const ownBar = (typeof m.at === 'string' && m.at && !earlierPart && typeof rxnsInner === 'function')
     ? '<div class="rxns" data-at="' + esc(m.at) + '">' + rxnsInner([], false, false, '', null, { react: false }) + '</div>' : '';
   return '<div class="msg you" data-mid="' + midOf(m) + '"' + (ownBar ? ' data-own="1"' : '') + '>' + youAv
     + '<div class="msg-b"><div class="msg-bd">'
@@ -42588,6 +42589,9 @@ function dmRow(m, name, replyAdjacent) {
    same row with no flight here (a board that stopped mid-send) keeps its warning. */
 const DM_RETRYING = new Set();
 let DM_NEWEST_MINE_AT = null;   // set by paintTalkThread before any row is drawn
+/* kosmos#7614 review 2: the times of rows from an earlier part of the conversation on screen. Those files are kept as they
+   were (the server answers 409), so the person's rows there get no Delete. */
+let DM_EARLIER_ATS = new Set();
 /* Offered only where the server will take it (review 1): a row kept as retryable (a plain message that failed after
    kosmos#6720; an older one may already have been sent again from the box) and the person's newest message (sent
    again behind a newer one, it would arrive out of order). */
@@ -43351,6 +43355,7 @@ function paintTalkThread(body, name) {
   for (const r of allRows) if (r && typeof r.at === 'string' && !DM_ROWS.has(r.at)) DM_ROWS.set(r.at, r);
   DM_ROWS_OF = CURRENT ? CURRENT.sessionName : null;
   DM_ROWS_NAME = name;
+  DM_EARLIER_ATS = new Set(earlierRows.map((r) => (r && typeof r.at === 'string' ? r.at : '')).filter(Boolean));   // kosmos#7614
   /* kosmos#6720: the person's newest row, the only one Try again is offered on (the server's rule too). */
   DM_NEWEST_MINE_AT = null;
   for (const r of allRows) if (r && !r.from && r.kind !== 'kosmos' && r.kind !== 'question' && typeof r.at === 'string') DM_NEWEST_MINE_AT = r.at;
