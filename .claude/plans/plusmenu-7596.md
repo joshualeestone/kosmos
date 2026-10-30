@@ -28,6 +28,9 @@ Camera, Photos, Files.
 - The choices and their rules (Board.cameraState, attachRowOff, cameraNote) are in BoardLogic and tested in LogicTests
   with controls; room source checks hold both screens to the one panel and the camera wiring.
 
+- The photo carries the account or computer Camera was chosen under (before any permission prompt); a photo across a
+  switch is dropped without touching the new account's line.
+
 ## Decided
 - A popover panel, not a bottom sheet: it is what Josh pointed at (a panel over the keyboard) and keeps the chat in
   view. Rejected: a SwiftUI Menu, which cannot draw tiles. Weakest premise: before iOS 16.4 the popover becomes a short

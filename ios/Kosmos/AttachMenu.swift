@@ -11,6 +11,9 @@ struct AttachPlusButton: View {
     let atLimit: Bool
     let label: String
     let hint: String
+    // Review 7: told the moment a choice is made, before any permission prompt, so the caller can note what it needs then
+    // (the camera's account and computer).
+    var onPicked: (AttachChoice) -> Void = { _ in }
     let onChoose: (AttachChoice) -> Void
     @State private var open = false
     @State private var chosen: AttachChoice?
@@ -30,7 +33,7 @@ struct AttachPlusButton: View {
         .accessibilityHint(hint)
         .popover(isPresented: $open, arrowEdge: .bottom) {
             AttachPanel(atLimit: atLimit, limitHint: hint, camera: Self.camera) { choice, camera in
-                chosen = choice; cameraAtChoice = camera; open = false
+                chosen = choice; cameraAtChoice = camera; onPicked(choice); open = false
             }
                 .modifier(PopoverOnPhone())
                 .onDisappear {
