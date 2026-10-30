@@ -532,3 +532,62 @@ test('#7404 review 5: a recovery code not yet confirmed reads needs-key', async 
   assert.equal(pb.state({ root, personalbackupkey: keys }), 'on', 'CONTROL: confirmed reads on');
 });
 
+
+/* Code review 6, warning 3: the account joined another org since the preview: refused here, no enroll sent. */
+test('#7404 review 6: an account in another org since the preview sends no enroll', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  const real = c.macRequest;
+  c.macRequest = async (m, route, body) => (route === oe.ROUTES.status ? (c.sent.push({ route, body }), { ok: true, data: { member: true, org: { id: 'acme', kind: 'company' }, enrolled: null } }) : real(m, route, body));
+  const r = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  assert.equal(r.code, 'org_other_org');
+  assert.equal(c.sent.filter((x) => x.route === oe.ROUTES.enroll).length, 0);
+});
+
+/* Warning 4: the key step runs only while Kosmos+ still names this record's personal org, bound to this computer. */
+test('#7404 review 6: the key step refuses when Kosmos+ no longer names this binding', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true);
+  let called = 0;
+  const keys = { setUpPersonalKey: async () => { called++; return { ok: true, code: 'X', epoch: 1 }; } };
+  const real = c.macRequest;
+  c.macRequest = async (m, route, body) => (route === oe.ROUTES.status ? { ok: true, data: { member: true, org: { id: 'acme', kind: 'company' }, enrolled: { computer: 'c1', world: 'w', thisComputer: true } } } : real(m, route, body));
+  const r = await pb.setUpKey({ root, remote: c, personalbackupkey: keys });
+  assert.equal(r.code, 'not_on');
+  assert.equal(called, 0, 'no key step against another org');
+  c.macRequest = real;
+  assert.equal((await pb.setUpKey({ root, remote: c, personalbackupkey: keys })).ok, true, 'CONTROL: this binding named, the key step runs');
+});
+
+/* Warning 2: a lost join reads pending, and an off waits for it to settle rather than strand a binding. */
+test('#7404 review 6: a lost join reads pending and an off does not clear it', async (t) => {
+  const root = fresh(t);
+  fs.writeFileSync(path.join(root, oe.JOIN_UNKNOWN_FILE), JSON.stringify({ at: new Date().toISOString(), orgId: ORG.id }));
+  assert.equal(pb.state({ root }), 'pending');
+  const stub = { JOIN_UNKNOWN_FILE: oe.JOIN_UNKNOWN_FILE, LEAVE_PENDING_FILE: oe.LEAVE_PENDING_FILE, readEnrollment: () => null,
+    refresh: async () => ({ ok: false }), leave: async () => { throw new Error('must not be called'); } };
+  const r = await pb.switchOff({ root, orgenroll: stub });
+  assert.equal(r.pending, true);
+  assert.equal(fs.existsSync(path.join(root, oe.JOIN_UNKNOWN_FILE)), true, 'the join marker is kept');
+});
+
+/* NIT 1: a decline while an accept on the same ticket is in flight does not say nothing was turned on. */
+test('#7404 review 6: a decline during an accept in flight is told it is under way', async (t) => {
+  const root = fresh(t);
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  t.after(() => release());
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  const real = c.macRequest;
+  c.macRequest = async (m, route, body) => { if (route === oe.ROUTES.enroll) await gate; return real(m, route, body); };
+  const on = pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  await new Promise((res) => setTimeout(res, 20));
+  const d = await pb.switchOn(p.ticket, false, { root, remote: c });
+  assert.equal(d.code, 'busy');
+  release();
+  assert.equal((await on).ok, true);
+});
