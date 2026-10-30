@@ -5,7 +5,8 @@ hooks: KOSMOS_SAMPLE_ROOM_LONG=<n>, ROOM_SCROLLUP, ROOM_FOCUS), which is stacked
 
 ## Finished looks like
 On iOS 26.5 a 150- and a 220-post room open with the newest post on screen above the box, measured by a UI test that
-fails without the change; 50- and 100-post rooms and iOS 27 still open there.
+fails without the change. 50- and 100-post rooms and iOS 27 opened there before the change (screenshots, 10-30); no
+test covers them, because the change only repeats a jump that already landed for them.
 
 ## Measured before the change (iOS 26.5 simulator, 8 s after opening, no other hooks)
 - 50 posts (a real room's first page, RoomStore.pageSize): Post 50. 100: Post 100. 150: half a post short. 220: Posts
