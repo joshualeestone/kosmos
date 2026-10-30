@@ -868,7 +868,7 @@ const LIST_CHILD_STDOUT_MAX = 32 * 1024 * 1024;
 const LIST_FAILED = 'the restored agents could not be listed, so nothing in this Kosmos is offered yet';
 const listing = new Map();   // one listing per world at a time: key -> the answer in flight
 const listChildren = new Set();
-let listingsStopped = false;   // set by stopListings: the board is stopping, so no new child starts
+let listingsStopped = false;   // between stopListings and startListings: the board is stopping, so no new child starts
 
 /* listRestoredAgents for `world`, run in a child process (engine/restoreworld-child.js) with that world's folders in
    its environment, so the board's event loop never waits on it and create.js there takes the Restored world's store
@@ -876,7 +876,8 @@ let listingsStopped = false;   // set by stopListings: the board is stopping, so
    something that is not a listing) resolves to no rows, `more`, and a `because`. A consumer refuses on `because`,
    which every refusal from either listing carries; `more` alone does not tell a refusal from a cut list.
    One listing per world at a time: a second ask while one runs gets the same answer (one object: do not change it).
-   stopListings ends them all and refuses every later ask (the board calls it when it stops, so no child outlives it).
+   stopListings ends them all and refuses every ask until startListings (the board calls them as it stops and starts,
+   so no child outlives a board). A refusal from listRestoredAgents itself is given the same shape (more: true).
    The child reports its own store root, and a listing from any root but the Restored world's is refused: the env is
    what keeps create.js there off the board's store, so it is checked, not assumed. opts: { base, world, restoreDir? }.
    deps: { execFile, env } (tests; env is the board's own, process.env by default). */
@@ -887,7 +888,7 @@ function listRestoredAgentsInChild(opts = {}, deps = {}) {
     return Promise.resolve(failed('this Kosmos was not made for a restore, so nothing in it is offered'));
   }
   if (listingsStopped) return Promise.resolve(failed(LIST_FAILED));
-  const key = JSON.stringify([opts.base, world.id, opts.restoreDir || '']);
+  const key = JSON.stringify([path.resolve(opts.base), world.id, opts.restoreDir ? path.resolve(opts.restoreDir) : '']);
   if (listing.has(key)) return listing.get(key);
   let env;
   try {
@@ -914,7 +915,10 @@ function listRestoredAgentsInChild(opts = {}, deps = {}) {
         const l = j && j.ok === true && want && typeof j.root === 'string' && path.resolve(j.root) === want ? j.listing : null;
         const shaped = l && Array.isArray(l.agents) && Array.isArray(l.shared) && typeof l.more === 'boolean'
           && (l.because === undefined || typeof l.because === 'string');
-        done(shaped ? l : failed(LIST_FAILED));
+        if (!shaped) return done(failed(LIST_FAILED));
+        // The listing's own refusal (a world not on the list, or not made for a restore) in the refusal shape too, so
+        // a screen keying on `more` never reads it as an empty restore.
+        done(typeof l.because === 'string' ? failed(l.because) : Object.freeze(l));
       });
       if (child && !settled) listChildren.add(child);
     } catch { done(failed(LIST_FAILED)); }
@@ -924,6 +928,7 @@ function listRestoredAgentsInChild(opts = {}, deps = {}) {
 }
 /* The board is stopping: ends every listing child still running (each answers a refusal through its own callback) and
    refuses every later ask, so no child outlives the board. */
+function startListings() { listingsStopped = false; }
 function stopListings() {
   listingsStopped = true;
   for (const c of listChildren) { try { c.kill(); } catch { /* gone */ } }
@@ -931,5 +936,5 @@ function stopListings() {
   listing.clear();   // an ask after the stop is refused above, never handed a killed child's answer
 }
 
-module.exports = { memberTag, prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, listRestoredAgentsInChild, stopListings, isRestoredWorld, worldName,
+module.exports = { memberTag, prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, listRestoredAgentsInChild, startListings, stopListings, isRestoredWorld, worldName,
   RESTORE_DIR, LIST_CHILD_TIMEOUT_MS };

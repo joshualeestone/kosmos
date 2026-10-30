@@ -57,3 +57,17 @@ Design call: #5536 comment 6513912365.
   shared answer is documented as one object.
 - Tests 86/86. Mutations (env dropped; root check removed; stopped flag removed) each red; the last first hung, so
   the test now races its ask against 2 s and fails fast. Restored.
+
+## Review round 3 (opus): 0 BLOCKER, 3 WARNING, 0 CONVENTION, 5 NIT
+- FIXED: listRestoredAgents's own refusals (not on the list, not a restore) passed through with more: false, so a
+  screen keying on `more` could read one as an empty restore. Every listing carrying a because is now answered in the
+  refusal shape. Real-child test on a plain createWorld world.
+- FIXED: no test pinned the timeout or the output cap; now asserted (a wedged child would hold its world for good).
+- FIXED: stopListings latched for the process. startListings clears it (the board calls it as it starts); excused in
+  engine.reachable until a route exists. The test no longer depends on running last.
+- FIXED: the in-flight key resolves base and restore folder, so `base` and `base/` share one child; a listing is
+  frozen before it is shared.
+- DEFERRED: the root check covers only the store root (WORKERS and PROJECTS are pinned by the stubbed env test, and
+  the listing takes those folders from base and world, not the env); a killed child can orphan a git read on a
+  regular file (bounded by git itself); the child's own timer equals the parent's (either ending reads as failed).
+- Tests 86/86. Mutations (refusal passed through; no timeout; startListings a no-op) each red; restored.

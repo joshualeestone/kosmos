@@ -1174,6 +1174,10 @@ test('a listing run in a child process answers exactly what a successful listing
   assert.deepEqual(away, here);
   const stranger = await rw.listRestoredAgentsInChild({ base, world: { id: 'not-a-world' } });
   assert.deepEqual(stranger, { agents: [], shared: [], more: true, because: 'this is not a Kosmos on your list, so nothing in it is offered' });
+  // A world on the list that a restore did not make: listRestoredAgents refuses it, and the refusal keeps more: true.
+  const plain = worlds.createWorld(base, 'Plain');
+  const notRestore = await rw.listRestoredAgentsInChild({ base, world: plain });
+  assert.deepEqual(notRestore, { agents: [], shared: [], more: true, because: 'this Kosmos was not made for a restore, so nothing in it is offered' });
 });
 
 test('a listing in a child that fails in any way is a refusal, never an empty restore; the child gets the Restored world\'s roots', async (t) => {
@@ -1190,6 +1194,8 @@ test('a listing in a child that fails in any way is a refusal, never an empty re
   assert.equal(seen[0].opts.env.AGENT_WORKFORCE_WORKERS, worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS);
   assert.equal(seen[0].opts.env[require('./launchidentity').WORLD_ENV_VAR], p.world.id);
   assert.deepEqual(seen[0].args.slice(1), ['list', base, p.world.id]);
+  assert.equal(seen[0].opts.timeout, rw.LIST_CHILD_TIMEOUT_MS, 'a wedged child is killed, or it would hold its world for good');
+  assert.ok(Number.isFinite(seen[0].opts.maxBuffer) && seen[0].opts.maxBuffer > 0);
   for (const [why, err, out] of [
     ['the child failed or timed out', new Error('killed'), ''],
     ['the child printed something that is not JSON', null, 'not json\n'],
@@ -1239,4 +1245,9 @@ test('one listing per world at a time; stopListings ends a running one as a refu
   clearTimeout(timer);
   assert.ok(after.agents.length === 0 && after.more === true && typeof after.because === 'string', 'an ask after the stop is refused');
   assert.equal(calls, 1, 'and starts no child');
-});   // keep this test last: stopListings is for good
+  rw.startListings();
+  rw.listRestoredAgentsInChild({ base, world: p.world }, deps);
+  assert.equal(calls, 2, 'startListings lets the next ask start a child');
+  rw.stopListings();
+  rw.startListings();
+});
