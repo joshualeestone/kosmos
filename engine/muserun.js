@@ -57,7 +57,7 @@ const QUOTA_LINE_MAX = 240;
    word together (only a space or "_" between), or is one of the known codes. */
 const QUOTA_SAID = new RegExp([
   /quota(?:\s+|_)?(?:is\s+|has\s+been\s+|was\s+)?(?:exhausted|exceeded)/.source,   // also QuotaExceeded, quota_exceeded
-  /(?:exhausted|exceeded)(?:\s+|_)(?:(?:your|the)\s+)?(?:(?:current|monthly|daily)\s+)?quota/.source,
+  /(?:exhausted|exceeded)(?:\s+|_)(?:(?:your|the)\s+)?(?:(?:current|monthly|daily|usage|subscription)\s+)*quota/.source,
   /\bRESOURCE_EXHAUSTED:\s*quota/.source,
   /\binsufficient_quota\b/.source,
   /\bout\s+of\s+quota\b/.source,
@@ -66,16 +66,36 @@ const QUOTA_SAID = new RegExp([
 /* Not a refusal: a negation ("not exceeded"), or a share of a quota below 100% ("80% of monthly quota exceeded" is a
    notice, review 2). Only "N% of": "0% remaining" and a URL's "%3A" are not notices (review 4). */
 const NOT_REFUSED = /\bnot\s+(?:yet\s+)?(?:exhausted|exceeded)\b|\b[1-9]?\d(?:\.\d+)?\s*%\s+of\b/i;
+/* Review 5 BLOCKER: a quota on this computer (a disk or file quota, EDQUOT, a browser's storage quota) is not Meta's. */
+const LOCAL_QUOTA = /\b(?:disk|storage|file|inode|user|group)\b[^.;]{0,20}\bquota\b|\bEDQUOT\b/i;
+/* Review 5: and a line must say it is the provider's: a subscription or usage quota, a 429, or a provider's code. */
+const PROVIDER_SIDE = /(?<![a-z])(?:subscription|usage)(?![a-z])|\b429\b|insufficient_quota|RESOURCE_EXHAUSTED/i;   // "_" is a boundary too
 /* Review 1 and 2: a stderr line that says Muse is retrying is one it may have recovered from. Only "retrying": a final
    refusal often says when to retry ("Retry after ..."), and that time is why Meta's sentence is quoted at all. */
 /* Review 3: "retried" too. Only the bare word "retry" is let through before "after" or "in" ("Retry after <time>",
    "retry in 31s": a final refusal's reset time); "retrying in 2s" is a retry under way. */
-const RETRYING = /\bretr(?:ied|ying)\b|\bretry\b(?!\s+(?:after|in)\b)/i;
+// Review 5: only "retrying" and "retried"; a bare "retry" ("Retry at ...", "retry-after: 21600s") is a final refusal's reset.
+const RETRYING = /\bretr(?:ied|ying)\b/i;
 /* By characters, not UTF-16 units (review 1: a cut must never split a character). A key or token beside the sentence is
    hidden first (review 4: a client that logs its request URL would otherwise put it in the conversation). */
-const SECRETISH = /\b(?:sk|pk|rk)-[A-Za-z0-9_-]{6,}|\b((?:api_?key|key|access_token|token|secret|password|auth)=)[^\s&]+|\b(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi;
+// Review 5: any separator after a key's name (=, :, a JSON "key":"value"), cookies and sessions, Basic auth, a URL password.
+const SECRET_FORMS = [
+  [/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{6,}/gi, '[hidden]'],
+  [/\b((?:x-)?api[_-]?key|key|access_token|token|secret|password|auth|cookie|session)(["']?\s*[:=]\s*["']?)[^\s"'&,;]+/gi, '$1$2[hidden]'],
+  [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi, '$1 [hidden]'],
+  [/(\/\/)[^/\s:@]+:[^/\s@]+@/g, '$1[hidden]@'],
+];
+/* Review 5: only from the sentence that holds the refusal onward, so a path or a request logged before it on the same
+   line is never quoted; then any key or token left in it is hidden. */
+function fromRefusal(line) {
+  const m = QUOTA_SAID.exec(line);
+  if (!m) return line;
+  const before = line.slice(0, m.index);
+  const cut = Math.max(before.lastIndexOf('. '), before.lastIndexOf('; '), before.lastIndexOf('! '));
+  return cut < 0 ? line : line.slice(cut + 2);
+}
 function capped(raw) {
-  const line = raw.replace(SECRETISH, (m, kv, bearer) => (kv || bearer || '') + '[hidden]');
+  const line = SECRET_FORMS.reduce((t, [re, to]) => t.replace(re, to), fromRefusal(raw));
   const chars = Array.from(line);
   return chars.length > QUOTA_LINE_MAX ? chars.slice(0, QUOTA_LINE_MAX).join('') + '…' : line;
 }
@@ -86,7 +106,8 @@ function quotaLine(text, skipRetrying = false) {
   let found = null;
   for (const raw of String(text || '').split('\n')) {
     const line = raw.trim();
-    if (QUOTA_SAID.test(line) && !NOT_REFUSED.test(line) && !(skipRetrying && RETRYING.test(line))) found = line;
+    if (QUOTA_SAID.test(line) && PROVIDER_SIDE.test(line) && !NOT_REFUSED.test(line) && !LOCAL_QUOTA.test(line)
+      && !(skipRetrying && RETRYING.test(line))) found = line;
   }
   return found === null ? null : capped(found);
 }
