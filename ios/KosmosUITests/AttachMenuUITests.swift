@@ -7,12 +7,13 @@ import XCTest
 final class AttachMenuUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
-    private func launch(room: Bool = false) throws -> XCUIApplication {
+    private func launch(room: Bool = false, args: [String] = []) throws -> XCUIApplication {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()
         app.launchEnvironment = room
             ? ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
             : ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana"]
+        app.launchArguments = args
         app.launch()
         return app
     }
@@ -65,6 +66,31 @@ final class AttachMenuUITests: XCTestCase {
         let open = NSPredicate(format: "isHittable == true")
         expectation(for: open, evaluatedWith: plus)
         waitForExpectations(timeout: 5)
+    }
+
+    // Review 16: every row is as wide as the widest, so no row leaves a strip that closes the panel instead. The
+    // simulator has no camera, so Camera carries its "Not available" note and is the widest row: the case that broke.
+    private func rowWidths(_ app: XCUIApplication) -> [CGFloat] {
+        let plus = app.buttons["Add a photo or file"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 20), "the chat's + did not show")
+        plus.tap()
+        let panel = app.descendants(matching: .any)["attach-panel"]
+        XCTAssertTrue(panel.buttons["Photos"].waitForExistence(timeout: 5), "the panel did not open")
+        shot(app, "panel")
+        let rows = panel.buttons.allElementsBoundByIndex
+        XCTAssertEqual(rows.count, 3, "the panel should offer Camera, Photos and Files")
+        XCTAssertTrue(rows.contains { $0.label.contains("Not available") }, "Camera's note did not show, so this proves nothing")
+        return rows.map { $0.frame.width }
+    }
+
+    func testEveryRowIsAsWideAsTheWidest() throws {
+        let widths = rowWidths(try launch())
+        XCTAssertEqual(widths.max()! - widths.min()!, 0, accuracy: 0.5, "row widths \(widths)")
+    }
+
+    func testEveryRowIsAsWideAsTheWidestAtTheLargestText() throws {
+        let widths = rowWidths(try launch(args: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]))
+        XCTAssertEqual(widths.max()! - widths.min()!, 0, accuracy: 0.5, "row widths \(widths)")
     }
 
     private func shot(_ app: XCUIApplication, _ name: String) {
