@@ -897,6 +897,14 @@
       "rank": 30,
       "since": "0.7.76",
       "status": "pending"
+    },
+    {
+      "title": "Delete your own messages",
+      "line": "Hover or tap one of your own messages, choose ..., then Delete message. Agents that already read it are told you withdrew it.",
+      "icon": "chat",
+      "rank": 14.5,
+      "since": "0.7.76",
+      "status": "pending"
     }
   ]
 }
