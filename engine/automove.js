@@ -220,6 +220,8 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       keep(unknown);
       rest(m.agent, nowMs);
       watch(m, movedAt, true);
+      try { deps.tell(m.agent, `Kosmos tried to move this agent to ${m.toLabel || 'another account'} and could not tell whether it went through. Settings, AI Models shows which account it is on.`); }   // kosmos#7621 item 4
+      catch { /* telling is best-effort; the record has it */ }
       return unknown;
     }
     /* A 409 is the board saying no move may start now: nothing about this agent, so no hold and no line. */
@@ -252,6 +254,15 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     if (outcome === 'changed') {
       try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because ${m.fromLabel || 'its account'} was running out (${m.why}).`); }
       catch { /* telling is best-effort; the record has it */ }
+    }
+    /* kosmos#7621 item 4: a move that did not finish cleanly is told too, so the thread says where the agent may be. */
+    if (outcome === 'partial' || outcome === 'unknown') {
+      const to = m.toLabel || 'another account';
+      try {
+        deps.tell(m.agent, outcome === 'partial'
+          ? `Kosmos saved ${to} for this agent but could not start it again, so it moves there at its next restart.`
+          : `Kosmos tried to move this agent to ${to} and could not tell whether it went through. Settings, AI Models shows which account it is on.`);
+      } catch { /* telling is best-effort; the record has it */ }
     }
     return ended;
   }

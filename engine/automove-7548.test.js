@@ -216,7 +216,7 @@ test('#7548: no move while another account move runs; refused, partial and stopp
     const { d: dx, calls: cx } = deps({ moveOutcome: outcome });
     await twoTicks(automove.create({ file: f }), dx);
     assert.equal(lines(f).pop().outcome, outcome, `a ${outcome} move was recorded as something else`);
-    assert.deepEqual(cx.tells, [], `an agent whose move was ${outcome} was told it moved`);
+    assert.deepEqual(cx.tells.filter(([, t]) => /^Kosmos moved this agent/.test(t)), [], `an agent whose move was ${outcome} was told it moved`);   // kosmos#7621 item 4: a partial is told, as partial
   }
 });
 
@@ -961,4 +961,24 @@ test('kosmos#7621 item 8: an agent whose re-check cannot be made is set aside, s
   assert.deepEqual(calls.starts.map((s) => s.names[0]), ['bo'], 'one agent whose re-check failed blocked every move');
   assert.ok(lines(file).some((l) => l.kind === 'move' && l.agent === 'bo'), 'CONTROL: this is the record the mover writes');
   assert.deepEqual(lines(file).filter((l) => l.kind === 'skipped'), [], 'a re-check that could not be made wrote a skipped line');
+});
+
+test('kosmos#7621 item 4: a partial or unknown move tells the agent\'s thread where it may be', async () => {
+  const p = automove.create({ file: fileFor() });
+  const { d: dp, calls: cp } = deps({ moveOutcome: 'partial' });
+  await twoTicks(p, dp);
+  assert.deepEqual(cp.tells.map(([a, t]) => [a, /^Kosmos saved spare for this agent but could not start it again/.test(t)]), [['ada', true]], 'a partial move told nothing');
+  const u = automove.create({ file: fileFor() });
+  const { d: du, calls: cu } = deps();
+  du.readMove = () => { throw new Error('unreadable'); };
+  await twoTicks(u, du);
+  assert.equal(cu.tells.filter(([, t]) => /could not tell whether it went through/.test(t)).length, 1, 'an unknown move told nothing');
+  const t = automove.create({ file: fileFor() });
+  const { d: dt, calls: ct } = deps({ start: () => { const e = new Error('boom'); e.wroteAccount = true; throw e; } });
+  await twoTicks(t, dt);
+  assert.equal(ct.tells.filter(([, x]) => /could not tell whether it went through/.test(x)).length, 1, 'a move that threw after its write told nothing');
+  const c = automove.create({ file: fileFor() });
+  const { d: dc, calls: cc } = deps();
+  await twoTicks(c, dc);
+  assert.equal(cc.tells.filter(([, x]) => /could not tell|could not start/.test(x)).length, 0, 'CONTROL: a clean move said it did not finish');
 });
