@@ -112,6 +112,8 @@ async function hideArm(browser, cloud) {
       reason: typeof pjSentence === 'function' ? pjSentence('we cannot see an agent by exactly this name on this computer right now') : 'NO pjSentence',
       restart: typeof restartFailureLine === 'function' ? restartFailureLine({ because: 'we could not find Claude Code on this computer' }) : 'NO restartFailureLine',
       // kosmos#7640: the subscription sentence, in the Model step lead and in a sign-in panel, as painted.
+      keys: [...document.querySelectorAll('p')].map((p) => p.textContent).filter((t) => /It stays on /.test(t))
+        .map((t) => (t.match(/It stays on (your cloud machine|this computer)\b/) || [])[1] || t),
       subs: [...document.querySelectorAll('p')].map((p) => p.textContent).filter((t) => /on your own subscription, on /.test(t))
         .map((t) => (t.match(/on your own subscription, on ([a-z ]+)\./) || [])[1] || t),   // review 1: an odd sentence is reported, not thrown
       // kosmos#7640: the create form's refusal as the page says it (asSentence applies cloudWords).
@@ -174,6 +176,8 @@ async function hideArm(browser, cloud) {
     check('CONTROL mac: the rename hint says this computer', /where they live on this computer,/.test(hm.hint), hm.hint);
     // kosmos#7640 (the 10-30 Cloud walk, items 2 and 6).
     check('cloud: every subscription sentence says your cloud machine', hc.subs.length >= 4 && hc.subs.every((w) => w === 'your cloud machine'), JSON.stringify(hc.subs));
+    check('cloud: every API-key callout says your cloud machine', hc.keys.length === 3 && hc.keys.every((w) => w === 'your cloud machine'), JSON.stringify(hc.keys));
+    check('CONTROL mac: the API-key callouts say this computer', hm.keys.length === 3 && hm.keys.every((w) => w === 'this computer'), JSON.stringify(hm.keys));
     check('CONTROL mac: the subscription sentences say this computer', hm.subs.length >= 4 && hm.subs.every((w) => w === 'this computer'), JSON.stringify(hm.subs));
     check('cloud: the no-Claude refusal reads as a sentence and names your cloud machine', /^There is no Claude account signed in on your cloud machine,/.test(hc.refusal), hc.refusal);
     check('CONTROL mac: the refusal is a sentence that keeps this computer', /^There is no Claude account signed in on this computer,/.test(hm.refusal), hm.refusal);

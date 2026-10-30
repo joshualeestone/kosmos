@@ -71,3 +71,16 @@ Findings: ~/.cache/monalisa-review/review-7640-round2.md. No blockers; 1 warning
 - DEFERRED nits: plan-name timestamp (this repo names plans by branch, beside the proof); data-cloud-copy is applied at
   load, which covers the five static sentences (a sentence painted later would need its own call, none exists); the sink
   count is a source pin beside the behaviour tests, kept as a tripwire.
+
+## After review round 3 (opus, 12:4x CDT)
+
+Findings: ~/.cache/monalisa-review/review-7640-round3.md. No blockers; 1 warning, 5 nits.
+- FIXED W: the three API-key callouts ("It stays on this computer, ...": Claude, Gemini/Grok, OpenAI in Settings, AI
+  Models, which is not cloud-hidden) wrap "this computer" too, so "Finished looks like" holds as written. Unit pin (3
+  wrapped, 0 plain) and browser check arms (cloud: your cloud machine x3; Mac control: this computer x3).
+  web.firstrun-model's count pin follows the span; its negative assertion now matches the span form too (it had gone
+  vacuous: the plain literal could no longer occur).
+- FIXED nits: the 403 branch's comment says it now serves only a refused LOCAL tab; the 5 s interval is not even set up
+  on a page reached through Kosmos+; the import row's READ refusal is a sentence too (five sinks); comments no longer
+  name review rounds.
+- KEPT nit: the guarded expression is matched byte for byte by three test files (the round-1 deferral stands).

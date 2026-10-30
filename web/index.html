@@ -14876,7 +14876,7 @@ window.kosmosMeasureScrollbarWidth();
          logs it, never puts it in a URL. Same neutral .dwarn callout as the other key
          steps: a key not yet added must not wear the connected-green. -->
     <div id="acct-apikey-flow" hidden style="margin-top: var(--space-5);">
-      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b id="acct-apikey-head">Paste an API key.</b> It stays on this computer, and Kosmos will not show it again.</p>
+      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b id="acct-apikey-head">Paste an API key.</b> It stays on <span data-cloud-copy="thisMachine">this computer</span>, and Kosmos will not show it again.</p>
       <div class="frow">
         <input type="password" id="acct-apikey-key" autocomplete="new-password" spellcheck="false"
                aria-label="API key" placeholder="API key">
@@ -15027,7 +15027,7 @@ window.kosmosMeasureScrollbarWidth();
            (#2164), not the subscription flow's red: a key not yet added must not wear
            the connected-green, and this reassures rather than warns. -->
       <div id="acct-claude-key-step" hidden>
-        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Paste an Anthropic API key.</b> It stays on this computer, read by Claude Code the same as if you had set it there yourself, and Kosmos will not show it again.</p>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Paste an Anthropic API key.</b> It stays on <span data-cloud-copy="thisMachine">this computer</span>, read by Claude Code the same as if you had set it there yourself, and Kosmos will not show it again.</p>
         <div class="frow">
           <input type="password" id="acct-claude-key" autocomplete="new-password" spellcheck="false"
                  aria-label="Anthropic API key" placeholder="sk-ant-…">
@@ -15125,7 +15125,7 @@ window.kosmosMeasureScrollbarWidth();
            bold lead -- so the two providers read alike. The marker is neutral ink,
            not the Claude flow's red (this reassures rather than warns) and not the
            connected-green (a key not yet added must not wear the connected mark). -->
-      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Paste an OpenAI API key.</b> It stays on this computer with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
+      <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Paste an OpenAI API key.</b> It stays on <span data-cloud-copy="thisMachine">this computer</span> with the OpenAI runner, the same as if you had signed in there yourself, and Kosmos will not show it again.</p>
       <div class="frow">
         <input type="password" id="acct-openai-key" autocomplete="new-password" spellcheck="false"
                aria-label="OpenAI API key" placeholder="sk-…">
@@ -53748,7 +53748,7 @@ function waitForgetRows() {
 }
 /* Started here, beside its state, not with pollAsk's timer: web.plus-stale.test.js runs the panel script after this block
    on its own. Answers v2 false, and nothing shows, until the board-v2 marker exists. */
-setTimeout(() => { pollWaiting(); setInterval(pollWaiting, 5000); }, 0);
+setTimeout(() => { if (typeof kplusRemote === 'function' && kplusRemote()) return; pollWaiting(); setInterval(pollWaiting, 5000); }, 0);   // kosmos#7640: never on a page reached through Kosmos+
 /* What the section would draw from: a poll repaints only when this changes (CI's render-snav-head-4979: without the
    marker this poll ran paintAsk every 5 s for nothing, doubling the repaints of a board that should be unchanged). */
 function waitSig() {
@@ -53768,7 +53768,8 @@ async function pollWaiting() {
   let res = null;
   try { res = await fetch('/api/remote/waiting', { cache: 'no-store' }); } catch { res = null; }
   if (!res) return;   // a blip keeps the last paint
-  // A remote session is refused this list by design: nothing to show there, and nothing to say about it.
+  // A LOCAL tab refused this list (signed out, no board cookie; a remote page never gets here): nothing to show, nothing
+  // to say, and it keeps asking, since it recovers in place once it is signed in again.
   if (res.status === 403) { WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; waitForgetRows(); repaint(); return; }
   const r = await res.json().catch(() => null);
   if (!res.ok) {
@@ -65055,7 +65056,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
   /* `because` is the parse route's refusal reason (a 200 {ok:false, because}); `error`
      is its transport/500 sentence (a 400/500 {error}). Read both so a server error is
      not mislabelled "that is not an agent file". */
-  if (!data.ok) { fail(data.because || data.error || 'That is not an agent file we can bring in.'); return; }
+  if (!data.ok) { fail((typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(data.because || data.error || 'That is not an agent file we can bring in.')); return; }   // kosmos#7640: as a sentence
   /* What the person typed wins when the row asked for it; the engine folds it into a machine name
      ("Claude Pip" is claude-pip) and refuses one it cannot use, with a reason this row shows. A raw CLAUDE.md may
      carry no derivable name (recognizedFromContent): a row with a Name field asks for one there; a row without one
@@ -66023,7 +66024,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // 'name') lands beside the name field, red-bordered and focused; anything the
     // server does not tag to a field stays in the after-the-button slot.
     if (result.field === 'name') {
-      pjFieldBad('create-name', 'create-name-err', (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(result.because || 'that name will not work'));   // kosmos#7640 review 1: as the line below
+      pjFieldBad('create-name', 'create-name-err', (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(result.because || 'that name will not work'));   // kosmos#7640: as a sentence, as the line below
     } else {
       msg.textContent = (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(result.because || 'that name will not work');   // kosmos#7640: as a sentence (asSentence applies cloudWords too)
     }

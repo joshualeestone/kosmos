@@ -64,6 +64,9 @@ test('kosmos#7640: every "on your own subscription, on this computer" sentence n
   // cloud machine, so the span keeps "this computer").
   assert.equal(wrapped, 5, 'the five sentences are not all wrapped');
   assert.equal(plain, 0, 'a sentence still says "this computer" plainly');
+  // Round 3: the three API-key callouts ("It stays on this computer, ...") too; Settings, AI Models is not cloud-hidden.
+  assert.equal(PAGE.split('It stays on <span data-cloud-copy="thisMachine">this computer</span>').length - 1, 3);
+  assert.equal(PAGE.split('It stays on this computer').length - 1, 0, 'an API-key callout still says "this computer" plainly');
 });
 
 test('kosmos#7640: data-cloud-copy says "your cloud machine" on a cloud machine, and "this computer" elsewhere (CONTROL)', () => {
@@ -86,6 +89,6 @@ test('kosmos#7640: the engine\'s no-Claude refusal reads as a sentence, with the
   assert.match(say(false), /^There is no Claude account signed in on this computer,/, 'CONTROL: a Mac keeps "this computer", capitalised');
   // And the create form's sinks use it (guarded, so a function lifted alone still runs).
   const CS = "(typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(";
-  // The create form's two refusal lines, its name field's refusal (review 1), and the import row's failure.
-  assert.equal(PAGE.split(CS).length - 1, 4, 'the four create refusal sinks do not all say it as a sentence');
+  // The create form's two refusal lines, its name field's refusal, and the import row's read and create failures.
+  assert.equal(PAGE.split(CS).length - 1, 5, 'the five create refusal sinks do not all say it as a sentence');
 });
