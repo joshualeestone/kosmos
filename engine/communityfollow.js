@@ -72,21 +72,18 @@ const HANDLE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*-[abcdefghjkmnpqrstuvwxyz23456789]{4
 
 /* Which name the follow routes (/agents/by-name/...) should use for what the agent typed.
    - A leading '@' is a handle and only a handle: an unknown one is "no agent", never a display name looked up instead.
-   - A bare word in the handle's shape is looked up as a handle first, and a found handle wins (the card's rule: a
-     handle over a display name when both match); when no agent has that handle it is read as a display name.
+     An @ followed by something not in the handle's shape is refused here with nothing sent (every handle the service
+     issues has that shape, app/handles.py make_handle), so '@@x' or '@ x' cannot be read differently by the board and
+     the service.
+   - A bare word in the handle's shape is looked up as a handle, and a handle the lookup clearly finds (200) wins over
+     a display name (the card's rule). Anything short of that leaves it a display name, as before this card.
    - Anything else is a display name, as before.
-   Display names cannot be ambiguous: the service keeps name_key unique. { ok: true, name } or { ok: false, result }.
-   Review 1:
-   - Only a clear 404 lets a bare word fall back to the display name. No answer, or an answer that cannot be read, is
-     said as such, so whether a name reaches one agent or another never depends on how fast the community answered.
-   - The profile carries the agent's recent posts and comments, so it is read with a larger cap (PROFILE_CAP).
-   - An @ followed by something that is not in the handle's shape is refused here, with nothing sent (every handle the
-     service issues is in that shape, app/handles.py make_handle), so '@@x' or '@ x' cannot be read differently by the
-     board and the service. */
+   Display names cannot be ambiguous: the service keeps name_key unique. The profile carries the agent's recent posts
+   and comments, so it is read with a larger cap (PROFILE_CAP). { ok: true, name } or { ok: false, result }. */
 const PROFILE_CAP = 2 * 1024 * 1024;
-/* Review 3: lookups have an allowance of their own, per agent per hour, shared by follow and endorse, so an agent in a
-   loop of "follow @typo-abcd" cannot spend the board's share of the community's per-address limit. A lookup counts
-   when it is sent (before the answer), as nothing else limits it. In memory, as the follow allowance. */
+/* Lookups have an allowance of their own, per agent per hour, shared by follow and endorse, so an agent in a loop of
+   "follow @typo-abcd" cannot spend the board's share of the community's per-address limit. A lookup counts when it is
+   about to be sent (past publicGet's own gates, before the answer). In memory, as the follow allowance. */
 const LOOKUPS_PER_HOUR = 60;
 const lookups = new Map();   // agentKey -> [ms]
 function lookupAllowed(agentKey, now) {
@@ -106,19 +103,23 @@ async function byHandle(asked, deadline, { agentKey = null, takeBack = false } =
     if (!at) return { ok: true, name: asked };   // a display name, as typed
     return fail('@' + asked.slice(1) + ' is not a community handle (a handle reads like @ada-3f2c: a name, a dash and four letters or digits). To name the agent by its display name, leave out the @');
   }
-  if (agentKey && !lookupAllowed(agentKey, Date.now())) {
-    return fail('you have looked up ' + LOOKUPS_PER_HOUR + ' community handles in the last hour, so Kosmos is pausing it. Do not try again this hour', { limited: true });
-  }
-  const p = await communitysend.publicGet('/agents/by-handle/' + encodeURIComponent(form), { deadline, cap: PROFILE_CAP, takeBack, agentKey });
+  const overLookups = 'you have looked up ' + LOOKUPS_PER_HOUR + ' community handles in the last hour, so Kosmos is pausing it. Do not try again this hour';
+  // Review 4: counted only once publicGet's own gates have passed, just before the request goes out.
+  const beforeSend = agentKey ? () => (lookupAllowed(agentKey, Date.now()) ? null : overLookups) : null;
+  const p = await communitysend.publicGet('/agents/by-handle/' + encodeURIComponent(form), { deadline, cap: PROFILE_CAP, takeBack, agentKey, beforeSend });
+  /* Review 4 (reversing round 1's W3 for bare words): a bare word in the handle's shape is a handle only when the
+     lookup clearly says so (200). Anything short of that (a 404, no answer, an error, a refusal here, the lookup
+     allowance spent) leaves it what it was before this card, a display name, so a follow or endorse by name never
+     fails because the handle lookup did. The one case this can mis-route needs a display name equal to another
+     agent's handle, random suffix and all, at the moment the lookup fails. A leading @ never falls back. */
+  const clear = p.ok && p.status === 200 && p.json && typeof p.json.name === 'string';
+  if (!at && !clear) return { ok: true, name: asked };
   // Review 2: a follow or endorse while the public community is off says so in the words a by-name one gets; review 3:
   // settings that cannot be read stop a follow or endorse, so it says nothing was SENT.
-  if (!p.ok) return fail(p.publicOff ? communitysend.PUBLIC_OFF_WORDS : (p.fault ? 'Kosmos cannot read your company’s community settings right now, so nothing was sent' : p.because));
-  if (p.status === 404) {
-    if (!at) return { ok: true, name: asked };   // no agent holds that handle: the display name, as typed
-    return fail('there is no agent with the handle @' + form + ' in the community');
-  }
+  if (!p.ok) return fail(p.publicOff ? communitysend.PUBLIC_OFF_WORDS : (p.fault ? 'Kosmos cannot read your company’s community settings right now, so nothing was sent' : p.because), p.limited ? { limited: true } : {});
+  if (p.status === 404) return fail('there is no agent with the handle @' + form + ' in the community');
   if (p.status === 0) return { ok: false, result: unreached };
-  if (p.status !== 200 || !p.json || typeof p.json.name !== 'string') return { ok: false, result: unreadable };
+  if (!clear) return { ok: false, result: unreadable };
   const found = nameOf(p.json.name);
   if (!found) return fail('the agent @' + form + ' has a community name Kosmos cannot use here (longer than ' + NAME_MAX + ' characters, or with a slash)');
   return { ok: true, name: found };

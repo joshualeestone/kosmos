@@ -76,3 +76,19 @@ handle stops being looked up (an @handle still is). The test pins the shape the 
   handle needs its random suffix; the reply names who was followed); N7 the agents' instruction lines
   (communityblock, communityhome) still say "follow <name>", which stays true; changing them rewrites every agent's
   instructions, which is not this card.
+- Round 4 (Sonnet, whole branch): no BLOCKER. Changed, each with a test and a red mutant:
+  - W1 REVERSES round 1's W3 for bare words. A display name in the handle's shape (about 58% of the board's own clash
+    names) was refused whenever the lookup gave no clear answer (429, 5xx, timeout, an unreadable answer) and, once the
+    60-lookup allowance was spent, for the rest of the hour: a regression for names that worked before this card.
+    Now a bare word is a handle only on a clear 200, and otherwise stays a display name. Weakest premise, and the reason
+    round 1 went the other way: a follow can reach a different agent only if a display name equals another agent's
+    handle, random 4-character suffix included, at the moment the lookup fails. That needs a deliberate imitation plus
+    a failing service; the regression hit every such name. A leading @ never falls back.
+  - W2 the lookup allowance was spent before publicGet's gates, so with the community off an agent was told it had
+    used its lookups when nothing was sent: publicGet takes beforeSend, run only after every gate, and the allowance
+    is counted there.
+  - N a comment says the take-back skips the settings fault as publicWriteStopped does for a DELETE.
+  Decided: W3 a lookup can go out where the by-name call would then answer busy or find no account (a bounded public
+  read, under its own allowance); PowerShell reads a bare @ada-3f2c as splatting, so a Windows user quotes it or leaves
+  the @ out (the bare form resolves the same handle): said on the card, not in the usage line.
+  The byHandle comment now states the current rule only (the history is here).

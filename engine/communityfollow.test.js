@@ -1103,19 +1103,25 @@ test('kosmos#7660 review 1: a profile larger than the usual answer cap (50 long 
   } finally { await b.close(); }
 });
 
-test('kosmos#7660 review 1: a bare handle-shaped word falls back to the display name only on a clear 404; no answer or an unreadable one is said as such', async () => {
+test('kosmos#7660 review 4: a bare handle-shaped word is a handle only on a clear 200; an unreadable or missing answer leaves it a display name, while an @handle says what went wrong', async () => {
   fresh(); const b = await backend();
   try {
     await cf.follow('mara', 'quill');   // mara has an account
     b.st.handleMode = 'junk';
-    const junk = await cf.follow('mara', 'quill-ab3k');
-    assert.deepEqual(junk, { ok: false, upstream: true, because: 'the community gave an answer we could not read' });
-    assert.equal(b.st.seen.some((s) => s.url === '/agents/by-name/quill-ab3k'), false, 'an unreadable lookup must not fall back to a name');
+    await cf.follow('mara', 'quill-ab3k');
+    assert.ok(b.st.seen.some((s) => s.method === 'POST' && s.url === '/agents/by-name/quill-ab3k/follow'), 'an unreadable lookup leaves a bare word a display name');
+    const junk = await cf.follow('mara', '@quill-ab3k');
+    assert.deepEqual(junk, { ok: false, upstream: true, because: 'the community gave an answer we could not read' }, 'an @handle never falls back');
     b.st.handleMode = 'hang';
     cs.setTimeoutMs(300);
-    const slow = await cf.follow('mara', 'echo-two-x7mn');
+    await cf.follow('mara', 'echo-two-x7mn');
+    assert.ok(b.st.seen.some((s) => s.method === 'POST' && s.url === '/agents/by-name/echo-two-x7mn/follow'), 'no answer leaves a bare word a display name');
+    const slow = await cf.follow('mara', '@echo-two-x7mn');
     assert.deepEqual(slow, { ok: false, upstream: true, because: 'the community could not be reached' });
-    assert.equal(b.st.seen.some((s) => s.url === '/agents/by-name/echo-two-x7mn'), false, 'no answer must not fall back to a name');
+    // CONTROL: a clear answer makes the bare word the handle (it follows quill, not a "quill-ab3k").
+    b.st.handleMode = null;
+    cs.setTimeoutMs(5000);
+    assert.deepEqual(await cf.follow('mara', 'quill-ab3k'), { ok: true, text: 'You already follow quill.' }, 'resolved to quill, whom mara follows');
   } finally { cs.setTimeoutMs(5000); await b.close(); }
 });
 
@@ -1237,4 +1243,26 @@ test('kosmos#7660 review 3: a handle lookup the policy refuses is recorded again
     assert.deepEqual(recorded, [{ agent: 'mara', rule: 'outside-contact' }]);
     assert.equal(b.st.seen.length, 0, 'nothing was sent');
   } finally { ae.recordRefusal = realRecord; op.contactAllows = realAllows; cs.setContact(null); await b.close(); }
+});
+
+/* kosmos#7660 review 4. */
+test('kosmos#7660 review 4: a lookup refused here (community switched off) does not use the lookup allowance', async () => {
+  fresh(); const b = await backend();
+  try {
+    SWITCH = false;
+    for (let i = 0; i < cf.LOOKUPS_PER_HOUR + 5; i += 1) assert.equal((await cf.follow('mara', '@quill-ab3k')).ok, false);
+    SWITCH = true;
+    assert.deepEqual(await cf.follow('mara', '@quill-ab3k'), { ok: true, text: 'You now follow quill.' }, 'the allowance is untouched');
+  } finally { SWITCH = true; await b.close(); }
+});
+
+test('kosmos#7660 review 4: with the lookup allowance spent, an @handle is refused but a bare handle-shaped display name still goes by name', async () => {
+  fresh(); const b = await backend();
+  try {
+    for (let i = 0; i < cf.LOOKUPS_PER_HOUR; i += 1) await cf.follow('mara', '@typo-abcd');
+    const over = await cf.follow('mara', '@quill-ab3k');
+    assert.equal(over.limited, true);
+    await cf.follow('mara', 'quill-ab3k');
+    assert.ok(b.st.seen.some((s) => s.url.startsWith('/agents/by-name/quill-ab3k')), 'the bare word went by name, not refused');
+  } finally { await b.close(); }
 });

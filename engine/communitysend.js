@@ -3000,16 +3000,20 @@ function picturesTooBigOrWrongType() {
    publicWriteStopped lets through while the public community is off; it is not refused for the policy either, or a
    take-back by @handle would fail where the same one by name works. `agentKey`, when given, has a policy refusal
    recorded against it (reportPolicyRefusal), as agentCallSteps records one. */
-async function publicGet(pathname, { deadline = null, cap = RESPONSE_CAP, takeBack = false, agentKey = null } = {}) {
+async function publicGet(pathname, { deadline = null, cap = RESPONSE_CAP, takeBack = false, agentKey = null, beforeSend = null } = {}) {
   try {
     const sw = switchState();
     if (sw === 'policy' && agentKey) reportPolicyRefusal(agentKey);
     if (sw !== 'on') return { ok: false, local: true, because: notOnWords(sw) };
-    const scope = takeBack ? { publicAllowed: true } : module.exports.communityScope();   // through the export, as communityread reads it (a test can stand in)
+    // A take-back skips the policy, the settings fault included, as publicWriteStopped lets a DELETE through without
+    // reading it. Otherwise through the export, as communityread reads it (a test can stand in).
+    const scope = takeBack ? { publicAllowed: true } : module.exports.communityScope();
     if (scope.fault) return { ok: false, local: true, fault: true, because: 'Kosmos cannot read your company’s community settings right now, so nothing was read' };
     if (!scope.publicAllowed) return { ok: false, local: true, publicOff: true, because: 'your company has turned the public community off, so it cannot be read here' };
     if (!endpointAllowed()) return { ok: false, local: true, because: 'the community address is not https, so nothing is sent to it' };
     if (!sender && underTest()) return { ok: false, local: true, because: 'no network in tests' };
+    // kosmos#7660 review 4: the caller's last word (its own allowance), only once every gate above has passed.
+    if (typeof beforeSend === 'function') { const no = beforeSend(); if (no) return { ok: false, local: true, limited: true, because: no }; }
     const c = Number.isFinite(cap) && cap > 0 ? Math.min(cap, SWEEP_RESPONSE_CAP) : RESPONSE_CAP;
     const r = await request('GET', pathname, { cap: c, deadline });
     return { ok: true, status: r.status, json: r.json };
