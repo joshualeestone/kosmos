@@ -3,7 +3,8 @@ import XCTest
 // kosmos#7645: KeyboardSlideUITests' two long-chat checks on a project room. With the room at its newest post, bringing the
 // keyboard up keeps that post visible above the message box; a room read higher up stays where it was (iOS 26 moved a DM
 // read higher up, #7609). Sample room (a Debug build), Spring catalogue made long (KOSMOS_SAMPLE_ROOM_LONG, 220 posts).
-// Run in CI by the ios workflow's "ui tests (sample board)" job (ios/tools/ui-sample.sh).
+// Not in ios/tools/ui-sample.sh: testRoomNewestStaysAboveTheBox fails on iOS 26 until a person's scroll can reach the end
+// of a long room (#7654 part 2). Run it by hand with -only-testing:KosmosUITests/RoomKeyboardUITests.
 final class RoomKeyboardUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
