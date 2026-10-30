@@ -29,7 +29,9 @@
  * #5018: notices no longer grow the header; they float below it in #topnotes. The floating-notice arm adds a 460x90
  * stand-in notice in its own slot in #topnotes (not the login slot, which every status poll empties), at 900x700 in
  * the tab view scrolled halfway, and asserts every pill is below the stack, the first pill takes a hit-test click, and
- * the Allow card (#askcard) is below the stack too. Both engines.
+ * the Allow card (#askcard) is below the stack too. Both engines. The check shows the Allow card itself and stubs
+ * paintAsk so the page's polls cannot hide it again, then forces one real pollAsk (#7648). The Allow card's own paint
+ * logic is out of scope here: this arm measures where a shown card sits, not when the page shows it.
  * A taller header (a Kosmos+ bar, stood in for by a block added inside .apphead) at
  * 1200x600: grown by 100px the whole nav no longer fits, so it must scroll with the page or show every
  * pill; grown by 40px it still fits, so it stays sticky with every pill below the taller header.
@@ -111,12 +113,14 @@ function chk(ok, label, extra) {
                 const fb = pills[0].getBoundingClientRect();
                 const hit = document.elementFromPoint(fb.left + fb.width / 2, fb.top + fb.height / 2);
                 return { layout: document.documentElement.getAttribute('data-layout') || 'tabs', cons: document.body.classList.contains('consolidated'), headBottom: Math.round(hb.bottom), headShown: hb.height > 0,
-                  navPos: getComputedStyle(document.getElementById('s-nav')).position, y: Math.round(window.scrollY), tops, firstHit: !!(hit && pills[0].contains(hit)) };
+                  navPos: getComputedStyle(document.getElementById('s-nav')).position, y: Math.round(window.scrollY), tops, firstHit: !!(hit && pills[0].contains(hit)),
+                  // #7648: name what took the click, so a miss says what covered the pill.
+                  hitWas: hit ? hit.tagName.toLowerCase() + (hit.id ? '#' + hit.id : '') + (typeof hit.className === 'string' && hit.className ? '.' + hit.className.trim().split(/\s+/).join('.') : '') : null };
               });
               chk(r.layout === layout && !r.cons && r.headShown && r.navPos === 'sticky' && r.y > drawnTop,
                 `${tag}: control: ${layout} saved, the tab view (no body.consolidated), the header shows, the nav is sticky and the page scrolled past it`, JSON.stringify({ drawnTop: Math.round(drawnTop), ...r }));
               chk(r.tops.length > 0 && r.tops.every((t) => t >= r.headBottom), `${tag}: every pill sits below the app header`, JSON.stringify({ headBottom: r.headBottom, tops: r.tops }));
-              chk(r.firstHit, `${tag}: a click at the first pill lands on it, not on the header`);
+              chk(r.firstHit, `${tag}: a click at the first pill lands on it, not on the header`, JSON.stringify({ hitWas: r.hitWas }));
               ran += 1;
             }
             chk(errs.length === 0, `${engineName} ${layout} ${width}px: no page errors`, errs.join(' | '));
@@ -230,8 +234,12 @@ function chk(ok, label, extra) {
             n.textContent = 'a stand-in notice';
             slot.appendChild(n);
             document.getElementById('topnotes').appendChild(slot);
+            // #7648: pollAsk and pollWaiting (5s each) repaint through paintAsk, which hides an empty Allow card.
+            window.__pollAskPaints = 0;
+            window.paintAsk = () => { if (/pollAsk/.test(String(new Error().stack))) window.__pollAskPaints += 1; };
             const ask = document.getElementById('askcard'); if (ask) ask.hidden = false;   // the Allow card, shown
           });
+          const pollAskPaints = await page.evaluate(async () => { window.__pollAskPaints = 0; await pollAsk(); return window.__pollAskPaints; });
           await page.waitForTimeout(400);
           await page.evaluate(() => { const m = document.documentElement.scrollHeight - innerHeight; window.scrollTo(0, Math.round(m / 2)); });
           await page.waitForTimeout(200);
@@ -247,10 +255,12 @@ function chk(ok, label, extra) {
             const ab0 = ab ? document.getElementById('askcard').getBoundingClientRect() : null;
             return { y: y0, consolidated: document.body.classList.contains('consolidated'), notesH: Math.round(nb.height), notesBottom: Math.round(nb.bottom), navPos: getComputedStyle(document.getElementById('s-nav')).position,
               underNotes: pills.filter((x) => x.getBoundingClientRect().top < nb.bottom - 0.5).length, firstTakesClick: Boolean(hit && first.contains(hit)),
-              askShown: Boolean(ab0), askBelowNotes: Boolean(ab0 && ab0.top >= nb0.bottom - 0.5), askTop: ab0 ? Math.round(ab0.top) : null, notesBottomTop: Math.round(nb0.bottom) };
+              askShown: Boolean(ab0), askBelowNotes: Boolean(ab0 && ab0.top >= nb0.bottom - 0.5), askTop: ab0 ? Math.round(ab0.top) : null, notesBottomTop: Math.round(nb0.bottom),
+              hitWas: hit ? hit.tagName.toLowerCase() + (hit.id ? '#' + hit.id : '') + (typeof hit.className === 'string' && hit.className ? '.' + hit.className.trim().split(/\s+/).join('.') : '') : null };
           });
           const tag = `${engineName} a floating notice, 900x700 mac, scrolled halfway`;
           chk(r.y > 0 && !r.consolidated && r.notesH >= 90 && r.navPos === 'sticky' && r.askShown, `${tag}: control: the tab view, the notice and the Allow card show, the page scrolled and the nav is sticky`, JSON.stringify(r));
+          chk(pollAskPaints >= 1, `${tag}: control: pollAsk reached the stubbed repaint`, JSON.stringify({ pollAskPaints }));
           chk(r.underNotes === 0 && r.firstTakesClick, `${tag}: every pill is below the floating notice, and the first one takes the click`, JSON.stringify(r));
           chk(r.askBelowNotes, `${tag}: at the top of the page the Allow card is below the floating notice, never under it`, JSON.stringify(r));
           notesRan += 1;
