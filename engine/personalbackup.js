@@ -101,7 +101,7 @@ function peek(id, now) {
   return t || null;
 }
 
-const ELSEWHERE = 'Personal backup is on for another of your computers. Turn it off there first; nothing changed here.';
+const ELSEWHERE = 'Personal backup is on for another of your computers. Turn it off there first, or remove that computer from your Kosmos+ account if it is lost; nothing changed here.';
 const SAY = {
   personal_backup_off: 'Personal backup is not available on Kosmos+ yet. Nothing was turned on.',
   personal_backup_in_org: 'This account is in a company or a family on Kosmos+, so a personal backup cannot be turned on. Nothing changed.',
@@ -150,10 +150,19 @@ function joinPending(opts) {
 /* End a personal membership this computer previewed and did not bind. { ok: true, left } once settled (left, or
    nothing of ours to end), { ok: true, kept: true } while this computer holds it or a join is unsettled, { ok: false }
    when Kosmos+ did not answer (the marker stays, so the follow-up asks again). */
-async function endUnbound(opts, orgId) {
+/* Whether this computer may still be about to bind `orgId`: a switch-on in flight, a record or an unsettled join here,
+   or a ticket for that org still inside its life (someone is reading the words; code review 4, warnings 2 and 3). */
+function keptHere(opts, orgId) {
+  if (CLAIMED.size || isOn(opts) || joinPending(opts)) return true;
+  const now = (opts.now || Date.now)();
+  for (const v of TICKETS.values()) if (v.org && v.org.id === orgId && now - v.at <= TICKET_MS) return true;
+  return false;
+}
+async function endUnbound(opts, orgId, explicit) {
   if (!orgId) return { ok: true, left: false };   // only a membership this computer's own preview made (see above)
-  // Code review 3, warning 3: never while a switch-on here may be binding it (its leave could end the fresh bind).
-  if (CLAIMED.size || isOn(opts) || joinPending(opts)) return { ok: true, kept: true };
+  // A decline or an off is the person saying no: any other open preview of that org here is closed with it.
+  if (explicit) for (const [k, v] of TICKETS) if (v.org && v.org.id === orgId) TICKETS.delete(k);
+  if (keptHere(opts, orgId)) return { ok: true, kept: true };
   const remote = remoteOf(opts);
   if (!remote || typeof remote.macRequest !== 'function') return { ok: false };
   let st;
@@ -162,12 +171,18 @@ async function endUnbound(opts, orgId) {
   const d = st.data;
   const ours = d.member === true && d.org && d.org.kind === 'personal' && d.enrolled == null && d.org.id === orgId;
   if (!ours) { forgetPreview(opts); return { ok: true, left: false }; }
-  // No computer is bound, so the relay checks no print (org.rs mac_leave); the org it means, so a newer relay ends no other.
+  // Again after the status read's await (code review 4, warning 2): a switch-on may have started meanwhile.
+  if (keptHere(opts, orgId)) return { ok: true, kept: true };
+  /* No computer is bound, so the relay checks no print (org.rs mac_leave). `orgId`: a newer relay ends no other org.
+     `unboundOnly` (code review 4, blocker 1): the personal org is REUSED across this account's computers, so the org id
+     cannot tell this preview's membership from one another computer bound after the status read above; a relay that
+     reads it ends the membership only if it is still unbound, in the same transaction. An older relay ignores both, and
+     the window between the status read and the leave is the named residual risk there. */
   let r;
-  try { r = await remote.macRequest('POST', LEAVE, { orgId }); } catch { r = null; }
+  try { r = await remote.macRequest('POST', LEAVE, { orgId, unboundOnly: true }); } catch { r = null; }
   if (r && (r.ok || codeOf(r) === 'org_not_member')) { forgetPreview(opts); return { ok: true, left: true }; }
   // kosmos#7658: the membership is another org's by now (a join landed after the status read): not ours, nothing ended.
-  if (r && codeOf(r) === 'org_not_that_org') { forgetPreview(opts); return { ok: true, left: false }; }
+  if (r && (codeOf(r) === 'org_not_that_org' || codeOf(r) === 'org_now_bound')) { forgetPreview(opts); return { ok: true, left: false }; }
   return { ok: false };
 }
 
@@ -190,7 +205,10 @@ async function preview(opts = {}) {
   const served = cleanPreview(r.data);
   if (!served) return { ok: false, because: 'Kosmos+ answered in a form this Kosmos does not read. Nothing was turned on.' };
   const now = (opts.now || Date.now)();
-  if (inNone) notePreview(served.org.id, now, opts);
+  /* A preview of the org an open marker names refreshes its age (code review 4, warning 3): reopened at nine minutes, the
+     follow-up must not end it at ten while the person reads. The status read said "member" then, so inNone is false. */
+  const open = readPreview(opts);
+  if (inNone || (open && open.org === served.org.id)) notePreview(served.org.id, now, opts);
   return { ok: true, ticket: issue(served, now), words: served.words };
 }
 
@@ -202,7 +220,7 @@ async function switchOn(ticket, accepted, opts = {}) {
     // Declined: the ticket is spent and the membership the preview made is ended (blocker 1).
     if (typeof ticket === 'string') TICKETS.delete(ticket);
     const open = readPreview(opts);
-    if (open) await endUnbound(opts, open.org);
+    if (open) await endUnbound(opts, open.org, true);
     return { ok: false, declined: true, because: 'Not accepted, so nothing was turned on.' };
   }
   /* Code review 2 NIT: claimed synchronously, so two switchOn calls on one ticket (a double press) cannot both enroll;
@@ -252,7 +270,8 @@ async function bindAndKey(ticket, t, opts) {
     if (r.reason === 'no_folder') return { ok: false, because: 'This Kosmos\'s data folder cannot be written, so nothing was turned on. Fix the folder, then try again.' };
     return { ok: false, code: c, because: 'Kosmos+ did not bind this computer just now. Nothing was turned on; try again in a minute.' };
   }
-  if (!r.org || r.org.id !== t.org.id) return { ok: false, because: 'Kosmos+ did not confirm this computer, so nothing was turned on.' };
+  // Code review 4, NIT 5: orgenroll has written its record by now when r.ok, so "nothing was turned on" would be false.
+  if (!r.org || r.org.id !== t.org.id) return { ok: false, because: 'Kosmos+ answered for a different backup than the one shown, so its key was not set up here. Turn personal backup off on this computer and open it again.' };
   forgetPreview(opts);
   /* The key step runs again for this bind (warning 4), but only now that it landed: removed before, a failed enroll left
      a backup whose key is fine reading needs-key (code review 3, warning 5). state() compares org and world anyway. */
@@ -375,11 +394,13 @@ async function switchOff(opts = {}) {
   let r;
   try { r = await oe.leave(enrollOpts(opts)); } catch { r = null; }
   // No record here: a preview may still hold a membership nothing bound (blocker 1). Ended, or the follow-up does it.
-  if (r && r.ok && r.localOnly) { const open = readPreview(opts); await endUnbound(opts, open ? open.org : null); }
+  if (r && r.ok && r.localOnly) { const open = readPreview(opts); await endUnbound(opts, open ? open.org : null, true); }
   // Stopped here (left, or a leave pending): the key marker goes too, so turning it on again runs the key step again.
   if (r && (r.ok || r.pending)) { try { fs.rmSync(path.join(root(opts), KEY_READY), { force: true }); } catch { /* best effort */ } }
   if (r && r.ok) return { ok: true };
   if (r && r.pending) return { ok: false, pending: true, because: 'Personal backup has stopped on this computer. Kosmos tells Kosmos+ again until it answers.' };
+  // Code review 4, NIT 6: a leave that threw after the record was cleared has stopped it here; do not say "still on".
+  if (!isOn(opts)) return { ok: false, pending: true, because: 'Personal backup has stopped on this computer. Kosmos tells Kosmos+ again until it answers.' };
   return { ok: false, because: 'Kosmos+ could not be reached just now. Personal backup is still on; try again in a minute.' };
 }
 

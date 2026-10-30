@@ -69,6 +69,7 @@ const PREVIEW_OPEN = 'personal-preview-open.json';   // engine/personalbackup.js
 const KEY_OK = { setUpPersonalKey: async () => ({ ok: true, code: 'TEST-CODE', epoch: 1 }) };
 
 function fresh(t) {
+  pb._TICKETS.clear();   // each test starts as a board just started: no ticket from an earlier test is live
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-personalswitch-7404-root-'));
   t.after(() => { fs.rmSync(root, { recursive: true, force: true }); cp._testRunner(); });
   cp._testRunner(() => DUMP, { platform: 'darwin' });
@@ -264,7 +265,7 @@ test('#7404 blocker 1: a decline ends the membership the preview made, with an e
   const r = await pb.switchOn(p.ticket, false, { root, remote: c });
   assert.equal(r.declined, true);
   assert.equal(c.member, false, 'declined: the membership is ended');
-  assert.deepEqual(c.sent.filter((x) => x.route === oe.ROUTES.leave).map((x) => x.body), [{ orgId: ORG.id }], 'one leave, no print, naming the org');
+  assert.deepEqual(c.sent.filter((x) => x.route === oe.ROUTES.leave).map((x) => x.body), [{ orgId: ORG.id, unboundOnly: true }], 'one leave, no print, naming the org, only while unbound');
   assert.equal(opened(root), false);
   assert.equal(pb._TICKETS.has(p.ticket), false, 'the declined ticket is spent');
 });
@@ -598,6 +599,7 @@ test('#7404 review 3 nit 7: a preview marker from the future is ended', async (t
   const f = path.join(root, PREVIEW_OPEN);
   const j = JSON.parse(fs.readFileSync(f, 'utf8'));
   fs.writeFileSync(f, JSON.stringify(Object.assign(j, { at: Date.now() + 365 * 24 * HOUR_MS })));
+  pb._TICKETS.clear();   // a restart: the preview's own ticket would keep it (review 4)
   pb._resetFollowUpForTests();
   await pb.followUp({ root, remote: c });
   assert.equal(c.member, false);
@@ -613,4 +615,64 @@ test('#7404: org_not_that_org on the leave settles the marker', async (t) => {
   await pb.switchOn(p.ticket, false, { root, remote: c });
   assert.equal(LEAVE_N(c), 1);
   assert.equal(fs.existsSync(path.join(root, PREVIEW_OPEN)), false, 'settled: no retry');
+});
+
+/* Code review 4, blocker 1: the personal org is reused across computers, so the relay must end it only while unbound. */
+test('#7404 review 4 blocker 1: org_now_bound on the leave settles the marker and ends nothing', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  const real = c.macRequest;
+  c.macRequest = async (m, route, body) => (route === oe.ROUTES.leave ? (c.sent.push({ route, body }), { ok: false, because: '409 {"code":"org_now_bound"}', refusal: { status: 409, code: 'org_now_bound' } }) : real(m, route, body));
+  await pb.switchOn(p.ticket, false, { root, remote: c });
+  assert.equal(LEAVE_N(c), 1);
+  assert.equal(c.member, true, 'nothing ended');
+  assert.equal(fs.existsSync(path.join(root, PREVIEW_OPEN)), false, 'settled: no retry');
+});
+
+/* Warnings 2 and 3: a live ticket for the org (someone reading) keeps it; a re-preview refreshes the marker's age. */
+test('#7404 review 4 warning 3: reopened at nine minutes, the follow-up does not end it at eleven', async (t) => {
+  const root = fresh(t);
+  let now = 2_000_000_000_000;
+  const at = () => now;
+  const c = coordinator();
+  await pb.preview({ root, remote: c, now: at });
+  now += 9 * 60 * 1000;
+  const p2 = await pb.preview({ root, remote: c, now: at });
+  now += 2 * 60 * 1000;
+  pb._resetFollowUpForTests();
+  await pb.followUp({ root, remote: c, now: at });
+  assert.equal(LEAVE_N(c), 0, 'not ended while the second preview is read');
+  const r = await pb.switchOn(p2.ticket, true, { root, remote: c, personalbackupkey: KEY_OK, now: at });
+  assert.equal(r.ok, true);
+});
+
+test('#7404 review 4 warning 2: a live ticket for the org keeps it, even with an old marker', async (t) => {
+  const root = fresh(t);
+  let now = 2_000_000_000_000;
+  const at = () => now;
+  const c = coordinator();
+  await pb.preview({ root, remote: c, now: at });
+  // The marker aged past the ticket life by hand; a ticket issued just now for the same org is still live.
+  const f = path.join(root, PREVIEW_OPEN);
+  fs.writeFileSync(f, JSON.stringify(Object.assign(JSON.parse(fs.readFileSync(f, 'utf8')), { at: now - 20 * 60 * 1000 })));
+  pb._resetFollowUpForTests();
+  await pb.followUp({ root, remote: c, now: at });
+  assert.equal(LEAVE_N(c), 0, 'a live ticket: kept');
+  now += 11 * 60 * 1000;
+  await pb.followUp({ root, remote: c, now: at });
+  assert.equal(LEAVE_N(c), 1, 'CONTROL: once the ticket has lapsed it is ended');
+});
+
+/* NITs 5 and 6: sentences that say what happened. */
+/* NIT 5 measured: orgenroll itself refuses an answer naming another org (opts.orgId, its review 39) and writes no
+   record, so "nothing was turned on" is true there; personalbackup's own org check is a second line. */
+test('#7404 review 4 nit 5: a bind answered for another org writes no record and says nothing was turned on', async (t) => {
+  const root = fresh(t);
+  const c = coordinator({ enrollOrg: { id: 'porg_other', name: 'x', slug: 'x', kind: 'personal' } });
+  const p = await pb.preview({ root, remote: c });
+  const r = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  assert.equal(r.ok, false);
+  assert.equal(pb.isOn({ root }), false, 'no record: the sentence below is true');
+  assert.match(r.because, /nothing was turned on/);
 });
