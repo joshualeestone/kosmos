@@ -833,7 +833,7 @@ else
   # #5713: the pool must record what Mac PROD serves, or this What's New can re-offer highlights prod already showed (a
   # promote since the last build, or a build made --offline). Read-only; refused when prod is newer, told (never
   # refused) when prod cannot be read, as a cut that cannot reach the site has bigger problems later anyway. A broken
-  # pool or tool refuses. Both checks are whats_new_gate (kosmos#7349), which also ran before the machine claim.
+  # pool or tool refuses. The checks are whats_new_gate (kosmos#7349; three since #7617), which also ran before the machine claim.
   whats_new_gate note || exit 1
 fi
 

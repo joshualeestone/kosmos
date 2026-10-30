@@ -43,15 +43,15 @@ improvement it gained would have died with the session that wrote it.
    up. The cut checks it too: step 1b-ii runs `node tools/whats-new-pool.js prod-check` and stops when prod is
    newer than the pool records (build again and commit), and (kosmos#7617) stops when `web/whats-new.json` is no
    longer what the pool builds for the version (its highlights), so a branch that adds or edits a pool item must
-   rebuild the list in the same branch. It checks the frozen tree again at 2b-ii. Since kosmos#7349 release.sh also runs both 1b-ii checks
+   rebuild the list in the same branch. It checks the frozen tree again at 2b-ii. Since kosmos#7349 release.sh also runs the 1b-ii checks
    early, right after its version and pointer-freeze checks and before it marks the cut, claims the machine or
    waits; a Mac prod promote, and a prod cut, end by naming the build to run once prod serves the new version.
    Before you hold merges for a cut, run the three checks yourself: `node tools/whats-new-check.js <V>
    web/whats-new.json --platform=mac` (0 and the highlights are for that version), and
    `node tools/whats-new-pool.js prod-check`: 0 or 4 (prod could not be read) and the cut goes on; 3 (prod is
    newer) or anything else (a broken pool or tool) and it stops, so merge a fresh build or fix the pool first; and
-   `node tools/whats-new-pool.js build <V> --offline --out=/tmp/wn.json`, whose highlights must equal the committed
-   list's (if not, run the build on a branch and merge it).
+   `node tools/whats-new-pool.js build <V> --offline --out="$(mktemp)"`, whose highlights must equal the committed
+   list's (if not, run the build on a branch and merge it); a non-zero exit stops the cut too, so fix the pool.
    A version that reached prod with no What's New at all (cut with `KOSMOS_CUT_NO_WHATS_NEW=1`) is recorded with
    `node tools/whats-new-pool.js shown <version> --promoted --none`. `icon` is one of `swarm`, `tasks`, `phone`,
    `list`, `chat`, `shield`, `spark`; a title of about 40 characters; one plain
