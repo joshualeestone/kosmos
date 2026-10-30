@@ -31,3 +31,19 @@ Design call on #5536 (comment 6511811154). The first of 4c's three parts; the re
 - Every test file naming agent-supervisor or restoreworld (41 files): 1325 tests, 1323 pass, 0 fail, 2 skipped.
 
 ## Review rounds (ledger)
+1. sonnet: 0 BLOCKER, 3 MAJOR, 3 MINOR, 1 NIT.
+   - MAJOR fixed: a failed precondition (no engine, node or restoreworld.js) left the guard off, so it failed open.
+     A named world now reads as restored then (an over-guard in a broken install, the safe direction).
+   - MAJOR fixed: a launch whose environment names another base than the board that made the world read it as absent.
+     The supervisor now also looks for the mark at <world>/restored-world.json beside the agent's own folder
+     (<world>/workers/<name>), which needs no base. Test: a deliberately wrong base still guards (red with the check
+     off). A pin test keeps the shell's file name equal to restoreworld.js's RESTORED_MARK.
+   - MAJOR, claim narrowed: env config cannot switch off every command a restored .git/config can run (a filter driver
+     named by .gitattributes, textconv, core.pager, core.sshCommand, credential helpers, includes). The guard is hooks
+     and fsmonitor only, and says so; the rest is a requirement on 4c-2's review screen, recorded on #5536.
+   - MINOR documented: an inherited GIT_CONFIG_COUNT is replaced, not extended (its entries are lost in this pane).
+   - MINOR documented: a session already running keeps its environment. Restored agents exist only after a restore and
+     an enable, so none predate this.
+   - MINOR fixed: a control for an existing unmarked world folder; the export pin also refuses declare -x and set -a.
+     Not tested at runtime: the no-engine branch (the harness always installs engine-path).
+   After: 5/5 named tests; 41 files 1327 tests, 0 fail.
