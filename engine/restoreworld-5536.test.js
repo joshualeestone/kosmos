@@ -1018,3 +1018,142 @@ test('unassigned code points never reach the world name', () => {
   assert.equal(rw.worldName(`Ann${unassigned}`, NOW), `Restored: Ann, ${DAY}`);
   assert.equal(rw.worldName(unassigned.repeat(3), NOW), `Restored: a member, ${DAY}`, 'nothing visible left falls back');
 });
+
+test('a restored project\'s git settings that run or load something are named before Enable; plain ones are not', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const pr = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_PROJECTS;
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(pr, rel)), { recursive: true }); fs.writeFileSync(path.join(pr, rel), text); };
+  put('site/.git/config', '[core]\n\trepositoryformatversion = 0\n\tpager = touch /tmp/x\n\tsshCommand = x\n[remote "origin"]\n\turl = https://example.invalid/r\n'
+    + `[filter "lfs"]\n\tsmudge = x\n[diff "Foo.Bar"]\n\ttextconv = x\n[credential]\n\thelper = x\n[include]\n\tpath = ${path.join(pr, 'inc.cfg').replace(/\\/g, '/')}\n`);
+  put('inc.cfg', '[core]\n\teditor = x\n');   // a real file, so following the include would name core.editor
+  put('site/.git/config.worktree', '[core]\n\tfsmonitor = x\n');
+  put('quiet/.git/config', '[core]\n\tbare = false\n[branch "main"]\n\tremote = origin\n\tmerge = refs/heads/main\n');
+  put('bare/HEAD', 'ref: refs/heads/main\n');
+  put('bare/config', '[alias]\n\tst = !touch /tmp/x\n');
+  put('broken/.git/config', 'not [ a config\n');
+  put('pointed/.git', 'gitdir: /somewhere/else\n');
+  put('shared/.git/commondir', '../../elsewhere\n');
+  put('shared/.git/config', '[core]\n');
+  put('many/.git/config', '[alias]\n' + Array.from({ length: 25 }, (_, i) => `\ta${i} = x\n`).join(''));
+  put('decoy/.git/config', '[core]\n' + Array.from({ length: 20 }, (_, i) => `\ta${i} = x\n`).join('') + '\tsshCommand = x\n');
+  put('external/.git/config', '[core]\n' + Array.from({ length: 20 }, (_, i) => `\ta${i} = x\n`).join('') + '[diff]\n\texternal = x\n[difftool "t"]\n\tcmd = x\n');
+  put('hidden/.git/config', '[foo]\n' + Array.from({ length: 20 }, (_, i) => `\ta${i} = x\n`).join('') + '[core]\n\tsshCommand = x\n');
+  const l = rw.listRestoredAgents({ base, world: p.world, nameOk });
+  const runs = Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
+  const set = (label) => runs[label].filter((r) => / sets /.test(r));
+  assert.deepEqual(set('site'), ['.git/config sets core.pager', '.git/config sets core.sshcommand', '.git/config sets filter.lfs.smudge',
+    '.git/config sets diff.Foo.Bar.textconv', '.git/config sets credential.helper', '.git/config sets include.path', '.git/config.worktree sets core.fsmonitor']);
+  assert.ok(!runs.site.some((r) => /core\.editor/.test(r)), 'the include is named, never followed');
+  assert.deepEqual(set('quiet'), [], 'plain settings are not named');
+  assert.deepEqual(set('bare'), ['config sets alias.st']);
+  assert.ok(runs.broken.includes('.git/config (its git settings could not be checked)'), 'a config git cannot read is not read as empty');
+  assert.ok(runs.pointed.includes('.git is not a folder, so its git settings were not checked'));
+  assert.ok(runs.shared.includes('.git/commondir moves its git settings elsewhere, so they were not checked'));
+  assert.equal(set('many').length, 21);
+  assert.equal(set('many')[20], '.git/config sets 5 more git settings (in alias), not named here, which may run a program');
+  assert.equal(set('hidden')[0], '.git/config sets core.sshcommand', 'a key git acts on is shown before decoys');
+  assert.equal(set('hidden')[20], '.git/config sets 1 more git setting (in foo), not named here, which may run a program');
+  assert.deepEqual(set('external').slice(0, 2), ['.git/config sets diff.external', '.git/config sets difftool.t.cmd'], 'runners git acts on in other sections are shown first too');
+  assert.equal(set('decoy')[0], '.git/config sets core.sshcommand', 'decoys in the same section cannot push it past the cap');
+  assert.equal(set('decoy')[20], '.git/config sets 1 more git setting (in core), not named here, which may run a program');
+});
+
+test('a git key keeps its name in view whatever its subsection; link, oversized and over-budget configs read as not checked', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const pr = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_PROJECTS;
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(pr, rel)), { recursive: true }); fs.writeFileSync(path.join(pr, rel), text); };
+  put('long/.git/config', `[remote "origin.url-and-nothing-else-here-just-a-plain-remote-url-${'x'.repeat(40)}"]\n\tuploadpack = x\n`);
+  put('big/.git/config', '[core]\n' + '#'.repeat(1024 * 1024 + 1) + '\n');
+  if (process.platform !== 'win32') {
+    put('linked/target', '[core]\n\tpager = x\n');
+    fs.mkdirSync(path.join(pr, 'linked', '.git'));
+    fs.symlinkSync(path.join(pr, 'linked', 'target'), path.join(pr, 'linked', '.git', 'config'));
+  }
+  for (const n of ['b1', 'b2', 'b3']) put(`${n}/.git/config`, '[core]\n\tpager = x\n');
+  const runsOf = (l) => Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
+  const runs = runsOf(rw.listRestoredAgents({ base, world: p.world, nameOk }));
+  const line = runs.long.find((r) => / sets /.test(r));
+  assert.match(line, /^\.git\/config sets remote\..{1,30}\.uploadpack$/, 'the name stays at the end of the line');
+  assert.ok(runs.big.includes('.git/config is too large to check its git settings'));
+  if (process.platform !== 'win32') assert.ok(runs.linked.includes('.git/config is a link, so its git settings were not checked'));
+  assert.ok(!Object.values(runs).flat().some((r) => /checked as many as it may/.test(r)), 'the default budget covers this listing');
+  // Four configs git would read (long, b1, b2, b3): with three reads allowed, exactly one says it was not checked.
+  const all = Object.values(runsOf(rw.listRestoredAgents({ base, world: p.world, nameOk, gitReads: 3 }))).flat();
+  assert.equal(all.filter((r) => /checked as many as it may/.test(r)).length, 1, 'past the read budget a config says so');
+});
+
+test('a project folder that cannot be listed still has its git settings named', { skip: process.platform === 'win32' ? 'POSIX modes' : (process.getuid && process.getuid() === 0 ? 'root reads through modes' : false) }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const pr = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_PROJECTS;
+  fs.mkdirSync(path.join(pr, 'shut', '.git'), { recursive: true });
+  fs.writeFileSync(path.join(pr, 'shut', '.git', 'config'), '[core]\n\tpager = x\n');
+  fs.chmodSync(path.join(pr, 'shut'), 0o311);
+  let l;
+  try { l = rw.listRestoredAgents({ base, world: p.world, nameOk }); } finally { fs.chmodSync(path.join(pr, 'shut'), 0o755); }
+  const row = l.shared.find((x) => x.label === 'shut');
+  assert.ok(row.runs.includes('(the folder could not be read)'));
+  assert.ok(row.runs.includes('.git/config sets core.pager'));
+});
+
+test('git reads stop at the listing\'s time budget; submodule and worktree configs are named as not checked', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const pr = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_PROJECTS;
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(pr, rel)), { recursive: true }); fs.writeFileSync(path.join(pr, rel), text); };
+  put('sub/.git/config', '[core]\n');
+  put('sub/.git/modules/lib/config', '[core]\n\tpager = x\n');
+  put('sub/.git/worktrees/wt/config.worktree', '[core]\n\tpager = x\n');
+  const runsOf = (l) => Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
+  const runs = runsOf(rw.listRestoredAgents({ base, world: p.world, nameOk }));
+  assert.ok(runs.sub.includes('.git/modules holds more git settings, which were not checked'));
+  assert.ok(runs.sub.includes('.git/worktrees holds more git settings, which were not checked'));
+  const late = runsOf(rw.listRestoredAgents({ base, world: p.world, nameOk, gitMs: 0 }));
+  assert.ok(late.sub.includes('.git/config (its git settings were not checked: the listing has checked as many as it may)'), 'no time left reads as not checked');
+});
+
+test('a git folder that cannot be searched says not checked, not nothing', { skip: process.platform === 'win32' || process.getuid?.() === 0 ? 'POSIX modes, and not as root' : false }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const pr = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_PROJECTS;
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(pr, rel)), { recursive: true }); fs.writeFileSync(path.join(pr, rel), text); };
+  put('shut/.git/config', '[core]\n\tpager = x\n');
+  put('shut/.git/modules/lib/config', '[core]\n');
+  put('closed/.git/config', '[core]\n\tpager = x\n');
+  const shut = path.join(pr, 'shut', '.git'), closed = path.join(pr, 'closed');
+  let runs;
+  fs.chmodSync(shut, 0o644);   // listable, not searchable: lstat inside it fails with EACCES
+  fs.chmodSync(closed, 0o644);
+  try {
+    const l = rw.listRestoredAgents({ base, world: p.world, nameOk });
+    runs = Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
+  } finally { fs.chmodSync(shut, 0o755); fs.chmodSync(closed, 0o755); }   // before fresh() removes the folder
+  assert.ok(runs.shut.includes('.git/config (its git settings could not be checked)'), JSON.stringify(runs.shut));
+  assert.ok(runs.shut.includes('.git/modules (could not be checked)'));
+  assert.ok(!runs.shut.some((r) => /moves its git settings|holds more git settings/.test(r)), 'nothing is claimed present that could not be seen');
+  assert.ok(runs.closed.includes('.git (its git settings could not be checked)'), JSON.stringify(runs.closed));
+});
+
+test('checkout path guards are named; every part of a key is bounded; refused agent folders spend no git reads', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const roots = worlds.envOverridesFor(base, p.world);
+  const pr = roots.AGENT_WORKFORCE_PROJECTS, w = roots.AGENT_WORKFORCE_WORKERS;
+  const put = (root, rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
+  put(pr, 'guards/.git/config', '[core]\n\tprotectNTFS = false\n\tprotectHFS = false\n\tsymlinks = true\n\tignorecase = true\n\tprecomposeunicode = true\n');
+  put(pr, 'huge/.git/config', `[${'s'.repeat(5000)} "x"]\n\t${'n'.repeat(5000)} = 1\n[${'t'.repeat(5000)}]\n\t${'m'.repeat(5000)} = 1\n`);
+  put(w, 'gitty/CLAUDE.md', '# Gitty\n');
+  put(w, 'gitty/.git/config', '[core]\n\tpager = x\n');
+  const runsOf = (l) => Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
+  const l = rw.listRestoredAgents({ base, world: p.world, nameOk, gitReads: 2 });
+  const runs = runsOf(l);
+  assert.deepEqual(runs.guards.filter((r) => / sets /.test(r)), ['.git/config sets core.protectntfs', '.git/config sets core.protecthfs',
+    '.git/config sets core.symlinks', '.git/config sets core.ignorecase', '.git/config sets core.precomposeunicode']);
+  const huge = runs.huge.filter((r) => / sets /.test(r));
+  assert.equal(huge.length, 2);
+  for (const r of huge) assert.ok(r.length <= '.git/config sets '.length + 40 + 1 + 30 + 1 + 40, `bounded: ${r.length}`);
+  assert.ok(!Object.values(runs).flat().some((r) => /checked as many as it may/.test(r)), 'the refused agent folder spent none of the two reads');
+  assert.ok(!l.agents.find((a) => a.folder === 'gitty').runs.some((r) => / sets /.test(r)));
+});

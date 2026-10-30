@@ -1,0 +1,136 @@
+# restoregitcfg-5536: the restore listing names a project's command-bearing git settings (kosmos#5536 slice 4c-2, part 1)
+
+Found by 4c-1's review (#7594, round 1): 4c-1 switches off only hooks and fsmonitor. A restored project keeps its
+own .git, and its config can hold a filter, textconv, pager, sshCommand, credential helper or include, each of which
+runs or loads something once the agent's git reaches it. The review screen must show these before Enable.
+
+## Change
+- engine/restoreworld.js runsIn: after everything else, gitSettingsIn(folder, runs). For a .git folder it reads
+  .git/config and .git/config.worktree; for a bare layout (HEAD at the top) config and config.worktree.
+- Each file is read by git itself: `git config --file <f> --no-includes --null --name-only --list`, cwd the system
+  temporary folder, env with every GIT_* variable dropped, GIT_CONFIG_NOSYSTEM=1, GIT_CONFIG_GLOBAL=devNull.
+- A key not in GIT_PLAIN_KEYS (an allowlist, subsection as `*`) is a line `<file> sets <key>`, label-cleaned, at
+  most 20 per file plus a count line.
+- Not checked, said so: a config git refuses, a link, not a file, over 1 MB, git missing or timing out (2 s a read, 20 s a listing), a .git
+  that is a file or a link, and a commondir.
+
+## Decided
+- Allowlist, not a denylist: an unknown key is shown, never passed. Over-listing is the safe direction.
+- git reads, not a parser here: a partial parser fails open on any construct it does not model.
+- Key names only, never values: a value can carry a credential (a URL with a token).
+- Rejected: following include.path (it names a file the backup's author chose; naming the include is enough).
+- Weakest premise: `git config --file` with no --includes runs nothing from the file. It reads and prints; no
+  config key there is executed by `config --list`.
+
+## Measured
+- restoreworld-5536.test.js new test: 7 named keys in site (config + config.worktree), none for plain settings,
+  bare config, a broken config, a .git file, a commondir, and the 20-key cap. 58/58.
+- Mutation: the gitSettingsIn push replaced by a comment reds the new test (0 pass, 1 fail); restored.
+- engine.reachable, windows-coupling-audit-1732, win32-separator-guard: 78/78 with the file.
+
+## Review round 1 (opus): 3 WARNING, 1 CONVENTION, 3 NIT, all addressed
+- A long subsection pushed the key's name off its label (60-char cut), so `remote.<long>.uploadpack` read as a
+  remote URL. Now the section and name are shown whole and only the subsection is cut (keyLabelOf, 30 chars).
+- An unlistable folder returned before the settings scan; now it runs there too.
+- No bound on git runs (about 4,000 at 2.6 ms each): budget.gitReads, 400 per listing, then "not checked".
+- GIT_CEILING_DIRECTORIES stops git looking for a repository above the temporary folder.
+- The comment named a function that does not exist; the allowlist comment no longer says these keys hold no path.
+- Tests: the long subsection, a linked config, an oversized config, the read budget, an unlistable project.
+  Mutations (keyLabelOf back to labelOf, no budget decrement, no scan on unreadable) each red; restored green, 60/60.
+
+## Review round 2 (sonnet): 2 WARNING, 1 CONVENTION, 3 NIT
+- FIXED: the read count was bounded but not the time (400 x 5 s). Per-read timeout 2 s, and a 20 s total per
+  listing (budget.gitUntil), past which a config says it was not checked.
+- FIXED: .git/modules and .git/worktrees hold configs of their own; each is named as not checked.
+- FIXED: GIT_EXEC_PATH is kept, so a relocated git (MinGit) still reads.
+- FIXED: the reflowed contract comment line rewrapped.
+- DEFERRED: Windows searches the cwd (the temporary folder) for git.exe first. A restored backup cannot write there,
+  so it is outside this threat model; a planted git.exe there already runs for every other spawn on that machine.
+- DEFERRED: commondir is named as not checked whatever its type, and config.worktree is still read. Both fail safe.
+- Stated limit, not checked by this listing: nested repositories in a project's subfolders, and .gitattributes
+  (the filter or textconv it names is defined in config, which is checked).
+- Tests 61/61. Mutations (no time check; no modules/worktrees line) each red; restored green.
+
+## Review round 3 (opus): 3 WARNING, 1 CONVENTION, 4 NIT
+- FIXED: section and name were shown whole and git takes either at any length (measured 50,021-char lines). Each part
+  is now cut on its own: section and name 40, subsection 30.
+- FIXED: core.protectntfs, protecthfs, symlinks, ignorecase and precomposeunicode guard checkout paths (CVE-2019-1353
+  class); they left the allowlist and are named.
+- FIXED: refused agent folders spent the shared read budget before projects. Settings are now read only for projects
+  and the projects top (runsIn's gitSettings flag); an agent folder with git is refused whatever its settings.
+- FIXED: comment wording (GIT_EXEC_PATH kept, no repository looked for above the temp folder), "is not a folder"
+  for a .git that is not a directory, the module header names the git time, the plan's timeout figures.
+- DEFERRED: tests for a .git link, a config that is a directory, and git missing. Each fails toward "not checked";
+  the config-link and oversized arms are tested.
+- Tests 62/62. Mutations (protectntfs back in the allowlist; three-part section uncut; agent folders reading
+  settings) each red; restored green.
+
+## Review round 4 (sonnet): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 4 NIT
+- FIXED (screen obligation): a repository in a project's subfolder and a .gitattributes were stated limits in this
+  plan only, so the screen showed an empty `runs` with nothing said. The contract comment now requires the screen to
+  say in words, before Enable, that neither is checked. This covers any depth, which a one-level scan would not.
+- FIXED: GIT_CEILING_DIRECTORIES and cwd now use the real path of the temporary folder (macOS /var is a link to
+  /private/var, and git compares the ceiling without resolving links).
+- DEFERRED: values are not read (decided above: a value can carry a credential). A .gitattributes selecting a filter
+  defined in the person's own global config runs the person's own program. The 20-key cap counts the rest ("N more");
+  every key shown is one git may act on (alias.* included), so there is no safe order to sort by.
+- Tests 62/62; engine.reachable, win32-separator-guard, windows-coupling-audit-1732 20/20. No test for the realpath:
+  it changes only where git stops looking for a repository, which `config --file` does not use.
+
+## Review round 5 (opus): 0 BLOCKER, 2 WARNING, 3 CONVENTION, 4 NIT
+- FIXED: any lstat error read as absent, so a .git (or a project) that cannot be searched showed a git folder with no
+  settings and no "not checked". Only ENOENT and ENOTDIR are absent now (isAbsent); every other error says the
+  settings could not be checked, for the config, the .git itself, commondir, modules and worktrees.
+- FIXED: the include test could not fail (it pointed at a missing file and only names are shown). It now includes a
+  real file that sets core.editor, and asserts core.editor is never named.
+- FIXED: comments cited review rounds; they now say the reason. The config size cap, the read timeout and the output
+  buffer say why their values were chosen.
+- DEFERRED: logging why git failed. This module returns lines for a screen and logs nothing; the screen line already
+  says the settings were not checked, which is the safe direction.
+- DEFERRED (repeats of round 4): the 20-key cap order, values of remote/submodule url (a helper is an installed
+  program, ext:: is off by default), a repository in the shared temp folder (listing a --file runs nothing), and an
+  env-cleaning test.
+- Tests 63/63; the three guard files 20/20. Mutations (isAbsent always true; --includes for --no-includes) each red
+  (62/1); restored.
+
+## Review round 6 (sonnet): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 5 NIT
+- FIXED (raised in rounds 4, 5 and 6): past the 20-key cap the count line now names the sections of the keys it
+  did not show (`sets 1 more git settings (in core)`), so twenty harmless keys first cannot hide a core.sshCommand.
+- NOT A DEFECT: the workers top reads no settings, but a .git there refuses every agent (gitAbove), so nothing it
+  could hold is enabled.
+- DEFERRED: tests for git missing, hanging and ENOBUFS (each fails toward "not checked"); a GIT_* stripping test;
+  os.devNull on Windows (a refusal there fails closed; Homer's to measure with #7593); the budget message not saying
+  time or count; a bare-layout project's modules folder named (fails closed).
+- Tests 63/63; guard files 20/20. Mutation (section naming removed) red (62/1); restored.
+
+## Review round 7 (opus): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 4 NIT
+- FIXED: twenty decoys in the SAME section (core.a0..a19, then core.sshCommand) still buried the real command behind
+  "1 more (in core)". Keys git is known to act on (GIT_RUNNER_KEY) are now shown first, in a stable sort. It is only an
+  order: a key missing from that list is still shown, just not first. Round 4's "no safe order" was wrong.
+- FIXED: a .git that cannot be searched claimed commondir and worktrees were present. there() now has three states,
+  and the unknown one says "(could not be checked)".
+- FIXED: the maxBuffer comment was false (a long subsection over short keys lists more than the file's size; probed
+  ENOBUFS, which reads as not checked). "1 more git setting" is singular.
+- DEFERRED: gitUntil starting at the listing's start (fails closed); env-stripping tests (probed: not load-bearing for
+  --file on git 2.53); os.devNull on Windows, for Homer with #7593.
+- Tests 63/63; guard files 20/20. Mutations (no runner sort; there() two-state) each red (62/1); restored.
+
+## Review round 8 (sonnet): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 6 NIT. Last round under the 8-round rule.
+- FIXED: GIT_RUNNER_KEY missed keys git runs (diff.external, difftool/mergetool/browser/man/trailer cmd, web.browser,
+  core.alternateRefsCommand, uploadpack and receive hooks, http, url pushInsteadOf); added. The count line past the
+  cap now says the keys it does not name "may run a program", so a missing list entry cannot read as harmless.
+- NOT RE-REVIEWED: this fix came after the last round the usage rule allows, and no BLOCKER was open. It widens a
+  sort list and one sentence; covered by a new test (diff.external and difftool.t.cmd ahead of 20 decoys) and a
+  mutation (diff.external out of the list) that reds 62/1, restored.
+- DEFERRED to the screen (part 2): core.ignorecase and core.precomposeunicode are written by plain `git init` on a Mac,
+  so most projects will show them. Round 3 took them off the allowlist on purpose (they guard checkout paths); the
+  screen should group them as one quiet line rather than this listing dropping them.
+- DEFERRED: a fresh empty subfolder as git's cwd; Windows git.exe lookup (Homer, #7593); Date.now() not monotonic
+  (fails toward more reads); bare-layout noise from a project's own `config` file; hang, ENOBUFS and git-missing tests.
+- Tests 63/63; guard files 20/20.
+
+## After the PR: Windows CI (run 40996551651)
+- Every git read on the Windows runner answered "could not be checked" (four tests red), and the reason is discarded
+  by design. Likeliest cause: GIT_CONFIG_GLOBAL=os.devNull, which on Windows is \\.\nul (round 8 flagged it as
+  unmeasurable from a Mac). Now the literal '/dev/null', which Git for Windows maps to NUL itself; on macOS the value
+  is byte-identical to before, so the Mac validation still describes the code. Windows CI is the measurement.
