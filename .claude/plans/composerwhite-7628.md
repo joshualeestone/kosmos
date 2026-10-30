@@ -16,3 +16,6 @@ No shadow at all: the white box would rest on its 0.5 pt hairline alone (about 1
 
 ## Weakest premise
 That the tight shadow reads as an edge, not a band, on a real phone's display (simulator pixels are not the OLED). Josh looks at it in the next TestFlight build.
+
+## Review ledger (1 blind round, converged)
+- Round 1: CONVERGED, no blocker or warning. It confirmed from Josh's own pixels why the halo read as a band: the fade over the strip (solid ground at its lower end) cut the old shadow's top off in a straight line 6 pt above the box; the new shadow ends inside that gap. NIT (not taken here): rooms have no fade into the input area at all (DMs do), already so before this branch; raised on the card for Josh.
