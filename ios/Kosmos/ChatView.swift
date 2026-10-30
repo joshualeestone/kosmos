@@ -538,7 +538,11 @@ struct ChatView: View {
                     // kosmos#7609: a reader higher up stays where they were when the keyboard comes up (iOS 26 moved them).
                     // Exactly when the keyboard handler below does not keep the newest message in view.
                     .background(KeyboardHold(hold: visible && !(atBottom || (searchOpen && openedAtNewest && !searching)), above: earlier.rows.count,
-                                              moves: "\(appMoves)|\(query)"))
+                                              moves: "\(appMoves)|\(query)") {
+                        // Review 3: iOS 26's jump may have shown the end (atBottom true) before it was put back; the end's
+                        // disappearance clears atBottom only under a person's scroll, so the reader's place is read again.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { if atBottom && !endVisible { atBottom = false; Self.trace("keyboard hold: not at the newest after all") } }
+                    })
                     .modifier(PositionTargets(on: Self.idAnchor))
                 }
                 .modifier(PositionById(on: Self.idAnchor, id: $positionId))
@@ -2252,10 +2256,12 @@ struct KeyboardHold: UIViewRepresentable {
     // the hold stands down (in the same update, before that scroll is applied). A status-bar tap to the top has no such
     // signal: one inside the 0.8 s window is put back (known, narrow).
     let moves: String
-    func makeUIView(context: Context) -> Probe { let p = Probe(); p.hold = hold; p.above = above; p.moves = moves; return p }
+    // Review 3: told after each put-back, so the chat can read again whether the newest message is on screen.
+    var onPutBack: () -> Void = {}
+    func makeUIView(context: Context) -> Probe { let p = Probe(); p.hold = hold; p.above = above; p.moves = moves; p.onPutBack = onPutBack; return p }
     func updateUIView(_ view: Probe, context: Context) {
         if view.moves != moves { view.standDown() }
-        view.hold = hold; view.above = above; view.moves = moves
+        view.hold = hold; view.above = above; view.moves = moves; view.onPutBack = onPutBack
     }
 
     final class Probe: UIView {
@@ -2263,6 +2269,7 @@ struct KeyboardHold: UIViewRepresentable {
         var hold = false { didSet { if !hold { standDown() } } }
         var above = 0
         var moves = ""
+        var onPutBack: () -> Void = {}
         func standDown() { saved = nil; endGuard() }
         // The offset and the content's height when the keyboard started to show, and when (review 1: a will-show with no
         // did-show, an iPad's floating keyboard say, must not leave a reading for a later keyboard).
@@ -2288,6 +2295,7 @@ struct KeyboardHold: UIViewRepresentable {
             let moved = sv.contentOffset.y - g.kept.y   // how far iOS moved it, the one number the record keeps
             ChatView.trace("keyboard hold: put back \(Int(moved))")
             sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: g.kept.y)
+            onPutBack()
         }
         // Review 1: only where it was measured (iOS 26, which moves the list; 27 does not, so it is a no-op there). On 16 to
         // 18 the system's own keyboard moves were never measured, and undoing them blind could be the bug.
