@@ -60,7 +60,8 @@ for (const [sig, want, colleague] of [['SIGTERM', 143, false], ['SIGHUP', 129, f
     assert.equal(code, want, 'exit status: ' + out);
     assert.match(out, /interrupted: restored \(clean\)/);
     assert.ok(Date.now() - started < 20000, 'it waited for the 30 s test instead of restoring at once');
-    for (let i = 0; i < 40 && alive(testPid); i++) await sleep(50);
+    // Up to 10 s: on a loaded machine the per-file test process can take a while to go (a 2 s bound flaked).
+    for (let i = 0; i < 200 && alive(testPid); i++) await sleep(50);
     assert.equal(alive(testPid), false, 'the test it was running was left going');
   });
 }
@@ -73,13 +74,19 @@ test('#7619 an ordinary run (no signal) still restores the break, through the sa
   execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A'], { stdio: 'ignore' });
   execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'quick'], { stdio: 'ignore' });
   const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+  // A colleague's edit to another tracked file, made before the tool's final restore (the tool reads b.js only at its
+  // start, through git ls-files, and the edit lands after): it must survive the restore (review 4).
+  fs.writeFileSync(path.join(dir, 'quick.test.js'), fs.readFileSync(path.join(dir, 'quick.test.js'), 'utf8') +
+    "require('node:fs').writeFileSync(__dirname + '/b.js', 'const y = 9;   // a colleague\\n');\n");
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-am', 'quick edits b'], { stdio: 'ignore' });
   const out = execFileSync('/bin/bash', ['tools/prove-it-fails.sh', 'quick.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
     { cwd: dir, env, encoding: 'utf8' });
+  assert.equal(fs.readFileSync(path.join(dir, 'b.js'), 'utf8'), 'const y = 9;   // a colleague\n', 'the end-of-run restore wiped a file the break never touched');
   assert.match(out, /✖ quick/, 'premise: the break turned the test red: ' + out);
   assert.match(out, /restored\s*$/, out);
   assert.doesNotMatch(out, /NOT restored/, out);
   assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 1;\n');
-  assert.equal(execFileSync('git', ['-C', dir, 'status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }), '');
+  assert.equal(execFileSync('git', ['-C', dir, 'status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }), ' M b.js\n');
 });
 
 test('#7619 review 3: a TERM after the break is written but before it is recorded still restores it', async (t) => {

@@ -87,13 +87,16 @@ _restore() {
   for i in "${!_broken[@]}"; do
     f="${_broken[$i]}"
     now="$(git hash-object -- "$f" 2>/dev/null)"
-    if [ "$now" = "${_broken_hash[$i]}" ]; then git checkout -q -- "$f"; else left="$left $f"; fi
+    if [ "$now" = "${_broken_hash[$i]}" ]; then git checkout -q -- "$f" || left="$left $f"; else left="$left $f"; fi
   done
   [ -z "$left" ] || echo "    NOT restored, changed again during the run (check by hand):$left"
   [ -z "$left" ]
 }
+# Every restore at an ending runs with the signals ignored (review 4): a second Ctrl-C, or a TERM after a HUP, must not
+# kill the restore halfway, and a signal during a normal finish must not re-run it over files it has just restored.
+_final_restore() { trap '' HUP INT TERM; _restore; }
 _restore_on_signal() {   # $1 the signal's number: the exit is 128 + it, as a shell reports a death by that signal
-  trap - HUP INT TERM
+  trap '' HUP INT TERM
   if [ -n "${_test_pid:-}" ]; then kill "$_test_pid" 2>/dev/null; wait "$_test_pid" 2>/dev/null; fi
   rm -f "${_outf:-}"
   # A signal can land after the break is written but before _broken is filled (or while node is mid-write, review
@@ -125,7 +128,11 @@ if git diff --quiet; then
   exit 1
 fi
 git diff --stat | tail -1 | sed 's/^/    changed: /'
-while IFS= read -r -d '' _f; do _broken+=("$_f"); _broken_hash+=("$(git hash-object -- "$_f")"); done < <(git diff --name-only -z)
+# Built aside and published in one step (review 4): a signal mid-loop would otherwise see a list that is non-empty but
+# short, and restore only part of the break.
+_b=(); _h=()
+while IFS= read -r -d '' _f; do _b+=("$_f"); _h+=("$(git hash-object -- "$_f")"); done < <(git diff --name-only -z)
+_broken_hash=("${_h[@]}"); _broken=("${_b[@]}")
 
 # 🛑 A SHELL MUTATION CANNOT BE PROVED BY THE NODE SUITE, and this refuses
 # rather than leaving it to a person to remember. `yarn test` never executes
@@ -182,7 +189,7 @@ case "$TESTFILE" in
       echo "       phrase, an ordering check - that is a legitimate proof and this"
       echo "       is the wrong refusal. Say so and it runs:"
       echo "           SHELL_READ_ONLY=1 bash tools/prove-it-fails.sh ..."
-      _restore
+      _final_restore
       echo "    restored"
       exit 1
     fi
@@ -220,7 +227,7 @@ failed="$(printf '%s' "$out" | sed -n '/failing tests:/,$p' | grep -c '^✖')"
 if [ -z "$summary" ]; then
   echo "    🛑 THE RUNNER PRODUCED NO SUMMARY, so nothing is proven either way."
   printf '%s\n' "$out" | head -4 | sed 's/^/      /'
-  _restore
+  _final_restore
   exit 1
 elif [ "$failed" -gt 0 ]; then
   printf '%s' "$out" | sed -n '/failing tests:/,$p' | grep '^✖' | sed 's/^/    /' | head -4
@@ -228,7 +235,6 @@ else
   echo "    ⚠️  NOTHING WENT RED. The break applied and no test noticed it."
   printf '%s' "$summary" | sed 's/^/      /'
 fi
-_restore || { echo "    restore failed"; exit 1; }
+_final_restore || { echo "    restore failed"; exit 1; }
 [ "$(git rev-parse HEAD)" = "$before" ] || { echo "    HEAD moved; something is wrong"; exit 1; }
-git diff --quiet -- "${_broken[@]}" || { echo "    restore failed"; exit 1; }
 echo "    restored"
