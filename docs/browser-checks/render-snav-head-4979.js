@@ -30,7 +30,8 @@
  * stand-in notice in its own slot in #topnotes (not the login slot, which every status poll empties), at 900x700 in
  * the tab view scrolled halfway, and asserts every pill is below the stack, the first pill takes a hit-test click, and
  * the Allow card (#askcard) is below the stack too. Both engines. The check shows the Allow card itself and stubs
- * paintAsk so the page's polls cannot hide it again, then forces one real pollAsk and asserts it reached the stub (#7648).
+ * paintAsk so the page's polls cannot hide it again, then forces one real pollAsk (#7648). The Allow card's own paint
+ * logic is out of scope here: this arm measures where a shown card sits, not when the page shows it.
  * A taller header (a Kosmos+ bar, stood in for by a block added inside .apphead) at
  * 1200x600: grown by 100px the whole nav no longer fits, so it must scroll with the page or show every
  * pill; grown by 40px it still fits, so it stays sticky with every pill below the taller header.
@@ -237,7 +238,7 @@ function chk(ok, label, extra) {
             window.__paintAskCalls = 0; window.paintAsk = () => { window.__paintAskCalls += 1; };
             const ask = document.getElementById('askcard'); if (ask) ask.hidden = false;   // the Allow card, shown
           });
-          await page.evaluate(() => pollAsk());   // one real poll, every run (the control below asserts it reached the stub)
+          const forcedCalls = await page.evaluate(async () => { window.__paintAskCalls = 0; await pollAsk(); return window.__paintAskCalls; });
           await page.waitForTimeout(400);
           await page.evaluate(() => { const m = document.documentElement.scrollHeight - innerHeight; window.scrollTo(0, Math.round(m / 2)); });
           await page.waitForTimeout(200);
@@ -254,12 +255,11 @@ function chk(ok, label, extra) {
             return { y: y0, consolidated: document.body.classList.contains('consolidated'), notesH: Math.round(nb.height), notesBottom: Math.round(nb.bottom), navPos: getComputedStyle(document.getElementById('s-nav')).position,
               underNotes: pills.filter((x) => x.getBoundingClientRect().top < nb.bottom - 0.5).length, firstTakesClick: Boolean(hit && first.contains(hit)),
               askShown: Boolean(ab0), askBelowNotes: Boolean(ab0 && ab0.top >= nb0.bottom - 0.5), askTop: ab0 ? Math.round(ab0.top) : null, notesBottomTop: Math.round(nb0.bottom),
-              paintAskCalls: window.__paintAskCalls,
               hitWas: hit ? hit.tagName.toLowerCase() + (hit.id ? '#' + hit.id : '') + (typeof hit.className === 'string' && hit.className ? '.' + hit.className.trim().split(/\s+/).join('.') : '') : null };
           });
           const tag = `${engineName} a floating notice, 900x700 mac, scrolled halfway`;
           chk(r.y > 0 && !r.consolidated && r.notesH >= 90 && r.navPos === 'sticky' && r.askShown, `${tag}: control: the tab view, the notice and the Allow card show, the page scrolled and the nav is sticky`, JSON.stringify(r));
-          chk(r.paintAskCalls >= 1, `${tag}: control: the forced poll reached the stubbed repaint (so the poll race is exercised)`, JSON.stringify({ paintAskCalls: r.paintAskCalls }));
+          chk(forcedCalls >= 1, `${tag}: control: a repaint reached the stub while the forced poll ran`, JSON.stringify({ forcedCalls }));
           chk(r.underNotes === 0 && r.firstTakesClick, `${tag}: every pill is below the floating notice, and the first one takes the click`, JSON.stringify(r));
           chk(r.askBelowNotes, `${tag}: at the top of the page the Allow card is below the floating notice, never under it`, JSON.stringify(r));
           notesRan += 1;
