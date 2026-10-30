@@ -698,3 +698,31 @@ test('kosmos#7649 review 1: the book is saved after each booking, and the idle-s
   const b = tickArgs({ deliver: () => later({ state: D.PLACED }) }); await ct.tickOnceAsync(b.o);
   assert.deepEqual([...b.o.idleSeen].sort(), [...a.o.idleSeen].sort());
 });
+
+/* kosmos#7649 review 2. */
+test('kosmos#7649 review 2: an agent after the first is handed the fresh roster, not the one the pass started with', async () => {
+  let gen = 0;
+  const seen = [];
+  const { o } = tickArgs({ roster: () => { gen += 1; return [card('ann', { gen }), card('bea', { gen })]; }, deliver: (s, t, r) => { seen.push([s, r.find((c) => c.sessionName === s).gen]); return later({ state: D.PLACED }); } });
+  await ct.tickOnceAsync(o);
+  assert.deepEqual(seen, [['ann', 1], ['bea', 2]]);
+});
+
+test('kosmos#7649 review 2: a switch turned off mid-pass stops it; an agent that left the community mid-pass is skipped, unbooked', async () => {
+  let on = true;
+  const sw = tickArgs({ switchOn: () => on, deliver: (s) => { on = false; return later({ state: D.PLACED }); } });
+  assert.deepEqual((await ct.tickOnceAsync(sw.o)).map((x) => x.session), ['ann']);
+  assert.equal(sw.o.idleSeen.size, 0, 'as an off gate at the start: the idle marks are not trusted');
+  const left = new Set();
+  const lv = tickArgs({ inCommunity: (s) => !left.has(s), deliver: () => { left.add('bea'); return later({ state: D.PLACED }); } });
+  assert.deepEqual((await ct.tickOnceAsync(lv.o)).map((x) => x.session), ['ann']);
+  assert.equal(lv.o.book.has('bea'), false);
+  assert.equal(lv.o.idleSeen.has('bea'), false, 'not counted as idle at this pass');
+});
+
+test('kosmos#7649 review 2: without a fixed clock, each agent is booked when it was sent to, not when the pass began', async () => {
+  const { o } = tickArgs({ now: undefined, deliver: () => later({ state: D.PLACED }, 30) });
+  const r = await ct.tickOnceAsync(o);
+  assert.deepEqual(r.map((x) => x.session), ['ann', 'bea'], 'CONTROL: both were sent to');
+  assert.ok(o.book.get('bea')[0] > o.book.get('ann')[0], 'the second booking reads the clock again');
+});

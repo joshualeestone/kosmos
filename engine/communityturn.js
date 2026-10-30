@@ -240,17 +240,23 @@ function stamped(text, now) {
    in turn, one agent at a time, so the book still records only what a delivery answered for, in the same order. Neither
    guards against a second pass starting while one is running: the caller of tickOnceAsync must (server.js keeps a
    running flag, as the reply nudge does), or two passes could book the same agent. */
+/* The pass's gates, read at its start and (kosmos#7649 review 2) again before each agent after the first, since the
+   awaited pass can run minutes. A gate passes only when it is a function that answers true: a missing or throwing one
+   reads as off. */
+function gatesOpen(o) {
+  const on = (f) => { if (typeof f !== 'function') return false; try { return f() === true; } catch { return false; } };
+  const env = o.env === undefined ? process.env : o.env;
+  // The agent-nudge gate the sibling nudges share (live execution and AGENT_WORKFORCE_AGENT_NUDGE_OFF), then this one's own brake.
+  if (!require('./agentnudge').nudgeEnabled(on(o.allowed), env) || brakeOn(env)) return false;
+  return on(o.switchOn) && on(o.prompterOn);
+}
+
 function begin(o, results) {
   /* Review 5: while a gate is off nothing is watched, so the idle-seen marks are not trusted after it (replynudge's
      review 15): every early return clears them. */
   const off = () => { if (o && o.idleSeen instanceof Set) o.idleSeen.clear(); return null; };
-  // A gate passes only when it is a function that answers true: a missing or throwing one reads as off.
-  const on = (f) => { if (typeof f !== 'function') return false; try { return f() === true; } catch { return false; } };
   if (!o || typeof o.deliver !== 'function') return off();
-  const env = o.env === undefined ? process.env : o.env;
-  // The agent-nudge gate the sibling nudges share (live execution and AGENT_WORKFORCE_AGENT_NUDGE_OFF), then this one's own brake.
-  if (!require('./agentnudge').nudgeEnabled(on(o.allowed), env) || brakeOn(env)) return off();
-  if (!on(o.switchOn) || !on(o.prompterOn)) return off();
+  if (!gatesOpen(o)) return off();
   let roster = null;
   try { roster = typeof o.roster === 'function' ? o.roster() : null; } catch { roster = null; }
   let projects = null;
@@ -370,7 +376,13 @@ function logAt(sent, t) {
      given back before the verdict is booked, so the log never undercounts a send in flight;
    - an agent due at the start of the pass starts working while the one before it is typed into: each agent after the
      first is checked again on a fresh roster just before it is sent to, and left unbooked if it is no longer idle;
-   - the board stops mid-pass: o.saveBook (the board's writeBook), when given, runs after each booking. */
+   - the board stops mid-pass: o.saveBook (the board's writeBook), when given, runs after each booking.
+   Review 2: before each agent after the first, the pass's gates are read again (a switch turned off mid-pass stops it,
+   as an off gate at the start would), the agent must still be in the community, the delivery is given that fresh
+   roster (its pane, its question menu and quota hold are read off the card it is handed), and the clock is read again,
+   so its booking and its "Sent" stamp say when it was sent. A test's fixed o.now still pins every agent.
+   Not closed here: a delivery past the deadline is no longer waited for, but it still sits in chat's per-pane queue,
+   which has no ceiling of its own. */
 async function tickOnceAsync(o) {
   const results = [];
   try {
@@ -380,12 +392,18 @@ async function tickOnceAsync(o) {
     for (let n = 0; n < p.dues.length; n += 1) {
       if (capped(p, n)) break;
       const d = p.dues[n];
+      let roster = p.roster;
       if (n > 0) {
+        if (!gatesOpen(o)) { if (o.idleSeen instanceof Set) o.idleSeen.clear(); break; }   // as begin's off()
+        if (!Number.isFinite(o.now)) p.now = Date.now();
         let card = null;
-        try { const r = o.roster(); card = Array.isArray(r) ? r.find((c) => c && c.sessionName === d.session) : null; } catch { card = null; }
-        let idle = false;
-        try { idle = Boolean(card) && require('./agentnudge').nudgeableCard(card) === true; } catch { idle = false; }
-        if (!idle) continue;   // not booked: it is due again at a later pass, once it is idle
+        try { const r = o.roster(); if (Array.isArray(r)) { roster = r; card = r.find((c) => c && c.sessionName === d.session) || null; } } catch { card = null; }
+        let ok = false;
+        try { ok = Boolean(card) && require('./agentnudge').nudgeableCard(card) === true && o.inCommunity(d.session) === true; } catch { ok = false; }
+        if (!ok) {   // not booked: it is due again at a later pass, once it is idle (and not counted as idle at this one)
+          if (o.idleSeen instanceof Set) o.idleSeen.delete(d.session);
+          continue;
+        }
       }
       const text = lineFor(p, d);
       logAt(p.sent, p.now);   // the slot, held while the line is typed
@@ -393,7 +411,7 @@ async function tickOnceAsync(o) {
       let timer = null;
       try {
         const late = new Promise((res) => { timer = setTimeout(() => res({ state: p.D.UNCONFIRMED }), ms); if (timer && timer.unref) timer.unref(); });
-        v = await Promise.race([Promise.resolve().then(() => o.deliver(d.session, text, p.roster)), late]);
+        v = await Promise.race([Promise.resolve().then(() => o.deliver(d.session, text, roster)), late]);
       } catch { v = { state: p.D.UNCONFIRMED }; } finally { clearTimeout(timer); }
       const held = p.sent.lastIndexOf(p.now);
       if (held !== -1) p.sent.splice(held, 1);   // given back: settle logs it again if it reached

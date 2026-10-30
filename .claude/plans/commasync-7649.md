@@ -27,3 +27,18 @@ longer, that agent is booked as unconfirmed and its line may still land later: o
   - N4 the log line lost its space after "community-turn:" (my edit): restored and pinned.
   - N5 the parity test now compares the idle-seen set too.
   - N6 a stop mid-pass lost that pass's bookings: o.saveBook runs after each booking.
+- Round 2 (Sonnet, whole branch): no BLOCKER. Fixed, each with a test and a red mutant:
+  - W1 agents after the first were delivered with the pass's starting roster (pane, question-menu and quota holds come
+    off the card): they now get the fresh roster the re-check reads.
+  - W2 the gates were read only at the start of a pass that can now run minutes: before each agent after the first,
+    the gates are read again (an off gate stops the pass and clears the idle marks, as at the start) and the agent
+    must still be in the community.
+  - W4 every booking and "Sent" stamp used the pass's start time: each agent after the first reads the clock again
+    (a test's fixed o.now still pins it).
+  - N an agent skipped by the re-check is dropped from the idle-seen set.
+  Decided, not changed:
+  - W3 a delivery past the deadline still sits in chat's per-pane queue: that queue has no ceiling of its own, and a
+    delivery that never settles blocks it with or without this pass waiting on it. Not this card.
+  - N a re-check skip keeps the agent's older communityready record (no new act in the results vocabulary); the timer
+    is unref'd (the deadline test passes, and M1 of round 1 shows a cancelled test turns the run red); cross-nudge
+    spacing between the community turn and the other nudges is the existing design, not this card.
