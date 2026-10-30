@@ -9,8 +9,9 @@ again" after one try, but his screenshot, taken after that line, was still empty
   counts as missing it), at capture, in the trace once a resize has held for 0.5 s, and
   twice after the one try (0.6 s and 1.5 s).
 - "After one try" never reads as recovered on the row count alone: it says "still nothing on screen" when the band is
-  off the content or no row is counted, "not judged yet" when the list was not measured, and "shows the content again"
-  only with the band measured on the content and rows counted. The count is written beside it.
+  off the content or no row is counted, "not judged yet" when the list was not measured, and "band on the content, rows
+  counted" otherwise, which says what was measured and no more (rows can be counted and not drawn). The count and what
+  the list is anchored on are written beside it.
 - A resize that has held for 0.5 s, or the person's scroll coming to rest (iOS 18 and later, where the scroll phase is
   reported), with the band off the content triggers the
   check (no row leaving would bump the tick). A band moved off the content by anything else, with rows still counted,

@@ -821,13 +821,19 @@ struct ChatView: View {
                             animated: false)
         // Review 16: whether the write held, or SwiftUI put its own place back on the next pass.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            Self.trace("scroll moved to the end, 0.1 s on: " + diagGeometry().line)
+            // Review 17: and what the list is anchored on, so a report shows a list left on a message, not following.
+            Self.trace("scroll moved to the end, 0.1 s on: " + diagGeometry().line + ", anchor " + diagAnchor)
         }
     }
 
     // kosmos#7420 (build 19): the scroll view's own numbers, and whether the band it shows misses the content (Board.scrollBand).
     // Review 1: off counts only for this chat's live list with content laid out, messages here more than 2 s (as neverDrew):
     // a list rebuilt for another account, or not yet measured, has a zero or stale content height.
+    // What the list is anchored on, in fixed words only (never a message id).
+    private var diagAnchor: String {
+        positionId == nil ? "none" : positionId == "end" ? "end" : positionId == "top" ? "top" : "a message"
+    }
+
     private func diagGeometry() -> (line: String, off: Bool, moving: Bool, judged: Bool) {
         guard let sv = diagScroll.view, sv.window != nil else { return ("scroll view unknown", false, false, false) }
         let inset = sv.adjustedContentInset
@@ -852,7 +858,7 @@ struct ChatView: View {
         guard visible, scenePhase == .active, recover ? !diagDone : !diagWideDone else { return }
         if recover { diagDone = true } else { diagWideDone = true }
         let info = Bundle.main.infoDictionary
-        let anchor = positionId == nil ? "none" : positionId == "end" ? "end" : positionId == "top" ? "top" : "a message"
+        let anchor = diagAnchor
         var lines = ["Kosmos iPhone chat diagnostic (kosmos#7420)",
                      "what: \(why)",
                      "app \(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?")), iOS \(UIDevice.current.systemVersion)",
@@ -871,9 +877,10 @@ struct ChatView: View {
         func reading(_ when: String) -> String {
             let g = diagGeometry()
             // Review 7: an unmeasured band never reads as recovered.
-            let verdict = g.off || onScreen.isEmpty ? "still nothing on screen" : g.judged ? "the list shows the content again" : "not judged yet"
+            // Review 17: says only what was measured; rows can be counted and still not drawn.
+            let verdict = g.off || onScreen.isEmpty ? "still nothing on screen" : g.judged ? "band on the content, rows counted" : "not judged yet"
             return "after one try, \(when): " + verdict
-                + " (rows counted \(onScreen.count), " + g.line + ")"
+                + " (rows counted \(onScreen.count), " + g.line + ", anchor " + diagAnchor + ")"
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             lines.append(reading("0.6 s"))
