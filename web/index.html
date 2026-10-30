@@ -77304,6 +77304,13 @@ document.addEventListener('click', (e) => {
   const r = dots.getBoundingClientRect();
   msgMenuOpen(row, r.left, r.bottom + 4, dots);
 });
+/* kosmos#7614: a press on the "..." whose menu is open must not take focus first: the menu's focusout would close it
+   and the click would then open it again, so a second press could never close it. Its own click closes it instead. */
+document.addEventListener('mousedown', (e) => {
+  const dots = e.target && e.target.closest ? e.target.closest('#pj-room .rxn-dots, #d-dmthread .rxn-dots') : null;
+  const m = document.getElementById('msg-menu');
+  if (dots && m && !m.hidden && m.msgDots === dots) e.preventDefault();
+});
 /* kosmos#7614: Delete message. The dialog says plainly what it does and what it cannot do (an agent that read it still
    remembers it); keeping takes focus, the removal dialog's rule. The words are the ones agreed for the phone too. */
 let MSG_DEL = null;
