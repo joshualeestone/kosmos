@@ -71,3 +71,14 @@ Design call: #5536 comment 6513912365.
   the listing takes those folders from base and world, not the env); a killed child can orphan a git read on a
   regular file (bounded by git itself); the child's own timer equals the parent's (either ending reads as failed).
 - Tests 86/86. Mutations (refusal passed through; no timeout; startListings a no-op) each red; restored.
+
+## Review round 4 (sonnet): 0 BLOCKER, 1 WARNING, 1 CONVENTION, 4 NIT
+- FIXED: a killed child's callback arriving after stop and start deleted the NEWER ask's in-flight entry, so a second
+  child could start for one world. done() now deletes only its own entry. Test: a fake child that calls back after
+  kill(), the way a real one does; the newer ask keeps its place and no second child starts.
+- FIXED: "writes nothing" was claimed, not shown. The real-child test now compares every path, size and mtime under
+  the base before and after both listings.
+- FIXED: the shared answer is frozen down to its rows and their runs, not only the top object.
+- DEFERRED: a case-insensitive root compare (both sides come from one base, so a mismatch fails closed); real-child
+  timeout and output-cap runs (the options are pinned; the kill paths are execFile's own); orphaned git reads on kill.
+- Tests 86/86. Mutations (delete any entry; rows not frozen) each red; restored.

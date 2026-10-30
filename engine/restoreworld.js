@@ -901,9 +901,10 @@ function listRestoredAgentsInChild(opts = {}, deps = {}) {
   const execFile = deps.execFile || childProcess.execFile;
   const args = [path.join(__dirname, 'restoreworld-child.js'), 'list', opts.base, world.id].concat(opts.restoreDir ? [opts.restoreDir] : []);
   let settled = false;
+  let mine = null;   // this ask's own entry: a killed child calling back late must not remove a newer ask's
   const answer = new Promise((resolve) => {
     let child = null;
-    const done = (l) => { settled = true; if (child) listChildren.delete(child); listing.delete(key); resolve(l); };
+    const done = (l) => { settled = true; if (child) listChildren.delete(child); if (mine && listing.get(key) === mine) listing.delete(key); resolve(l); };
     try {
       child = execFile(process.execPath, args, { env, timeout: LIST_CHILD_TIMEOUT_MS, maxBuffer: LIST_CHILD_STDOUT_MAX, windowsHide: true }, (err, stdout) => {
         if (err) return done(failed(LIST_FAILED));
@@ -918,11 +919,15 @@ function listRestoredAgentsInChild(opts = {}, deps = {}) {
         if (!shaped) return done(failed(LIST_FAILED));
         // The listing's own refusal (a world not on the list, or not made for a restore) in the refusal shape too, so
         // a screen keying on `more` never reads it as an empty restore.
-        done(typeof l.because === 'string' ? failed(l.because) : Object.freeze(l));
+        if (typeof l.because === 'string') return done(failed(l.because));
+        for (const row of l.agents.concat(l.shared)) if (row && typeof row === 'object') { if (Array.isArray(row.runs)) Object.freeze(row.runs); Object.freeze(row); }
+        Object.freeze(l.agents); Object.freeze(l.shared);
+        done(Object.freeze(l));   // shared by every ask for this world while it ran, so nobody's change reaches another
       });
       if (child && !settled) listChildren.add(child);
     } catch { done(failed(LIST_FAILED)); }
   });
+  mine = answer;
   if (!settled) listing.set(key, answer);   // an answer given at once (a spawn that threw) holds no place
   return answer;
 }

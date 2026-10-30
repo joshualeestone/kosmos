@@ -1168,10 +1168,14 @@ test('a listing run in a child process answers exactly what a successful listing
   sink.close();
   const moved = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
   assert.equal(moved.ok, true, moved.because);
+  const tree = (d) => { const out = []; const walk = (x) => { for (const e of fs.readdirSync(x, { withFileTypes: true })) { const f = path.join(x, e.name); const st = fs.lstatSync(f); out.push(`${path.relative(d, f)} ${st.size} ${st.mtimeMs}`); if (e.isDirectory()) walk(f); } }; walk(d); return out.sort(); };
+  const before = tree(base);
   const here = rw.listRestoredAgents({ base, world: p.world, restoreDir: p.restoreDir, nameOk });
   assert.ok(here.agents.length >= 2 && here.shared.some((s) => s.runs.includes('.git/config sets core.pager')), JSON.stringify(here));
   const away = await rw.listRestoredAgentsInChild({ base, world: p.world, restoreDir: p.restoreDir });
   assert.deepEqual(away, here);
+  assert.deepEqual(tree(base), before, 'neither listing wrote anything under the base');
+  assert.ok(Object.isFrozen(away.agents) && Object.isFrozen(away.agents[0]), 'a shared answer is frozen, rows too');
   const stranger = await rw.listRestoredAgentsInChild({ base, world: { id: 'not-a-world' } });
   assert.deepEqual(stranger, { agents: [], shared: [], more: true, because: 'this is not a Kosmos on your list, so nothing in it is offered' });
   // A world on the list that a restore did not make: listRestoredAgents refuses it, and the refusal keeps more: true.
@@ -1249,5 +1253,21 @@ test('one listing per world at a time; stopListings ends a running one as a refu
   rw.listRestoredAgentsInChild({ base, world: p.world }, deps);
   assert.equal(calls, 2, 'startListings lets the next ask start a child');
   rw.stopListings();
+  rw.startListings();
+
+  // A real child calls back AFTER kill(), so a killed one can answer once a newer ask holds the world's place.
+  const late = [];
+  const lateDeps = { execFile: (file, args, opts, cb) => { calls += 1; late.push(cb); return { kill() {} }; } };
+  const first = rw.listRestoredAgentsInChild({ base, world: p.world }, lateDeps);
+  rw.stopListings();
+  rw.startListings();
+  const second = rw.listRestoredAgentsInChild({ base, world: p.world }, lateDeps);
+  assert.equal(calls, 4);
+  late[0](new Error('killed'), '');   // the killed child's callback, late
+  assert.ok((await first).because);
+  assert.equal(rw.listRestoredAgentsInChild({ base, world: p.world }, lateDeps), second, 'the newer ask still holds its place');
+  assert.equal(calls, 4, 'and no second child is started for the world');
+  rw.stopListings();
+  late[1](new Error('killed'), '');
   rw.startListings();
 });

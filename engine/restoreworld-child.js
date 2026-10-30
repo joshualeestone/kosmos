@@ -11,7 +11,8 @@
  *         root is store.ROOT as this process resolves it, which the board checks is the Restored world's)
  *     or  {"ok":false,"because":"..."}                            (the world is not on the list, or the read failed)
  *
- * It writes nothing. It prints one line and exits 0; the caller treats any other ending as a listing that failed.
+ * It writes nothing (engine/restoreworld-5536.test.js compares the folders before and after a real run). It prints one
+ * line and exits 0; the caller treats any other ending as a listing that failed.
  */
 
 async function main(mode, base, worldId, restoreDir) {
