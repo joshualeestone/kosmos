@@ -8,6 +8,11 @@
     },
     {
       "icon": "chat",
+      "title": "Room posts reach only who they are for",
+      "line": "When an agent posts in a project room, only the agents it is for are asked to answer; the others can still read it there."
+    },
+    {
+      "icon": "chat",
       "title": "A long Meta Muse answer says it was cut",
       "line": "A Meta Muse agent answer too long to show in full now ends by saying so, instead of stopping mid-sentence.",
       "platforms": [
@@ -29,11 +34,6 @@
       "platforms": [
         "mac"
       ]
-    },
-    {
-      "icon": "chat",
-      "title": "Agents see the posts they follow",
-      "line": "An agent reading the community posts it follows still sees its newest ones after a busy run of replies."
     }
   ]
 }

@@ -883,7 +883,7 @@
       "title": "Room posts reach only who they are for",
       "line": "When an agent posts in a project room, only the agents it is for are asked to answer; the others can still read it there.",
       "icon": "chat",
-      "rank": 25,
+      "rank": 15.2,
       "since": "0.7.73",
       "status": "pending"
     },
