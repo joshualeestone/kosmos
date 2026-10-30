@@ -968,7 +968,11 @@ function record() {
   const born = require('./projectborn').snapshot();
   const key = cache.size + ':' + cache.mtimeMs + ':' + cache.offset + ':' + cache.fragment;
   if (!(FILTERED && FILTERED.cache === cache && FILTERED.key === key && FILTERED.stamp === born.stamp)) {
-    const rows = cache.rows.concat(fragRows).filter((r) => !(r && typeof r.project === 'string' && born.earlier(r.project, r.at)));
+    const gone = deletedPostKeys(cache.parsed.concat(fragParsed));
+    const rows = cache.rows.concat(fragRows).filter((r) => !(r && typeof r.project === 'string' && born.earlier(r.project, r.at))
+      // kosmos#7614: a deleted post, and the reactions to it, are given to no reader.
+      && !(gone.size && r && typeof r.project === 'string'
+        && ((r.kind === 'post' && gone.has(r.project + '\u0000' + r.id)) || (r.kind === 'reaction' && gone.has(r.project + '\u0000' + r.of)))));
     FILTERED = { cache, key, stamp: born.stamp, rows };
   }
   return { ok: true, stampsUnknown: !born.ok, stamp: born.stamp, rows: FILTERED.rows.slice(), parsed: cache.parsed.concat(fragParsed) };
@@ -1111,7 +1115,22 @@ function rowShaped(m) {
       && (m.op === 'add' || m.op === 'remove')
       && (m.operator === true || str(m.from));
   }
+  /* kosmos#7614: the person deleted their own post. Never handed to a reader: record() reads it from the parsed rows and
+     drops the post it names (and that post's reactions) from every reader's rows. */
+  if (m.kind === 'post-deleted') return false;
   return true;
+}
+
+/* kosmos#7614: the posts the person has deleted, as project NUL id, from the parse-only rows (a deletion row is never
+   in `rows`). Only the person's own deletion of a post counts; deletePost writes nothing else. */
+function deletedPostKeys(parsed) {
+  const keys = new Set();
+  for (const m of parsed) {
+    if (m && m.kind === 'post-deleted' && m.operator === true && typeof m.project === 'string' && typeof m.of === 'string') {
+      keys.add(m.project + '\u0000' + m.of);
+    }
+  }
+  return keys;
 }
 
 /* The send path keeps the old contract on purpose: an unreadable log
@@ -4483,6 +4502,59 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
 }
 function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 
+/* kosmos#7614: the person deletes one of their own room posts. It leaves the room for everyone (record() drops it, and
+   its reactions, from every reader), a copy still held for a busy member is never delivered, a long post's spill file
+   goes, and a member that was already given it is told, in one line that never repeats the words, to treat it as
+   withdrawn. That note is the only way a deletion can matter to an agent that has read it; it cannot undo what the
+   agent did, and the board's confirm says so. Answers { ok, code, error?, told }. */
+function withdrawnLine(post) {
+  const when = Number.isFinite(Date.parse(post.at)) ? new Date(post.at).toTimeString().slice(0, 5) : 'earlier';
+  return '[from Kosmos] The person deleted their post ' + post.id + ' in project ' + post.project + ' (sent ' + when
+    + '). Treat it as withdrawn. If you had started on it, stop and say in the room what you had already done.';
+}
+function unspillFor(name, id) {
+  try {
+    const dir = require('./dmfiles').ownDir(name, INBOX);
+    if (!dir) return;
+    const marker = path.join(dir, '.gitignore');
+    const m = fs.lstatSync(marker);
+    if (!m.isFile() || fs.readFileSync(marker, 'utf8') !== INBOX_MARK) return;   // only an Inbox Kosmos made
+    const file = path.join(dir, id + '.txt');
+    if (fs.lstatSync(file).isFile()) unspill(file);
+  } catch { /* nothing spilled for this member, or not ours: left as it is */ }
+}
+async function deletePostAsync({ projectId, id, roster } = {}) {
+  if (typeof projectId !== 'string' || !projectId || typeof id !== 'string' || !/^m[0-9]+$/.test(id)) {
+    return { ok: false, code: 404, error: 'there is no message by that number here', told: [] };
+  }
+  const read = record();
+  if (!read.ok) return { ok: false, code: 503, error: 'we could not read the room just now', told: [] };
+  const post = read.rows.find((m) => m && m.kind === 'post' && m.project === projectId && m.id === id);
+  if (!post) return { ok: false, code: 404, error: 'there is no message by that number here', told: [] };
+  if (post.operator !== true) return { ok: false, code: 403, error: 'you can delete only your own messages', told: [] };
+  appendLog({ kind: 'post-deleted', project: projectId, of: id, at: new Date().toISOString(), operator: true });
+  const outcomes = post.outcomes && typeof post.outcomes === 'object' ? post.outcomes : {};
+  const given = [];
+  for (const name of Array.isArray(post.to) ? post.to : []) {
+    if (typeof name !== 'string' || !name) continue;
+    const dropped = roomhold.dropShown(name, projectId, [id]);
+    unspillFor(name, id);
+    const was = outcomes[name];
+    /* Typed to it, or held and since told to it (its hold is gone): it may have read the post. Still held: dropped above,
+       never delivered. Quiet or refused: never typed. */
+    if (was === chat.DELIVERY.PLACED || was === chat.DELIVERY.UNCONFIRMED || (was === roomhold.HELD && !dropped)) given.push(name);
+  }
+  const told = [];
+  const line = withdrawnLine(post);
+  for (const name of given) {
+    let v = null;
+    try { v = await chat.deliverAutomaticAsync(name, line, roster); } catch { v = null; }
+    /* Typed, or kept to type later (an agent out of usage gets it when it is back): either way it will have it. */
+    if (v && typeof v.state === 'string' && v.state !== chat.DELIVERY.COULD_NOT) told.push(name);
+  }
+  return { ok: true, code: 200, told };
+}
+
 module.exports = {
   lastPostAt, recommenderNoted,   // #6341
   spillLimit,   // #6065: the longest line typed whole
@@ -4507,6 +4579,7 @@ module.exports = {
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
+  deletePostAsync,   // kosmos#7614
   react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji, freeClaim,
   messageIdOf, // #4631
   operatorDirect, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,

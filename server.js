@@ -23225,6 +23225,31 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#7614: the person DELETES one of their own room posts. The person's only (not in AGENT_TOKEN_ROUTES), board-token
+     gated like the react route above. The engine does the work (gone for every reader, a held copy never delivered, a
+     member that was given it told to treat it as withdrawn); this answers 200 { deleted, told }, 403 for a post that is
+     not the person's, 404 for none (or one already deleted). The page's confirm said so before it called this. */
+  const roomDelete = pathname.match(/^\/api\/project\/([^/]+)\/room\/([^/]+)\/delete$/);
+  if (roomDelete && req.method === 'POST') {
+    const id = decodeSegment(roomDelete[1]);
+    const raw = decodeSegment(roomDelete[2]);
+    if (id === null || raw === null) { sendJson(res, 400, { error: 'that is not something we can read' }); return; }
+    const postId = /^[0-9]+$/.test(raw) ? 'm' + raw : raw;   // the page shows the number without its m (msgRefNumber)
+    readBody(req)
+      .then(async () => {
+        const roster = safeRoster();
+        let found = null;
+        try { found = projects.get(id, roster || []); } catch { found = null; }
+        if (!found) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+        const out = await messages.deletePostAsync({ projectId: found.id, id: postId, roster });
+        if (!out.ok) { sendJson(res, out.code || 400, { error: out.error }); return; }
+        sendJson(res, 200, { deleted: true, of: postId, told: out.told });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   /* #6949: the person FREES the 🙋 claim on a room post, for an agent that went quiet holding it. Its own POST route,
      the person's only (agents give a claim back with `kosmos claim --release`; this route is not in
      AGENT_TOKEN_ROUTES), board-token gated like the react route above. The body names the holder the page showed
