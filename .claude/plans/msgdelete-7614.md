@@ -39,3 +39,7 @@ Route contract: her comment on #7614 (6522788480).
 ## Validation (after rebase on origin/main, 08:5x 10-30)
 - LogicTests 1717/1717, room 741/741. DeleteMessageUITests 3/3 on a fresh iPhone-17e iOS 27.0 simulator (after round 4's code).
 - Repo readers of ios/ 81/82: the one red is server.ios-routes-6838 naming exactly the two delete routes, which are on Mona Lisa's hoverbar-7614 and not on main. Expected, and it is the guard that keeps this from merging first.
+
+## Round 6 (after Mona Lisa's routes landed in PR #7637 with three changed answers)
+- Adapted: a 404 with gone: true is "That message was already gone." (the board's own toast) and the row goes; other 404s and every 409 show the route's sentence; earlierPart rows (thread and earlier pages) offer no Delete.
+- Blind review of that commit: CONVERGED, no blocker or warning. NITs taken: the deleteResult comment, a check that an earlier page carries earlierPart. LogicTests 1723/1723, room 741/741.
