@@ -20,6 +20,11 @@ while moves are off. Items as numbered on the card.
 
 - Item 7: the sweep and the mover share one tick's deps, so the agents are walked once a tick, not twice.
 
-## Still to do
-- Item 1: a test that runs the mover through the board's real deps.
-- Item 5: throughput (a moved idle agent may hold its target a day).
+- Item 1: server.automove-deps-7621.test.js builds the board's real deps in a sandboxed board, checks each answers in
+  the shape the mover reads, and runs a real tick through them, off and on (control: dropping one dep is red).
+
+## Decided, not changed
+- Item 5 (a moved idle agent may hold its target a day, so about one move per target every one to two days): kept.
+  Releasing a target sooner loosens rule 6 (no second agent onto a target not yet seen to work), which exists only for
+  safety, and moves are off everywhere, so there is no data on how slow it is in practice. What would change it: a
+  board with moves on whose record shows at-risk accounts waiting on unproven targets.
