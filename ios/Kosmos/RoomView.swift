@@ -1056,7 +1056,8 @@ struct RoomView: View {
         // The board's own label for its + (#pj-attach).
         AttachPlusButton(atLimit: atFileLimit, label: "Add a file to this conversation",
                          hint: atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "",
-                         onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } }) { choice in
+                         onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } },
+                         onCameraDenied: { client.attachLine[attachKey] = Board.cameraDeniedLine }) { choice in
             switch choice {
             case .camera: showCamera = true
             case .photos: showPhotos = true

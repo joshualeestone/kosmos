@@ -2614,6 +2614,9 @@ extension Board {
         atLimit || (choice == .camera && (camera == .none || camera == .blocked))
     }
 
+    // The line above the composer when the person answers iOS's camera prompt with Don't Allow (review 8).
+    static let cameraDeniedLine = "The camera is turned off for Kosmos. You can turn it on in Settings."
+
     // The line under Camera that says why it will not open the camera.
     static func cameraNote(_ camera: CameraState) -> String? {
         switch camera {

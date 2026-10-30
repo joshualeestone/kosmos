@@ -4923,6 +4923,7 @@ do {
     check(Board.attachRowOff(.camera, atLimit: false, camera: .blocked) && Board.cameraNote(.blocked) != Board.cameraNote(.notAllowed),
           "a restricted camera is dimmed (Settings cannot undo it) and says something other than the Settings line")
     check(AttachChoice.allCases.allSatisfy { Board.attachRowOff($0, atLimit: true, camera: .ready) }, "at the file limit every row is off")
+    check(Board.cameraDeniedLine.contains("Settings") && !Board.cameraDeniedLine.contains("\u{2014}"), "a Don't Allow says where the camera is turned back on")
     check(Board.cameraNote(.ready) == nil && Board.cameraNote(.notAsked) == nil && Board.cameraNote(.notAllowed) != nil
           && Board.cameraNote(.blocked) != nil && Board.cameraNote(.none) != nil,
           "Camera says why only when it will not open the camera")
