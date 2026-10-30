@@ -47,3 +47,7 @@ while moves are off. Items as numbered on the card.
   seconds, not on every poll. A comment says the shared walk can make a "released" check one tick late, and that the
   re-check before a move never uses it. Got wrong, corrected in flight: a perl edit with | as its delimiter and \|\| in
   the text rewrote every line of server.js; restored from the commit (hash checked equal) and made by hand instead.
+- Round 4 (Opus, final read): no BLOCKER. A person's move bumps a per-record count, and Settings' leftAlone re-reads
+  whenever it moved (a waiting line written by the tick's flush too), so the 30-second read window never hides a person's
+  move. The guide check reads one record every agent shares, so its failure is not perAgent and sets nobody aside; a
+  card, a box or a commitments file stays per-agent.

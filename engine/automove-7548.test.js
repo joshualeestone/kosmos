@@ -1051,3 +1051,28 @@ test('kosmos#7621 review 2: any re-check that fails for one agent alone (its box
   await run.tick(d, NOW + 2000);
   assert.deepEqual(calls.starts.map((s) => s.names[0]), ['bo'], 'one agent with an unreadable box blocked every move');
 });
+
+test('kosmos#7621 review 4: Settings sees a person\'s move at once, inside its 30-second read window', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d } = deps();
+  await run.tick(d, NOW);
+  assert.equal(run.leftAlone(NOW + 1000)('ada'), false, 'CONTROL: nothing holds ada yet, and the record was just read');
+  automove.personMoved(file, ['ada'], '/u/.claude-spare', NOW + 2000, ON);
+  assert.equal(run.leftAlone(NOW + 3000)('ada'), true, 'a person\'s move 2 seconds after Settings read was not seen for 30 seconds');
+});
+
+test('kosmos#7621 review 4: a guide check that cannot be made is everyone\'s, so it sets nobody aside', async () => {
+  const cards = realCards(['ada'], ['bo']);
+  const run = automove.create({ file: fileFor() });
+  let guideBroken = false;
+  const { d } = deps({ cards, names: ['ada', 'bo'] });
+  d.isGuide = () => { if (guideBroken) throw new Error('the guide record could not be read'); return false; };
+  /* Broken only for the re-check (it reads a fresh roster first): broken for the decision too, nobody is a candidate. */
+  const fresh = d.freshRoster;
+  d.freshRoster = () => { guideBroken = true; return fresh(); };
+  await run.tick(d, NOW);
+  const r = await run.tick(d, NOW + 1000);
+  assert.equal(r.did, 'unreadable', 'CONTROL: the re-check could not be made');
+  assert.equal(run.state.recheckFailed.size, 0, 'a guide record everyone shares set one agent aside');
+});

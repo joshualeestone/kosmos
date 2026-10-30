@@ -69,10 +69,12 @@ function personMoved(file, names, to, nowMs = Date.now(), env = process.env) {
   const waiting = unwrittenPeople.get(file) || [];
   let wrote = false;
   if (!waiting.length) { try { wrote = sweep.appendAll(file, lines); } catch { wrote = false; } }
+  if (wrote) peopleWrites.set(file, (peopleWrites.get(file) || 0) + 1);   // kosmos#7621 review 4: Settings reads it next time
   if (!wrote) unwrittenPeople.set(file, [...waiting, ...lines]);
   return wrote;
 }
 const unwrittenPeople = new Map();   // record file -> person lines it could not take yet, oldest first
+const peopleWrites = new Map();      // record file -> how many person writes it took (kosmos#7621 review 4)
 
 /**
  * The mover's state, rebuilt from the record (rule 10: a board restarts several times a day): the moves being watched,
@@ -93,7 +95,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
   const flush = () => {
     if (state.unwritten.length && sweep.appendAll(file, state.unwritten)) state.unwritten = [];
     const people = unwrittenPeople.get(file) || [];
-    if (people.length && sweep.appendAll(file, people)) unwrittenPeople.delete(file);
+    if (people.length && sweep.appendAll(file, people)) { unwrittenPeople.delete(file); peopleWrites.set(file, (peopleWrites.get(file) || 0) + 1); }
   };
   const waitingPeople = () => unwrittenPeople.get(file) || [];
   const watched = new Map();   // agent -> its watch, from its newest move, until a works or released line closes it
@@ -380,8 +382,11 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
      read first (those in the record and those still waiting to be written), so a person's move made since the last
      tick is not shown as one Kosmos will undo. A record that cannot be read answers from what the last tick read. */
   let peopleReadAt = null;   // review 3: Settings polls; the record is read for it at most every 30 seconds
+  let peopleWritesSeen = 0;   // review 4: ...and at once after a person's move was written
   const leftAlone = (nowMs = Date.now()) => {
-    if (!(Number.isFinite(peopleReadAt) && peopleReadAt <= nowMs && nowMs - peopleReadAt < 30 * 1000)) {
+    const writes = peopleWrites.get(file) || 0;
+    if (writes !== peopleWritesSeen || !(Number.isFinite(peopleReadAt) && peopleReadAt <= nowMs && nowMs - peopleReadAt < 30 * 1000)) {
+      peopleWritesSeen = writes;
       peopleReadAt = nowMs;
       try { readPeople(nowMs); } catch { /* the last tick's reading stands */ }
     }

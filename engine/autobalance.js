@@ -185,9 +185,10 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
      ("could not work out"), not every agent "not idle". */
   const g = guideName();
   const guide = typeof g === 'string' && g ? g.trim().toLowerCase() : null;
-  /* kosmos#7621 review 2: every one of these is about this agent alone, so the error says so (perAgent); a roster or the
-     projects that could not be read at all throw elsewhere, as everyone's. */
-  const cannot = (why) => { if (strict) throw Object.assign(new Error(why), { perAgent: true }); return false; };
+  /* kosmos#7621 reviews 2 and 4: a failure about this agent alone says so (perAgent: its card, its box, its commitments
+     file); the guide check reads one record every agent shares, so it is everyone's, as a roster or the projects that
+     could not be read at all (they throw elsewhere). */
+  const cannot = (why, perAgent = true) => { if (strict) throw Object.assign(new Error(why), { perAgent }); return false; };
   return (session) => {
     const c = bySession.get(session);
     if (!c) return cannot('the agent is not on the roster');
@@ -201,7 +202,7 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
     try {
       if (isGuide(session) !== false) return false;
       if (guide && guide === String(session).trim().toLowerCase()) return false;
-    } catch { return cannot('whether it is the guide could not be read'); }
+    } catch { return cannot('whether it is the guide could not be read', false); }
     let rec = null;
     try { rec = readCommitment(session); } catch { return cannot('its commitments could not be read'); }
     const all = typeof records === 'function' ? records() : records;
