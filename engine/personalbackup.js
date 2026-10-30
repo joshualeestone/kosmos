@@ -101,6 +101,7 @@ function peek(id, now) {
   return t || null;
 }
 
+const ELSEWHERE = 'Personal backup is on for another of your computers. Turn it off there first; nothing changed here.';
 const SAY = {
   personal_backup_off: 'Personal backup is not available on Kosmos+ yet. Nothing was turned on.',
   personal_backup_in_org: 'This account is in a company or a family on Kosmos+, so a personal backup cannot be turned on. Nothing changed.',
@@ -108,6 +109,9 @@ const SAY = {
   org_other_org: 'This account joined a company or a family on Kosmos+ meanwhile, so a personal backup was not turned on. Nothing changed here.',
   org_consent_changed: 'What a personal backup does changed on Kosmos+ just now. Nothing was turned on; open it again to read the new words.',
   personal_backup_words_unseen: 'Kosmos+ did not take the words as shown. Nothing was turned on; open it again.',
+  // Code review 3, warning 2: the membership the preview made was ended meanwhile (another computer's abandoned preview).
+  org_not_member: 'Personal backup was closed on Kosmos+ while it was open here. Nothing was turned on; open it again.',
+  personal_on_elsewhere: ELSEWHERE,
 };
 const UNREACHED = 'Kosmos+ could not be reached just now. Nothing was turned on; try again in a minute.';
 
@@ -123,6 +127,13 @@ const UNREACHED = 'Kosmos+ could not be reached just now. Nothing was turned on;
    any other org, and an older one ignores it. Weakest premise, with an older coordinator: the account joins a company
    between the status read and the leave. */
 const PREVIEW_OPEN = 'personal-preview-open.json';
+/* Code review 3, blocker 1: a personal backup another computer of this account runs. A codeless enroll here is a MOVE
+   to orgenroll and would take its binding: that computer would stop and this one could only restore. Refused, at the
+   preview and again just before the enroll; turning it off there (or a retired computer, which reads as none) frees it. */
+function elsewhere(st) {
+  const d = st && st.ok && st.data;
+  return !!(d && d.member === true && d.org && d.org.kind === 'personal' && d.enrolled && d.enrolled.thisComputer !== true);
+}
 const STATUS = '/v1/mac/org/status';
 const LEAVE = '/v1/mac/org/leave';
 function notePreview(orgId, now, opts) {
@@ -141,7 +152,8 @@ function joinPending(opts) {
    when Kosmos+ did not answer (the marker stays, so the follow-up asks again). */
 async function endUnbound(opts, orgId) {
   if (!orgId) return { ok: true, left: false };   // only a membership this computer's own preview made (see above)
-  if (isOn(opts) || joinPending(opts)) return { ok: true, kept: true };
+  // Code review 3, warning 3: never while a switch-on here may be binding it (its leave could end the fresh bind).
+  if (CLAIMED.size || isOn(opts) || joinPending(opts)) return { ok: true, kept: true };
   const remote = remoteOf(opts);
   if (!remote || typeof remote.macRequest !== 'function') return { ok: false };
   let st;
@@ -154,6 +166,8 @@ async function endUnbound(opts, orgId) {
   let r;
   try { r = await remote.macRequest('POST', LEAVE, { orgId }); } catch { r = null; }
   if (r && (r.ok || codeOf(r) === 'org_not_member')) { forgetPreview(opts); return { ok: true, left: true }; }
+  // kosmos#7658: the membership is another org's by now (a join landed after the status read): not ours, nothing ended.
+  if (r && codeOf(r) === 'org_not_that_org') { forgetPreview(opts); return { ok: true, left: false }; }
   return { ok: false };
 }
 
@@ -164,7 +178,12 @@ async function preview(opts = {}) {
   /* In no org just before: the membership the preview answers with is one this preview made, and this computer may end
      it. Anything else (a member already, or no answer) writes no marker, so nothing here ever ends it. */
   let inNone = false;
-  if (!isOn(opts)) { try { const st = await remote.macRequest('POST', STATUS, {}); inNone = !!(st && st.ok && st.data && st.data.member === false); } catch { /* no marker */ } }
+  if (!isOn(opts)) {
+    let st = null;
+    try { st = await remote.macRequest('POST', STATUS, {}); } catch { /* no marker */ }
+    inNone = !!(st && st.ok && st.data && st.data.member === false);
+    if (elsewhere(st)) return { ok: false, code: 'personal_on_elsewhere', because: ELSEWHERE };
+  }
   let r;
   try { r = await remote.macRequest('POST', ROUTE, {}); } catch { return { ok: false, because: UNREACHED }; }
   if (!r || !r.ok) { const c = codeOf(r); return c && SAY[c] ? { ok: false, code: c, because: SAY[c] } : { ok: false, because: UNREACHED }; }
@@ -201,8 +220,12 @@ async function switchOn(ticket, accepted, opts = {}) {
 const CLAIMED = new Set();
 async function bindAndKey(ticket, t, opts) {
   const oe = opts.orgenroll || require('./orgenroll');
-  // A fresh switch-on runs the key step again (warning 4): no marker from an earlier membership carries over.
-  try { fs.rmSync(path.join(root(opts), KEY_READY), { force: true }); } catch { /* state() compares it anyway */ }
+  // Bound elsewhere since the preview: refused before anything is sent (blocker 1).
+  if (!isOn(opts)) {
+    let st = null;
+    try { const remote = remoteOf(opts); st = remote && typeof remote.macRequest === 'function' ? await remote.macRequest('POST', STATUS, {}) : null; } catch { /* the enroll decides */ }
+    if (elsewhere(st)) { TICKETS.delete(ticket); return { ok: false, code: 'personal_on_elsewhere', because: ELSEWHERE }; }
+  }
   // The hash was checked when the ticket was made (cleanPreview); it is what stops a hashless enroll moving a company's
   // binding here (design review 1, blocker 2).
   let r;
@@ -231,6 +254,9 @@ async function bindAndKey(ticket, t, opts) {
   }
   if (!r.org || r.org.id !== t.org.id) return { ok: false, because: 'Kosmos+ did not confirm this computer, so nothing was turned on.' };
   forgetPreview(opts);
+  /* The key step runs again for this bind (warning 4), but only now that it landed: removed before, a failed enroll left
+     a backup whose key is fine reading needs-key (code review 3, warning 5). state() compares org and world anyway. */
+  try { fs.rmSync(path.join(root(opts), KEY_READY), { force: true }); } catch { /* state() compares it anyway */ }
   return setUpKey(opts);
 }
 
@@ -312,7 +338,11 @@ async function followUp(opts = {}) {
   if (open) {
     if (isOn(opts)) forgetPreview(opts);
     // A preview not bound within its ticket's life (or before a restart lost the ticket) is ended (blocker 1).
-    else if (now - open.at > TICKET_MS && (now - open.at < 24 * HOUR || now - LAST_END >= HOUR)) { LAST_END = now; await endUnbound(opts, open.org); }
+    // A marker dated after now (the clock set back) counts as old, as orgenroll reads a future time (code review 3).
+    else {
+      const age = open.at > now ? 24 * HOUR : now - open.at;
+      if (age > TICKET_MS && (age < 24 * HOUR || now - LAST_END >= HOUR)) { LAST_END = now; await endUnbound(opts, open.org); }
+    }
   }
   const age = pendingAge(opts, now);
   const on = isOn(opts);
