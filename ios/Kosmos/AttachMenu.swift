@@ -1,6 +1,7 @@
 import AVFoundation
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 // kosmos#7596 (Josh 10-29 21:27, his screenshot of ChatGPT's): the + in a chat and in a project room opens a larger panel,
 // each choice a round icon tile and its name, Camera first. The choices and their rules are in BoardLogic (AttachChoice).
@@ -96,6 +97,8 @@ struct AttachPanel: View {
             ScrollView { rows }
         }
         .frame(maxHeight: 360)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("attach-panel")   // review 13: the UI test finds its rows here, not the picker's own "Photos"
     }
 
     private var rows: some View {
@@ -150,7 +153,7 @@ struct CameraCapture: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
-        picker.mediaTypes = ["public.image"]
+        picker.mediaTypes = [UTType.image.identifier]
         picker.delegate = context.coordinator
         return picker
     }
