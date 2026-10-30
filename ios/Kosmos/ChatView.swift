@@ -993,12 +993,14 @@ struct ChatView: View {
                                 sheet: MessageActionTarget(mine: Set(row.reactions.filter(\.mine).map(\.emoji)),
                                                            react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
                                                            reply: row.answerable(by: agent.session) ? { startReply(row) } : nil,
-                                                           text: Board.wordsShown(row.text, files: row.attachments)))
+                                                           text: Board.wordsShown(row.text, files: row.attachments),
+                                                           delete: Board.canDelete(row) ? { deleteMine(row) } : nil))
                         // kosmos#7083: Reply and the reactions on an agent's message with files too, from its bubble; kosmos#7419:
                         // through the long-press sheet, with Copy text for any message.
                         .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)),
                                         react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
-                                        reply: row.answerable(by: agent.session) ? { startReply(row) } : nil, text: Board.wordsShown(row.text, files: row.attachments))   // review 1: the words shown, none for files alone
+                                        reply: row.answerable(by: agent.session) ? { startReply(row) } : nil, text: Board.wordsShown(row.text, files: row.attachments),   // review 1: the words shown, none for files alone
+                                        delete: Board.canDelete(row) ? { deleteMine(row) } : nil)
                     if !row.reactions.isEmpty {
                         ReactionPills(pills: row.reactions, toggle: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil, trailing: mine)
                     }
@@ -1033,7 +1035,8 @@ struct ChatView: View {
                                    failed: failedLine(row), sendAgain: { tryAgain(row) },
                                    head: headFor(replyTo: row.replyTo), headHidden: headsHidden.contains(row.id),
                                    react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
-                                   reply: row.answerable(by: agent.session) ? { startReply(row) } : nil)
+                                   reply: row.answerable(by: agent.session) ? { startReply(row) } : nil,
+                                   delete: Board.canDelete(row) ? { deleteMine(row) } : nil)
                     }
                     WayThroughRow(text: wayText(way), action: openOnBoard)
                 }
@@ -1051,7 +1054,8 @@ struct ChatView: View {
                            sendAgain: { tryAgain(row) },
                            head: headFor(replyTo: row.replyTo), headHidden: headsHidden.contains(row.id),
                            react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
-                           reply: row.answerable(by: agent.session) ? { startReply(row) } : nil)
+                           reply: row.answerable(by: agent.session) ? { startReply(row) } : nil,
+                           delete: Board.canDelete(row) ? { deleteMine(row) } : nil)
                     .padding(.top, first ? 10 : 2)
             }
         }
@@ -1719,6 +1723,25 @@ struct ChatView: View {
         }
     }
 
+    // kosmos#7614: the person's own message deleted for everyone (asked first, in the sheet). The row goes at once; a
+    // refusal, or the note that an agent had already read it, is said on the composer line, as a reaction's refusal is.
+    private func deleteMine(_ row: Board.ChatRow) {
+        guard Board.canDelete(row), let at = row.atRaw else { return }
+        let startedIn = client.chatEpoch
+        Task {
+            let result = await client.deleteMessage(at: at, to: agent)
+            guard startedIn == client.chatEpoch else { return }
+            switch result {
+            case .deleted(let told):
+                if let t = thread { thread = Board.withoutMessage(t, at: at) }
+                earlier.rows = Board.withoutMessage(earlier.rows, at: at)
+                composerNote = Board.deletedNote(told: told, names: [agent.session: shown.name])
+            case .refused(let why):
+                composerNote = why
+            }
+        }
+    }
+
     // MARK: - Reading
 
     private func startReading() {
@@ -1879,6 +1902,7 @@ struct ChatBubble: View {
     var headHidden = false
     var react: ((String) -> Void)? = nil
     var reply: (() -> Void)? = nil
+    var delete: (() -> Void)? = nil   // kosmos#7614: the person's own sent message only
     @Environment(\.openURL) private var openURL
 
     private var mine: Bool { row.who == .person }
@@ -1889,7 +1913,7 @@ struct ChatBubble: View {
             BubbleText(text: row.text, mine: mine, tail: lastOfRun, widthShare: widthShare)
                 // One long-press per bubble, set here (on the shared bubble it would hide the pending one's Delete).
                 // kosmos#7419: the sheet (quick reactions, More, Reply, Copy text) in place of the menu.
-                .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text)
+                .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text, delete: delete)
             if !row.reactions.isEmpty { ReactionPills(pills: row.reactions, toggle: react, trailing: mine) }
             if let failed {
                 if lastOfRun, let at = row.at {

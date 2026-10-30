@@ -949,7 +949,9 @@ struct RoomView: View {
                                typing = true
                            },
                            openAgent: { if let a = store.agent(row.from) { chatAgent = a } },
-                           jump: { if let id = row.replyTo { jumpTo = id } }, flashing: flashed == row.id,
+                           jump: { if let id = row.replyTo { jumpTo = id } },
+                           delete: { Task { _ = await store.delete(row, in: project.id) } },
+                           flashing: flashed == row.id,
                            mentionNames: row.mentioned.compactMap { store.names[$0] },
                            thumbnails: client.thumbnails, fileStates: fileStates, openFile: openFile)
                     .modifier(ArchivedBubble(on: archiveShown != nil))
@@ -1371,6 +1373,7 @@ struct RoomBubble: View {
     let openAgent: () -> Void
     // kosmos#7101: a reply's header goes to the post it answers (the board's #3745), and that post flashes.
     var jump: () -> Void = {}
+    var delete: (() -> Void)? = nil   // kosmos#7614: the person's own post only (its sheet asks first)
     var flashing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotionHere
 
@@ -1512,7 +1515,8 @@ struct RoomBubble: View {
         // Build 11: on the bubble itself, inside the width frame, so the ring that marks it while its sheet is up goes
         // round the bubble, not round the empty side of the frame.
         .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: answerable ? react : nil,
-                        reply: answerable ? reply : nil, text: Board.roomWords(row))   // review 2: the words shown
+                        reply: answerable ? reply : nil, text: Board.roomWords(row),   // review 2: the words shown
+                        delete: answerable && mine ? delete : nil)   // kosmos#7614: never on an archived post
         .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
     }
 

@@ -1220,6 +1220,58 @@ enum Board {
         Thread(rows: withReactions(thread.rows, at: at, pills: pills), olderCount: thread.olderCount, choices: thread.choices)
     }
 
+    // MARK: Deleting the person's own message (kosmos#7614, Josh 10-30; the routes are Mona Lisa's, contract on the card)
+
+    // The same words as the board's confirm, so both apps ask the same question (agreed 10-30).
+    static let deleteConfirmTitle = "Delete this message?"
+    static let deleteConfirmBody = "It goes from this conversation for everyone. Agents who already read it still remember it, and Kosmos tells them you withdrew it."
+    static let deleteConfirmYes = "Delete"
+    static let deleteConfirmNo = "Keep it"
+
+    // POST /api/agent/<name>/thread/delete {at}: the person's own message in a direct conversation, named by its `at`.
+    static func deleteRequest(mac: URL, session: String, at: String) -> URLRequest? {
+        guard isAgentSession(session), !at.isEmpty else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread/delete", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = try? JSONSerialization.data(withJSONObject: ["at": at])
+        return r
+    }
+
+    // `told` names the agents sent the one-line "withdrawn" note (empty when none had been given the message).
+    enum DeleteResult: Equatable { case deleted(told: [String]), refused(String) }
+
+    // Both routes answer alike: 200 {deleted: true, told}; else the route's `error` (403 not yours, 404 gone, 409 an
+    // earlier part of the conversation), as a sentence; no answer at all, the board's own fallback sentence.
+    static func deleteResult(status: Int, body: Data?) -> DeleteResult {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if (200...299).contains(status), isTrue(obj?["deleted"]) {
+            return .deleted(told: (obj?["told"] as? [Any])?.compactMap { $0 as? String } ?? [])
+        }
+        if status != 0, let why = (obj?["error"] as? String) ?? (obj?["because"] as? String), !why.isEmpty { return .refused(sentence(why)) }
+        return .refused("We could not delete that just now.")
+    }
+
+    // The line under the composer after a delete: only when an agent had already read it (the card's promise is that Kosmos
+    // tells them), naming them by their shown names; nothing to say when none had.
+    static func deletedNote(told: [String], names: [String: String]) -> String? {
+        let shown = told.map { names[$0] ?? $0 }
+        guard !shown.isEmpty else { return nil }
+        let list = shown.count == 1 ? shown[0] : shown.dropLast().joined(separator: ", ") + " and " + shown.last!
+        return "Deleted. \(list) had already read it, so Kosmos told them you withdrew it."
+    }
+
+    // Only the person's own messages can be deleted (the route refuses the rest with 403): a row of theirs with an `at`.
+    static func canDelete(_ row: ChatRow) -> Bool { row.who == .person && !(row.atRaw ?? "").isEmpty }
+
+    // The deleted message taken out of what the chat shows at once (the next read confirms): only the person's own row
+    // with that `at`, never an agent's that happens to share the time.
+    static func withoutMessage(_ rows: [ChatRow], at: String) -> [ChatRow] { rows.filter { !($0.atRaw == at && $0.who == .person) } }
+    static func withoutMessage(_ thread: Thread, at: String) -> Thread {
+        Thread(rows: withoutMessage(thread.rows, at: at), olderCount: thread.olderCount, choices: thread.choices)
+    }
+
     // pjReplyWords: the first non-empty line, at most two marks on a letter, cut to 80 code points with an ellipsis.
     static func replyWords(_ text: String) -> String {
         // JavaScript's trim: whitespace, line ends (a \r of CRLF) and the byte-order mark.

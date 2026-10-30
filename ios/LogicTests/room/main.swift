@@ -131,6 +131,13 @@ check(Board.refreshRoom([waiting, m3], older: (2, "c"), page: noMap).rows.first 
 let reactAnswer = Data(#"{"ok":true,"op":"add","emoji":"❤️","of":"m1","reactions":[{"emoji":"❤️","count":1,"mine":true}]}"#.utf8)
 check(Board.reacted(reactAnswer).map { $0.of == "m1" && $0.reactions == [Board.Reaction(emoji: "❤️", count: 1, mine: true)] } == true, "the react answer's own pills, for a post the re-read cannot reach")
 check(Board.reacted(Data(#"{"ok":false,"because":"no such post"}"#.utf8)) == nil, "CONTROL: a refused react patches nothing")
+// kosmos#7614: deleting the person's own post.
+let roomDel = Board.roomDeleteRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", post: "m1357")
+check(roomDel?.httpMethod == "POST" && roomDel?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/springcatalogue/room/m1357/delete"
+      && roomDel?.httpBody == Data("{}".utf8), "a room delete: POST the post's own delete route, an empty body")
+check(Board.roomDeleteRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", post: "../x") == nil
+      && Board.roomDeleteRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "../p", post: "m1") == nil,
+      "a post id or project id the app would not put in a path: no request")
 
 section("a post in the air settles only on a NEW row")
 let ok1 = Board.RoomRow(id: "m50", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "ok")
@@ -1205,7 +1212,8 @@ check(bubbleSource.components(separatedBy: "Board.unverifiedLine").count == 2, "
 // Review 2: both Copy paths, VoiceOver's action and the long press's (kosmos#7419: the sheet's Copy text, handed row.text),
 // and no other pasteboard write in the bubble.
 check(bubbleSource.contains("Button(\"Copy\") { UIPasteboard.general.string = Board.roomWords(row) }")
-      && bubbleSource.contains("reply: answerable ? reply : nil, text: Board.roomWords(row))")
+      // kosmos#7614: Delete is the sheet's next argument, so the call no longer ends at the words.
+      && bubbleSource.contains("reply: answerable ? reply : nil, text: Board.roomWords(row)")
       && bubbleSource.components(separatedBy: "UIPasteboard.general.string =").count == 2,
       "both Copy paths (VoiceOver's action and the long-press sheet) take the row's words, never the line")
 

@@ -525,6 +525,29 @@ final class RoomStore: ObservableObject {
         await loadRoom(project)
     }
 
+    // kosmos#7614: the person's own post deleted for everyone; the row goes at once and the room is re-read. Nil when the
+    // answer belongs to another account or computer (switched meanwhile).
+    func delete(_ row: Board.RoomRow, in project: String) async -> Board.DeleteResult? {
+        guard row.kind == .post, row.byPerson else { return .refused("Only your own messages can be deleted.") }
+        #if DEBUG
+        if Self.sample { rows[project]?.removeAll { $0.id == row.id }; return .deleted(told: []) }
+        #endif
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.roomDeleteRequest(mac: $0, project: project, post: row.id) }
+        guard same(epoch) else { return nil }
+        let result = Board.deleteResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
+        // The room's own line under the composer says what happened: a refusal, or that an agent had already read it.
+        switch result {
+        case .deleted(let told):
+            rows[project]?.removeAll { $0.id == row.id }
+            notes[project] = Board.deletedNote(told: told, names: names)
+        case .refused(let why):
+            notes[project] = why
+        }
+        await loadRoom(project)
+        return result
+    }
+
     // The project's members the board says need the person now (their card's tone), for the pinned line.
     // kosmos#7106: the room's needs-you notice from the projects route's own count for THIS project (needsYouHere), as
     // the board's pjNeedsNotice; an agent's card tone can be about another project, so it is never the test here.
