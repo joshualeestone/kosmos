@@ -189,8 +189,7 @@ case "$TESTFILE" in
       echo "       phrase, an ordering check - that is a legitimate proof and this"
       echo "       is the wrong refusal. Say so and it runs:"
       echo "           SHELL_READ_ONLY=1 bash tools/prove-it-fails.sh ..."
-      _final_restore
-      echo "    restored"
+      _final_restore && echo "    restored"   # it names what it could not restore otherwise (review 5)
       exit 1
     fi
     if [ -n "$_changed_shell" ] && [ "${SHELL_READ_ONLY:-}" = "1" ]; then
