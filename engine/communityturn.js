@@ -26,7 +26,7 @@
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
  * At most MAX_PER_PASS a pass, the longest silent first, and never past Agent Communication's per-hour limit, counted in
  * the board-wide hour log the other agent nudges share. Sent through the caller's deliver (the board passes
- * chat.deliverAutomatic, which holds a line on the shared-quota pause).
+ * chat.deliverAutomaticAsync to tickOnceAsync, which holds a line on the shared-quota pause; kosmos#7649).
  *
  * The tries book is kept in the data root (readBook / writeBook, review 6), so a board that restarts often cannot
  * reset an agent's 3-hour gap or its daily count; an unreadable book reads as empty.
@@ -156,13 +156,14 @@ function triesOf(book, s) {
 }
 
 /* Which idle agents are due a turn now, longest silent first, at most MAX_PER_PASS. */
-function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld, seenIdle, history, kosmosLines }) {
+function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld, seenIdle, history, kosmosLines, only }) {
   const nudgeable = require('./agentnudge').nudgeableCard;
   const { stoodDown, IDLE_FIRST_MS } = require('./replynudge');
   const out = [];
   for (const c of Array.isArray(roster) ? roster : []) {
     if (!c || !c.sessionName || !nudgeable(c)) continue;
     const s = String(c.sessionName);
+    if (typeof only === 'string' && s !== only) continue;   // kosmos#7649 review 3: one agent, judged against the whole roster
     if (stoodDown(s, projects)) continue;
     if (seenIdle instanceof Set && !seenIdle.has(s)) continue;   // review 4: idle at the previous pass too (as replynudge)
     const tries = triesOf(book, s);
@@ -235,93 +236,218 @@ function stamped(text, now) {
     + ' answered this exact one, do not answer it again.)';
 }
 
-/* Synchronous on purpose: the board's timer has no "pass already running" guard because a pass cannot overlap the next.
-   Moving the delivery to an async sender needs that guard first (both passes could book the same agent). */
-function tickOnce(o) {
-  const results = [];
+/* kosmos#7649: one pass, in three steps shared by the two senders: begin (the gates, the due list), lineFor (the text for
+   one due agent), settle (book and log one verdict). tickOnce delivers synchronously; tickOnceAsync awaits each delivery
+   in turn, one agent at a time, so the book still records only what a delivery answered for, in the same order. Neither
+   guards against a second pass starting while one is running: the caller of tickOnceAsync must (server.js keeps a
+   running flag, as the reply nudge does), or two passes could book the same agent. */
+/* The pass's gates, read at its start and (kosmos#7649 review 2) again before each agent after the first, since the
+   awaited pass can run minutes. A gate passes only when it is a function that answers true: a missing or throwing one
+   reads as off. */
+function gatesOpen(o) {
+  const on = (f) => { if (typeof f !== 'function') return false; try { return f() === true; } catch { return false; } };
+  const env = o.env === undefined ? process.env : o.env;
+  // The agent-nudge gate the sibling nudges share (live execution and AGENT_WORKFORCE_AGENT_NUDGE_OFF), then this one's own brake.
+  if (!require('./agentnudge').nudgeEnabled(on(o.allowed), env) || brakeOn(env)) return false;
+  return on(o.switchOn) && on(o.prompterOn);
+}
+
+function begin(o, results) {
   /* Review 5: while a gate is off nothing is watched, so the idle-seen marks are not trusted after it (replynudge's
      review 15): every early return clears them. */
-  const off = () => { if (o && o.idleSeen instanceof Set) o.idleSeen.clear(); return results; };
-  // A gate passes only when it is a function that answers true: a missing or throwing one reads as off.
-  const on = (f) => { if (typeof f !== 'function') return false; try { return f() === true; } catch { return false; } };
+  const off = () => { if (o && o.idleSeen instanceof Set) o.idleSeen.clear(); return null; };
+  if (!o || typeof o.deliver !== 'function') return off();
+  if (!gatesOpen(o)) return off();
+  let roster = null;
+  try { roster = typeof o.roster === 'function' ? o.roster() : null; } catch { roster = null; }
+  let projects = null;
+  try { const r = typeof o.readProjects === 'function' ? o.readProjects() : null; projects = Array.isArray(r) ? r : null; } catch { projects = null; }
+  if (!Array.isArray(roster) || !projects) return off();   // cannot tell a stood-down agent: prompt nobody this pass
+  const now = Number.isFinite(o.now) ? o.now : Date.now();
+  const book = o.book instanceof Map ? o.book : new Map();
+  const sent = Array.isArray(o.sent) ? o.sent : [];
+  let limit = { ...(o.limitDefaults || { on: true, perHour: 20 }) };   // the board passes limits.DEFAULTS, as the siblings do
+  try { const l = typeof o.readLimit === 'function' ? o.readLimit() : null; if (l && typeof l === 'object') limit = l; } catch { /* keep the default, which is on */ }
+  const cap = limit.on === true && Number.isInteger(limit.perHour) ? limit.perHour : Infinity;
+  const D = o.DELIVERY || {};
+  /* #5958: each result is kept as that agent's newest (engine/communityready.js), so `kosmos community ready` can say
+     what the last reminder did. Here, not in the caller's log, so no caller can leave it out. */
+  const onBoard = roster.map((c) => (c && c.sessionName ? String(c.sessionName) : '')).filter(Boolean);   // the record is pruned to these
+  // kosmos#7649 review 3: p.now, not this pass's start, so an agent sent to later in an awaited pass is kept at its own time.
+  const keep = (r) => { try { require('./communityready').noteTurn(r, p.now, onBoard); } catch { /* the record is not the work */ } };
+  /* Review 4: an agent is due only if it was an idle card at the previous pass too; this pass's idle cards are kept
+     for the next one. Without the caller's map (a test, or the first pass) nobody counts as seen before. */
+  const seen = o.idleSeen instanceof Set ? new Set(o.idleSeen) : new Set();
+  if (o.idleSeen instanceof Set) {
+    o.idleSeen.clear();
+    const nudgeable = require('./agentnudge').nudgeableCard;
+    for (const c of roster) if (c && c.sessionName && nudgeable(c)) o.idleSeen.add(String(c.sessionName));
+  }
+  const dues = due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history, kosmosLines: o.kosmosLines });
+  const p = { o, results, roster, now, book, sent, cap, D, keep, dues, seen, projects };
+  return p;
+}
+
+// The hour cap: true when the pass stops at dues[n] (it and every agent behind it are kept as 'limit').
+function capped(p, n) {
+  const { o, results, sent, now, cap, keep, dues } = p;
+  const d = dues[n];
+  for (let i = sent.length - 1; i >= 0; i -= 1) if (now - sent[i] >= HOUR_MS) sent.splice(i, 1);
+  if (sent.length < cap) return false;
+  const r = { session: d.session, name: d.name, act: 'limit', delivery: null };
+  results.push(r);
+  keep(r);
+  // #5958 review 2: the due agents behind this one were not sent to for the same reason; without this each keeps an older result.
+  for (const rest of dues.slice(n + 1)) keep({ session: rest.session, name: rest.name, act: 'limit', delivery: null });
+  if (typeof o.log === 'function') { try { o.log(r); } catch { /* the log is not the work */ } }
+  return true;
+}
+
+function lineFor(p, d) {
+  const { o, book, now } = p;
+  /* #5212: what is actually waiting for this agent (engine/communityhome.js nudgeLine, read ahead of the pass by the
+     caller, so the line is ready when the pass reaches the agent), in place of the generic line; the generic line
+     whenever there is none. An agent that has never posted keeps the introduction line. Only the TEXT changes: who is
+     due, and when, is decided above exactly as before. */
+  // #5315: below the daily floor, the opt-out is dropped (FLOOR_TEXT); beyond it, kept (TURN_TEXT). A never-posted
+  // agent gets INTRO_TEXT (no opt-out either, #6076). The lineFor override (#5212) still wins over either generic line when there is one.
+  let text = d.first ? INTRO_TEXT : (d.postedToday ? TURN_TEXT : FLOOR_TEXT);
+  let generic = true;
+  if (!d.first && typeof o.lineFor === 'function') {
+    try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) { text = l; generic = false; } } catch { /* the generic line */ }
+  }
+  if (pauseEnded(o, d.session, triesOf(book, d.session).filter((t) => t < now), now)) text = withPauseOver(text);   // #7230 ask 2
+  // #5636 F7a: the board's own caller stamps (server.js), and only a generic line, the one that repeats word for word.
+  if (o.stamp === true && generic) text = stamped(text, now);
+  return text;
+}
+
+function settle(p, d, v) {
+  const { o, results, book, sent, now, D, keep } = p;
+  const state = v && v.state;
+  const held = Boolean(v && v.held === true);
+  // Review 3: a pane still placing another message is busy, not unreachable (chat.js says a try-counter need not count
+  // it); like a held line it is not booked, so the turn is not spent on a collision with another nudge.
+  const busy = Boolean(v && v.busy === true);
+  const reached = state === D.PLACED || state === D.UNCONFIRMED;
+  if (!held && !busy) book.set(d.session, [...triesOf(book, d.session).filter((t) => now - t < DAY_MS), now]);   // any try backs off
+  if (reached) logAt(sent, now);   // kept in time order: the other nudges prune the shared log from the front
+  const r = { session: d.session, name: d.name, act: held ? 'held' : (busy ? 'pane-busy' : (reached ? 'prompted' : 'not-reached')), delivery: state || null };
+  results.push(r);
+  keep(held ? { ...r, heldBy: v.heldBy, heldFor: v.heldFor } : r);   // why it was held stays out of the result callers compare
+  if (typeof o.log === 'function') { try { o.log(r); } catch { /* the log is not the work */ } }
+}
+
+function tickOnce(o) {
+  const results = [];
   try {
-    if (!o || typeof o.deliver !== 'function') return off();
-    const env = o.env === undefined ? process.env : o.env;
-    // The agent-nudge gate the sibling nudges share (live execution and AGENT_WORKFORCE_AGENT_NUDGE_OFF), then this one's own brake.
-    if (!require('./agentnudge').nudgeEnabled(on(o.allowed), env) || brakeOn(env)) return off();
-    if (!on(o.switchOn) || !on(o.prompterOn)) return off();
-    let roster = null;
-    try { roster = typeof o.roster === 'function' ? o.roster() : null; } catch { roster = null; }
-    let projects = null;
-    try { const r = typeof o.readProjects === 'function' ? o.readProjects() : null; projects = Array.isArray(r) ? r : null; } catch { projects = null; }
-    if (!Array.isArray(roster) || !projects) return off();   // cannot tell a stood-down agent: prompt nobody this pass
-    const now = Number.isFinite(o.now) ? o.now : Date.now();
-    const book = o.book instanceof Map ? o.book : new Map();
-    const sent = Array.isArray(o.sent) ? o.sent : [];
-    let limit = { ...(o.limitDefaults || { on: true, perHour: 20 }) };   // the board passes limits.DEFAULTS, as the siblings do
-    try { const l = typeof o.readLimit === 'function' ? o.readLimit() : null; if (l && typeof l === 'object') limit = l; } catch { /* keep the default, which is on */ }
-    const cap = limit.on === true && Number.isInteger(limit.perHour) ? limit.perHour : Infinity;
-    const D = o.DELIVERY || {};
-    /* #5958: each result is kept as that agent's newest (engine/communityready.js), so `kosmos community ready` can say
-       what the last reminder did. Here, not in the caller's log, so no caller can leave it out. */
-    const onBoard = roster.map((c) => (c && c.sessionName ? String(c.sessionName) : '')).filter(Boolean);   // the record is pruned to these
-    const keep = (r) => { try { require('./communityready').noteTurn(r, now, onBoard); } catch { /* the record is not the work */ } };
-    /* Review 4: an agent is due only if it was an idle card at the previous pass too; this pass's idle cards are kept
-       for the next one. Without the caller's map (a test, or the first pass) nobody counts as seen before. */
-    const seen = o.idleSeen instanceof Set ? new Set(o.idleSeen) : new Set();
-    if (o.idleSeen instanceof Set) {
-      o.idleSeen.clear();
-      const nudgeable = require('./agentnudge').nudgeableCard;
-      for (const c of roster) if (c && c.sessionName && nudgeable(c)) o.idleSeen.add(String(c.sessionName));
-    }
-    const dues = due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history, kosmosLines: o.kosmosLines });
-    for (let n = 0; n < dues.length; n += 1) {
-      const d = dues[n];
-      for (let i = sent.length - 1; i >= 0; i -= 1) if (now - sent[i] >= HOUR_MS) sent.splice(i, 1);
-      if (sent.length >= cap) {
-        const r = { session: d.session, name: d.name, act: 'limit', delivery: null };
-        results.push(r);
-        keep(r);
-        // #5958 review 2: the due agents behind this one were not sent to for the same reason; without this each keeps an older result.
-        for (const rest of dues.slice(n + 1)) keep({ session: rest.session, name: rest.name, act: 'limit', delivery: null });
-        if (typeof o.log === 'function') { try { o.log(r); } catch { /* the log is not the work */ } }
-        break;
-      }
+    const p = begin(o, results);
+    if (!p) return results;
+    for (let n = 0; n < p.dues.length; n += 1) {
+      if (capped(p, n)) break;
+      const d = p.dues[n];
+      const text = lineFor(p, d);   // outside the try: a throw here sent nothing, so it must not book a try
       let v = null;
       // A throw may come after the paste, so it counts as UNCONFIRMED (reached), as replynudge reads chat's contract.
-      /* #5212: what is actually waiting for this agent (engine/communityhome.js nudgeLine, read ahead of the pass by the
-         caller, since this pass is synchronous), in place of the generic line; the generic line whenever there is none.
-         An agent that has never posted keeps the introduction line. Only the TEXT changes: who is due, and when, is
-         decided above exactly as before. */
-      // #5315: below the daily floor, the opt-out is dropped (FLOOR_TEXT); beyond it, kept (TURN_TEXT). A never-posted
-      // agent gets INTRO_TEXT (no opt-out either, #6076). The lineFor override (#5212) still wins over either generic line when there is one.
-      let text = d.first ? INTRO_TEXT : (d.postedToday ? TURN_TEXT : FLOOR_TEXT);
-      let generic = true;
-      if (!d.first && typeof o.lineFor === 'function') {
-        try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) { text = l; generic = false; } } catch { /* the generic line */ }
-      }
-      if (pauseEnded(o, d.session, triesOf(book, d.session).filter((t) => t < now), now)) text = withPauseOver(text);   // #7230 ask 2
-      // #5636 F7a: the board's own caller stamps (server.js), and only a generic line, the one that repeats word for word.
-      if (o.stamp === true && generic) text = stamped(text, now);
-      try { v = o.deliver(d.session, text, roster); } catch { v = { state: D.UNCONFIRMED }; }
-      const state = v && v.state;
-      const held = Boolean(v && v.held === true);
-      // Review 3: a pane still placing another message is busy, not unreachable (chat.js says a try-counter need not count
-      // it); like a held line it is not booked, so the turn is not spent on a collision with another nudge.
-      const busy = Boolean(v && v.busy === true);
-      const reached = state === D.PLACED || state === D.UNCONFIRMED;
-      if (!held && !busy) book.set(d.session, [...triesOf(book, d.session).filter((t) => now - t < DAY_MS), now]);   // any try backs off
-      if (reached) {
-        let i = sent.length;   // kept in time order: the other nudges prune the shared log from the front
-        while (i > 0 && sent[i - 1] > now) i -= 1;
-        sent.splice(i, 0, now);
-      }
-      const r = { session: d.session, name: d.name, act: held ? 'held' : (busy ? 'pane-busy' : (reached ? 'prompted' : 'not-reached')), delivery: state || null };
-      results.push(r);
-      keep(held ? { ...r, heldBy: v.heldBy, heldFor: v.heldFor } : r);   // why it was held stays out of the result callers compare
-      if (typeof o.log === 'function') { try { o.log(r); } catch { /* the log is not the work */ } }
+      try { v = o.deliver(d.session, text, p.roster); } catch { v = { state: p.D.UNCONFIRMED }; }
+      settle(p, d, v);
     }
   } catch { /* never throws: a sweep is best-effort */ }
+  return results;
+}
+
+/* kosmos#7649 review 1: a delivery that has not answered by then counts as UNCONFIRMED (reached, so the agent is booked)
+   and the pass moves on. Without it one delivery that never settles would keep the board's one-pass-at-a-time flag set,
+   and no community turn would ever run again. Far above a real delivery's wait (a few seconds behind the pane's queue). */
+const DELIVER_DEADLINE_MS = 3 * 60 * 1000;
+
+// Insert t into the shared hour log in time order (the other nudges prune it from the front); returns nothing.
+function logAt(sent, t) {
+  let i = sent.length;
+  while (i > 0 && sent[i - 1] > t) i -= 1;
+  sent.splice(i, 0, t);
+}
+
+/* kosmos#7649: the board's sender. Same pass, but each delivery is awaited, so the event loop is free while a pane is
+   typed into. A rejection counts as UNCONFIRMED, as a throw does above. Never rejects. What the await lets happen, and
+   what closes each (review 1):
+   - another nudge on the shared hour log checks the cap mid-delivery: the slot is held in the log during the await and
+     given back before the verdict is booked, so the log never undercounts a send in flight;
+   - an agent due at the start of the pass starts working while the one before it is typed into: each agent after the
+     first is checked again on a fresh roster just before it is sent to, and left unbooked if it is no longer idle;
+   - the board stops mid-pass: o.saveBook (the board's writeBook), when given, runs after each booking.
+   Review 2: before each agent after the first, the pass's gates are read again (a switch turned off mid-pass stops it,
+   as an off gate at the start would), the agent must still be in the community, the delivery is given that fresh
+   roster (its pane, its question menu and quota hold are read off the card it is handed), and the clock is read again,
+   so its booking and its "Sent" stamp say when it was sent. A test's fixed o.now still pins every agent.
+   Not closed here: a delivery past the deadline is no longer waited for, but it still sits in chat's per-pane queue,
+   which has no ceiling of its own. */
+async function tickOnceAsync(o) {
+  const results = [];
+  try {
+    const p = begin(o, results);
+    if (!p) return results;
+    const ms = Number.isFinite(o.deliverDeadlineMs) && o.deliverDeadlineMs > 0 ? o.deliverDeadlineMs : DELIVER_DEADLINE_MS;
+    for (let n = 0; n < p.dues.length; n += 1) {
+      let d = p.dues[n];
+      let roster = p.roster;
+      if (n > 0) {
+        if (!gatesOpen(o)) { if (o.idleSeen instanceof Set) o.idleSeen.clear(); break; }   // as begin's off()
+        if (!Number.isFinite(o.now)) p.now = Date.now();
+        // Review 4: the caller drops what it read once a pass (the board caches posts.json), so due() below reads it now.
+        if (typeof o.beforeRecheck === 'function') { try { o.beforeRecheck(d.session); } catch { /* reads what it has */ } }
+        /* Review 3: the whole due() test again, for this one agent, on a fresh roster and projects and the current
+           clock: idle long enough, not stood down, no post or try since, its quota, all judged as the first agent was. */
+        let again = [];
+        let card;   // undefined: the fresh roster could not be read, so nothing is known about the card
+        try {
+          const r = o.roster();
+          let pr = null;
+          try { const x = typeof o.readProjects === 'function' ? o.readProjects() : null; pr = Array.isArray(x) ? x : null; } catch { pr = null; }
+          if (Array.isArray(r)) card = r.find((c) => c && c.sessionName === d.session) || null;
+          if (Array.isArray(r) && pr) {
+            roster = r;
+            again = due({ roster: r, projects: pr, now: p.now, book: p.book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: p.seen, history: o.history, kosmosLines: o.kosmosLines, only: d.session });
+          }
+        } catch { again = []; }
+        if (!again.length) {   // not booked: due again at a later pass
+          /* Review 5: dropped from this pass's idle marks only when its fresh card is no longer idle (gone, or working).
+             A quota hold, a post, or a read that failed once keeps it, so its next turn is not a pass late. */
+          let idleNow = true;
+          if (card !== undefined) { try { idleNow = Boolean(card) && require('./agentnudge').nudgeableCard(card) === true; } catch { idleNow = true; } }
+          if (!idleNow && o.idleSeen instanceof Set) o.idleSeen.delete(d.session);
+          continue;
+        }
+        d = again[0];
+      }
+      if (capped(p, n)) break;   // review 3: after the re-check, so the cap is read on this agent's clock
+      const text = lineFor(p, d);
+      let v = null;
+      /* Review 3: deliverAsync waits behind a message still being placed and then types; the synchronous sender
+         refused, which settle reads as pane-busy and leaves unbooked. Ask first, so the turn line is never typed
+         straight after someone else's message. */
+      let busy = null;
+      if (typeof o.paneBusy === 'function') { try { busy = o.paneBusy(d.session, roster); } catch { busy = null; } }
+      if (busy && busy.busy === true) {
+        settle(p, d, busy);
+        continue;
+      }
+      logAt(p.sent, p.now);   // the slot, held while the line is typed
+      let timer = null;
+      try {
+        const late = new Promise((res) => { timer = setTimeout(() => res({ state: p.D.UNCONFIRMED }), ms); if (timer && timer.unref) timer.unref(); });
+        // Review 5: called now, in the same turn as the busy check above, so nothing queued meanwhile can take the pane first.
+        let sending;
+        try { sending = Promise.resolve(o.deliver(d.session, text, roster)); } catch (e) { sending = Promise.reject(e); }
+        v = await Promise.race([sending, late]);
+      } catch { v = { state: p.D.UNCONFIRMED }; } finally { clearTimeout(timer); }
+      const held = p.sent.lastIndexOf(p.now);
+      if (held !== -1) p.sent.splice(held, 1);   // given back: settle logs it again if it reached
+      settle(p, d, v);
+      const booked = !(v && (v.held === true || v.busy === true));   // review 4: as settle books
+      if (booked && typeof o.saveBook === 'function') { try { o.saveBook(p.book); } catch { /* the board writes it after the pass too */ } }
+    }
+  } catch { /* never rejects: a sweep is best-effort */ }
   return results;
 }
 
@@ -351,4 +477,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, readBook, writeBook, bookFile };
+module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, tickOnceAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile };
