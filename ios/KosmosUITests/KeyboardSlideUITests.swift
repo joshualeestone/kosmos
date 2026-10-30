@@ -33,8 +33,8 @@ final class KeyboardSlideUITests: XCTestCase {
         Self.assertAbove(newest, box, app.keyboards.firstMatch)
     }
 
-    // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP puts
-    // the 40th row from the end at the top 3 s after opening, as a reader's scroll does.
+    // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP moves
+    // the reader up the thread 3 s after opening, as a reader's own scroll does.
     func testReadHigherUpStaysWhereItWas() throws {
         let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40"])
         let box = Self.box(app)

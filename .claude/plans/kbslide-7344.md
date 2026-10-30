@@ -52,16 +52,18 @@ fresh simulator (no CI job runs the UI tests target, so the runner is what makes
 
 1. short chat at its newest message: the newest stays above the box and keyboard;
 2. long chat scrolled to its newest message: the same;
-3. long chat read higher up (KOSMOS_SAMPLE_SCROLLUP=40): the top message stays where it was.
+3. long chat read higher up (KOSMOS_SAMPLE_SCROLLUP=40 moves the reader up the thread): the highest row on screen stays where it was.
 
 Each of 1 and 2 carries a control that the newest message was above the box before the keyboard.
 
-**Both arms, measured 10-30 on a fresh iPhone 17e simulator (iOS 27.0), every run of the current checks:**
+**Both arms, measured 10-30 on a fresh iPhone 17e simulator (iOS 27.0).** Short and long were not always run
+together: the short check ran alone in two early runs, so the columns count runs of each check, and "full runs" counts
+only the runs that had both.
 
-| | short chat (1) | long chat (2) | either failed |
+| | short chat (1) | long chat (2) | full runs with either failing |
 |---|---|---|---|
-| with the change | passed 6 of 6 | passed 4 of 4 | 0 of 4 runs |
-| without it | **failed 5 of 6** | **failed 2 of 4** | **4 of 4 runs** |
+| with the change | passed 6 of 6 runs | passed 4 of 4 | 0 of 4 |
+| without it | **failed 5 of 6 runs** | **failed 2 of 4** | **4 of 4** |
 
 Check 3 passed in every run on both arms (the change does not pull a reader down). Its own control, after review
 round 1: with `keepNewestInView` forced true (a local edit, never committed), check 3 **fails** (the row read higher up
