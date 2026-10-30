@@ -61,6 +61,8 @@ function overRate(agentKey, now) {
   recent.set(agentKey, kept);
   return false;
 }
+// Whether the agent is at its hourly cap now, without counting anything (kosmos#7660 review 2).
+function atRate(agentKey, now) { return (recent.get(agentKey) || []).filter((t) => now - t < HOUR_MS).length >= FOLLOW_PER_HOUR; }
 function _resetRate() { recent.clear(); }
 
 /* kosmos#7660: an agent can be named by its @handle (#5173), the form the after-action line prints ("@ada-3f2c"), as
@@ -88,10 +90,11 @@ async function byHandle(asked, deadline) {
   const form = (at ? asked.slice(1) : asked).toLowerCase();   // nameOf has trimmed it already
   if (!HANDLE_RE.test(form)) {
     if (!at) return { ok: true, name: asked };   // a display name, as typed
-    return fail('@' + asked.slice(1) + ' is not a community handle (a handle reads like @ada-3f2c: a name, a dash and four letters or digits)');
+    return fail('@' + asked.slice(1) + ' is not a community handle (a handle reads like @ada-3f2c: a name, a dash and four letters or digits). To name the agent by its display name, leave out the @');
   }
   const p = await communitysend.publicGet('/agents/by-handle/' + encodeURIComponent(form), { deadline, cap: PROFILE_CAP });
-  if (!p.ok) return fail(p.because);
+  // Review 2: a follow or endorse while the public community is off says so in the words a by-name one gets.
+  if (!p.ok) return fail(p.publicOff ? communitysend.PUBLIC_OFF_WORDS : p.because);
   if (p.status === 404) {
     if (!at) return { ok: true, name: asked };   // no agent holds that handle: the display name, as typed
     return fail('there is no agent with the handle @' + form + ' in the community');
@@ -108,14 +111,16 @@ async function byHandle(asked, deadline) {
 async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {}) {
   const asked = nameOf(name);
   if (!asked) return { ok: false, because: 'name the agent to ' + (unfollow ? 'unfollow' : 'follow') + ', as it appears in the community (its name or its @handle, up to ' + NAME_MAX + ' characters, no slashes)' };
-  if (overRate(agentKey, now)) {
-    return { ok: false, limited: true, because: 'you have followed or unfollowed ' + FOLLOW_PER_HOUR + ' times in the last hour, so Kosmos is pausing it. Do not try again this hour' };
-  }
+  const limited = { ok: false, limited: true, because: 'you have followed or unfollowed ' + FOLLOW_PER_HOUR + ' times in the last hour, so Kosmos is pausing it. Do not try again this hour' };
+  /* kosmos#7660 review 2: an agent at its hourly cap is refused before any handle lookup is sent, but the follow is
+     only counted once the name has resolved: a malformed @ or a lookup that failed follows nobody and costs nothing. */
+  if (atRate(agentKey, now)) return limited;
   /* The refresh and the handle lookup below count against the follow's own budget (budgetFrom), so all of it still
      answers inside the CLI's wait. */
   const began = Date.now();
   const resolved = await byHandle(asked, began + communitysend.agentBudget());
   if (!resolved.ok) return resolved.result;
+  if (overRate(agentKey, now)) return limited;
   const who = resolved.name;
   const enc = encodeURIComponent(who);
   /* #5211 review 2: a follow is recorded as NEW (communitynudge's "follows today") only when the list below was read

@@ -1137,7 +1137,7 @@ test('kosmos#7660 review 1: while the company has the public community off (or i
   try {
     cs.communityScope = () => ({ publicAllowed: false, company: true, org: null });
     const off = await cf.follow('mara', '@quill-ab3k');
-    assert.deepEqual(off, { ok: false, because: 'your company has turned the public community off, so it cannot be read here' });
+    assert.deepEqual(off, { ok: false, because: cs.PUBLIC_OFF_WORDS }, 'review 2: the words a follow by name gets');
     cs.communityScope = () => ({ publicAllowed: false, company: false, org: null, fault: true });
     const fault = await cf.follow('mara', '@quill-ab3k');
     assert.equal(fault.because, 'Kosmos cannot read your company’s community settings right now, so nothing was read');
@@ -1151,19 +1151,46 @@ test('kosmos#7660 review 1: an agent call\'s wait for the chain counts from budg
   fresh(); const b = await backend();
   try {
     await cf.follow('mara', 'quill');
-    cs.setTimeoutMs(3000);
-    cs.setAgentWaitMs(1500);
+    cs.setTimeoutMs(6000);
+    cs.setAgentWaitMs(3000);
     b.st.hang = (req) => req.method === 'POST' && /\/follow$/.test(req.url);
     const holding = cf.follow('mara', 'Echo Two');   // holds the chain
     for (let i = 0; i < 200 && !b.st.seen.some((s) => s.method === 'POST' && s.url === '/agents/by-name/Echo%20Two/follow'); i += 1) await new Promise((r) => setTimeout(r, 10));   // the chain is held only once that call is on the wire
+    assert.ok(b.st.seen.some((s) => s.method === 'POST' && s.url === '/agents/by-name/Echo%20Two/follow'), 'setup: the holding follow never reached the service');
     const t0 = Date.now();
-    const late = await cs.agentCall('lena', 'GET', '/agents/me', { register: false, budgetFrom: t0 - 1400 });
+    const late = await cs.agentCall('lena', 'GET', '/agents/me', { register: false, budgetFrom: t0 - 2800 });
     assert.equal(late.ok, false);
-    assert.ok(Date.now() - t0 < 700, 'waited ' + (Date.now() - t0) + ' ms: the 1400 ms already spent did not count');
-    // CONTROL: without budgetFrom, the same call waits its full 1500 ms.
+    assert.ok(Date.now() - t0 < 1500, 'waited ' + (Date.now() - t0) + ' ms: the 2800 ms already spent did not count');
+    // CONTROL: without budgetFrom, the same call waits its full 3000 ms.
     const t1 = Date.now();
     await cs.agentCall('lena', 'GET', '/agents/me', { register: false });
-    assert.ok(Date.now() - t1 >= 1200, 'CONTROL waited only ' + (Date.now() - t1) + ' ms');
+    assert.ok(Date.now() - t1 >= 2500, 'CONTROL waited only ' + (Date.now() - t1) + ' ms');
     await holding;
   } finally { b.st.hang = null; cs.setAgentWaitMs(null); cs.setTimeoutMs(5000); await b.close(); }
+});
+
+/* kosmos#7660 review 2. */
+test('kosmos#7660 review 2: a refused @ or a failed lookup follows nobody and does not use the hourly follow allowance', async () => {
+  fresh(); const b = await backend();
+  try {
+    for (let i = 0; i < cf.FOLLOW_PER_HOUR + 5; i += 1) assert.equal((await cf.follow('mara', '@nope')).ok, false);
+    b.st.handleMode = 'junk';
+    for (let i = 0; i < 3; i += 1) assert.equal((await cf.follow('mara', '@quill-ab3k')).ok, false);
+    b.st.handleMode = null;
+    assert.deepEqual(await cf.follow('mara', '@quill-ab3k'), { ok: true, text: 'You now follow quill.' }, 'the allowance is untouched');
+    // CONTROL: real follows still count; past the allowance the next is refused before any lookup goes out.
+    for (let i = 1; i < cf.FOLLOW_PER_HOUR; i += 1) await cf.follow('mara', i % 2 ? 'Echo Two' : 'quill', { unfollow: i % 2 === 0 });
+    const lookups = b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length;
+    const over = await cf.follow('mara', '@echo-two-x7mn');
+    assert.equal(over.limited, true);
+    assert.equal(b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length, lookups, 'no lookup was sent past the cap');
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 2: a display name typed after an @ is told to leave the @ out', async () => {
+  fresh(); const b = await backend();
+  try {
+    const r = await cf.follow('mara', '@Echo Two');
+    assert.match(r.because, /leave out the @$/);
+  } finally { await b.close(); }
 });

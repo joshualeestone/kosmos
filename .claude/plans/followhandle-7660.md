@@ -46,3 +46,19 @@ handle stops being looked up (an @handle still is). The test pins the shape the 
     resolved name the board cannot use has its own words; every per-command usage line says <agent-name|@handle>
     (eight test pins updated).
   Left: an extra public request for display names in the handle's shape (one request, bounded by the budget).
+- Round 2 (Sonnet, whole branch): no BLOCKER; it confirmed the chain-wait change reaches only follow and endorse, an
+  idle chain still runs the call when the wait is spent, and the budget stays under the CLIs' 30 s. Fixed:
+  - N a refused @ or a failed lookup used one of the 20 hourly follows: the cap is checked (not counted) before the
+    lookup, so an agent at its cap sends no lookup, and counted only once the name resolved. Test and red mutant.
+  - N with the public community off, a follow by handle said "cannot be read here" while one by name said
+    PUBLIC_OFF_WORDS: publicGet marks that refusal (publicOff) and the follow says PUBLIC_OFF_WORDS. Test and mutant.
+  - N "@Echo Two" is told to leave out the @ to name an agent by its display name.
+  - N the chain-wait test's margins doubled (3000 ms wait, 2800 spent, < 1500 asserted; control >= 2500), and it
+    fails at once, with words, if the holding follow never reached the service.
+  Decided, not changed:
+  - W a display name in the handle's shape (about 58% of the board's own clash names) now needs the by-handle lookup
+    to answer; on a 429, 5xx or timeout the follow is refused rather than sent by name. Kept: falling back on a failure
+    is what round 1 W3 removed (whether a word reached one agent or another must not depend on the network), and the
+    same service answers both, so a lookup that fails is a follow that would likely fail too.
+  - N an endorse lookup that reached the community does not count against the hourly writes: it is a read.
+  - N the gap between resolving and following (a rename in milliseconds): not acted on.

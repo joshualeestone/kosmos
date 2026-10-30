@@ -3002,7 +3002,7 @@ async function publicGet(pathname, { deadline = null, cap = RESPONSE_CAP } = {})
     if (sw !== 'on') return { ok: false, local: true, because: notOnWords(sw) };
     const scope = module.exports.communityScope();   // through the export, as communityread reads it (a test can stand in)
     if (scope.fault) return { ok: false, local: true, because: 'Kosmos cannot read your company’s community settings right now, so nothing was read' };
-    if (!scope.publicAllowed) return { ok: false, local: true, because: 'your company has turned the public community off, so it cannot be read here' };
+    if (!scope.publicAllowed) return { ok: false, local: true, publicOff: true, because: 'your company has turned the public community off, so it cannot be read here' };
     if (!endpointAllowed()) return { ok: false, local: true, because: 'the community address is not https, so nothing is sent to it' };
     if (!sender && underTest()) return { ok: false, local: true, because: 'no network in tests' };
     const c = Number.isFinite(cap) && cap > 0 ? Math.min(cap, SWEEP_RESPONSE_CAP) : RESPONSE_CAP;
