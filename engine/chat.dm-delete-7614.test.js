@@ -133,6 +133,62 @@ test('#7614: a note that could not be typed is not counted as told', async () =>
   } finally { verdict = chat.DELIVERY.PLACED; }
 });
 
+test('#7614 review 3: a kept copy already typed, its row not yet marked (the fix waits), still earns the note', async () => {
+  typed.length = 0; verdict = chat.DELIVERY.PLACED;
+  const agent = thread({ state: 'held', held: true, heldBy: 'limit', at: t(1) });   // nothing kept in the queue: typed
+  limitqueue.setRow(agent, t(1), { state: chat.DELIVERY.PLACED }, { updateDmDelivery: () => false });   // the mark did not land
+  assert.ok(limitqueue.hasRowFix(agent, t(1)), 'control: the fix is the only record it was typed');
+  const out = await chat.deleteDirectAsync(agent, t(1));
+  assert.deepEqual(out.told, [agent]);
+  assert.equal(limitqueue.hasRowFix(agent, t(1)), false, 'and the fix goes with the row');
+});
+
+test('#7614 review 3: a row fix written after the row was deleted is not kept (setRow sees the row is gone)', async () => {
+  const agent = thread({ state: 'placed' });
+  await chat.deleteDirectAsync(agent, t(1));
+  limitqueue.setRow(agent, t(1), { state: chat.DELIVERY.PLACED }, chat);   // a sweep's typing that outlived the wait
+  assert.equal(limitqueue.hasRowFix(agent, t(1)), false);
+  // CONTROL: a row still there whose write does not land keeps its fix (t(3) is placed, so the write changes nothing).
+  limitqueue.setRow(agent, t(3), { state: chat.DELIVERY.PLACED }, chat);
+  assert.equal(limitqueue.hasRowFix(agent, t(3)), true);
+  limitqueue.forgetRow(agent, t(3));
+});
+
+test('#7614 review 3: a message Try again is sending this moment is refused (409) and stays', async () => {
+  typed.length = 0;
+  const agent = 'ddretry';
+  chat.appendMessage(chat.DIRECT, agent, { text: SECRET, at: t(1), delivery: { state: chat.DELIVERY.COULD_NOT, because: 'x', retryable: true } });
+  assert.equal(chat.retryDmBegin(agent, t(1), SECRET), true, 'control: Try again marked it as being sent again');
+  const out = await chat.deleteDirectAsync(agent, t(1));
+  assert.equal(out.code, 409);
+  assert.match(out.error, /being sent again/);
+  assert.deepEqual(ats(agent), [t(1)]);
+  assert.equal(typed.length, 0);
+  // Once the send has finished, it can be deleted.
+  assert.equal(chat.retryDmFinish(agent, t(1), SECRET, { state: chat.DELIVERY.PLACED }), true);
+  assert.equal((await chat.deleteDirectAsync(agent, t(1))).ok, true);
+});
+
+test('#7614 review 3: two rows at the same time are refused (409), naming neither', async () => {
+  const agent = thread({ state: 'placed' });
+  chat.appendMessage(chat.DIRECT, agent, { text: 'same time', at: t(3), delivery: { state: 'placed' } });
+  const out = await chat.deleteDirectAsync(agent, t(3));
+  assert.equal(out.code, 409);
+  assert.match(out.error, /two messages share that time/);
+});
+
+test('#7614 review 3: a message in an earlier part of the conversation is refused (409); a carried one is deleted', async () => {
+  const who = 'ddroll';
+  const at = (i) => new Date(Date.UTC(2026, 0, 1, 0, 0, 0, i)).toISOString();
+  for (let i = 0; i < chat.MAX_MESSAGES; i += 1) assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'p' + i, at: at(i), delivery: { state: 'placed' } }).recorded, true);
+  assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'rolls it over' }).recorded, true);
+  const old = await chat.deleteDirectAsync(who, at(5));   // not among the rows carried into the new file
+  assert.equal(old.code, 409);
+  assert.match(old.error, /earlier part of this conversation/);
+  const recent = await chat.deleteDirectAsync(who, at(chat.MAX_MESSAGES - 2));   // carried: still in this part
+  assert.equal(recent.ok, true, 'CONTROL: a carried row can still be deleted');
+});
+
 test('#7614: no message at that time answers 404', async () => {
   const agent = thread({ state: 'placed' });
   assert.equal((await chat.deleteDirectAsync(agent, t(9))).code, 404);

@@ -101,3 +101,21 @@ Findings file: ~/.cache/monalisa-review/review-7614-round2.md. No blockers; 1 wa
   "..." and no Delete (DM_EARLIER_ATS). Browser check D11, with control.
 - FIXED nits: the plan names the row kind 'post-deleted'; comments on the deletion row reserving no id, and on the
   'held' literal.
+
+## After review round 3 (opus, 10:0x CDT)
+
+Findings file: ~/.cache/monalisa-review/review-7614-round3.md. No blockers; 3 warnings, 2 conventions, 5 nits.
+- FIXED W: a kept DM the sweep typed but could not yet mark (its row fix waiting for the next minute) still earns the
+  withdrawn note: the delete reads the fix (rowFixFor) before dropping it. Test with control.
+- FIXED W: a row fix the sweep writes after the row is gone (its typing outlived the 20 s wait) is not kept: setRow asks
+  chat.dmRowGone. The note's order behind that typing comes from the pane's delivery queue; the wait only bounds this
+  bookkeeping. Test with control (a row still there keeps its fix).
+- FIXED W: a message Try again is sending this moment is refused (409, "being sent again right now"); once the send
+  finishes it can be deleted. Test with the real retryDmBegin/retryDmFinish, and a control.
+- FIXED conventions: README rows for render-msgref-4631 (the new bar), render-msgdelete-7614 (D10, D11),
+  render-dm-reply-4256 and render-dm-reactions-3650 (the person's rows now carry "..."); the 4256 R1 label.
+- FIXED nits: tests for both 409s (two rows at one time; an earlier part, with a carried-row control); the restoreHeld
+  test deletes its own post and runs alone; a held file whose drop failed no longer reads as "given" (stillHeld); the
+  agent's note names the project ("Delete Room (<id>)").
+- Known and kept: in the rare held-and-being-typed case the page shows "Deleting..." for up to 20 s (DELETE_WAIT);
+  the toast still says how it ended if the person pressed Escape meanwhile.

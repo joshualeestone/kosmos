@@ -59,6 +59,8 @@ test.before(async () => {
     // A control: the person's post nobody deletes.
     { kind: 'post', id: 'm904', project: pid, from: 'you', operator: true, to: ['alpha'], text: 'stays', at: at(5), outcomes: { alpha: 'placed' } },
     // Review 2: a long post spilled to a file in alpha's Inbox (Kosmos's, marked) and in epsilon's (not marked, so not ours).
+    { kind: 'post', id: 'm907', project: pid, from: 'you', operator: true, to: ['beta'], text: 'held, deleted mid-flush', at: at(7),
+      outcomes: { beta: 'held' } },
     { kind: 'post', id: 'm906', project: pid, from: 'you', operator: true, to: ['alpha', 'epsilon'], text: 'a long one', at: at(6),
       outcomes: { alpha: 'placed', epsilon: 'placed' } },
   ];
@@ -121,7 +123,7 @@ test('#7614: the person\'s post goes for every reader, its hold is dropped, and 
   assert.equal(json.deleted, true);
   assert.deepEqual(json.told, ['alpha'], 'alpha was typed it; beta still had it held; gamma was never typed it');
   assert.deepEqual(typed.map((t) => t.name), ['alpha']);
-  assert.match(typed[0].line, /deleted their post m901/);
+  assert.match(typed[0].line, /deleted their post m901 in project Delete Room \(/, 'the project by its name, with its id');
   assert.ok(!typed[0].line.includes(SECRET), 'the note never repeats the deleted words');
   assert.deepEqual(roomhold.heldIn('beta', pid), [], 'beta\'s held copy is gone, so it is never delivered');
   const ids = await roomIds();
@@ -135,10 +137,11 @@ test('#7614: the person\'s post goes for every reader, its hold is dropped, and 
 });
 
 test('#7614 review 1: a held post deleted while a flush was typing it is not put back on hold when that typing fails', async () => {
-  // m901 was deleted by the test above; m904 (the person's, still in the room) is the control.
-  assert.ok(!(await roomIds()).includes('m901'), 'precondition: m901 is deleted');
-  messages._restoreHeld('beta', pid, ['m901', 'm904']);
-  assert.deepEqual(roomhold.heldIn('beta', pid).map(roomhold.plainId), ['m904'], 'only the post still in the room goes back');
+  // Its own post (m907, held for beta, taken by a flush), deleted here; m904 (the person's, still in the room) is the control.
+  assert.equal((await del('m907')).status, 200);
+  messages._restoreHeld('beta', pid, ['m907', 'm904']);
+  const back = roomhold.heldIn('beta', pid).map(roomhold.plainId);
+  assert.ok(back.includes('m904') && !back.includes('m907'), 'only the post still in the room goes back: ' + JSON.stringify(back));
   roomhold.take('beta', pid);
 });
 

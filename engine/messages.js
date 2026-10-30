@@ -4519,9 +4519,13 @@ function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
    goes, and a member that was already given it is told, in one line that never repeats the words, to treat it as
    withdrawn. That note is the only way a deletion can matter to an agent that has read it; it cannot undo what the
    agent did, and the board's confirm says so. Answers { ok, code, error?, told }. */
-function withdrawnLine(post) {
+function withdrawnLine(post, roster) {
   const when = Number.isFinite(Date.parse(post.at)) ? new Date(post.at).toTimeString().slice(0, 5) : 'earlier';
-  return '[from Kosmos] The person deleted their post ' + post.id + ' in project ' + post.project + ' (sent ' + when
+  /* Review 3: the project's name, as the room shows it, with its id (what `kosmos post` takes). Lazy: projects requires
+     this module. A project that cannot be read is named by its id alone. */
+  let shown = post.project;
+  try { const p = require('./projects').get(post.project, roster || []); if (p && typeof p.name === 'string' && p.name.trim()) shown = p.name.trim() + ' (' + post.project + ')'; } catch { /* its id */ }
+  return '[from Kosmos] The person deleted their post ' + post.id + ' in project ' + shown + ' (sent ' + when
     + '). Treat it as withdrawn. If you had started on it, stop and say in the room what you had already done.';
 }
 function unspillFor(name, id) {
@@ -4550,14 +4554,18 @@ async function deletePostAsync({ projectId, id, roster } = {}) {
   for (const name of Array.isArray(post.to) ? post.to : []) {
     if (typeof name !== 'string' || !name) continue;
     const dropped = roomhold.dropShown(name, projectId, [id]);
+    /* Review 3: dropShown answers 0 both for "nothing held" and for a held file it could not write. Still held (the
+       write failed): it was never given, so the member is not told; it stays in the file, and a flush finds no such
+       post in the room, which no longer has it. */
+    const stillHeld = !dropped && (() => { try { return roomhold.heldIn(name, projectId).map(roomhold.plainId).includes(id); } catch { return false; } })();
     unspillFor(name, id);
     const was = outcomes[name];
     /* Typed to it, or held and since told to it (its hold is gone): it may have read the post. Still held: dropped above,
        never delivered. Quiet or refused: never typed. */
-    if (was === chat.DELIVERY.PLACED || was === chat.DELIVERY.UNCONFIRMED || (was === roomhold.HELD && !dropped)) given.push(name);
+    if (was === chat.DELIVERY.PLACED || was === chat.DELIVERY.UNCONFIRMED || (was === roomhold.HELD && !dropped && !stillHeld)) given.push(name);
   }
   const told = [];
-  const line = withdrawnLine(post);
+  const line = withdrawnLine(post, roster);
   for (const name of given) {
     let v = null;
     try { v = await chat.deliverAutomaticAsync(name, line, roster); } catch { v = null; }

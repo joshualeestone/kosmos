@@ -5249,6 +5249,11 @@ function retryDmFinish(agent, at, text, delivery) {
    { ok, code, error?, told }. */
 /* How long a delete waits for a kept copy the sweep is typing this moment, so the note follows it. Changed by tests. */
 const DELETE_WAIT = { pollMs: 100, capMs: 20000 };
+/* Review 3: true only when the thread reads and holds no row at that time (the person deleted it), so a row fix for it
+   has nothing to write to. Unreadable: false, so the fix is kept and retried as before. */
+function dmRowGone(agent, at) {
+  try { return !readThread(DIRECT, String(agent)).messages.some((m) => m && m.at === at); } catch { return false; }
+}
 function dmWithdrawnLine(at) {
   const when = Number.isFinite(Date.parse(at)) ? new Date(at).toTimeString().slice(0, 5) : 'earlier';
   return '[from Kosmos] The person deleted the message they sent you at ' + when
@@ -5278,6 +5283,9 @@ async function deleteDirectAsync(agent, at, roster) {
       if (hits.length > 1) return { ok: false, code: 409, error: 'two messages share that time, so we could not tell which one you meant' };
       const m = thread.messages[hits[0]];
       if (!own(m)) return { ok: false, code: 403, error: 'you can delete only your own messages' };
+      /* Review 3: Try again (kosmos#6720) is typing it again this moment; deleting now would let those words land after
+         the delete with nothing to record them. The person tries again in a moment, once the send has finished. */
+      if (m.delivery && m.delivery.retrying === true) return { ok: false, code: 409, error: 'that message is being sent again right now, so wait a moment and try deleting it again' };
       const messages = thread.messages.slice();
       messages.splice(hits[0], 1);
       try { store.saveFlushed(file, JSON.stringify({ ...thread, messages }, null, 2)); }
@@ -5305,8 +5313,17 @@ async function deleteDirectAsync(agent, at, roster) {
       await new Promise((r) => setTimeout(r, DELETE_WAIT.pollMs));
     }
   }
+  /* Review 3: a kept copy the sweep already typed, whose row it could not yet mark (the fix waits for its next minute),
+     still reads "held" above with nothing left in the queue. That fix is the only record it was typed: read it first. */
+  try {
+    const fix = limitqueue.rowFixFor(name, when);
+    const fixed = fix && fix.delivery && fix.delivery.state;
+    if (fixed === DELIVERY.PLACED || fixed === DELIVERY.UNCONFIRMED) given = true;
+  } catch { /* nothing kept for it */ }
   /* The sweep keeps a row whose new delivery it could not write and retries it every minute; this row is gone, so that
-     retry could never succeed (review 1). */
+     retry could never succeed (review 1). A fix the sweep adds after this (its typing outlived the wait) is dropped by
+     setRow itself, which sees the row is gone (dmRowGone, review 3). The note's order behind that typing comes from the
+     pane's delivery queue; the wait above bounds the row bookkeeping. */
   try { limitqueue.forgetRow(name, when); } catch { /* nothing kept for it */ }
   const told = [];
   if (given) {
@@ -5326,7 +5343,7 @@ module.exports = {
   setMovedTell,   // #5400
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, acknowledgementOnly, storeText, messageProblem, addressable, resolveCard, paneTarget,
-  deleteDirectAsync, DELETE_WAIT,   // kosmos#7614
+  deleteDirectAsync, DELETE_WAIT, dmRowGone,   // kosmos#7614
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,

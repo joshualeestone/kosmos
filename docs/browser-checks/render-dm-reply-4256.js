@@ -5,7 +5,7 @@
  * Replying in a Direct Message (#4256, Josh 2026-09-27: "when will we get message replies ... on projects
  * and direct messages"). The room has had Reply since #3745; this is the same on the agent's own page.
  *
- *   R1  an agent's message offers Reply in its bar; the person's own rows have no bar
+ *   R1  an agent's message offers Reply in its bar; the person's own rows offer no Reply (their bar holds "..." alone, kosmos#7614)
  *   R2  Reply puts "Replying to <agent>: <first line>" above the box, focuses the box, and the box is
  *       described by the strip
  *   R3  the send carries reply_to (the message's `at`); CONTROL: an ordinary send carries none
@@ -102,7 +102,7 @@ async function openDm(page, messages, olderCount) {
     const bars = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg')].map((r) => ({
       you: r.classList.contains('you'), reply: !!r.querySelector('.rxn-reply') })));
     chk(bars.length === 3 && bars.filter((b) => !b.you).every((b) => b.reply) && bars.filter((b) => b.you).every((b) => !b.reply),
-      'R1 each agent message offers Reply; the person\'s own rows have no bar', JSON.stringify(bars));
+      'R1 each agent message offers Reply; the person\'s own rows offer no Reply', JSON.stringify(bars));
     // #4358: in the DM bar too, the four emoji sit together and Reply comes last, with its arrow.
     const dmBar = await page.evaluate(() => {
       const q = document.querySelector('#d-dmthread .msg:not(.you) .rxn-quick');
