@@ -93,7 +93,8 @@ test('#4926 N7: the arrival path logs the held posts it carries (source pin)', (
   // Written with the outcome, never before typing (round 2).
   assert.match(SRC, /logCarried\('held'\);/);
   assert.match(SRC, /outcomes\[name\] = sent\.state;\n      logCarried\(sent\.state\);/);
-  assert.match(SRC, /if \(typingStarted\.has\(name\)\) logCarried\('may-have'\);\n      roomhold\.restore\(name, projectId, heldIds\);/, 'a throw after typing started is not logged');
+  // kosmos#7614 review 1: the restore goes through restoreHeld, which leaves out a post the person deleted meanwhile.
+  assert.match(SRC, /if \(typingStarted\.has\(name\)\) logCarried\('may-have'\);\n      restoreHeld\(name, projectId, heldIds\);/, 'a throw after typing started is not logged');
 });
 
 test('#4926 N7: both of the board\'s flushes (turn end and the timed retry) pass the diagnostic (source pin)', () => {

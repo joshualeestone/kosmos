@@ -30,7 +30,11 @@ process.env.AGENT_WORKFORCE_TUNNEL_BIN = CONNECTOR;
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SECS } = require('./server');
+const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_SECS } = require('./server');
+/* kosmos#7625: a stale request the gate forwarded (it wrote a session header) is offered Sign in again by logging out;
+   one with no gate header (a proxy the owner set up), or with no second factor (signing in again cannot help:
+   review 1), keeps the plain refusal. */
+const refusalFor = (extra) => (extra['x-kosmos-session-second'] === '1' ? REMOTE_STEP_UP_LOGOUT : REMOTE_STEP_UP);
 const remote = require('./engine/remote');
 
 let base;
@@ -98,7 +102,7 @@ for (const route of SAFE_OVER_HTTP) {
     for (const [why, extra] of STALE) {
       const got = await post(route, { ...VIA_PLUS, ...extra }, 'not json');
       assert.equal(got.status, 403, `${route}, ${why}: ${JSON.stringify(got.body)}`);
-      assert.deepEqual(got.body, { ...REMOTE_STEP_UP }, `${route}, ${why}`);
+      assert.deepEqual(got.body, { ...refusalFor(extra) }, `${route}, ${why}`);
     }
   });
 }
@@ -107,7 +111,7 @@ test('R01: every gated route is refused a remote session with no fresh sign-in (
   for (const route of STEP_UP_ROUTES) {
     for (const method of ['POST', 'PUT', 'PATCH']) {
       for (const [why, extra] of STALE) {
-        assert.equal(remoteStepUpRefusal({ method, headers: { ...VIA_PLUS, ...extra } }, route, t), REMOTE_STEP_UP,
+        assert.equal(remoteStepUpRefusal({ method, headers: { ...VIA_PLUS, ...extra } }, route, t), refusalFor(extra),
           `${method} ${route}, ${why}`);
       }
     }

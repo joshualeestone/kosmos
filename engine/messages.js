@@ -968,7 +968,11 @@ function record() {
   const born = require('./projectborn').snapshot();
   const key = cache.size + ':' + cache.mtimeMs + ':' + cache.offset + ':' + cache.fragment;
   if (!(FILTERED && FILTERED.cache === cache && FILTERED.key === key && FILTERED.stamp === born.stamp)) {
-    const rows = cache.rows.concat(fragRows).filter((r) => !(r && typeof r.project === 'string' && born.earlier(r.project, r.at)));
+    const gone = deletedPostKeys(cache.parsed.concat(fragParsed));
+    const rows = cache.rows.concat(fragRows).filter((r) => !(r && typeof r.project === 'string' && born.earlier(r.project, r.at))
+      // kosmos#7614: a deleted post, and the reactions to it, are given to no reader.
+      && !(gone.size && r && typeof r.project === 'string'
+        && ((r.kind === 'post' && gone.has(r.project + '\u0000' + r.id)) || (r.kind === 'reaction' && gone.has(r.project + '\u0000' + r.of)))));
     FILTERED = { cache, key, stamp: born.stamp, rows };
   }
   return { ok: true, stampsUnknown: !born.ok, stamp: born.stamp, rows: FILTERED.rows.slice(), parsed: cache.parsed.concat(fragParsed) };
@@ -1111,7 +1115,34 @@ function rowShaped(m) {
       && (m.op === 'add' || m.op === 'remove')
       && (m.operator === true || str(m.from));
   }
+  /* kosmos#7614: the person deleted their own post. Never handed to a reader: record() reads it from the parsed rows and
+     drops the post it names (and that post's reactions) from every reader's rows. */
+  /* kosmos#7614: a deletion row is no reader's. It carries `of`, never `id`, so it reserves no id; the deleted post's own
+     row stays in `parsed`, which keeps ITS id reserved, so a number is never reissued. */
+  if (m.kind === 'post-deleted') return false;
   return true;
+}
+
+/* kosmos#7614: the posts the person has deleted, as project NUL id, from the parse-only rows (a deletion row is never
+   in `rows`). Only the person's own deletion of a post counts; deletePost writes nothing else. */
+function deletedPostKeys(parsed) {
+  const keys = new Set();
+  for (const m of parsed) {
+    if (m && m.kind === 'post-deleted' && m.operator === true && typeof m.project === 'string' && typeof m.of === 'string') {
+      keys.add(m.project + '\u0000' + m.of);
+    }
+  }
+  return keys;
+}
+
+/* kosmos#7614 review 1: held posts a flush took and could not type go back on hold, except one the person deleted while
+   it was being typed, so a later "while you were away" line never names a post the room no longer shows. A log that
+   cannot be read puts them all back, as before. */
+function restoreHeld(name, projectId, ids) {
+  let gone = null;
+  try { const read = record(); gone = read && read.ok !== false ? deletedPostKeys(read.parsed || []) : null; } catch { gone = null; }
+  const keep = gone ? ids.filter((x) => !gone.has(projectId + '\u0000' + roomhold.plainId(x))) : ids;
+  return roomhold.restore(name, projectId, keep);
 }
 
 /* The send path keeps the old contract on purpose: an unreadable log
@@ -3075,7 +3106,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       const spill = spillInto(name, id, cleaned);
       if (!spill.file) {
         outcomes[name] = chat.DELIVERY.COULD_NOT;
-        if (heldIds.length) { try { roomhold.restore(name, projectId, heldIds); } catch { /* best effort */ } }
+        if (heldIds.length) { try { restoreHeld(name, projectId, heldIds); } catch { /* best effort */ } }
         return null;
       }
       spilled[name] = spill.file;
@@ -3094,7 +3125,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          reached, as before. Only deliverAutomatic(Async) answers held: true, and under the room brake typeInto uses
          chat.deliver(Async), which never does, so this branch is not reached then. */
       if (sent && sent.held === true) {
-        roomhold.restore(name, projectId, heldIds);
+        restoreHeld(name, projectId, heldIds);
         unspill(spilled[name]);
         /* #4926 review 1 (Opus): an answer to this member's OWN post (--in-reply-to, no @) asks for its attention too, so it
            is kept marked like an @: a stale-post drop at the flush never removes it (and its line says it is asked). */
@@ -3119,7 +3150,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       logCarried(sent.state);   // #4926 N7: told unless COULD_NOT (then put back below)
       if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
       else {
-        roomhold.restore(name, projectId, heldIds);
+        restoreHeld(name, projectId, heldIds);
         unspill(spilled[name]);   // #4447: nothing left for a member it never reached
       }
       return sent;
@@ -3128,7 +3159,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const putBack = (err) => {
       // #4926 N7 (round 3): typing started and threw, so the held posts may have been pasted; they go back regardless.
       if (typingStarted.has(name)) logCarried('may-have');
-      roomhold.restore(name, projectId, heldIds);
+      restoreHeld(name, projectId, heldIds);
       throw err;
     };
     /* #4588 PR B: the person's own post is typed at once (never held); a colleague's post, addressed or not, is an
@@ -3161,7 +3192,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         outcomes[name] = chat.DELIVERY.COULD_NOT; unspill(spilled[name]);   // review 3: no inbox file for a post it never got
         // Review 6 (Sonnet): its held ids were taken for a line it never got; put them back (putBack covers a throw
         // inside the typing path).
-        if (Array.isArray(takenHeld[name]) && takenHeld[name].length) { try { roomhold.restore(name, projectId, takenHeld[name]); } catch { /* best effort */ } }
+        if (Array.isArray(takenHeld[name]) && takenHeld[name].length) { try { restoreHeld(name, projectId, takenHeld[name]); } catch { /* best effort */ } }
       }
     }
     // Review 8 (Sonnet): the error's CODE only, never its message (a tmux error can echo the pasted text).
@@ -4483,6 +4514,68 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
 }
 function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 
+/* kosmos#7614: the person deletes one of their own room posts. It leaves the room for everyone (record() drops it, and
+   its reactions, from every reader), a copy still held for a busy member is never delivered, a long post's spill file
+   goes, and a member that was already given it is told, in one line that never repeats the words, to treat it as
+   withdrawn. That note is the only way a deletion can matter to an agent that has read it; it cannot undo what the
+   agent did, and the board's confirm says so. Answers { ok, code, error?, told }. */
+function withdrawnLine(post, roster) {
+  const when = Number.isFinite(Date.parse(post.at)) ? new Date(post.at).toTimeString().slice(0, 5) : 'earlier';
+  /* Review 3: the project's name, as the room shows it, with its id (what `kosmos post` takes). Lazy: projects requires
+     this module. A project that cannot be read is named by its id alone. */
+  let shown = post.project;
+  try { const p = require('./projects').get(post.project, roster || []); if (p && typeof p.name === 'string' && p.name.trim()) shown = p.name.trim() + ' (' + post.project + ')'; } catch { /* its id */ }
+  return '[from Kosmos] The person deleted their post ' + post.id + ' in project ' + shown + ' (sent ' + when
+    + '). Treat it as withdrawn. If you had started on it, stop and say in the room what you had already done.';
+}
+function unspillFor(name, id) {
+  try {
+    const dir = require('./dmfiles').ownDir(name, INBOX);
+    if (!dir) return;
+    const marker = path.join(dir, '.gitignore');
+    const m = fs.lstatSync(marker);
+    if (!m.isFile() || fs.readFileSync(marker, 'utf8') !== INBOX_MARK) return;   // only an Inbox Kosmos made
+    const file = path.join(dir, id + '.txt');
+    if (fs.lstatSync(file).isFile()) unspill(file);
+  } catch { /* nothing spilled for this member, or not ours: left as it is */ }
+}
+async function deletePostAsync({ projectId, id, roster } = {}) {
+  if (typeof projectId !== 'string' || !projectId || typeof id !== 'string' || !/^m[0-9]+$/.test(id)) {
+    return { ok: false, code: 404, error: 'there is no message by that number here', told: [] };
+  }
+  const read = record();
+  if (!read.ok) return { ok: false, code: 503, error: 'we could not read the room just now', told: [] };
+  const post = read.rows.find((m) => m && m.kind === 'post' && m.project === projectId && m.id === id);
+  if (!post) return { ok: false, code: 404, gone: true, error: 'there is no message by that number here', told: [] };   // review 5: gone, said apart from a missing project
+  if (post.operator !== true) return { ok: false, code: 403, error: 'you can delete only your own messages', told: [] };
+  appendLog({ kind: 'post-deleted', project: projectId, of: id, at: new Date().toISOString(), operator: true });
+  const outcomes = post.outcomes && typeof post.outcomes === 'object' ? post.outcomes : {};
+  const given = [];
+  for (const name of Array.isArray(post.to) ? post.to : []) {
+    if (typeof name !== 'string' || !name) continue;
+    const dropped = roomhold.dropShown(name, projectId, [id]);
+    /* Review 3: dropShown answers 0 both for "nothing held" and for a held file it could not write. Still held (the
+       write failed): it was never given, so the member is not told; it stays in the file, and a flush finds no such
+       post in the room, which no longer has it. */
+    const stillHeld = !dropped && (() => { try { return roomhold.heldIn(name, projectId).map(roomhold.plainId).includes(id); } catch { return false; } })();
+    unspillFor(name, id);
+    const was = outcomes[name];
+    /* Typed to it, or held and since told to it (its hold is gone): it may have read the post. Still held: dropped above,
+       never delivered. Quiet or refused: never typed to it, so it is not told; a quiet member may still have read the post
+       through `kosmos room`, which records no read here, and the plan's rule stands (a delete cannot undo a read). */
+    if (was === chat.DELIVERY.PLACED || was === chat.DELIVERY.UNCONFIRMED || (was === roomhold.HELD && !dropped && !stillHeld)) given.push(name);
+  }
+  const told = [];
+  const line = withdrawnLine(post, roster);
+  for (const name of given) {
+    let v = null;
+    try { v = await chat.deliverAutomaticAsync(name, line, roster); } catch { v = null; }
+    /* Typed, or kept to type later (an agent out of usage gets it when it is back): either way it will have it. */
+    if (v && typeof v.state === 'string' && v.state !== chat.DELIVERY.COULD_NOT) told.push(name);
+  }
+  return { ok: true, code: 200, told };
+}
+
 module.exports = {
   lastPostAt, recommenderNoted,   // #6341
   spillLimit,   // #6065: the longest line typed whole
@@ -4501,12 +4594,14 @@ module.exports = {
   _sendWithDelivery: sendWithDelivery,
   _nextIdForTests: nextIdForTests, // #4888
   _sendPostWithDelivery: sendPostWithDelivery,
+  _restoreHeld: restoreHeld,   // kosmos#7614 review 1
   roomCap,   // #6420: the room's budget, scaled to its size (the browser check fills it)
   roomRecipientsOf,   // #6420: the room route and the browser check size a room as the valve does
   setSenderTextFilter, filteredText, // #3769
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
+  deletePostAsync,   // kosmos#7614
   react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji, freeClaim,
   messageIdOf, // #4631
   operatorDirect, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,

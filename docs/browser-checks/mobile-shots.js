@@ -1221,7 +1221,7 @@ const SCREENS = [
      the shape Josh saw run past the bubble. The room the board serves gets the post added on the way to the page, from
      chatAgent; nothing is written to the board. Scrolled to it, as room-notice-7189. */
   { name: 'room-table-7214', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
-    await page.route('**/api/project/*/room', async (r) => {
+    await page.route(/\/api\/project\/[^/]+\/room(\?[^#]*)?$/, async (r) => {   // the room reads a window (/room?...)
       try {
         if (r.request().method() !== 'GET') { await r.continue(); return; }
         const res = await r.fetch();
@@ -1244,6 +1244,86 @@ const SCREENS = [
     await page.waitForSelector('#pj-room .mdtable', { state: 'attached', timeout: 8000 });
     await page.evaluate(() => { const t = document.querySelector('#pj-room .mdtable'); if (t) t.scrollIntoView({ block: 'center' }); });
     await page.waitForTimeout(150);
+  } },
+  /* kosmos#7614 (Mona Lisa): the compact message bar ("..." last) and Delete message. The room the board serves gets an
+     agent's post and one of the person's own added on the way to the page, from chatAgent; nothing is written to the
+     board, and the Delete dialog is shot open, never pressed. msgbar shows the agent post's bar (hovered on a computer,
+     tapped on a phone, as a person opens it); msgmenu its "..." menu on the person's own post; msgdel the dialog. */
+  { name: 'msgbar-7614', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    /* The room reads a window (/room?...), so the route matches with or without a query, as archiveRoute7365 does. */
+    await page.route(/\/api\/project\/[^/]+\/room(\?[^#]*)?$/, async (r) => {
+      try {
+        if (r.request().method() !== 'GET') { await r.continue(); return; }
+        const res = await r.fetch();
+        let body = null;
+        try { body = await res.json(); } catch { body = null; }
+        if (!body || typeof body !== 'object') { await r.fulfill({ response: res }); return; }
+        const rows = Array.isArray(body.rows) ? body.rows : [];
+        const now = Date.now();
+        const a1 = new Date(now - 120e3).toISOString(), a2 = new Date(now - 60e3).toISOString();
+        rows.push({ kind: 'post', id: 'm7614a', from: data.chatAgent, fromKind: 'agent', at: a1, key: a1 + '|0',
+          text: 'The catalogue proof is back from the printer. Four pages, colours look right.' });
+        rows.push({ kind: 'post', id: 'm7614b', operator: true, at: a2, key: a2 + '|0',
+          text: 'Thanks, I will check the cover tonight.' });
+        body.rows = rows;
+        await r.fulfill({ response: res, body: JSON.stringify(body) });
+      } catch { /* the page closed at teardown (#6022) */ }
+    });
+    await SCREENS.find((s) => s.name === 'project-room').go(page, data);
+    await page.waitForSelector('#pj-room .msg[data-mid="m7614b"]', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => { const t = document.querySelector('#pj-room .msg[data-mid="m7614b"]'); if (t) t.scrollIntoView({ block: 'center' }); });
+    await page.waitForTimeout(150);
+    const post = page.locator('#pj-room .msg[data-mid="m7614a"] .msg-bd');
+    if (page.viewportSize().width < 700) await post.click(); else await post.hover();
+    await page.waitForTimeout(250);
+  } },
+  { name: 'msgmenu-7614', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await SCREENS.find((s) => s.name === 'msgbar-7614').go(page, data);
+    const own = page.locator('#pj-room .msg[data-mid="m7614b"]');
+    if (page.viewportSize().width < 700) await own.locator('.msg-bd').click(); else await own.hover();
+    await page.waitForTimeout(200);
+    await own.locator('.rxn-dots').click();
+    await page.waitForSelector('#msg-menu:not([hidden]) #msg-menu-del:not([hidden])', { timeout: 8000 });
+    await page.waitForTimeout(150);
+  }, after: async (page) => {
+    await page.keyboard.press('Escape').catch(() => {});
+  } },
+  { name: 'msgdel-7614', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await SCREENS.find((s) => s.name === 'msgmenu-7614').go(page, data);
+    await page.click('#msg-menu-del');
+    await page.waitForSelector('#msgdel-modal:not([hidden])', { timeout: 8000 });
+    await page.waitForTimeout(150);
+  }, after: async (page) => {
+    await page.keyboard.press('Escape').catch(() => {});
+  } },
+  /* kosmos#7614: the person's own direct message: its bar holds "..." alone, and the menu ends with Delete message. */
+  { name: 'dmmenu-7614', owner: 'Mona Lisa', noServiceWorker: true, go: async (page, data) => {
+    await page.route('**/thread*', async (r) => {
+      try {
+        if (r.request().method() !== 'GET') { await r.continue(); return; }
+        const res = await r.fetch();
+        let body = null;
+        try { body = await res.json(); } catch { body = null; }
+        if (!body || typeof body !== 'object') { await r.fulfill({ response: res }); return; }
+        const now = Date.now();
+        body.messages = (Array.isArray(body.messages) ? body.messages : []).concat([
+          { from: data.chatAgent, at: new Date(now - 120e3).toISOString(), text: 'The draft is in your Files, under Catalogue.' },
+          { at: new Date(now - 60e3).toISOString(), text: 'Got it, reading now.', delivery: { state: 'placed' } },
+        ]);
+        await r.fulfill({ response: res, body: JSON.stringify(body) });
+      } catch { /* the page closed at teardown (#6022) */ }
+    });
+    await SCREENS.find((s) => s.name === 'agent-chat').go(page, data);
+    const own = page.locator('#d-dmthread .msg.you[data-own="1"]').last();
+    await own.waitFor({ state: 'attached', timeout: 8000 });
+    await own.scrollIntoViewIfNeeded();
+    if (page.viewportSize().width < 700) await own.locator('.msg-bd').click(); else await own.hover();
+    await page.waitForTimeout(200);
+    await own.locator('.rxn-dots').click();
+    await page.waitForSelector('#msg-menu:not([hidden]) #msg-menu-del:not([hidden])', { timeout: 8000 });
+    await page.waitForTimeout(150);
+  }, after: async (page) => {
+    await page.keyboard.press('Escape').catch(() => {});
   } },
   /* kosmos#7189 (Angel): a room notice from a job (an email digest) keeps its lines in the room's note band. Posted
      once through the board's own notice route (the board lives across themes and sizes), then the room is opened as
