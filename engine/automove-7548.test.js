@@ -618,7 +618,7 @@ test('#7548: the board wires the mover through the bulk move\'s own deps, and on
   assert.match(src, /automove\.personMoved\(AUTOBALANCE_RECORD, started\.body\.agents\.filter\(\(x\) => x && x\.outcome !== 'refused'\)/,
     'the bulk route names refused agents as moved by a person');
   /* Inert unless switched on: the mover is made, ticked and shown as moving only when moves are on. */
-  assert.match(src, /if \(abSweep && automove\.movesOn\(\)\) \{\s*try \{ automoveRun = automove\.create\(/, 'the mover is made with moves off');
+  assert.match(src, /if \(abSweep && automove\.movesOn\(\)\) \{\s*(?:\/\*[^*]*\*\/\s*)?try \{ automoveRun = automove\.create\(/, 'the mover is made with moves off');
   assert.match(src, /\.then\(\(\) => \(automoveRun && automove\.movesOn\(\) && autobalanceSweepRuns\(\{ forTick: true \}\) \? automoveRun\.tick\(automoveDeps\(\)\)/, 'the mover ticks with moves off');
   assert.match(src, /autobalance\.moving = autobalance\.recording === true && !!automoveRun && automove\.movesOn\(\);/, 'Settings says moving with moves off');
 });
@@ -762,9 +762,9 @@ test('#7548 review round 4: a tick that saw the agent working, or a previous tic
   const r2 = automove.create({ file: fileFor() });
   const { d: d2, calls: c2 } = deps();
   await r2.tick(d2, NOW);
-  await r2.tick(d2, NOW + automove.PREVIOUS_TICK_MS + 1000);
+  await r2.tick(d2, NOW + automove.previousTickMs() + 1000);
   assert.deepEqual(c2.starts, [], 'a reading from long ago counted as the previous tick');
-  await r2.tick(d2, NOW + automove.PREVIOUS_TICK_MS + 2000);
+  await r2.tick(d2, NOW + automove.previousTickMs() + 2000);
   assert.equal(c2.starts.length, 1, 'CONTROL: the next tick in time moves it');
 });
 
@@ -774,8 +774,10 @@ test('#7548 review round 4: "no longer idle" is written at most once an hour per
   const file = fileFor();
   const run = automove.create({ file });
   const { d } = deps({ roster: () => [idle], freshRoster: () => [busy] });
-  for (let i = 0; i < 6; i += 1) await run.tick(d, NOW + i * 1000);
+  const dids = [];
+  for (let i = 0; i < 6; i += 1) dids.push((await run.tick(d, NOW + i * 1000)).did);
   assert.equal(lines(file).filter((l) => l.kind === 'skipped').length, 1, 'a skip was written on every tick');
+  assert.equal(dids.filter((x) => x === 'skipped').length, 1, 'a skip already said this hour was reported again (the board logs every one)');
   for (let i = 0; i < 2; i += 1) await run.tick(d, NOW + automove.SKIP_SAID_MS + 10000 + i * 1000);
   assert.equal(lines(file).filter((l) => l.kind === 'skipped').length, 2, 'CONTROL: an hour later it is said again');
 });
@@ -822,4 +824,40 @@ test('#7548 review round 4: a move whose line the record did not keep stops ever
   const named = fileFor();
   automove.personMoved(named, ['  ada '], '/x', NOW, ON);
   assert.deepEqual(lines(named).map((l) => l.agent), ['ada'], 'a name with spaces round it was written as sent');
+});
+
+test('#7548 review round 5: the previous tick is measured in the board\'s sweep period, which an operator can set', async () => {
+  const POLL = require('./usagepoll').POLL_MS;
+  assert.equal(automove.PERIOD_MS, POLL);
+  assert.ok(automove.previousTickMs() >= 2 * POLL && automove.previousTickMs() <= 4 * POLL, 'the default window is not about two sweep periods');
+  /* A board sweeping every 40 minutes: two ticks one period apart are consecutive. */
+  const run = automove.create({ file: fileFor(), periodMs: 40 * 60000 });
+  const { d, calls } = deps();
+  await run.tick(d, NOW);
+  await run.tick(d, NOW + 40 * 60000);
+  assert.equal(calls.starts.length, 1, 'a board with a longer sweep period could never move');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /automove\.create\(\{ file: AUTOBALANCE_RECORD, periodMs: abSweepMs \}\)/, 'the board does not pass its sweep period');
+});
+
+test('#7548 review round 5: a tick that throws does not leave the mover busy', async () => {
+  const run = automove.create({ file: fileFor() });
+  const { d, calls } = deps();
+  await run.tick(d, NOW);
+  let once = true;
+  d.accountBusy = () => { if (once) { once = false; throw new Error('could not read the move state'); } return false; };
+  await assert.rejects(run.tick(d, NOW + 1000));
+  await run.tick(d, NOW + 2000);
+  await run.tick(d, NOW + 3000);
+  assert.equal(calls.starts.length, 1, 'a tick that threw left every later tick answering busy');
+});
+
+test('#7548 review round 5: while moves are stopped for a day, a moved agent\'s refused first request is still told', async () => {
+  const run = automove.create({ file: fileFor() });
+  const { d, calls } = deps({ lastSeen: () => ({ outcome: '401', at: Date.now() + 5000 }) });
+  await twoTicks(run, d);
+  assert.equal(calls.starts.length, 1);
+  run.state.unrecordedAt = NOW;
+  await run.tick(d, NOW + 5000);
+  assert.equal(calls.tells.filter(([, t]) => /refused/.test(t)).length, 1, 'the person was not told while moves were stopped');
 });

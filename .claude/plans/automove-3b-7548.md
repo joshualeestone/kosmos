@@ -78,3 +78,9 @@ tests for 7, 11 and 12, and a page check for the new lines (docs/browser-checks/
   "no longer idle" line at most once an hour per agent; the released line no longer claims the agent was moved.
   Left as it is: a Stop cannot land on the mover's own one-agent move (accountmove runs its first pass before
   returning), so the mover's `stopped` branch is unreachable today; it is kept because accountmove can change.
+- Round 5 (Sonnet): the previous-tick window is 2.5 of the board's own sweep period (server.js passes abSweepMs, which
+  an operator can set), not a fixed 25 minutes; the works-again check runs even while moves are stopped for a day, so a
+  refused first request is still told; a skip already said this hour returns 'nothing' (the board logs every skip);
+  tests for a throwing tick and the period. Left as it is: unrecordedAt, like personMissedAt, is in memory (a restart
+  forgets it; the pre-move write check refuses a record that still cannot be written); KEEP_LINES 500 can drop holds
+  inside a day only at the one-minute sweep floor, an operator's choice.

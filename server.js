@@ -27262,8 +27262,10 @@ function start(port = PORT) {
       const abSweep = autobalanceSweepRun;
       /* kosmos#7548 (slice 3b): the moving half, run after the sweep's tick each period and only when moves are switched
          on (AGENT_WORKFORCE_AUTOMOVE=1). Built from the same record; one that cannot be read leaves the mover off. */
+      const abSweepMs = Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS)) : usagePoll.POLL_MS;
       if (abSweep && automove.movesOn()) {
-        try { automoveRun = automove.create({ file: AUTOBALANCE_RECORD }); }
+        /* kosmos#7548 review round 5: the mover's "previous tick" is measured in this period, which an operator can set. */
+        try { automoveRun = automove.create({ file: AUTOBALANCE_RECORD, periodMs: abSweepMs }); }
         catch (err) { process.stdout.write(`automove: off, its record could not be read (${String((err && err.message) || err)})\n`); }
       }
       let abSweepWriteSaid = false;
@@ -27301,7 +27303,6 @@ function start(port = PORT) {
       };
       /* An operator's setting, not a test seam (review 16: no test can tick, the gate refuses under one), floored at a
          minute so the agents walk never runs more often than that. */
-      const abSweepMs = Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_AUTOBALANCE_SWEEP_MS)) : usagePoll.POLL_MS;
       const abSweepTimer = setInterval(abSweepTick, abSweepMs);
       if (abSweepTimer && typeof abSweepTimer.unref === 'function') abSweepTimer.unref();
       /* #3595 phase 1: the Recommender runner. Reads recommender-setting every tick (default OFF

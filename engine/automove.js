@@ -33,9 +33,11 @@ const FAILED_HOLD_MS = DAY_MS;    // rule 5: a target where a move did not work,
 const REST_MS = DAY_MS;           // rules 7 and 8: an agent a person moved or stopped, or Kosmos moved, is left alone this long
 const REFUSED_HOLD_MS = 60 * 60 * 1000;   // an agent whose move was refused before its account was written: passed over this long
 const REFUSED_TIMES = 3;          // refused this many times in a day, it is passed over for the day
-/* Rule 2's "previous tick": the sweep's period is engine/usagepoll.js's POLL_MS (10 minutes), so a reading older than
-   two and a half periods is not the previous tick's (review round 4: a tick hours late moved on one idle reading). */
-const PREVIOUS_TICK_MS = 25 * 60 * 1000;
+/* Rule 2's "previous tick": a reading older than two and a half sweep periods is not the previous tick's (review round 4:
+   a tick hours late moved on one idle reading). The period is the board's (server.js abSweepMs, which an operator can
+   set), passed to create(); engine/usagepoll.js's POLL_MS when none is. */
+const PERIOD_MS = require('./usagepoll').POLL_MS;
+const previousTickMs = (periodMs) => 2.5 * (Number.isFinite(periodMs) && periodMs > 0 ? periodMs : PERIOD_MS);
 const SKIP_SAID_MS = 60 * 60 * 1000;   // a "no longer idle" line for one agent at most once an hour
 
 function movesOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOMOVE === '1' && env.AGENT_WORKFORCE_AUTOMOVE_OFF !== '1'; }
@@ -69,7 +71,8 @@ let personMissedAt = null;
  * (the board stopped mid-move), stamped with the move's own time, and the agent rests and is watched. Throws when the
  * record cannot be read, so the board leaves the mover off rather than forgetting every hold.
  */
-function create({ file, nowMs = Date.now() }) {
+function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
+  const PREVIOUS_TICK_MS = previousTickMs(periodMs);
   const state = { lastMovable: new Set(), lastMovableAt: null, watching: [], failed: new Map(), resting: new Map(), refused: new Map(),
     refusedTimes: new Map(), skippedAt: new Map(), unrecordedAt: null };
   const watched = new Map();   // agent -> its watch, from its newest move, until a works or released line closes it
@@ -252,6 +255,9 @@ function create({ file, nowMs = Date.now() }) {
   async function step(deps, nowMs) {
     if (deps.movesOn() !== true || deps.settingOn() !== true) { state.lastMovable = new Set(); return { did: 'off' }; }
     try { readPeople(nowMs); } catch (err) { state.lastMovable = new Set(); return { did: 'unreadable', because: `the record: ${String((err && err.message) || err)}` }; }
+    /* The works-again check runs even while moves are stopped below, so a moved agent's refused first request is
+       still told to the person (rule 5). */
+    await check(deps, nowMs);
     if (Number.isFinite(state.unrecordedAt) && nowMs - state.unrecordedAt < REST_MS) {
       state.lastMovable = new Set();
       return { did: 'unreadable', because: 'a move the record could not keep, so Kosmos moves nobody for a day' };
@@ -260,7 +266,6 @@ function create({ file, nowMs = Date.now() }) {
       state.lastMovable = new Set();
       return { did: 'unreadable', because: 'a person\'s move could not be recorded, so Kosmos moves nobody for a day' };
     }
-    await check(deps, nowMs);
     const heldTarget = (dir) => state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS;
     const unproven = (dir) => state.watching.some((w) => w.to === dir);   // rule 6
     const movableArgs = (cards, records, strict = false) => ({ cards, records: records || deps.records, readCommitment: deps.readCommitment, strict,
@@ -303,8 +308,9 @@ function create({ file, nowMs = Date.now() }) {
     if (stillFree !== true) {
       /* Review round 4: seen working, so this tick is not an idle one for rule 2. */
       state.lastMovable.delete(`${m.agent}\n${m.from}`);
-      const said = state.skippedAt.get(m.agent);
-      if (Number.isFinite(said) && nowMs - said < SKIP_SAID_MS) return { did: 'skipped', agent: m.agent };
+      for (const [a, t] of state.skippedAt) if (nowMs - t >= SKIP_SAID_MS) state.skippedAt.delete(a);
+      /* Said already this hour: 'nothing', so the board's log stays as quiet as the record. */
+      if (state.skippedAt.has(m.agent)) return { did: 'nothing', because: 'still not idle' };
       state.skippedAt.set(m.agent, nowMs);
       sweep.append(file, { kind: 'skipped', at: nowMs, agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, because: 'it was no longer idle' });
       return { did: 'skipped', agent: m.agent };
@@ -324,4 +330,4 @@ function create({ file, nowMs = Date.now() }) {
   return { tick, check, state };
 }
 
-module.exports = { create, movesOn, personMoved, resetPersonMissedForTests: () => { personMissedAt = null; }, DAY_MS, WATCH_MS, FAILED_HOLD_MS, REST_MS, REFUSED_HOLD_MS, REFUSED_TIMES, PREVIOUS_TICK_MS, SKIP_SAID_MS };
+module.exports = { create, movesOn, personMoved, resetPersonMissedForTests: () => { personMissedAt = null; }, DAY_MS, WATCH_MS, FAILED_HOLD_MS, REST_MS, REFUSED_HOLD_MS, REFUSED_TIMES, previousTickMs, PERIOD_MS, SKIP_SAID_MS };
