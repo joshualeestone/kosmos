@@ -20,9 +20,12 @@
  * WHY THE CODE IS KEPT UNTIL CONFIRMED (review 1, a BLOCKER before it): an answer lost AFTER Kosmos+ kept the key, or a
  * crash before the screen shows the code, would otherwise leave Kosmos+ holding a wrap that only a code nobody saw
  * opens, and setUp refusing ever after ("already has a code"). So the pending code's 16 bytes sit in a 0600 file beside
- * the member key (which this disk already holds in the clear), a retry re-sends the IDENTICAL registration (the
- * coordinator answers a repeat naming the same recovery key and tag as registered) and answers the SAME code, and a row
- * that is our own pending registration is recognised as ours. The file goes when the screen confirms.
+ * the member key (which this disk already holds in the clear), a retry re-sends the same member key, recovery key and
+ * tag (the wrap is HPKE-randomised; the coordinator answers a repeat naming the same key, recovery key and tag as
+ * registered, keeping its first wrap) and answers the SAME code, and a row that is our own (our key, our code's
+ * recovery key, and it opens with our code and its tag) is answered as ours, before AND after this computer marked it
+ * registered (review 2: a crash after a successful setUp, before the screen showed the code). The file goes only when
+ * the screen confirms AND the key is registered here, found locally (no network needed to delete a secret).
  *
  * The keys are kept in the company path's 0600 key file (backupmemberkey readKeys/writeKeys), under its invariant (at
  * most one unregistered entry, the newest; a registered key is never replaced): setUp refuses unless that file holds
@@ -76,6 +79,21 @@ function readPending(org, member) {
     return { code: backupkeys.formatRecoveryCode(bytes), pk };
   } catch { return null; }
 }
+/* Every pending-code file in the key folder, read: [{ file, org, member, code, pk }] (an unreadable one is skipped). */
+function allPending() {
+  const d = path.join(store.ROOT, 'backupkeys');
+  let names = [];
+  try { names = fs.readdirSync(d).filter((n) => /^pending-code-[0-9a-f]{24}\.json$/.test(n)); } catch { return []; }
+  const out = [];
+  for (const n of names) {
+    try {
+      const got = JSON.parse(fs.readFileSync(path.join(d, n), 'utf8'));
+      const p = got && typeof got.org === 'string' && typeof got.member === 'string' ? readPending(got.org, got.member) : null;
+      if (p && pendingFile(got.org, got.member) === path.join(d, n)) out.push({ file: path.join(d, n), org: got.org, member: got.member, ...p });
+    } catch { /* not ours to read */ }
+  }
+  return out;
+}
 function writePending(org, member, code, pk) {
   fs.mkdirSync(path.dirname(pendingFile(org, member)), { recursive: true, mode: 0o700 });
   require('./securewrite').writeSecret(pendingFile(org, member),
@@ -124,25 +142,31 @@ async function setUpNow(opts) {
     if (!kept.ok) return refused('the backup key file on this computer could not be read; it was left as it is');
     const epochs = Object.keys(kept.keys);
     const own = kept.keys['1'];
+    const pending = readPending(org, member);
+    // Our own registration (its answer lost, or a crash before the screen showed the code, review 2): the one epoch-1
+    // row is our key, our pending code's recovery key, and it OPENS with that code and its tag. Answered with the same
+    // code, registered here if it was not yet, until the screen confirms. Checked in full, so a row the code could not
+    // restore (no tag, a bad wrap) is never answered as set up.
+    if (rows.length && own && pending && pending.pk.equals(own.pk)) {
+      const row = rows.length === 1 && rows[0].epoch === 1 ? rows[0] : null;
+      const rk = backupkeys.recoveryKeysFromCode(pending.code);
+      const ctx = { org, member, epoch: '1' };
+      if (row && row.memberPk.equals(own.pk) && row.recoveryPk.equals(rk.pk) && row.tag
+        && backupkeys.unwrapMemberKeyFromRecovery(rk, row.wrap, ctx, own.pk, row.tag)) {
+        if (!own.registered) memberkeys.writeKeys(org, member, { 1: { sk: own.sk, pk: own.pk, registered: true } });
+        return { ok: true, code: pending.code, epoch: 1, resumed: true };
+      }
+      return refused('Kosmos+ holds a backup key this computer\'s recovery code does not open; nothing was changed');
+    }
     // Only an empty file, or exactly our own pending epoch 1: a registered key is never replaced, and nothing may sit
     // below another epoch (the file's invariant), so anything else is refused, never overwritten.
     if (epochs.length > 1 || (epochs.length === 1 && (epochs[0] !== '1' || own.registered))) {
       return refused('this computer already holds backup keys for this account; restore them instead of setting up again');
     }
-    const pending = readPending(org, member);
-    if (rows.length) {
-      // Our own registration whose answer was lost: the row is our pending key, wrapped to our pending code.
-      const row = rows.length === 1 && rows[0].epoch === 1 ? rows[0] : null;
-      if (row && own && !own.registered && pending && row.memberPk.equals(own.pk) && pending.pk.equals(own.pk)
-        && row.recoveryPk.equals(backupkeys.recoveryKeysFromCode(pending.code).pk)) {
-        memberkeys.writeKeys(org, member, { 1: { sk: own.sk, pk: own.pk, registered: true } });
-        return { ok: true, code: pending.code, epoch: 1, resumed: true };
-      }
-      return refused('this backup already has a recovery code; restore it with that code');
-    }
+    if (rows.length) return refused('this backup already has a recovery code; restore it with that code');
     const epoch = 1;
     const key = own ? { sk: own.sk, pk: own.pk } : backupkeys.newMemberKey();
-    // The same code for the same pending key, so a retry re-sends the IDENTICAL registration.
+    // The same code for the same pending key, so a retry re-sends the same key, recovery key and tag.
     const code = pending && pending.pk.equals(key.pk) ? pending.code : backupkeys.newRecoveryCode();
     // Kept BEFORE sending: the key, then the code (an answer lost after Kosmos+ kept them must lose neither).
     memberkeys.writeKeys(org, member, { [String(epoch)]: { sk: key.sk, pk: key.pk, registered: false } });
@@ -160,19 +184,29 @@ async function setUpNow(opts) {
       });
     } catch { return refused('Kosmos+ could not be reached; try again (the same key and code are kept for it)'); }
     if (!res || !res.ok) return refused('Kosmos+ did not keep the backup key', codeOf(res));
+    // Review 2: as the company path (backupmemberkey.js), registered only when the answer names THIS key and epoch, so
+    // a changed coordinator or tunnel shape is not taken as registered (it would strand setUp and restore both).
+    if (!res.data || res.data.epoch !== epoch || res.data.member_public !== b64(key.pk)) {
+      return refused('Kosmos+ answered in a form this computer does not read; try again (the same key and code are kept for it)');
+    }
     memberkeys.writeKeys(org, member, { [String(epoch)]: { sk: key.sk, pk: key.pk, registered: true } });
     return { ok: true, code, epoch };
   } catch { return refused('setting up the backup key failed on this computer'); }
 }
 
-/** The person saved the code: delete this computer's copy of it. Answers { ok: true } (also when there was none). */
-function confirmRecoveryCodeSaved(opts = {}) {
+/** The person saved the code: delete this computer's copy of it, found locally (no network: a secret must be
+    deletable offline). Only a code whose key is REGISTERED here is deleted; one still pending is kept, so a retry can
+    finish (review 2). Answers { ok: true, deleted } or { ok: false, because } when a code is still pending. */
+function confirmRecoveryCodeSaved() {
   return serial(async () => {
     try {
-      const read = await readContext(macRequestOf(opts));
-      if (!read.ok) return read;
-      fs.rmSync(pendingFile(read.ctx.org, read.ctx.member), { force: true });
-      return { ok: true };
+      let deleted = 0, pendingStill = 0;
+      for (const p of allPending()) {
+        const k = memberkeys.readKeys(p.org, p.member);
+        const one = k.ok && k.keys['1'];
+        if (one && one.registered && one.pk.equals(p.pk)) { fs.rmSync(p.file, { force: true }); deleted += 1; } else pendingStill += 1;
+      }
+      return pendingStill ? refused('the recovery code is not registered with Kosmos+ yet; finish setting up first, then confirm') : { ok: true, deleted };
     } catch { return refused('the recovery code\'s copy on this computer could not be deleted'); }
   });
 }
@@ -200,11 +234,18 @@ async function restoreNow(code, opts) {
     }
     const kept = memberkeys.readKeys(org, member);
     if (!kept.ok) return refused('the backup key file on this computer could not be read; it was left as it is');
-    // Registered keys from Kosmos+ replace only this computer's unregistered ones; a registered key here that Kosmos+
-    // does not list is kept (the file never loses a registered key).
+    // A registered key here is never replaced (review 2): a different key at the same epoch refuses the restore and
+    // writes nothing. Registered keys Kosmos+ does not list are kept; unregistered ones give way to what Kosmos+ holds.
     const merged = {};
-    for (const [e, k] of Object.entries(kept.keys)) if (k.registered) merged[e] = k;
+    for (const [e, k] of Object.entries(kept.keys)) {
+      if (!k.registered) continue;
+      if (opened[e] && !opened[e].pk.equals(k.pk)) return refused('this computer holds a different backup key for that epoch; nothing was restored', 'key_conflict');
+      merged[e] = k;
+    }
     memberkeys.writeKeys(org, member, { ...merged, ...opened });
+    // This computer's own pending code, now restored from Kosmos+, is not needed here any more.
+    const p = readPending(org, member);
+    if (p && opened['1'] && opened['1'].pk.equals(p.pk)) fs.rmSync(pendingFile(org, member), { force: true });
     return { ok: true, epochs: rows.map((r) => r.epoch) };
   } catch { return refused('restoring the backup keys failed on this computer'); }
 }

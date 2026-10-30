@@ -27,8 +27,10 @@ const refuse = (status, code, because) => ({ ok: false, because, refusal: { stat
 function fakeCoordinator() {
   const rows = new Map();   // epoch -> { member_public, wrap, recovery_public, recovery_tag }
   const calls = [];
+  const state = { hideRowsOnce: false };   // an in-flight race: the next mine read does not see a row it already kept
   const macRequest = async (method, route, body) => {
     calls.push({ route, body });
+    if (route === pk.MINE_ROUTE && state.hideRowsOnce) { state.hideRowsOnce = false; return { ok: true, data: { org: ORG, member: MEMBER, keys: [] } }; }
     if (route === pk.MINE_ROUTE) {
       const keys = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([epoch, r]) => ({ epoch, ...r }));
       return { ok: true, data: { org: ORG, member: MEMBER, keys } };
@@ -42,12 +44,12 @@ function fakeCoordinator() {
     const had = rows.get(body.epoch);
     if (had) {
       return had.member_public === body.member_public && had.recovery_public === body.recovery_public && had.recovery_tag === body.recovery_tag
-        ? { ok: true, data: { epoch: body.epoch } } : refuse(409, 'member_key_exists', 'another key');
+        ? { ok: true, data: { epoch: body.epoch, member_public: had.member_public } } : refuse(409, 'member_key_exists', 'another key');
     }
     rows.set(body.epoch, { member_public: body.member_public, wrap: body.wrap, recovery_public: body.recovery_public, recovery_tag: body.recovery_tag });
-    return { ok: true, data: { epoch: body.epoch } };
+    return { ok: true, data: { epoch: body.epoch, member_public: body.member_public } };
   };
-  return { macRequest, rows, calls };
+  return { macRequest, rows, calls, state };
 }
 
 // The key folder is under store.ROOT (<data>/Kosmos), not the data root itself.
@@ -196,6 +198,8 @@ test('#7404: setUp refuses when the backup already has a key, and restore refuse
   forget();
   const c = fakeCoordinator();
   assert.equal((await pk.setUpPersonalKey({ macRequest: c.macRequest })).ok, true);
+  // Confirmed first: until then a second setUp resumes with the same code (review 2's test above).
+  assert.equal((await pk.confirmRecoveryCodeSaved()).ok, true);
   const again = await pk.setUpPersonalKey({ macRequest: c.macRequest });
   assert.equal(again.ok, false);
   // Refused at the first fence it meets: this computer already holds the registered key (review 1's file guard).
@@ -205,7 +209,7 @@ test('#7404: setUp refuses when the backup already has a key, and restore refuse
   assert.equal((await pk.restorePersonalKey(backupkeys.newRecoveryCode(), { macRequest: fakeCoordinator().macRequest })).code, 'no_keys');
 });
 
-test('#7404: an answer lost after the key was kept: the retry sends the SAME member key, with a new code', async () => {
+test('#7404: an answer lost BEFORE Kosmos+ saw it: the retry sends the SAME member key and the same code', async () => {
   forget();
   const c = fakeCoordinator();
   let fail = true;
@@ -231,4 +235,102 @@ test('#7404: the coordinator\'s refusal code is passed on (here: the switch is o
   assert.equal(r.ok, false); assert.equal(r.code, 'personal_backup_key_pending');
   const r2 = await pk.restorePersonalKey(backupkeys.newRecoveryCode(), { macRequest: off });
   assert.equal(r2.code, 'personal_backup_key_pending');
+});
+
+test('#7404 (review 2): a crash AFTER a successful setUp, before the screen showed the code: setUp answers the same code until confirmed', async () => {
+  forget();
+  const c = fakeCoordinator();
+  const first = await pk.setUpPersonalKey({ macRequest: c.macRequest });
+  assert.equal(first.ok, true);
+  // The screen never showed it: setUp again answers the SAME code (not "already holds backup keys").
+  const again = await pk.setUpPersonalKey({ macRequest: c.macRequest });
+  assert.equal(again.ok, true, JSON.stringify(again));
+  assert.equal(again.resumed, true); assert.equal(again.code, first.code);
+  // Once confirmed, the code is gone and setUp refuses.
+  const conf = await pk.confirmRecoveryCodeSaved();
+  assert.equal(conf.ok, true); assert.equal(conf.deleted, 1);
+  const after = await pk.setUpPersonalKey({ macRequest: c.macRequest });
+  assert.equal(after.ok, false);
+});
+
+test('#7404 (review 2): a kept row the pending code cannot restore (no tag) is never answered as set up', async () => {
+  forget();
+  const c = fakeCoordinator();
+  let lose = true;
+  const lossy = async (m, route, body) => {
+    const res = await c.macRequest(m, route, body);
+    if (route === mk.MEMBER_KEY_ROUTE && lose) { lose = false; throw new Error('lost after the write'); }
+    return res;
+  };
+  assert.equal((await pk.setUpPersonalKey({ macRequest: lossy })).ok, false);
+  c.rows.set(1, { ...c.rows.get(1), recovery_tag: null });   // Kosmos+ withholds the tag
+  const r = await pk.setUpPersonalKey({ macRequest: lossy });
+  assert.equal(r.ok, false, 'a row the code cannot restore was answered as set up');
+  assert.match(r.because, /does not open/);
+});
+
+test('#7404 (review 2): an "ok" that does not name this key and epoch is not taken as registered', async () => {
+  forget();
+  const c = fakeCoordinator();
+  const odd = async (m, route, body) => (route === mk.MEMBER_KEY_ROUTE ? { ok: true, data: { epoch: 1 } } : c.macRequest(m, route, body));
+  const r = await pk.setUpPersonalKey({ macRequest: odd });
+  assert.equal(r.ok, false);
+  const k = mk.readKeys(ORG, MEMBER).keys['1'];
+  assert.ok(k && !k.registered, 'an unconfirmed answer marked the key registered');
+});
+
+test('#7404 (review 2): restore never replaces a registered key here, and keeps one Kosmos+ does not list', async () => {
+  forget();
+  const c = fakeCoordinator();
+  const set = await pk.setUpPersonalKey({ macRequest: c.macRequest });
+  // A DIFFERENT registered key at epoch 1 here: refused, the file untouched.
+  const other = backupkeys.newMemberKey();
+  mk.writeKeys(ORG, MEMBER, { 1: { sk: other.sk, pk: other.pk, registered: true } });
+  const r = await pk.restorePersonalKey(set.code, { macRequest: c.macRequest });
+  assert.equal(r.ok, false); assert.equal(r.code, 'key_conflict');
+  assert.ok(mk.readKeys(ORG, MEMBER).keys['1'].sk.equals(other.sk), 'the registered key was replaced');
+  // A registered key at an epoch Kosmos+ does not list is kept beside the restored one.
+  const k5 = backupkeys.newMemberKey();
+  mk.writeKeys(ORG, MEMBER, { 5: { sk: k5.sk, pk: k5.pk, registered: true } });
+  const ok = await pk.restorePersonalKey(set.code, { macRequest: c.macRequest });
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  const keys = mk.readKeys(ORG, MEMBER).keys;
+  assert.ok(keys['5'] && keys['5'].sk.equals(k5.sk) && keys['1'] && keys['1'].registered);
+});
+
+test('#7404 (review 2): confirm keeps a code that is not registered yet, and needs no network', async () => {
+  forget();
+  const c = fakeCoordinator();
+  let lose = true;
+  const lossy = async (m, route, body) => {
+    const res = await c.macRequest(m, route, body);
+    if (route === mk.MEMBER_KEY_ROUTE && lose) { lose = false; throw new Error('lost after the write'); }
+    return res;
+  };
+  assert.equal((await pk.setUpPersonalKey({ macRequest: lossy })).ok, false);
+  const before = allFileText(SANDBOX);
+  const conf = await pk.confirmRecoveryCodeSaved();   // no macRequest at all: local only
+  assert.equal(conf.ok, false, 'a pending, unregistered code was confirmed away');
+  assert.equal(allFileText(SANDBOX), before, 'confirm changed files while the code was pending');
+  const resumed = await pk.setUpPersonalKey({ macRequest: lossy });
+  assert.equal(resumed.ok, true, 'the kept code still finishes the setup');
+});
+
+test('#7404 (review 2): the in-flight race (Kosmos+ kept it, the next read does not show it yet): the retry sends the same recovery key and tag', async () => {
+  forget();
+  const c = fakeCoordinator();
+  let lose = true;
+  const lossy = async (m, route, body) => {
+    const res = await c.macRequest(m, route, body);
+    if (route === mk.MEMBER_KEY_ROUTE && lose) { lose = false; c.state.hideRowsOnce = true; throw new Error('lost after the write'); }
+    return res;
+  };
+  assert.equal((await pk.setUpPersonalKey({ macRequest: lossy })).ok, false);
+  const firstPost = c.calls.filter((x) => x.route === mk.MEMBER_KEY_ROUTE)[0].body;
+  const second = await pk.setUpPersonalKey({ macRequest: lossy });
+  assert.equal(second.ok, true, JSON.stringify(second));
+  const secondPost = c.calls.filter((x) => x.route === mk.MEMBER_KEY_ROUTE)[1].body;
+  assert.equal(secondPost.recovery_public, firstPost.recovery_public, 'the retry used another code');
+  assert.equal(secondPost.recovery_tag, firstPost.recovery_tag);
+  assert.equal(secondPost.member_public, firstPost.member_public);
 });
