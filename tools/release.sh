@@ -451,18 +451,29 @@ _whats_new_check() { node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats
 _whats_new_prod_check() { node "$REPO/tools/whats-new-pool.js" prod-check --pool="$REPO/release/whats-new-pool.json"; }
 # kosmos#7617: the committed list must still be what the pool builds for $V. A list built early (#7615: each cut builds
 # its own first) misses a pool item merged after it, and both checks above stay green. Offline is right here: it runs
-# after prod-check, which has just compared prod with the pool. "also" is left out (Windows adds it by hand, #4928).
+# after prod-check, which has just compared prod with the pool. Only the highlights are compared (key order aside):
+# whats-new-check has already said the file is for $V, by "version" or by "also" (#4928), and a rebuild always writes
+# "version": $V. $1 is the tree (default $REPO; 2b-ii passes the frozen $BUILD). $2 = note prints the pass.
 _whats_new_fresh_check() {
-  local tmp rc=0
-  tmp="$(mktemp)" || return 1
-  node "$REPO/tools/whats-new-pool.js" build "$V" --offline --pool="$REPO/release/whats-new-pool.json" --out="$tmp" >/dev/null 2>&1 || rc=$?
-  [ "$rc" != 0 ] || node -e 'const fs = require("fs");
+  local dir="${1:-$REPO}" tmp berr rc=0
+  tmp="$(mktemp)" || { echo "release: the What's New freshness check (kosmos#7617) could not make a temp file" >&2; return 1; }
+  berr="$(node "$dir/tools/whats-new-pool.js" build "$V" --offline --pool="$dir/release/whats-new-pool.json" --out="$tmp" 2>&1 >/dev/null)" || rc=$?
+  if [ "$rc" != 0 ]; then
+    rm -f "$tmp"
+    printf '%s\n' "$berr" >&2
+    echo "release: the What's New pool does not build a list for $V (kosmos#7617, build exit $rc, its reason above), so web/whats-new.json cannot be checked against it. Fix release/whats-new-pool.json, then node tools/whats-new-pool.js build $V on a branch, merged to main." >&2
+    return 1
+  fi
+  node -e 'const fs = require("fs");
     const s = (v) => Array.isArray(v) ? v.map(s) : (v && typeof v === "object") ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, s(v[k])])) : v;
-    const f = (p) => { const j = JSON.parse(fs.readFileSync(p, "utf8")); delete j.also; return JSON.stringify(s(j)); };
-    process.exit(f(process.argv[1]) === f(process.argv[2]) ? 0 : 1);' "$tmp" "$REPO/web/whats-new.json" || rc=1
+    const f = (p) => JSON.stringify(s(JSON.parse(fs.readFileSync(p, "utf8")).highlights));
+    process.exit(f(process.argv[1]) === f(process.argv[2]) ? 0 : 1);' "$tmp" "$dir/web/whats-new.json" || rc=1
   rm -f "$tmp"
-  [ "$rc" = 0 ] || echo "release: web/whats-new.json is not what release/whats-new-pool.json builds for $V now (kosmos#7617: a pool item changed after the list was built). node tools/whats-new-pool.js build $V on a branch, merged to main, then cut again." >&2
-  return "$rc"
+  if [ "$rc" != 0 ]; then
+    echo "release: web/whats-new.json is not what release/whats-new-pool.json builds for $V now (kosmos#7617: a pool item changed after the list was built). node tools/whats-new-pool.js build $V on a branch, merged to main, then cut again." >&2
+    return 1
+  fi
+  [ "${2:-}" != note ] || echo "web/whats-new.json is what release/whats-new-pool.json builds for $V (kosmos#7617)."
 }
 whats_new_gate() {
   local pc=0 err
@@ -482,7 +493,7 @@ whats_new_gate() {
     4) [ "$1" != note ] || echo "NOTE: could not read what prod serves, so the What's New pool was not checked against it; the cut goes on." ;;
     *) return 1 ;;   # 3: prod is newer than the pool records; anything else: the pool or the tool is broken (#5713 review 2)
   esac
-  _whats_new_fresh_check
+  _whats_new_fresh_check "$REPO" "$1"
 }
 # kosmos#7349: the same checks once more HERE, before the cut marks itself, claims the machine or waits on a pre-push
 # build (up to 100 minutes below). A prod promote leaves the pool behind until someone builds it again, and 1b-ii used
@@ -1143,6 +1154,8 @@ step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955)
 # under the cut, which is worth stopping for.
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ]; then
   node "$BUILD/tools/whats-new-check.js" "$V" "$BUILD/web/whats-new.json" --platform=mac || exit 1
+  # kosmos#7617: and still what the frozen pool builds (a pool item merged without its rebuilt list in that window).
+  _whats_new_fresh_check "$BUILD" note || { echo "release: the version bump to $V is already committed (and pushed, unless step 2 said it could not be); rebuild the list on main and cut again." >&2; exit 1; }
 else
   whats_new_optout_note "$BUILD"   # round 12: what actually ships is said again, from the frozen tree
 fi
