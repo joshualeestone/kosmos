@@ -19212,7 +19212,8 @@ const server = http.createServer(async (req, res) => {
         }
         if (presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'deleting a message is the person\'s, not an agent\'s' }); return; }
         const out = await chat.deleteDirectAsync(name, body.at, safeRoster());
-        if (!out.ok) { sendJson(res, out.code || 400, { error: out.error }); return; }
+        // `gone` (review 5): the message is not there (deleted already), said apart from any other 404, which the page shows as a sentence.
+        if (!out.ok) { sendJson(res, out.code || 400, { error: out.error, ...(out.gone === true ? { gone: true } : {}) }); return; }
         sendJson(res, 200, { deleted: true, at: body.at, told: out.told });
       })
       /* A thrown failure that is not a request error (a file this computer could not write) answers in a plain sentence:
@@ -19306,10 +19307,12 @@ const server = http.createServer(async (req, res) => {
     const before = typeof beforeRaw === 'string' && /^\d{1,9}$/.test(beforeRaw) ? Number(beforeRaw) : NaN;   // digits only
     if (!Number.isInteger(before) || before < 0) { sendJson(res, 400, { error: 'before must be a whole number, 0 or more' }); return; }
     let rows;
+    let ownFrom = 0;   // kosmos#7614 review 5: rows from here on are this file's own (deletable); before it, earlier files'
     // kosmos#5841: the whole chain, oldest first: every rolled-over file this conversation continues, then this one.
     try {
       const rec = chat.readThread(chat.DIRECT, name);
       rows = rec.messages || [];
+      const ownCount = rows.length;
       const earlier = rec.continues ? chat.asideChain(chat.DIRECT, name, true, rec.continues, rec.projectBornAt) : [];
       /* The thread route counts the chain from a cache; this walk reads every file. If a read fails here and not
          there (a passing EMFILE, a permission change), the two disagree and every position on this page would be off
@@ -19320,6 +19323,9 @@ const server = http.createServer(async (req, res) => {
       }
       // Each carried overlap is served once, from the NEWER copy (chainRows): edits after a rollover live only there.
       if (earlier.length) rows = chat.chainRows(earlier, rows, rec.carried);
+      // chainRows appends this file's rows whole, last: everything before them came from a rolled-over file, and this
+      // file's first `carried` rows are copies of that file's end, kept there too.
+      ownFrom = Math.max(0, rows.length - ownCount + (earlier.length ? (rec.carried || 0) : 0));
     } catch (err) {
       // No file can ever exist (BAD_THREAD) reads as nothing older; anything else is a read that failed, said so.
       if (err && err.code === 'BAD_THREAD') { sendJson(res, 200, { messages: [], olderCount: 0 }); return; }
@@ -19329,7 +19335,11 @@ const server = http.createServer(async (req, res) => {
     const end = Math.min(before, rows.length);
     const start = Math.max(0, end - DM_OLDER_PAGE);
     const card = ourCardByName(safeRoster(), name);
-    sendJson(res, 200, { messages: dmServeRows(rows.slice(start, end), name, card), olderCount: start });
+    /* kosmos#7614 review 5: a row from a rolled-over file says so (`earlierPart`), since those files are kept as they
+       were and its Delete would be refused; a row of this file's own, however far back, can still be deleted. */
+    const served = dmServeRows(rows.slice(start, end), name, card);
+    const marked = Array.isArray(served) ? served.map((m, i) => (m && start + i < ownFrom ? { ...m, earlierPart: true } : m)) : served;
+    sendJson(res, 200, { messages: marked, olderCount: start });
     return;
   }
   /**
@@ -19586,6 +19596,12 @@ const server = http.createServer(async (req, res) => {
       ? Math.max(0, asideCount - (asideCount ? (threadRec.carried || 0) : 0) + firstShown) : 0;
     /* The pinned spelling (web.owes-line-4340 finds this line to prove owes is taken before the cut). With the chain,
        olderCount can be > 0 on a file of 200 rows or fewer, where slice(-TAIL) changes nothing; past 200 it is always > 0. */
+    /* kosmos#7614 review 5: this file's carried head (copies of the earlier file's end, kept there as it was) says so,
+       as the older route marks the earlier files' rows, so the page offers no Delete on them. */
+    if (Array.isArray(messages) && threadRec && threadRec.continues && Number(threadRec.carried) > 0) {
+      const head = Number(threadRec.carried);
+      messages = messages.map((m, i) => (m && i < head ? { ...m, earlierPart: true } : m));
+    }
     if (olderCount) messages = messages.slice(-TAIL);
     /**
      * ⚠️ EVERY FIELD HERE HAS A READER ON THE PAGE. The first version also
@@ -23284,7 +23300,7 @@ const server = http.createServer(async (req, res) => {
         try { found = projects.get(id, roster || []); } catch { found = null; }
         if (!found) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
         const out = await messages.deletePostAsync({ projectId: found.id, id: postId, roster });
-        if (!out.ok) { sendJson(res, out.code || 400, { error: out.error }); return; }
+        if (!out.ok) { sendJson(res, out.code || 400, { error: out.error, ...(out.gone === true ? { gone: true } : {}) }); return; }   // review 5: `gone`, as the DM route
         sendJson(res, 200, { deleted: true, of: postId, told: out.told });
       })
       /* As the DM route: a failure that is not a request error answers in a plain sentence, never its own message. */

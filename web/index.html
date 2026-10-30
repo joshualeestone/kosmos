@@ -42589,8 +42589,9 @@ function dmRow(m, name, replyAdjacent) {
    same row with no flight here (a board that stopped mid-send) keeps its warning. */
 const DM_RETRYING = new Set();
 let DM_NEWEST_MINE_AT = null;   // set by paintTalkThread before any row is drawn
-/* kosmos#7614 review 2: the times of rows from an earlier part of the conversation on screen. Those files are kept as they
-   were (the server answers 409), so the person's rows there get no Delete. */
+/* kosmos#7614 review 2: the times of rows on screen from a rolled-over file of the conversation (the scroll-back route
+   marks them `earlierPart`, review 5). Those files are kept as they were (the server answers 409), so the person's rows
+   there get no Delete; a scrolled-back row of the current file keeps it. */
 let DM_EARLIER_ATS = new Set();
 /* Offered only where the server will take it (review 1): a row kept as retryable (a plain message that failed after
    kosmos#6720; an older one may already have been sent again from the box) and the person's newest message (sent
@@ -43355,7 +43356,8 @@ function paintTalkThread(body, name) {
   for (const r of allRows) if (r && typeof r.at === 'string' && !DM_ROWS.has(r.at)) DM_ROWS.set(r.at, r);
   DM_ROWS_OF = CURRENT ? CURRENT.sessionName : null;
   DM_ROWS_NAME = name;
-  DM_EARLIER_ATS = new Set(earlierRows.map((r) => (r && typeof r.at === 'string' ? r.at : '')).filter(Boolean));   // kosmos#7614
+  // kosmos#7614 review 5: only rows the server marks as from a rolled-over file; a scrolled-back row of this file's own stays deletable.
+  DM_EARLIER_ATS = new Set(allRows.filter((r) => r && r.earlierPart === true && typeof r.at === 'string').map((r) => r.at));
   /* kosmos#6720: the person's newest row, the only one Try again is offered on (the server's rule too). */
   DM_NEWEST_MINE_AT = null;
   for (const r of allRows) if (r && !r.from && r.kind !== 'kosmos' && r.kind !== 'question' && typeof r.at === 'string') DM_NEWEST_MINE_AT = r.at;
@@ -77230,7 +77232,10 @@ function msgMenuOpen(row, x, y, dots) {
   if (m.msgDots && m.msgDots !== dots) m.msgDots.setAttribute('aria-expanded', 'false');
   m.msgDots = dots || null;
   if (dots) dots.setAttribute('aria-expanded', 'true');
-  m.msgBack = dots || (document.activeElement && document.activeElement !== document.body ? document.activeElement : null);
+  /* Review 5: on a touchscreen the bar closed when "..." was tapped (pjRxnTap); focusing "..." again on the way back would
+     reopen it through :focus-within over the message above, so focus goes nowhere there, as Copy's did. */
+  const touchBar = !!(dots && window.matchMedia && typeof PJ_TOUCH_MQ === 'string' && window.matchMedia(PJ_TOUCH_MQ).matches);
+  m.msgBack = touchBar ? null : (dots || (document.activeElement && document.activeElement !== document.body ? document.activeElement : null));
   m.hidden = false;
   /* A keyboard's menu key reports no pointer position (0, 0): open it at the message instead of the corner. */
   if (!x && !y) { const r = row.getBoundingClientRect(); x = r.left + 16; y = r.top + 16; }
@@ -77312,9 +77317,19 @@ document.addEventListener('click', (e) => {
   if (typeof rxnCloseAllPickers === 'function') rxnCloseAllPickers();
   // Never a silent press: a row with nothing to copy and not the person's own opens no menu (as #5312's Copy said).
   if (!msgCopyText(row) && !msgRefText(row) && row.getAttribute('data-own') !== '1') { msgToast('There is nothing to copy in this message.'); return; }
-  const r = dots.getBoundingClientRect();
+  /* Review 5: on a touchscreen the thread's own tap handler has already closed the bar (and dropped its below-the-message
+     place) by now, so the press's own position, taken at pointerdown, is where the menu goes. */
+  const at = dots.__pressRect && Date.now() - dots.__pressRect.t < 2000 ? dots.__pressRect : null;
+  dots.__pressRect = null;
+  const r = at || dots.getBoundingClientRect();
   msgMenuOpen(row, r.left, r.bottom + 4, dots);
 });
+document.addEventListener('pointerdown', (e) => {
+  const dots = e.target && e.target.closest ? e.target.closest('#pj-room .rxn-dots, #d-dmthread .rxn-dots') : null;
+  if (!dots) return;
+  const b = dots.getBoundingClientRect();
+  dots.__pressRect = { left: b.left, bottom: b.bottom, t: Date.now() };
+}, true);
 /* kosmos#7614: a press on the "..." whose menu is open must not take focus first: the menu's focusout would close it
    and the click would then open it again, so a second press could never close it. Its own click closes it instead. */
 document.addEventListener('mousedown', (e) => {
@@ -77331,7 +77346,7 @@ function msgDelAsk(ref, row) {
   /* The room's project is the open room's (PJ_CURRENT, what loadRoom reads), never PJS_HOOKS.projectId: that is the webhooks
      pane's, null until it opens and another project's after it, where the same message id could name a different post. */
   const bar = row.querySelector('.rxns[data-at]');
-  MSG_DEL = { host: ref.host, mid: ref.mid, at: bar ? bar.getAttribute('data-at') : '', back: row.querySelector('.rxn-dots') || null, project: (typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT) ? PJ_CURRENT : null,
+  MSG_DEL = { host: ref.host, mid: ref.mid, at: bar ? bar.getAttribute('data-at') : '', back: (window.matchMedia && typeof PJ_TOUCH_MQ === 'string' && window.matchMedia(PJ_TOUCH_MQ).matches) ? null : (row.querySelector('.rxn-dots') || null), project: (typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT) ? PJ_CURRENT : null,
     agent: typeof CURRENT !== 'undefined' && CURRENT ? CURRENT.sessionName : null };
   document.getElementById('msgdel-msg').textContent = '';
   document.getElementById('msgdel-go').disabled = false;
@@ -77362,23 +77377,23 @@ document.getElementById('msgdel-go').addEventListener('click', async () => {
       : await fetch('/api/agent/' + encodeURIComponent(d.agent) + '/thread/delete',
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: d.at }) });
     const out = await res.json().catch(() => null);
+    /* Review 5: the dialog may now belong to another message (Escape, then Delete on another, during a slow answer). Only
+       the request that still owns it touches it; the toast and the repaint stand either way. */
+    const mine = MSG_DEL === d;
     /* Gone already (deleted from another tab or device): there is nothing left to delete, so the dialog closes and the
        conversation repaints rather than leave the message on screen with an error under it (review 1). */
-    if (res.status === 404) {
-      MSG_DEL = null;
-      document.getElementById('msgdel-modal').hidden = true;
+    if (res.status === 404 && out && out.gone === true) {
+      if (mine) { MSG_DEL = null; document.getElementById('msgdel-modal').hidden = true; }
       msgToast('That message was already gone.');
       if (room) { if (typeof loadRoom === 'function') { try { await loadRoom(); } catch { /* the next poll repaints */ } } }
       else if (CURRENT && CURRENT.sessionName === d.agent) { try { await paintTalk(d.agent, CURRENT.name); } catch { /* the next poll repaints */ } }
       return;
     }
     if (!res.ok) {
-      say.textContent = asSentence((out && out.error) || 'we could not delete it');
-      btn.disabled = false;
+      if (mine) { say.textContent = asSentence((out && out.error) || 'we could not delete it'); btn.disabled = false; }
       return;
     }
-    MSG_DEL = null;
-    document.getElementById('msgdel-modal').hidden = true;
+    if (mine) { MSG_DEL = null; document.getElementById('msgdel-modal').hidden = true; }
     const told = out && Array.isArray(out.told) ? out.told : [];
     const names = told.map((n) => (typeof tskAgentName === 'function' ? tskAgentName(n) : n));
     msgToast(names.length ? 'Deleted. Kosmos told ' + names.join(', ') + ' you withdrew it.' : 'Deleted.');
@@ -77387,8 +77402,7 @@ document.getElementById('msgdel-go').addEventListener('click', async () => {
        while that agent's page is still the one open. */
     else if (CURRENT && CURRENT.sessionName === d.agent) { try { await paintTalk(d.agent, CURRENT.name); } catch { /* the next poll repaints */ } }
   } catch {
-    say.textContent = 'We could not reach Kosmos to delete it. Try again in a moment.';
-    btn.disabled = false;
+    if (MSG_DEL === d) { say.textContent = 'We could not reach Kosmos to delete it. Try again in a moment.'; btn.disabled = false; }
   }
 });
 /* #6949: the room post's 🙋 claim ({by, at}, from the room read or a room route's answer) as the page shows it: the

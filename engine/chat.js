@@ -5278,7 +5278,7 @@ async function deleteDirectAsync(agent, at, roster) {
         if (earlier.some((a) => a.messages.some((m) => m && m.at === when && own(m)))) {
           return { ok: false, code: 409, error: 'that message is in an earlier part of this conversation, which is kept as it was, so it cannot be deleted' };
         }
-        return { ok: false, code: 404, error: 'there is no message of yours at that time here' };
+        return { ok: false, code: 404, gone: true, error: 'there is no message of yours at that time here' };
       }
       if (hits.length > 1) return { ok: false, code: 409, error: 'two messages share that time, so we could not tell which one you meant' };
       const m = thread.messages[hits[0]];
@@ -5286,6 +5286,12 @@ async function deleteDirectAsync(agent, at, roster) {
       /* Review 3: Try again (kosmos#6720) is typing it again this moment; deleting now would let those words land after
          the delete with nothing to record them. The person tries again in a moment, once the send has finished. */
       if (m.delivery && m.delivery.retrying === true) return { ok: false, code: 409, error: 'that message is being sent again right now, so wait a moment and try deleting it again' };
+      /* Review 5: a row in the carried head (this file's first `carried` rows, copies of the earlier file's end,
+         kosmos#5841) also lives in that earlier file, kept as it was; removing only the copy would let the chain show
+         the original again (or a row twice). It is refused as an earlier part's row is. */
+      if (Number.isInteger(thread.carried) && thread.continues && hits[0] < thread.carried) {
+        return { ok: false, code: 409, error: 'that message is in an earlier part of this conversation, which is kept as it was, so it cannot be deleted' };
+      }
       const messages = thread.messages.slice();
       messages.splice(hits[0], 1);
       try { store.saveFlushed(file, JSON.stringify({ ...thread, messages }, null, 2)); }

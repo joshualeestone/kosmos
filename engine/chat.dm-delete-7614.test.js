@@ -177,7 +177,7 @@ test('#7614 review 3: two rows at the same time are refused (409), naming neithe
   assert.match(out.error, /two messages share that time/);
 });
 
-test('#7614 review 3: a message in an earlier part of the conversation is refused (409); a carried one is deleted', async () => {
+test('#7614 review 3: a message in an earlier part of the conversation is refused (409), and so is a carried one; this file\'s own row is deleted', async () => {
   const who = 'ddroll';
   const at = (i) => new Date(Date.UTC(2026, 0, 1, 0, 0, 0, i)).toISOString();
   for (let i = 0; i < chat.MAX_MESSAGES; i += 1) assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'p' + i, at: at(i), delivery: { state: 'placed' } }).recorded, true);
@@ -185,8 +185,11 @@ test('#7614 review 3: a message in an earlier part of the conversation is refuse
   const old = await chat.deleteDirectAsync(who, at(5));   // not among the rows carried into the new file
   assert.equal(old.code, 409);
   assert.match(old.error, /earlier part of this conversation/);
-  const recent = await chat.deleteDirectAsync(who, at(chat.MAX_MESSAGES - 2));   // carried: still in this part
-  assert.equal(recent.ok, true, 'CONTROL: a carried row can still be deleted');
+  // Review 5: a carried row (a copy of the earlier file's end, kept there too) is refused the same way.
+  const carried = await chat.deleteDirectAsync(who, at(chat.MAX_MESSAGES - 2));
+  assert.equal(carried.code, 409, 'a carried row is in the earlier file too');
+  const own = chat.readThread(chat.DIRECT, who).messages.slice(-1)[0];   // the one written after the rollover
+  assert.equal((await chat.deleteDirectAsync(who, own.at)).ok, true, 'CONTROL: this file\'s own row is deleted');
 });
 
 test('#7614: no message at that time answers 404', async () => {

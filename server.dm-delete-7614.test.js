@@ -91,3 +91,33 @@ test('#7614 route: the person\'s own message goes, and the answer names the agen
   assert.deepEqual(rows(), [t(2)], 'only the person\'s message is gone');
   assert.equal(r.typed.length, 1);
 });
+
+test('#7614 review 5: the scroll-back page marks only rows from a rolled-over file (earlierPart), and those alone refuse Delete', async () => {
+  const who = 'rollbot';
+  const at = (i) => new Date(Date.UTC(2026, 0, 2, 0, 0, 0, i)).toISOString();
+  for (let i = 0; i < chat.MAX_MESSAGES; i += 1) assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'p' + i, at: at(i), delivery: { state: 'placed' } }).recorded, true);
+  assert.equal(chat.appendMessage(chat.DIRECT, who, { text: 'rolls it over', at: at(5000), delivery: { state: 'placed' } }).recorded, true);
+  const board = fleet.install([fleet.agent(who, { state: 'idle' })]);
+  try {
+    // Two pages: the oldest rows (before=50, from the rolled-over file) and the newest (this file's own and its carried copies).
+    const pageOf = async (before) => { const res = await fetch(`${base}/api/agent/${who}/thread/older?before=${before}`); assert.equal(res.status, 200); return (await res.json()).messages; };
+    const byAt = new Map([...(await pageOf(50)), ...(await pageOf(100000))].map((m) => [m.at, m]));
+    // p5 lives only in the rolled-over file; p990 was carried into the current one; the newest is the current file's own.
+    assert.equal(byAt.get(at(5)) && byAt.get(at(5)).earlierPart, true, 'a rolled-over row is marked');
+    assert.equal(byAt.get(at(990)) && byAt.get(at(990)).earlierPart, true, 'a carried row (kept in the earlier file too) is marked');
+    assert.ok(byAt.get(at(5000)) && !byAt.get(at(5000)).earlierPart, 'this file\'s own row is not marked');
+    // The thread route marks the carried head the same way.
+    const tail = (await (await fetch(`${base}/api/agent/${who}/thread`)).json()).messages;
+    const tailAt = new Map(tail.map((m) => [m.at, m]));
+    assert.equal(tailAt.get(at(990)) && tailAt.get(at(990)).earlierPart, true, 'the thread route marks a carried row');
+    assert.ok(tailAt.get(at(5000)) && !tailAt.get(at(5000)).earlierPart, 'the thread route leaves this file\'s own row unmarked');
+    // And the marks agree with what Delete does: an earlier file's row and a carried row are refused; this file's own goes.
+    assert.equal((await del(who, { at: at(5) })).status, 409);
+    assert.equal((await del(who, { at: at(990) })).status, 409);
+    assert.equal((await del(who, { at: at(5000) })).status, 200);
+    const after = [...(await pageOf(100000))].map((m) => m.at);
+    assert.equal(new Set(after).size, after.length, 'a row shows twice in scroll-back');
+    assert.ok(after.includes(at(990)) && !after.includes(at(5000)), 'the carried row stays; the deleted one is gone');
+  } finally { board.restore(); }
+});
+

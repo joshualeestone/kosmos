@@ -96,6 +96,10 @@ test('#7614: an agent\'s post is refused (403) and stays', async () => {
 
 test('#7614: no such message answers 404', async () => {
   assert.equal((await del('m999')).status, 404);
+  // Review 5: a project that is not there is a 404 too, but not `gone`.
+  const noProject = await fetch(`${base}/api/project/no-such-project/room/m901/delete`, { method: 'POST', headers: { 'content-type': 'application/json', origin: base }, body: '{}' });
+  assert.equal(noProject.status, 404);
+  assert.notEqual((await noProject.json()).gone, true);
   assert.equal((await del('not-an-id')).status, 404);
 });
 
@@ -133,7 +137,9 @@ test('#7614: the person\'s post goes for every reader, its hold is dropped, and 
   assert.ok(!rows.some((r) => r.id === 'm901' || (r.kind === 'reaction' && r.of === 'm901')), 'no reader is given it or its reactions');
   assert.ok(!rows.some((r) => r.kind === 'post-deleted'), 'the deletion row itself is given to no reader');
   assert.ok(messages.record().parsed.some((r) => r.id === 'm901'), 'it stays in the parsed log, so its id is never reused');
-  assert.equal((await del('m901')).status, 404, 'a second delete finds nothing');
+  const again = await del('m901');
+  assert.equal(again.status, 404, 'a second delete finds nothing');
+  assert.equal((await again.json()).gone, true, 'review 5: and says it is gone, apart from other 404s');
 });
 
 test('#7614 review 1: a held post deleted while a flush was typing it is not put back on hold when that typing fails', async () => {

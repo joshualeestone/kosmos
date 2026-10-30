@@ -131,3 +131,23 @@ Findings file: ~/.cache/monalisa-review/review-7614-round4.md. No blockers, no w
 - FIXED: a CLAUDE.md "Where to Find Things" row for deleting a message.
 - DEFERRED: the plan file's name has no timestamp. This repo's plans are named by branch (and the pre-challenge proof
   must be <branch>-pre-challenge.md beside it); renaming now would split this plan from its history for no reader's gain.
+
+## After review round 5 (opus, 10:2x CDT)
+
+Findings file: ~/.cache/monalisa-review/review-7614-round5.md. No blockers; 3 warnings, 4 nits.
+- FIXED W (round 2's earlier-part rule over-reached): only rows the server marks `earlierPart` lose Delete. The
+  scroll-back route marks rows from a rolled-over file and this file's carried head; the thread route marks the
+  carried head. A scrolled-back row of the current file keeps Delete. Route test (both pages, both marks, and the
+  marks agree with Delete), browser check D11 with a same-file control; controls for each mark go red.
+- FIXED W, and DECIDED: a carried row (this file's first `carried` rows, copies of the earlier file's end) is refused
+  (409, the earlier-part sentence), because the original stays in the earlier file, kept as it was. Rejected: lowering
+  `carried` on delete, which measured wrong (the chain then keeps the earlier file's first carried row twice). Cost: just
+  after a rollover (every 1,000 messages) the person's last 200 messages cannot be deleted. Weakest premise: that this is
+  rare enough not to matter; if Josh wants those deletable, the earlier file must learn to drop a row too.
+- FIXED W: on a touchscreen, closing the menu (Copy) or the dialog (Keep it, Escape) no longer focuses the hidden "...",
+  which reopened the bar through :focus-within. Browser check D12 now asserts no bar after Keep it and after Copy;
+  control (focus restored) shows the bar both times.
+- FIXED nits: the delete handler touches the dialog only while it still owns it (MSG_DEL === d); "already gone" needs
+  the server's `gone: true` (only a missing message sets it; a missing agent or project shows its own sentence, D10
+  control); the menu opens where "..." was pressed (its rect taken at pointerdown, before the touch bar closes and
+  moves); the room comment says a quiet member may still have read the post.

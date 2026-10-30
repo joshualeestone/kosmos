@@ -4546,7 +4546,7 @@ async function deletePostAsync({ projectId, id, roster } = {}) {
   const read = record();
   if (!read.ok) return { ok: false, code: 503, error: 'we could not read the room just now', told: [] };
   const post = read.rows.find((m) => m && m.kind === 'post' && m.project === projectId && m.id === id);
-  if (!post) return { ok: false, code: 404, error: 'there is no message by that number here', told: [] };
+  if (!post) return { ok: false, code: 404, gone: true, error: 'there is no message by that number here', told: [] };   // review 5: gone, said apart from a missing project
   if (post.operator !== true) return { ok: false, code: 403, error: 'you can delete only your own messages', told: [] };
   appendLog({ kind: 'post-deleted', project: projectId, of: id, at: new Date().toISOString(), operator: true });
   const outcomes = post.outcomes && typeof post.outcomes === 'object' ? post.outcomes : {};
@@ -4561,7 +4561,8 @@ async function deletePostAsync({ projectId, id, roster } = {}) {
     unspillFor(name, id);
     const was = outcomes[name];
     /* Typed to it, or held and since told to it (its hold is gone): it may have read the post. Still held: dropped above,
-       never delivered. Quiet or refused: never typed. */
+       never delivered. Quiet or refused: never typed to it, so it is not told; a quiet member may still have read the post
+       through `kosmos room`, which records no read here, and the plan's rule stands (a delete cannot undo a read). */
     if (was === chat.DELIVERY.PLACED || was === chat.DELIVERY.UNCONFIRMED || (was === roomhold.HELD && !dropped && !stillHeld)) given.push(name);
   }
   const told = [];

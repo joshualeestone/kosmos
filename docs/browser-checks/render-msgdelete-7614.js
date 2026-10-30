@@ -206,7 +206,7 @@ const STUBS = () => {
     chk(!d8.open && d8.toast === 'Deleted.' && d8.gone && d8.agents === 2, 'D8 the dialog closes, the toast says "Deleted.", and the thread repaints without that message only', JSON.stringify(d8));
 
     // D10: gone already (another tab deleted it): the dialog closes, says so, and the thread repaints without it.
-    await page.evaluate(({ f, OWN }) => { window.__fx = f; window.__dels = []; window.__answer = { status: 404, body: { error: 'there is no message of yours at that time here' } }; }, { f: FX, OWN });
+    await page.evaluate(({ f, OWN }) => { window.__fx = f; window.__dels = []; window.__answer = { status: 404, body: { error: 'there is no message of yours at that time here', gone: true } }; }, { f: FX, OWN });
     await page.evaluate(() => paintTalk('april', 'April'));
     await page.waitForTimeout(200);
     const again = page.locator('#d-dmthread .msg.you[data-own="1"]').first();
@@ -218,24 +218,38 @@ const STUBS = () => {
       toast: (() => { const t = document.getElementById('msg-toast'); return t && !t.hidden ? t.textContent : null; })(),
       gone: !document.querySelector('#d-dmthread .rxns[data-at="' + OWN + '"]') }), OWN);
     chk(!d10.open && d10.n === 1 && d10.toast === 'That message was already gone.' && d10.gone,
-      'D10 a message already gone (404): the dialog closes, says so, and the thread repaints without it', JSON.stringify(d10));
+      'D10 a message already gone (404, gone): the dialog closes, says so, and the thread repaints without it', JSON.stringify(d10));
+    // CONTROL (review 5): any other 404 (the agent was renamed, say) is not "already gone": its own sentence shows in the dialog.
+    await page.evaluate((f) => { window.__fx = f; window.__answer = { status: 404, body: { error: 'there is no agent by that name' } }; }, FX);
+    await page.evaluate(() => paintTalk('april', 'April')); await page.waitForTimeout(200);
+    const again2 = page.locator('#d-dmthread .msg.you[data-own="1"]').first();
+    await again2.hover(); await again2.locator('.rxn-dots').click(); await page.waitForTimeout(100);
+    await page.click('#msg-menu-del'); await page.waitForTimeout(100);
+    await page.click('#msgdel-go'); await page.waitForTimeout(250);
+    const d10c = await page.evaluate(() => ({ open: !document.getElementById('msgdel-modal').hidden, say: document.getElementById('msgdel-msg').textContent }));
+    chk(d10c.open && d10c.say === 'There is no agent by that name.', 'D10 control: a 404 that is not "gone" shows its own sentence and keeps the dialog', JSON.stringify(d10c));
+    await page.click('#msgdel-keep'); await page.waitForTimeout(100);
 
     // D11: a row from an earlier part of the conversation (those files are kept as they were): no Delete offered.
     const EARLY = '2026-10-30T12:00:01.000Z';
     await page.evaluate(({ f, EARLY }) => {
       window.__fx = f;
-      Object.assign(EARLIER, { session: 'april', open: true, before: 0, rows: [{ at: EARLY, text: 'from an earlier part' }] });
+      // The scroll-back route marks a rolled-over file's rows `earlierPart`; a row of the current file has no mark.
+      Object.assign(EARLIER, { session: 'april', open: true, before: 0, rows: [
+        { at: EARLY, text: 'from an earlier part', earlierPart: true },
+        { at: '2026-10-30T12:30:01.000Z', text: 'scrolled back, same file' }] });
     }, { f: FX, EARLY });
     await page.evaluate(() => paintTalk('april', 'April'));
     await page.waitForTimeout(200);
     const d11 = await page.evaluate(({ EARLY, OWN }) => {
       const row = (at) => { const b = document.querySelector('#d-dmthread .rxns[data-at="' + at + '"]'); return b ? b.closest('.msg') : null; };
       const early = [...document.querySelectorAll('#d-dmthread .msg.you')].find((r) => /from an earlier part/.test(r.textContent));
+      const same = [...document.querySelectorAll('#d-dmthread .msg.you')].find((r) => /scrolled back, same file/.test(r.textContent));
       return { earlyShown: !!early, earlyOwn: early ? early.getAttribute('data-own') : 'none', earlyBar: early ? !!early.querySelector('.rxn-dots') : null,
-        tailOwn: row(OWN) ? row(OWN).getAttribute('data-own') : null };
+        sameOwn: same ? same.getAttribute('data-own') : 'none', tailOwn: row(OWN) ? row(OWN).getAttribute('data-own') : null };
     }, { EARLY, OWN });
-    chk(d11.earlyShown && d11.earlyOwn === null && d11.earlyBar === false && d11.tailOwn === '1',
-      'D11 the person\'s row from an earlier part shows no "..." and no Delete; the same kind of row in the current part still has it', JSON.stringify(d11));
+    chk(d11.earlyShown && d11.earlyOwn === null && d11.earlyBar === false && d11.sameOwn === '1' && d11.tailOwn === '1',
+      'D11 the person\'s row from a rolled-over file shows no "..." and no Delete; a scrolled-back row of the current file, and the newest, still have it', JSON.stringify(d11));
   } catch (e) {
     chk(false, 'the run finished', e && e.message ? e.message.split('\n')[0] : String(e));
   }
@@ -278,6 +292,16 @@ const STUBS = () => {
     if (menu.items) { await ph.locator('#msg-menu-del').tap(); await ph.waitForTimeout(150); }
     const dlg = await ph.evaluate(() => ({ open: !document.getElementById('msgdel-modal').hidden, focus: document.activeElement && document.activeElement.id }));
     chk(dlg.open && dlg.focus === 'msgdel-keep', 'D12 phone: Delete message opens the dialog, Keep it focused', JSON.stringify(dlg));
+    // Review 5: closing the dialog, or copying from the menu, must not bring the closed bar back (focus on "..." would).
+    const barsShown = () => ph.evaluate(() => [...document.querySelectorAll('#d-dmthread .rxn-quick')].filter((q) => getComputedStyle(q).opacity !== '0').length);
+    await ph.locator('#msgdel-keep').tap(); await ph.waitForTimeout(250);
+    const afterKeep = await barsShown();
+    await mine.tap(); await ph.waitForTimeout(250);
+    await ph.locator('#d-dmthread .msg.rxn-show .rxn-dots').tap(); await ph.waitForTimeout(250);
+    await ph.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => {} } }); });
+    await ph.locator('#msg-menu-text').tap(); await ph.waitForTimeout(250);
+    const afterCopy = await barsShown();
+    chk(afterKeep === 0 && afterCopy === 0, 'D12 phone: after Keep it, and after Copy message, no bar is showing', JSON.stringify({ afterKeep, afterCopy }));
     await ctx.close();
   } catch (e) {
     chk(false, 'D12 the phone arm finished', e && e.message ? e.message.split('\n')[0] : String(e));
