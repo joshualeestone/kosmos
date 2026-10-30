@@ -32,11 +32,6 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 1.5)   // any settling scroll, then the frame is read where it rests
         let (shown, at) = onScreen(newest, app)
         XCTAssertTrue(shown, "the newest message is not on screen, \(when): \(at)")
-        // The control: a message well above it is LOADED but not on screen, so "shown" means the chat sits at its end,
-        // not that the whole chat fits.
-        let older = message(250, in: app)
-        XCTAssertTrue(older.exists, "message 250 is not loaded, so the control cannot tell the end from the middle")
-        XCTAssertFalse(onScreen(older, app).0, "message 250 is on screen too, \(when)")
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = when; a.lifetime = .keepAlways; add(a)
     }
 
@@ -46,6 +41,15 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "varied"]
         app.launch()
         assertNewestShown(app, "first open")   // the launch opens Dana's chat
+
+        // The control: scrolled up, the same check must say the newest message is NOT on screen (the list is lazy, so it
+        // may be gone from the hierarchy altogether, which also counts). This is what shows the check can fail, and it
+        // leaves the chat scrolled away from its end, so the reopen below has to bring it back.
+        for _ in 0..<4 { app.swipeDown(velocity: .fast) }
+        Thread.sleep(forTimeInterval: 1.0)
+        let newest = message(260, in: app)
+        XCTAssertFalse(newest.exists && onScreen(newest, app).0, "scrolled up, the newest message still reads as on screen")
+        let up = XCTAttachment(screenshot: app.screenshot()); up.name = "scrolled up (control)"; up.lifetime = .keepAlways; add(up)
 
         // Every time: back to Agents (the system Back button, found by its identifier, not its place in the bar), the chat
         // gone and the Agents list showing, then Dana's ROW in that list, never one of her bubbles.
