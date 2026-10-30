@@ -55,7 +55,9 @@ function runChild(coordinator, event) {
   // reads it, before happened() runs.
   const script = "const fs = require('fs'); const p = require('path'); const r = require(p.join(p.dirname(process.env.PN), 'remote'));"
     + " fs.mkdirSync(p.dirname(r.FILE), { recursive: true }); fs.writeFileSync(r.FILE, JSON.stringify({ on: true }));"
-    + " const pn = require(process.env.PN); pn.setAvailableForTests(true); pn.happened(JSON.parse(process.env.EVENT));";
+    + " const pn = require(process.env.PN); pn.setAvailableForTests(true); const ev = JSON.parse(process.env.EVENT);"
+    // kosmos#7212 review 7: an event marked _result hears, on stderr, whether the push is settled.
+    + " if (ev._result) ev.onResult = (ok) => process.stderr.write('RESULT:' + ok + '\\n'); pn.happened(ev);";
   return new Promise((resolve) => {
     const started = Date.now();
     let stderr = '';
@@ -181,4 +183,29 @@ test('a coordinator that never answers is given up on after the timeout', async 
     // Giving up destroys the request, which surfaces as a reset, not a refusal.
     assert.match(r.stderr, /could not reach Kosmos\+: ECONNRESET/);
   } finally { c.srv.closeAllConnections(); c.srv.close(); }
+});
+
+/* kosmos#7212 review 7: defaultSend tells an event's onResult whether the push is settled, so a stall push the
+   coordinator never took is taken back and tried again, while one it will refuse again (a 4xx) is not retried. */
+test('#7212 a 2xx or a 4xx settles a push; a 5xx, a 429 or no coordinator at all does not', async () => {
+  const cases = [[204, 'true'], [401, 'true'], [503, 'false'], [429, 'false']];
+  for (const [status, want] of cases) {
+    const c = await coordinator(status);
+    try {
+      const r = await runChild(`http://127.0.0.1:${c.port}`, { ...EVENT, _result: true });
+      assert.equal(c.seen.length, 1, 'CONTROL: the push was sent for ' + status);
+      assert.match(r.stderr, new RegExp('RESULT:' + want + '\\n'), status + ' did not settle as ' + want + ': ' + r.stderr);
+      assert.equal(r.stderr.match(/RESULT:/g).length, 1, 'onResult heard more than once for ' + status);
+    } finally { c.srv.close(); }
+  }
+  const gone = await coordinator(204);
+  const port = gone.port;
+  await new Promise((resolve) => gone.srv.close(resolve));
+  const r = await runChild(`http://127.0.0.1:${port}`, { ...EVENT, _result: true });
+  assert.match(r.stderr, /RESULT:false\n/, 'a coordinator that could not be reached settled the push: ' + r.stderr);
+  const plain = await coordinator(204);
+  try {
+    const p = await runChild(`http://127.0.0.1:${plain.port}`, EVENT);
+    assert.equal(/RESULT:/.test(p.stderr), false, 'CONTROL: a push with no onResult says nothing');
+  } finally { plain.srv.close(); }
 });

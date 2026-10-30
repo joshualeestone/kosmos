@@ -521,7 +521,9 @@ const lastSent = new Map();   // "<cooldownClass>:<key>" -> when it last buzzed
 function routeFor(event) {
   const agentKey = String(event.session || event.agent || '');
   switch (event.kind) {
-    case 'needs_you': return { sw: 'needsYou', cls: 'needs_you', key: agentKey, ms: NEEDS_YOU_COOLDOWN_MS };
+    /* kosmos#7212: a delivery stall (board-side flag `stall`, never in the payload) keeps its own window, so a permission
+       prompt's buzz and a stall's do not swallow each other. How often a stall is told is deliverystreak.pushDue's. */
+    case 'needs_you': return { sw: 'needsYou', cls: event.stall === true ? 'needs_you_stall' : 'needs_you', key: agentKey, ms: NEEDS_YOU_COOLDOWN_MS };
     case 'replied': return { sw: 'replied', cls: null };
     case 'ready': return { sw: 'ready', cls: 'ready', key: agentKey, ms: READY_COOLDOWN_MS };
     case 'posted': return event.namesPerson
@@ -534,7 +536,12 @@ function routeFor(event) {
   }
 }
 
-function defaultSend(url, headers, body) {
+/* kosmos#7212 review 6: `done(ok)`, when given, is told once whether the push is settled, so a caller that counts a push
+   can take it back when a retry could still land it. Review 7: ok is false only for what a retry can fix (no answer, a
+   network error, a timeout, a 5xx or a 429); a 2xx, or a 4xx that will refuse again (a revoked token), is settled. */
+function defaultSend(url, headers, body, done = null) {
+  let said = false;
+  const tell = (ok) => { if (said || typeof done !== 'function') return; said = true; try { done(ok); } catch { /* the caller's */ } };
   const u = new URL(url);
   const req = (u.protocol === 'http:' ? http : https).request(
     { method: 'POST', hostname: u.hostname, port: u.port || undefined, path: u.pathname,
@@ -545,11 +552,13 @@ function defaultSend(url, headers, body) {
       if (res.statusCode < 200 || res.statusCode >= 300) {
         process.stderr.write('phonenotify: Kosmos+ answered ' + res.statusCode + ' to a notification\n');
       }
+      tell(res.statusCode < 500 && res.statusCode !== 429);
       res.resume();
     },
   );
   req.on('error', (err) => {
     process.stderr.write('phonenotify: could not reach Kosmos+: ' + ((err && err.code) || 'error') + '\n');
+    tell(false);
   });
   req.on('timeout', () => { try { req.destroy(); } catch { /* gone */ } });
   req.end(body);
@@ -573,25 +582,27 @@ function levelAllows(event, route) {
 }
 
 /** Tell the coordinator something happened. Never throws, never awaited. Sends
-    only when on, connected, holding a token, and the kind is one we send. */
+    only when on, connected, holding a token, and the kind is one we send. kosmos#7212 review 2: returns true when it
+    handed a notification to the coordinator (whether the coordinator got it is not known here), false otherwise. */
 function happened(event) {
+  let sent = false;   // kosmos#7212 review 2: whether this call handed a notification to the coordinator
   try {
-    if (!available) return;
-    if (!event || !KINDS.has(event.kind)) return;
-    if (noPush()) return;   // #7448: a demo or test install never reaches a phone
+    if (!available) return false;
+    if (!event || !KINDS.has(event.kind)) return false;
+    if (noPush()) return false;   // #7448: a demo or test install never reaches a phone
     const route = routeFor(event);
-    if (!route) return;
-    if (!levelAllows(event, route)) return;   // #7210, before the cooldown so a muted event spends no window
-    if (!sender && process.env.NODE_TEST_CONTEXT) return;
+    if (!route) return false;
+    if (!levelAllows(event, route)) return false;   // #7210, before the cooldown so a muted event spends no window
+    if (!sender && process.env.NODE_TEST_CONTEXT) return false;
     const s = readState();
-    if (!s.on || !s.token || !s.notifyId) return;
-    if (!s.kinds[route.sw]) return;   // #6254: this kind's sub-switch is off
-    if (!plusLive()) return;   // #6488: signed in is not enough; Kosmos+ switched off here sends nothing
+    if (!s.on || !s.token || !s.notifyId) return false;
+    if (!s.kinds[route.sw]) return false;   // #6254: this kind's sub-switch is off
+    if (!plusLive()) return false;   // #6488: signed in is not enough; Kosmos+ switched off here sends nothing
     if (route.cls) {
       const ckey = route.cls + ':' + route.key;
       const now = clock();
       const last = lastSent.get(ckey);
-      if (last !== undefined && now - last < route.ms) return;
+      if (last !== undefined && last <= now && now - last < route.ms) return false;   // kosmos#7212 review 6: a time from the future (a clock that went back) holds nothing
       if (lastSent.size > 500) {
         for (const [k, t] of lastSent) if (now - t >= COOLDOWN_PRUNE_MS) lastSent.delete(k);
       }
@@ -599,7 +610,9 @@ function happened(event) {
     }
     const url = coordinatorUrl(NOTIFY_ROUTE);
     const body = JSON.stringify(payload(s.notifyId, event));
-    (sender || defaultSend)(url, { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body);
+    // kosmos#7212 review 6: an event's onResult (board-side, never in the payload) hears whether Kosmos+ took it.
+    (sender || defaultSend)(url, { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body, typeof event.onResult === 'function' ? event.onResult : null);
+    sent = true;
     // kosmos#6487: a plain lock-screen notice is explained by this line and the phonenotice line after it. The id's
     // kind and the session only, never the words. Written after the send, so a send that throws logs nothing. The
     // phone asks with the id AS SENT (cut to CAPS.id), so judge that one.
@@ -611,6 +624,7 @@ function happened(event) {
     const who = notice.logName(event.session);
     process.stderr.write('phonenotify: sent ' + event.kind + ' (' + notice.idKind(event.id) + ') ref ' + notice.idRef(sentId) + (who ? ' for ' + who : '') + can + '\n');
   } catch { /* a notification is never a reason to fail the report it rides on */ }
+  return sent;
 }
 
 module.exports = { noPush, NO_PUSH_WHY, reportPhoneNotices, PHONE_NOTICES_ROUTE, resetNoticesReportedForTests: () => { noticesReported = null; }, whenNoticesIdle: () => (noticesInFlight || Promise.resolve()).catch(() => {}), setProjectLevel, PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };

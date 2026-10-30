@@ -14,7 +14,9 @@
  * UNCONFIRMED counts because only PLACED is seen to land: a line typed with its Enter swallowed comes back unconfirmed
  * every time, and the report does not say which verdict the stalled agent's lines got.
  *
- * In memory, on the board: a restart starts every streak again (stated in the plan). Never throws.
+ * In memory, on the board: a restart starts every streak again (stated in the plan). kosmos#7212 (#7615 item 1): when
+ * each agent's stall was last pushed to the person is also kept in stall-pushes.json under the data root (tellStalls),
+ * safe to delete (the next stall is then told again). Never throws.
  */
 
 const STALL_MS = 30 * 60 * 1000;
@@ -223,6 +225,119 @@ function sweep(names) {
   for (const k of [...streaks.keys()]) if (!present.has(k)) streaks.delete(k);
 }
 
-function resetForTests() { streaks.clear(); }
+function resetForTests() { streaks.clear(); pushedAt.clear(); takenBack.clear(); lastStallPushAt = null; }   // kosmos#7212: the pushes' in-memory copy too
 
-module.exports = { turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+/* kosmos#7212 (#7615 item 1): the needs-you notification for a card's stall (its deliveryStall: a streak, or a stuck
+   Windows turn), so the person is told away from the board, as a crash loop or a stuck terminal tells them. `card` is
+   the board's card ({ sessionName, name, deliveryStall }). The id is `stall:<day>:<since>:<session>` (or `turn:`): one
+   event per stall per day (review 1 W4), with the session last so a long name cut to fit loses only its own tail
+   (review 2). The phone shows the plain notice for it (phonenotice cannot ask about a stall:/turn: id). `stall: true` is
+   board-side: phonenotify keys its own cooldown on it and never sends it. Null when there is nothing to name. Never
+   throws. */
+function stallEvent(card, now = Date.now()) {
+  try {
+    const session = card && typeof card.sessionName === 'string' && card.sessionName ? card.sessionName : null;
+    const stall = card && card.deliveryStall;
+    if (!session || !stall || typeof stall.since !== 'string') return null;
+    const kind = stall.lastWhy === 'turn' ? 'turn' : 'stall';
+    const since = Date.parse(stall.since);
+    const day = Number.isFinite(since) && now > since ? Math.floor((now - since) / RESAY_MS) : 0;
+    return { kind: 'needs_you', id: kind + ':' + day + ':' + stall.since + ':' + session, agent: (typeof card.name === 'string' && card.name) || session,
+      session, project: null, stall: true };
+  } catch { return null; }
+}
+
+/* kosmos#7212 reviews 1 and 2: the person is told about one agent's stalls at most once per PUSH_GAP_MS, whatever ends
+   and starts them (a board restart, or a stall that ends with one landed line and starts again), and only a push that
+   went out counts (pushTold, after phonenotify.happened says it sent: a phone set up ten minutes later is told then,
+   not a day later). Kept in a small file under the data root, so a restart does not tell again, and in memory too, so
+   a file that cannot be written still holds it to once a day while the board runs. A file that cannot be read, or an
+   entry from the future (a clock that went back), reads as nobody told. Never throws. */
+const PUSH_GAP_MS = RESAY_MS;
+const PUSH_FILE = 'stall-pushes.json';
+const pushedAt = new Map();   // session -> ms, the in-memory copy
+/* Review 5: at least this long between any two stall pushes, whoever they name, so stalls that one cause starts a few
+   minutes apart are not a buzz a minute; the agents due meanwhile wait and the next push names them ("and N more"). */
+const STALL_PUSH_EVERY_MS = 15 * 60 * 1000;
+let lastStallPushAt = null;
+function readPushes(file) {
+  const book = Object.create(null);   // review 2: a session named __proto__ is an entry, not the prototype
+  try {
+    const b = JSON.parse(require('fs').readFileSync(file, 'utf8'));
+    if (b && typeof b === 'object' && !Array.isArray(b)) for (const [k, t] of Object.entries(b)) if (Number.isFinite(t)) book[k] = t;
+  } catch { /* nobody told */ }
+  return book;
+}
+/* `bookOf()` reads the file at most once per sweep (review 3: not once per stalled card per minute). */
+function pushDue(session, now, bookOf) {
+  try {
+    if (typeof session !== 'string' || !session) return false;
+    const fresh = (t) => Number.isFinite(t) && t <= now && now - t < PUSH_GAP_MS;
+    if (fresh(pushedAt.get(session))) return false;
+    return !fresh(bookOf()[session]);
+  } catch { return false; }
+}
+function pushTold(session, now, file) {
+  try {
+    if (typeof session !== 'string' || !session) return;
+    pushedAt.set(session, now);
+    if (typeof file !== 'string' || !file) return;
+    const book = readPushes(file);
+    book[session] = now;
+    for (const k of Object.keys(book)) if (now - book[k] >= 2 * PUSH_GAP_MS || book[k] > now + PUSH_GAP_MS) delete book[k];
+    const fs = require('fs');
+    fs.mkdirSync(require('path').dirname(file), { recursive: true });
+    require('./store').saveFlushed(file, JSON.stringify(book) + '\n');
+  } catch { /* the in-memory copy still holds it */ }
+}
+/* The board's minute sweep, over its whole roster: tell the person about the cards carrying a stall (deliveryStall, the
+   field the card's "Messages stuck" reads) whose agents are due. Review 4: ONE push per sweep, whatever the count, so a
+   cause many agents share (one signed-out account, say) is one buzz, naming the first and how many more; every agent it
+   covers counts as told. `send` is phonenotify.happened (true when it sent); nothing counts when it did not. Never
+   throws. */
+/* Review 6: the name and its " and N more" fit phonenotify's 80-byte agent field together, so the count is never cut. */
+const AGENT_BYTES = 80;
+function withMore(name, more) {
+  const suffix = more > 0 ? ' and ' + more + ' more' : '';
+  let head = String(name || '');
+  while (head && Buffer.byteLength(head + suffix) > AGENT_BYTES) head = Array.from(head).slice(0, -1).join('');
+  return head + suffix;
+}
+/* Review 6: a push that never reached Kosmos+ is taken back, so its agents are told at the next push, not a day later.
+   Review 8: bounded, because a coordinator can deliver and still answer late or with a 5xx: each agent is taken back at
+   most once a day (so at most two tries a day), and the 15-minute gap still holds after a failure. */
+const takenBack = new Map();   // session -> when it was last taken back
+function untold(sessions, at, file) {
+  try {
+    sessions = sessions.filter((s) => { const t = takenBack.get(s); return !(Number.isFinite(t) && t <= at && at - t < PUSH_GAP_MS); });
+    for (const s of sessions) takenBack.set(s, at);
+    for (const s of sessions) if (pushedAt.get(s) === at) pushedAt.delete(s);
+    if (typeof file !== 'string' || !file) return;
+    const book = readPushes(file);
+    let changed = false;
+    for (const s of sessions) if (book[s] === at) { delete book[s]; changed = true; }
+    if (changed) require('./store').saveFlushed(file, JSON.stringify(book) + '\n');
+  } catch { /* the in-memory copy is already taken back */ }
+}
+function tellStalls(cards, { now = Date.now(), file, send }) {
+  try {
+    let book = null;
+    const bookOf = () => book || (book = typeof file === 'string' && file ? readPushes(file) : Object.create(null));
+    const due = [];
+    for (const c of cards || []) {
+      try {
+        /* Review 6: a card in a crash loop is said by the crash-loop push (server.js), not again here. */
+        if (!c || !c.deliveryStall || (c.crashLoop && c.crashLoop.looping === true)) continue;
+        const ev = stallEvent(c, now);
+        if (ev && pushDue(ev.session, now, bookOf) && !due.some((d) => d.session === ev.session)) due.push(ev);
+      } catch { /* the next card is still looked at */ }
+    }
+    if (!due.length) return;
+    if (Number.isFinite(lastStallPushAt) && lastStallPushAt <= now && now - lastStallPushAt < STALL_PUSH_EVERY_MS) return;
+    const sessions = due.map((d) => d.session);
+    const ev = { ...due[0], agent: withMore(due[0].agent, due.length - 1), onResult: (ok) => { if (ok === false) untold(sessions, now, file); } };
+    if (send(ev) === true) { lastStallPushAt = now; for (const s of sessions) pushTold(s, now, file); }
+  } catch { /* told next minute */ }
+}
+
+module.exports = { stallEvent, tellStalls, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
