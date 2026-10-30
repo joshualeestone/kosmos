@@ -178,12 +178,20 @@ async function switchOn(ticket, accepted, opts = {}) {
     await endUnbound(opts, (d && d.org.id) || (open && open.org) || null);
     return { ok: false, declined: true, because: 'Not accepted, so nothing was turned on.' };
   }
+  /* Code review 2 NIT: claimed synchronously, so two switchOn calls on one ticket (a double press) cannot both enroll;
+     the second is told it is under way. Released in every outcome below. */
+  if (typeof ticket === 'string' && CLAIMED.has(ticket)) return { ok: false, code: 'busy', because: 'Personal backup is already being turned on. Wait a moment.' };
   const t = peek(ticket, now);
   if (!t) {
     const open = readPreview(opts);
     if (open) await endUnbound(opts, open.org);
     return { ok: false, code: 'ticket', because: 'These words were shown too long ago. Open personal backup again to read them.' };
   }
+  CLAIMED.add(ticket);
+  try { return await bindAndKey(ticket, t, opts); } finally { CLAIMED.delete(ticket); }
+}
+const CLAIMED = new Set();
+async function bindAndKey(ticket, t, opts) {
   const oe = opts.orgenroll || require('./orgenroll');
   // A fresh switch-on runs the key step again (warning 4): no marker from an earlier membership carries over.
   try { fs.rmSync(path.join(root(opts), KEY_READY), { force: true }); } catch { /* state() compares it anyway */ }
@@ -310,7 +318,15 @@ let TIMER = null;
 /** Started once by the board: on start, then every two minutes, only while this root holds a record or a pending step. */
 function startFollowUp(opts = {}) {
   if (TIMER) return;
-  const run = () => { followUp(opts).catch(() => {}); };
+  /* Code review 2 NITs: it sends to Kosmos+, so it waits for live execution as orgEnrollRefresh does (#5670), and one
+     pass at a time (a slow Kosmos+ must not stack passes every two minutes). */
+  let running = false;
+  const run = () => {
+    if (running) return;
+    try { if (!require('./live-execution').liveExecutionAllowed()) return; } catch { return; }
+    running = true;
+    followUp(opts).catch(() => {}).finally(() => { running = false; });
+  };
   setTimeout(run, 5000).unref();
   TIMER = setInterval(run, 2 * 60 * 1000); TIMER.unref();
 }

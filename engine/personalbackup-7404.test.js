@@ -471,3 +471,16 @@ test('#7404 warning 6: a world id with no record and nothing pending sends nothi
   await pb.followUp({ root, remote: c });
   assert.equal(STATUS_N(c) > 0, true, 'CONTROL: a pending join is followed up, so the test can see a read');
 });
+
+/* Code review 2 NIT: a double press on one ticket enrolls once; the second is told it is under way. */
+test('#7404: two switchOn calls on one ticket send one enroll', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  const [a, b] = await Promise.all([
+    pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK }),
+    pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK }),
+  ]);
+  assert.equal(c.sent.filter((x) => x.route === oe.ROUTES.enroll).length, 1, 'one enroll');
+  assert.deepEqual([a.ok, b.code], [true, 'busy']);
+});
