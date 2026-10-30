@@ -1629,6 +1629,8 @@ check(attachSrc.contains("case .notAllowed: if let url = URL(string: UIApplicati
       && attachSrc.contains("AVCaptureDevice.requestAccess(for: .video) { granted in"),
       "kosmos#7596 review 1 and 2: a camera Kosmos may not use opens Settings, and one not yet asked about asks before it opens")
 check(attachSrc.contains(".accessibilityHidden(true)   // the name beside it says it once"), "kosmos#7596 review 1: VoiceOver reads each choice once")
+check(attachSrc.contains("context.coordinator.done = done") && attachSrc.contains("Text(note).font(.footnote).foregroundColor(Palette.secondary) }"),
+      "kosmos#7596 review 4: the camera hands its photo to the screen as it is now, and a row's reason is never dimmed")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
