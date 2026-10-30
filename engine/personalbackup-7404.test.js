@@ -545,6 +545,7 @@ test('#7404 review 3 warning 3: the follow-up ends nothing while a switch-on is 
   const root = fresh(t);
   let release;
   const gate = new Promise((res) => { release = res; });
+  t.after(() => release());   // a red assertion must not leave orgenroll's queue held for the tests after it
   const c = coordinator();
   const p = await pb.preview({ root, remote: c });
   const real = c.macRequest;
