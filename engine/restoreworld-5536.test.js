@@ -1036,6 +1036,7 @@ test('a restored project\'s git settings that run or load something are named be
   put('shared/.git/commondir', '../../elsewhere\n');
   put('shared/.git/config', '[core]\n');
   put('many/.git/config', '[alias]\n' + Array.from({ length: 25 }, (_, i) => `\ta${i} = x\n`).join(''));
+  put('hidden/.git/config', '[foo]\n' + Array.from({ length: 20 }, (_, i) => `\ta${i} = x\n`).join('') + '[core]\n\tsshCommand = x\n');
   const l = rw.listRestoredAgents({ base, world: p.world, nameOk });
   const runs = Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
   const set = (label) => runs[label].filter((r) => / sets /.test(r));
@@ -1048,7 +1049,8 @@ test('a restored project\'s git settings that run or load something are named be
   assert.ok(runs.pointed.includes('.git is not a folder, so its git settings were not checked'));
   assert.ok(runs.shared.includes('.git/commondir moves its git settings elsewhere, so they were not checked'));
   assert.equal(set('many').length, 21);
-  assert.equal(set('many')[20], '.git/config sets 5 more git settings');
+  assert.equal(set('many')[20], '.git/config sets 5 more git settings (in alias)');
+  assert.equal(set('hidden')[20], '.git/config sets 1 more git settings (in core)', 'a key past the cap still names its section');
 });
 
 test('a git key keeps its name in view whatever its subsection; link, oversized and over-budget configs read as not checked', (t) => {

@@ -92,3 +92,13 @@ runs or loads something once the agent's git reaches it. The review screen must 
   env-cleaning test.
 - Tests 63/63; the three guard files 20/20. Mutations (isAbsent always true; --includes for --no-includes) each red
   (62/1); restored.
+
+## Review round 6 (sonnet): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 5 NIT
+- FIXED (raised in rounds 4, 5 and 6): past the 20-key cap the count line now names the sections of the keys it
+  did not show (`sets 1 more git settings (in core)`), so twenty harmless keys first cannot hide a core.sshCommand.
+- NOT A DEFECT: the workers top reads no settings, but a .git there refuses every agent (gitAbove), so nothing it
+  could hold is enabled.
+- DEFERRED: tests for git missing, hanging and ENOBUFS (each fails toward "not checked"); a GIT_* stripping test;
+  os.devNull on Windows (a refusal there fails closed; Homer's to measure with #7593); the budget message not saying
+  time or count; a bare-layout project's modules folder named (fails closed).
+- Tests 63/63; guard files 20/20. Mutation (section naming removed) red (62/1); restored.

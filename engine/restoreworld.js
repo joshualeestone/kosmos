@@ -623,7 +623,11 @@ function gitSettingsOf(file, shown, budget) {
   if (r.error || r.status !== 0) return [`${shown} (its git settings could not be checked)`];
   const keys = [...new Set(r.stdout.split('\0').filter(Boolean))].filter((k) => !GIT_PLAIN_KEYS.has(plainKeyOf(k)));
   const out = keys.slice(0, MAX_GIT_KEYS_SHOWN).map((k) => `${shown} sets ${keyLabelOf(k)}`);
-  if (keys.length > MAX_GIT_KEYS_SHOWN) out.push(`${shown} sets ${keys.length - MAX_GIT_KEYS_SHOWN} more git settings`);
+  // Past the cap the sections are still named, so twenty harmless keys first cannot hide a core.sshCommand.
+  const rest = [...new Set(keys.slice(MAX_GIT_KEYS_SHOWN).map((k) => k.slice(0, k.indexOf('.')).toLowerCase()))];
+  const sections = rest.slice(0, MAX_GIT_KEYS_SHOWN).map((x) => cleanText(x, MAX_KEY_PART_CHARS, '(a name that cannot be shown)'));
+  if (rest.length > MAX_GIT_KEYS_SHOWN) sections.push('others');
+  if (keys.length > MAX_GIT_KEYS_SHOWN) out.push(`${shown} sets ${keys.length - MAX_GIT_KEYS_SHOWN} more git settings (in ${sections.join(', ')})`);
   return out;
 }
 /* A key as shown: its section, subsection and name each cleaned and cut on its own, so a long subsection cannot push
