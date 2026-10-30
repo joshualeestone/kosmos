@@ -868,7 +868,7 @@ struct ChatView: View {
             lines.append(reading("0.6 s"))
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
                 lines.append(reading("1.5 s"))
-                guard client.chatEpoch == epoch else { return }
+                guard client.chatEpoch == epoch, visible else { return }   // review 12: nor for a chat left meanwhile
                 diagReport = lines.joined(separator: "\n")
                 announceDiag()
             }
