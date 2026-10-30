@@ -880,6 +880,14 @@
       "shownIn": "0.7.71"
     },
     {
+      "title": "Room posts reach only who they are for",
+      "line": "When an agent posts in a project room, only the agents it is for are asked to answer; the others can still read it there.",
+      "icon": "chat",
+      "rank": 25,
+      "since": "0.7.73",
+      "status": "pending"
+    },
+    {
       "title": "A Meta agent out of quota says so",
       "line": "When Meta's usage quota stops a Meta agent, Kosmos now says so in Meta's words, and when it resets, instead of only that it could not run.",
       "icon": "shield",
