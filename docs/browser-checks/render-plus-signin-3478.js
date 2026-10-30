@@ -44,7 +44,8 @@ function chk(ok, label, extra) {
   if (!ok) fail.push(label);
 }
 
-const UNENROLLED = { configured: true, on: false, ok: true, enrolled: false, email: '', status: {} };
+// kosmos#7598: signupUrl is the account-only sign-up the code step's "Create an account" opens.
+const UNENROLLED = { configured: true, on: false, ok: true, enrolled: false, email: '', status: {}, signupUrl: 'https://coordinator.kosmos.invalid/signup' };
 
 // The three signin-verify branches, each a path -> mock response map. Every step
 // returns { ok:true, stage } plus whatever fields the wizard renders for that stage.
@@ -365,8 +366,12 @@ const visible = (page, sel) => page.evaluate((s) => {
             const site = document.getElementById('plus-site-link');
             return { shown: !!l && l.textContent.trim() !== '', text: l ? l.textContent.replace(/\s+/g, ' ').trim() : '', join: j ? j.href : null,
               site: site ? site.href : null, page: location.href.split('#')[0] }; });
-          chk(late.shown && /Check the address above/.test(late.text) && !!late.join && late.join === late.site && late.join.split('#')[0] !== late.page,
+          chk(late.shown && /Check the address above/.test(late.text) && !!late.join && late.join.split('#')[0] !== late.page,
             `[${key}] #6313 after a minute with nothing typed, the step says to check the address and offers to create an account`, JSON.stringify(late));
+          // kosmos#7598: the account-only sign-up, not the pricing page, and a company member is told not to pay.
+          chk(late.join === UNENROLLED.signupUrl && late.join !== late.site
+            && /Joining your company\? Create the account and stop before paying: your company’s plan already covers you\./.test(late.text),
+            `[${key}] #7598 "Create an account" opens the account-only sign-up (not the pricing page) and says a company member stops before paying`, JSON.stringify(late));
           await page.fill('#plus-si-code-in', '4');
           chk(await page.evaluate(() => document.getElementById('plus-si-code-late').textContent.trim() === ''), `[${key}] #6313 typing the code takes the "nothing yet" line away`, 'still shown while typing');
           await page.fill('#plus-si-code-in', '');
