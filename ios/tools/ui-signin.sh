@@ -2,7 +2,7 @@
 # kosmos#7559: a real iPhone sign-in, typed on a fresh simulator by the KosmosUITests target, so a phone sign-in can be
 # measured on a Mac with no Simulator window (Agent1s has none). Prints PASS, or FAIL with the step that failed.
 #
-#   ios/tools/ui-signin.sh --email <address> --totp <secrets-map target> [--code-cmd <path>] [--keep]
+#   ios/tools/ui-signin.sh --email <address> --totp <secrets-map target> [--code-cmd <path>] [--keep] [--new-project]
 #
 # The account is a TEST account, never a person's: its address, and its authenticator's otpauth URL read from the
 # secrets map (secrets-map.sh value <target>). The address goes to the test as TEST_RUNNER_ environment; the URL only as
@@ -12,16 +12,19 @@
 # runner says where to put the code by hand, and the test waits for it (four minutes).
 # The simulator is new for each run (an empty keychain, as a new phone) and is deleted at the end; so are the build and
 # the test results, which can hold the environment (--keep keeps them, for a failure to be looked at).
+# --new-project (kosmos#7489) goes on past the board: + on Projects, a name, Create, and the new room must open. It
+# makes a real project on the test account, named "UI test <seconds>".
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
-email="" totp_target="" code_cmd="${KOSMOS_SIGNIN_CODE_CMD:-$HOME/.local/bin/kosmos-signin-code}" keep=0
+email="" totp_target="" code_cmd="${KOSMOS_SIGNIN_CODE_CMD:-$HOME/.local/bin/kosmos-signin-code}" keep=0 newproject=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --email) email="${2:-}"; shift 2 ;;
     --totp) totp_target="${2:-}"; shift 2 ;;
     --code-cmd) code_cmd="${2:-}"; shift 2 ;;
     --keep) keep=1; shift ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    --new-project) newproject=1; shift ;;
+    -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
     *) echo "ui-signin: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -78,13 +81,13 @@ else
   echo "ui-signin: no code fetcher at $code_cmd; when the code is emailed, put its six digits in $codefile (4 minutes)" >&2
 fi
 
-( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_EMAIL="$email" TEST_RUNNER_KOSMOS_UI_TOTP_FILE="$totpfile" TEST_RUNNER_KOSMOS_UI_CODE_FILE="$codefile" \
+( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_EMAIL="$email" TEST_RUNNER_KOSMOS_UI_TOTP_FILE="$totpfile" TEST_RUNNER_KOSMOS_UI_CODE_FILE="$codefile" TEST_RUNNER_KOSMOS_UI_NEWPROJECT="$newproject" \
   xcodebuild test-without-building -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
     -only-testing:KosmosUITests/SignInUITests/testSignInReachesTheBoard \
     -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
 rc=$?
 if [ "$rc" -eq 0 ] && grep -q "Test Case .*testSignInReachesTheBoard.* passed" "$log"; then
-  echo "PASS  ui-signin: $email signed in on a fresh simulator and the board loaded"
+  echo "PASS  ui-signin: $email signed in on a fresh simulator and the board loaded$( [ "$newproject" = 1 ] && echo ", and + on Projects made a project and opened its room")"
   exit 0
 fi
 # The first failing step's own words (the test names each step), never the environment.

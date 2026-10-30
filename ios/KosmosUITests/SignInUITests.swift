@@ -92,6 +92,31 @@ final class SignInUITests: XCTestCase {
             XCTAssertTrue(boardAnswered(), "the app is past sign-in but the board did not answer within 120 s (no agents list, no \"No agents yet\" on Agents)" + (continued ? ", after \"Continue to the app\" was taken" : ""))
             XCTAssertFalse(app.staticTexts["One more step"].exists)
         }
+
+        // kosmos#7489: with KOSMOS_UI_NEWPROJECT=1 (ui-signin.sh --new-project), the run goes on to make a project the way
+        // Josh did: + on Projects, a name, Create. It must open the new project's room, not hang on a page. It makes a
+        // real project on the test account, named so it is plainly a test.
+        guard env["KOSMOS_UI_NEWPROJECT"] == "1" else { return }
+        let name = "UI test " + String(Int(Date().timeIntervalSince1970))
+        step("new project") {
+            let projectsTab = app.tabBars.buttons["Projects"]
+            XCTAssertTrue(projectsTab.waitForExistence(timeout: 10), "no Projects tab")
+            projectsTab.tap()
+            let plus = app.buttons["Add project"]
+            XCTAssertTrue(plus.waitForExistence(timeout: 30), "the Projects list did not show its +")
+            plus.tap()
+            // The native form, not the board's web page: its title and its Name field show at once.
+            XCTAssertTrue(app.navigationBars["New project"].waitForExistence(timeout: 10), "+ did not open the New project form")
+            let field = app.textFields["Name"]
+            XCTAssertTrue(field.waitForExistence(timeout: 5), "the form has no Name field")
+            field.tap()
+            field.typeText(name)
+            app.buttons["Create"].tap()
+            // The new project's room: its name at the top and the room's own + for files.
+            let room = app.buttons["Add a file to this conversation"]
+            XCTAssertTrue(room.waitForExistence(timeout: 60), "Create did not open the new project's room within 60 s")
+            XCTAssertTrue(app.staticTexts[name].exists || app.navigationBars[name].exists, "the room that opened is not \(name)")
+        }
     }
 
     /// Runs one named step, so a failure says which one and leaves a screenshot of it in the result.
