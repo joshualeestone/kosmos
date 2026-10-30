@@ -78,3 +78,10 @@ longer, that agent is booked as unconfirmed and its line may still land later: o
   Decided, not changed: the hour cap and the communityready prune list are read once a pass (bounded to the second
   agent); paneBusyVerdict's catch can only swallow a throw deliver's own resolveCard raises first; the hour-log entry is
   stamped at send start (at most the 3-minute deadline early); the one-pass flag is pinned by source text.
+- Round 6 (Sonnet, whole branch, nothing settled): no BLOCKER and nothing new; converged. It confirmed no lasting stop,
+  no double prompt (paneBusy and deliverAsync's queue entry are set in one synchronous turn), the hour log intact, and
+  tickOnce, due()'s callers and chat.deliver's callers unchanged. Its warnings are the deadline overcount (decided in
+  rounds 1 and 4) and the once-a-pass hour cap (rounds 4 and 5), plus one hypothetical: agent 0 is judged on begin's
+  read, which holds while begin has no await. Nits left: a gate-off break or failed re-check leaves the remaining
+  agents' communityready record at its older result; the one-pass flag and the two hooks are pinned by source text,
+  their behaviour covered in engine/communityturn.test.js.
