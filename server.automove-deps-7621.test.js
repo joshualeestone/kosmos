@@ -2,8 +2,9 @@
 
 /**
  * kosmos#7621 item 1: the live mover's REAL wiring is run, not only matched as source text. The board's own deps
- * (server.js automoveDeps, exported as _automoveDepsForTest) are built in a sandboxed board, each answers in the shape
- * engine/automove.js reads, and a real tick through them runs to its end with moves on.
+ * (server.js automoveDeps, exported as _automoveDepsForTest) are built in a sandboxed board, and each answers in the
+ * shape engine/automove.js reads. A real tick through them is run too, but on a board with fewer than two accounts it
+ * stops at its first check (review 2): it shows the wiring loads and is inert, not that a move goes through it.
  *
  *   node --test server.automove-deps-7621.test.js
  */
@@ -49,7 +50,7 @@ test('kosmos#7621 item 1: every dep the mover reads is on the board\'s wiring, a
   assert.deepEqual(shared.agentsOn('/a', false).names, ['x'], 'the mover did not use the tick\'s sweep deps');
 });
 
-test('kosmos#7621 item 1: a real tick through the board\'s wiring runs to its end, off and on', async () => {
+test('kosmos#7621 item 1: a real tick through the board\'s wiring answers off with moves off, and nothing on a board with fewer than two accounts', async () => {
   const file = path.join(SANDBOX, 'record.jsonl');
   const run = automove.create({ file });
   assert.equal((await run.tick(server._automoveDepsForTest())).did, 'off', 'a tick with moves off did something');

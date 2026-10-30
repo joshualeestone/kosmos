@@ -185,7 +185,9 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
      ("could not work out"), not every agent "not idle". */
   const g = guideName();
   const guide = typeof g === 'string' && g ? g.trim().toLowerCase() : null;
-  const cannot = (why) => { if (strict) throw new Error(why); return false; };
+  /* kosmos#7621 review 2: every one of these is about this agent alone, so the error says so (perAgent); a roster or the
+     projects that could not be read at all throw elsewhere, as everyone's. */
+  const cannot = (why) => { if (strict) throw Object.assign(new Error(why), { perAgent: true }); return false; };
   return (session) => {
     const c = bySession.get(session);
     if (!c) return cannot('the agent is not on the roster');

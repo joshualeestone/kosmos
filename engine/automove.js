@@ -260,7 +260,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       const to = m.toLabel || 'another account';
       try {
         deps.tell(m.agent, outcome === 'partial'
-          ? `Kosmos saved ${to} for this agent but could not start it again, so it moves there at its next restart.`
+          ? `Kosmos saved ${to} for this agent but did not see it restart there. Settings, AI Models shows which account it is on.`   // review 2: a late restart or a stop can be partial too
           : `Kosmos tried to move this agent to ${to} and could not tell whether it went through. Settings, AI Models shows which account it is on.`);
       } catch { /* telling is best-effort; the record has it */ }
     }
@@ -288,8 +288,8 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
      Settings read's (server.js), so the page never names a target the mover would not use. */
   const skipTarget = (nowMs = Date.now()) => (dir) => (state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS)
     || state.watching.some((w) => w.to === dir);
-  /* Rules 7 and 8, and the refusal holds: an agent the mover leaves alone now. Also Settings' (review round 7), so a move
-     line never says Kosmos will move an agent it is leaving; a person's move made since the last tick is read at the next. */
+  /* Rules 7 and 8, the refusal holds and (kosmos#7621) the re-check set-aside: an agent the mover leaves alone now.
+     Settings asks through leftAlone below, which reads a person's move made since the last tick first. */
   const passedOverAt = (nowMs = Date.now()) => (agent) => {
     /* kosmos#7621 review 1: an agent set aside after a re-check that could not be made (item 8), so Settings says so too. */
     if (state.recheckFailed.has(agent) && nowMs - state.recheckFailed.get(agent) < RECHECK_HOLD_MS) return true;
@@ -347,9 +347,11 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     let stillFree;
     try { stillFree = ab.movableFor(movableArgs(deps.freshRoster(), deps.freshRecords, true))(m.agent); }
     catch (err) {
-      /* Review 1: only a re-check that failed for THIS agent (it is not on the fresh roster) sets it aside; a roster or a
-         project that could not be read at all is every agent's, so it holds nobody. */
-      if (err && err.message === 'the agent is not on the roster') state.recheckFailed.set(m.agent, nowMs);
+      /* Reviews 1 and 2: only a re-check that failed for THIS agent (autobalance.movableFor marks it perAgent: not on the
+         fresh roster, its box, the guide check or its commitments unreadable) sets it aside; a roster or a project that
+         could not be read at all is every agent's, so it holds nobody. */
+      if (err && err.perAgent === true) state.recheckFailed.set(m.agent, nowMs);
+      for (const [a, t] of state.recheckFailed) if (nowMs - t >= RECHECK_HOLD_MS) state.recheckFailed.delete(a);   // pruned, as skippedAt is
       return { did: 'unreadable', because: `the re-check: ${String((err && err.message) || err)}` }; }
     state.recheckFailed.delete(m.agent);   // review 1: a re-check that could be made ends the hold
     if (stillFree !== true) {

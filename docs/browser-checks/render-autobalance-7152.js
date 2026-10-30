@@ -83,13 +83,13 @@ const CASES = {
   /* Review round 6: a moving board waiting for its record, and a moving board's move lines (a usage move, and one off a
      stopped login, which the mover leaves). */
   movingPaused: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, moving: true, movePaused: 'record', recent: [] } },
-  /* kosmos#7621 item 6: waiting for its record, with a move it would make, in the shape the route sends. */
   /* kosmos#7621 review 1: a held account whose login stopped, while moving: the mover leaves it to the person. */
   movingHeldLogin: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [{ from: '/home/.claude-full', why: 'its login has stopped working' }], short: [], recording: true, moving: true, recent: [],
     atRisk: [{ from: '/home/.claude-full', why: 'its login has stopped working', kind: 'login' }] } },
   /* kosmos#7621 item 3: a moving board with nowhere it can use. */
   movingHeld: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [{ from: '/home/.claude-full', why: WHY }], short: [], recording: true, moving: true, recent: [],
     atRisk: [{ from: '/home/.claude-full', why: WHY, kind: 'usage' }] } },
+  /* kosmos#7621 item 6: waiting for its record, with a move it would make, in the shape the route sends. */
   movingPausedMoves: { accounts: TWO, autobalance: { on: true, eligible: 2, held: [], short: [], recording: true, moving: true, movePaused: 'record', recent: [],
     moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY }],
     atRisk: [{ from: '/home/.claude-full', why: WHY, kind: 'usage' }] } },
@@ -276,7 +276,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         /^At 11:55\sAM, Kosmos did not move <b>Bo<\/b>, because it was no longer idle\.$/,
         /^At 11:54\sAM, Kosmos tried to move Ada to Spare, and the move was refused, so it stays on Work\.$/,
         /^At 11:53\sAM, Kosmos tried to move Ada to Spare and could not tell whether it went through\. Check which account it is on above\.$/,
-        /^At 11:52\sAM, Kosmos saved Spare for Ada but could not start it again, so it stays on Work until it restarts\.$/,
+        /^At 11:52\sAM, Kosmos saved Spare for Ada but did not see it restart there\. Check which account it is on above\.$/,
         /^At 11:51\sAM, the move of Ada to Spare was stopped\. Check which account it is on above\.$/,
         new RegExp('^At 11:50\\sAM, Kosmos moved Ada from Work to Old, because ' + WHY + '\\.$')];
       say(mv && mv.length === wantMv.length && wantMv.every((re, i) => re.test(mv[i])), tag + ' the mover: each line said once, newest first, with moves on', JSON.stringify(mv));

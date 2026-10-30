@@ -35,3 +35,10 @@ while moves are off. Items as numbered on the card.
   not be made). Only a re-check that failed for that agent (not on the fresh roster) sets it aside; a roster or project
   that could not be read at all holds nobody; a re-check that works ends the hold. While moving, a held account whose
   login stopped is left to the person, not "Kosmos would move". leftAlone ignores a waiting person line from the future.
+- Round 2 (Opus, whole branch): no BLOCKER. Every per-agent failure of the strict re-check (not on the roster, its box,
+  the guide check, its commitments) carries perAgent, and the set-aside keys on that, not on one message's words; old
+  set-asides are pruned. A partial move no longer claims the agent stays put: the thread and Settings both say Kosmos
+  did not see it restart there and to check which account it is on (a late restart or a stop can be partial too). The
+  stopped case's test is strict again (no message at all); a partial is told exactly once. The real-wiring tick test
+  says what it shows (it stops at the fewer-than-two-accounts check). Settings checks "leaves it alone" before the
+  record pause. Three comments corrected.

@@ -216,7 +216,12 @@ test('#7548: no move while another account move runs; refused, partial and stopp
     const { d: dx, calls: cx } = deps({ moveOutcome: outcome });
     await twoTicks(automove.create({ file: f }), dx);
     assert.equal(lines(f).pop().outcome, outcome, `a ${outcome} move was recorded as something else`);
-    assert.deepEqual(cx.tells.filter(([, t]) => /^Kosmos moved this agent/.test(t)), [], `an agent whose move was ${outcome} was told it moved`);   // kosmos#7621 item 4: a partial is told, as partial
+    /* kosmos#7621 item 4 and review 2: a stopped move tells nothing; a partial one is told once, never as moved. */
+    if (outcome === 'stopped') assert.deepEqual(cx.tells, [], `an agent whose move was ${outcome} was told something`);
+    else {
+      assert.equal(cx.tells.length, 1, `an agent whose move was ${outcome} was not told exactly once`);
+      assert.doesNotMatch(cx.tells[0][1], /^Kosmos moved this agent/, `an agent whose move was ${outcome} was told it moved`);
+    }
   }
 });
 
@@ -967,7 +972,7 @@ test('kosmos#7621 item 4: a partial or unknown move tells the agent\'s thread wh
   const p = automove.create({ file: fileFor() });
   const { d: dp, calls: cp } = deps({ moveOutcome: 'partial' });
   await twoTicks(p, dp);
-  assert.deepEqual(cp.tells.map(([a, t]) => [a, /^Kosmos saved spare for this agent but could not start it again/.test(t)]), [['ada', true]], 'a partial move told nothing');
+  assert.deepEqual(cp.tells.map(([a, t]) => [a, /^Kosmos saved spare for this agent but did not see it restart there/.test(t)]), [['ada', true]], 'a partial move told nothing');
   const u = automove.create({ file: fileFor() });
   const { d: du, calls: cu } = deps();
   du.readMove = () => { throw new Error('unreadable'); };
@@ -1031,4 +1036,18 @@ test('kosmos#7621 review 1: the set-aside shows in Settings, holds only the agen
   assert.equal(r2.state.recheckFailed.has('ada'), false, 'a re-check that worked did not end the hold');
   assert.ok(calls.starts.length >= 1, 'CONTROL: a move went ahead');
   async function run2(r, d) { await r.tick(d, NOW + 3000); await r.tick(d, NOW + 4000); }
+});
+
+test('kosmos#7621 review 2: any re-check that fails for one agent alone (its box unreadable) sets it aside, not only a missing one', async () => {
+  const cards = realCards(['ada'], ['bo']);
+  const isAda = (c) => c.name === 'ada' || c.sessionName === 'ada';
+  const fresh = () => cards.map((c) => (isAda(c) ? Object.defineProperty({ ...c }, 'unsentInput', { get() { throw new Error('the box could not be read'); } }) : c));
+  const run = automove.create({ file: fileFor() });
+  const { d, calls } = deps({ cards, names: ['ada', 'bo'], freshRoster: fresh });
+  await run.tick(d, NOW);
+  const r2 = await run.tick(d, NOW + 1000);
+  assert.equal(r2.did, 'unreadable', 'CONTROL: ada\'s re-check could not be made');
+  assert.equal(run.state.recheckFailed.has('ada'), true, 'an agent whose box could not be read was not set aside');
+  await run.tick(d, NOW + 2000);
+  assert.deepEqual(calls.starts.map((s) => s.names[0]), ['bo'], 'one agent with an unreadable box blocked every move');
 });

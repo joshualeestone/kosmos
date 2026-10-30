@@ -13747,8 +13747,8 @@ const server = http.createServer(async (req, res) => {
               let skipTarget = null;
               try { skipTarget = automoveRun && automove.movesOn() ? automoveRun.skipTarget(sentAt) : null; } catch { skipTarget = null; }
               decision = ab.decide({ rows: claude, movable, nowMs: sentAt, ...(skipTarget ? { skipTarget } : {}) });
-              /* Review round 7: an agent the mover leaves alone now (moved or refused lately) is marked, so the page does not
-                 say Kosmos will move it. */
+              /* Review round 7: an agent the mover leaves alone now (moved by a person or by Kosmos, refused, or set aside after a
+                 re-check that could not be made: kosmos#7621) is marked, so the page does not say Kosmos will move it. */
               if (skipTarget) {
                 try { const left = automoveRun.leftAlone(sentAt); decision.moves = decision.moves.map((m) => (left(m.agent) ? { ...m, leaving: true } : m)); }
                 catch { /* the lines stay as decide() made them */ }
