@@ -5243,8 +5243,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      (--k-side-2, the .me treatment), full column width with no radius or
      float-gap, so the agents column reads as ONE column with the person
      pinned at its foot and the rule running unbroken down its edge. */
-  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 44
-     (since #6722; 43 before) is the body grid's last track, sized by this element, so while the grid
+  /* The pin is STRUCTURAL, AND ITS SCOPE IS THE VIEWPORT IT FITS IN: row 45
+     (since kosmos#7614; 44 since #6722, 43 before) is the body grid's last track, sized by this element, so while the grid
      fits 100vh the strip sits at the viewport foot by construction.
      ⚠️ THAT IS NO LONGER "ALWAYS", and the qualifier is not decoration. The
      body is `overflow-y: auto` with a `minmax(200px, 1fr)` floor on the list
@@ -5998,7 +5998,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      against #rail-agents, traced to #pj-list-view's own top padding
      (shared with #alist at :1995, which needs it; the projects rail
      does not, since #panel-projects already zeroes its own top padding
-     to sit flush with row 42, the first rail row since #6722). */
+     to sit flush with row 43, the first rail row since kosmos#7614; 42 since #6722). */
   html[data-layout="consolidated"] body.consolidated #pj-list-view { grid-column: 1; padding-top: 0; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > :not(#pj-list-view) { grid-column: 2; }
   /* #3126 (Josh, 6.68): tighter spacing between projects (was gap 8px). */
@@ -77247,6 +77247,9 @@ function msgMenuOpen(row, x, y, dots) {
 }
 /* Which clicks open it. Not on a link, a button, a field or a picture (their own menus stay), and not while
    text is selected (the browser's Copy is what a person wants then). */
+/* kosmos#7614: a right-click or ctrl-click opens the menu only on a row with something to copy, so a person's own row
+   with nothing copyable (an attachment-only post with no names) offers Delete through "..." alone, which always opens
+   it for one's own message (msgMenuOpen's hasDel). */
 function msgMenuRowFor(e) {
   const t = e.target;
   if (!t || !t.closest) return null;

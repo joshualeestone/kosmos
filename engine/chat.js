@@ -5312,7 +5312,9 @@ async function deleteDirectAsync(agent, at, roster) {
     const inFlight = [];
     for (const e of kept) {
       if (limitqueue.claim(e.id)) { limitqueue.settle(name, e.id); limitqueue.release(e.id); }
-      else { limitqueue.settle(name, e.id); inFlight.push(e.id); given = true; }   // being typed this moment
+      // Being typed this moment, or held by a claim gone stale (CLAIM_STALE_MS): counted as given either way; the cost of
+      // the stale case is one "withdrawn" line about a message the agent may never have seen.
+      else { limitqueue.settle(name, e.id); inFlight.push(e.id); given = true; }
     }
     const until = Date.now() + DELETE_WAIT.capMs;
     while (inFlight.some((id) => limitqueue.isTyping(id)) && Date.now() < until) {

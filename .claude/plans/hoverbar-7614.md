@@ -151,3 +151,10 @@ Findings file: ~/.cache/monalisa-review/review-7614-round5.md. No blockers; 3 wa
   the server's `gone: true` (only a missing message sets it; a missing agent or project shows its own sentence, D10
   control); the menu opens where "..." was pressed (its rect taken at pointerdown, before the touch bar closes and
   moves); the room comment says a quiet member may still have read the post.
+
+## After review round 6 (sonnet, 10:4x CDT): converged
+
+Findings file: ~/.cache/monalisa-review/review-7614-round6.md. No blockers, warnings or conventions; 4 nits, all
+comments, applied: the grid comments name rows 45 and 43 after this branch's renumbering; msgMenuRowFor says a
+right-click needs something to copy, so Delete on such a row is through "..." alone; deleteDirectAsync's in-flight
+branch names the stale-claim case. Rounds: opus, sonnet, opus, sonnet, opus, sonnet.
