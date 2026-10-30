@@ -1183,7 +1183,8 @@ test('a listing in a child that fails in any way is a refusal, never an empty re
   const answering = (err, stdout, seen) => ({ execFile: (file, args, opts, cb) => { if (seen) seen.push({ file, args, opts }); cb(err, stdout); } });
   const seen = [];
   const good = { agents: [], shared: [], more: false };
-  assert.deepEqual(await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(null, JSON.stringify({ ok: true, listing: good }) + '\n', seen)), good);
+  const root = worlds.worldStoreRoot(base, p.world);
+  assert.deepEqual(await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(null, JSON.stringify({ ok: true, root, listing: good }) + '\n', seen)), good);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].opts.env.AGENT_WORKFORCE_DATA, worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_DATA);
   assert.equal(seen[0].opts.env.AGENT_WORKFORCE_WORKERS, worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS);
@@ -1193,7 +1194,9 @@ test('a listing in a child that fails in any way is a refusal, never an empty re
     ['the child failed or timed out', new Error('killed'), ''],
     ['the child printed something that is not JSON', null, 'not json\n'],
     ['the listing is missing its shared rows', null, JSON.stringify({ ok: true, listing: { agents: [], more: false } }) + '\n'],
-    ['more is not a boolean', null, JSON.stringify({ ok: true, listing: { agents: [], shared: [], more: 'no' } }) + '\n'],
+    ['more is not a boolean', null, JSON.stringify({ ok: true, root, listing: { agents: [], shared: [], more: 'no' } }) + '\n'],
+    ['the child read another store root', null, JSON.stringify({ ok: true, root: path.join(SANDBOX, 'support'), listing: good }) + '\n'],
+    ['the child named no store root', null, JSON.stringify({ ok: true, listing: good }) + '\n'],
   ]) {
     assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(err, out))), why);
   }
@@ -1209,14 +1212,14 @@ test('a listing in a child that fails in any way is a refusal, never an empty re
   const boardEnv = Object.assign({}, process.env, { [W]: 'elsewhere', [M]: JSON.stringify({ world: 'elsewhere', roots: orig }),
     AGENT_WORKFORCE_DATA: '/x/elsewhere', AGENT_WORKFORCE_PROJECTS: '/x/elsewhere/projects', AGENT_WORKFORCE_WORKERS: '/x/elsewhere/workers' });
   const seen2 = [];
-  await rw.listRestoredAgentsInChild({ base, world: p.world }, Object.assign(answering(null, JSON.stringify({ ok: true, listing: good }) + '\n', seen2), { env: boardEnv }));
+  await rw.listRestoredAgentsInChild({ base, world: p.world }, Object.assign(answering(null, JSON.stringify({ ok: true, root, listing: good }) + '\n', seen2), { env: boardEnv }));
   const e = seen2[0].opts.env, want = worlds.envOverridesFor(base, p.world);
   assert.equal(e.AGENT_WORKFORCE_PROJECTS, want.AGENT_WORKFORCE_PROJECTS);
   assert.equal(e[W], p.world.id);
   assert.deepEqual(JSON.parse(e[M]), { world: p.world.id, roots: orig }, 'the marker names this world and the board\'s original roots');
 });
 
-test('one listing per world at a time, and stopListings ends a running one as a refusal', async (t) => {
+test('one listing per world at a time; stopListings ends a running one as a refusal and refuses every later ask', async (t) => {
   const base = fresh(t);
   const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
   let calls = 0, pending = null;
@@ -1229,7 +1232,11 @@ test('one listing per world at a time, and stopListings ends a running one as a 
   rw.stopListings();
   const l = await a;
   assert.ok(l.agents.length === 0 && l.more === true && typeof l.because === 'string', JSON.stringify(l));
-  rw.listRestoredAgentsInChild({ base, world: p.world }, deps);
-  assert.equal(calls, 2, 'once it ended, the next ask starts a new child');
-  rw.stopListings();
-});
+  // Raced, so a regression (a child started and never answering) fails here instead of hanging the suite.
+  let timer;
+  const after = await Promise.race([rw.listRestoredAgentsInChild({ base, world: p.world }, deps),
+    new Promise((r) => { timer = setTimeout(() => r({ agents: ['still waiting'] }), 2000); })]);
+  clearTimeout(timer);
+  assert.ok(after.agents.length === 0 && after.more === true && typeof after.because === 'string', 'an ask after the stop is refused');
+  assert.equal(calls, 1, 'and starts no child');
+});   // keep this test last: stopListings is for good

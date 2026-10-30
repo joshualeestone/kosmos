@@ -46,3 +46,14 @@ Design call: #5536 comment 6513912365.
   any child; the doc says a consumer refuses on `because`, not `more`; the first test's title says "successful".
 - Tests 86/86 with the guards; worlds tests 76/76. Mutations (junk path via resolve; no in-flight check; env without
   the marker) each red; restored.
+
+## Review round 2 (sonnet): 0 BLOCKER, 2 WARNING, 0 CONVENTION, 4 NIT
+- FIXED: stopListings killed children but a later ask started a new one, and a same-key ask could get the killed
+  answer. It now sets a stopped flag (every later ask is refused, no child) and clears both collections.
+- FIXED: no real-child test could fail on a wrong env (the listing takes its folders from base and world). The child
+  now reports its store root and the parent refuses any root but worlds.worldStoreRoot(base, world), so the env is
+  checked at run time. With the env dropped, the real-child test reds.
+- FIXED: rebased onto restoregitcfg-5536's proof commit; the duration figures now say which budget each covers; the
+  shared answer is documented as one object.
+- Tests 86/86. Mutations (env dropped; root check removed; stopped flag removed) each red; the last first hung, so
+  the test now races its ask against 2 s and fails fast. Restored.

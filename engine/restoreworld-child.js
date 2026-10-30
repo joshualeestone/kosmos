@@ -1,13 +1,14 @@
 'use strict';
 /*
  * kosmos#5536 slice 4c-2 part 2: the restore listing (restoreworld.listRestoredAgents), run away from the board's event
- * loop. A listing reads up to 32 MB of briefs and runs git up to 400 times (about 22 s at worst), all synchronously, so
+ * loop. A listing reads up to 32 MB of briefs and runs git for up to 22 s (400 reads), all synchronously, so
  * the board starts this file instead (restoreworld.listRestoredAgentsInChild) with the Restored world's folders
  * applied to the environment by worlds.applyWorldEnv, marker included. Anything here that loads create.js then fixes
  * its store root to that world, never to the one the board serves.
  *
  *   node engine/restoreworld-child.js list <base> <world id> [<restore folder>]
- *     ->  {"ok":true,"listing":{agents, shared, more, because?}}   (listRestoredAgents's own answer)
+ *     ->  {"ok":true,"root":"<its store root>","listing":{agents, shared, more, because?}}   (listRestoredAgents's answer;
+ *         root is store.ROOT as this process resolves it, which the board checks is the Restored world's)
  *     or  {"ok":false,"because":"..."}                            (the world is not on the list, or the read failed)
  *
  * It writes nothing. It prints one line and exits 0; the caller treats any other ending as a listing that failed.
@@ -22,7 +23,7 @@ async function main(mode, base, worldId, restoreDir) {
   const world = worlds.readRegistry(base).worlds.find((w) => w.id === worldId);
   if (!world) return { ok: false, because: 'this is not a Kosmos on your list, so nothing in it is offered' };
   const listing = require('./restoreworld').listRestoredAgents({ base, world, restoreDir: restoreDir || undefined });
-  return { ok: true, listing };
+  return { ok: true, root: require('./store').ROOT, listing };
 }
 
 if (require.main === module) {
