@@ -83,6 +83,13 @@ const CASES = {
   /* Review round 6: a moving board waiting for its record, and a moving board's move lines (a usage move, and one off a
      stopped login, which the mover leaves). */
   movingPaused: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, moving: true, movePaused: 'record', recent: [] } },
+  /* kosmos#7621 item 6: waiting for its record, with a move it would make, in the shape the route sends. */
+  /* kosmos#7621 item 3: a moving board with nowhere it can use. */
+  movingHeld: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [{ from: '/home/.claude-full', why: WHY }], short: [], recording: true, moving: true, recent: [],
+    atRisk: [{ from: '/home/.claude-full', why: WHY, kind: 'usage' }] } },
+  movingPausedMoves: { accounts: TWO, autobalance: { on: true, eligible: 2, held: [], short: [], recording: true, moving: true, movePaused: 'record', recent: [],
+    moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY }],
+    atRisk: [{ from: '/home/.claude-full', why: WHY, kind: 'usage' }] } },
   movingNow: { accounts: TWO, autobalance: { on: true, eligible: 2, held: [], short: [], recording: true, moving: true, recent: [],
     /* Review round 8: moves as ab.decide() sends them, with no kind; the kind is on the account's atRisk entry. */
     moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY },
@@ -279,6 +286,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         tag + ' a moving board waiting for its record says so', JSON.stringify(r.movingPaused && r.movingPaused.recent));
       say(r.movingLeft && r.movingLeft.lines.length === 1 && r.movingLeft.lines[0] === 'Kosmos would move Ada from Work to Spare, because ' + WHY + ', but it was moved lately, or a move of it was refused, so Kosmos leaves it where it is for now.',
         tag + ' with moves on, an agent the mover leaves alone is not said to be moved', JSON.stringify(r.movingLeft && r.movingLeft.lines));
+      say(r.movingPausedMoves && r.movingPausedMoves.lines.length === 1 && r.movingPausedMoves.lines[0] === 'Kosmos would move Ada from Work to Spare, because ' + WHY + ', once it can write its record again.',
+        tag + ' waiting for its record, a move line does not say Kosmos will move it', JSON.stringify(r.movingPausedMoves && r.movingPausedMoves.lines));
+      say(r.movingHeld && r.movingHeld.lines.length === 1 && r.movingHeld.lines[0] === 'Kosmos would move the idle agents off Work, because ' + WHY + ', but no account it can use takes them right now.',
+        tag + ' with moves on, a held account says no account Kosmos can use takes them', JSON.stringify(r.movingHeld && r.movingHeld.lines));
       const mn = r.movingNow && r.movingNow.lines;
       say(mn && mn.length === 2 && mn[0] === 'Kosmos will move Ada from Work to Spare once it is idle at two checks in a row, because ' + WHY + '.'
         && mn[1] === '<b>Bo</b> is on Spare, which cannot be used right now. Kosmos moves agents only when an account is running out, so move it yourself if it needs to work.' && !r.movingNow.markup,

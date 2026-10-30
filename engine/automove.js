@@ -39,6 +39,9 @@ const REFUSED_TIMES = 3;          // refused this many times in a day, it is pas
 const PERIOD_MS = require('./usagepoll').POLL_MS;
 const previousTickMs = (periodMs) => 2.5 * (Number.isFinite(periodMs) && periodMs > 0 ? periodMs : PERIOD_MS);
 const SKIP_SAID_MS = 60 * 60 * 1000;   // a "no longer idle" line for one agent at most once an hour
+/* kosmos#7621 item 8: an agent whose re-check could not be made is set aside this long, in memory and with no line, so
+   the next candidate gets its turn (the first candidate is always tried first, so one such agent blocked every move). */
+const RECHECK_HOLD_MS = 60 * 60 * 1000;
 
 function movesOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOMOVE === '1' && env.AGENT_WORKFORCE_AUTOMOVE_OFF !== '1'; }
 
@@ -80,7 +83,7 @@ const unwrittenPeople = new Map();   // record file -> person lines it could not
 function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
   const PREVIOUS_TICK_MS = previousTickMs(periodMs);
   const state = { lastMovable: new Set(), lastMovableAt: null, watching: [], failed: new Map(), resting: new Map(), refused: new Map(),
-    refusedTimes: new Map(), skippedAt: new Map(), unwritten: [] };
+    refusedTimes: new Map(), skippedAt: new Map(), recheckFailed: new Map(), unwritten: [] };
   /* Review round 6: every line goes through keep(). One the record could not take waits in state.unwritten, and so does
      every line after it, so the record keeps their order; each tick writes them first. While any wait, the mover moves
      nobody (a restart would forget the move, its rest and its watch, rules 8 and 10) and Settings says so. A board
@@ -322,7 +325,8 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     const passedOver = passedOverAt(nowMs);
     /* Rule 3: usage only. A move off an account whose login has stopped stays a would-move line in the sweep's record.
        Rule 2: movable on the previous tick too. Held and unproven targets are skipTarget's, inside decide(). */
-    const next = decision.moves.find((x) => kindOf(x.from) === 'usage' && !passedOver(x.agent) && before.has(`${x.agent}\n${x.from}`));
+    const recheckHeld = (agent) => state.recheckFailed.has(agent) && nowMs - state.recheckFailed.get(agent) < RECHECK_HOLD_MS;   // kosmos#7621 item 8
+    const next = decision.moves.find((x) => kindOf(x.from) === 'usage' && !passedOver(x.agent) && !recheckHeld(x.agent) && before.has(`${x.agent}\n${x.from}`));
     if (!next) return { did: 'nothing' };
     const m = { ...next, fromLabel: label(next.from), toLabel: label(next.to) };
     /* Rule 2: idleness read again from a NEW roster and NEW projects just before the move. Rule 12: only a re-check
@@ -330,7 +334,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
        check that throws) writes nothing and moves nothing. */
     let stillFree;
     try { stillFree = ab.movableFor(movableArgs(deps.freshRoster(), deps.freshRecords, true))(m.agent); }
-    catch (err) { return { did: 'unreadable', because: `the re-check: ${String((err && err.message) || err)}` }; }
+    catch (err) { state.recheckFailed.set(m.agent, nowMs); return { did: 'unreadable', because: `the re-check: ${String((err && err.message) || err)}` }; }
     if (stillFree !== true) {
       /* Review round 4: seen working, so this tick is not an idle one for rule 2. */
       state.lastMovable.delete(`${m.agent}\n${m.from}`);

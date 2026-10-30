@@ -947,3 +947,18 @@ test('#7548 review round 7: Settings marks an agent the mover leaves alone', asy
   assert.match(src, /const left = automoveRun\.passedOver\(sentAt\); decision\.moves = decision\.moves\.map\(\(m\) => \(left\(m\.agent\) \? \{ \.\.\.m, leaving: true \} : m\)\);/,
     'the Settings read does not mark agents the mover leaves alone');
 });
+
+test('kosmos#7621 item 8: an agent whose re-check cannot be made is set aside, so the next candidate gets its turn', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const cards = realCards(['ada'], ['bo']);
+  const { d, calls } = deps({ cards, names: ['ada', 'bo'], freshRoster: () => cards.filter((c) => c.sessionName !== 'ada' && c.name !== 'ada') });
+  await run.tick(d, NOW);
+  const r2 = await run.tick(d, NOW + 1000);
+  assert.equal(r2.did, 'unreadable', 'CONTROL: the first candidate\'s re-check could not be made');
+  assert.deepEqual(calls.starts, []);
+  await run.tick(d, NOW + 2000);
+  assert.deepEqual(calls.starts.map((s) => s.names[0]), ['bo'], 'one agent whose re-check failed blocked every move');
+  assert.ok(lines(file).some((l) => l.kind === 'move' && l.agent === 'bo'), 'CONTROL: this is the record the mover writes');
+  assert.deepEqual(lines(file).filter((l) => l.kind === 'skipped'), [], 'a re-check that could not be made wrote a skipped line');
+});
