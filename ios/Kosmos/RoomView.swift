@@ -1055,9 +1055,10 @@ struct RoomView: View {
     private var addButton: some View {
         // The board's own label for its + (#pj-attach).
         AttachPlusButton(atLimit: atFileLimit, label: "Add a file to this conversation",
-                         hint: atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "") { choice in
+                         hint: atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "",
+                         onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } }) { choice in
             switch choice {
-            case .camera: cameraEpoch = client.chatEpoch; showCamera = true
+            case .camera: showCamera = true
             case .photos: showPhotos = true
             case .files: showFiles = true
             }
@@ -1102,6 +1103,7 @@ struct RoomView: View {
 
     // Encoded inside the load, off the main thread, as a picked photo is read.
     private func addTaken(_ image: UIImage, epoch: Int) async {
+        guard epoch == client.chatEpoch else { return }   // review 7: never clears another account's line
         client.attachLine[attachKey] = nil
         await store.attach(.photo(load: {
             guard let data = await Task.detached(operation: { image.jpegData(compressionQuality: 0.85) }).value else { return nil }
