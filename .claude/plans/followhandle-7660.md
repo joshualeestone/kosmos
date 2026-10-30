@@ -135,3 +135,8 @@ handle stops being looked up (an @handle still is). The test pins the shape the 
     account yet" when the handle is unknown: a bounded ordering of words, nothing sent wrongly.
   - N the byHandle comment ("below PROFILE_CAP and the lookup allowance it uses") is accurate: both are defined above
     it. The endorse usage lines carry no PowerShell hint: said on the card.
+- Validation 1 on d5fd4f3c2f: 25926 tests, 1 failed: engine/replynudge.assign-5623.test.js pins agentCall's timer text
+  ('}, chainWaitMs(opts));'), which round 1's chain-wait change rewrote on purpose. The pin's intent (the timer uses
+  chainWaitMs, never the bare agentWaitMs) holds; the pin now names the new form and asserts spent is 0 without
+  budgetFrom. Control: against the old '}, agentWaitMs);' it fails. Got wrong: I ran the files that touch follow and
+  endorse, not every test that reads communitysend.js as text; the full suite is what found it.
