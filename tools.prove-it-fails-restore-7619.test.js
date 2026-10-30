@@ -150,3 +150,32 @@ test('#7629 B1: a signal also ends what the test itself started (a child it spaw
   assert.equal(alive(kid), false, 'the child the test started was left running');
   assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 1;\n');
 });
+
+test('#7629 B1 review 2: a child that keeps forking leaves nothing behind (the tree is stopped as it is read)', async (t) => {
+  const dir = sandbox(t);
+  // A child that forks a new long sleeper every 10 ms and records each pid: without the STOP, the ones it forks
+  // between the handler's read and its kill would escape.
+  fs.writeFileSync(path.join(dir, 'forker.sh'),
+    '#!/bin/bash\nwhile :; do /bin/sleep 60 & echo $! >> "$1"; /bin/sleep 0.01; done\n');
+  fs.chmodSync(path.join(dir, 'forker.sh'), 0o755);
+  fs.writeFileSync(path.join(dir, 'fork.test.js'),
+    "const { spawn } = require('node:child_process');\n" +
+    "spawn(__dirname + '/forker.sh', [__dirname + '/forked.pids'], { stdio: 'ignore' });\n" +
+    "require('node:test')('holds', () => new Promise((r) => setTimeout(r, 30000)));\n");
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'forker'], { stdio: 'ignore' });
+  const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+  const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'fork.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
+    { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
+  const exited = new Promise((r) => child.on('exit', (code) => r(code)));
+  const pidsFile = path.join(dir, 'forked.pids');
+  const read = () => (fs.existsSync(pidsFile) ? fs.readFileSync(pidsFile, 'utf8').split('\n').filter(Boolean).map(Number) : []);
+  t.after(() => { for (const p of read()) { if (alive(p)) process.kill(p); } });   // never leave sleepers behind
+  for (let i = 0; i < 200 && read().length < 20; i++) await sleep(50);
+  assert.ok(read().length >= 20, 'premise: the forker is forking');
+  child.kill('SIGTERM');
+  assert.equal(await exited, 143);
+  await sleep(300);   // anything that escaped would still be alive now
+  const left = read().filter(alive);
+  assert.deepEqual(left, [], 'forked processes left running: ' + left.length);
+});

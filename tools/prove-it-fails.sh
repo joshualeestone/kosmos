@@ -111,11 +111,15 @@ _tree_of() {
 }
 _restore_on_signal() {   # $1 the signal's number: the exit is 128 + it, as a shell reports a death by that signal
   trap '' HUP INT TERM
+  # Only while that pid is still this script's own child (review 2): a signal just after the test ended, before
+  # _test_pid is cleared, must not stop and kill whatever process has since taken the number.
   if [ -n "${_test_pid:-}" ]; then
     local _tree _q
     _tree="$(_tree_of "$_test_pid")"
-    for _q in $_tree; do kill "$_q" 2>/dev/null; done
-    for _q in $_tree; do kill -CONT "$_q" 2>/dev/null; done   # a stopped process acts on its TERM only once continued
+    # TERM then CONT for each pid in one pass (review 2): a stopped process acts on its TERM only once continued, and
+    # if this script is itself killed mid-loop (a kill -9 is not ignored), at most one process is left stopped, not
+    # the whole tree.
+    for _q in $_tree; do kill "$_q" 2>/dev/null; kill -CONT "$_q" 2>/dev/null; done
     wait "$_test_pid" 2>/dev/null
   fi
   rm -f "${_outf:-}"
