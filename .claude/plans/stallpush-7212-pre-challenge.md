@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: stallpush-7212
-diff_hash: eb9351d177effe2f3b29ba3bd551729e1c29d24ceecf9ee4fcf274baef0d2cd3
+diff_hash: 5e5f78fb6b8c987d59bbfb610e4bf3fb2433b3dad3fdb0e6f000eef31b01de40
 validation: passed (detached-validate.sh, attempt 1, head 2f10879cbd: 25799 node tests, 0 fail, 0 cancelled; shell suite 4 shards all green; build ok; validation_rc=0 audit_rc=0. The run before, on 46005c1842, had 8 reds: one real, fixture-discipline, fixed in 3d882b22d7; seven load timeouts in untouched files, each green alone)
 subdir_audit: not run (no subdir CLAUDE.md in the diff)
 timestamp: 2026-10-30T17:27:33Z
@@ -63,6 +63,9 @@ converged: true
 #### Iteration 9
 **Reviewer model:** sonnet (whole branch, the final read)
 - No BLOCKER found.
+
+### After convergence
+- Main merged in at 13:1x CDT (42 files, server.js among them) so CI tests the exact tree that lands: a clean merge; the 16 related test files pass 225/225 on it. The hash above is the merged tree's; the review and the 2f10879cbd full run are on the branch's own changes, unchanged.
 
 ## Final Ledger
 - BLOCKERs: 0 open.
