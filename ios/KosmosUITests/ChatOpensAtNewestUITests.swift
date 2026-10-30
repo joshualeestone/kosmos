@@ -13,23 +13,44 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", ": Message \(n) of 260.")).firstMatch
     }
 
+
+    /// The chat's composer, a multi-line TextField ("Message <name>"), which XCUITest may type as a text field or a text
+    /// view. It exists only while a chat is open (the search field's prompt is "Search").
+    private func composer(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "(elementType == %d OR elementType == %d) AND placeholderValue BEGINSWITH %@",
+                                  XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue, "Message ")).firstMatch
+    }
+
     /// Wholly on screen between the top bar and the composer, not merely loaded somewhere in the list.
     private func onScreen(_ el: XCUIElement, _ app: XCUIApplication) -> (Bool, String) {
         let top = app.navigationBars.firstMatch.frame.maxY
-        // The composer is a multi-line TextField ("Message <name>"), which XCUITest may type as a text field or a text view.
-        let composer = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "(elementType == %d OR elementType == %d) AND placeholderValue BEGINSWITH %@",
-                                  XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue, "Message ")).firstMatch
-        XCTAssertTrue(composer.exists, "the composer was not found, so the bottom of the visible band is unknown")
-        let bottom = composer.frame.minY
+        let box = composer(app)
+        XCTAssertTrue(box.exists, "the composer was not found, so the bottom of the visible band is unknown")
+        let bottom = box.frame.minY
         return (el.frame.minY >= top - 1 && el.frame.maxY <= bottom + 1, "\(el.frame), visible band \(top) to \(bottom)")
     }
 
-    private func assertNewestShown(_ app: XCUIApplication, _ when: String) {
+    /// Waits until the list has stopped moving: a bubble's frame reads the same twice, half a second apart.
+    private func waitStill(_ app: XCUIApplication) {
+        let any = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", ": Message ")).firstMatch
+        var last = CGRect.null
+        for _ in 0..<12 {
+            let now = any.exists ? any.frame : .null
+            if now == last && !now.isNull { return }
+            last = now
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+    }
+
+    /// Review 2: "opens on" is strict. Once the chat is showing (its composer), the newest message must be on screen
+    /// within a moment, not after a late correction.
+    private func assertOpensOnNewest(_ app: XCUIApplication, _ when: String) {
+        XCTAssertTrue(composer(app).waitForExistence(timeout: 20), "the chat did not open, \(when)")
         let newest = message(260, in: app)
-        XCTAssertTrue(newest.waitForExistence(timeout: 15), "the newest message is not in the chat at all, \(when)")
+        XCTAssertTrue(newest.waitForExistence(timeout: 2), "the newest message is not in the chat as it opens, \(when)")
         XCTAssertTrue(newest.label.hasPrefix("You, "), "matched something other than the newest bubble: \(newest.label)")
-        Thread.sleep(forTimeInterval: 1.5)   // any settling scroll, then the frame is read where it rests
+        waitStill(app)
         let (shown, at) = onScreen(newest, app)
         XCTAssertTrue(shown, "the newest message is not on screen, \(when): \(at)")
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = when; a.lifetime = .keepAlways; add(a)
@@ -40,34 +61,34 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "varied"]
         app.launch()
-        assertNewestShown(app, "first open")   // the launch opens Dana's chat
+        assertOpensOnNewest(app, "first open")   // the launch opens Dana's chat
 
-        // The control: scrolled up, the same check must say the newest message is NOT on screen (the list is lazy, so it
-        // may be gone from the hierarchy altogether, which also counts). This is what shows the check can fail, and it
-        // leaves the chat scrolled away from its end, so the reopen below has to bring it back.
-        for _ in 0..<2 { app.swipeDown(velocity: .fast) }
-        Thread.sleep(forTimeInterval: 1.0)
+        // The control (review 2): a short drag leaves the newest message LOADED but pushed below the composer, and the
+        // same check must then say it is not on screen. This is what shows the measurement itself can fail.
+        let mid = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        mid.press(forDuration: 0.1, thenDragTo: mid.withOffset(CGVector(dx: 0, dy: 300)))
+        waitStill(app)
         let newest = message(260, in: app)
-        XCTAssertFalse(newest.exists && onScreen(newest, app).0, "scrolled up, the newest message still reads as on screen")
-        let up = XCTAttachment(screenshot: app.screenshot()); up.name = "scrolled up (control)"; up.lifetime = .keepAlways; add(up)
+        XCTAssertTrue(newest.exists, "after a short drag the newest message is not loaded, so the control measures nothing")
+        XCTAssertFalse(onScreen(newest, app).0, "dragged below the composer, the newest message still reads as on screen")
+        let ctl = XCTAttachment(screenshot: app.screenshot()); ctl.name = "dragged down (control)"; ctl.lifetime = .keepAlways; add(ctl)
 
-        // Every time: back to Agents (the system Back button, found by its identifier, not its place in the bar), the chat
-        // gone and the Agents list showing, then Dana's ROW in that list, never one of her bubbles.
+        // Then well away from the end, so the reopen below has to bring it back.
+        for _ in 0..<2 { app.swipeDown(velocity: .fast) }
+        waitStill(app)
+
+        // Every time: back to Agents (the system Back button, by its identifier, not its place in the bar). Review 2: the
+        // chat is proven CLOSED by its composer going (it exists only in a chat; the Agents list stays in the tree under
+        // a pushed chat, so its presence proves nothing), and Dana's row must be hittable before it is tapped.
         let back = app.navigationBars.buttons.matching(NSPredicate(format: "identifier == 'BackButton' OR label == 'Back'")).firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 5), "no Back button in the chat's top bar")
-        print("BACK-BUTTON: id=\(back.identifier) label=\(back.label)")
         back.tap()
-        Thread.sleep(forTimeInterval: 1.0)
-        let after = XCTAttachment(screenshot: app.screenshot()); after.name = "after Back"; after.lifetime = .keepAlways; add(after)
-        let still = message(260, in: app)
-        if still.exists { print("STILL-260: " + still.debugDescription.prefix(600)) }
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: composer(app)); waitForExpectations(timeout: 5)
         let list = app.descendants(matching: .any).matching(identifier: "agents-list").firstMatch
-        XCTAssertTrue(list.waitForExistence(timeout: 10), "the Agents list did not come back")
-        let gone = NSPredicate(format: "exists == false")
-        expectation(for: gone, evaluatedWith: message(260, in: app)); waitForExpectations(timeout: 5)   // the chat closed
         let dana = list.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Dana")).firstMatch
-        XCTAssertTrue(dana.waitForExistence(timeout: 10), "Dana's row is not on the Agents list")
+        XCTAssertTrue(dana.waitForExistence(timeout: 10) && dana.isHittable, "Dana's row is not showing on the Agents list")
+        let shown = XCTAttachment(screenshot: app.screenshot()); shown.name = "Agents, after Back"; shown.lifetime = .keepAlways; add(shown)
         dana.tap()
-        assertNewestShown(app, "second open")
+        assertOpensOnNewest(app, "second open")
     }
 }
