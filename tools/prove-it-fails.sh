@@ -101,6 +101,7 @@ _restore_on_signal() {   # $1 the signal's number: the exit is 128 + it, as a sh
   rm -f "${_outf:-}"
   # A signal can land after the break is written but before _broken is filled (or while node is mid-write, review
   # 3). The tree was clean at the start, so whatever differs now is the break: restore that whole, unconditionally.
+  # Known limit (review 6): an edit a colleague makes in this same instant cannot be told from the break, and goes too.
   if [ "${#_broken[@]}" -eq 0 ] && ! git diff --quiet; then
     git diff --name-only -z | xargs -0 git checkout -q --
     git diff --quiet && echo "    interrupted while the break was being written: restored (clean)" || echo "    interrupted: restore incomplete"
