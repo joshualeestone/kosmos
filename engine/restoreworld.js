@@ -95,7 +95,10 @@ const MAX_GIT_CONFIG_BYTES = 1024 * 1024;   // a hand-kept config is a few KB; p
 const MAX_GIT_KEYS_SHOWN = 20;   // per config file; past it one line says how many more
 /* Keys git is known to act on (git's key, as plainKeyOf gives it). They are shown before any other unlisted key, so
    decoys cannot push one past the cap. Only an order: a key missing here is still shown, just not first. */
-const GIT_RUNNER_KEY = /^(core\.(sshcommand|pager|editor|fsmonitor|hookspath|askpass|worktree|gitproxy)$|pager\.|alias\.|filter\.|diff\.\*\.(textconv|command)$|merge\.\*\.driver$|credential|include|url\.\*\.insteadof$|submodule\.\*\.update$|remote\.\*\.(uploadpack|receivepack|vcs|proxy)$|gpg\.|sequence\.editor$|protocol\.)/;
+const GIT_RUNNER_KEY = new RegExp('^(core\\.(sshcommand|pager|editor|fsmonitor|hookspath|askpass|worktree|gitproxy|alternaterefscommand)$'
+  + '|pager\\.|alias\\.|filter\\.|diff\\.external$|diff\\.\\*\\.(textconv|command)$|merge\\.\\*\\.driver$|credential|include'
+  + '|url\\.\\*\\.(push)?insteadof$|submodule\\.\\*\\.update$|remote\\.\\*\\.(uploadpack|receivepack|vcs|proxy)$|gpg\\.|sequence\\.editor$'
+  + '|protocol\\.|difftool\\.|mergetool\\.|browser\\.|web\\.browser$|man\\.|trailer\\.|http\\.|uploadpack\\.|receive\\.)');
 const GIT_READ_MS = 2000;   // one read takes a few ms; a git that hangs costs at most this
 const MAX_GIT_READ_TOTAL_MS = 20000;   // across one listing: MAX_GIT_READS at GIT_READ_MS each would be 13 minutes
 const MAX_GIT_READS = 400;   // git config runs per listing: up to four per project, across a thousand projects, took 10 s
@@ -633,7 +636,8 @@ function gitSettingsOf(file, shown, budget) {
   const sections = rest.slice(0, MAX_GIT_KEYS_SHOWN).map((x) => cleanText(x, MAX_KEY_PART_CHARS, '(a name that cannot be shown)'));
   if (rest.length > MAX_GIT_KEYS_SHOWN) sections.push('others');
   const more = keys.length - MAX_GIT_KEYS_SHOWN;
-  if (more > 0) out.push(`${shown} sets ${more} more git ${more === 1 ? 'setting' : 'settings'} (in ${sections.join(', ')})`);
+  // Not named is not harmless: an unlisted key can still run a program, and the line says so.
+  if (more > 0) out.push(`${shown} sets ${more} more git ${more === 1 ? 'setting' : 'settings'} (in ${sections.join(', ')}), not named here, which may run a program`);
   return out;
 }
 /* A key as shown: its section, subsection and name each cleaned and cut on its own, so a long subsection cannot push

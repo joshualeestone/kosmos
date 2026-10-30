@@ -114,3 +114,17 @@ runs or loads something once the agent's git reaches it. The review screen must 
 - DEFERRED: gitUntil starting at the listing's start (fails closed); env-stripping tests (probed: not load-bearing for
   --file on git 2.53); os.devNull on Windows, for Homer with #7593.
 - Tests 63/63; guard files 20/20. Mutations (no runner sort; there() two-state) each red (62/1); restored.
+
+## Review round 8 (sonnet): 0 BLOCKER, 1 WARNING, 0 CONVENTION, 6 NIT. Last round under the 8-round rule.
+- FIXED: GIT_RUNNER_KEY missed keys git runs (diff.external, difftool/mergetool/browser/man/trailer cmd, web.browser,
+  core.alternateRefsCommand, uploadpack and receive hooks, http, url pushInsteadOf); added. The count line past the
+  cap now says the keys it does not name "may run a program", so a missing list entry cannot read as harmless.
+- NOT RE-REVIEWED: this fix came after the last round the usage rule allows, and no BLOCKER was open. It widens a
+  sort list and one sentence; covered by a new test (diff.external and difftool.t.cmd ahead of 20 decoys) and a
+  mutation (diff.external out of the list) that reds 62/1, restored.
+- DEFERRED to the screen (part 2): core.ignorecase and core.precomposeunicode are written by plain `git init` on a Mac,
+  so most projects will show them. Round 3 took them off the allowlist on purpose (they guard checkout paths); the
+  screen should group them as one quiet line rather than this listing dropping them.
+- DEFERRED: a fresh empty subfolder as git's cwd; Windows git.exe lookup (Homer, #7593); Date.now() not monotonic
+  (fails toward more reads); bare-layout noise from a project's own `config` file; hang, ENOBUFS and git-missing tests.
+- Tests 63/63; guard files 20/20.

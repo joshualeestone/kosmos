@@ -1037,6 +1037,7 @@ test('a restored project\'s git settings that run or load something are named be
   put('shared/.git/config', '[core]\n');
   put('many/.git/config', '[alias]\n' + Array.from({ length: 25 }, (_, i) => `\ta${i} = x\n`).join(''));
   put('decoy/.git/config', '[core]\n' + Array.from({ length: 20 }, (_, i) => `\ta${i} = x\n`).join('') + '\tsshCommand = x\n');
+  put('external/.git/config', '[core]\n' + Array.from({ length: 20 }, (_, i) => `\ta${i} = x\n`).join('') + '[diff]\n\texternal = x\n[difftool "t"]\n\tcmd = x\n');
   put('hidden/.git/config', '[foo]\n' + Array.from({ length: 20 }, (_, i) => `\ta${i} = x\n`).join('') + '[core]\n\tsshCommand = x\n');
   const l = rw.listRestoredAgents({ base, world: p.world, nameOk });
   const runs = Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
@@ -1050,11 +1051,12 @@ test('a restored project\'s git settings that run or load something are named be
   assert.ok(runs.pointed.includes('.git is not a folder, so its git settings were not checked'));
   assert.ok(runs.shared.includes('.git/commondir moves its git settings elsewhere, so they were not checked'));
   assert.equal(set('many').length, 21);
-  assert.equal(set('many')[20], '.git/config sets 5 more git settings (in alias)');
+  assert.equal(set('many')[20], '.git/config sets 5 more git settings (in alias), not named here, which may run a program');
   assert.equal(set('hidden')[0], '.git/config sets core.sshcommand', 'a key git acts on is shown before decoys');
-  assert.equal(set('hidden')[20], '.git/config sets 1 more git setting (in foo)');
+  assert.equal(set('hidden')[20], '.git/config sets 1 more git setting (in foo), not named here, which may run a program');
+  assert.deepEqual(set('external').slice(0, 2), ['.git/config sets diff.external', '.git/config sets difftool.t.cmd'], 'runners git acts on in other sections are shown first too');
   assert.equal(set('decoy')[0], '.git/config sets core.sshcommand', 'decoys in the same section cannot push it past the cap');
-  assert.equal(set('decoy')[20], '.git/config sets 1 more git setting (in core)');
+  assert.equal(set('decoy')[20], '.git/config sets 1 more git setting (in core), not named here, which may run a program');
 });
 
 test('a git key keeps its name in view whatever its subsection; link, oversized and over-budget configs read as not checked', (t) => {
