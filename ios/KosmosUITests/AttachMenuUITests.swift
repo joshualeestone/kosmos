@@ -81,9 +81,10 @@ final class AttachMenuUITests: XCTestCase {
         let rows = panel.buttons.allElementsBoundByIndex
         XCTAssertEqual(rows.count, 3, "the panel should offer Camera, Photos and Files")
         XCTAssertTrue(rows.contains { $0.label.contains("Not available") }, "Camera's note did not show, so this proves nothing")
-        // And every row fits on the screen: equal widths alone would pass on rows that all overflow it together.
+        // And every row fits across the screen: equal widths alone would pass on rows that all overflow it together.
+        // Across only: at the largest text the lower rows sit below the fold inside the panel's scroll view, by design.
         let screen = app.windows.firstMatch.frame
-        for row in rows { XCTAssertTrue(screen.contains(row.frame), "\(row.label) runs off the screen: \(row.frame) in \(screen)") }
+        for row in rows { XCTAssertTrue(row.frame.minX >= screen.minX && row.frame.maxX <= screen.maxX, "\(row.label) runs off the screen: \(row.frame) in \(screen)") }
         return rows.map { $0.frame.width }
     }
 
