@@ -89,6 +89,7 @@ const keysFile = () => cs._paths.keysFile();
 function fresh() {
   fs.rmSync(path.dirname(keysFile()), { recursive: true, force: true }); fs.rmSync(cs._paths.dir(), { recursive: true, force: true });
   SWITCH = true; cs.setTimeoutMs(5000); cs.setAgentWaitMs(null); cs.setAgentBudgetMs(null);
+  require('./communityfollow')._resetRate();   // kosmos#7660: the handle-lookup allowance, per test
   cs.setSender((url, init) => fetch(url, init));
 }
 const registers = (st) => st.seen.filter((s) => s.url === '/agents/register').length;

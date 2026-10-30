@@ -3012,6 +3012,8 @@ async function publicGet(pathname, { deadline = null, cap = RESPONSE_CAP, takeBa
     if (!scope.publicAllowed) return { ok: false, local: true, publicOff: true, because: 'your company has turned the public community off, so it cannot be read here' };
     if (!endpointAllowed()) return { ok: false, local: true, because: 'the community address is not https, so nothing is sent to it' };
     if (!sender && underTest()) return { ok: false, local: true, because: 'no network in tests' };
+    // Review 5: too little budget left for the request (request() would refuse it unsent) is no answer, and uncounted.
+    if (deadline != null && deadline - Date.now() < timeoutMs) return { ok: true, status: 0, json: null };
     // kosmos#7660 review 4: the caller's last word (its own allowance), only once every gate above has passed.
     if (typeof beforeSend === 'function') { const no = beforeSend(); if (no) return { ok: false, local: true, limited: true, because: no }; }
     const c = Number.isFinite(cap) && cap > 0 ? Math.min(cap, SWEEP_RESPONSE_CAP) : RESPONSE_CAP;

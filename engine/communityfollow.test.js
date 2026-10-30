@@ -43,6 +43,7 @@ function backend() {
         const HANDLES = { 'quill-ab3k': 'quill', 'echo-two-x7mn': 'Echo Two' };
         // Review 1: st.handleMode answers the lookup with a large profile, an unreadable body, or never.
         if (st.handleMode === 'hang') return undefined;
+        if (st.handleMode === 'busy') return send(429, { detail: { error: 'rate_limit_exceeded' } });
         if (st.handleMode === 'junk') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{not json'); }
         const extra = st.handleMode === 'big' ? { posts: Array.from({ length: 50 }, (_, i) => ({ id: 'p' + i, body: 'x'.repeat(4000) })), comments: Array.from({ length: 50 }, (_, i) => ({ id: 'c' + i, body: 'y'.repeat(2000) })) } : {};
         return HANDLES[h] ? send(200, { name: HANDLES[h], handle: h, ...extra }) : send(404, { detail: 'agent not found' });
@@ -1062,8 +1063,9 @@ test('kosmos#7660 follow by @handle: with or without the @, any case, it follows
     assert.deepEqual(r, { ok: true, text: 'You now follow Echo Two.' });
     assert.ok(b.st.seen.some((s) => s.method === 'POST' && s.url === '/agents/by-name/Echo%20Two/follow'), 'the follow went to the name the handle resolves to');
     assert.ok(b.st.seen.some((s) => s.url === '/agents/by-handle/echo-two-x7mn' && s.auth === null), 'the handle was looked up publicly, in its lookup form');
-    const r2 = await cf.follow('mara', 'QUILL-AB3K');
-    assert.deepEqual(r2, { ok: true, text: 'You now follow quill.' }, 'bare and in capitals');
+    const r2 = await cf.follow('mara', '@QUILL-AB3K');
+    assert.deepEqual(r2, { ok: true, text: 'You now follow quill.' }, 'after an @, in capitals');
+    assert.deepEqual(await cf.follow('mara', 'quill-ab3k'), { ok: true, text: 'You already follow quill.' }, 'bare, as the handle is written');
     const me = [...b.st.agents.values()][0].name;
     assert.deepEqual(follows(b.st), [me + '>Echo Two', me + '>quill']);
     // CONTROL: the display name still works, and it is not looked up as a handle (it is not in the handle's shape).
@@ -1264,5 +1266,38 @@ test('kosmos#7660 review 4: with the lookup allowance spent, an @handle is refus
     assert.equal(over.limited, true);
     await cf.follow('mara', 'quill-ab3k');
     assert.ok(b.st.seen.some((s) => s.url.startsWith('/agents/by-name/quill-ab3k')), 'the bare word went by name, not refused');
+  } finally { await b.close(); }
+});
+
+/* kosmos#7660 review 5. */
+test('kosmos#7660 review 5: a bare handle-shaped word whose lookup could not be checked, then not found by name, says the handle could not be checked', async () => {
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');
+    b.st.handleMode = 'junk';
+    const r = await cf.follow('mara', 'nobody-zz99');
+    assert.equal(r.because, 'there is no agent named nobody-zz99 in the community. Kosmos could not check just now whether nobody-zz99 is someone’s handle; if it is, try @nobody-zz99 again in a few minutes');
+    // CONTROL: a clear 404 from the lookup says plainly that there is no such agent.
+    b.st.handleMode = null;
+    assert.deepEqual(await cf.follow('mara', 'nobody-zz99'), { ok: false, because: 'there is no agent named nobody-zz99 in the community' });
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 5: a capitalised display name in the handle\'s shape goes straight to the name, with no lookup', async () => {
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'Team-Scan');
+    await cf.follow('mara', 'Ada-b3f9');
+    assert.equal(b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length, 0);
+    await cf.follow('mara', 'ada-b3f9');    // CONTROL: lowercase, handle-shaped: looked up
+    assert.equal(b.st.seen.filter((s) => s.url === '/agents/by-handle/ada-b3f9').length, 1);
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 5: a lookup the community rate-limits says it is busy and to try again in a minute', async () => {
+  fresh(); const b = await backend();
+  try {
+    b.st.handleMode = 'busy';
+    assert.deepEqual(await cf.follow('mara', '@quill-ab3k'), { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' });
   } finally { await b.close(); }
 });

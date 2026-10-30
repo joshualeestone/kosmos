@@ -92,3 +92,15 @@ handle stops being looked up (an @handle still is). The test pins the shape the 
   read, under its own allowance); PowerShell reads a bare @ada-3f2c as splatting, so a Windows user quotes it or leaves
   the @ out (the bare form resolves the same handle): said on the card, not in the usage line.
   The byHandle comment now states the current rule only (the history is here).
+- Round 5 (Opus, whole branch, nothing settled): no BLOCKER; it confirmed take-backs, the policy record, the budget,
+  other agentCall callers, both allowances under concurrency, and the followed name coming from the profile. Fixed,
+  each with a test and a red mutant:
+  - W1 a bare handle whose lookup gave no clear answer fell back to the name, then "there is no agent named
+    quill-ab3k": false for a real handle. byHandle marks such a fallback (unchecked), and follow, endorse and take-back
+    add that the handle could not be checked and to try @<word> again. A clear 404 still says plainly no agent.
+  - W2 a bare word is tested for the handle's shape as typed (handles are lowercase), so capitalised display names
+    ("Team-Scan", the board's own clash names like "Ada-b3f9") go straight to the name with no lookup.
+  - W3 a lookup the community rate-limits (429) says it is busy and to try again in a minute, as endorse's own 429.
+  - N a lookup with too little budget left for its request is no answer and is not counted against the allowance; the
+    refusal names the letters a handle never uses; "pausing handle lookups"; the endorse tests reset the allowance.
+  Left: HANDLE_RE is a hand copy of the service's pattern (CI cannot read the service repo; the weakest premise above).

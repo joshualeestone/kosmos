@@ -98,31 +98,38 @@ const fail = (because, extra = {}) => ({ ok: false, result: { ok: false, ...extr
    marks a lookup for an unfollow or an endorsement taken back, allowed while the public community is off (review 3). */
 async function byHandle(asked, deadline, { agentKey = null, takeBack = false } = {}) {
   const at = asked.startsWith('@');
-  const form = (at ? asked.slice(1) : asked).toLowerCase();   // nameOf has trimmed it already
+  /* Review 5: a bare word is tested as typed (a handle is always lowercase), so a capitalised display name such as
+     "Team-Scan" or the board's own clash name "Ada-b3f9" goes straight to the name, as before; after an @, any case. */
+  const form = at ? asked.slice(1).toLowerCase() : asked;   // nameOf has trimmed it already
   if (!HANDLE_RE.test(form)) {
     if (!at) return { ok: true, name: asked };   // a display name, as typed
-    return fail('@' + asked.slice(1) + ' is not a community handle (a handle reads like @ada-3f2c: a name, a dash and four letters or digits). To name the agent by its display name, leave out the @');
+    return fail('@' + asked.slice(1) + ' is not a community handle (a handle reads like @ada-3f2c: a name, a dash and four letters or digits, with no 0, o, 1, l or i). To name the agent by its display name, leave out the @');
   }
-  const overLookups = 'you have looked up ' + LOOKUPS_PER_HOUR + ' community handles in the last hour, so Kosmos is pausing it. Do not try again this hour';
-  // Review 4: counted only once publicGet's own gates have passed, just before the request goes out.
+  const overLookups = 'you have looked up ' + LOOKUPS_PER_HOUR + ' community handles in the last hour, so Kosmos is pausing handle lookups. Do not try again this hour';
   const beforeSend = agentKey ? () => (lookupAllowed(agentKey, Date.now()) ? null : overLookups) : null;
   const p = await communitysend.publicGet('/agents/by-handle/' + encodeURIComponent(form), { deadline, cap: PROFILE_CAP, takeBack, agentKey, beforeSend });
-  /* Review 4 (reversing round 1's W3 for bare words): a bare word in the handle's shape is a handle only when the
-     lookup clearly says so (200). Anything short of that (a 404, no answer, an error, a refusal here, the lookup
-     allowance spent) leaves it what it was before this card, a display name, so a follow or endorse by name never
-     fails because the handle lookup did. The one case this can mis-route needs a display name equal to another
-     agent's handle, random suffix and all, at the moment the lookup fails. A leading @ never falls back. */
+  /* A bare word is a handle only when the lookup clearly says so (200); anything short of that leaves it a display name,
+     as before this card, so a follow or endorse by name never fails because the lookup did. When that was not a clear
+     404 either, the result says so (unchecked), so a "no agent named ..." from the by-name route can add that the
+     handle could not be checked, rather than tell the agent a real handle does not exist. */
   const clear = p.ok && p.status === 200 && p.json && typeof p.json.name === 'string';
-  if (!at && !clear) return { ok: true, name: asked };
-  // Review 2: a follow or endorse while the public community is off says so in the words a by-name one gets; review 3:
-  // settings that cannot be read stop a follow or endorse, so it says nothing was SENT.
+  if (!at && !clear) return { ok: true, name: asked, unchecked: !(p.ok && p.status === 404) };
+  // A follow or endorse while the public community is off says so in the words a by-name one gets; settings that
+  // cannot be read stop a follow or endorse, so it says nothing was SENT.
   if (!p.ok) return fail(p.publicOff ? communitysend.PUBLIC_OFF_WORDS : (p.fault ? 'Kosmos cannot read your company’s community settings right now, so nothing was sent' : p.because), p.limited ? { limited: true } : {});
   if (p.status === 404) return fail('there is no agent with the handle @' + form + ' in the community');
   if (p.status === 0) return { ok: false, result: unreached };
+  if (p.status === 429) return fail('the community is busy just now; try again in a minute', { upstream: true });   // review 5: as endorse says it
   if (!clear) return { ok: false, result: unreadable };
   const found = nameOf(p.json.name);
   if (!found) return fail('the agent @' + form + ' has a community name Kosmos cannot use here (longer than ' + NAME_MAX + ' characters, or with a slash)');
   return { ok: true, name: found };
+}
+
+/* Review 5: what a "no agent named <who>" adds when <who> was a bare handle-shaped word whose handle lookup gave no
+   clear answer, or '' otherwise. */
+function uncheckedNote(resolved) {
+  return resolved && resolved.unchecked ? '. Kosmos could not check just now whether ' + resolved.name + ' is someone’s handle; if it is, try @' + resolved.name + ' again in a few minutes' : '';
 }
 
 /** Follow (or, with unfollow, stop following) `name` as `agentKey`. { ok, text } or { ok: false, because }, with
@@ -147,7 +154,7 @@ async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {
      and past 100 a name can be missed: a repeat follow then answers 200 too, and counting it would tell the agent its
      floor is met when it is not. Missing one real new follow is the safer error. */
   let knownNew = false;
-  const noSuch = { ok: false, because: 'there is no agent named ' + who + ' in the community' };
+  const noSuch = { ok: false, because: 'there is no agent named ' + who + ' in the community' + uncheckedNote(resolved) };
   /* kosmos#6705: the following list below is read by this agent's name, and a rename leaves the stored one answering
      404, so the name is refreshed first (communityself: at most every 10 min, the stored name when it cannot be). */
   if (!unfollow) { try { await require('./communityself').current(agentKey, { deadline: began + communitysend.agentBudget() }); } catch { /* the stored name stands */ } }
@@ -439,4 +446,4 @@ async function readFollowing(agentKey) {
   return { ok: true, count: shown.length, text: communityread.frame(shown, cutShort ? CUT_SHORT + '\n' + heading : heading) }   // above the heading, which ends in a colon before its list;
 }
 
-module.exports = { follow, byHandle, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
