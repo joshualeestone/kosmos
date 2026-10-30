@@ -3,8 +3,8 @@
  * kosmos#5536 slice 4c-2 part 2: the restore listing (restoreworld.listRestoredAgents), run away from the board's event
  * loop. A listing reads up to 32 MB of briefs and runs git up to 400 times (about 22 s at worst), all synchronously, so
  * the board starts this file instead (restoreworld.listRestoredAgentsInChild) with the Restored world's folders
- * applied to the environment, as an agent of that world gets them (worlds.applyAgentWorldEnv). Anything here that
- * loads create.js then fixes its store root to that world, never to the one the board serves.
+ * applied to the environment by worlds.applyWorldEnv, marker included. Anything here that loads create.js then fixes
+ * its store root to that world, never to the one the board serves.
  *
  *   node engine/restoreworld-child.js list <base> <world id> [<restore folder>]
  *     ->  {"ok":true,"listing":{agents, shared, more, because?}}   (listRestoredAgents's own answer)
@@ -26,8 +26,9 @@ async function main(mode, base, worldId, restoreDir) {
 }
 
 if (require.main === module) {
-  /* Bounded by itself: its parent's timer dies with the parent, so a listing that hangs ends here. Unref'd, so it never
-     keeps a finished child alive. */
+  /* Bounds the end, not the listing: listRestoredAgents is synchronous, so this timer cannot fire while it runs (its own
+     git and brief budgets bound it, and the parent's timeout kills it). It ends a child whose output will not flush or
+     whose handles stay open after the line. Unref'd, so it never keeps a finished child alive. */
   setTimeout(() => process.exit(1), require('./restoreworld').LIST_CHILD_TIMEOUT_MS).unref();
   main(process.argv[2], process.argv[3], process.argv[4], process.argv[5]).then(
     // Exit once the line is flushed: a handle left open must not turn every listing into the caller's timeout.

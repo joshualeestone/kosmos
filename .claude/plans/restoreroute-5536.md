@@ -31,3 +31,18 @@ Design call: #5536 comment 6513912365.
 - Mutations, each red: the child returning an empty listing; failed() without more/because; env without the world's
   roots. Restored.
 - restoreworld-5536 + engine.reachable + win32-separator-guard + windows-coupling-audit-1732: 85/85.
+
+## Review round 1 (opus): 0 BLOCKER, 2 WARNING, 1 CONVENTION, 4 NIT
+- FIXED: the hand-built env lacked the pre-world marker applyWorldEnv records, so anything the child starts would
+  derive the world's own folder as its base. worlds.applyWorldEnv is now exported and used, on preWorldEnv of the
+  board's env, with the listing's base. Test: a board serving another world; the child gets this world's PROJECTS and
+  a marker naming this world with the board's original roots.
+- FIXED: the child was untracked. One listing per world at a time (a second ask shares the answer), and stopListings
+  ends running children (each answers a refusal). Excused in engine.reachable until a route calls it.
+- FOUND BY THE NEW TESTS: the not-JSON path resolved without clearing the in-flight entry, so every later listing of
+  that world would have returned the stale refusal. Fixed; every path goes through done(). Also an answer given
+  synchronously no longer leaves an entry behind.
+- FIXED: the child's timer comment (it bounds the end, not the synchronous listing); a relative base is refused before
+  any child; the doc says a consumer refuses on `because`, not `more`; the first test's title says "successful".
+- Tests 86/86 with the guards; worlds tests 76/76. Mutations (junk path via resolve; no in-flight check; env without
+  the marker) each red; restored.

@@ -1158,7 +1158,7 @@ test('checkout path guards are named; every part of a key is bounded; refused ag
   assert.ok(!l.agents.find((a) => a.folder === 'gitty').runs.some((r) => / sets /.test(r)));
 });
 
-test('the listing run in a child process answers exactly what the listing in this process does', async (t) => {
+test('a listing run in a child process answers exactly what a successful listing in this process does', async (t) => {
   const base = fresh(t);
   const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
   const sink = createRestoreSink(p.restoreDir);
@@ -1200,5 +1200,36 @@ test('a listing in a child that fails in any way is a refusal, never an empty re
   assert.equal((await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(null, JSON.stringify({ ok: false, because: 'said by the child' }) + '\n'))).because, 'said by the child');
   const none = [];
   assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: { id: worlds.DEFAULT_ID } }, answering(null, '', none))), 'the default Kosmos is never listed');
-  assert.equal(none.length, 0, 'and no child is started for it');
+  assert.ok(refused(await rw.listRestoredAgentsInChild({ base: 'relative/base', world: p.world }, answering(null, '', none))), 'nor a relative base');
+  assert.equal(none.length, 0, 'and no child is started for either');
+
+  // A board serving ANOTHER world: its marker and roots are not carried; the child gets this world's, marker included.
+  const M = worlds.PRE_WORLD_ROOTS_ENV_VAR, W = require('./launchidentity').WORLD_ENV_VAR;
+  const orig = { AGENT_WORKFORCE_DATA: path.join(SANDBOX, 'support'), AGENT_WORKFORCE_PROJECTS: path.join(SANDBOX, 'projects'), AGENT_WORKFORCE_WORKERS: path.join(SANDBOX, 'workers') };
+  const boardEnv = Object.assign({}, process.env, { [W]: 'elsewhere', [M]: JSON.stringify({ world: 'elsewhere', roots: orig }),
+    AGENT_WORKFORCE_DATA: '/x/elsewhere', AGENT_WORKFORCE_PROJECTS: '/x/elsewhere/projects', AGENT_WORKFORCE_WORKERS: '/x/elsewhere/workers' });
+  const seen2 = [];
+  await rw.listRestoredAgentsInChild({ base, world: p.world }, Object.assign(answering(null, JSON.stringify({ ok: true, listing: good }) + '\n', seen2), { env: boardEnv }));
+  const e = seen2[0].opts.env, want = worlds.envOverridesFor(base, p.world);
+  assert.equal(e.AGENT_WORKFORCE_PROJECTS, want.AGENT_WORKFORCE_PROJECTS);
+  assert.equal(e[W], p.world.id);
+  assert.deepEqual(JSON.parse(e[M]), { world: p.world.id, roots: orig }, 'the marker names this world and the board\'s original roots');
+});
+
+test('one listing per world at a time, and stopListings ends a running one as a refusal', async (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  let calls = 0, pending = null;
+  const fakeChild = { kill() { const cb = pending; pending = null; if (cb) cb(new Error('killed'), ''); } };
+  const deps = { execFile: (file, args, opts, cb) => { calls += 1; pending = cb; return fakeChild; } };
+  const a = rw.listRestoredAgentsInChild({ base, world: p.world }, deps);
+  const b = rw.listRestoredAgentsInChild({ base, world: p.world }, deps);
+  assert.equal(a, b, 'a second ask while one runs gets the same answer');
+  assert.equal(calls, 1, 'and starts no second child');
+  rw.stopListings();
+  const l = await a;
+  assert.ok(l.agents.length === 0 && l.more === true && typeof l.because === 'string', JSON.stringify(l));
+  rw.listRestoredAgentsInChild({ base, world: p.world }, deps);
+  assert.equal(calls, 2, 'once it ended, the next ask starts a new child');
+  rw.stopListings();
 });

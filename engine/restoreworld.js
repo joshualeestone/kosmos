@@ -866,44 +866,58 @@ function listRestoredAgents(opts = {}) {
 const LIST_CHILD_TIMEOUT_MS = 60 * 1000;
 const LIST_CHILD_STDOUT_MAX = 32 * 1024 * 1024;
 const LIST_FAILED = 'the restored agents could not be listed, so nothing in this Kosmos is offered yet';
+const listing = new Map();   // one listing per world at a time: key -> the answer in flight
+const listChildren = new Set();
 
 /* listRestoredAgents for `world`, run in a child process (engine/restoreworld-child.js) with that world's folders in
    its environment, so the board's event loop never waits on it and create.js there takes the Restored world's store
    root. Resolves to listRestoredAgents's own answer; any failure (the child timing out, printing too much, or saying
-   something that is not a listing) resolves to no rows, `more`, and a `because`, which the screen shows as a refusal.
-   opts: { base, world, restoreDir? }. deps: { execFile } (tests). */
+   something that is not a listing) resolves to no rows, `more`, and a `because`. A consumer refuses on `because`,
+   which every refusal from either listing carries; `more` alone does not tell a refusal from a cut list.
+   One listing per world at a time: a second ask while one runs gets the same answer. stopListings ends them all
+   (the board calls it when it stops, so no child outlives it). opts: { base, world, restoreDir? }.
+   deps: { execFile, env } (tests; env is the board's own, process.env by default). */
 function listRestoredAgentsInChild(opts = {}, deps = {}) {
   const failed = (because) => ({ agents: [], shared: [], more: true, because });
   const world = opts.world;
-  if (!world || typeof world.id !== 'string' || world.id === worlds.DEFAULT_ID || typeof opts.base !== 'string') {
+  if (!world || typeof world.id !== 'string' || world.id === worlds.DEFAULT_ID || typeof opts.base !== 'string' || !path.isAbsolute(opts.base)) {
     return Promise.resolve(failed('this Kosmos was not made for a restore, so nothing in it is offered'));
   }
+  const key = JSON.stringify([opts.base, world.id, opts.restoreDir || '']);
+  if (listing.has(key)) return listing.get(key);
   let env;
   try {
-    // What a board booted into that world sees (as worlds.worldWorkersDir builds it): the pre-world roots with that
-    // world's laid over them, derived from the SAME base the listing reads, so the child's store root and the folders
-    // it lists are one world's.
-    const overrides = worlds.envOverridesFor(opts.base, world);
-    if (!overrides.AGENT_WORKFORCE_DATA) return Promise.resolve(failed(LIST_FAILED));
-    env = Object.assign(worlds.preWorldEnv(process.env), overrides, { [require('./launchidentity').WORLD_ENV_VAR]: world.id });
+    // That world's environment as worlds.applyWorldEnv builds it, marker included, from the pre-world roots and the
+    // SAME base the listing reads, so the child's store root, anything it starts, and the folders it lists are one
+    // world's. (applyAgentWorldEnv would derive the base from the env, which can differ from opts.base.)
+    env = worlds.preWorldEnv(deps.env || process.env);
+    if (!worlds.applyWorldEnv(env, opts.base, { id: world.id }).AGENT_WORKFORCE_DATA) return Promise.resolve(failed(LIST_FAILED));
   } catch { return Promise.resolve(failed(LIST_FAILED)); }
   const execFile = deps.execFile || childProcess.execFile;
   const args = [path.join(__dirname, 'restoreworld-child.js'), 'list', opts.base, world.id].concat(opts.restoreDir ? [opts.restoreDir] : []);
-  return new Promise((resolve) => {
+  let settled = false;
+  const answer = new Promise((resolve) => {
+    let child = null;
+    const done = (l) => { settled = true; if (child) listChildren.delete(child); listing.delete(key); resolve(l); };
     try {
-      execFile(process.execPath, args, { env, timeout: LIST_CHILD_TIMEOUT_MS, maxBuffer: LIST_CHILD_STDOUT_MAX, windowsHide: true }, (err, stdout) => {
-        if (err) return resolve(failed(LIST_FAILED));
+      child = execFile(process.execPath, args, { env, timeout: LIST_CHILD_TIMEOUT_MS, maxBuffer: LIST_CHILD_STDOUT_MAX, windowsHide: true }, (err, stdout) => {
+        if (err) return done(failed(LIST_FAILED));
         let j;
-        try { j = JSON.parse(String(stdout).trim().split('\n').pop()); } catch { return resolve(failed(LIST_FAILED)); }
-        if (j && j.ok === false && typeof j.because === 'string') return resolve(failed(j.because));
+        try { j = JSON.parse(String(stdout).trim().split('\n').pop()); } catch { return done(failed(LIST_FAILED)); }
+        if (j && j.ok === false && typeof j.because === 'string') return done(failed(j.because));
         const l = j && j.ok === true ? j.listing : null;
         const shaped = l && Array.isArray(l.agents) && Array.isArray(l.shared) && typeof l.more === 'boolean'
           && (l.because === undefined || typeof l.because === 'string');
-        resolve(shaped ? l : failed(LIST_FAILED));
+        done(shaped ? l : failed(LIST_FAILED));
       });
-    } catch { resolve(failed(LIST_FAILED)); }
+      if (child && !settled) listChildren.add(child);
+    } catch { done(failed(LIST_FAILED)); }
   });
+  if (!settled) listing.set(key, answer);   // an answer given at once (a spawn that threw) holds no place
+  return answer;
 }
+/* Ends every listing child still running; each answers a refusal through its own callback. */
+function stopListings() { for (const c of listChildren) { try { c.kill(); } catch { /* gone */ } } }
 
-module.exports = { memberTag, prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, listRestoredAgentsInChild, isRestoredWorld, worldName,
+module.exports = { memberTag, prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, listRestoredAgentsInChild, stopListings, isRestoredWorld, worldName,
   RESTORE_DIR, LIST_CHILD_TIMEOUT_MS };
