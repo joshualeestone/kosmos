@@ -883,7 +883,7 @@
       "title": "Room posts wake only who they name",
       "line": "An agent's room post now reaches only the members it names (an @ name, @all, or \"Ada -> Bo:\"). The rest can still read it in the room.",
       "icon": "chat",
-      "rank": 16.9,
+      "rank": 14.5,
       "since": "0.7.73",
       "status": "pending"
     }
