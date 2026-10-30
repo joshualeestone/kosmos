@@ -37,8 +37,10 @@ struct ChatView: View {
     // kosmos#7265 (iOS 17+, idAnchor): the message the list is anchored on; "end" keeps the newest in view.
     @State private var positionId: String?
     @State private var personScrolling = false
+    #if DEBUG
     // kosmos#7609: set only by the DEBUG sample scroll-up once it has told the chat where the reader is; checks wait on it.
     @State private var sampleScrollRested = false
+    #endif
     // kosmos#7265 (Josh 10-27): the id of the first eager row, fixed when the conversation is first drawn (eagerStart).
     @State private var eagerFrom: String?
     @State private var unseenNew = false
@@ -544,12 +546,14 @@ struct ChatView: View {
                 // (the board's paintOlderLine).
                 .kosmosTopFade()   // kosmos#7346: rows fade under the solid top bar; the banner and search above stay clear
                 .overlay(alignment: .top) { earlierLoadingLine }
+                #if DEBUG
                 .overlay(alignment: .bottomTrailing) {
                     if sampleScrollRested {
                         Color.clear.frame(width: 1, height: 1)
                             .accessibilityElement().accessibilityLabel("sample scroll rested").accessibilityIdentifier("sample-scroll-rested")
                     }
                 }
+                #endif
                 // kosmos#7420 diagnostic: the list's size, and a check whenever no message is on screen.
                 .background(GeometryReader { g in
                     Color.clear.onAppear { diagViewport = g.size }
@@ -584,6 +588,7 @@ struct ChatView: View {
                     // top, as a reader scrolled up would be, to see whether later reads move it.
                     if let up = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLUP"].flatMap(Int.init), up > 0, items.count > up {
                         let target = items[items.count - up].id
+                        sampleScrollRested = false
                         // Counts as the person's own scroll (nothing in the simulator can drag).
                         // With the id anchor, a person's scroll moves the anchor; a scrollTo alone would not, so move it too.
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {

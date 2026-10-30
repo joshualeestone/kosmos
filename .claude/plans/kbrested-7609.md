@@ -50,3 +50,27 @@ Fresh iPhone 17e simulator (iOS 27.0), `ios/tools/ui-keyboard.sh`, 10-30 06:3x t
 
 Weakest premise: Angel's flake has not been reproduced here, so whether it recurs under load is still open; the trace
 is what will say.
+
+## After review round 1
+
+- The flag and its overlay are inside `#if DEBUG`, like the hook, so a release build carries neither; the hook resets
+  the flag when it schedules a scroll-up, so the marker means "this scroll-up has rested".
+- The trace prints only when the log shows check 3 itself failed (a failure of check 1 or 2 no longer prints a passing
+  run's events under another check's failure). The pattern was checked against a failed check 3, a failed check 1 and a
+  passed check 3: it matched only the first.
+- `--help` and the header say a failure prints the scroll events, which live in the simulator (not in `--keep`).
+- **Deferred:** that writing the trace changes the check's timing. Arm F's trace held about 12 events over ten seconds
+  and no per-row lines, so the extra writes are small; if a flake still reproduces only with the trace off, that is the
+  thing to look at next.
+
+Arms after round 1 (10-30 07:0x to 07:2x CDT, one run each):
+
+| arm | change | result |
+|---|---|---|
+| G | this branch | 3 of 3 pass |
+| H | `keepNewestInView` forced true | check 3 fails and prints its scroll events |
+| I | the marker never set | check 3 fails: "the sample scroll-up never came to rest" (the wait can fail) |
+
+**Observed in arm H, not fixed here:** `xcodebuild` sat for about ten minutes after the tests had finished (its log
+said "Executed 3 tests, with 1 failure" at 07:13); stopping the inner `xcodebuild` let the runner finish and print the
+trace. The runner has no timeout of its own, so a CI job that wraps it should set one.
