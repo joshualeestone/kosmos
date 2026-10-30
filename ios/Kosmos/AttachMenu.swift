@@ -104,8 +104,10 @@ struct AttachPanel: View {
                             .frame(width: tileSize, height: tileSize)
                             .background(Circle().fill(Palette.avatarFill))
                             .accessibilityHidden(true)   // the name beside it says it once
+                            .opacity(off ? 0.4 : 1)
+                        // Review 4: the tile and the name dim on a row that cannot be used, never the line saying why.
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(choice.title).font(.body).foregroundColor(Palette.primary)
+                            Text(choice.title).font(.body).foregroundColor(Palette.primary).opacity(off ? 0.4 : 1)
                             if let note = note(choice) { Text(note).font(.footnote).foregroundColor(Palette.secondary) }
                         }
                         Spacer(minLength: 0)
@@ -116,7 +118,6 @@ struct AttachPanel: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(off)
-                .opacity(off ? 0.4 : 1)
                 .accessibilityHint(atLimit ? limitHint : choice == .camera && camera == .notAllowed ? "Opens Settings, where the camera can be turned on for Kosmos." : "")
             }
         }
@@ -147,11 +148,12 @@ struct CameraCapture: UIViewControllerRepresentable {
         picker.delegate = context.coordinator
         return picker
     }
-    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+    // Review 4: the latest closure, so a photo goes to the chat or room on screen now, not the one the camera opened over.
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) { context.coordinator.done = done }
     func makeCoordinator() -> Coordinator { Coordinator(done: done) }
 
     final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let done: (UIImage?) -> Void
+        var done: (UIImage?) -> Void
         init(done: @escaping (UIImage?) -> Void) { self.done = done }
         func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
             done(info[.originalImage] as? UIImage)
