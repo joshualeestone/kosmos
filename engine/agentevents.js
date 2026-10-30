@@ -1053,23 +1053,28 @@ function emptyState() {
 /* Every stop in this process, counted in memory whatever the disk says (review 40: the count on disk moved only when the
    disk already said "reporting", so a Leave during an enrollment's FIRST tick, or a stop whose write failed, went
    uncounted and the gap was sent). The tick and every enrollment writer run in the board process. */
-let STOPS = 0;
-let UNWRITTEN_STOP = false;
+/* kosmos#7404: counted PER ROOT. A personal backup's enrollment lives under its own root (personalswitch-7404), and a
+   stop there must not make the company root's in-flight tick write withdrawn and send nothing; a tick compares only
+   its own root's count, so review 40 (every stop counted, whatever the disk says) holds per root. */
+const STOPS = new Map();
+const UNWRITTEN_STOP = new Set();
+const rootKey = (root) => path.resolve(root);
+const stopsOf = (root) => STOPS.get(rootKey(root)) || 0;
 let DAMAGE_SAID = false;
 function markWithdrawn(root0) {
-  STOPS++;
   const root = root0 || require('./store').ROOT;
+  STOPS.set(rootKey(root), stopsOf(root) + 1);
   /* A state that exists but cannot be read now (a passing EMFILE, a torn file) cannot say whether it was reporting, so
      the stop is carried to the next tick as if its write had failed (review 42). A missing state never reported. */
   try { JSON.parse(fs.readFileSync(path.join(root, STATE_FILE), 'utf8')); }
-  catch (e) { if (!e || e.code !== 'ENOENT') UNWRITTEN_STOP = true; return; }
+  catch (e) { if (!e || e.code !== 'ENOENT') UNWRITTEN_STOP.add(rootKey(root)); return; }
   const w = readState(root);
   /* stops counts every stop, so a tick that read while one happened can see it even after the same record came back
      (review 39). */
   if (w.enrolledAs && !w.withdrawn) {
     w.withdrawn = true; w.pending = []; w.stops = (w.stops || 0) + 1;
     /* A stop whose write failed is carried in memory to the next tick, which starts as withdrawn (review 41). */
-    if (!writeState(root, w)) UNWRITTEN_STOP = true;
+    if (!writeState(root, w)) UNWRITTEN_STOP.add(rootKey(root));
   }
 }
 
@@ -1317,8 +1322,8 @@ async function tickOnce(opts) {
     if (!st) return { sent: 0, because: 'the state could not be read; nothing read or sent' };   // review 43
     const stRaw = JSON.stringify(st);
     const stops0 = st.stops;   // review 39: a stop marked while this tick reads makes it write and send nothing
-    const gen0 = STOPS;   // review 40: and the in-memory count, which moves on every stop
-    const unwritten = UNWRITTEN_STOP;   // review 41: a stop that could not be written starts this tick as withdrawn
+    const gen0 = stopsOf(root);   // review 40: and the in-memory count, which moves on every stop (this root's)
+    const unwritten = UNWRITTEN_STOP.has(rootKey(root));   // review 41: a stop not written starts this tick as withdrawn
     if (unwritten) st.withdrawn = true;
     /* Words withdrawn and then accepted again under the SAME hash (review 3): the key alone would not change, so the
        withdrawal itself is recorded and a resumed tick starts clean as for new words. What keeps the gap out after any
@@ -1724,7 +1729,7 @@ async function tickOnce(opts) {
        if a stop was counted meanwhile, nothing is written or sent, and the next tick starts clean from the mark. */
     const disk = readStateForUpdate(root);
     if (!disk) return { sent: 0, because: 'the state could not be read; nothing written or sent' };   // review 43
-    if (STOPS !== gen0 || disk.stops !== stops0) {
+    if (stopsOf(root) !== gen0 || disk.stops !== stops0) {
       /* Recorded as withdrawn, so the next tick starts from then, not from the enrollment (review 40: on a first tick
          nothing on disk said "reporting", and the next tick read the gap from the start). */
       const a = disk;
@@ -1745,7 +1750,7 @@ async function tickOnce(opts) {
     /* Written only when it changed (Kitty's review 9: thousands of offsets rewritten every five minutes for nothing). */
     if (JSON.stringify(st) !== stRaw && !writeState(root, st)) return { sent: 0, because: 'this Kosmos cannot record what it has read' };
     if (board.taken) board.commit();   // only once they are in the written state
-    if (unwritten) UNWRITTEN_STOP = false;   // the withdrawn start is on disk now
+    if (unwritten) UNWRITTEN_STOP.delete(rootKey(root));   // the withdrawn start is on disk now
     /* The calls are kept only now: had the write failed, the next tick re-reads those lines WITH their calls (review 23:
        a consumed call left the re-read classed without its target). */
     for (const [f, m] of nextCalls) { if (m.size) CALLS.set(f, m); else CALLS.delete(f); }
