@@ -14,7 +14,8 @@ again" after one try, but his screenshot, taken after that line, was still empty
   check (no row leaving would bump the tick). A band moved off the content by anything else, with rows still counted,
   is not checked until one of those or a row leaving happens.
 - An empty list must read empty at 0.5 s and again at 1.5 s, with the list still, before anything is done.
-- After the one report, an empty list is still put back (to the newest message), at most once in 2 s and 3 times a chat.
+- After the one report, an empty list is still put back (to the newest message), at most once in 2 s and 3 times a chat,
+  and each of those is added to the report the person can share, with which arm read empty.
 - `Board.scrollBand` is tested in LogicTests with a control on each side of each boundary.
 - A UI test (`ChatBlankUITests`, skipped unless `TEST_RUNNER_KOSMOS_UI_BLANK=1`) walks Josh's steps on the sample chat.
 

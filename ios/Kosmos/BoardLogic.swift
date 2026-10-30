@@ -443,6 +443,7 @@ enum Board {
     enum ScrollBand: String { case content = "on the content", pastEnd = "past the content's end", aboveTop = "above the content's top" }
     static func scrollBand(offsetY: Double, contentHeight: Double, visibleHeight: Double, insetTop: Double, insetBottom: Double) -> ScrollBand {
         let top = offsetY + insetTop, bottom = offsetY + visibleHeight - insetBottom
+        guard bottom > top else { return .content }   // insets covering the whole view: nothing shown to judge
         if top >= contentHeight - 0.5 { return .pastEnd }
         if bottom <= 0.5 { return .aboveTop }
         return .content

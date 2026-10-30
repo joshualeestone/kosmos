@@ -4920,6 +4920,8 @@ do {
     check(band(-411) == .content, "CONTROL: one point of the top still showing is on the content")
     check(band(-100, top: 100) == .content && band(4900, top: 100) == .pastEnd && band(4900) == .content, "the top inset moves where the band starts")
     check(band(-300, bottom: 120) == .aboveTop && band(-300) == .content, "the bottom inset (the keyboard) moves where it ends")
+    check(band(-400, top: 300, bottom: 200) == .content && band(-400, top: 300, bottom: 100) == .aboveTop,
+          "insets covering the whole view leave nothing to judge (CONTROL: with a sliver left, the same offset reads above the top)")
 
     // Review 3: the box over a chat's life.
     var sends: [Int] = []

@@ -24,6 +24,9 @@ final class ChatBlankUITests: XCTestCase {
     func testAListPastItsEndRaisesTheBanner() throws {
         let app = try launch(["KOSMOS_SAMPLE_BLANK": "4"])
         XCTAssertTrue(app.staticTexts[Self.banner].waitForExistence(timeout: 20), "an empty list did not raise the #7420 banner")
+        // And the one try put the newest message back on screen.
+        let newest = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Message 260 of 260")).firstMatch
+        XCTAssertTrue(newest.waitForExistence(timeout: 5) && newest.isHittable, "the newest message was not put back")
         shot(app, "control: past the end")
     }
 

@@ -796,7 +796,10 @@ struct ChatView: View {
             guard diagRecoveries < Self.diagRecoveryCap else { return }
             let g = diagGeometry()
             diagRecoveries += 1; diagRecoveredAt = Date()
-            Self.trace("empty again by " + (g.off ? "the band" : "the rows") + " (" + g.line + "), trying the newest message")
+            let line = "empty again by " + (g.off ? "the band" : "the rows") + " (" + g.line + "), trying the newest message"
+            Self.trace(line)
+            // Review 9: in the report the person shares too, not only the trace (the report is written once, at capture).
+            if let report = diagReport { diagReport = report + "\n" + line }
             goNewest(proxy)
             return
         }

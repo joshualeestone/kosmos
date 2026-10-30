@@ -527,6 +527,19 @@ let geoText = geoStart.flatMap { s in geoEnd.map { String(chatSource[s.lowerBoun
 let geoValues = geoText.components(separatedBy: "\\(").dropFirst().map { $0.components(separatedBy: ")").first ?? "" }
 check(geoValues.count == 6 && geoValues.allSatisfy { $0.hasPrefix("Int(") || $0 == "band.rawValue" },
       "kosmos#7420: the scroll view's line records numbers and the band only (\(geoValues.count) values: \(geoValues))")
+// Review 9: a record line built with + is not seen by the interpolation scan above, so each + operand of a trace line must be
+// a string literal, the vetted scroll line, or the arm's fixed words.
+let plusTraces = chatSource.components(separatedBy: "\n").filter { ($0.components(separatedBy: "Self.trace(").dropFirst().first ?? "").contains(" + ") }
+let allowedOperands: Set<String> = ["geo.line", "g.line", "line", "(g.off ? \"the band\" : \"the rows\")"]
+let lineDefs = chatSource.components(separatedBy: "\n").filter { $0.contains("let line = \"empty again by \"") }
+let badOperands = (plusTraces + lineDefs).flatMap { l -> [String] in
+    let body = l.contains("Self.trace(") ? String((l.components(separatedBy: "Self.trace(").last ?? "").dropLast())
+        : (l.components(separatedBy: "let line = ").last ?? "")
+    return body.components(separatedBy: " + ").map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !($0.hasPrefix("\"") && $0.hasSuffix("\"") && !$0.contains("\\(")) && !allowedOperands.contains($0) }
+}
+check(plusTraces.count >= 1 && lineDefs.count == 1 && badOperands.isEmpty,
+      "kosmos#7420 review 9: every + in a record line joins literals and vetted values only (\(plusTraces.count) trace lines; not allowed: \(badOperands))")
 // Review 7: the "after one try" lines carry the time (a literal) and the row count, nothing else.
 let readStart = chatSource.range(of: "func reading(_ when: String) -> String {")
 let readEnd = readStart.flatMap { chatSource.range(of: "DispatchQueue.main.asyncAfter", range: $0.upperBound..<chatSource.endIndex) }
