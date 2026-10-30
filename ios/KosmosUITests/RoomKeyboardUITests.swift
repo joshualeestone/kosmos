@@ -55,10 +55,9 @@ final class RoomKeyboardUITests: XCTestCase {
         return app
     }
 
-    // The room's message box by its prompt, whatever kind of element it is drawn as.
+    // The room's message box, by its prompt.
     private static func box(_ app: XCUIApplication) -> XCUIElement {
-        let box = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label == 'Message Spring catalogue' OR placeholderValue == 'Message Spring catalogue'")).firstMatch
+        let box = app.textFields.matching(NSPredicate(format: "placeholderValue == 'Message Spring catalogue'")).firstMatch
         XCTAssertTrue(box.waitForExistence(timeout: 30), "no message box")
         return box
     }
