@@ -240,12 +240,32 @@ function isOn(opts = {}) {
 }
 
 /** A lost join or a pending leave under this root, settled the way orgenroll settles the company's: one refresh. */
-/* The age of the oldest pending step (a lost join or leave), or null. */
+/* The age of the oldest pending step (a lost join or leave), or null. Code review 2, warning 3: never a file's mtime,
+   because leaveNow rewrites the pending-leave file on every try, so its mtime never aged and a leave Kosmos+ never
+   answered was followed up every two minutes forever. A lost join's age is its own `at` (as server.js reads it; an
+   unreadable time counts as a day old, so the hourly pass); a pending leave's is when THIS module first saw it,
+   kept in its own file and dropped once no leave is pending. */
+const LEAVE_SEEN = 'personal-leave-seen';
 function pendingAge(opts, now) {
   const oe = opts.orgenroll || require('./orgenroll');
+  const r = root(opts);
   let age = null;
-  for (const f of [oe.JOIN_UNKNOWN_FILE, oe.LEAVE_PENDING_FILE]) {
-    try { const a = now - fs.statSync(path.join(root(opts), f)).mtimeMs; age = age === null ? a : Math.max(age, a); } catch { /* none */ }
+  const take = (a) => { age = age === null ? a : Math.max(age, a); };
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(r, oe.JOIN_UNKNOWN_FILE), 'utf8'));
+    const t = Date.parse((j && j.at) || '');
+    take(Number.isFinite(t) && t <= now ? now - t : 24 * HOUR);
+  } catch (e) { if (!e || e.code !== 'ENOENT') take(24 * HOUR); }
+  const seen = path.join(r, LEAVE_SEEN);
+  let leaving = false;
+  try { leaving = fs.existsSync(path.join(r, oe.LEAVE_PENDING_FILE)); } catch { /* read as none */ }
+  if (leaving) {
+    let t = NaN;
+    try { t = Number(fs.readFileSync(seen, 'utf8').trim()); } catch { /* first sight */ }
+    if (!Number.isFinite(t) || t > now) { t = now; try { fs.writeFileSync(seen, String(now) + '\n', { mode: 0o600 }); } catch { /* unwritten: fast again next pass (accepted) */ } }
+    take(now - t);
+  } else {
+    try { fs.rmSync(seen, { force: true }); } catch { /* harmless */ }
   }
   return age;
 }
