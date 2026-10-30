@@ -12,3 +12,10 @@ Steps:
 
 If anything lands in the pool before the 0.7.76 cut, rebuild on a new branch; this list is not final
 by being merged first.
+
+Review round 1 (blind, 10-30 07:56): no BLOCKER or MAJOR.
+- NIT, done: the build ran online; `--offline` gives the same bytes only while prod and the pool's
+  lastProd agree (both 0.7.71 today). A re-check after a prod promote must run online.
+- MINOR, follow-up card, not this branch: nothing checks at cut time that web/whats-new.json still
+  matches a fresh build of the pool, so a pool item merged after this list ships silently missing.
+  Two items are already queued for 0.7.76 (wnroom-7246, musequota-7615); I rebuild when they land.
