@@ -262,6 +262,9 @@ const SEAMS_5548 = {
   // kosmos#7404 personalswitch-7404: forgets when the personal follow-up last refreshed, so each test in
   // engine/personalbackup-7404.test.js can count the hourly refresh from a clean start. Production never calls it.
   _resetFollowUpForTests: 'engine/personalbackup.js',
+  // kosmos#7404 personalswitch-7404: the module's own ticket map, so its tests can see a ticket kept or spent. Read only
+  // by engine/personalbackup-7404.test.js; production reaches tickets through preview and switchOn.
+  _TICKETS: 'engine/personalbackup.js',
   // #7116 slice 1: the verifying key a test checks escrowd's device-key history with. It counts only while
   // NODE_TEST_CONTEXT is set and VERIFYING_KEY is null (engine/devkeyhist-7116.test.js shows both); production never sets it.
   setVerifyingKeyForTests: 'engine/devkeyhist.js',

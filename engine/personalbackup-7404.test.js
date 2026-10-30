@@ -65,6 +65,7 @@ function coordinator(over = {}) {
   };
 }
 const HOUR_MS = 60 * 60 * 1000;
+const PREVIEW_OPEN = 'personal-preview-open.json';   // engine/personalbackup.js's marker, by name: not exported
 const KEY_OK = { setUpPersonalKey: async () => ({ ok: true, code: 'TEST-CODE', epoch: 1 }) };
 
 function fresh(t) {
@@ -252,7 +253,7 @@ test('#7404: a coded personal refusal on enroll is told as refused, and leaves n
    an unbound personal one (never a company's, a family's, or a personal backup another computer of the account runs). */
 const STATUS_N = (c) => c.sent.filter((x) => x.route === oe.ROUTES.status).length;
 const LEAVE_N = (c) => c.sent.filter((x) => x.route === oe.ROUTES.leave).length;
-const opened = (root) => fs.existsSync(path.join(root, pb._PREVIEW_OPEN));
+const opened = (root) => fs.existsSync(path.join(root, PREVIEW_OPEN));
 
 test('#7404 blocker 1: a decline ends the membership the preview made, with an empty leave', async (t) => {
   const root = fresh(t);
@@ -442,11 +443,12 @@ test('#7404 warning 5: bound but not recorded: says the data folder, and the tic
 });
 
 test('#7404 warning 5: an unwritable data folder before anything is sent: says so, keeps the ticket', async (t) => {
-  if (process.platform === 'win32' || process.getuid?.() === 0) return t.skip('needs a folder this user cannot write');
+  // A folder this user cannot write needs POSIX permissions and a user that is not root (no getuid: not POSIX).
+  if (typeof process.getuid !== 'function' || process.getuid() === 0) return t.skip('needs a folder this user cannot write');
   const root = fresh(t);
   const c = coordinator();
   const p = await pb.preview({ root, remote: c });
-  fs.rmSync(path.join(root, pb._PREVIEW_OPEN), { force: true });
+  fs.rmSync(path.join(root, PREVIEW_OPEN), { force: true });
   fs.chmodSync(root, 0o500);
   t.after(() => { try { fs.chmodSync(root, 0o700); } catch { /* already removed */ } });
   const r = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
