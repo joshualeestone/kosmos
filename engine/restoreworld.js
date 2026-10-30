@@ -622,7 +622,9 @@ function gitSettingsOf(file, shown, budget) {
   // git compares the ceiling without resolving links, and macOS's temporary folder sits behind /var -> /private/var.
   let tmp;
   try { tmp = fs.realpathSync(os.tmpdir()); } catch { tmp = os.tmpdir(); }
-  Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull, GIT_TERMINAL_PROMPT: '0', GIT_CEILING_DIRECTORIES: path.dirname(tmp) });
+  // '/dev/null', not os.devNull: Git for Windows maps that spelling to NUL itself, and with os.devNull (\\.\nul) every
+  // read on the Windows CI runner said "could not be checked". On macOS and Linux the two are the same path.
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', GIT_CEILING_DIRECTORIES: path.dirname(tmp) });
   // Twice the file's size; long subsections over many short keys can list more than that, and then it is not checked.
   const r = childProcess.spawnSync('git', ['config', '--file', file, '--no-includes', '--null', '--name-only', '--list'],
     { cwd: tmp, env, encoding: 'utf8', timeout: GIT_READ_MS, maxBuffer: 2 * MAX_GIT_CONFIG_BYTES, windowsHide: true });

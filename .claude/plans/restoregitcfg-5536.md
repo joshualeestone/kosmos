@@ -128,3 +128,9 @@ runs or loads something once the agent's git reaches it. The review screen must 
 - DEFERRED: a fresh empty subfolder as git's cwd; Windows git.exe lookup (Homer, #7593); Date.now() not monotonic
   (fails toward more reads); bare-layout noise from a project's own `config` file; hang, ENOBUFS and git-missing tests.
 - Tests 63/63; guard files 20/20.
+
+## After the PR: Windows CI (run 40996551651)
+- Every git read on the Windows runner answered "could not be checked" (four tests red), and the reason is discarded
+  by design. Likeliest cause: GIT_CONFIG_GLOBAL=os.devNull, which on Windows is \\.\nul (round 8 flagged it as
+  unmeasurable from a Mac). Now the literal '/dev/null', which Git for Windows maps to NUL itself; on macOS the value
+  is byte-identical to before, so the Mac validation still describes the code. Windows CI is the measurement.
