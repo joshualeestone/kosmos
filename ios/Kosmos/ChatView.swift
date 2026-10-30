@@ -1366,7 +1366,9 @@ struct ChatView: View {
             }
             .frame(minHeight: 48)
             .background(RoundedRectangle(cornerRadius: 24).fill(Palette.card)
-                .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 3))
+                // kosmos#7628 (Josh 10-30, build 21): on the white chat ground the old soft shadow (radius 10) read as a grey
+                // band behind the box; a tight one keeps the white box's edge without the band.
+                .shadow(color: Color.black.opacity(0.08), radius: 3, x: 0, y: 1))
             .overlay(RoundedRectangle(cornerRadius: 24).stroke(Palette.separator, lineWidth: 0.5))
             if let line = ComposerExtras.micLine(dictation.state) {
                 Text(line).font(.footnote).foregroundColor(Palette.secondary)
