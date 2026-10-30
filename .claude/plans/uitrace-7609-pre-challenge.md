@@ -21,3 +21,12 @@ converged: true
 
 #### Iteration 1
 - No BLOCKER or WARNING found. Noted risk (not a defect): the restored check opens the same 260-message sample chat that CI once timed out querying; a query timeout would not be explained by the trace (the plan's weakest premise).
+
+### What round 1 checked (from the reviewer's report)
+- The failure pattern at ui-sample.sh line 86 uses the same "Test Case '-[KosmosUITests.<Class> <test>]' failed" shape the script already counts with on lines 69, 70 and 74, so it matches whatever those match.
+- The dump runs before `exit 1`; cleanup is only the EXIT trap, so the simulator still exists when its data container is read.
+- The path is right: `$work/dd/Build/Products/<config>-iphonesimulator/Kosmos.app` is within `-maxdepth 2`, and the bundle id comes from the built Info.plist, never hard-coded.
+- `set -u`: app, bid and data are always assigned (empty when a step fails); udid, work and log are set before the block. No `set -e`.
+- An empty, unquoted `$skip` expands to no argument at all in bash, so xcodebuild is not handed an empty string.
+- Privacy: ChatView.trace writes trace.txt only in a DEBUG build with KOSMOS_SAMPLE_TRACE=1, and every caller logs event names, counts, sizes, booleans and fixed reasons, never message text. The run uses the built-in sample board on a fresh simulator, so nothing personal can reach the public CI log.
+- Comments match the code; the plan's 11 of 11 adds up (6 + 2 + 3); the workflow keys only on `^PASS  ui-sample:`.
