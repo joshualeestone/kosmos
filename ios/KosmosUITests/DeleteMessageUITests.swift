@@ -51,7 +51,12 @@ final class DeleteMessageUITests: XCTestCase {
         shot(app, "asked")
         XCTAssertTrue(app.buttons["Keep it"].exists, "the question does not offer Keep it")
         app.buttons["Keep it"].tap()
-        XCTAssertTrue(mine.waitForExistence(timeout: 5), "Keep it removed the message")
+        // Review 1: a Delete wired to run when the sheet goes would only act after it closes, so close it, wait past a
+        // read of the chat (5 s), and the message must still be there.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()   // the dimmed chat above the sheet closes it
+        Thread.sleep(forTimeInterval: 7)
+        XCTAssertFalse(app.buttons["Delete message"].exists, "the sheet did not close")
+        XCTAssertTrue(mine.exists, "Keep it removed the message")
     }
 
     // Delete: asked, confirmed, and the message is gone from the chat.

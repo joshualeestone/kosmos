@@ -540,7 +540,8 @@ final class RoomStore: ObservableObject {
         switch result {
         case .deleted(let told):
             rows[project]?.removeAll { $0.id == row.id }
-            notes[project] = Board.deletedNote(told: told, names: names)
+            // Review 1: only when there is something to say, so the room's "not confirmed" line is kept otherwise.
+            if let note = Board.deletedNote(told: told, names: names) { notes[project] = note }
         case .refused(let why):
             notes[project] = why
         }

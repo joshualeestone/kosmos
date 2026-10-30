@@ -1734,8 +1734,11 @@ struct ChatView: View {
             switch result {
             case .deleted(let told):
                 if let t = thread { thread = Board.withoutMessage(t, at: at) }
-                earlier.rows = Board.withoutMessage(earlier.rows, at: at)
-                composerNote = Board.deletedNote(told: told, names: [agent.session: shown.name])
+                // Review 1: with earlier messages open, the newest window shifts by one after a delete, so a row the
+                // earlier pages already hold would come back as a second copy. Start them again, as on a moved chat.
+                if !earlier.rows.isEmpty { earlier = Board.resetEarlier(earlier) }
+                // Review 1: only when there is something to say, so a standing line (Try again, a wait) is kept.
+                if let note = Board.deletedNote(told: told, names: [agent.session: shown.name]) { composerNote = note }
             case .refused(let why):
                 composerNote = why
             }
@@ -1932,7 +1935,8 @@ struct ChatBubble: View {
         .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
         .accessibilityElement(children: .ignore)
         // kosmos#7419 review 3: Message actions on the one element VoiceOver reads (the inner one is dropped by .ignore).
-        .messageActionsAccessibility(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text)
+        .messageActionsAccessibility(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text,
+                                     delete: delete)   // kosmos#7614 review 1: VoiceOver's sheet has Delete too
         .accessibilityLabel(spokenLabel)
         // Always present, doing nothing where there is no retry: without a default action VoiceOver's double-tap would
         // fall through as a tap at the bubble's centre, which can land on a link (#7014).
