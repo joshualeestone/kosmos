@@ -47,3 +47,15 @@ agent's own child processes (slice 3c).
 ## Tests
 Port `engine/automove-7152.test.js` from the old branch onto the new module (its 600 lines cover rules 1 to 10), add
 tests for 7, 11 and 12, and a page check for the new lines (docs/browser-checks/render-autobalance-7152.js).
+
+## Status (written as built)
+- Built: engine/automove.js (moving half), decide() skipTarget, sweep appendAll + recent() drawing the mover's lines,
+  accountmove.start's err.wroteAccount (rule 11), movableFor({ strict }) for the re-check (rule 12), server.js
+  accountMoveDeps() shared by the bulk route and the mover (rule 1), person lines from both routes (rule 7),
+  automoveDeps() and the mover run after the sweep's tick, Settings' `moving` flag and the page's new lines.
+- Rule 9 goes further than the old branch: an uncertain watch takes sightings once the agent's session start reads at or
+  after the move (deps.sessionStart), instead of never.
+- Tests: engine/automove-7548.test.js (29), the 6173/6214 source pins re-aimed at accountMoveDeps() (perturbed: red
+  without `hold:`), page check render-autobalance-7152.js gains `moving` and `movingOff`.
+- Found while testing: a commitment unreadable at the re-check folded to "not free" inside movableFor, so the mover wrote
+  "no longer idle" for a read failure. That is why `strict` exists.
