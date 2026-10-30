@@ -27,7 +27,8 @@
  *
  * ⚠️ EVERY CALL IS SYNCHRONOUS. A listing can read up to MAX_BRIEF_TOTAL of briefs and thousands of entries, and run
  * git on project configs for about 22 s; a finish on Windows can wait seconds per rename. The 4c caller runs these off
- * the board's event loop (a worker thread or a child process), or one large restore stalls every other request.
+ * the board's event loop, or one large restore stalls every other request: listRestoredAgentsInChild does it for a
+ * listing, in a child process (not a worker thread, which shares this process's store root).
  */
 
 const childProcess = require('node:child_process');
@@ -859,4 +860,50 @@ function listRestoredAgents(opts = {}) {
   return { agents, shared, more };
 }
 
-module.exports = { memberTag, prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, isRestoredWorld, worldName, RESTORE_DIR };
+/* A listing's bound in the child, and what it may print: every listing budget at its limit (briefs, 400 git reads in
+   20 s) is about 25 s, so a minute is room to spare. 1,000 rows of labels and `runs` lines fit well inside 32 MB.
+   Past either, the child is killed and the listing reads as failed, never as empty. */
+const LIST_CHILD_TIMEOUT_MS = 60 * 1000;
+const LIST_CHILD_STDOUT_MAX = 32 * 1024 * 1024;
+const LIST_FAILED = 'the restored agents could not be listed, so nothing in this Kosmos is offered yet';
+
+/* listRestoredAgents for `world`, run in a child process (engine/restoreworld-child.js) with that world's folders in
+   its environment, so the board's event loop never waits on it and create.js there takes the Restored world's store
+   root. Resolves to listRestoredAgents's own answer; any failure (the child timing out, printing too much, or saying
+   something that is not a listing) resolves to no rows, `more`, and a `because`, which the screen shows as a refusal.
+   opts: { base, world, restoreDir? }. deps: { execFile } (tests). */
+function listRestoredAgentsInChild(opts = {}, deps = {}) {
+  const failed = (because) => ({ agents: [], shared: [], more: true, because });
+  const world = opts.world;
+  if (!world || typeof world.id !== 'string' || world.id === worlds.DEFAULT_ID || typeof opts.base !== 'string') {
+    return Promise.resolve(failed('this Kosmos was not made for a restore, so nothing in it is offered'));
+  }
+  let env;
+  try {
+    // What a board booted into that world sees (as worlds.worldWorkersDir builds it): the pre-world roots with that
+    // world's laid over them, derived from the SAME base the listing reads, so the child's store root and the folders
+    // it lists are one world's.
+    const overrides = worlds.envOverridesFor(opts.base, world);
+    if (!overrides.AGENT_WORKFORCE_DATA) return Promise.resolve(failed(LIST_FAILED));
+    env = Object.assign(worlds.preWorldEnv(process.env), overrides, { [require('./launchidentity').WORLD_ENV_VAR]: world.id });
+  } catch { return Promise.resolve(failed(LIST_FAILED)); }
+  const execFile = deps.execFile || childProcess.execFile;
+  const args = [path.join(__dirname, 'restoreworld-child.js'), 'list', opts.base, world.id].concat(opts.restoreDir ? [opts.restoreDir] : []);
+  return new Promise((resolve) => {
+    try {
+      execFile(process.execPath, args, { env, timeout: LIST_CHILD_TIMEOUT_MS, maxBuffer: LIST_CHILD_STDOUT_MAX, windowsHide: true }, (err, stdout) => {
+        if (err) return resolve(failed(LIST_FAILED));
+        let j;
+        try { j = JSON.parse(String(stdout).trim().split('\n').pop()); } catch { return resolve(failed(LIST_FAILED)); }
+        if (j && j.ok === false && typeof j.because === 'string') return resolve(failed(j.because));
+        const l = j && j.ok === true ? j.listing : null;
+        const shaped = l && Array.isArray(l.agents) && Array.isArray(l.shared) && typeof l.more === 'boolean'
+          && (l.because === undefined || typeof l.because === 'string');
+        resolve(shaped ? l : failed(LIST_FAILED));
+      });
+    } catch { resolve(failed(LIST_FAILED)); }
+  });
+}
+
+module.exports = { memberTag, prepareRestoreWorld, finishRestoreWorld, listRestoredAgents, listRestoredAgentsInChild, isRestoredWorld, worldName,
+  RESTORE_DIR, LIST_CHILD_TIMEOUT_MS };

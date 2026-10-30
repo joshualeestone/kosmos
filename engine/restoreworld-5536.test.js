@@ -1157,3 +1157,48 @@ test('checkout path guards are named; every part of a key is bounded; refused ag
   assert.ok(!Object.values(runs).flat().some((r) => /checked as many as it may/.test(r)), 'the refused agent folder spent none of the two reads');
   assert.ok(!l.agents.find((a) => a.folder === 'gitty').runs.some((r) => / sets /.test(r)));
 });
+
+test('the listing run in a child process answers exactly what the listing in this process does', async (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const sink = createRestoreSink(p.restoreDir);
+  writeThrough(sink, 'workers/ann/CLAUDE.md', '# You are Ann\n');
+  writeThrough(sink, 'workers/eve/.claude/settings.json', '{}\n');
+  writeThrough(sink, 'projects/site/.git/config', '[core]\n\tpager = x\n');
+  sink.close();
+  const moved = rw.finishRestoreWorld({ base, world: p.world, restoreDir: p.restoreDir, result: OK });
+  assert.equal(moved.ok, true, moved.because);
+  const here = rw.listRestoredAgents({ base, world: p.world, restoreDir: p.restoreDir, nameOk });
+  assert.ok(here.agents.length >= 2 && here.shared.some((s) => s.runs.includes('.git/config sets core.pager')), JSON.stringify(here));
+  const away = await rw.listRestoredAgentsInChild({ base, world: p.world, restoreDir: p.restoreDir });
+  assert.deepEqual(away, here);
+  const stranger = await rw.listRestoredAgentsInChild({ base, world: { id: 'not-a-world' } });
+  assert.deepEqual(stranger, { agents: [], shared: [], more: true, because: 'this is not a Kosmos on your list, so nothing in it is offered' });
+});
+
+test('a listing in a child that fails in any way is a refusal, never an empty restore; the child gets the Restored world\'s roots', async (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const refused = (l) => l.agents.length === 0 && l.shared.length === 0 && l.more === true && typeof l.because === 'string' && l.because.length > 0;
+  const answering = (err, stdout, seen) => ({ execFile: (file, args, opts, cb) => { if (seen) seen.push({ file, args, opts }); cb(err, stdout); } });
+  const seen = [];
+  const good = { agents: [], shared: [], more: false };
+  assert.deepEqual(await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(null, JSON.stringify({ ok: true, listing: good }) + '\n', seen)), good);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].opts.env.AGENT_WORKFORCE_DATA, worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_DATA);
+  assert.equal(seen[0].opts.env.AGENT_WORKFORCE_WORKERS, worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_WORKERS);
+  assert.equal(seen[0].opts.env[require('./launchidentity').WORLD_ENV_VAR], p.world.id);
+  assert.deepEqual(seen[0].args.slice(1), ['list', base, p.world.id]);
+  for (const [why, err, out] of [
+    ['the child failed or timed out', new Error('killed'), ''],
+    ['the child printed something that is not JSON', null, 'not json\n'],
+    ['the listing is missing its shared rows', null, JSON.stringify({ ok: true, listing: { agents: [], more: false } }) + '\n'],
+    ['more is not a boolean', null, JSON.stringify({ ok: true, listing: { agents: [], shared: [], more: 'no' } }) + '\n'],
+  ]) {
+    assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(err, out))), why);
+  }
+  assert.equal((await rw.listRestoredAgentsInChild({ base, world: p.world }, answering(null, JSON.stringify({ ok: false, because: 'said by the child' }) + '\n'))).because, 'said by the child');
+  const none = [];
+  assert.ok(refused(await rw.listRestoredAgentsInChild({ base, world: { id: worlds.DEFAULT_ID } }, answering(null, '', none))), 'the default Kosmos is never listed');
+  assert.equal(none.length, 0, 'and no child is started for it');
+});
