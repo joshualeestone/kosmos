@@ -10,8 +10,10 @@ a key made from a recovery code the person keeps, so Kosmos+ cannot read the bac
   HKDF to an X25519 wrap key and a separate authentication key, the KBR1 wrap (the coordinator's associated data),
   and the binding tag: HMAC under the code's authentication key over (context, member public key).
 - **2b, engine/personalbackupkey.js:** setUp() reads org and member from member-key/mine, makes the code and the
-  key, keeps the key before sending, registers KBR1 + recovery_public + tag, answers the code once and writes it
-  nowhere. restore(code) requires every row's recovery key to be the code's and its wrap to open with the code AND
+  key, keeps the key AND the code (0600, beside the key) before sending, registers KBR1 + recovery_public + tag,
+  and answers the code; a retry or a crash before the screen answers the SAME code (our own row is checked in full:
+  our key, our code's recovery key, and it opens with code and tag). confirmRecoveryCodeSaved() deletes the code,
+  locally and only once its key is registered here. restore(code) requires every row's recovery key to be the code's and its wrap to open with the code AND
   its tag; one bad row refuses the whole restore. Keys go in the company path's key file (backupmemberkey exports
   readKeys/writeKeys), so the backup job reads one place.
 
@@ -34,5 +36,6 @@ slow password hash: the code is 128 random bits, so HKDF is enough.
 
 ## Weakest premise
 
-That the person keeps the code. Mitigated by the computer's own key file (a signed-in computer can make a new code,
+That the screen calls confirmRecoveryCodeSaved() once the person saved the code; until then the code sits on this
+disk (0600, beside the member key, which is already there in the clear). And that the person keeps the code. Mitigated by the computer's own key file (a signed-in computer can make a new code,
 #5744's next-epoch path), so only losing every computer and the code is fatal; the words say so before it turns on.
