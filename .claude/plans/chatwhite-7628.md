@@ -29,3 +29,10 @@ matches the desktop exactly, so changing it would move the phone away from the d
 ## Verified
 Simulator (iPhone 17 Pro, iOS 27.0), sample DM and room, light and dark: background pixels read exactly
 (255,255,255) and (0,0,0). Repo readers of ios/ 82/82.
+
+## Review ledger (2 blind rounds, converged)
+- Round 1: 0B 2W 1N. W: the top bar and its fade stayed on the page colour, a seam over a white list (the desktop's DM header sits inside its white box, measured), so kosmosSolidTopBar/kosmosTopFade take a `ground:` and the chat screens pass chatGround; W: Palette.tertiary dark at 0.47 fell to ~4.44:1 on pure black, now 0.49 (~4.6 to 4.8:1). N: the composer outline on white is faint (it was already as faint on #faf9f7; kept).
+- Round 2: CONVERGED, no blocker or warning. The long-press sheet keeps `ground` by design (a separate sheet, not a seam).
+
+## Validation (after rebase on origin/main)
+Simulator shots after the fix (DM and room, light and dark): top bar, list and composer strip all sample (255,255,255) and (0,0,0). Repo readers of ios/ 82/82; LogicTests 1706/1706; room 735/735.
