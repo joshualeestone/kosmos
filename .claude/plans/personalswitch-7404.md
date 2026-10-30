@@ -175,3 +175,22 @@ family join; mac_leave refuses another org with org_not_that_org.
 NITs: future marker counts as old (M4 red); tests preview under their own root, fixture role 'member'; agentevents
 roots by realpath (NOT pinned: M7 stayed green, the withdrawn file reaches the tick through the link; the test says so).
 org_not_that_org settles the marker (M5 red). Untested: startFollowUp's live gate and one-pass guard (timer path).
+
+## Code review 4 (blind, 17:0x 10-30): one blocker, three warnings, three nits. Addressed (4c6318d7cb + test)
+
+1. BLOCKER, the personal org is REUSED across the account's computers, so {orgId} cannot tell this preview's membership
+   from one another computer bound between the status read and the leave (or a stale marker after that computer was
+   retired). Board sends {orgId, unboundOnly: true}; relay asked of Mona Lisa for unboundjoin-7658: unboundOnly ends
+   only while personal_unbound_on holds, in the same tx, else 409 org_now_bound (board reads it as settled). Against
+   an older relay the status-to-leave window is the named residual risk. Mutants M1 (no flag), M4 (code unread) red.
+2. WARNING, follow-up raced this computer's own switch-on (CLAIMED checked once before two awaits). keptHere() is
+   checked again right before the leave, and a live ticket for the org keeps it. M2 red.
+3. WARNING, a reopen did not refresh the marker. A preview of the marker's org rewrites its time. M3 red (after a test
+   that models a restart: the live-ticket rule had masked it).
+4. WARNING, the personal record is saved with kind 'company' (orgenroll cleanOrg). NOT CHANGED, decided: kindOf and
+   kindStrict are read by every company path, and changing them is a wider change than this card. Every sentence this
+   module returns is its own (switchOn maps every orgenroll answer); followUp's answer goes to no person. The screens
+   slice must not show orgenroll's `because` from this root. Weakest premise: a later caller does.
+NITs: 5 measured unreachable (orgenroll refuses another org first and writes no record; test asserts that). 6 switchOff
+says "stopped here" when a leave threw after the record went. 7 ELSEWHERE names removing a lost computer
+(/v1/account/macs/remove exists). Also: decline and off close this org's other open tickets (M5 red).
