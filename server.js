@@ -26858,15 +26858,16 @@ function start(port = PORT) {
           const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
           /* Only agents whose card carries the stall, so the log and the card say the same thing (round 1 W3). */
           const shown = names.filter((n) => { const c = byName.get(n); return !!(c && c.deliveryStall); });
+          /* kosmos#7212 (#7615 item 1: an agent unreachable for ten days, and nobody told): the cards carrying a stall are
+             also pushed to the person's phone as needs-you, as a crash loop or a stuck terminal is: one push at a time and
+             at most one each 15 minutes (naming the first and how many more), each agent once a day, counted only when it
+             went out (deliverystreak.tellStalls). Here, in its own try, so a log line below that throws cannot skip it. */
+          try { ds.tellStalls(r, { file: STALL_PUSH_FILE, send: (ev) => phonenotify.happened(ev) }); } catch { /* told next minute */ }
           require('./engine/stallsignin').sweep();   // #7212 slice 3: accounts no stuck card read for an hour are forgotten
           /* kosmos#7368: each stuck step is said once (deliverystreak.turnsToSay); the streak lines keep their own rule. */
           const isTurn = (n) => byName.get(n).deliveryStall.lastWhy === 'turn';
           for (const line of ds.turnsToSay(r, turnSaid)) process.stdout.write(line);
           for (const st of ds.stallsToSay(shown.filter((n) => !isTurn(n)), stallSaid, { limitShownOf })) process.stdout.write(ds.stallLine(st));
-          /* kosmos#7212 (#7615 item 1: an agent unreachable for ten days, and nobody told): the cards carrying a stall are
-             also pushed to the person's phone as needs-you, as a crash loop or a stuck terminal is: one push per minute at most
-             (naming the first and how many more), each agent once a day, counted only when it went out (deliverystreak.tellStalls). */
-          ds.tellStalls(r, { file: STALL_PUSH_FILE, send: (ev) => phonenotify.happened(ev) });
         } catch { /* said next minute */ }
       };
       const sweep = setInterval(() => {

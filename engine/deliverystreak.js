@@ -225,7 +225,7 @@ function sweep(names) {
   for (const k of [...streaks.keys()]) if (!present.has(k)) streaks.delete(k);
 }
 
-function resetForTests() { streaks.clear(); pushedAt.clear(); }   // kosmos#7212: the pushes' in-memory copy too
+function resetForTests() { streaks.clear(); pushedAt.clear(); lastStallPushAt = null; }   // kosmos#7212: the pushes' in-memory copy too
 
 /* kosmos#7212 (#7615 item 1): the needs-you notification for a card's stall (its deliveryStall: a streak, or a stuck
    Windows turn), so the person is told away from the board, as a crash loop or a stuck terminal tells them. `card` is
@@ -256,6 +256,10 @@ function stallEvent(card, now = Date.now()) {
 const PUSH_GAP_MS = RESAY_MS;
 const PUSH_FILE = 'stall-pushes.json';
 const pushedAt = new Map();   // session -> ms, the in-memory copy
+/* Review 5: at least this long between any two stall pushes, whoever they name, so stalls that one cause starts a few
+   minutes apart are not a buzz a minute; the agents due meanwhile wait and the next push names them ("and N more"). */
+const STALL_PUSH_EVERY_MS = 15 * 60 * 1000;
+let lastStallPushAt = null;
 function readPushes(file) {
   const book = Object.create(null);   // review 2: a session named __proto__ is an entry, not the prototype
   try {
@@ -303,8 +307,9 @@ function tellStalls(cards, { now = Date.now(), file, send }) {
       } catch { /* the next card is still looked at */ }
     }
     if (!due.length) return;
+    if (Number.isFinite(lastStallPushAt) && lastStallPushAt <= now && now - lastStallPushAt < STALL_PUSH_EVERY_MS) return;
     const ev = due.length === 1 ? due[0] : { ...due[0], agent: due[0].agent + ' and ' + (due.length - 1) + ' more' };
-    if (send(ev) === true) for (const d of due) pushTold(d.session, now, file);
+    if (send(ev) === true) { lastStallPushAt = now; for (const d of due) pushTold(d.session, now, file); }
   } catch { /* told next minute */ }
 }
 

@@ -88,8 +88,8 @@ test('review 2: odd records and names do not break the gate', () => {
   fs.writeFileSync(file, JSON.stringify({ 's-bo': T0 + 5 * DAY }));   // a clock that went back
   ds.tellStalls([card('s-bo')], { now: T0, file, send: a.send });
   assert.equal(a.sent.length, 2, 'an entry from the future silenced the agent');
-  ds.tellStalls([card('s-cy')], { now: T0, file, send: () => { throw new Error('x'); } });
-  ds.tellStalls([card('s-cy')], { now: T0, file, send: a.send });
+  ds.tellStalls([card('s-cy')], { now: T0 + 20 * MIN, file, send: () => { throw new Error('x'); } });
+  ds.tellStalls([card('s-cy')], { now: T0 + 20 * MIN, file, send: a.send });
   assert.equal(a.sent.length, 3, 'a send that threw counted as told');
 });
 
@@ -139,6 +139,10 @@ test('review 4: one cause stalling many agents is one push, and a healthy card o
   ds.tellStalls([healthy], { now: T0 + MIN, file, send: a.send });
   assert.equal(a.sent.length, 1, 'a card with no stall was told');
   ds.tellStalls([card('s-d')], { now: T0 + 2 * MIN, file, send: a.send });
-  assert.equal(a.sent.length, 2, 'CONTROL: a new stall the next minute is told');
-  assert.equal(a.sent[1].agent, 'S-D', 'a single stall said "and 0 more"');
+  assert.equal(a.sent.length, 1, 'review 5: a stall a cause started two minutes later buzzed again at once');
+  ds.tellStalls([card('s-d'), card('s-e')], { now: T0 + 16 * MIN, file, send: a.send });
+  assert.equal(a.sent.length, 2, 'CONTROL: past the gap, the waiting stalls are told');
+  assert.equal(a.sent[1].agent, 'S-D and 1 more', 'the push after the gap did not name the ones that waited');
+  ds.tellStalls([card('s-f')], { now: T0 + 32 * MIN, file, send: a.send });
+  assert.equal(a.sent[2].agent, 'S-F', 'a single stall said "and 0 more"');
 });

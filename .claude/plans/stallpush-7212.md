@@ -53,3 +53,9 @@ show, not for a usage-limit-only streak, again after a day; the turn callback; a
   told. tellStalls now takes the board's whole roster and picks the cards carrying deliveryStall itself, so a test
   drives it with a healthy card beside stalled ones. Kept on purpose (W2): one agent is told at most once a day, even
   for a second stall that day; the card shows every stall.
+- Round 5 (Sonnet, final read): no BLOCKER. At most one stall push each 15 minutes, whoever it names, so stalls one
+  cause starts a few minutes apart are not a buzz a minute; the agents due meanwhile wait and the next push names them.
+  The push runs in its own try, before the log lines, so a throw there cannot skip it. Kept as they are: a push handed
+  to the coordinator counts as told even if the coordinator then drops it (every phonenotify push is the same); the
+  server wiring is pinned by source text, with tellStalls itself tested on cards; the phone shows "<name> and N more"
+  as the agent's name.
