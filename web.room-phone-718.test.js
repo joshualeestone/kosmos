@@ -126,7 +126,7 @@ test('on a touchscreen only a tap (or focus) opens the room reaction bar, never 
 });
 
 test('the tap listener is registered before the data-open-agent one, which must stay last', () => {
-  const tap = html.indexOf("if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-free')) { pjRxnClose(); return; }");   // #3745: Reply closes it too; #6949: and Free (#7614 moved the copy buttons behind "...")
+  const tap = html.indexOf("if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-free, .rxn-dots')) { pjRxnClose(); return; }");   // #3745: Reply closes it too; #6949: and Free; kosmos#7614: and "...", which took the copy buttons' place
   // The data-open-agent listener itself (its code, not the comment above it).
   const last = html.indexOf("const t = e.target && e.target.closest ? e.target.closest('[data-open-agent]') : null;");
   assert.ok(tap > 0 && last > 0 && tap < last, 'tap listener at ' + tap + ', last listener at ' + last);

@@ -12,7 +12,9 @@
  *       names who was told, and asks the room to repaint
  *   D7  a direct message: the person's own row has "..." alone; its menu has Delete message; an agent's row has none
  *   D8  Delete posts {at} to the DM route, says "Deleted.", and the thread repaints without the message
- *   D9  a DM refusal (an earlier part was already given) shows in the dialog
+ *   D9  a DM refusal (a real 409: being sent again right now) shows in the dialog
+ *   D12 on a phone (390px, touch): a tap opens the person's own bar, "..." alone at its right end; "..." opens the menu
+ *       and closes the bar; Delete opens the dialog
  *   D11 the person's row from an earlier part of the conversation offers no Delete (the server keeps those as they were)
  *   D10 a message already gone (another tab deleted it, 404): the dialog closes, says so, and the thread repaints
  *
@@ -47,6 +49,25 @@ const FX = {
 const menuItems = () => { const m = document.getElementById('msg-menu');
   return m && !m.hidden ? [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.textContent.trim()).join('|') : null; };
 
+/* The page's network, stubbed: deletes are recorded and answered with window.__answer; the thread read serves __fx. */
+const STUBS = () => {
+  window.__fx = null;
+  window.__dels = [];
+  window.__answer = { status: 200, body: { deleted: true, told: [] } };
+  const enc = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { 'content-type': 'application/json' } });
+  window.setInterval = () => 0;
+  window.fetch = async (url, opts) => {
+    const u = String(url);
+    if (/\/delete$/.test(u)) {
+      window.__dels.push({ url: u, method: opts && opts.method, body: opts && opts.body });
+      return enc(window.__answer.body, window.__answer.status);
+    }
+    if (u.includes('/thread')) return enc(window.__fx);
+    if (u.includes('/api/status')) return enc({ agents: [], version: '0.0.0' });
+    return enc({});
+  };
+};
+
 (async () => {
   let browser;
   try { browser = await chromium.launch({ headless: process.env.HEADED === '0' }); }
@@ -58,23 +79,7 @@ const menuItems = () => { const m = document.getElementById('msg-menu');
   const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
   const errs = [];
   page.on('pageerror', (e) => errs.push('pageerror ' + e.message));
-  await page.addInitScript(() => {
-    window.__fx = null;
-    window.__dels = [];
-    window.__answer = { status: 200, body: { deleted: true, told: [] } };
-    const enc = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { 'content-type': 'application/json' } });
-    window.setInterval = () => 0;
-    window.fetch = async (url, opts) => {
-      const u = String(url);
-      if (/\/delete$/.test(u)) {
-        window.__dels.push({ url: u, method: opts && opts.method, body: opts && opts.body });
-        return enc(window.__answer.body, window.__answer.status);
-      }
-      if (u.includes('/thread')) return enc(window.__fx);
-      if (u.includes('/api/status')) return enc({ agents: [], version: '0.0.0' });
-      return enc({});
-    };
-  });
+  await page.addInitScript(STUBS);
   await page.goto(PAGE);
 
   try {
@@ -160,7 +165,7 @@ const menuItems = () => { const m = document.getElementById('msg-menu');
       document.getElementById('panel-projects').hidden = true;
       window.__fx = f;
       window.__dels = [];
-      window.__answer = { status: 409, body: { error: 'part of that message was already given to April, so it cannot be deleted' } };
+      window.__answer = { status: 409, body: { error: 'that message is being sent again right now, so wait a moment and try deleting it again' } };   // a real wording (engine/chat.js)
       CURRENT = { sessionName: 'april', name: 'April' };
       document.getElementById('panel-detail').hidden = false;
     }, FX);
@@ -186,8 +191,8 @@ const menuItems = () => { const m = document.getElementById('msg-menu');
     await page.click('#msg-menu-del'); await page.waitForTimeout(100);
     await page.click('#msgdel-go'); await page.waitForTimeout(200);
     const d9 = await page.evaluate(() => ({ open: !document.getElementById('msgdel-modal').hidden, say: document.getElementById('msgdel-msg').textContent, n: window.__dels.length }));
-    chk(d9.open && d9.n === 1 && d9.say === 'Part of that message was already given to April, so it cannot be deleted.',
-      'D9 a DM refusal (an earlier part already given) shows in the dialog', JSON.stringify(d9));
+    chk(d9.open && d9.n === 1 && d9.say === 'That message is being sent again right now, so wait a moment and try deleting it again.',
+      'D9 a DM refusal (being sent again right now, a real 409) shows in the dialog', JSON.stringify(d9));
 
     await page.evaluate((OWN) => { window.__dels = []; window.__answer = { status: 200, body: { deleted: true, told: [] } };
       window.__fx = Object.assign({}, window.__fx, { messages: window.__fx.messages.filter((m) => m.at !== OWN) }); }, OWN);
@@ -233,6 +238,49 @@ const menuItems = () => { const m = document.getElementById('msg-menu');
       'D11 the person\'s row from an earlier part shows no "..." and no Delete; the same kind of row in the current part still has it', JSON.stringify(d11));
   } catch (e) {
     chk(false, 'the run finished', e && e.message ? e.message.split('\n')[0] : String(e));
+  }
+  // D12: on a phone (390px, touch): a tap on the person's own message opens its bar, "..." alone at the message's right
+  // end; "..." opens the menu with Delete message and closes the bar (its menu takes over, as Copy did); Delete opens the
+  // same dialog.
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+    const ph = await ctx.newPage();
+    ph.on('pageerror', (e) => errs.push('pageerror (phone) ' + e.message));
+    await ph.addInitScript(STUBS);
+    await ph.goto(PAGE);
+    await ph.evaluate((f) => {
+      // Opened the way render-dm-tapreact-718 opens it (openDetail), so the phone's tap handler is the page's own.
+      window.__fx = f;
+      const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+      document.querySelectorAll('body > *').forEach((el) => { el.inert = false; });
+      LAST = [{ sessionName: 'april', name: 'April', status: 'working', isNamedOurs: true, nameDerived: true }];
+      openDetail('april', 'talk');
+    }, FX);
+    await ph.evaluate(() => paintTalk('april', 'April'));
+    await ph.waitForTimeout(250);
+    const mine = ph.locator('#d-dmthread .msg.you[data-own="1"] .msg-bd').first();
+    await mine.scrollIntoViewIfNeeded();
+    await mine.tap(); await ph.waitForTimeout(250);
+    const bar = await ph.evaluate(() => {
+      const row = document.querySelector('#d-dmthread .msg.rxn-show');
+      const q = row && row.querySelector('.rxn-quick'); const bd = row && row.querySelector('.msg-bd');
+      if (!q || !bd) return { open: false };
+      const a = q.getBoundingClientRect(), b = bd.getBoundingClientRect(), d = q.querySelector('.rxn-dots').getBoundingClientRect();
+      return { open: true, you: row.classList.contains('you'), kids: [...q.children].filter((k) => k.getClientRects().length).map((k) => k.className.split(' ')[0]).join(','),
+        atRight: a.left >= b.left - 1 && Math.abs(a.right - b.right) <= 24, dots: [Math.round(d.width), Math.round(d.height)] };
+    });
+    chk(bar.open && bar.you && bar.kids === 'rxn-dots' && bar.atRight && bar.dots[0] >= 36 && bar.dots[1] >= 36,
+      'D12 phone: a tap on the person\'s own message opens its bar, "..." alone at its right end, a 36px target', JSON.stringify(bar));
+    await ph.locator('#d-dmthread .msg.rxn-show .rxn-dots').tap(); await ph.waitForTimeout(250);
+    const menu = await ph.evaluate(() => ({ items: (() => { const m = document.getElementById('msg-menu'); return m && !m.hidden ? [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.textContent.trim()).join('|') : null; })(),
+      barOpen: !!document.querySelector('#d-dmthread .msg.rxn-show') }));
+    chk(menu.items === 'Copy message|Copy message id|Delete message' && !menu.barOpen, 'D12 phone: "..." opens the menu with Delete message last and closes the bar', JSON.stringify(menu));
+    if (menu.items) { await ph.locator('#msg-menu-del').tap(); await ph.waitForTimeout(150); }
+    const dlg = await ph.evaluate(() => ({ open: !document.getElementById('msgdel-modal').hidden, focus: document.activeElement && document.activeElement.id }));
+    chk(dlg.open && dlg.focus === 'msgdel-keep', 'D12 phone: Delete message opens the dialog, Keep it focused', JSON.stringify(dlg));
+    await ctx.close();
+  } catch (e) {
+    chk(false, 'D12 the phone arm finished', e && e.message ? e.message.split('\n')[0] : String(e));
   }
   chk(errs.length === 0, 'no page errors', errs.join(' | '));
   await browser.close();

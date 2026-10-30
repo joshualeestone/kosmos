@@ -119,3 +119,15 @@ Findings file: ~/.cache/monalisa-review/review-7614-round3.md. No blockers; 3 wa
   agent's note names the project ("Delete Room (<id>)").
 - Known and kept: in the rare held-and-being-typed case the page shows "Deleting..." for up to 20 s (DELETE_WAIT);
   the toast still says how it ended if the person pressed Escape meanwhile.
+
+## After review round 4 (sonnet, 10:1x CDT)
+
+Findings file: ~/.cache/monalisa-review/review-7614-round4.md. No blockers, no warnings; 6 nits.
+- FIXED: a tap on "..." on a touchscreen closes the bar (its menu takes over), as Copy did before this branch (it was in
+  pjRxnTap's close-list); pjRxnTap's comment no longer says the person's own DM row has no bar.
+- FIXED: render-msgdelete-7614 D9 uses a real 409 wording; new D12, a 390px touch arm (the tap opens the person's own
+  bar, "..." alone at its right end, a 36px target; "..." opens the menu with Delete and closes the bar; the dialog
+  opens with Keep it focused). Control for the close-list change goes red.
+- FIXED: a CLAUDE.md "Where to Find Things" row for deleting a message.
+- DEFERRED: the plan file's name has no timestamp. This repo's plans are named by branch (and the pre-challenge proof
+  must be <branch>-pre-challenge.md beside it); renaming now would split this plan from its history for no reader's gain.

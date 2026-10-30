@@ -75636,7 +75636,7 @@ function pjRxnTap(e) {
   if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   if (!e.target || !e.target.closest) return;
   const room = e.currentTarget;
-  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-free')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
+  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-free, .rxn-dots')) { pjRxnClose(); return; }   // any reaction taken, Reply (#3745), or "..." (its menu takes over, kosmos#7614) closes it
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) {
     // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar
     // (in the other thread too: pjRxnClose closes both, as the outside-tap closer already would).
@@ -75649,7 +75649,7 @@ function pjRxnTap(e) {
   room.querySelectorAll('.msg.rxn-show, .msg.rxn-below').forEach((openRow) => { if (openRow !== row) pjRxnResetRow(openRow); });
   if (!row) { pjRxnClose(); return; }   // a tap between messages closes it for good
   const box = row.querySelector('.rxns[' + rxnKeyAttr(room) + ']');
-  if (!box) { pjRxnClose(); return; }   // nothing to react to (a system row, an unsaved post, your own DM message)
+  if (!box) { pjRxnClose(); return; }   // no bar on this row (a system row, an unsaved post, an earlier part's own message)
   const open = !row.classList.contains('rxn-show');
   if (!open) { pjRxnClose(); return; }   // the one close path (state, pin, focus)
   // A bar open in the OTHER thread (the room and the DM can both be in the page) goes first.
