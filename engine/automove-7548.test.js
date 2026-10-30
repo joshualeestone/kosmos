@@ -126,7 +126,7 @@ test('#7548 rule 1: a move goes through the account move, is recorded in the swe
   const move = lines(file).find((l) => l.kind === 'move' && l.outcome !== 'started');
   assert.deepEqual([move.agent, move.fromLabel, move.toLabel, move.outcome], ['ada', 'work', 'spare', 'changed']);
   assert.equal(calls.tells.length, 1);
-  assert.match(calls.tells[0][1], /^Kosmos moved this agent from work to spare, because it is at 93% of its weekly limit/);
+  assert.match(calls.tells[0][1], /^Kosmos moved this agent from work to spare, because work was running out \(it is at 93% of its weekly limit/);
   assert.doesNotMatch(fs.readFileSync(file, 'utf8') + calls.tells[0][1], /@/, 'an email reached the record or the message');
   assert.equal(lines(file).some((l) => l.kind === 'decision'), false, 'the mover wrote a decision line (that is the sweep\'s)');
   assert.ok(sweep.recent(file).some((l) => l.kind === 'move' && l.outcome === 'changed'), 'Settings was not given the move');

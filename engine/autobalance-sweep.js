@@ -71,7 +71,8 @@ const objects = (x) => (Array.isArray(x) ? x : []).filter((y) => y && typeof y =
 /* Review round 6: only what Settings draws (web/index.html abRecentHtml), so a line it cannot draw takes no slot. */
 const DRAWN_MOVES = new Set(['changed', 'stopped', 'partial', 'unknown', 'refused']);
 const DRAWN_WORKS = new Set(['yes', 'no', 'not-seen']);
-/* The newest RECENT decisions Settings draws, newest first: only those with a usage move in them. A decision with an
+/* The newest RECENT entries Settings draws, newest first: decisions with a usage move in them, and (kosmos#7548) the
+   mover's own lines it draws. A decision with an
    account at risk and nothing that could move is recorded but not drawn, and so is a move off a stopped login (review
    12): it stays in the file as evidence of the login problem, but slice 3b moves for usage only, so drawing it would
    show a move that will never happen. Throws when the record cannot be read (the route answers it as empty). */

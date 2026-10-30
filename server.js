@@ -27287,7 +27287,7 @@ function start(port = PORT) {
       const abSweepTick = () => {
         /* Review 9: nothing here may throw out of a timer into the board, and a throw must not leave the busy flag set. */
         try {
-          if (abSweepBusy && Date.now() - abSweepBusy < 3 * usagePoll.POLL_MS) return;   // a backstop: the tick awaits nothing today, so this guards a future await (see slice 1's review 12)
+          if (abSweepBusy && Date.now() - abSweepBusy < 3 * usagePoll.POLL_MS) return;   // a backstop (slice 1's review 12). kosmos#7548 review round 8: the chain now awaits the mover's move, which can take minutes; the mover's own running guard is what stops a second move, and this only keeps a sweep from starting beside it
           /* Review 16: asked without the write arm, so a failed write is tried again; the flag clears only when a write
              succeeds, so Settings says "not recording" until one does. */
           if (!abSweep || !autobalanceSweepRuns({ forTick: true })) return;
@@ -27307,7 +27307,7 @@ function start(port = PORT) {
             })
             .catch(() => { /* best-effort, like the sweeps above */ })
             /* kosmos#7548: the move waits for the sweep's record of the same period. A move can take minutes, so the busy
-               flag spans it (the 3-period backstop above). Nothing here may throw into the board. */
+               flag spans it (the backstop above, three usage polls). Nothing here may throw into the board. */
             .then(() => (automoveRun && automove.movesOn() && autobalanceSweepRuns({ forTick: true }) ? automoveRun.tick(automoveDeps()) : null))
             .then((r) => {
               const why = r && r.did === 'unreadable' ? String(r.because) : null;

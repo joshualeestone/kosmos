@@ -102,3 +102,12 @@ tests for 7, 11 and 12, and a page check for the new lines (docs/browser-checks/
   Not changed: the reviewer's W3 (movableFor non-strict no longer reads a throwing commitment as none): measured, it
   returns false either way, because assigner.commitmentsFree(null) is false. Source pins for the route wiring stay, as
   the repo tests wiring.
+- Round 8 (Opus, whole branch, nothing settled): BLOCKER, the route's moves carry no kind (only the sweep's record adds
+  it), so Settings' stopped-login line could never show on live data and the page promised a move the mover never
+  makes. The page now reads the kind from the account's atRisk entry; the page check's fixture is rebuilt in the shape
+  ab.decide() sends (it had invented a kind on each move, which is why it passed). Control: with the old page code the
+  check is red at all four sizes. Also: a stopped move says to check which account the agent is on (a stop can leave it
+  where a person put it); the moved agent's message names the account that was running out; two false comments fixed.
+  To a follow-up card (past round 8, no BLOCKER): the mover's real deps are never run by a test (W1); Settings can lag a
+  person's move by one tick, and does not read person lines still waiting (W2); the held line's wording while moving
+  (N4); no message to the agent on a partial or unknown move (N5).

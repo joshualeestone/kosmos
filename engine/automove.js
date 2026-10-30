@@ -247,7 +247,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     if (outcome === 'changed' || outcome === 'partial' || outcome === 'unknown') watch(m, movedAt, outcome !== 'changed');
     rest(m.agent, Date.now());
     if (outcome === 'changed') {
-      try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because ${m.why}.`); }
+      try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because ${m.fromLabel || 'its account'} was running out (${m.why}).`); }
       catch { /* telling is best-effort; the record has it */ }
     }
     return ended;
