@@ -19189,6 +19189,34 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#7614: the person DELETES one of their own messages in a direct conversation, by its time (`at`, the row's
+     identity). The person's only (not in AGENT_TOKEN_ROUTES), behind the same name gate as the react route above. The
+     engine does the work (gone from the thread, a kept copy never typed, the agent told it was withdrawn if it was given
+     it); this answers 200 { deleted, told }, 403 not the person's, 404 none, 409 an earlier part of the conversation. */
+  const dmDelete = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/delete$/);
+  if (dmDelete && req.method === 'POST') {
+    const name = decodeSegment(dmDelete[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const refusal = nameRefusal(name);
+    if (refusal) { sendJson(res, 404, nameRefusalBody(refusal)); return; }
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read'); bad.status = 400; throw bad;
+        }
+        if (!body || typeof body !== 'object' || typeof body.at !== 'string') {
+          const bad = new Error('that request is not the shape we expect'); bad.status = 400; throw bad;
+        }
+        const out = await chat.deleteDirectAsync(name, body.at, safeRoster());
+        if (!out.ok) { sendJson(res, out.code || 400, { error: out.error }); return; }
+        sendJson(res, 200, { deleted: true, at: body.at, told: out.told });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   /* kosmos#6717: the person dismisses a draft Kosmos took out of the agent's input box (engine/unsentdrafts.js). The
      person's alone, like Send now anyway below: an agent's token is refused. Nothing is sent either way. */
   const dmDraftDismiss = pathname.match(/^\/api\/agent\/([^/]+)\/unsent-draft\/dismiss$/);
