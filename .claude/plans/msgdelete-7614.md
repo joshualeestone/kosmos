@@ -28,3 +28,14 @@ Route contract: her comment on #7614 (6522788480).
 
 ## Not in scope
 - The board bar and the routes (Mona Lisa). A task link on the phone (the board's "# 1357" is Copy message id).
+
+## Review ledger
+- Round 1 (before the 08:29 restart): VoiceOver's Delete, earlier pages drawn twice after a delete, standing lines kept. All taken (0ac2c71417).
+- Round 2: a delete that works clears its own earlier refusal. Taken (221b534981).
+- Round 3: 1 BLOCKER, 3 WARNING, 3 NIT. B: a late room read merged a deleted post back (rows only ever added); fixed with RoomStore.deletedPosts + Board.withoutDeleted on every write path, logic test with a control. W: system red 3.5:1 on the card, now Palette.dangerWord; chat read in the air brought the message back, now readShown = readsStarted; reply shape guessed, checked against origin/hoverbar-7614 server.js (matches). NITs: own-only refusal now said under the composer; VoiceOver Delete straight on the post REJECTED (it would skip the confirm; the sheet path always asks); room UI test not added (the sample room has no own post with an id the test can reach; the logic test covers the merge). Deferred, decided: a post deleted on ANOTHER device stays in an open phone room until reopened (needs a board signal).
+- Round 4: 1 WARNING, 3 NIT. W: reset() kept deletedPosts (post ids repeat across computers); cleared, with a source check. NITs: sample room filtered too; earlier delete line always dropped; the mergeRoom argument-order NIT was a misread (shown first, page second, as written).
+- Round 5: CONVERGED, no blocker or warning.
+
+## Validation (after rebase on origin/main, 08:5x 10-30)
+- LogicTests 1717/1717, room 741/741. DeleteMessageUITests 3/3 on a fresh iPhone-17e iOS 27.0 simulator (after round 4's code).
+- Repo readers of ios/ 81/82: the one red is server.ios-routes-6838 naming exactly the two delete routes, which are on Mona Lisa's hoverbar-7614 and not on main. Expected, and it is the guard that keeps this from merging first.
