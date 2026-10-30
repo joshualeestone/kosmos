@@ -138,16 +138,16 @@ Decided, not changed (recorded so nobody re-derives it):
    a status read, org-join-unknown.json, two-minute follow-ups, "not known yet". Fix: orgenroll's SAY learns the
    personal codes (neutral words; personalbackup maps them to its own), with a test that a coded personal refusal
    writes no join-unknown and is told as refused.
-3. WARNING: a pending LEAVE is followed up every two minutes forever: leaveNow rewrites org-leave-pending on each try, so
+3. DONE (b29cc4653b; 2 mutants red). WARNING: a pending LEAVE is followed up every two minutes forever: leaveNow rewrites org-leave-pending on each try, so
    its mtime never ages. Use the join-unknown's own `at` (as server.js:26888 does) and treat a pending leave as hourly
    after its first day (store the first-seen time in this module).
-4. WARNING: the key-ready marker is stale after an ending that was not a switchOff (a refresh that finds the
+4. DONE (130d5c5c4a; 2 mutants red). WARNING: the key-ready marker is stale after an ending that was not a switchOff (a refresh that finds the
    membership gone). Record org and world in it and compare in state(); clear it at the start of switchOn.
-5. WARNING: switchOn's generic "did not bind ... try again in a minute" is wrong for: bound but the record write failed
+5. DONE (a3baa67b3b; 4 mutants red). A personal enroll has no code, so orgenroll reads it as a MOVE: the undo paths never run for it; the three that do (no_folder, not_confirmed, not_recorded) now carry an additive `reason`. WARNING: switchOn's generic "did not bind ... try again in a minute" is wrong for: bound but the record write failed
    (orgenroll.js:752), data folder unwritable (620), answered but not confirmed (719); and the ticket is kept there
    though Kosmos+ was reached. Map each to its own sentence and spend the ticket when Kosmos+ answered.
-6. WARNING: the idle guard is NOT equivalent (my claim was wrong): a refused enroll leaves a world id with no record, and
+6. DONE (f77ce5f33d; mutant red). WARNING: the idle guard is NOT equivalent (my claim was wrong): a refused enroll leaves a world id with no record, and
    then refresh DOES send a status read (probe P2: member:true). Keep the guard and test it with a world id present.
-7. WARNING: no test of the fast follow-up path (a pending join or leave) or of a coded refusal through switchOn.
-NITs to take: followUp checks liveExecutionAllowed() as orgEnrollRefresh does; an in-flight guard; setUpKey's because
+7. DONE by the warning 3 tests (leave and join inside their first day) and c36d1fd48 (coded refusal). WARNING: no test of the fast follow-up path (a pending join or leave) or of a coded refusal through switchOn.
+NITs: DONE (64340b60c5): live-execution gate and one-pass guard in startFollowUp (NOT tested: timer path), ticket claimed at once (mutant red). setUpKey's because left as is: personalbackupkey's sentences are already plain. Full-suite-only guards (reachable, 1732, 1777, connector-verbs) green after fixes. Original list: followUp checks liveExecutionAllowed() as orgEnrollRefresh does; an in-flight guard; setUpKey's because
 in plain words; peek-then-delete is not atomic for two concurrent switchOn calls (claim the ticket synchronously).
