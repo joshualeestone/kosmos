@@ -33,8 +33,9 @@ if [ -n "$DIRTY" ]; then
   exit 1
 fi
 
-# Which files the expression touches is not knowable, so the whole tree is
-# restored — safe precisely because the tree was clean a moment ago.
+# Which files the expression touches is not knowable in advance, so it is read after the break: the files that
+# differ then (the tree was clean a moment ago) are the break, and only they are restored (kosmos#7619). A tracked
+# file the TEST itself changes is therefore left as the test left it, and is not reported.
 #
 # ⚠️ THE FILE LIST INCLUDES SHELL, AND IT DID NOT UNTIL 2026-08-22. It globbed
 # `*.js` and `*.html` only, so `install/setup.sh` — the file a stranger's whole
