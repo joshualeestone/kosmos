@@ -116,6 +116,9 @@ struct ChatView: View {
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var showCamera = false   // kosmos#7596
+    // The account or computer the camera was opened under: a photo taken across a switch is never sent under the new one
+    // (client.attach's epoch), however long the camera was open.
+    @State private var cameraEpoch = 0
     // kosmos#7083: the agent's message the next send answers (the board's DM reply strip); the box's focus, taken by
     // Reply; the last reaction refusal shown (only it is cleared by the next reaction that goes); reactions in the air.
     @State private var replying: Board.ChatRow?
@@ -1406,7 +1409,8 @@ struct ChatView: View {
             CameraCapture { data in
                 showCamera = false
                 guard let data else { return }
-                Task { await addTaken(data) }
+                let epoch = cameraEpoch
+                Task { await addTaken(data, epoch: epoch) }
             }
             .ignoresSafeArea()
         })
@@ -1435,7 +1439,7 @@ struct ChatView: View {
         AttachPlusButton(atLimit: atFileLimit, label: "Add a photo or file",
                          hint: atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "") { choice in
             switch choice {
-            case .camera: showCamera = true
+            case .camera: cameraEpoch = client.chatEpoch; showCamera = true
             case .photos: showPhotos = true
             case .files: showFiles = true
             }
@@ -1485,8 +1489,7 @@ struct ChatView: View {
         }
     }
 
-    private func addTaken(_ data: Data) async {
-        let epoch = client.chatEpoch
+    private func addTaken(_ data: Data, epoch: Int) async {
         client.attachLine[agent.session] = nil
         await client.attach(.photo(load: { (Board.photoName(at: Date(), ext: "jpg", number: 1), data) }), epoch: epoch, to: agent)
     }

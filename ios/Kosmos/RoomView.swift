@@ -1040,6 +1040,9 @@ struct RoomView: View {
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var showCamera = false   // kosmos#7596
+    // The account or computer the camera was opened under: a photo taken across a switch is never sent under the new one
+    // (client.attach's epoch), however long the camera was open.
+    @State private var cameraEpoch = 0
     private var attachKey: String { Board.roomAttachKey(project.id) }
     private var attachedHere: [Board.Attached] { client.attached[attachKey] ?? [] }
     private var uploadingHere: Int { client.uploading[attachKey] ?? 0 }
@@ -1054,7 +1057,7 @@ struct RoomView: View {
         AttachPlusButton(atLimit: atFileLimit, label: "Add a file to this conversation",
                          hint: atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "") { choice in
             switch choice {
-            case .camera: showCamera = true
+            case .camera: cameraEpoch = client.chatEpoch; showCamera = true
             case .photos: showPhotos = true
             case .files: showFiles = true
             }
@@ -1097,8 +1100,7 @@ struct RoomView: View {
         }
     }
 
-    private func addTaken(_ data: Data) async {
-        let epoch = client.chatEpoch
+    private func addTaken(_ data: Data, epoch: Int) async {
         client.attachLine[attachKey] = nil
         await store.attach(.photo(load: { (Board.photoName(at: Date(), ext: "jpg", number: 1), data) }), epoch: epoch, to: project.id)
     }
@@ -1226,7 +1228,8 @@ struct RoomView: View {
             CameraCapture { data in
                 showCamera = false
                 guard let data else { return }
-                Task { await addTaken(data) }
+                let epoch = cameraEpoch
+                Task { await addTaken(data, epoch: epoch) }
             }
             .ignoresSafeArea()
         })

@@ -1613,8 +1613,21 @@ check(!attachSrc.contains("Plugins") && !attachSrc.contains("Think harder"), "ko
 check(chatSource.contains("AttachPlusButton(atLimit: atFileLimit") && roomViewSrc.contains("AttachPlusButton(atLimit: atFileLimit")
       && !chatSource.contains("Label(\"Photo Library\"") && !roomViewSrc.contains("Label(\"Photo Library\""),
       "kosmos#7596: the chat and the room both use the one panel, and the old menu is gone")
-check(attachSrc.contains(".disabled(off)") && attachSrc.contains("let off = atLimit || (choice == .camera && !camera)"),
-      "kosmos#7596: at the file limit every row is disabled, and Camera too where the phone has none")
+check(attachSrc.contains(".disabled(off)") && attachSrc.contains("let off = atLimit || (choice == .camera && camera == .none)"),
+      "kosmos#7596: at the file limit every row is disabled, and Camera too where the device has none")
+// Review 1: the camera is wired in both screens, opened on its own host, and its photo carries the epoch it opened under.
+for (name, src) in [("chat", chatSource), ("room", roomViewSrc)] {
+    check(src.contains("case .camera: cameraEpoch = client.chatEpoch; showCamera = true")
+          && src.contains(".background(Color.clear.fullScreenCover(isPresented: $showCamera) {")
+          && src.contains("let epoch = cameraEpoch\n                Task { await addTaken(data, epoch: epoch) }")
+          && src.contains("private func addTaken(_ data: Data, epoch: Int) async {"),
+          "kosmos#7596 review 1: the \(name) opens the camera on its own host and sends its photo under the epoch it opened with")
+}
+check(attachSrc.contains(".onDisappear {\n                    guard let choice = chosen else { return }") && !attachSrc.contains("asyncAfter(deadline: .now() + 0.35)"),
+      "kosmos#7596 review 1: a choice is acted on once the panel has gone, never on a timer")
+check(attachSrc.contains("case .denied, .restricted: return .notAllowed") && attachSrc.contains("UIApplication.openSettingsURLString"),
+      "kosmos#7596 review 1: a camera Kosmos may not use opens Settings instead of a blank camera")
+check(attachSrc.contains(".accessibilityHidden(true)   // the name beside it says it once"), "kosmos#7596 review 1: VoiceOver reads each choice once")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
