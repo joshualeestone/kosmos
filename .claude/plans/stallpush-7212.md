@@ -59,3 +59,8 @@ show, not for a usage-limit-only streak, again after a day; the turn callback; a
   to the coordinator counts as told even if the coordinator then drops it (every phonenotify push is the same); the
   server wiring is pinned by source text, with tellStalls itself tested on cards; the phone shows "<name> and N more"
   as the agent's name.
+- Round 6 (Opus, final read): no BLOCKER. A push Kosmos+ did not take (no 2xx, a network error, a timeout) is taken
+  back: phonenotify's defaultSend tells an event's board-side onResult whether it arrived, and tellStalls then un-marks
+  the agents it covered, on disk and in memory, so they are told at the next push. The name is cut so " and N more"
+  always fits the 80-byte agent field whole. A card in a crash loop is left to the crash-loop push. phonenotify's
+  cooldown ignores a stamp from the future, as the stall gate does, so a clock that went back cannot hold every stall.

@@ -295,6 +295,26 @@ function pushTold(session, now, file) {
    cause many agents share (one signed-out account, say) is one buzz, naming the first and how many more; every agent it
    covers counts as told. `send` is phonenotify.happened (true when it sent); nothing counts when it did not. Never
    throws. */
+/* Review 6: the name and its " and N more" fit phonenotify's 80-byte agent field together, so the count is never cut. */
+const AGENT_BYTES = 80;
+function withMore(name, more) {
+  const suffix = more > 0 ? ' and ' + more + ' more' : '';
+  let head = String(name || '');
+  while (head && Buffer.byteLength(head + suffix) > AGENT_BYTES) head = Array.from(head).slice(0, -1).join('');
+  return head + suffix;
+}
+/* Review 6: a push that never reached Kosmos+ is taken back, so its agents are told at the next push, not a day later. */
+function untold(sessions, at, file) {
+  try {
+    for (const s of sessions) if (pushedAt.get(s) === at) pushedAt.delete(s);
+    if (lastStallPushAt === at) lastStallPushAt = null;
+    if (typeof file !== 'string' || !file) return;
+    const book = readPushes(file);
+    let changed = false;
+    for (const s of sessions) if (book[s] === at) { delete book[s]; changed = true; }
+    if (changed) require('./store').saveFlushed(file, JSON.stringify(book) + '\n');
+  } catch { /* the in-memory copy is already taken back */ }
+}
 function tellStalls(cards, { now = Date.now(), file, send }) {
   try {
     let book = null;
@@ -302,14 +322,17 @@ function tellStalls(cards, { now = Date.now(), file, send }) {
     const due = [];
     for (const c of cards || []) {
       try {
-        const ev = c && c.deliveryStall ? stallEvent(c, now) : null;
+        /* Review 6: a card in a crash loop is said by the crash-loop push (server.js), not again here. */
+        if (!c || !c.deliveryStall || (c.crashLoop && c.crashLoop.looping === true)) continue;
+        const ev = stallEvent(c, now);
         if (ev && pushDue(ev.session, now, bookOf) && !due.some((d) => d.session === ev.session)) due.push(ev);
       } catch { /* the next card is still looked at */ }
     }
     if (!due.length) return;
     if (Number.isFinite(lastStallPushAt) && lastStallPushAt <= now && now - lastStallPushAt < STALL_PUSH_EVERY_MS) return;
-    const ev = due.length === 1 ? due[0] : { ...due[0], agent: due[0].agent + ' and ' + (due.length - 1) + ' more' };
-    if (send(ev) === true) { lastStallPushAt = now; for (const d of due) pushTold(d.session, now, file); }
+    const sessions = due.map((d) => d.session);
+    const ev = { ...due[0], agent: withMore(due[0].agent, due.length - 1), onResult: (ok) => { if (ok === false) untold(sessions, now, file); } };
+    if (send(ev) === true) { lastStallPushAt = now; for (const s of sessions) pushTold(s, now, file); }
   } catch { /* told next minute */ }
 }
 

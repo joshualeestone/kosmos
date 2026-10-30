@@ -146,3 +146,46 @@ test('review 4: one cause stalling many agents is one push, and a healthy card o
   ds.tellStalls([card('s-f')], { now: T0 + 32 * MIN, file, send: a.send });
   assert.equal(a.sent[2].agent, 'S-F', 'a single stall said "and 0 more"');
 });
+
+test('review 6 W1: a push Kosmos+ did not take is taken back, so its agents are told at the next push', () => {
+  const file = fileIn();
+  let result = null;
+  const sent = [];
+  const send = (ev) => { sent.push(ev); result = ev.onResult; return true; };
+  ds.tellStalls([card('s-a'), card('s-b')], { now: T0, file, send });
+  assert.equal(sent.length, 1);
+  assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(file, 'utf8')), 's-b'), true, 'CONTROL: counted as told once sent');
+  result(false);   // the network said no
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(file, 'utf8'))), [], 'a push that never arrived stayed counted on disk');
+  ds.tellStalls([card('s-a'), card('s-b')], { now: T0 + MIN, file, send });
+  assert.equal(sent.length, 2, 'a push that never arrived was not tried again (or waited out the 15 minutes)');
+  sent[1].onResult(true);
+  ds.tellStalls([card('s-a')], { now: T0 + 20 * MIN, file, send });
+  assert.equal(sent.length, 2, 'CONTROL: one that arrived stays counted');
+});
+
+test('review 6 W2: a long name keeps its count whole within the 80-byte agent field', () => {
+  const a = sender();
+  const long = card('s-long', { name: 'Ä'.repeat(60) });   // 120 bytes
+  ds.tellStalls([long, ...Array.from({ length: 11 }, (_, i) => card('s-' + i))], { now: T0, file: fileIn(), send: a.send });
+  const agent = a.sent[0].agent;
+  assert.ok(Buffer.byteLength(agent) <= 80, 'the agent field is ' + Buffer.byteLength(agent) + ' bytes');
+  assert.match(agent, / and 11 more$/, 'the count was cut: ' + agent);
+  assert.doesNotMatch(agent, /�/, 'a character was cut in half');
+});
+
+test('review 6 W3: a card in a crash loop is told by the crash-loop push, not again here', () => {
+  const a = sender();
+  ds.tellStalls([card('s-loop', { crashLoop: { looping: true } })], { now: T0, file: fileIn(), send: a.send });
+  assert.equal(a.sent.length, 0, 'a crash-looping card was pushed twice');
+  ds.tellStalls([card('s-ok', { crashLoop: { looping: false } })], { now: T0, file: fileIn(), send: a.send });
+  assert.equal(a.sent.length, 1, 'CONTROL: a card not looping is told');
+});
+
+test('review 6: phonenotify takes a push back when Kosmos+ does not answer 2xx, and passes onResult through', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'phonenotify.js'), 'utf8');
+  assert.match(src, /tell\(res\.statusCode >= 200 && res\.statusCode < 300\);/);
+  assert.match(src, /req\.on\('error', \(err\) => \{\n[^\n]*\n    tell\(false\);/, 'a network error is not reported');
+  assert.match(src, /body, typeof event\.onResult === 'function' \? event\.onResult : null\);/);
+  assert.match(src, /if \(last !== undefined && last <= now && now - last < route\.ms\) return false;/, 'a cooldown stamp from the future still holds');
+});

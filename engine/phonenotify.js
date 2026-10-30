@@ -536,7 +536,11 @@ function routeFor(event) {
   }
 }
 
-function defaultSend(url, headers, body) {
+/* kosmos#7212 review 6: `done(ok)`, when given, is told once whether Kosmos+ took it (a 2xx), so a caller that counts a
+   push can take it back when it never arrived. */
+function defaultSend(url, headers, body, done = null) {
+  let said = false;
+  const tell = (ok) => { if (said || typeof done !== 'function') return; said = true; try { done(ok); } catch { /* the caller's */ } };
   const u = new URL(url);
   const req = (u.protocol === 'http:' ? http : https).request(
     { method: 'POST', hostname: u.hostname, port: u.port || undefined, path: u.pathname,
@@ -547,11 +551,13 @@ function defaultSend(url, headers, body) {
       if (res.statusCode < 200 || res.statusCode >= 300) {
         process.stderr.write('phonenotify: Kosmos+ answered ' + res.statusCode + ' to a notification\n');
       }
+      tell(res.statusCode >= 200 && res.statusCode < 300);
       res.resume();
     },
   );
   req.on('error', (err) => {
     process.stderr.write('phonenotify: could not reach Kosmos+: ' + ((err && err.code) || 'error') + '\n');
+    tell(false);
   });
   req.on('timeout', () => { try { req.destroy(); } catch { /* gone */ } });
   req.end(body);
@@ -595,7 +601,7 @@ function happened(event) {
       const ckey = route.cls + ':' + route.key;
       const now = clock();
       const last = lastSent.get(ckey);
-      if (last !== undefined && now - last < route.ms) return false;
+      if (last !== undefined && last <= now && now - last < route.ms) return false;   // kosmos#7212 review 6: a time from the future (a clock that went back) holds nothing
       if (lastSent.size > 500) {
         for (const [k, t] of lastSent) if (now - t >= COOLDOWN_PRUNE_MS) lastSent.delete(k);
       }
@@ -603,7 +609,8 @@ function happened(event) {
     }
     const url = coordinatorUrl(NOTIFY_ROUTE);
     const body = JSON.stringify(payload(s.notifyId, event));
-    (sender || defaultSend)(url, { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body);
+    // kosmos#7212 review 6: an event's onResult (board-side, never in the payload) hears whether Kosmos+ took it.
+    (sender || defaultSend)(url, { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body, typeof event.onResult === 'function' ? event.onResult : null);
     sent = true;
     // kosmos#6487: a plain lock-screen notice is explained by this line and the phonenotice line after it. The id's
     // kind and the session only, never the words. Written after the send, so a send that throws logs nothing. The
