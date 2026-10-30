@@ -1,8 +1,8 @@
 'use strict';
 /**
  * kosmos#7640: board pages from Angel's 10-30 Kosmos Cloud walk (#4903 items 2 and 6).
- *   - A remote session (every session on a cloud machine) stops asking for /api/remote/waiting after its first 403:
- *     an open tab asked 720 times an hour, every answer a refusal by design.
+ *   - A page reached through Kosmos+ (every session on a cloud machine) never asks for /api/remote/waiting: an open
+ *     tab asked 720 times an hour, every answer a refusal by design. A local tab that is refused keeps asking.
  *   - "Your agents then run on your own subscription, on this computer." says "your cloud machine" there.
  *   - A create refusal from the engine reads as a sentence: a capital, and "your cloud machine" on a cloud machine.
  * Each is the page's own source, lifted and run, with a control that can fail.
@@ -22,34 +22,39 @@ const run = (names, body, env) => {
   return new Function(...keys, page.liftAll(SCRIPT, names) + '\n' + body)(...keys.map((k) => env[k]));
 };
 
-function waitingEnv(status) {
+function waitingEnv(status, remote) {
   const calls = [];
-  const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, ctAlarm: false, ctFinding: null, cw: null, paintedSig: '', refused: false };
+  const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, ctAlarm: false, ctFinding: null, cw: null, paintedSig: '' };
   return {
     calls, WAIT,
     env: {
-      WAIT, REMOVE_SAID_MS: 60000, PLUS_ADDRESS: '',
-      fetch: async (url) => { calls.push(url); return { status, ok: status === 200, json: async () => ({ v2: false, waiting: [] }) }; },
+      WAIT, REMOVE_SAID_MS: 60000, PLUS_ADDRESS: '', kplusRemote: () => remote,
+      fetch: async (url) => { calls.push(url); return { status, ok: status === 200, json: async () => ({ code: 'remote_not_allowed', v2: false, waiting: [] }) }; },
       paintAsk: () => {}, plusWords: (s) => s,
     },
   };
 }
 
-test('kosmos#7640: a remote session asks for the waiting list once; after its 403 it asks no more', async () => {
-  const w = waitingEnv(403);
+test('kosmos#7640: a page reached through Kosmos+ (remote for life) never asks for the waiting list', async () => {
+  const w = waitingEnv(403, true);
   const poll = run(['pollWaiting', 'waitSig', 'waitForgetRows'], 'return pollWaiting;', w.env);
   await poll(); await poll(); await poll();
-  assert.equal(w.calls.length, 1, 'asked ' + w.calls.length + ' times after a 403');
-  assert.equal(w.WAIT.refused, true);
-  assert.equal(w.WAIT.v2, false, 'nothing shows on a refused session');
+  assert.equal(w.calls.length, 0, 'asked ' + w.calls.length + ' times from a remote page');
+});
+
+test('kosmos#7640 review 1: a LOCAL tab that is refused (signed out, recovers in place) keeps asking', async () => {
+  const w = waitingEnv(403, false);
+  const poll = run(['pollWaiting', 'waitSig', 'waitForgetRows'], 'return pollWaiting;', w.env);
+  await poll(); await poll(); await poll();
+  assert.equal(w.calls.length, 3, 'a local tab stopped asking after a 403');
+  assert.equal(w.WAIT.v2, false, 'and shows nothing while refused');
 });
 
 test('kosmos#7640 CONTROL: the board on the computer itself (200) keeps asking', async () => {
-  const w = waitingEnv(200);
+  const w = waitingEnv(200, false);
   const poll = run(['pollWaiting', 'waitSig', 'waitForgetRows'], 'return pollWaiting;', w.env);
   await poll(); await poll(); await poll();
   assert.equal(w.calls.length, 3);
-  assert.equal(w.WAIT.refused, false);
 });
 
 test('kosmos#7640: every "on your own subscription, on this computer" sentence names the machine through data-cloud-copy', () => {
@@ -81,5 +86,6 @@ test('kosmos#7640: the engine\'s no-Claude refusal reads as a sentence, with the
   assert.match(say(false), /^There is no Claude account signed in on this computer,/, 'CONTROL: a Mac keeps "this computer", capitalised');
   // And the create form's sinks use it (guarded, so a function lifted alone still runs).
   const CS = "(typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(";
-  assert.equal(PAGE.split(CS).length - 1, 3, 'the three create refusal sinks do not all say it as a sentence');
+  // The create form's two refusal lines, its name field's refusal (review 1), and the import row's failure.
+  assert.equal(PAGE.split(CS).length - 1, 4, 'the four create refusal sinks do not all say it as a sentence');
 });

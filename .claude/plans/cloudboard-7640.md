@@ -12,9 +12,10 @@ as a sentence (capital, full stop) with "your cloud machine" in it; and a remote
 
 ## What was built
 
-- **Item 6, the poll.** pollWaiting sets WAIT.refused on a 403 and returns at once from then on. A page opened through
-  Kosmos+ is remote for its whole life, so nothing can make the answer change without a reload, which starts asking
-  again. Before: every 5 s for ever (720 refused requests an hour per open tab on a cloud machine).
+- **Item 6, the poll.** pollWaiting returns at once on a page reached through Kosmos+ (kplusRemote: its own address is
+  not loopback), so such a page never asks; a local tab asks as before (review 1 changed this from a latch on a 403,
+  which a signed-out local tab also gets). Before: every 5 s for ever (720 refused requests an hour per open tab on a
+  cloud machine).
 - **Item 2, copy.** The five "Your agents (then) run on your own subscription, on this computer." sentences wrap "this
   computer" in `<span data-cloud-copy="thisMachine">`, the existing seam H mechanism (applyPlatformCopy), so a cloud
   machine reads "your cloud machine". One of the five is the Windows copy table's entry: harmless (a Windows board is
@@ -38,7 +39,22 @@ as a sentence (capital, full stop) with "your cloud machine" in it; and a remote
 
 ## Tests
 
-web.cloudboard-7640.test.js (5): the poll asks once after a 403 (control: a 200 keeps asking); every sentence is
+web.cloudboard-7640.test.js (6): a remote page never asks; a refused local tab keeps asking (control: a 200 keeps asking); every sentence is
 wrapped; applyPlatformCopy says "your cloud machine" on a cloud machine (control: "this computer" elsewhere); the
 refusal reads as a sentence on both (control). Control: without the early return, the poll test goes red.
 web.noise0757 counts the sentence as read (span tags taken out).
+
+## After review round 1 (opus, 12:2x CDT)
+
+Findings: ~/.cache/monalisa-review/review-7640-round1.md. 1 blocker, 2 warnings, 4 nits.
+- FIXED BLOCKER: render-createnav-2190 matched the refusal case-sensitively ("that name will not work"); it now pins the
+  sentence ("That name will not work."). Ran it: passes.
+- FIXED WARNINGS (one cause): the poll latched on ANY 403, and a LOCAL tab that is merely signed out is refused the same
+  way (the route answers every refusal with the same code) and recovers in place, so its waiting list would have gone
+  dead. Now keyed on the page's own address (kplusRemote: not loopback = reached through Kosmos+, for the page's whole
+  life): such a page never asks, a local tab asks as before. Tests: remote never asks; a refused local tab keeps asking;
+  a 200 keeps asking. Control (the guard removed) turns the remote test red. The browser check measures both arms.
+- FIXED nits: the name field's refusal is a sentence too (four sinks now); the browser check reports an odd sentence
+  rather than throwing; its poll label says what it measures.
+- DEFERRED nit: a named helper for the guarded asSentence expression. A test that lifts one function alone would not
+  have the helper either, so it would need its own typeof guard at each sink: the same five tokens, one more name.

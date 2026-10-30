@@ -53738,7 +53738,7 @@ async function pollAsk() {
    This computer never shows the code: typing what the browser in your hand shows is what binds it. The list comes
    from /api/remote/waiting, which answers only this board on this computer; it is empty (v2 false) until the board-v2
    marker exists, so nothing here shows before then. */
-const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, busy: '', ctAlarm: false, ctFinding: null, cw: null, paintedSig: '', refused: false };
+const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, busy: '', ctAlarm: false, ctFinding: null, cw: null, paintedSig: '' };
 function waitShown() { return WAIT.v2 && (WAIT.rows.length > 0 || !!WAIT.error || !!WAIT.note || WAIT.ctAlarm); }
 /* What was typed, said or marked wrong for a row the tunnel no longer lists is forgotten, so a row that comes back starts clean. */
 function waitForgetRows() {
@@ -53758,17 +53758,18 @@ function waitSig() {
     WAIT.rows.map((w) => [w.knockId, w.firstSeen, w.uaClass, w.net, w.vouched])]);
 }
 async function pollWaiting() {
-  /* kosmos#7640: a page opened through Kosmos+ is a remote session for its whole life, and a remote session is refused
-     this list by design, so after the first refusal it asks no more (on a cloud machine every session is remote: an open
-     tab asked 720 times an hour, every answer a 403). A reload starts asking again. */
-  if (WAIT.refused) return;
+  /* kosmos#7640: a page reached through Kosmos+ (its own address is not loopback, kplusRemote) is a remote session for
+     its whole life, and a remote session is refused this list by design, so it never asks (on a cloud machine every
+     session is remote: an open tab asked 720 times an hour, every answer a 403). Review 1: keyed on the page's address,
+     not on a 403, because a LOCAL tab that is merely signed out is refused the same way and recovers in place. */
+  if (typeof kplusRemote === 'function' && kplusRemote()) return;
   // Against what was last DRAWN (paintWaiting records it), so a change learned between polls is drawn too.
   const repaint = () => { if (waitSig() !== WAIT.paintedSig) paintAsk(); };
   let res = null;
   try { res = await fetch('/api/remote/waiting', { cache: 'no-store' }); } catch { res = null; }
   if (!res) return;   // a blip keeps the last paint
   // A remote session is refused this list by design: nothing to show there, and nothing to say about it.
-  if (res.status === 403) { WAIT.refused = true; WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; waitForgetRows(); repaint(); return; }
+  if (res.status === 403) { WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; waitForgetRows(); repaint(); return; }
   const r = await res.json().catch(() => null);
   if (!res.ok) {
     /* Only an error the board says it met under the marker (v2 true) is shown, with Clear, the way out of a damaged list.
@@ -66022,7 +66023,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // 'name') lands beside the name field, red-bordered and focused; anything the
     // server does not tag to a field stays in the after-the-button slot.
     if (result.field === 'name') {
-      pjFieldBad('create-name', 'create-name-err', result.because || 'that name will not work');
+      pjFieldBad('create-name', 'create-name-err', (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(result.because || 'that name will not work'));   // kosmos#7640 review 1: as the line below
     } else {
       msg.textContent = (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(result.because || 'that name will not work');   // kosmos#7640: as a sentence (asSentence applies cloudWords too)
     }

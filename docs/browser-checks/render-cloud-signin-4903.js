@@ -113,17 +113,22 @@ async function hideArm(browser, cloud) {
       restart: typeof restartFailureLine === 'function' ? restartFailureLine({ because: 'we could not find Claude Code on this computer' }) : 'NO restartFailureLine',
       // kosmos#7640: the subscription sentence, in the Model step lead and in a sign-in panel, as painted.
       subs: [...document.querySelectorAll('p')].map((p) => p.textContent).filter((t) => /on your own subscription, on /.test(t))
-        .map((t) => t.match(/on your own subscription, on ([a-z ]+)\./)[1]),
+        .map((t) => (t.match(/on your own subscription, on ([a-z ]+)\./) || [])[1] || t),   // review 1: an odd sentence is reported, not thrown
       // kosmos#7640: the create form's refusal as the page says it (asSentence applies cloudWords).
       refusal: typeof asSentence === 'function' ? asSentence('there is no Claude account signed in on this computer, so an agent created on Claude could not run.') : 'NO asSentence',
-      // kosmos#7640: a remote session's waiting-list poll, three times against a 403: how many requests it sends.
+      // kosmos#7640: the waiting-list poll, three times against a 403, from a page reached through Kosmos+ (kplusRemote
+      // stubbed true: a file:// page is not one) and from a local tab (a signed-out tab is refused the same way).
       polls: await (async () => {
-        if (typeof pollWaiting !== 'function') return -1;
-        let n = 0;
-        const real = window.fetch;
-        window.fetch = async (u) => { if (String(u).includes('/api/remote/waiting')) n += 1; return new Response('{}', { status: 403 }); };
-        try { WAIT.refused = false; await pollWaiting(); await pollWaiting(); await pollWaiting(); } finally { window.fetch = real; }
-        return n;
+        if (typeof pollWaiting !== 'function' || typeof kplusRemote !== 'function') return null;
+        const count = async (remote) => {
+          let n = 0;
+          const realFetch = window.fetch; const realRemote = kplusRemote;
+          window.fetch = async (u) => { if (String(u).includes('/api/remote/waiting')) n += 1; return new Response('{}', { status: 403 }); };
+          kplusRemote = () => remote;
+          try { await pollWaiting(); await pollWaiting(); await pollWaiting(); } finally { window.fetch = realFetch; kplusRemote = realRemote; }
+          return n;
+        };
+        return { remote: await count(true), local: await count(false) };
       })(),
     };
   }, cloud);
@@ -172,7 +177,8 @@ async function hideArm(browser, cloud) {
     check('CONTROL mac: the subscription sentences say this computer', hm.subs.length >= 4 && hm.subs.every((w) => w === 'this computer'), JSON.stringify(hm.subs));
     check('cloud: the no-Claude refusal reads as a sentence and names your cloud machine', /^There is no Claude account signed in on your cloud machine,/.test(hc.refusal), hc.refusal);
     check('CONTROL mac: the refusal is a sentence that keeps this computer', /^There is no Claude account signed in on this computer,/.test(hm.refusal), hm.refusal);
-    check('a remote session asks for the waiting list once, then not after its 403', hc.polls === 1 && hm.polls === 1, `cloud ${hc.polls}, mac ${hm.polls}`);
+    check('a page reached through Kosmos+ never asks for the waiting list', !!hc.polls && hc.polls.remote === 0 && hm.polls.remote === 0, JSON.stringify([hc.polls, hm.polls]));
+    check('CONTROL: a local tab refused (signed out) keeps asking', !!hc.polls && hc.polls.local === 3 && hm.polls.local === 3, JSON.stringify([hc.polls, hm.polls]));
     check('cloud: the age line is Claude\'s alone (the OpenAI or Grok line is hidden)', JSON.stringify(hc.ages) === JSON.stringify(['Claude needs you to be 18 or over. Age rules vary by country.']), JSON.stringify(hc.ages));
     check('CONTROL mac: the age line names the under-18 choice', hm.ages.length === 1 && /choose OpenAI or Grok/.test(hm.ages[0]), JSON.stringify(hm.ages));
     check('cloud: the hidden providers\' status boxes are hidden too', hc.msgs.every((v) => !v), JSON.stringify(hc.msgs));
