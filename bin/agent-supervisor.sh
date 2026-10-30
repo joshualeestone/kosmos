@@ -580,9 +580,13 @@ if [ -z "$adopt" ]; then
     # moves it there), with the mark at <world>/restored-world.json. This needs no base, so a launch whose environment
     # names another base than the board that made the world still sees it. The name is restoreworld.js's RESTORED_MARK
     # (a test pins the two equal).
-    if [ "$RESTORED_WORLD" != 1 ] && [ -n "${WORKDIR:-}" ] && [ -e "$(dirname "$(dirname "$WORKDIR")")/restored-world.json" ]; then
-      RESTORED_WORLD=1
-    fi
+    # Absolute paths only (a relative one would be read from this shell's cwd), and -L too, so a mark that is a link
+    # counts as present, as isRestoredWorld's lstat does.
+    case "${WORKDIR:-}" in
+      /*) _mark="$(dirname "$(dirname "$WORKDIR")")/restored-world.json"
+          if [ "$RESTORED_WORLD" != 1 ] && { [ -e "$_mark" ] || [ -L "$_mark" ]; }; then RESTORED_WORLD=1; fi
+          unset _mark ;;
+    esac
     # ── #1704: THIS AGENT'S KOSMOS ──────────────────────────────────────────
     # The plist set KOSMOS_WORLD for a named world (absent = the default world).
     # Resolve it into this world's store roots ONCE, here, and export them, so
@@ -975,7 +979,7 @@ if [ -z "$adopt" ]; then
   PANE_ENV+=(-e "AGENT_WORKFORCE_PROJECTS=${AGENT_WORKFORCE_PROJECTS:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_WORKERS=${AGENT_WORKFORCE_WORKERS:-}")
   # kosmos#5536 4c-1: in a world a restore made, every git the provider runs starts with the folder's hooks and
-  # fsmonitor off. ONLY those two: a restored .git/config can still run commands through keys env config cannot switch
+  # fsmonitor off (GIT_CONFIG_COUNT needs git 2.31 or later; an older git ignores it silently). ONLY those two: a restored .git/config can still run commands through keys env config cannot switch
   # off in general (a filter driver named by .gitattributes, textconv, core.pager, core.sshCommand, a credential helper,
   # an include). Those are for the review screen (4c-2) to show before the person enables the agent. An inherited
   # GIT_CONFIG_COUNT is replaced, not extended: its entries are lost in this pane, which errs toward the guard. Git's environment config is command scope, so it outranks a repo's own .git/config (measured on

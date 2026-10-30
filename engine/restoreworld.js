@@ -19,8 +19,8 @@
  *                         unless something is mounted inside it, which then shows as a failed move)
  *   listRestoredAgents    the agent folders the review screen offers, each with why it cannot be enabled if it cannot,
  *                         and the files in it that run or load something when the agent starts
- *   isRestoredWorld       whether a world is one prepare made; every agent start path asks it (4c) and starts git
- *                         with hooks and fsmonitor off when it says yes
+ *   isRestoredWorld       whether a world is one prepare made; the Mac supervisor asks it before an agent starts
+ *                         and then hands the pane git's hooks and fsmonitor off (4c-1; Windows launch is Homer's)
  *
  * ⚠️ NOT REQUIRED BY worlds.js, and create.js only lazily, for the same reason as engine/worldimport.js: create freezes
  * store.ROOT at require.

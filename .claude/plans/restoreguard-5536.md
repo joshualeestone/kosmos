@@ -47,3 +47,10 @@ Design call on #5536 (comment 6511811154). The first of 4c's three parts; the re
    - MINOR fixed: a control for an existing unmarked world folder; the export pin also refuses declare -x and set -a.
      Not tested at runtime: the no-engine branch (the harness always installs engine-path).
    After: 5/5 named tests; 41 files 1327 tests, 0 fail.
+2. sonnet: 0 BLOCKER, 0 MAJOR, 4 MINOR, 2 NIT, all addressed:
+   - the git 2.31 floor for GIT_CONFIG_COUNT is said in the comment (an older git ignores it silently);
+   - the workdir mark check takes absolute paths only, and counts a link (-L) as present, as isRestoredWorld's lstat does;
+   - restoreworld.js's header no longer claims every start path asks: it says the Mac supervisor, Windows is Homer's;
+   - the new tests hide the worlds they make and remove the other base in a finally;
+   - the export pin's comment says it covers the export forms only.
+   After: 5/5 named tests; 41 files 1327 tests, 0 fail.
