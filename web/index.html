@@ -55253,9 +55253,9 @@ async function plusOrgFamilyAccept() {
       msg.textContent = r.because || 'Connecting did not go through.';
       if (f.p.review === true) msg.textContent = plusOrgReviewSay(r);
       if (r.code === 'org_join_unknown' || r.code === 'org_undo_pending') document.getElementById('plus-org-code').value = '';
-      /* Round 1 and 3: a refusal with a code spends the ticket (the route keeps it only for none, or org_bad_world), so
-         these words cannot be accepted again: Connect fetches them afresh. */
-      if (r.code && r.code !== 'org_bad_world') {
+      /* Round 1 and 3: a refusal with a code spends the ticket (the route keeps it only for none, org_bad_world, or
+         audit_unavailable, kosmos#5537), so these words cannot be accepted again: Connect fetches them afresh. */
+      if (r.code && r.code !== 'org_bad_world' && r.code !== 'audit_unavailable') {
         plusOrgFamilyHide();
         // A review's words come back from the joined view's own button, not from Connect.
         if (f.p.review === true) {
@@ -55320,8 +55320,9 @@ function plusOrgReviewSay(r) {
     .replace(/\.\.+/g, '.').trim();
   const code = r && r.code;
   if (code === 'org_not_member' || code === 'org_other_org' || code === 'org_not_here') return t;
-  // No code, or org_bad_world: the route keeps the ticket, so Accept works again (unless the line already says to retry).
-  if (!code || code === 'org_bad_world') return /try again/i.test(t) ? t : t + ' Press Accept to try again.';
+  // No code, org_bad_world or audit_unavailable: the route keeps the ticket, so Accept works again (unless the line
+  // already says to retry).
+  if (!code || code === 'org_bad_world' || code === 'audit_unavailable') return /try again/i.test(t) ? t : t + ' Press Accept to try again.';
   return t + ' Press Read the family\u2019s words to read them again.';
 }
 /* kosmos#6239: Read the family's words, in the joined view of a family with no words accepted here (wordsNeeded): the words the
