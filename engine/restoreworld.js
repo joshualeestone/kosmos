@@ -30,8 +30,10 @@
  * or a child process), or one large restore stalls every other request.
  */
 
+const childProcess = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const store = require('./store');
 const worlds = require('./worlds');
@@ -70,6 +72,28 @@ const BARE = 'HEAD (git can read a folder holding it as a repository)';
 const CUT = '(the folder holds more entries than were checked)';
 const UNREADABLE = '(the folder could not be read)';
 const GIT_WHY = 'git runs its settings here (hooks, fsmonitor) when an agent uses git in this folder';
+/* Git settings that hold no command, path or program, matched against git's own key names (section and name lowercased,
+   a subsection as `*`). A repository's settings are read by git itself (readGitSettings); every key NOT here is named on
+   the screen before Enable, since 4c-1 switches off only hooks and fsmonitor, and a filter, a textconv, a pager, an
+   sshCommand, a credential helper or an include runs or loads something the moment the agent's git reaches it. Listing
+   too much is the safe direction: an unknown key is shown, never passed. */
+const GIT_PLAIN_KEYS = new Set([
+  'core.repositoryformatversion', 'core.filemode', 'core.bare', 'core.logallrefupdates', 'core.ignorecase',
+  'core.precomposeunicode', 'core.symlinks', 'core.autocrlf', 'core.eol', 'core.safecrlf', 'core.quotepath',
+  'core.abbrev', 'core.compression', 'core.checkstat', 'core.trustctime', 'core.untrackedcache', 'core.splitindex',
+  'core.commitgraph', 'core.multipackindex', 'core.sparsecheckout', 'core.sparsecheckoutcone', 'core.longpaths',
+  'core.protectntfs', 'core.protecthfs', 'core.whitespace',
+  'remote.*.url', 'remote.*.fetch', 'remote.*.push', 'remote.*.tagopt', 'remote.*.prune', 'remote.*.mirror',
+  'branch.*.remote', 'branch.*.merge', 'branch.*.rebase', 'branch.*.pushremote', 'branch.*.vscode-merge-base',
+  'user.name', 'user.email', 'pull.rebase', 'pull.ff', 'push.default', 'push.autosetupremote', 'fetch.prune',
+  'init.defaultbranch', 'merge.ff', 'merge.conflictstyle', 'rebase.autostash', 'rebase.autosquash', 'rerere.enabled',
+  'extensions.objectformat', 'extensions.worktreeconfig', 'extensions.preciousobjects', 'gc.auto', 'index.version',
+  'feature.manyfiles', 'submodule.*.url', 'submodule.*.active', 'lfs.repositoryformatversion',
+]);
+const GIT_CONFIGS = ['config', 'config.worktree'];   // in a git folder; the second is read when extensions.worktreeConfig is set
+const MAX_GIT_CONFIG_BYTES = 1024 * 1024;
+const MAX_GIT_KEYS_SHOWN = 20;   // per config file; past it one line says how many more
+const GIT_READ_MS = 5000;
 /* Characters that draw nothing or only alter the one before, beside the classes cleanText drops: braille blank,
    Hangul and Khmer fillers, Mongolian and other variation selectors, the object replacement character. */
 const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180c, 0x180d, 0x034f, 0xfffc, ...Array.from({ length: 16 }, (_, i) => 0xfe00 + i), ...Array.from({ length: 240 }, (_, i) => 0xe0100 + i)].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
@@ -571,6 +595,53 @@ function gitIn(folder) {
 }
 const isGit = (runs) => runs.some((r) => r === BARE || r.toLowerCase() === GIT);
 
+/* The keys in one config file that GIT_PLAIN_KEYS does not name, as `<shown> sets <key>` lines, or one line saying it
+   could not be checked. Read by git itself, never by a parser here (a partial parser fails open): --file with no
+   --includes follows no include, the environment carries no GIT_* variable and no system or global config, and git runs
+   from the system's temporary folder, never from the restored one. A missing or broken git reads as not checked. */
+function gitSettingsOf(file, shown) {
+  let st;
+  try { st = fs.lstatSync(file); } catch { return []; }
+  if (st.isSymbolicLink()) return [`${shown} is a link, so its git settings were not checked`];
+  if (!st.isFile()) return [`${shown} is not a file, so its git settings were not checked`];
+  if (st.size > MAX_GIT_CONFIG_BYTES) return [`${shown} is too large to check its git settings`];
+  const env = {};
+  for (const [k, v] of Object.entries(process.env)) if (!/^GIT_/i.test(k)) env[k] = v;
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull, GIT_TERMINAL_PROMPT: '0' });
+  const r = childProcess.spawnSync('git', ['config', '--file', file, '--no-includes', '--null', '--name-only', '--list'],
+    { cwd: os.tmpdir(), env, encoding: 'utf8', timeout: GIT_READ_MS, maxBuffer: 2 * MAX_GIT_CONFIG_BYTES, windowsHide: true });
+  if (r.error || r.status !== 0) return [`${shown} (its git settings could not be checked)`];
+  const keys = [...new Set(r.stdout.split('\0').filter(Boolean))].filter((k) => !GIT_PLAIN_KEYS.has(plainKeyOf(k)));
+  const out = keys.slice(0, MAX_GIT_KEYS_SHOWN).map((k) => `${shown} sets ${labelOf(k)}`);
+  if (keys.length > MAX_GIT_KEYS_SHOWN) out.push(`${shown} sets ${keys.length - MAX_GIT_KEYS_SHOWN} more git settings`);
+  return out;
+}
+/* git's key `section.sub.name` (section and name lowercased by git, the subsection as written) as `section.*.name`. */
+function plainKeyOf(key) {
+  const first = key.indexOf('.'), last = key.lastIndexOf('.');
+  return first === last ? key.toLowerCase() : `${key.slice(0, first)}.*.${key.slice(last + 1)}`.toLowerCase();
+}
+/* The git settings a repository in `folder` holds that run or load something (gitSettingsOf), for the screen to show
+   before Enable. A .git that is a file or a link names a folder elsewhere, and a commondir moves the settings, so both
+   read as not checked rather than as none. */
+function gitSettingsIn(folder, runs) {
+  const out = [];
+  const dirs = [];
+  if (runs.some((r) => r.toLowerCase() === GIT)) {
+    let st;
+    try { st = fs.lstatSync(path.join(folder, GIT)); } catch { st = null; }
+    if (st && st.isDirectory()) dirs.push([path.join(folder, GIT), GIT]);
+    else if (st) out.push(`${GIT} is ${st.isSymbolicLink() ? 'a link' : 'a file naming another folder'}, so its git settings were not checked`);
+  }
+  if (runs.includes(BARE)) dirs.push([folder, '']);
+  for (const [dir, shown] of dirs) {
+    const at = (n) => (shown ? `${shown}/${n}` : n);
+    try { fs.lstatSync(path.join(dir, 'commondir')); out.push(`${at('commondir')} moves its git settings elsewhere, so they were not checked`); } catch { /* absent */ }
+    for (const c of GIT_CONFIGS) out.push(...gitSettingsOf(path.join(dir, c), at(c)));
+  }
+  return out;
+}
+
 /* What in a folder runs or loads something when a provider starts there: its dot-entries and PLAIN_AT_START names (a
    link counts, unopened), a git repository in either form, linked briefs, briefs that are not plain UTF-8 text, and
    `@` imports in any brief. `budget.left` is the brief bytes the whole listing may still read. */
@@ -610,6 +681,7 @@ function runsIn(folder, budget) {
     else if (/(^|[^\p{L}\p{N}_@.])@[^\s@]|@(\.{1,2}\/|~\/|\/)/u.test(head.toString('utf8'))) out.push(`${brief} imports`);
     if (bytes.length > MAX_BRIEF_BYTES) out.push(`${brief} (too large to check in full)`);
   }
+  out.push(...gitSettingsIn(folder, out));
   return out;
 }
 
@@ -620,7 +692,8 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    `folder` is the name on disk, as written by whoever made the backup; `label` is it made safe to show (two folders
    can share a label, so the screen tells rows apart by `folder`). `because` null means the screen may offer to enable
    it (create.installJob on that name, under this world's roots); otherwise it is the plain reason it cannot be.
-   `runs` lists what would run or load at start. `shared` is what every agent below it would read: entries at the top
+   `runs` lists what would run or load at start, including each git setting a repository there holds that runs or
+   loads something (`.git/config sets core.pager`; gitSettingsIn). `shared` is what every agent below it would read: entries at the top
    of the workers and projects folders other than plain-named folders, and each project with something in its `runs`.
    Contract for the screen (slice 4c): show `label`, never `folder` or `dir` (both carry the raw name); leave out a
    folder that already has a profile in this world (it was enabled before); show `runs` and `shared`; enable an agent whose

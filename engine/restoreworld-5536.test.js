@@ -1018,3 +1018,34 @@ test('unassigned code points never reach the world name', () => {
   assert.equal(rw.worldName(`Ann${unassigned}`, NOW), `Restored: Ann, ${DAY}`);
   assert.equal(rw.worldName(unassigned.repeat(3), NOW), `Restored: a member, ${DAY}`, 'nothing visible left falls back');
 });
+
+test('a restored project\'s git settings that run or load something are named before Enable; plain ones are not', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const pr = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_PROJECTS;
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(pr, rel)), { recursive: true }); fs.writeFileSync(path.join(pr, rel), text); };
+  put('site/.git/config', '[core]\n\trepositoryformatversion = 0\n\tpager = touch /tmp/x\n\tsshCommand = x\n[remote "origin"]\n\turl = https://example.invalid/r\n'
+    + '[filter "lfs"]\n\tsmudge = x\n[diff "Foo.Bar"]\n\ttextconv = x\n[credential]\n\thelper = x\n[include]\n\tpath = /elsewhere\n');
+  put('site/.git/config.worktree', '[core]\n\tfsmonitor = x\n');
+  put('quiet/.git/config', '[core]\n\tbare = false\n[branch "main"]\n\tremote = origin\n\tmerge = refs/heads/main\n');
+  put('bare/HEAD', 'ref: refs/heads/main\n');
+  put('bare/config', '[alias]\n\tst = !touch /tmp/x\n');
+  put('broken/.git/config', 'not [ a config\n');
+  put('pointed/.git', 'gitdir: /somewhere/else\n');
+  put('shared/.git/commondir', '../../elsewhere\n');
+  put('shared/.git/config', '[core]\n');
+  put('many/.git/config', '[alias]\n' + Array.from({ length: 25 }, (_, i) => `\ta${i} = x\n`).join(''));
+  const l = rw.listRestoredAgents({ base, world: p.world, nameOk });
+  const runs = Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
+  const set = (label) => runs[label].filter((r) => / sets /.test(r));
+  assert.deepEqual(set('site'), ['.git/config sets core.pager', '.git/config sets core.sshcommand', '.git/config sets filter.lfs.smudge',
+    '.git/config sets diff.Foo.Bar.textconv', '.git/config sets credential.helper', '.git/config sets include.path', '.git/config.worktree sets core.fsmonitor']);
+  assert.ok(!runs.site.some((r) => /\/elsewhere/.test(r)), 'the include is named, never followed');
+  assert.deepEqual(set('quiet'), [], 'plain settings are not named');
+  assert.deepEqual(set('bare'), ['config sets alias.st']);
+  assert.ok(runs.broken.includes('.git/config (its git settings could not be checked)'), 'a config git cannot read is not read as empty');
+  assert.ok(runs.pointed.includes('.git is a file naming another folder, so its git settings were not checked'));
+  assert.ok(runs.shared.includes('.git/commondir moves its git settings elsewhere, so they were not checked'));
+  assert.equal(set('many').length, 21);
+  assert.equal(set('many')[20], '.git/config sets 5 more git settings');
+});
