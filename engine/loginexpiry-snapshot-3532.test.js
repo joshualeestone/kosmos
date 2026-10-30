@@ -153,12 +153,49 @@ test('#5407: each advisory names its account row\'s folder only when that row re
   const ccdByName = { roo: '/acct/one', cleo: null, pixel: '/acct/two/', ivy: nodePath.join(home, '.claude') };
   const readCcd = (a) => ccdByName[a.name];
   const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 2 * DAY } });
-  const out = status.computeLoginAdvisories(panes, now, { readCcd, readCred, emailOf: () => null, cache: { at: 0, value: [] } });
+  const rowDirs = new Set(['/acct/one', '/acct/two', nodePath.join(home, '.claude')]);   // the folders AI Models lists
+  const out = status.computeLoginAdvisories(panes, now, { readCcd, readCred, emailOf: () => null, cache: { at: 0, value: [] }, rowDirs });
   const dirFor = (agent) => (out.find((a) => a.agents.includes(agent)) || {}).dir;
   assert.equal(dirFor('roo'), '/acct/one', 'a labelled folder names its row');
+  // kosmos#7198: the same folder with no account row in AI Models names nothing (Refresh login then opens AI Models).
+  const none = status.computeLoginAdvisories([panes[0]], now, { readCcd, readCred, emailOf: () => null, cache: { at: 0, value: [] }, rowDirs: new Set() });
+  assert.equal(none.length, 1, 'CONTROL: the folder with no account row still raises its notice');
+  assert.strictEqual(none[0].dir, null, 'a folder with no account row was named');
   assert.equal(dirFor('cleo'), nodePath.join(home, '.claude'), 'unset names the default row (the same spelling accounts.list gives)');
   // The two that READ ANOTHER LOGIN than the row of that folder: no row is named, so nothing wrong is ringed or hidden.
-  assert.equal(dirFor('ivy'), null, 'an explicit ~/.claude reads its own keychain entry, not the default row\'s');
-  assert.equal(dirFor('pixel'), null, 'a trailing slash reads its own keychain entry, not the row\'s');
+  assert.strictEqual(dirFor('ivy'), null, 'an explicit ~/.claude reads its own keychain entry, not the default row\'s');
+  assert.strictEqual(dirFor('pixel'), null, 'a trailing slash reads its own keychain entry, not the row\'s');
   assert.notEqual(dirFor('ivy'), dirFor('cleo'), 'CONTROL: the two default spellings are told apart');
+});
+
+test('kosmos#7198 review 3: with no rowDirs seam, the folders come from accounts.list itself', () => {
+  const now = 1_000_000_000_000;
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'le-rowdirs-'));
+  const listed = nodePath.join(home, '.claude-listed');
+  const unlisted = nodePath.join(home, '.claude-unlisted');
+  const keyed = nodePath.join(home, '.claude-keyed');   // review 6: an API-key account (a stored key, no OAuth sign-in)
+  fs.mkdirSync(listed); fs.mkdirSync(unlisted); fs.mkdirSync(keyed);
+  fs.writeFileSync(require('./claudeaccounts').keyFile(keyed), 'sk-ant-api03-example');
+  fs.writeFileSync(nodePath.join(listed, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'listed@example.com' } }));
+  const was = process.env.AGENT_WORKFORCE_HOME;
+  process.env.AGENT_WORKFORCE_HOME = home;
+  try {
+    const rows = require('./accounts').list();
+    const dirs = rows.map((a) => a.dir);
+    assert.ok(dirs.includes(listed) && !dirs.includes(unlisted), 'CONTROL: accounts.list lists one folder and not the other: ' + JSON.stringify(dirs));
+    assert.ok(rows.some((a) => a.dir === keyed && a.apiKey === true), 'CONTROL: accounts.list lists the API-key folder as an API-key row: ' + JSON.stringify(rows));
+    const panes = [paneOf({ session: 'roo-discord', pane: '0.0' }), paneOf({ session: 'cleo-discord', pane: '0.1' }), paneOf({ session: 'pixel-discord', pane: '0.2' })];
+    const ccdByName = { roo: listed, cleo: unlisted, pixel: keyed };
+    const readCred = () => JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: now + 2 * DAY } });
+    const out = status.computeLoginAdvisories(panes, now, { readCcd: (a) => ccdByName[a.name], readCred, emailOf: () => null, cache: { at: 0, value: [] } });
+    const of = (agent) => out.find((a) => a.agents.includes(agent));
+    assert.ok(of('roo') && of('cleo'), 'CONTROL: both folders raise a notice: ' + JSON.stringify(out));
+    assert.strictEqual(of('roo').dir, listed, 'a folder accounts.list lists is named');
+    assert.strictEqual(of('cleo').dir, null, 'a folder accounts.list does not list was named');
+    assert.ok(of('pixel'), 'CONTROL: the API-key folder raises a notice too');
+    assert.strictEqual(of('pixel').dir, null, 'an API-key row was named: it has no sign-in to redo (#2433)');
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = was;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });

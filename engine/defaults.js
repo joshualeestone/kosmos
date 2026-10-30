@@ -443,6 +443,11 @@ const BLOCK = [
   'something. Updating Kosmos with its own update or its install line is fine:',
   'that replaces it whole, which is not an edit.',
   '',
+  '**To see what an update changed, run `kosmos whats-new`.** It prints the',
+  'newest version\'s notes, or with `--since <the version you were on>` every',
+  'note after it. A note marked for it says you need a restart to get that fix;',
+  'an unmarked note says nothing either way.',
+  '',
   '### When your work reaches outside your own folder',
   '',
   'The first time you touch a folder like Desktop or Documents, this Mac may',
@@ -504,6 +509,11 @@ const BLOCK = [
   'does not matter). A PDF marked before this may carry a plain sha256: if `kosmos',
   'fingerprint` does not match it, check it as above. If you change the file, mark it',
   'again with `--file`: your own mark without it drops the fingerprint.',
+  '',
+  'If the work is a code fix, commit it, then mark it built with `--commit HEAD` (or the',
+  'commit it landed as), run in the repository the fix is in. The task keeps that commit',
+  'after it closes, so a fix that was checked but never committed shows up. Push it too:',
+  'until a remote has it, the task says it is only on this computer.',
   '',
   '**Work that comes back on a schedule is one task that repeats,** not a new task',
   'each time: a report every morning, a check every hour. Add it as above (or use',
@@ -1227,8 +1237,20 @@ function block() {
  *     as in 32 an agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that a coordinator reads this section when it audits a queue; the
  *     card's "done when" asks for the mention, and `kosmos task` help names both forms too.
+ *  42. kosmos#7411 (agents could not read what changed in an update, or which fixes need them restarted). "Kosmos
+ *     itself is not yours to edit" names `kosmos whats-new` after the line on updating Kosmos: the newest version's
+ *     notes, or every note after the version the agent was on; a note marked for it says a restart is needed, and an
+ *     unmarked one is said to mean nothing either way (no note carries the mark yet). No new heading, so as in 32 an
+ *     agent's EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that an agent reads this section when the person asks what changed; the command's own
+ *     --help says the same, and both CLIs carry it.
+ *  43. kosmos#7508 (feedback: a code-fix task was marked built and closed after honest checks while the fix sat
+ *     uncommitted). The tasks section asks for `--commit HEAD` on a code fix's built mark, after committing it, and
+ *     to push it. No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that agents read this when they mark a code fix built; `kosmos task built` --help
+ *     names --commit too, in both CLIs.
  */
-const DOCTRINE_VERSION = 41;
+const DOCTRINE_VERSION = 43;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

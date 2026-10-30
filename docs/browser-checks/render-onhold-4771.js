@@ -152,7 +152,7 @@ function chk(ok, label, extra) {
       /* A task put on hold from its page. */
       await openTask(page, launch.id, 1);
       chk(await text(page, '#tk-hold') === 'Put on hold', `${tag} a task's page offers Put on hold`, await text(page, '#tk-hold'));
-      chk(await text(page, '#tk-hold-hint') === 'Kosmos does not nudge anyone about a task on hold, or hand it out.',
+      chk(await text(page, '#tk-hold-hint') === 'While a task is on hold, Kosmos does not nudge anyone about it or hand it out.',
         `${tag} #6683 CONTROL: a task not on hold names nobody who lifts a hold`, await text(page, '#tk-hold-hint'));
       await page.click('#tk-hold');
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Take off hold', null, { timeout: 5000 }).catch(() => {});

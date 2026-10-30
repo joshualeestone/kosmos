@@ -48,10 +48,18 @@ final class SignInClient {
         return made.key
     }
 
-    /// Forget the key (the coordinator refused its proof): the next sign-in makes a new one, which the Mac allows once.
+    /// kosmos#7337: the key a native sign-in kept, for proving it at a computer's gate. Never makes one, so a phone only
+    /// ever signed in on the web page has none. It is whatever key the keychain holds, from the last native sign-in,
+    /// even when the current session came from the web page (the gate then records that sign-in under this key).
+    nonisolated static func keptDeviceKey(_ store: SessionStore = deviceKeyStore) -> SignIn.DeviceKey? {
+        store.load().flatMap(read)
+    }
+
+    /// Forget the key (the coordinator refused its proof, or a review sign-in made a session that is not this key's): the
+    /// next code sign-in makes a new one, which the Mac allows once.
     func forgetDeviceKey() { keyStore.delete() }
 
-    private static func read(_ stored: String) -> SignIn.DeviceKey? {
+    nonisolated private static func read(_ stored: String) -> SignIn.DeviceKey? {
         if stored.hasPrefix("se:"), let data = Data(base64Encoded: String(stored.dropFirst(3))),
            let k = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: data) {
             return SignIn.DeviceKey(spki: k.publicKey.derRepresentation, sign: { try k.signature(for: $0).rawRepresentation })
@@ -198,6 +206,18 @@ final class SignInClient {
         let key = try deviceKey()
         let (status, json) = try await post(SignIn.verifyPath, try SignIn.verifyBody(email: email, code: code, deviceName: deviceName, key: key))
         return SignIn.answer(status: status, json: json)
+    }
+
+    // kosmos#7357: whether the review door is open (a GET: 405 open, 404 closed), and the password sign-in through it.
+    func reviewDoorOpen() async -> Bool? {
+        let request = URLRequest(url: coordinator.appendingPathComponent(SignIn.reviewPath))
+        guard let (_, response) = try? await http.data(for: request), let answer = response as? HTTPURLResponse else { return nil }
+        return SignIn.reviewDoorOpen(status: answer.statusCode)
+    }
+
+    func reviewSignIn(email: String, password: String) async throws -> SignIn.ReviewAnswer {
+        let (status, json) = try await post(SignIn.reviewPath, SignIn.reviewBody(email: email, password: password, deviceName: deviceName))
+        return SignIn.reviewAnswer(status: status, json: json)
     }
 
     func second(challenge: String, code: String) async throws -> SignIn.Answer {

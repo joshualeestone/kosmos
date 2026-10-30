@@ -17,7 +17,9 @@ tar_owner_gate() {
   [ -f "$tarball" ] || { echo "FAIL: the tarball owner gate has no tarball at $tarball" >&2; return 1; }
   listing="$(LC_ALL=C /usr/bin/tar -tvzf "$tarball" 2>/dev/null)" || { echo "FAIL: the tarball owner gate could not list $tarball" >&2; return 1; }
   [ -n "$listing" ] || { echo "FAIL: the tarball owner gate listed no entries in $tarball" >&2; return 1; }
-  bad="$(printf '%s\n' "$listing" | /usr/bin/awk -v a="$account" '$3 == a || $4 == a')"
+  # kosmos#7281 review 2 (W4): bsdtar lists owner and group as two columns ($3, $4); GNU tar (a Linux host) lists them
+  # as one, owner/group ($2). Both are read, so the gate can fail on either host.
+  bad="$(printf '%s\n' "$listing" | /usr/bin/awk -v a="$account" '{ split($2, og, "/") } $3 == a || $4 == a || og[1] == a || og[2] == a')"
   [ -z "$bad" ] && return 0
   echo "FAIL: $(printf '%s\n' "$bad" | /usr/bin/wc -l | /usr/bin/tr -d ' ') entries in $(basename "$tarball") record the build account '$account' as owner (#6562), first ones:" >&2
   printf '%s\n' "$bad" | /usr/bin/sed -n '1,3p' | /usr/bin/sed 's/^/  /' >&2

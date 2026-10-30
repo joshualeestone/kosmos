@@ -6,19 +6,23 @@
  * best of them.
  *
  * The pool, release/whats-new-pool.json, holds every highlight once: { title, line, icon, platforms?, rank, since,
- * status }. rank 1 is the most important. status is
+ * status, restart? }. rank 1 is the most important. status is
  *   pending  not yet shown to prod users: eligible
  *   shown    shown by a release that reached prod (shownIn names it): never chosen again
+ *   held     a feature that is held or dropped (conversation mode, Josh 10:49): never chosen, whatever its rank
+ * restart (optional, kosmos#7411) is "agents" when a running agent keeps the old behaviour until it restarts.
  * "prod" here is the Mac prod family (promote-channel.sh without --family win). Windows is promoted on its own and
  * shows whichever list is current when its build is made (its number goes in the built file's "also", by hand,
  * on the release branch, docs/windows RELEASING.md); the pool does not record Windows promotes.
- *   held     a feature that is held or dropped (conversation mode, Josh 10:49): never chosen, whatever its rank
  * A Windows-only highlight is never marked shown (the pool records Mac promotes only), so once Windows prod has shown
  * it, RETIRE IT BY HAND: set its status to shown, with shownIn the Windows version.
  * A highlight tagged for ONE platform still takes one of the 5 slots of the one file both platforms read (the engine
  * caps the file, not each platform's view), so that platform's window shows fewer. Tag an item only when it truly is
  * one platform's; build refuses a list that leaves a platform with none.
  *
+ *   node tools/whats-new-pool.js notes <version> --platform=mac|linux|windows --out=<file> [--pool=<file>]
+ *       kosmos#7411: writes the release notes a build of <version> for that platform ships (app/release-notes.json):
+ *       nothing held, nothing newer than it, nothing for another platform; `kosmos whats-new` reads it. Every build runs it.
  *   node tools/whats-new-pool.js build <version> [--max=5] [--pool=<file>] [--out=<file>] [--offline]
  *       #5713: FIRST it reads what Mac PROD serves (installkosmos.com's prod pointer and its manifest, which names the
  *       app commit the build was cut from) and, if that is newer than the pool's lastProd, marks that version's
@@ -61,6 +65,12 @@ function readPool(file) {
     if (!it || typeof it.title !== 'string' || !STATUSES.includes(it.status) || !Number.isFinite(it.rank)
       || typeof it.since !== 'string' || !/^\d+\.\d+\.\d+$/.test(it.since)) {
       throw new Error(file + ': every item needs a title, a numeric rank, a since version and a status (' + STATUSES.join(', ') + ')');
+    }
+  }
+  // kosmos#7411: `restart`, when present, says what a running agent needs to pick the fix up. Only "agents" today.
+  for (const it of pool.items) {
+    if (it.restart !== undefined && it.restart !== 'agents') {
+      throw new Error(file + ': "' + it.title + '" has restart ' + JSON.stringify(it.restart) + '; the only value is "agents"');
     }
   }
   if (pool.lastProd !== undefined && (typeof pool.lastProd !== 'string' || !/^\d+\.\d+\.\d+$/.test(pool.lastProd))) {
@@ -238,18 +248,33 @@ function opt(args, name, dflt) {
 function main(argv) {
   const whatsnew = require('../engine/whatsnew');
   // Only --name=value flags this tool knows: a typo (`--outt=`) or `--max 4` must not silently do something else.
-  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from|ref)=./.test(a) && a !== '--promoted' && a !== '--from-history' && a !== '--offline' && a !== '--none');
+  const unknown = argv.filter((a) => a.startsWith('--') && !/^--(max|pool|out|from|ref|platform)=./.test(a) && a !== '--promoted' && a !== '--from-history' && a !== '--offline' && a !== '--none');
   if (unknown.length) {
-    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --from=FILE, --from-history, --ref=COMMIT, --promoted, --offline, --none)\n');
+    process.stderr.write('unknown or malformed option(s): ' + unknown.join(' ') + ' (use --max=N, --pool=FILE, --out=FILE, --platform=P, --from=FILE, --from-history, --ref=COMMIT, --promoted, --offline, --none)\n');
     return 2;
   }
   const positional = argv.filter((a) => !a.startsWith('--'));
   // Review 3: each command's own flags only.
   const wrongFor = (cmd0) => (cmd0 === 'build' ? ['--promoted', '--from-history', '--none'] : cmd0 === 'shown' ? ['--offline'] : ['--promoted', '--from-history', '--none', '--offline']);
-  const misplaced = wrongFor(positional[0]).filter((f) => argv.includes(f));
+  const misplaced = wrongFor(positional[0]).filter((f) => argv.includes(f))
+    .concat(positional[0] !== 'notes' && argv.some((a) => a.startsWith('--platform=')) ? ['--platform'] : []);   // kosmos#7411
   if (misplaced.length) {
     process.stderr.write(misplaced.join(' ') + ' does not go with ' + (positional[0] || 'that') + '; nothing done\n');
     return 2;
+  }
+  /* kosmos#7411: `notes <version> --platform=mac|linux|windows --out=FILE` writes the release notes that build ships as
+     app/release-notes.json (engine/releasenotes.js notesFor: nothing held, nothing newer than the build). Every build
+     (Mac, Linux, Windows) runs it, so the app never ships the pool itself. */
+  if (positional.length === 2 && positional[0] === 'notes') {
+    const out = opt(argv, 'out', '');
+    const platform = opt(argv, 'platform', '');
+    if (!out || !platform) { process.stderr.write('notes needs --platform=mac|linux|windows and --out=FILE\n'); return 2; }
+    const pool = readPool(opt(argv, 'pool', POOL));
+    let notes;
+    try { notes = require('../engine/releasenotes').notesFor(pool, positional[1], platform); } catch (e) { process.stderr.write(e.message + '\n'); return 2; }
+    try { fs.writeFileSync(out, JSON.stringify({ version: positional[1], notes }, null, 2) + '\n'); } catch (e) { process.stderr.write('could not write ' + out + ': ' + e.message + '\n'); return 2; }
+    process.stdout.write(out + ': ' + notes.length + ' release notes up to ' + positional[1] + '\n');
+    return 0;
   }
   /* #5713 review 1: `prod-check` is the cut's read-only check (release.sh 1b-ii): 0 when the pool records what Mac prod
      serves (or newer), 3 when prod is newer (a promote since the last build: build again and commit the pool),
@@ -269,7 +294,7 @@ function main(argv) {
   }
   const [cmd, version] = positional;
   if (positional.length !== 2 || !['build', 'shown'].includes(cmd) || !version || !whatsnew.VERSION_RE.test(version)) {
-    process.stderr.write('usage: node tools/whats-new-pool.js prod-check | build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--promoted] [--from-history --ref=<frozen sha> | --from=<file>]\n');
+    process.stderr.write('usage: node tools/whats-new-pool.js prod-check | notes <version> --platform=mac|linux|windows --out=<file> | build|shown <version like 0.7.36> [--max=5] [--pool=<file>] [--out=<file>] [--promoted] [--from-history --ref=<frozen sha> | --from=<file>]\n');
     return 2;
   }
   const poolFile = opt(argv, 'pool', POOL);

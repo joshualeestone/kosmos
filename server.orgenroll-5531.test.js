@@ -242,6 +242,29 @@ test('#5531 review 9: the stopped note is shown to the screen once; org_bad_worl
   await call('/api/org/leave', { body: {}, headers: SCREEN });
 });
 
+test('kosmos#5537: audit_unavailable (the company could not record it, nothing changed) keeps the ticket, so Try again works', async (t) => {
+  const remote = require('./engine/remote');
+  const orig = remote.macRequest;
+  const CONSENT = { reports: ['agent names'], backsUp: ['agent folders'], readers: ['you'], never: ['keys'] };
+  let bad = true;
+  remote.macRequest = async (method, route, body) => {
+    if (route === oe.ROUTES.redeem) return { ok: true, data: { org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', consent: CONSENT } };
+    if (route === oe.ROUTES.enroll) return bad ? { ok: false, because: '503 {"because":"audit_unavailable"}' } : { ok: true, data: { ok: true, org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } };
+    if (route === oe.ROUTES.leave) return { ok: true, data: { ok: true } };
+    // Review 2: the refusal changed nothing, so the company does not name this world (a status read must agree).
+    if (route === oe.ROUTES.status) return { ok: true, data: { member: false } };
+    return { ok: false, because: 'unexpected ' + route };
+  };
+  t.after(() => { remote.macRequest = orig; fs.rmSync(enrollmentFile(), { force: true }); });
+  const pv = await call('/api/org/preview', { body: { code: 'ACME-JOIN-1234' }, headers: SCREEN });
+  const r1 = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(r1.json.code, 'audit_unavailable', JSON.stringify(r1.json));
+  bad = false;
+  const r2 = await call('/api/org/enroll', { body: { code: 'ACME-JOIN-1234', accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
+  assert.equal(r2.json.ok, true, '"Try again in a minute" after audit_unavailable could never work: ' + JSON.stringify(r2.json));
+  await call('/api/org/leave', { body: {}, headers: SCREEN });
+});
+
 test('#5531 review 11: a failed join does not put its old ticket back over a newer screen\'s', async (t) => {
   const remote = require('./engine/remote');
   const orig = remote.macRequest;

@@ -5,7 +5,7 @@
  * is a stand-in (test-support/fake-agy.js) run as a real child process, so the spawn shape (argv,
  * cwd, stdin, PATH, TEMP) is what the real one gets. Runs on any platform.
  *
- *   node -r <no-schtasks-preload> --test engine/win32agy.test.js
+ *   node -r ./tools/no-schtasks-preload.cjs --test engine/win32agy.test.js
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

@@ -135,6 +135,32 @@ test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a pos
   assert.ok(!('kosmos_bug' in seen[2].body), 'an ordinary post carried kosmos_bug');
 }, { status: 200, body: { ok: true, status: 'published', id: 'p9' } }));
 
+test('#7541: --public sends public: true, before or after --topic; a post without it sends no such field', () => withStubBoard(async (port, seen) => {
+  const a = await runCli(['community', 'post', '--public', '--topic', 'Build notes', 'what I built today'], envFor(port));
+  assert.equal(a.code, 0, a.stdout + a.stderr);
+  assert.equal(seen[0].body.public, true, 'the flag did not reach the board: ' + JSON.stringify(seen[0].body));
+  const b = await runCli(['community', 'post', '--topic', 'Build notes', '--public', 'what I built today'], envFor(port));
+  assert.equal(b.code, 0, b.stdout + b.stderr);
+  assert.equal(seen[1].body.public, true, 'the flag after --topic was taken as text');
+  assert.equal(seen[1].body.body, 'what I built today');
+  const c = await runCli(['community', 'post', '--topic', 'Weekly ops', 'hello'], envFor(port));
+  assert.equal(c.code, 0, c.stdout + c.stderr);
+  assert.ok(!('public' in seen[2].body), 'an ordinary post carried public');
+}, { status: 200, body: { ok: true, status: 'published', id: 'p9' } }));
+
+test('#7541 review 1: a post the board stored for the company\'s own community is said to go there, not public', () => withStubBoard(async (port) => {
+  const a = await runCli(['community', 'post', 'notes from today'], envFor(port));
+  assert.equal(a.code, 0, a.stdout + a.stderr);
+  assert.match(a.stdout + a.stderr, /Queued for your company's own community/);
+}, { status: 200, body: { ok: true, status: 'published', id: 'p9', sends: true, later: false, space: 'company' } }));
+
+test('#7541 review 1: a held company post says it goes to the company\'s own community, never public', () => withStubBoard(async (port) => {
+  const a = await runCli(['community', 'post', 'notes from today'], envFor(port));
+  assert.equal(a.code, 0, a.stdout + a.stderr);
+  assert.match(a.stdout + a.stderr, /before it goes to your company's own community/);
+  assert.doesNotMatch(a.stdout + a.stderr, /goes public/);
+}, { status: 200, body: { ok: true, status: 'held', id: 'p9', space: 'company' } }));
+
 test('#5171: --channel <c> and --channel=<c> send that channel, in any order with --topic; no flag sends no channel; a bare --channel sends nothing', () => withStubBoard(async (port, seen) => {
   const a = await runCli(['community', 'post', '--channel', 'engineering', '--topic', 'Build notes', 'what I built today'], envFor(port));
   assert.equal(a.code, 0, a.stdout + a.stderr);

@@ -28,6 +28,14 @@ final class BoardClient: ObservableObject {
         case unreachable(mac: String)
         // The Mac's gate answered but would not take this iPhone's sign-in (neither waiting for Allow nor denied).
         case macRefused(mac: String)
+        // kosmos#4903: a Kosmos cloud machine, which takes only a recent sign-in, and this one is not.
+        case signInAgain(mac: String)
+        // Review 5: a cloud machine opens only for an iPhone that proved its own key, which only signing in here in the app
+        // keeps (relay gate.rs NO_KEY); a sign-in on the web page never does, however recent.
+        case signInHere(mac: String)
+        // Review 3: the computer is not taking new sign-ins right now; nothing is wrong with this one. `because` is its own
+        // sentence when it gave one.
+        case macHeld(mac: String, because: String?)
         case live(mac: Board.Mac)
     }
 
@@ -46,10 +54,23 @@ final class BoardClient: ObservableObject {
         var upload: (URLRequest, URL) async -> (Data, HTTPURLResponse)? = { _, _ in nil }
         // Where picked files are copied before they are sent (a folder of their own per file, removed once sent).
         var uploads: URL = FileManager.default.temporaryDirectory.appendingPathComponent("chat-uploads", isDirectory: true)
+        // kosmos#7337: this iPhone's device key (#7042's, from the sign-in), proved at each computer's gate. nil: none,
+        // and the session is sent as before.
+        var deviceKey: () -> SignIn.DeviceKey? = { nil }
     }
 
     @Published private(set) var phase: Phase = .starting
     @Published private(set) var agents: [Board.Agent] = []
+    // kosmos#7342 review 1: whether the Agents list is shown as not updating (one rule for the list and its tab badge).
+    // A list already read stays on screen while the app reconnects or the Mac does not answer, and a list from an
+    // earlier read is not current until the first new read.
+    var agentsListStale: Bool {
+        switch phase {
+        case .starting, .connecting, .unreachable: return true
+        case .live: return !fresh
+        default: return false
+        }
+    }
     @Published private(set) var updatedAt: Date?
     // Counts the re-sorts applied (appear, pull to refresh). Today re-takes its held order on this, never on any
     // update: a live read landing during a pull carries the old order and the old stars.
@@ -70,7 +91,107 @@ final class BoardClient: ObservableObject {
     // answer that cannot be read keeps the last ones, and one Mac's stars never order another's list.
     private var stars: (mac: String, names: Set<String>)?
     // The stars of the Mac the shown list came from (Today orders its Needs you cards by them).
-    var shownStars: Set<String>? { stars?.mac == shownMac?.address ? stars?.names : nil }
+    var shownStars: Set<String>? {
+        #if DEBUG
+        if let sample = Self.sampleStars { return sample }
+        #endif
+        return stars?.mac == shownMac?.address ? stars?.names : nil
+    }
+    #if DEBUG
+    // Design shots only: KOSMOS_SAMPLE_STARS=<agent,agent> (or an empty value) gives the sample agents stars that are
+    // known, so the chat header's star shows (it waits for a known list, kosmos#7034). The sample has no computer.
+    // Review 1: only with the sample agents (KOSMOS_SAMPLE_AGENTS=1), so a Debug run against a real computer never has
+    // its real stars replaced by a fixed list.
+    static let sampleStars: Set<String>? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1"
+        ? ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_STARS"].map { Set($0.split(separator: ",").map(String.init)) }
+        : nil
+    #endif
+    // kosmos#7034: starring from the phone. The star shows and the row moves at once, as on the board; the board's answer
+    // (the whole saved list) then decides, and a star that did not save goes back, with the board's own words why. One
+    // save at a time per agent: a second press while one is out waits for nothing and is ignored.
+    @Published private(set) var starNote: String?
+    // build 11 review 2: the agent the note is about, so a chat says it only for that agent.
+    @Published private(set) var starNoteAgent: String?
+    @Published private(set) var starring: Set<String> = []
+    // Review 1: every star press is numbered. A re-sort's own stars read that began before a press (or lands while one is
+    // out) is not taken, or it would put back the list from before the press; and an answer older than the newest
+    // press changes only its own agent, never the whole list.
+    private var starWrites = 0
+    // Review 2: bumped when a press starts AND when it ends, so a read that began while a press was out is not taken
+    // either (the board may have answered it before applying the press).
+    private var starEvents = 0
+    func isStarred(_ session: String) -> Bool { shownStars?.contains(session) == true }
+    // build 11 review 1: a press is offered only once this computer's stars have been read. Before that the star would
+    // show an outline for a starred agent, and a press would build on an empty list (a failed save would leave it so).
+    var canStar: Bool {
+        #if DEBUG
+        if Self.sampleStars != nil { return true }
+        #endif
+        return shownMac != nil && shownStars != nil
+    }
+    // build 11 review 2: a chat opened before the stars were read (from a notification, or after a failed read) asks
+    // once, so its star appears instead of waiting for the Agents list's next re-sort. Taken only if no press began or
+    // ended meanwhile, as a re-sort's read is.
+    private var readingStars = false   // review 3: one such read at a time
+    func readStarsIfUnknown() async {
+        guard shownStars == nil, !readingStars, let mac = shownMac else { return }
+        readingStars = true
+        defer { readingStars = false }
+        let epoch = chatEpoch, events = starEvents
+        let answer = await throughMac { Board.starsRequest(mac: $0) }
+        guard epoch == chatEpoch, shownMac?.address == mac.address, shownStars == nil, starsReadStillGood(since: events),
+              let answer, (200...299).contains(answer.1.statusCode), let names = Board.parseStars(answer.0) else { return }
+        showStars(names, mac: mac.address)
+    }
+    func toggleStar(_ session: String) async {
+        guard canStar, let mac = shownMac, !starring.contains(session) else { return }   // review 2: the swipe too
+        let on = !isStarred(session)
+        let epoch = chatEpoch
+        starWrites += 1
+        starEvents += 1
+        let mine = starWrites
+        starring.insert(session)
+        // Review 3: a press from before a computer or account switch leaves nothing behind (forgetChats cleared it).
+        defer { if epoch == chatEpoch { starring.remove(session); starEvents += 1 } }
+        starNote = nil
+        starNoteAgent = nil
+        showStars(setting: session, on: on, mac: mac.address)
+        let answer = await throughMac { Board.starWriteRequest(mac: $0, name: session, on: on) }
+        guard epoch == chatEpoch, shownMac?.address == mac.address else { return }   // another computer or account now
+        if let answer, answer.1.statusCode == 200, let names = Board.parseStars(answer.0) {
+            // The newest press's answer is the board's whole list; an older one settles only its own agent.
+            if mine == starWrites && starring.count == 1 { showStars(names, mac: mac.address) }
+            else { showStars(setting: session, on: names.contains(session), mac: mac.address) }
+        } else {
+            // Only this agent goes back; every other star stays as the phone now shows it (review 1).
+            showStars(setting: session, on: !on, mac: mac.address)
+            starNote = Board.starFailure(on: on, status: answer?.1.statusCode ?? 0, data: answer?.0)
+            starNoteAgent = session
+        }
+    }
+    // Whether a re-sort's stars read may be taken: no press began or ended since it began, and none is out now.
+    func starsReadStillGood(since events: Int) -> Bool { events == starEvents && starring.isEmpty }
+    private func showStars(setting session: String, on: Bool, mac: String) {
+        let now = shownStars ?? []
+        showStars(on ? now.union([session]) : now.subtracting([session]), mac: mac)
+    }
+    private func showStars(_ names: Set<String>, mac: String) {
+        stars = (mac, names)
+        agents = Board.agentOrder(agents, sort: agentSort, projects: sortProjects, stars: names)
+        sortEpoch += 1   // review 1: Today re-takes its order too, so a star moves the agent there as well
+    }
+    func clearStarNote() { starNote = nil; starNoteAgent = nil }
+
+    // kosmos#7421: the Agents list's order, applied where the list is re-sorted (opening it, a pull), never on a live update,
+    // so rows do not move under the person's thumb. `sortProjects` is By project's key (each agent's first project).
+    private(set) var agentSort: Board.AgentSort = Board.agentSortDefault
+    private(set) var sortProjects: [String: String] = [:]
+    // The person picked an order (or By project's names came in): the list takes it now, as on the desktop.
+    func setAgentSort(_ sort: Board.AgentSort, projects: [String: String]) {
+        guard sort != agentSort || projects != sortProjects else { return }
+        agentSort = sort; sortProjects = projects
+        agents = Board.agentOrder(agents, sort: sort, projects: projects, stars: shownStars)
+    }
     // Status reads by the order they started, and the one the shown list came from.
     private var readsStarted = 0
     private var shownTicket = 0
@@ -79,9 +200,60 @@ final class BoardClient: ObservableObject {
     private var shownMac: Board.Mac?
     // kosmos#7197: the name of the Mac whose list is shown, for a screen that names it while the phase does not.
     var shownMacName: String? { shownMac?.name }
+    // kosmos#7266: the account's computers as Kosmos+ last listed them, for the switcher, and the one the person chose
+    // there (it wins over the remembered and the most recently seen one while it is usable, Board.pickMac).
+    @Published private(set) var macs: [Board.Mac] = []
+    // kosmos#7266 slice B: the person on the shown computer (its "you" record and picture), for the Settings tab's
+    // picture and the profile page. nil until read, and when the board has none.
+    @Published private(set) var youName: String?
+    @Published private(set) var youPicture: Data?
+    private var youAt: Date?
+    private var youPictureAt: Date?
+    private var youTask: Task<Void, Never>?
+    // Review 1: only the read that started last clears the handle, as the tasks read's token does.
+    private var youTicket = 0
+    private var chosenMac: String?
+    // The computer the switcher marks: the shown list's, else the one being opened.
+    var switcherShown: String? { shownMac?.address ?? admitted?.mac.address ?? chosenMac }
     // The Mac to name when the shown list or chat stops updating: the shown one first (the list and its chat are
     // its), the phase's only when no list was shown (Board.failingMacName).
     var failingMacName: String? { Board.failingMacName(shown: shownMacName, phase: phase.macName) }
+    // kosmos#7416 slice 2: when a computer was last heard from, by its address when known (else by a name only one
+    // listed computer has): the later of Kosmos+'s last_seen and this app's own last good read of it (Board.lastHeard).
+    func lastHeard(address: String?, name: String?) -> Double? {
+        let a = address ?? Board.listedMac(macs, address: nil, name: name)?.address
+        return Board.lastHeard(listed: Board.lastSeen(macs, address: a, name: name), heard: a.flatMap { heardFrom[$0.lowercased()] },
+                               now: env.now())
+    }
+    // kosmos#7416: when the Mac a "not updating" line names was last heard from (the shown Mac first, as failingMacName).
+    var failingMacLastHeard: Double? { lastHeard(address: shownMac?.address ?? failingAddress, name: failingMacName) }
+    // The Mac the .unreachable phase is about, by address (review 1: the phase carries only a name, and two Macs can
+    // share one, so the time is looked up by this, never by the shown Mac's name).
+    private(set) var failingAddress: String?
+    // This app's last good list read of each Mac, by lowercased address. Cleared with the account (forget, signed out).
+    private(set) var heardFrom: [String: Date] = [:]
+    private var lastSeenReadAt: Date?
+    // Review 2: the list's last_seen is as old as its last read (a launch, a switch, a second Try again), and the app
+    // reads a Mac itself only while its loop runs, so a not-answering screen asks Kosmos+ for the list again when it
+    // comes up (at most once a minute), and says the fresher time. The Mac's own standing report keeps last_seen
+    // current on Kosmos+.
+    func refreshLastSeen() {
+        // Review 3: the session this client runs under, as run() reads with, never another account's stored meanwhile.
+        guard !lastSeenReading, let session = admitted?.session ?? sessionStore.load() else { return }
+        // Review 4: stamped when a list lands (readMacs, chooseMac), not here, so a read that is dropped or fails leaves
+        // the next screen or return free to ask again.
+        if let at = lastSeenReadAt, env.now().timeIntervalSince(at) < 60 { return }
+        lastSeenReading = true
+        Task {
+            await self.readMacs(session: session, nil)
+            self.lastSeenReading = false
+        }
+    }
+    private var lastSeenReading = false
+    // Review 3 and 4: an answer is dropped only when a NEWER one has already landed, so an older one never lands over
+    // it, and a newer read that fails never costs the list an older good answer.
+    private var macsTicket = 0
+    private var macsLanded = 0
 
     private let coordinator: URL
     private let sessionStore: SessionStore
@@ -154,12 +326,20 @@ final class BoardClient: ObservableObject {
                 #"{"projectId":"p-cat","projectName":"Spring catalogue","number":2,"sentence":"Collect last year's sales figures","state":"closed","createdAt":""# + iso(50000) + #""}"#,
             ].joined(separator: ",") + "]}"
             tasksList = Board.parseTasks(Data(all.utf8))
-            let sample = #"{"counts":{"waiting":4},"agents":[{"sessionName":"cleo","name":"Cleo","role":"Project manager","state":"needs_you","stateReportedBy":"agent","cardWord":"Question","cardTone":"asked","context":{"percent":45},"needsReason":"question","stateProjectName":"Spring catalogue","waitingSince":""# + iso(3) + #""},{"sessionName":"dana","name":"Dana","role":"Writer","state":"working","stateProject":"springcatalogue","task":"Pages 9 to 12","cardWord":"Working","cardTone":"working","context":{"percent":72}},{"sessionName":"eli","name":"Eli","role":"Researcher","state":"needs_you","awaitingApproval":true,"cardWord":"Needs permission","cardTone":"needs_you","context":{"percent":88},"needsReason":"permission","stateProjectName":"Market study","waitingSince":""# + iso(12) + #""},{"sessionName":"farah","name":"Farah","role":"Bookkeeper","state":"idle","cardWord":"Idle","cardTone":"quiet","context":{"percent":20}},{"sessionName":"hana","name":"Hana","role":"Support","state":"auth_failed","stuckError":{"stuck":true,"state":"auth_failed"},"cardWord":"Sign-in Issue","cardTone":"needs_you","needsReason":"stuck_auth"},{"sessionName":"ivy","name":"Ivy","role":"Editor","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"gus","name":"Gus","role":"Social media","state":"stopped","running":false,"cardWord":"Not running","cardTone":"needs_you","needsReason":"other"}]}"#
-            agents = Board.sorted(Board.parseAgents(Data(sample.utf8)) ?? [])
+            // kosmos#7342: counts as a real board sends them (waiting = the agents' 6 + the projects' 3), so the Projects
+            // tab shows its number in shots too.
+            let sample = #"{"counts":{"waiting":9,"projectsUnread":3},"agents":[{"sessionName":"cleo","name":"Cleo","role":"Project manager","state":"needs_you","dmUnread":2,"stateReportedBy":"agent","cardWord":"Question","cardTone":"asked","context":{"percent":45},"needsReason":"question","stateProjectName":"Spring catalogue","waitingSince":""# + iso(3) + #""},{"sessionName":"dana","name":"Dana","role":"Writer","state":"working","dmUnread":1,"stateProject":"springcatalogue","task":"Pages 9 to 12","cardWord":"Working","cardTone":"working","context":{"percent":72}},{"sessionName":"eli","name":"Eli","role":"Researcher","state":"needs_you","awaitingApproval":true,"cardWord":"Needs permission","cardTone":"needs_you","context":{"percent":88},"needsReason":"permission","stateProjectName":"Market study","waitingSince":""# + iso(12) + #""},{"sessionName":"farah","name":"Farah","role":"Bookkeeper","state":"idle","cardWord":"Idle","cardTone":"quiet","context":{"percent":20}},{"sessionName":"hana","name":"Hana","role":"Support","state":"auth_failed","stuckError":{"stuck":true,"state":"auth_failed"},"cardWord":"Sign-in Issue","cardTone":"needs_you","needsReason":"stuck_auth"},{"sessionName":"ivy","name":"Ivy","role":"Editor","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"gus","name":"Gus","role":"Social media","state":"stopped","running":false,"cardWord":"Not running","cardTone":"needs_you","needsReason":"other"}]}"#
+            // kosmos#7532 (Mona Lisa): in the order the person chose, as a real read gives it (Board.agentOrder below).
+            agents = Board.agentOrder(Board.sorted(Board.parseAgents(Data(sample.utf8)) ?? []), sort: agentSort, projects: sortProjects, stars: shownStars)
             waitingCount = Board.waitingCount(Data(sample.utf8))
+            projectsUnread = AppTabs.projectsUnread(fromStatus: Data(sample.utf8))
             updatedAt = Date()
             fresh = true
             phase = .live(mac: Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true))
+            // kosmos#7266: two computers for the switcher's shots, the second offline.
+            shownMac = Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true)
+            macs = [shownMac!, Board.Mac(name: "Laptop", address: "laptop.kosmosplus.com", usable: true, connected: false)]
+            youName = "Sam Carter"   // kosmos#7266 slice B; the picture is drawn by the view (ContentView, KOSMOS_SAMPLE_YOUPIC)
             loadSampleThreads()
             return
         }
@@ -185,6 +365,13 @@ final class BoardClient: ObservableObject {
             updatedAt = nil
             shownMac = nil
             shownOwner = nil
+            macs = []
+            heardFrom = [:]
+            failingAddress = nil
+            lastSeenReadAt = nil
+            lastSeenReading = false   // review 7: an old account's slow read never blocks the next one's
+            chosenMac = nil
+            forgetYou()
             pictures = [:]
             pictureVersions = [:]
             forgetToday()   // kosmos#7030: no count or tasks while signed out
@@ -194,7 +381,10 @@ final class BoardClient: ObservableObject {
         // A kept Mac session from another sign-in is never used, so it is not kept either. Not while no session can
         // be read: the sign-out deletes it itself.
         if session != nil, stored != nil, Board.usableSaved(stored, session: session, coordinator: coordinator) == nil { macStore.delete() }
+        // kosmos#7266 review 1: never the kept session of another computer than the one chosen in the switcher, or any later
+        // start (Try again, a return to the app, as when the person goes to press Allow) would undo the choice.
         if admitted == nil, !skipSaved, let session, let saved = Board.usableSaved(stored, session: session, coordinator: coordinator),
+           chosenMac == nil || saved.address == chosenMac,
            let url = Board.macURL(address: saved.address, coordinator: coordinator) {
             // The Mac's session from an earlier launch: tried first, and dropped by refresh() if the Mac has ended it.
             restoreCookie(saved.cookie, for: url)
@@ -244,6 +434,31 @@ final class BoardClient: ObservableObject {
         if sortedTicket <= before { resortNext = false }
     }
 
+    // kosmos#7266: the switcher. Another computer: the session held for this one (and the kept one) is dropped and the
+    // chosen one opened, remembered for the next launch once it lets this iPhone in. The same one again does nothing.
+    func showMac(address: String) {
+        guard address != switcherShown else { return }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return }
+        #endif
+        chosenMac = address
+        admitted = nil
+        skipSaved = true
+        // The list before is the other computer's: it goes now, so "not answering" never names it over the chosen one
+        // (failingMacName prefers the shown Mac), and its chats, pictures and Today go with it.
+        agents = []
+        updatedAt = nil
+        shownMac = nil
+        stars = nil
+        pictureTask?.cancel()
+        pictures = [:]
+        pictureVersions = [:]
+        forgetYou()
+        forgetChats()
+        forgetToday()
+        start()
+    }
+
     func stop() {
         loop?.cancel()
         loop = nil
@@ -251,6 +466,9 @@ final class BoardClient: ObservableObject {
         // kosmos#7030 review 3: a tasks read in the air would otherwise hold off the next one after start().
         tasksTask?.cancel()
         tasksTask = nil
+        // kosmos#7266 slice B review 1: a name and picture read in the air is dropped with the run, so it is not counted
+        // as done: the next start reads at once instead of waiting 5 minutes with nothing shown.
+        if youTask != nil { youTask?.cancel(); youTask = nil; youAt = nil; youPictureAt = nil }
     }
 
     // MARK: - Today (kosmos#7030)
@@ -289,6 +507,8 @@ final class BoardClient: ObservableObject {
     // The engine's Tasks flag from the same poll (nil when the Mac does not say).
     @Published private(set) var tasksTab: Bool?
     @Published private(set) var projectsUnread: Int?
+    // kosmos#7488: whether New Agent offers a Swarm, as the board's SWARMS_ON (from the same status read).
+    @Published private(set) var swarmsOn = false
     // kosmos#7137: the board's fedShow() from the same poll: the shared-room UI is shown to this person.
     @Published private(set) var fedShown = false
     // The tasks an agent marked built, oldest first; nil until a read answers. tasksFailed: the last read did not
@@ -323,6 +543,7 @@ final class BoardClient: ObservableObject {
         tasksTab = nil
         projectsUnread = nil
         fedShown = false
+        swarmsOn = false   // kosmos#7488: the last computer's, until this one's status says
         readyTasks = nil
         tasksFailed = false
         tasksList = nil
@@ -365,8 +586,12 @@ final class BoardClient: ObservableObject {
     // kosmos#7031: by session, for a task row whose agent the roster does not list yet.
     func chatURL(session: String) -> URL? {
         guard let mac = shownMac else { return nil }
-        return PushBridge.boardURL(fromNotification: ["address": mac.address, "session": session], coordinator: coordinator)
+        let url = PushBridge.boardURL(fromNotification: ["address": mac.address, "session": session], coordinator: coordinator)
+        return boardSectionOnce.flatMap { sec in url.flatMap { Board.withBoardSection($0, sec) } } ?? url
     }
+    // kosmos#7267/#7280: the agent page's "Open on your computer's board" sets this for the one open it starts, so the
+    // board lands on that section (?sec=model) instead of the conversation. Set and cleared around a single call.
+    var boardSectionOnce: String?
 
     // MARK: - One agent's conversation (kosmos#7008)
 
@@ -374,7 +599,19 @@ final class BoardClient: ObservableObject {
     // none, or no answer (not connected included).
     func thread(for session: String) async -> Board.ThreadRead {
         #if DEBUG
-        if let sample = sampleThreads[session] { return .thread(sample) }
+        if var sample = sampleThreads[session] {
+            // kosmos#7265, KOSMOS_SAMPLE_GROW=1: every read of Dana's chat brings one new message and drops the oldest, as a
+            // busy chat at the Mac's 200-row window does, to check that an open chat keeps its place.
+            if session == "dana", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_GROW"] == "1", let last = sample.rows.last {
+                sampleGrown += 1
+                let at = String(format: "2026-10-23T23:%02d:%02dZ", sampleGrown / 60 % 60, sampleGrown % 60)
+                let row = Board.ChatRow(id: "grown-\(sampleGrown)", atRaw: at, at: Board.isoDate(at),
+                                        text: "New message \(sampleGrown) after the window slid.", who: last.who == .agent ? .person : .agent)
+                sample = Board.Thread(rows: Array(sample.rows.dropFirst()) + [row], olderCount: sample.olderCount + 1, choices: sample.choices)
+                sampleThreads[session] = sample
+            }
+            return .thread(sample)
+        }
         #endif
         guard let held = admitted, let request = Board.threadRequest(mac: held.url, session: session) else { return .noAnswer }
         let result = await env.send(request)
@@ -386,6 +623,9 @@ final class BoardClient: ObservableObject {
     // cannot be made, or when no answer came. The caller reads the answer itself.
     // The Mac this client is connected to, for a link to its board (a room's info button); nil when not connected.
     var macURL: URL? { admitted?.url }
+    // kosmos#7266 review 4: the board of the computer the switcher names, connected or not, so a + made before that
+    // computer lets the phone in (or while it is offline) still targets it rather than the shared page's computer.
+    var switcherURL: URL? { switcherShown.flatMap { Board.macURL(address: $0, coordinator: coordinator) } }
 
     func throughMac(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         guard let held = admitted, let request = build(held.url) else { return nil }
@@ -789,7 +1029,10 @@ final class BoardClient: ObservableObject {
 
     // Another Mac keeps chatsOwner (the account has not changed); forget() clears it.
     private func forgetChats() {
+        starNote = nil   // kosmos#7034: a star note was about the other computer's list
+        starring = []   // kosmos#7034 review 3: a save still out was for the other computer; its answer is dropped
         pending = [:]
+        sortProjects = [:]   // kosmos#7421: By project's names were the other computer's or account's
         pressing = []
         answered = [:]
         thumbnails = [:]
@@ -815,6 +1058,9 @@ final class BoardClient: ObservableObject {
     // The newest row time each chat has shown, and the count of forgettings (sign-out, another account or Mac).
     private var newestSeen: [String: String] = [:]
     @Published private(set) var chatEpoch = 0
+    #if DEBUG
+    private var sampleGrown = 0   // kosmos#7265: KOSMOS_SAMPLE_GROW's new messages so far
+    #endif
 
     // A read of the conversation: the pending messages it now holds stop being shown as pending (Board.settled).
     func settle(_ thread: Board.Thread, for session: String) {
@@ -932,16 +1178,38 @@ final class BoardClient: ObservableObject {
                 rows.insert(answer, at: i + 1)
                 t = Board.Thread(rows: rows, olderCount: t.olderCount, choices: t.choices)
             }
+            // kosmos#7420, KOSMOS_SAMPLE_REACTIONS=many: many reactions on one of Dana's messages and one of the person's, so a
+            // screenshot shows them wrapping (left under hers, right under the person's) rather than one row past the edge.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REACTIONS"] == "many" {
+                let many = ["\u{1F44D}", "\u{2764}\u{FE0F}", "\u{1F602}", "\u{1F389}", "\u{1F64F}", "\u{1F440}", "\u{1F525}",
+                            "\u{2705}", "\u{1F680}", "\u{1F914}", "\u{1F4AF}", "\u{1F44F}"]
+                var rows = t.rows
+                if let a = rows.lastIndex(where: { $0.who == .agent }) {
+                    rows[a].reactions = many.enumerated().map { Board.ChatReaction(emoji: $1, count: $0 % 3 + 1, mine: $0 == 0) }
+                }
+                if let p = rows.lastIndex(where: { $0.who == .person }) {
+                    rows[p].reactions = many.prefix(9).enumerated().map { Board.ChatReaction(emoji: $1, count: 1, mine: false) }
+                }
+                t = Board.Thread(rows: rows, olderCount: t.olderCount, choices: t.choices)
+            }
             sampleThreads["dana"] = t
         }
         // KOSMOS_SAMPLE_LONG=1: Dana's chat is 220 messages with 40 before them, to check that opening a long chat lands on
         // the newest message and loads nothing until the person scrolls up.
-        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_LONG"] == "1" {
+        // kosmos#7265: KOSMOS_SAMPLE_LONG=varied makes the messages' lengths vary as a real chat's do (one line to a long
+        // reply), which is what throws a one-time jump to the newest message short.
+        if let long = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_LONG"], long == "1" || long == "varied" {
             var rows: [[String: Any]] = []
+            let para = "Here is where things stand on the catalogue, with the parts that are done and the parts still waiting on photos and prices."
             for i in 0..<220 {
                 let at: String = String(format: "2026-10-23T%02d:%02d:00Z", 8 + i / 60, i % 60)
                 let from: Any = i % 2 == 0 ? "dana" : NSNull()
-                rows.append(["at": at, "text": "Message \(i + 41) of 260.", "from": from])
+                var text = "Message \(i + 41) of 260."
+                if long == "varied" && i % 2 == 0 {
+                    let paragraphs = [0, 1, 3, 8, 2, 14][i / 2 % 6]
+                    if paragraphs > 0 { text += "\n\n" + Array(repeating: para, count: paragraphs).joined(separator: "\n\n") }
+                }
+                rows.append(["at": at, "text": text, "from": from])
             }
             if let data = try? JSONSerialization.data(withJSONObject: ["messages": rows, "olderCount": 40]),
                let t = Board.parseThread(data) { sampleThreads["dana"] = t }
@@ -996,12 +1264,61 @@ final class BoardClient: ObservableObject {
         }
     }
 
+    // kosmos#7266 slice B. A read that fails keeps what was shown (review 4: and is tried again after youRetry).
+    private func fetchYou(url: URL, _ gen: Int, name: Bool) async {
+        if name { await fetchYouName(url: url, gen) }
+        guard gen == generation, !Task.isCancelled else { return }
+        // Review 1: the picture on the first read and then every 30 minutes (it is the big one).
+        guard youPictureAt.map({ env.now().timeIntervalSince($0) >= Board.youPictureEvery }) ?? true else { return }
+        youPictureAt = env.now()
+        let pic = await env.send(Board.youPictureRequest(mac: url))
+        guard gen == generation, !Task.isCancelled else { return }
+        switch Board.youPicture(status: pic?.1.statusCode, contentType: pic?.1.value(forHTTPHeaderField: "Content-Type"), data: pic?.0) {
+        case .picture(let data): youPicture = data
+        case .none: youPicture = nil
+        case .unknown: youPictureAt = env.now().addingTimeInterval(Board.youRetry - Board.youPictureEvery)
+        }
+    }
+
+    private func fetchYouName(url: URL, _ gen: Int) async {
+        let named = await env.send(Board.youRequest(mac: url))
+        guard gen == generation, !Task.isCancelled else { return }
+        var learned = false
+        if let (data, answer) = named, (200...299).contains(answer.statusCode) {
+            switch Board.youName(data) {
+            case .name(let n): youName = n; learned = true
+            case .none: youName = nil; learned = true
+            case .unknown: break
+            }
+        } else if named?.1.statusCode == 404 {
+            // Review 5: an older board without the route has no name to give (the picture read reads its 404 as none).
+            // Review 6: counted as learned (no 30 s retry), but unlike the picture the name shown is kept, in case something
+            // else answered 404 (a computer or account switch clears it anyway).
+            learned = true
+        }
+        // Review 4: nothing learned, so the next read comes after youRetry rather than youEvery.
+        if !learned { youAt = env.now().addingTimeInterval(Board.youRetry - Board.youEvery) }
+    }
+
+    // Another computer, another account or a sign-out: the person's name and picture are that computer's own.
+    private func forgetYou() {
+        youTask?.cancel(); youTask = nil
+        youAt = nil; youPictureAt = nil; youName = nil; youPicture = nil
+    }
+
     // Everything learned under the previous Kosmos+ session goes, cookies and the kept Mac session included.
     private func forget() {
         forgetChats()
         chatsOwner = nil
         admitted = nil
         shownMac = nil
+        macs = []          // kosmos#7266: another account's computers are never offered
+        heardFrom = [:]    // kosmos#7416 review 2: nor its read times
+        failingAddress = nil
+        lastSeenReadAt = nil
+        lastSeenReading = false
+        chosenMac = nil
+        forgetYou()
         shownOwner = nil
         pictureTask?.cancel()
         pictures = [:]
@@ -1060,10 +1377,18 @@ final class BoardClient: ObservableObject {
             keepMacSession(mac, url: url, session: session)
             env.defaults.set(mac.address, forKey: Board.rememberedMacKey)
         }
-        guard let (mac, url, _) = admitted else { return }
+        guard let (mac, url, held) = admitted else { return }
+        // kosmos#7266 review 2: a run that restored the kept session never asked Kosmos+ for the Macs, so the switcher
+        // had nothing to list on the common launch. Asked here in the background while the list is empty, without
+        // touching the session. Known: online and offline in the list are as of the last read (a switch, a Try again
+        // that asks afresh, or a new launch reads it again).
+        if macs.isEmpty && macsReadGen != gen {
+            macsReadGen = gen
+            Task { await self.readMacs(session: held, gen) }
+        }
         // Another Mac: its agents' pictures are its own, even for an agent of the same name.
         // Another Mac: its pictures and the chats (opened on the one before) go now, before any chat call reaches it.
-        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; forgetChats(); forgetToday() }
+        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; forgetYou(); forgetChats(); forgetToday() }
         failedRefreshes = 0
         while !Task.isCancelled && gen == generation {
             guard await refresh(url: url, mac: mac, gen) else { return }
@@ -1086,14 +1411,47 @@ final class BoardClient: ObservableObject {
         else { set(.kosmosPlusDown, gen) }
     }
 
+    // The run that last asked for the Macs (chooseMac asks too, when it runs).
+    private var macsReadGen = -1
+    // The switcher's list only: a failure here changes nothing on screen (the shown computer is already open).
+    // `gen` nil (kosmos#7416 review 4, refreshLastSeen): not tied to one run, since a return to the app can start a new
+    // run while it is in flight; it lands while the signed-in account is still the one it asked for, and the list shown
+    // is that account's.
+    private func readMacs(session: String, _ gen: Int?) async {
+        macsTicket += 1
+        let ticket = macsTicket
+        let result = await env.send(Board.macsRequest(coordinator: coordinator, session: session))
+        if let gen { guard gen == generation else { return } } else {
+            let owner = Board.owner(of: session)
+            guard let stored = sessionStore.load(), Board.owner(of: stored) == owner, shownOwner == nil || shownOwner == owner else { return }
+        }
+        guard ticket > macsLanded, let (data, answer) = result, (200...299).contains(answer.statusCode),
+              let macs = Board.parseMacs(data) else { return }
+        macsLanded = ticket
+        self.macs = Board.reachableMacs(macs, coordinator: coordinator)
+        lastSeenReadAt = env.now()   // kosmos#7416: a list this fresh needs no second read for its time
+    }
+
     private func chooseMac(session: String, _ gen: Int) async -> Board.Mac? {
+        macsTicket += 1
+        let ticket = macsTicket
         let result = await env.send(Board.macsRequest(coordinator: coordinator, session: session))
         let status = result?.1.statusCode ?? 0
         guard (200...299).contains(status), let data = result?.0, let macs = Board.parseMacs(data) else {
             kosmosPlusFailed(status: status, gen); return nil
         }
-        guard let mac = Board.pickMac(Board.reachableMacs(macs, coordinator: coordinator),
-                                      remembered: env.defaults.string(forKey: Board.rememberedMacKey)) else {
+        // Review 1: a list that lands after a sign-out or another start is not this run's to show.
+        guard gen == generation else { return nil }
+        // kosmos#7416 review 5: shown only when no newer list landed first; the pick uses this run's own answer either way.
+        let reachable = Board.reachableMacs(macs, coordinator: coordinator)
+        if ticket > macsLanded {
+            self.macs = reachable
+            macsLanded = ticket
+            lastSeenReadAt = env.now()
+        }
+        macsReadGen = gen
+        guard let mac = Board.pickMac(reachable, remembered: env.defaults.string(forKey: Board.rememberedMacKey),
+                                      chosen: chosenMac) else {
             set(.noMac, gen); return nil
         }
         return mac
@@ -1101,9 +1459,14 @@ final class BoardClient: ObservableObject {
 
     // nil when it failed, with the phase already set to say why.
     private func handoff(session: String, mac: Board.Mac, _ gen: Int) async -> String? {
-        let result = await env.send(Board.handoffRequest(coordinator: coordinator, session: session, address: mac.address))
+        let result = await env.send(Board.handoffRequest(coordinator: coordinator, session: session, address: mac.address,
+                                                         fresh: mac.hosted))
         let status = result?.1.statusCode ?? 0
         guard (200...299).contains(status), let data = result?.0, let token = Board.parseHandoffToken(data) else {
+            if mac.hosted, status == 403, Board.isStepUpRequired(result?.0) {
+                if gen == generation { set(.signInAgain(mac: mac.name), gen) }
+                return nil
+            }
             kosmosPlusFailed(status: status, gen); return nil
         }
         return token
@@ -1117,8 +1480,24 @@ final class BoardClient: ObservableObject {
         var waiting = false
         var fresh = 0
         var misses = 0
+        var resigned = 0
+        let key = env.deviceKey()   // read once per connect, not on every 3 s Allow poll
         while !Task.isCancelled && gen == generation {
-            let result = await env.send(Board.sessionRequest(mac: url, handoffToken: token))
+            var proof: Board.GateProof? = nil
+            switch await gateProof(url: url, token: token, key: key) {
+            case .proof(let p): proof = p
+            case .unproven: break
+            case .miss:
+                // kosmos#7337: the gate page's miss (no nonce now): counted as a session that got no answer, and no post.
+                // A re-sign run it interrupts starts again (as gate.html resets reSigned on any other answer).
+                resigned = 0
+                guard gen == generation else { return false }
+                misses += 1
+                if misses < 3 { await env.sleep(3); continue }
+                set(.unreachable(mac: mac.name), gen); return false
+            }
+            guard gen == generation else { return false }
+            let result = await env.send(Board.sessionRequest(mac: url, handoffToken: token, proof: proof))
             let status = result?.1.statusCode ?? 0
             if status == 0 {
                 // No answer at all: a few are a slow network or a Mac just waking; three in a row (as the gate page counts
@@ -1126,10 +1505,14 @@ final class BoardClient: ObservableObject {
                 // where ONE miss used to say it (Josh, 10-26 08:29, with that Mac answering minutes later).
                 misses += 1
                 if misses < 3 { await env.sleep(3); continue }
+                if gen == generation { failingAddress = mac.address }
                 set(.unreachable(mac: mac.name), gen); return false
             }
-            misses = 0
-            switch Board.classifySession(status: status, body: result?.0, waiting: waiting) {
+            let answer = Board.classifySession(status: status, body: result?.0, waiting: waiting)
+            // A busy gate and a run of re-signs are misses of their own; any other answer means the gate is answering.
+            if answer != .busy && answer != .resign { misses = 0 }
+            if answer != .resign { resigned = 0 }
+            switch answer {
             case .admitted:
                 return true
             case .pending(let code):
@@ -1139,9 +1522,29 @@ final class BoardClient: ObservableObject {
                 await env.sleep(3)
             case .retry:
                 await env.sleep(3)
+            case .busy:
+                misses += 1
+                if misses >= 3 { set(.unreachable(mac: mac.name), gen); return false }
+                await env.sleep(3)
+            case .resign:
+                // kosmos#7337: a spent nonce, or a hosted box that has just allowed this key: sign again with a new nonce
+                // shortly, five times in a row at most (as gate.html), then counted as a miss, so a gate that never stops
+                // answering it ends at "not answering" rather than "Connecting" for ever.
+                resigned += 1
+                if resigned <= 5 { await env.sleep(0.3); continue }
+                resigned = 0
+                misses += 1
+                if misses >= 3 { set(.unreachable(mac: mac.name), gen); return false }
+                await env.sleep(3)
             case .denied:
                 set(.denied(mac: mac.name), gen); return false
+            case .held(let because):
+                set(.macHeld(mac: mac.name, because: because), gen); return false
             case .refused:
+                // Review 4: a cloud machine refuses a sign-in that proved no key (relay gate.rs NO_KEY), and no fresh
+                // handoff cures that: only signing in here again, natively, which keeps a key. Said at once, not after
+                // six more handoffs.
+                if mac.hosted && proof == nil { set(.signInHere(mac: mac.name), gen); return false }
                 // Refused handoffs are retried a few times: one expires during a long wait for Allow, and a Mac that
                 // has just started refuses until it knows its account again (gate.rs ACCOUNT_NOT_KNOWN_YET).
                 guard fresh < Self.freshHandoffs else {
@@ -1161,6 +1564,23 @@ final class BoardClient: ObservableObject {
         return false
     }
 
+    // kosmos#7337: what one session request carries. `unproven` sends the token alone, as before: no key, a key that
+    // cannot sign, or a gate that has no nonce route (an older tunnel: a 404, or a 200 page that is not a nonce).
+    // `miss` is the gate page's miss: no answer, or a gate that would not give a nonce now (busy, full, starting).
+    private enum ProofOutcome { case proof(Board.GateProof), unproven, miss }
+
+    private func gateProof(url: URL, token: String, key: SignIn.DeviceKey?) async -> ProofOutcome {
+        guard let key, let host = url.host?.lowercased() else { return .unproven }   // the gate signs location.hostname
+        guard let (data, answer) = await env.send(Board.nonceRequest(mac: url)) else { return .miss }
+        // A gate that would give a nonce but not now (refused for now, too many waiting, busy) is a miss, as gate.html;
+        // any other refusal of the route (404, or an older gate's 401 or 405) means it has none: the token alone.
+        let status = answer.statusCode
+        if status == 400 || status == 403 || status == 429 || status >= 500 { return .miss }   // review 4: 400 (no client address) too
+        guard (200...299).contains(status) else { return .unproven }
+        guard let nonce = Board.parseNonce(data) else { return .unproven }
+        return Board.gateProof(host: host, nonce: nonce, token: token, key: key).map { .proof($0) } ?? .unproven
+    }
+
     // #7034: the person's stars on this Mac, or nil when they cannot be read.
     private func readStars(url: URL, if wanted: Bool) async -> Set<String>? {
         guard wanted, let result = await env.send(Board.starsRequest(mac: url)), (200...299).contains(result.1.statusCode)
@@ -1178,6 +1598,7 @@ final class BoardClient: ObservableObject {
         let ticket = readsStarted
         // Taken when the read starts: a pull sets it while another read may already be in the air.
         let resort = resortNext
+        let starEventsAtStart = starEvents   // kosmos#7034 review 1 and 2
         async let starsRead = readStars(url: url, if: resort)
         let result = await env.send(Board.statusRequest(mac: url))
         let names = await starsRead
@@ -1194,15 +1615,17 @@ final class BoardClient: ObservableObject {
             // without one has withdrawn it.
             let sorting = resort && resortNext && ticket >= resortFrom
             // Stars are taken only with the re-sort they were read for, so Today never orders by stars the list is not.
-            if sorting, let names { stars = (mac.address, names) }
+            if sorting, let names, starsReadStillGood(since: starEventsAtStart) { stars = (mac.address, names) }   // kosmos#7034 review 1: never undo a press
             let known = stars?.mac == mac.address ? stars?.names : nil
-            agents = sorting ? Board.sorted(rows, stars: known) : Board.keepingOrder(agents, with: rows, stars: known)
+            agents = sorting ? Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known) : Board.keepingOrder(agents, with: rows, stars: known, sort: agentSort, projects: sortProjects)
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
             tasksTab = AppTabs.tasksTab(fromStatus: data)   // kosmos#7032: Tasks earned, with no board page loaded
             projectsUnread = AppTabs.projectsUnread(fromStatus: data)     // kosmos#7032: the Projects tab's badge
+            swarmsOn = Board.swarmsOn(fromStatus: data)   // kosmos#7488: New Agent's Swarm choice
             fedShown = Board.fedShown(fromStatus: data)   // kosmos#7137: the shared-room UI, as the board's fedShow()
             if sorting { resortNext = false; sortedTicket = ticket; sortEpoch += 1 }
             updatedAt = env.now()
+            heardFrom[mac.address.lowercased()] = updatedAt
             failedRefreshes = 0
             unauthorizedSince = nil
             // The first list in a run (re)keeps the Mac's session, so a kept record dropped while the Mac was away is
@@ -1218,6 +1641,16 @@ final class BoardClient: ObservableObject {
             // by the next read (a cancelled fetch must not count as a failed one).
             if pictureTask == nil {
                 pictureTask = Task { await self.fetchPictures(url: url, gen); self.pictureTask = nil }
+            }
+            // kosmos#7266 slice B: the person's name and picture, on the first list and then every 5 minutes.
+            // Review 4: the picture has its own due time, so a picture read that learned nothing is retried on its own.
+            let nameDue = youAt.map({ env.now().timeIntervalSince($0) >= Board.youEvery }) ?? true
+            let pictureDue = youPictureAt.map({ env.now().timeIntervalSince($0) >= Board.youPictureEvery }) ?? true
+            if youTask == nil, nameDue || pictureDue {
+                if nameDue { youAt = env.now() }
+                youTicket += 1
+                let ticket = youTicket
+                youTask = Task { await self.fetchYou(url: url, gen, name: nameDue); if self.youTicket == ticket { self.youTask = nil } }
             }
             // kosmos#7030: the tasks Today shows, read only while Today is on screen, at most every 30 s (the board's Tasks
             // view read is not cheap); pull to refresh reads them at once.
@@ -1255,6 +1688,7 @@ final class BoardClient: ObservableObject {
             if !listedThisRun { macStore.delete() }
             // Not answering, said once; the loop keeps reading, so the next good read clears it by itself (a Mac back
             // from sleep needs no Try again).
+            if gen == generation { failingAddress = mac.address }
             set(.unreachable(mac: mac.name), gen)
         }
         return true
@@ -1265,7 +1699,8 @@ final class BoardClient: ObservableObject {
 extension BoardClient.Phase {
     var macName: String? {
         switch self {
-        case .waitingForAllow(let mac, _), .connecting(let mac), .denied(let mac), .unreachable(let mac), .macRefused(let mac):
+        case .waitingForAllow(let mac, _), .connecting(let mac), .denied(let mac), .unreachable(let mac), .macRefused(let mac),
+             .signInAgain(let mac), .signInHere(let mac), .macHeld(let mac, _):
             return mac
         case .live(let mac):
             return mac.name

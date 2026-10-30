@@ -31,6 +31,14 @@ function providerOf(card) {
     if (fromJob) return fromJob === 'alibaba' ? 'Qwen' : 'OpenAI';
     try { if (require('./store').readProfile(card.sessionName).provider === 'alibaba') return 'Qwen'; } catch { /* no profile */ }
   }
+  /* #7206: a claude card is a vendor's (DeepSeek) when its launch job's account is a vendor folder (create.jobProvider,
+     the one every vendor decision reads). Any failure to read it keeps the runner's name. */
+  if (card && card.runner === 'claude' && card.sessionName) {
+    let fromJob = null;
+    try { fromJob = require('./create').claudeJobProvider(card.sessionName); } catch { fromJob = null; }
+    const v = require('./anthropiccompat').vendorOf(fromJob);
+    if (v) return v.name;
+  }
   return PROVIDER_NAME[card && card.runner] || 'Claude';
 }
 
@@ -142,6 +150,11 @@ function accountProblemOf(card) {
     if (provider === 'Qwen') {
       const qtext = `${who} cannot get answers from its Qwen endpoint, so it cannot do anything. Check that the endpoint is running (for Qwen on this computer, that Ollama is open), then restart it.`;
       return { kind: 'signin', provider, notify: true, text: qtext, summary: qtext };
+    }
+    // #7206: a vendor account is a key, with no sign-in to renew: what fails is the vendor refusing it.
+    if (Object.values(require('./anthropiccompat').VENDORS).some((v) => v.name === provider)) {
+      const vtext = `${who}'s ${provider} key is no longer accepted, so it cannot do anything. Check the ${provider} account in Settings, AI Models (Check now says what ${provider} answers), then restart it.`;
+      return { kind: 'signin', provider, notify: true, text: vtext, summary: vtext };
     }
     const text = `${who}'s ${provider} sign-in has stopped working, so it cannot do anything. Open its page and choose Sign in again.`;
     return { kind: 'signin', provider, notify: true, text, summary: text };

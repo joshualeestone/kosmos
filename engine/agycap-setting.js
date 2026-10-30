@@ -17,44 +17,50 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 
-const FILE = path.join(store.ROOT, 'agycap.json');
+/* kosmos#7406: the same setting for a second cap (engine/workcap-setting.js, every provider's agents per account), made
+   by one function so the two files' validation, reading and saving cannot drift. */
+function make(file, choices, defaultMax) {
+  const CHOICES = Object.freeze(choices.slice());
+  const DEFAULT_MAX = defaultMax;
 
-const CHOICES = Object.freeze([0, 1, 2, 3, 4]);
-const DEFAULT_MAX = 0;
+  function isValidMax(n) {
+    return typeof n === 'number' && CHOICES.includes(n);
+  }
 
-function isValidMax(n) {
-  return typeof n === 'number' && CHOICES.includes(n);
+  /**
+   * @returns {{maxWorking:number, ok:boolean}} maxWorking 0 means no limit.
+   */
+  function read() {
+    let raw;
+    try {
+      raw = fs.readFileSync(file, 'utf8');
+    } catch (err) {
+      return { maxWorking: DEFAULT_MAX, ok: Boolean(err && err.code === 'ENOENT') };
+    }
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { return { maxWorking: DEFAULT_MAX, ok: false }; }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { maxWorking: DEFAULT_MAX, ok: false };
+    if (!isValidMax(parsed.maxWorking)) return { maxWorking: DEFAULT_MAX, ok: false };
+    return { maxWorking: parsed.maxWorking, ok: true };
+  }
+
+  function set(patch) {
+    const p = patch || {};
+    if (!Object.prototype.hasOwnProperty.call(p, 'maxWorking') || !isValidMax(p.maxWorking)) {
+      return { ok: false, because: 'the limit must be one of ' + CHOICES.join(', ') + ' (0 is no limit)' };
+    }
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      store.saveFlushed(file, JSON.stringify({ maxWorking: p.maxWorking }) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
+      return { ok: true };
+    } catch {
+      return { ok: false, because: 'we could not save that setting' };
+    }
+  }
+
+  return { FILE: file, CHOICES, DEFAULT_MAX, isValidMax, read, set };
 }
 
-/**
- * @returns {{maxWorking:number, ok:boolean}} maxWorking 0 means no limit.
- */
-function read() {
-  let raw;
-  try {
-    raw = fs.readFileSync(FILE, 'utf8');
-  } catch (err) {
-    return { maxWorking: DEFAULT_MAX, ok: Boolean(err && err.code === 'ENOENT') };
-  }
-  let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { maxWorking: DEFAULT_MAX, ok: false }; }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { maxWorking: DEFAULT_MAX, ok: false };
-  if (!isValidMax(parsed.maxWorking)) return { maxWorking: DEFAULT_MAX, ok: false };
-  return { maxWorking: parsed.maxWorking, ok: true };
-}
+const agy = make(path.join(store.ROOT, 'agycap.json'), [0, 1, 2, 3, 4], 0);
 
-function set(patch) {
-  const p = patch || {};
-  if (!Object.prototype.hasOwnProperty.call(p, 'maxWorking') || !isValidMax(p.maxWorking)) {
-    return { ok: false, because: 'the limit must be one of ' + CHOICES.join(', ') + ' (0 is no limit)' };
-  }
-  try {
-    fs.mkdirSync(path.dirname(FILE), { recursive: true });
-    store.saveFlushed(FILE, JSON.stringify({ maxWorking: p.maxWorking }) + '\n');   // #5434 slice 19: flushed before the rename (a unique temp; the folder after on POSIX)
-    return { ok: true };
-  } catch {
-    return { ok: false, because: 'we could not save that setting' };
-  }
-}
-
-module.exports = { FILE, CHOICES, DEFAULT_MAX, isValidMax, read, set };
+module.exports = { FILE: agy.FILE, CHOICES: agy.CHOICES, DEFAULT_MAX: agy.DEFAULT_MAX, isValidMax: agy.isValidMax, read: agy.read, set: agy.set, make };

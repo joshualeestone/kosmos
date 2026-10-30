@@ -92,8 +92,11 @@ test('pointerFor: the one rule, by platform and channel', () => {
   assert.equal(update.pointerFor('win32', 'staging'), 'latest-win-staging.json');
   assert.equal(update.pointerFor('darwin', 'prod'), 'latest.json');
   assert.equal(update.pointerFor('darwin', 'staging'), 'latest-staging.json');
-  /* Everything that is not win32 reads the Mac pair, which is what every platform read before. */
-  assert.equal(update.pointerFor('linux', 'prod'), 'latest.json');
+  /* Everything that is not win32 reads the Mac pair, which is what every platform read before, except Linux x86_64,
+     which reads its own family (kosmos#7281; engine/update.linux-family-7281.test.js). The arch is explicit so this
+     holds on a Linux x64 runner too. */
+  assert.equal(update.pointerFor('linux', 'prod', 'arm64'), 'latest.json');
+  assert.equal(update.pointerFor('linux', 'prod', 'x64'), 'latest-linux.json');
   assert.equal(update.pointerFor('darwin', 'anything-else'), 'latest.json', 'a channel that is not staging is prod');
 });
 

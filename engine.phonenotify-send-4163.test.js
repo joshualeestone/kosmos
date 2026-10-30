@@ -55,7 +55,9 @@ function runChild(coordinator, event) {
   // reads it, before happened() runs.
   const script = "const fs = require('fs'); const p = require('path'); const r = require(p.join(p.dirname(process.env.PN), 'remote'));"
     + " fs.mkdirSync(p.dirname(r.FILE), { recursive: true }); fs.writeFileSync(r.FILE, JSON.stringify({ on: true }));"
-    + " const pn = require(process.env.PN); pn.setAvailableForTests(true); pn.happened(JSON.parse(process.env.EVENT));";
+    + " const pn = require(process.env.PN); pn.setAvailableForTests(true); const ev = JSON.parse(process.env.EVENT);"
+    // kosmos#7212 review 7: an event marked _result hears, on stderr, whether the push is settled.
+    + " if (ev._result) ev.onResult = (ok) => process.stderr.write('RESULT:' + ok + '\\n'); pn.happened(ev);";
   return new Promise((resolve) => {
     const started = Date.now();
     let stderr = '';
@@ -117,8 +119,37 @@ test('the real send is the request the coordinator expects, under a self-hosted 
     assert.equal(body.kind, 'needs_you');
     assert.equal(body.agent, 'Leo');
     assert.ok(!req.body.includes('the words of the report'), 'the report\'s words left the Mac');
-    assert.doesNotMatch(r.stderr, /phonenotify:/, 'a 2xx is not logged');
+    // kosmos#6487: the one line a send writes names the id's kind and the agent, never the words; a 2xx adds nothing.
+    assert.equal(r.stderr.match(/phonenotify:/g).length, 1, r.stderr);
+    assert.match(r.stderr, /phonenotify: sent needs_you \(report\) ref [0-9a-f]{6} for leo; the phone can ask for its words\n/);
+    assert.ok(!r.stderr.includes('the words of the report') && !r.stderr.includes('2026-09-27'), 'the log carries the words or the id\'s time');
   } finally { c.srv.close(); }
+});
+
+test('#6487 a needs-you the phone cannot ask about says so in the log, with the id\'s kind only', async () => {
+  const c = await coordinator(204);
+  try {
+    const r = await runChild(`http://127.0.0.1:${c.port}`, { ...EVENT, id: 'crashloop:leo:2026-09-27T11:00:00Z', session: 'le\no\u009b\u2028' + 'x'.repeat(100) });
+    assert.equal(c.seen.length, 1);
+    assert.match(r.stderr, /phonenotify: sent needs_you \(crashloop\) ref [0-9a-f]{6} for le o  x{74}; the phone cannot ask for its words, so it shows plain\n/);
+  } finally { c.srv.close(); }
+});
+
+test('#6487 an id cut to fit says the phone will find no words; a send with no session names nobody', async () => {
+  const c = await coordinator(204);
+  try {
+    // 95 characters of name: the id (report:<at>:<name>) is cut at 120 bytes, still parses, and names an agent that is not there.
+    const long = 'r'.repeat(95);
+    const r = await runChild(`http://127.0.0.1:${c.port}`, { ...EVENT, id: 'report:2026-09-27T11:00:00Z:' + long, session: long });
+    assert.equal(c.seen.length, 1);
+    assert.notEqual(JSON.parse(c.seen[0].body).id, 'report:2026-09-27T11:00:00Z:' + long, 'CONTROL: the id was not cut, so this proves nothing');
+    assert.match(r.stderr, /phonenotify: sent needs_you \(report\) ref [0-9a-f]{6} for r+; its id was cut to fit, so the phone's ask finds no words and it shows plain\n/);
+  } finally { c.srv.close(); }
+  const d = await coordinator(204);
+  try {
+    const r = await runChild(`http://127.0.0.1:${d.port}`, { ...EVENT, session: null });
+    assert.match(r.stderr, /phonenotify: sent needs_you \(report\) ref [0-9a-f]{6}; the phone can ask for its words\n/);
+  } finally { d.srv.close(); }
 });
 
 test('a refused send is logged with its status, never the token', async () => {
@@ -152,4 +183,29 @@ test('a coordinator that never answers is given up on after the timeout', async 
     // Giving up destroys the request, which surfaces as a reset, not a refusal.
     assert.match(r.stderr, /could not reach Kosmos\+: ECONNRESET/);
   } finally { c.srv.closeAllConnections(); c.srv.close(); }
+});
+
+/* kosmos#7212 review 7: defaultSend tells an event's onResult whether the push is settled, so a stall push the
+   coordinator never took is taken back and tried again, while one it will refuse again (a 4xx) is not retried. */
+test('#7212 a 2xx or a 4xx settles a push; a 5xx, a 429 or no coordinator at all does not', async () => {
+  const cases = [[204, 'true'], [401, 'true'], [503, 'false'], [429, 'false']];
+  for (const [status, want] of cases) {
+    const c = await coordinator(status);
+    try {
+      const r = await runChild(`http://127.0.0.1:${c.port}`, { ...EVENT, _result: true });
+      assert.equal(c.seen.length, 1, 'CONTROL: the push was sent for ' + status);
+      assert.match(r.stderr, new RegExp('RESULT:' + want + '\\n'), status + ' did not settle as ' + want + ': ' + r.stderr);
+      assert.equal(r.stderr.match(/RESULT:/g).length, 1, 'onResult heard more than once for ' + status);
+    } finally { c.srv.close(); }
+  }
+  const gone = await coordinator(204);
+  const port = gone.port;
+  await new Promise((resolve) => gone.srv.close(resolve));
+  const r = await runChild(`http://127.0.0.1:${port}`, { ...EVENT, _result: true });
+  assert.match(r.stderr, /RESULT:false\n/, 'a coordinator that could not be reached settled the push: ' + r.stderr);
+  const plain = await coordinator(204);
+  try {
+    const p = await runChild(`http://127.0.0.1:${plain.port}`, EVENT);
+    assert.equal(/RESULT:/.test(p.stderr), false, 'CONTROL: a push with no onResult says nothing');
+  } finally { plain.srv.close(); }
 });

@@ -187,7 +187,12 @@ const REFUSE_NAME = 'that is not a name we can act on';
 const REFUSE_PROVIDER = 'pick a provider from the list';
 const REFUSE_ANTIGRAVITY_WIN32 = 'Kosmos cannot start an Antigravity agent on Windows yet'; // #3568
 /* #5977 review 3: the Windows codex launch (win32codexsup) has no endpoint arguments, so a Qwen agent there would start
-   codex against OpenAI. Refused until it reads qwenaccounts.launchArgs. */
+   codex against OpenAI. Refused until it reads qwenaccounts.launchArgs.
+   #7445 round 1: lifting this ALSO needs a private Codex home on Windows. switchLosesConversation (and its page twin,
+   web/index.html switchCrossesFamily) says OpenAI <-> Qwen keeps the conversation because a Mac agent runs in one
+   private Codex home whatever its account (codexruntime.forSession, #4592). On Windows win32launch.childEnv sets
+   CODEX_HOME to the ACCOUNT folder and win32codexsup keeps the thread id in memory only, so there that rule would be
+   wrong: give Windows the private home first, or make the rule lose the conversation on Windows. */
 const REFUSE_QWEN_WIN32 = 'Kosmos cannot start a Qwen agent on Windows yet';
 const REFUSE_ACCOUNT = 'we do not know that account on this computer';
 
@@ -722,6 +727,15 @@ function usableRecordedDir(dir) {
   if (!st.isDirectory()) return null;
   return dir;
 }
+/* #7232: the recorded folder as WRITTEN, read from the profile only: no lstat, so a connected agent's folder on a
+   share or a mapped drive whose server is down is never touched by asking where it is. Not validated: a caller uses
+   it only to decide whether that folder is on another computer (engine/replyfile.js keptRoots), and goes through
+   workerDir, which validates, for anything else. */
+function recordedDirSpelling(name) {
+  let dir;
+  try { dir = store.readProfile(name).dir; } catch { return null; }
+  return typeof dir === 'string' && dir && path.isAbsolute(dir) ? dir : null;
+}
 
 /**
  * 🛑 THE DERIVED PATH IS BUILT FROM A SANITISED NAME, AND THAT IS LOAD-BEARING
@@ -910,6 +924,7 @@ function providerRunner(provider) {
   if (provider === 'antigravity') return 'antigravity'; // #3568
   if (provider === 'meta') return 'muse'; // #3939: Meta Muse, run one turn at a time by engine/musefront.js
   if (provider === 'alibaba') return 'codex'; // #5977: Qwen, codex pointed at its account's endpoint
+  // #7206: a vendor whose endpoint speaks Claude Code's API (DeepSeek) runs on claude too (the floor below).
   return 'claude';
 }
 /* #3519: the INVERSE of providerRunner -- the ONE runner -> provider map. The
@@ -937,6 +952,12 @@ function runnerProvider(runner) {
 function jobProvider(job) {
   const runner = job && job.runner ? job.runner : 'claude';
   if (runner === 'codex' && job && job.configDir && require('./qwenaccounts').isQwenHome(job.configDir)) return 'alibaba';
+  // #7206: a claude job whose account home is a vendor account runs on that vendor, read from the folder's name (the
+  // one every vendor decision goes by), so a folder whose file went missing is still the vendor's and fails closed.
+  if (runner === 'claude' && job && job.configDir) {
+    const v = require('./anthropiccompat').vendorOfName(job.configDir);
+    if (v) return v;
+  }
   return runnerProvider(runner);
 }
 /* #5977 review 2: the provider of a NAMED agent, for a caller that holds its runner and its name but not its job
@@ -947,7 +968,7 @@ function jobProvider(job) {
    agent's entry, so a switch is seen at once and the cache only collapses the reads within one tick. */
 const AGENT_PROVIDER_MS = 2000;
 const agentProviderMemo = new Map();
-function forgetAgentProvider(name) { if (name) agentProviderMemo.delete(String(name)); }
+function forgetAgentProvider(name) { if (name) { agentProviderMemo.delete(String(name)); agentProviderMemo.delete('claude\u0000' + String(name)); } }   // #7206: both runners' entries
 /* Review 6: the provider a codex agent's JOB names ('alibaba' or 'openai'), or null when there is no job to read, so
    a caller with its own fallback (the profile) can tell "the job says OpenAI" from "there is no job". Same memo. */
 function codexJobProvider(sessionName) {
@@ -962,9 +983,26 @@ function codexJobProvider(sessionName) {
   agentProviderMemo.set(key, { at: now, provider });
   return provider;
 }
+/* #7206: the provider a CLAUDE agent's job names (a vendor such as 'deepseek', or 'anthropic'), or null with no job.
+   Same memo as codexJobProvider, kept under its own key so the two runners' answers cannot be confused. A job read
+   costs about 0.023 ms (measured 10-26 on 3 real jobs), so reading one per claude agent per tick is cheap. */
+function claudeJobProvider(sessionName) {
+  if (!sessionName) return null;
+  const key = 'claude\u0000' + String(sessionName);
+  const hit = agentProviderMemo.get(key);
+  const now = Date.now();
+  if (hit && now - hit.at >= 0 && now - hit.at < AGENT_PROVIDER_MS) return hit.provider;
+  let job = null;
+  try { job = readJob(sessionName); } catch { job = null; }
+  const provider = job ? jobProvider({ ...job, runner: 'claude' }) : null;
+  agentProviderMemo.set(key, { at: now, provider });
+  return provider;
+}
 function agentProvider(sessionName, runner) {
   const r = runner || 'claude';
-  if (r !== 'codex' || !sessionName) return runnerProvider(r);
+  if (!sessionName) return runnerProvider(r);
+  if (r === 'claude') return claudeJobProvider(sessionName) || runnerProvider(r);   // #7206
+  if (r !== 'codex') return runnerProvider(r);
   return codexJobProvider(sessionName) || runnerProvider(r);
 }
 /* #3296/#3391: the ONE "is this a non-claude runner" predicate -- the recognized set
@@ -993,6 +1031,7 @@ function providerLabel(provider) {
   if (provider === 'antigravity') return 'Gemini (Google subscription)';
   if (provider === 'meta') return 'Meta Muse'; // #3939
   if (provider === 'alibaba') return 'Qwen'; // #5977
+  { const v = require('./anthropiccompat').vendorOf(provider); if (v) return v.name; }   // #7206
   return 'Anthropic';
 }
 /* #3568: the Antigravity runner (Google's agy): Gemini on a Google subscription. ON by default
@@ -1637,6 +1676,18 @@ function setAccount(name, dir, opts) {
     return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI; to move it to Qwen, switch its provider to Qwen` };
   }
   if (job.runner === 'codex') return setCodexAccount(clean, spoken, dir, job, platform);
+  /* #7206 (1b review 1): a vendor agent (claude on a DeepSeek account) moves between that vendor's accounts only, and a
+     Claude agent never lands on a vendor folder here: either would leave the job and the profile (provider,
+     vendorAccount) disagreeing. Changing the provider is a provider switch (setProvider), which checks the switch,
+     policy and records the provider. */
+  if (job.runner === 'claude') {
+    const compat = require('./anthropiccompat');
+    const v = compat.vendorOf(jobProvider(job));
+    if (v) return setVendorAccount(clean, spoken, dir, job, platform, v);
+    if (dir && compat.vendorOfName(path.resolve(String(dir)))) {
+      return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on Claude; to move it to ${compat.vendorOf(compat.vendorOfName(path.resolve(String(dir)))).name}, switch its provider` };
+    }
+  }
   /* #3296 accounts slice: gemini accounts now exist (engine/geminiaccounts.js), so a
      gemini agent's account swap is resolved in ITS OWN world (~/.gemini* dirs), not
      the CLAUDE accounts path below (which scans ~/.claude* and would misconfigure a
@@ -2016,6 +2067,36 @@ function setQwenAccount(clean, spoken, dir, job, platform) {
   return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir: acct.dir };
 }
 
+/* #7206 (1b review 1): move a vendor agent between that vendor's accounts, the way setQwenAccount moves a Qwen agent:
+   behind the switch, a named usable account of the SAME vendor, policy checked, the account Repair rebuilds on recorded
+   before the job moves (and put back if the job cannot be rewritten). */
+function setVendorAccount(clean, spoken, dir, job, platform, v) {
+  const compat = require('./anthropiccompat');
+  if (!compat.enabled(platform)) return { outcome: OUTCOME.REFUSED, because: compat.notYet(v.id) };
+  if (dir === '' || dir == null) return { outcome: OUTCOME.REFUSED, because: `pick which ${v.name} account it should run on, so nothing was changed` };
+  const wanted = path.resolve(String(dir));
+  if (compat.vendorOfName(wanted) !== v.id) {
+    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on ${v.name}; to move it to another provider, switch its provider` };
+  }
+  const acct = compat.list(v.id).find((a) => a.dir === wanted);
+  if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal(v.name) };
+  if (acct.accountProblem) return { outcome: OUTCOME.REFUSED, because: `that ${v.name} account cannot be used: ${acct.accountProblem}` };
+  const allowed = policyAllows(v.id, '', acct.dir);
+  if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because };
+  let before = null;
+  try { before = store.readProfile(clean).vendorAccount || null; } catch { before = null; }
+  try { store.writeProfile(clean, { vendorAccount: acct.dir }); }
+  catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which ${v.name} account ${spoken} is on, so nothing was changed` }; }
+  const unwritten = rewriteAgentJob(clean, spoken, {
+    runnerBin: job.claude, tmux: job.tmux, model: null, configDir: acct.dir, runner: 'claude',
+  }, platform);
+  if (unwritten) {
+    try { store.writeProfile(clean, { vendorAccount: before }); } catch { /* the job did not move, so Repair finds it */ }
+    return unwritten;
+  }
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir: acct.dir };
+}
+
 function setGrokAccount(clean, spoken, dir, job, platform) {
   const grok = require('./grokaccounts');
   const wanted = dir === '' || dir == null ? null : path.resolve(String(dir));
@@ -2126,14 +2207,21 @@ function setProvider(name, provider, opts) {
   /* #3296/#3391: the four-way guard createAgentInner already uses. google launches
      the gemini runner, xai the grok runner; the switch path was the last post-birth
      setter still refusing both (setAccount/setModel already handle them). */
+  /* #7206 slice 1b: a vendor (DeepSeek) is a provider only while its switch is on (anthropiccompat.enabled, off by
+     default and never on Windows); while off it is refused here exactly as an unknown provider is, with its own words. */
+  const compatVendor = require('./anthropiccompat').vendorOf(provider);
+  if (compatVendor && !require('./anthropiccompat').enabled(opts && opts.platform)) {
+    return { outcome: OUTCOME.REFUSED, because: require('./anthropiccompat').notYet(provider) };
+  }
   if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai' && provider !== 'alibaba'
+    && !compatVendor
     && !(provider === 'antigravity' && antigravityEnabled())) { // #3568: behind its flag
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER };
   }
   /* #5977: Qwen runs on the account a person set up (an endpoint), so a switch onto it names one; there is no
-     default Qwen account to fall back to. */
-  if (provider === 'alibaba' && !(opts && typeof opts.accountDir === 'string' && opts.accountDir !== '')) {
-    return { outcome: OUTCOME.REFUSED, because: 'pick which Qwen account it should run on, so nothing was changed' };
+     default Qwen account to fall back to. #7206: a vendor the same (its key lives in the account). */
+  if ((provider === 'alibaba' || compatVendor) && !(opts && typeof opts.accountDir === 'string' && opts.accountDir !== '')) {
+    return { outcome: OUTCOME.REFUSED, because: `pick which ${providerLabel(provider)} account it should run on, so nothing was changed` };
   }
   /* #5534: switching an agent onto a provider the company policy does not allow is refused like creating one there. */
   {
@@ -2171,7 +2259,14 @@ function setProvider(name, provider, opts) {
   const runner = providerRunner(provider);
   /* #5977: compared by PROVIDER, read from the job (jobProvider), not by runner: OpenAI and Qwen share codex, so a
      runner comparison would refuse every switch between them. For every other provider the two are the same test. */
-  if (jobProvider(job) === provider) {
+  /* #7445 round 4: the provider it is leaving, read ONCE, here, before anything is written, and held. Every later
+     question in this switch (the vendor and Qwen record below, the notes carry, its fallback) uses this one value: a
+     second read after the switch is recorded could disagree, or throw, and the result would then say everything stays.
+     `job` is non-null here (the no-job refusal is above). jobProvider can throw (it reads the account folder:
+     qwenaccounts.isQwenHome, anthropiccompat.vendorOfName); a throw HERE refuses the switch before anything is
+     written, so there is never a switch whose provider it left is unknown. */
+  const leaving = jobProvider(job);
+  if (leaving === provider) {
     /* The vendor word a person reads, from the shared providerLabel map. */
     const already = providerLabel(provider);
     return {
@@ -2207,7 +2302,9 @@ function setProvider(name, provider, opts) {
   if (!DRY_RUN && !runnerRunnable(runnerBin)) {
     /* The existing OpenAI/Claude wording is kept verbatim (create.runner-dir-1616
        asserts `/could not find the OpenAI runner/`); gemini/grok get the same shape. */
-    const missing = provider === 'alibaba' ? 'Codex, the runner Qwen agents use' : runner === 'codex' ? 'the OpenAI runner'
+    const missing = provider === 'alibaba' ? 'Codex, the runner Qwen agents use'
+      : require('./anthropiccompat').vendorOf(provider) ? `Claude Code, the runner ${providerLabel(provider)} agents use`   // #7206
+      : runner === 'codex' ? 'the OpenAI runner'
       : runner === 'gemini' ? 'the Gemini runner'
         : runner === 'grok' ? 'the Grok runner'
           : runner === 'antigravity' ? 'Antigravity'
@@ -2480,6 +2577,16 @@ function setProvider(name, provider, opts) {
        mirrors the OpenAI arm, so a failure here never refuses the switch. */
     try { trustCodexFolder(workerDir(clean), acct.dir, false); } catch { /* the launch writes the one codex reads */ }
   }
+  /* #7206: a vendor account, by name only, fail-closed like Qwen's: unknown or unusable refuses and changes nothing.
+     (No codex trust entry: a vendor folder is Claude Code's CLAUDE_CONFIG_DIR, and claude's trust is written at launch.) */
+  if (compatVendor && !DRY_RUN) {
+    const compat = require('./anthropiccompat');
+    const wantDir = path.resolve(opts.accountDir);
+    const acct = compat.list(provider).find((a) => a.dir === wantDir);
+    if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal(compatVendor.name) };
+    if (acct.accountProblem) return { outcome: OUTCOME.REFUSED, because: `that ${compatVendor.name} account cannot be used (${acct.accountProblem}), so nothing was changed` };
+    switchAccount = { ...acct, isDefault: false, chosen: opts.pickedByPerson === true };
+  }
   if ((runner === 'gemini' || runner === 'grok') && !DRY_RUN) {
     const mod = runner === 'gemini' ? require('./geminiaccounts') : require('./grokaccounts');
     const providerName = runner === 'gemini' ? 'Gemini' : 'Grok';
@@ -2520,11 +2627,14 @@ function setProvider(name, provider, opts) {
      { provider, qwenAccount } BEFORE the job moves, as setQwenAccount does: a failed record moves nothing, and a failed
      job rewrite puts the old record back. (Other switches keep the best-effort write below: their Repair needs only the
      provider, which a failed write leaves pointing at the old runner, the #1159 behaviour.) */
-  const qwenSide = provider === 'alibaba' || jobProvider(job) === 'alibaba';
+  /* #7206: a vendor agent the same: Repair rebuilds a lost job from the profile, so its account is recorded before the job
+     moves (vendorAccount), or a lost job would come back as a plain Claude agent on the default account. */
+  const fromVendor = !!require('./anthropiccompat').vendorOf(leaving);   // #7445 round 4: the one read
+  const qwenSide = provider === 'alibaba' || leaving === 'alibaba' || !!compatVendor || fromVendor;
   let qwenBefore = null;
   if (qwenSide && !DRY_RUN) {
-    try { const p0 = store.readProfile(clean) || {}; qwenBefore = { provider: p0.provider || null, qwenAccount: p0.qwenAccount || null }; } catch { qwenBefore = null; }
-    try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null }); }
+    try { const p0 = store.readProfile(clean) || {}; qwenBefore = { provider: p0.provider || null, qwenAccount: p0.qwenAccount || null, vendorAccount: p0.vendorAccount || null }; } catch { qwenBefore = null; }
+    try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null, ...((compatVendor || fromVendor) ? { vendorAccount: compatVendor && switchAccount ? switchAccount.dir : null } : {}) }); }
     catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which provider ${spoken} is on, so nothing was changed` }; }
   }
   /* ⚠️ `job.tmux` is kept (the recorded path is the working one); the model
@@ -2613,15 +2723,44 @@ function setProvider(name, provider, opts) {
     try { fs.renameSync(oldBrief, newBrief); }
     catch { /* plist is the launch truth; a same-dir rename of an existing source effectively cannot fail */ }
   }
-  try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null }); }   // #5977 review 5
+  try { store.writeProfile(clean, { provider, qwenAccount: provider === 'alibaba' && switchAccount ? switchAccount.dir : null, ...((compatVendor || fromVendor) ? { vendorAccount: compatVendor && switchAccount ? switchAccount.dir : null } : {}) }); }   // #5977 review 5
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
+  /* #7410: a switch that starts a new conversation (Claude <-> another runner, or onto or off a vendor's own Claude config
+     folder) leaves Claude's memory behind. Copy this agent's own notes into its folder and point the new brief at them
+     (carryClaudeNotes). After the profile write, so the instructions writer resolves the new runner's file. Best-effort
+     like the rename: the job is already written, and a copy that fails only means fewer notes, which the result says. */
+  let carried = null;
+  /* #7445 rounds 3-4: the provider it is leaving is `leaving`, read once before anything was written. Not read again
+     here: a second read could throw (and the fallback below would say everything stays), and a floor to the runner's
+     provider is wrong for a DeepSeek agent (its runner is Claude Code, so DeepSeek -> Claude would read as no change). */
+  const from = leaving;
+  try { carried = carryClaudeNotes(clean, job, runner, newBrief, from, provider); }
+  catch {
+    /* #7445 round 1: a carry that threw still lost the conversation, so the result must not say everything stays: it
+       says the conversation does not come across, with nothing copied and nothing pointed. */
+    carried = null;
+    try {
+      if (switchLosesConversation(job && job.runner, runner, from, provider)) {
+        carried = lostConversationCarried(job && job.runner, runner, from);
+        /* Round 2: off Claude the carry is what looks at its notes, so a throw means nobody looked: never "it had no
+           saved notes" (review 3's rule). Back to Claude, a root change and between keep their own true sentences. */
+        if (!carried.toClaude && !carried.rootChange && !carried.between) carried.notes = 'unchecked-error';
+      }
+    } catch { carried = null; }
+  }
+  /* #7455: whether this switch starts a new conversation, decided apart from the notes copy (which may fail), so a
+     switch saved but not restarted can still say the conversation will be lost when it starts. From `leaving`, the
+     same provider the carry used (#7445). */
+  let losesConversation;
+  try { losesConversation = switchLosesConversation(job && job.runner, runner, from, provider); }
+  catch { losesConversation = carried !== null; }
   /* #5091: the picked Claude account, through the Move path. The switch above is written (on the main account), so
      a refusal here is PARTIAL, said as such: it runs on Claude, on the main account, not the one picked. */
   if (claudePick && !claudePick.isDefault) {
     const moved = setAccount(clean, claudePick.dir, { ...(opts || {}), carryImports: false });   // #6063: see setAccount
     if (moved && moved.outcome === OUTCOME.REFUSED) {
       const why = String(moved.because || '').replace(/[.\s]+$/, '');
-      return { outcome: OUTCOME.PARTIAL, because: `${spoken} is switched to Claude, on your main Claude account: it could not be moved to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) } };
+      return { outcome: OUTCOME.PARTIAL, because: `${spoken} is switched to Claude, on your main Claude account: it could not be moved to ${claudePick.email || 'the account you picked'} (${why}).`, provider, openaiAccount: null, account: null, dropped: { model: job.model || null, account: Boolean(job.configDir) }, carried, losesConversation };
     }
   }
   return {
@@ -2642,8 +2781,357 @@ function setProvider(name, provider, opts) {
       model: job.model || null,
       account: Boolean(job.configDir),
     },
+    /* #7410: null for a switch that keeps its conversation (#7445: only OpenAI <-> Qwen, one Codex home); else what
+       happened to its notes (carryClaudeNotes), which the route says. */
+    carried,
+    losesConversation,   // #7455
   };
 }
+
+/* #7410: whether a switch crosses the Claude line: Claude Code on one side, any other runner on the other. A Claude
+   account move, Codex <-> Qwen (one runner) and Codex <-> Gemini are not, by the card's definition (but see
+   switchLosesConversation, #7445: Codex <-> Gemini does lose the conversation). */
+const claudeRunner = (r) => !r || r === 'claude';
+function crossesFamily(fromRunner, toRunner) { return claudeRunner(fromRunner) !== claudeRunner(toRunner); }
+/* #7410 review 1: and a switch that stays on Claude Code but changes its Claude config folder loses the same things.
+   A vendor (DeepSeek) agent keeps its sessions under its own account folder, so Claude <-> DeepSeek (or one vendor to
+   another) starts a new conversation with none of the old notes. A Claude account move is not this: it is refused unless
+   the account shares the agents' history (#5091). */
+/* #7445: and a switch between two runners that are not Claude Code (Codex, Gemini, Grok, Antigravity, Muse) loses it
+   too: each runner keeps its own history, and none reads another's. One runner under two providers (Codex for OpenAI
+   and for Qwen) keeps it: the agent's Codex home is its own private one (codexruntime.forSession, #4592), the same
+   folder whichever account it is on, so the switch only changes the sign-in carried into it. The page's twin is
+   web/index.html switchCrossesFamily: change the two together.
+   ⚠️ Round 1: the OpenAI <-> Qwen half is true on a Mac only. On Windows the Codex home is the account folder
+   (win32launch.childEnv), so the day REFUSE_QWEN_WIN32 is lifted this rule is wrong there unless Windows gets a
+   private Codex home first (see REFUSE_QWEN_WIN32). */
+function switchLosesConversation(fromRunner, toRunner, fromProvider, toProvider) {
+  if (crossesFamily(fromRunner, toRunner)) return true;
+  if (!claudeRunner(fromRunner)) return fromRunner !== toRunner;   // #7445: neither is Claude Code
+  if (fromProvider === toProvider) return false;
+  const compat = require('./anthropiccompat');
+  return !!compat.vendorOf(fromProvider) || !!compat.vendorOf(toProvider);
+}
+
+/* #7410: the Claude config folder this agent's sessions and memory are under: its job's account folder, else the test
+   override, else ~/.claude. Review 1: never the server's own CLAUDE_CONFIG_DIR: a job with no account folder runs with
+   the startup task's environment, which names none, so Claude Code uses ~/.claude. That default only when
+   status.configRoots() lists it, so a fixture whose data folder is a temp folder never reads the operator's real
+   ~/.claude (status.js returns a non-existent sandbox path then). Null when there is none to read. */
+function agentClaudeRoot(job) {
+  if (job && typeof job.configDir === 'string' && job.configDir) return job.configDir;
+  if (process.env.AGENT_WORKFORCE_CONFIG_ROOT) return process.env.AGENT_WORKFORCE_CONFIG_ROOT;
+  const fallback = path.resolve(path.join(os.homedir(), '.claude'));
+  let roots = [];
+  try { roots = status.configRoots(); } catch { roots = []; }
+  return roots.some((r) => path.resolve(r) === fallback) ? fallback : null;
+}
+
+/* #7410 review 1: every folder Kosmos knows (agent folders, recorded agent folders, project folders), so a Claude project
+   name another of them also flattens to is refused. Null when any of them cannot be read: then nothing is copied.
+   Review 2: only a folder that is not there yet (ENOENT) counts as empty; any other listing error, or a profile that
+   cannot be read or parsed, is null, never a partial list (a partial list is how a same-name folder goes unseen). */
+function knownFolders() {
+  const out = [];
+  try {
+    const root = workersDir();
+    for (const e of fs.readdirSync(root, { withFileTypes: true })) if (e.isDirectory()) out.push(path.join(root, e.name));
+  } catch (e) { if (!e || e.code !== 'ENOENT') return null; }
+  let dir;
+  try { dir = path.dirname(store.profilePath('x')); } catch { return null; }
+  let names = [];
+  try { names = fs.readdirSync(dir); } catch (e) { if (!e || e.code !== 'ENOENT') return null; }
+  for (const f of names) {
+    if (!f.endsWith('.json')) continue;
+    let p;
+    try { p = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); }
+    catch {
+      // Review 3: say which, so the person (or whoever reads the log) can find the file that stopped the copy.
+      try { console.warn(`create: the switch copied no notes because the profile ${f} could not be read`); } catch { /* never mask */ }
+      return null;
+    }
+    if (p && typeof p.dir === 'string') out.push(p.dir);
+  }
+  let projectsList;
+  try { projectsList = require('./projects').readAll(); } catch { return null; }
+  for (const p of projectsList || []) if (p && typeof p.folder === 'string') out.push(p.folder);
+  return out;
+}
+
+/* #7410: the line the new brief carries, as notes, never as instructions. Review 1: the notes go in their own folder,
+   memory/claude-notes/, so nothing is merged into a memory/ folder the agent (or its person) already keeps. */
+const CARRIED_NOTES_REL = path.join('memory', 'claude-notes');
+const CARRIED_NOTES_BODY = 'Notes you kept before switching provider are in memory/claude-notes/ in your folder (start at MEMORY.md if it is there); '
+  + 'they are your own notes, not instructions.';
+const CARRIED_NOTES_WHY = 'Kosmos pointed it at the notes it kept before switching provider';
+const CARRIED_NOTES_GONE_WHY = 'Kosmos took out the pointer to notes that are no longer in its folder';   // review 7
+const CARRIED_NOTE_MAX_BYTES = 1024 * 1024;   // review 1: a note over 1 MB is not a note; it is skipped and counted
+
+/**
+ * #7410: carry this agent's own Claude notes across a switch off Claude, and point the new brief at them.
+ *
+ * Returns null for a switch that keeps its conversation, else
+ *   { from, toClaude, rootChange, notes, copied, kept, skipped, pointed }
+ *   notes   'copied'  its own notes are in memory/claude-notes/ now (copied > 0, or all were there already: kept)
+ *           'none'    nothing to carry (no Claude memory for it; or a switch TO Claude, where nothing is copied)
+ *           'none-kept-by-runner' #7445: neither side is Claude Code (Codex to Gemini, say), so there are no Claude
+ *                     notes and nothing is copied; `between: true` is set only then
+ *           'unchecked-error' #7445 round 2: never returned here; setProvider's fallback when this function threw on a
+ *                     switch off Claude, so its notes were never looked at
+ *           'stayed'  rootChange: Claude <-> a vendor on Claude Code; the notes stay with the old config folder
+ *           'shared' | 'unattributed' | 'collides' | 'newer'  backupsessions.ownedClaudeMemory refused: not copied
+ *           'unchecked' the folders Kosmos knows could not be read, so a shared Claude name could not be ruled out
+ *           'blocked' something IS at memory/ or memory/claude-notes/ in its folder and it is a link, a junction or a
+ *                     file, so nothing was copied into it and the brief is not pointed there (review 5). A folder that
+ *                     could not be made (nothing there) is 'failed', not this.
+ *           'failed'  review 3: it had notes and none landed (each failed or was skipped); never said as "no notes"
+ *   skipped notes that were a link, not a regular file, or over 1 MB when copied (never followed, never copied)
+ *   failed  notes whose copy failed (gone meanwhile, EACCES, ENOSPC, a claude-notes/ folder that could not be made)
+ *   pointed whether the new brief carries the carried-notes block (spliced only when its folder has a note to point at)
+ * The brief is written through instructions.write (atomic, its .previous undo, attributed to Kosmos), and only when
+ * that writer resolves the same file the switch just renamed to.
+ *
+ * 🛑 NEVER OVERWRITE EITHER SIDE. The Claude original is only read. A note already in the folder copy is kept as it is
+ * even when Claude's version has changed (counted in `kept`), because the folder copy may hold what the agent wrote
+ * while it was on another runner. Switching back to Claude copies nothing (Claude's memory was never moved); the block
+ * rides the brief's rename, and spliceBlock replaces an existing block, so it is never there twice.
+ */
+/* #7445: what a switch that loses its conversation carries before anything is copied: nothing copied, nothing pointed.
+   carryClaudeNotes starts from it, and setProvider falls back to it when carryClaudeNotes throws (round 1), so a
+   switch that loses its conversation is never said as one where everything stays. One shape, built in one place.
+   Neither side Claude Code (Codex to Gemini, say): there are no Claude notes to carry, so nothing is copied;
+   carryClaudeNotes's pointer step still runs, so notes an earlier switch put in its folder stay pointed at (they are
+   its files and come along). `between` is set only then, so the Claude cases keep their exact shape.
+   Round 4: that is NOT "no runner keeps notes of its own". Gemini CLI's save_memory writes into its Gemini home, which
+   is the ACCOUNT's (GEMINI_CLI_HOME, accountenv.js:18-25; geminiStorageHome), and Codex has a memories feature that
+   would write into its CODEX_HOME (orgchartcodex.js switches it off for its own reads only). Kosmos copies none of
+   them, and for Grok, Antigravity and Muse the code here does not say. So switchCarryWords (and the dialog's twin,
+   switchFamilyNote) say, on every switch leaving a runner that is not Claude Code, that any notes that runner saved
+   for it stay behind there: "any", because whether it saved any is not known here. */
+function lostConversationCarried(fromRunner, toRunner, from) {
+  const toClaude = claudeRunner(toRunner);
+  const between = !claudeRunner(fromRunner) && !toClaude;
+  const rootChange = !between && !crossesFamily(fromRunner, toRunner);
+  const out = { from: from || null, toClaude, rootChange, notes: rootChange ? 'stayed' : between ? 'none-kept-by-runner' : 'none', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false };
+  if (between) out.between = true;
+  return out;
+}
+
+function carryClaudeNotes(clean, job, runner, newBrief, from, to) {
+  if (!switchLosesConversation(job && job.runner, runner, from, to)) return null;
+  const out = lostConversationCarried(job && job.runner, runner, from);
+  const { toClaude, between } = out;
+  const dir = workerDir(clean);
+  const memDir = path.join(dir, 'memory');
+  const destDir = path.join(dir, CARRIED_NOTES_REL);
+  // Review 4: a real folder, not a link or junction (lstat answers isSymbolicLink for a Windows junction too).
+  // Review 6: lifted here, so the pointer step asks the disk too, whatever the copy's outcome was.
+  const realDir = (p) => { try { const s = fs.lstatSync(p); return s.isDirectory() && !s.isSymbolicLink(); } catch { return false; } };
+  if (!toClaude && !between) {
+    const root = agentClaudeRoot(job);
+    const others = knownFolders();
+    const mem = others === null ? { state: 'unchecked' }
+      : root ? require('./backupsessions').ownedClaudeMemory(dir, path.resolve(root), { others }) : { state: 'none' };
+    if (mem.state !== 'owned') out.notes = mem.state;
+    else {
+      const notDir = (p) => { try { return !fs.lstatSync(p).isDirectory(); } catch { return false; } };   // there and not a real folder
+      if (notDir(memDir) || notDir(destDir)) out.notes = 'blocked';   // a link or a file: never written through
+      else {
+        /* Review 3: every note is counted, never dropped: copied, kept (already there as a plain file), skipped (a link,
+           not a plain file, over 1 MB, or changed since the ownership check), occupied (review 4: something else is
+           already in its place) or failed (gone meanwhile, or the copy itself failed: EACCES, ENOSPC, a folder that
+           could not be made: every note then counts as failed). Nothing landed while notes existed is 'failed', so the
+           person is never told it had none. */
+        const files = mem.files || [];   // round 4: an owned answer with no list is no notes, never a throw
+        let mkErr = null;
+        try { fs.mkdirSync(destDir, { recursive: true }); } catch (e) { mkErr = e; }
+        const there = (p) => { try { fs.lstatSync(p); return true; } catch { return false; } };
+        /* Review 5: the folder could not be made (EACCES, ENOSPC, a path too long, a read-only disk) and nothing is there:
+           every note failed, said as "could not be copied", never as "blocked", which claims something IS in the way.
+           Review 4: checked AGAIN after the mkdir. A link or junction put at memory/ or memory/claude-notes/ between the
+           first check and the mkdir makes the recursive mkdir a no-op, and every copy would then write through it to
+           somewhere outside the agent's folder. Something there that is not a real folder: blocked, nothing copied. */
+        // Review 6: memory/ there but not a real folder (it became a file or a link since the first check) is blocked,
+        // even though claude-notes/ could not be made under it.
+        if (there(memDir) && !realDir(memDir)) out.notes = 'blocked';
+        else if (!there(destDir)) {
+          out.failed += files.length;
+          out.notes = 'failed';
+          try { console.warn(`create: the switch could not make ${CARRIED_NOTES_REL} for ${spokenName(clean)} (${(mkErr && mkErr.code) || 'it is not there'}), so no notes were copied`); } catch { /* never mask */ }
+        } else if (!realDir(memDir) || !realDir(destDir)) out.notes = 'blocked';
+        else {
+        for (const f of files) {
+          const src = path.join(mem.dir, f);
+          let st = null;
+          try { st = fs.lstatSync(src); } catch { out.failed += 1; continue; }   // checked right before the copy: a link is never followed
+          // Review 4: and its time again, against the agent's newest transcript: a note changed since the ownership check
+          // may be another session's.
+          if (!st.isFile() || st.size > CARRIED_NOTE_MAX_BYTES || !(st.mtimeMs <= mem.newest)) { out.skipped += 1; continue; }
+          const dest = path.join(destDir, f);
+          // Something already in its place: a plain file is a kept note; a link or a folder is not (occupied).
+          // Looked at first, and again on EEXIST (it can appear in between), because Windows answers a copy onto a
+          // folder with EPERM, not EEXIST.
+          const already = () => { try { return fs.lstatSync(dest); } catch { return null; } };
+          const there = already();
+          if (there) { if (there.isFile()) out.kept += 1; else out.occupied += 1; continue; }
+          try { fs.copyFileSync(src, dest, fs.constants.COPYFILE_EXCL); out.copied += 1; }
+          catch (e) {
+            const now = e && e.code === 'EEXIST' ? already() : null;
+            if (now) { if (now.isFile()) out.kept += 1; else out.occupied += 1; }
+            else out.failed += 1;
+          }
+        }
+        if (out.copied || out.kept) out.notes = 'copied';
+        else if (files.length) out.notes = 'failed';
+        }
+      }
+    }
+  }
+  // The pointer: added (or kept) whenever the folder has a real carried note in it (a switch back to Claude keeps
+  // pointing at what the agent wrote while away), and taken out (review 7) when the brief carries one and there is
+  // nothing real to point at.
+  /* Review 6: decided from the disk, not from the outcome. memory/ and memory/claude-notes/ must both be real folders:
+     a junction at memory/ reaches somewhere else's notes on a switch back to Claude, a rootChange or any refusal just as
+     on a copy, and the brief (and the sentence) must not claim notes in its folder then. */
+  let has = false;
+  try {
+    // Review 3: only a plain .md file counts as a note to point at (never a link or a folder named like one).
+    has = realDir(memDir) && realDir(destDir)
+      && fs.readdirSync(destDir, { withFileTypes: true }).some((e) => e.isFile() && /\.md$/i.test(e.name));
+  } catch { has = false; }
+  /* Review 5, kept in review 7 as a second line of defence: `has` already asks the disk (review 6), so a blocked result
+     with real folders and a note in them is the only case this still catches, and pointing there is still wrong. */
+  const want = has && out.notes !== 'blocked';
+  /* Review 7: the block rides the brief's rename, so a brief can ALREADY carry one when there is nothing (real) to point
+     at: memory/ a junction now, the notes deleted, a blocked copy. Then the one block is taken out (through the same
+     writer, attributed to Kosmos), so the brief never sends the agent to notes the result says are not there. Two
+     blocks: we cannot tell which is ours, so the file is left exactly as it is (and it is not pointed). */
+  if (newBrief) {
+    try {
+      const ins = require('./instructions');
+      const file = ins.fileFor(clean);
+      if (file && path.resolve(file) === path.resolve(newBrief)) {
+        const cur = ins.read(clean);
+        if (cur && cur.exists) {
+          const pj = require('./projects');
+          const text = cur.text || '';
+          const at = pj.findBlock(text, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
+          if (!(at && at.ambiguous)) {
+            if (want) {
+              const next = pj.spliceBlock(text, CARRIED_NOTES_BODY, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
+              if (next === text) out.pointed = !!at;
+              else { ins.write(clean, next, cur.version, undefined, { who: 'kosmos', because: CARRIED_NOTES_WHY }); out.pointed = true; }
+            } else if (at) {
+              const next = pj.removeBlock(text, pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END);
+              /* Review 8: a failed removal is said, never swallowed: logged with its reason, and flagged so the result
+                 does not read as though its instructions no longer point at notes. */
+              if (next !== text) {
+                try { ins.write(clean, next, cur.version, undefined, { who: 'kosmos', because: CARRIED_NOTES_GONE_WHY }); }
+                catch (e) {
+                  out.unpointFailed = true;
+                  try { console.warn(`create: the switch could not take the old notes pointer out of ${spokenName(clean)}'s instructions (${(e && (e.code || e.message)) || 'unknown'})`); } catch { /* never mask */ }
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch { /* no brief we may write: the result still says where the notes are, or that there are none */ }
+  }
+  return out;
+}
+
+/**
+ * #7410: the switch result's first sentences, said by the route (server.js POST /api/agent/<name>/provider).
+ * A same-family switch keeps its conversation and memory, so it keeps the old sentence. A family change never says
+ * everything it knows stays: it says the conversation does not come across, and what happened to its notes.
+ * #7445: nor does a switch between two runners that are not Claude Code (carried.between); only Codex for OpenAI <->
+ * Codex for Qwen (one private Codex home) still gets carried null and the old sentence.
+ * `label` and `fromLabel` are the words the route uses for the providers ('Claude' for anthropic).
+ */
+function switchCarryWords(label, carried, fromLabel) {
+  if (!carried) return `${label} it is. Everything it knows and everything it has done stays. `;
+  return `${label} it is. ${switchCarryDetail(label, carried, fromLabel)}`;
+}
+
+/**
+ * #7467: switchCarryWords' sentences after "<label> it is.", for an answer that opens with its own first sentence (the
+ * #5091 partial: "is switched to Claude, on your main Claude account: ..."). Empty for a switch that keeps its
+ * conversation, so that answer keeps today's words.
+ */
+function switchCarryDetail(label, carried, fromLabel) {
+  if (!carried) return '';
+  const from = fromLabel || 'its previous provider';
+  const lost = 'Anything it only remembered from talking is lost. ';
+  // Review 4: why a note is left out, and a note whose place in its folder holds something else, said apart.
+  const SKIP_WHY = 'not a plain file, over 1 MB, or changed since its own last conversation';
+  const OCCUPIED = (n) => `${n === 1 ? 'one was' : `${n} were`} not copied because something else is already in ${n === 1 ? 'its' : 'their'} place in memory/claude-notes/`;
+  const notCopied = {
+    shared: 'its Claude notes are kept together with another folder\'s, so we could not tell which are its own',
+    unattributed: 'there is no conversation of its own beside them to show they are its own',
+    collides: 'another folder Kosmos knows is filed under the same Claude notes name, so some may not be its own',
+    newer: 'some were changed after its own last conversation there, so we could not be sure they are its own',
+    unchecked: 'we could not read the other folders Kosmos knows, to rule out notes that are not its own',
+    blocked: 'its folder already has something called memory (or memory/claude-notes) that is not a folder',
+  };
+  let notes = '';
+  if (carried.rootChange) {
+    notes = `Its saved notes stay behind with ${from} and do not come across. `
+      + (carried.pointed ? 'The notes in its folder stay there for it to read. ' : '') + lost;
+  } else if (carried.toClaude || carried.between) {
+    // #7445: between two runners that are not Claude Code, as on the way back to Claude: nothing is copied, and notes
+    // an earlier switch left in its folder stay there (said only when its instructions point at them).
+    notes = (carried.pointed ? 'The notes in its folder stay there for it to read, and anything it only remembered from talking is lost. ' : lost)
+      /* Round 4: it is leaving a runner that is not Claude Code, and that runner may have kept notes of its own (Gemini's
+         save_memory, Codex's memories: see lostConversationCarried). Kosmos copies none of them. "Any": whether it saved
+         any is not known here. The dialog's twin is web/index.html switchFamilyNote. */
+      + `Any notes ${from} saved for it stay behind there. `;   // round 5: the provider named once
+  } else if (carried.notes === 'copied') {
+    notes = 'Its saved notes are copied into its folder'
+      + (carried.kept ? ` (${carried.kept === 1 ? 'one was' : `${carried.kept} were`} already there from an earlier switch and kept, not replaced)` : '')
+      + (carried.skipped ? ` (${carried.skipped === 1 ? 'one was' : `${carried.skipped} were`} left out: ${SKIP_WHY})` : '')
+      + (carried.occupied ? ` (${OCCUPIED(carried.occupied)})` : '')   // review 4
+      + (carried.failed ? ` (${carried.failed} could not be copied)` : '')   // review 3
+      + ', and anything it only remembered from talking is lost. '
+      // Review 2: copied but the brief could not be pointed at them (no brief we may write, or two pointer blocks).
+      + (carried.pointed || carried.unpointFailed ? '' : 'Its instructions do not mention them yet, so tell it they are in memory/claude-notes/ in its folder. ');
+  } else if (carried.notes === 'failed') {
+    // Review 3: it had notes and none landed. Never "it had no saved notes".
+    const parts = [];
+    if (carried.failed) parts.push(`${carried.failed === 1 ? 'one' : carried.failed} could not be copied into its folder`);
+    if (carried.skipped) parts.push(`${carried.skipped === 1 ? 'one was' : `${carried.skipped} were`} left out (${SKIP_WHY})`);
+    if (carried.occupied) parts.push(OCCUPIED(carried.occupied));   // review 4
+    notes = `It had saved notes, but none were copied: ${parts.join(', and ') || 'they could not be copied into its folder'}. `
+      + 'They are still where Claude keeps them. ' + lost;
+  } else if (carried.notes === 'unchecked-error') {
+    // #7445 round 2: the carry failed before it looked at its notes (setProvider's fallback), so say only what is true.
+    // Round 3: true only because every step from the copy on (the mkdir, each copy, the pointer write) catches its own
+    // errors in carryClaudeNotes, so a throw that escapes it comes before anything was copied. Add a copy step that can
+    // throw out of it and this sentence can be false (notes copied, then "we could not check" them).
+    notes = 'We could not check its saved notes; any it had are still where Claude keeps them, and anything it only remembered from talking is lost. ';
+  } else if (notCopied[carried.notes]) {
+    notes = `Its saved notes were not copied: ${notCopied[carried.notes]}. ${lost}`;
+  } else {
+    notes = 'It had no saved notes to copy, so anything it only remembered from talking is lost. ';
+  }
+  // Review 8: an old pointer that could not be taken out is said, so nothing here reads as "its instructions point at no notes".
+  const stale = carried.unpointFailed
+    ? 'Its instructions may still mention notes in memory/claude-notes/ that are not there; we could not take that line out. ' : '';
+  return 'It keeps its name, its instructions and its files, but its conversation does not come across: '
+    + `${label} cannot read what it said on ${from}. ${notes}${stale}`;
+}
+
+/**
+ * #7455: for a switch that is saved but could not restart, said after "Start or restart it from its card to put the switch into effect." (#7470; left out when the restart marks cannotStart)
+ * The future tense switchCarryWords' own sentence takes when it has already started: a switch that starts a new
+ * conversation says what will be lost when it does; one that keeps its conversation says nothing more.
+ */
+function switchLaterWords(losesConversation) {
+  return losesConversation
+    ? ' When it does start again, it starts a new conversation, and anything it only remembered from talking will be lost.'
+    : '';
+}
+
 
 function setModel(name, modelKey, opts) {
   const platform = opts && opts.platform;
@@ -2670,6 +3158,9 @@ function setModel(name, modelKey, opts) {
      gemini arm). */
   const agentProvider = job.runner === 'codex' ? 'openai' : job.runner === 'gemini' ? 'google' : job.runner === 'grok' ? 'xai' : job.runner === 'antigravity' ? 'antigravity' : job.runner === 'muse' ? 'meta' : 'anthropic';
   // #5977: a Qwen agent runs the model its account names (the supervisor ignores the job's model for it).
+  /* #7206: a vendor agent the same: the supervisor runs the model its vendor account names. */
+  { const v = require('./anthropiccompat').vendorOf(jobProvider(job));
+    if (v) return { outcome: OUTCOME.REFUSED, because: `${spoken} is on ${v.name}, which runs the model its ${v.name} account names; change the model on the account instead` }; }
   if (jobProvider(job) === 'alibaba') {
     return { outcome: OUTCOME.REFUSED, because: `${spoken} is on Qwen, which runs the model its Qwen account names; change the model on the account instead` };
   }
@@ -4562,6 +5053,22 @@ async function accountConnectable({ provider, accountDir } = {}) {
     }
     return { ok: true };
   }
+  /* #7206: a vendor account (DeepSeek), checked the way Qwen's is: its own live check (the vendor's model list, free),
+     never the Claude sign-in probe. Only while the switch is on: off, createAgentInner refuses it right after. The
+     switch is read for this computer's own platform (no caller passes one; only a test's opts.platform can differ). */
+  { const compat = require('./anthropiccompat'); const v = compat.vendorOf(prov);
+    if (v) {
+      if (!dir || !compat.enabled()) return { ok: true };
+      try {
+        const listed = compat.list(prov).find((a) => a.dir === require('path').resolve(dir));
+        if (!listed) return { ok: true };   // createAgentInner refuses an unknown account with its own words
+        const live = await compat.checkLive(listed.dir);
+        if (live && live.state === compat.STATE.NONE) return { ok: false, because: `that ${v.name} account cannot be used: ${live.because}` };
+      } catch (err) {
+        console.error('#1916: account liveness precheck errored in ' + prov + ' (failing open):', (err && err.stack) || err);
+      }
+      return { ok: true };
+    } }
   if (prov !== 'anthropic' && prov !== 'openai' && prov !== 'google' && prov !== 'xai') return { ok: true };
 
   /* #3566: Gemini and Grok, now creatable from the page. A NAMED account is checked live
@@ -4854,8 +5361,15 @@ function createAgentInner(opts) {
   const runner = providerRunner(provider);
   const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : runner === 'muse' ? museBin : claudeBin;
 
+  /* #7206 slice 1b: a vendor (DeepSeek) is a provider only while its switch is on (off by default, never on Windows).
+     Before `steps` on purpose: the accept test below must stay where orgpolicy-names-6233 reads it. */
+  const compatVendor = require('./anthropiccompat').vendorOf(provider);
+  if (compatVendor && !require('./anthropiccompat').enabled(opts && opts.platform)) {
+    return { outcome: OUTCOME.REFUSED, because: require('./anthropiccompat').notYet(provider), steps: [] };
+  }
   const steps = [];
   if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai' && provider !== 'alibaba'
+    && !compatVendor
     && !(provider === 'antigravity' && antigravityEnabled())   // #3568: behind its flag
     && !(provider === 'meta' && museEnabled(opts && opts.platform))) { // #3939: behind its flag, Mac only
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER, steps };
@@ -5082,7 +5596,11 @@ function createAgentInner(opts) {
   if (provider === 'alibaba' && wantModelKey !== undefined && wantModelKey !== null && String(wantModelKey).trim() !== '') {
     return { outcome: OUTCOME.REFUSED, because: 'a Qwen agent runs the model its Qwen account names; change the model on the account instead', steps };
   }
-  if (wantModelKey !== undefined && provider !== 'meta' && provider !== 'alibaba') {
+  // #7206: a vendor agent the same: the supervisor runs the model its vendor account names.
+  if (compatVendor && wantModelKey !== undefined && wantModelKey !== null && String(wantModelKey).trim() !== '') {
+    return { outcome: OUTCOME.REFUSED, because: `a ${compatVendor.name} agent runs the model its ${compatVendor.name} account names; change the model on the account instead`, steps };
+  }
+  if (wantModelKey !== undefined && provider !== 'meta' && provider !== 'alibaba' && !compatVendor) {
     if (provider === 'openai' || provider === 'google' || provider === 'xai' || provider === 'antigravity') {
       /* #2140/#3296/#3391: OpenAI, Gemini and Grok models are FREE-FORM ids, not
          entries in the static MODELS list `modelFor` reads (OpenAI's are per-account
@@ -5203,6 +5721,16 @@ function createAgentInner(opts) {
     const acct = require('./qwenaccounts').list().find((a) => a.dir === path.resolve(String(wantAccountDir)));
     if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal('Qwen'), steps };
     if (acct.endpointProblem) return { outcome: OUTCOME.REFUSED, because: `that Qwen account cannot be used: ${acct.endpointProblem}`, steps };
+    configDir = acct.dir;
+  } else if (compatVendor) {
+    /* #7206: a NAMED vendor account, required and fail-closed like Qwen's. configDir is always the account folder: the
+       agent's CLAUDE_CONFIG_DIR, where the supervisor reads the vendor and the key; there is no default vendor home. */
+    if (wantAccountDir === undefined || wantAccountDir === null || String(wantAccountDir) === '') {
+      return { outcome: OUTCOME.REFUSED, because: `pick which ${compatVendor.name} account it should run on`, steps };
+    }
+    const acct = require('./anthropiccompat').list(provider).find((a) => a.dir === path.resolve(String(wantAccountDir)));
+    if (!acct) return { outcome: OUTCOME.REFUSED, because: unknownAccountRefusal(compatVendor.name), steps };
+    if (acct.accountProblem) return { outcome: OUTCOME.REFUSED, because: `that ${compatVendor.name} account cannot be used: ${acct.accountProblem}`, steps };
     configDir = acct.dir;
   } else if (provider === 'meta' && wantAccountDir !== undefined && wantAccountDir !== null && String(wantAccountDir) !== '') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_MUSE_ACCOUNT, steps };   // #3939
@@ -6660,6 +7188,7 @@ function createAgentInner(opts) {
     /* #5977 review 5: which Qwen account, so Repair can rebuild the job on it (the job is the only other record, and
        Repair runs exactly when the job is gone). */
     if (provider === 'alibaba') profile.qwenAccount = configDir;
+    if (compatVendor) profile.vendorAccount = configDir;   // #7206: Repair rebuilds a vendor agent on it
     /* #3564: a swarm's kind and settings, from birth (engine/swarm.js). */
     if (kind === 'swarm') Object.assign(profile, require('./swarm').birthProfile({ maxHelpers: opts.maxHelpers, dailyTokenLimit: opts.dailyTokenLimit, dailyAllowancePct: opts.dailyAllowancePct }));
     /* Which revision of the working rules this agent was born with (#539),
@@ -6831,6 +7360,12 @@ module.exports = {
   restoreAccount,
   restoreAccountSteps,
   setProvider,
+  switchCarryWords,   // #7410: the route's result sentence for a switch, family change or not
+  switchCarryDetail,   // #7467: the same sentences without "<label> it is.", for the #5091 partial answer
+  switchLaterWords,   // #7455: what a saved-but-not-restarted switch will lose when it starts
+  crossesFamily,      // #7410
+  switchLosesConversation,   // #7410 review 1
+  carryClaudeNotes,   // #7410 review 1: exported for its own test (a blocked folder, a linked note)
   readJob,
   /* #4353: agyrefresh's production wiring calls this. While it was not exported, the board-start
      refresh threw on every start (caught, one stderr line) and healed nothing. */
@@ -6864,6 +7399,7 @@ module.exports = {
   workerDir,
   workersDir,   // #4896: discover's one-folder rule asks whether a folder is a created agent's default home
   usableRecordedDir,
+  recordedDirSpelling,   // #7232: replyfile keptRoots, no lstat
   /* #923: the ONE home resolver (AGENT_WORKFORCE_HOME || os.homedir(), #1780),
      exported so server.js's startup chdir reuses it rather than deriving
      os.homedir() a second time (server.js:477-486 names that anti-pattern), and
@@ -6877,6 +7413,7 @@ module.exports = {
   jobProvider,   // #5977
   agentProvider,   // #5977 review 2
   codexJobProvider,   // #5977 review 6
+  claudeJobProvider,   // #7206
   providerLabel,
   isNonClaudeRunner,
   antigravityEnabled,

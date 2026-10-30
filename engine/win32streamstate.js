@@ -27,8 +27,15 @@
  * account on its extra usage, sent `rejected` with isUsingOverage, is room), and `stateFor` reports
  * `limit <until> <since|-> <kind|->[ <line>]` while the reset is ahead, which status reads as the Mac's rate_limited.
  *
+ * 🔑 AND IT SAYS WHEN THE SIGN-IN STOPPED WORKING (#7369). A turn refused for the sign-in ends in a `result` with
+ * is_error and Claude's own sentence ("Not logged in · Please run /login", "Invalid API key ..."). It read as idle, so a
+ * signed-out agent's card said nothing for days (#7366). It is kept as the agent's `auth` until a later turn reaches the
+ * model and succeeds, and `stateFor` reports `auth <since> <busy|idle>[ <line>]`, which status reads as the Mac's
+ * screen-read auth_failed ("Sign-in Issue"), cleared there too once the account's live check reads it signed in.
+ *
  * So a message written, or any in-turn event, is BUSY; a `result` is IDLE; a
- * start is IDLE. Nothing is counted: a counter that missed one event would be
+ * start is IDLE. The state is not counted (kosmos#7368's `queued` is, but it resets to 0 at every boundary, so a missed
+ * event cannot carry forward): a counter that missed one event would be
  * wrong forever, while this reading corrects itself on the next event.
  *
  * 🔑 THE BOARD IS ANOTHER PROCESS, so the state crosses as a small file per agent,
@@ -57,6 +64,17 @@ const IDLE = 'idle';
 const LIMIT = 'limit';
 /** A result's text kept with a limit is capped: it is the vendor's sentence on its way to a card, not a transcript. */
 const LIMIT_LINE_MAX = 300;
+/** #7369: the token's first word while the agent's last turn was refused for its sign-in; `stateFor` adds when, the
+    plain state under it, and Claude's sentence. */
+const AUTH = 'auth';
+/** #7361: the token's first word for an idle read from THIS file (`stateFor` asked with { streamIdle: true }), as
+    against `claude agents --json`'s plain `idle`. The two are not the same fact: this idle is written on the turn's
+    `result` (or the start), so it proves no turn is running; `agents --json` also reads idle while a session waits on
+    something (#570, #5949). `stream-idle <since>`, since being when the file recorded it (its `at`), so status can tell
+    an automatic "working" written before the turn ended (stale: its Stop hook's idle never landed) from one written
+    after (a new turn the file has not caught up with yet). Win32capture returns it; classify reads it as IDLE with
+    `liveToken`. */
+const STREAM_IDLE = 'stream-idle';
 
 /** Bumped if the file's shape ever changes, so a board never trusts a file it
     was not written to read. */
@@ -87,6 +105,157 @@ function stateAfterEvent(event) {
      subtype arriving between turns must not strand the card on WORKING. */
   if (event.type === 'system' && event.subtype === 'init') return BUSY;
   return null;
+}
+
+/** kosmos#7368: the step a turn is on, from an assistant event's latest tool call: the shell command it runs, or the
+    tool and what it acts on. Short, one line, never the whole input. Null when the event calls no tool. */
+const STEP_MAX = 80;
+/* kosmos#7368: the step clock is written in buckets this wide (see the publisher's keyOf). */
+const STEP_CLOCK_MS = 5 * 60 * 1000;
+/* kosmos#7368 (measured, Claude Code 2.1.312): an MCP tool's name is mcp__<server>__<tool>. Shown as "<tool> from
+   <server>", underscores as spaces. Cases pinned in deliverystreak.turn-7368.test.js. */
+function toolWords(name) {
+  if (Array.from(name).length > STEP_MAX * 3) return name;   // the step is cut there: a reordered tail could show half a token
+  let mask;
+  let MASK;
+  try { ({ mask, MASK } = require('./secretmask')); } catch { return name; }   // as main: cut masks it or shows nothing
+  if (name.includes(MASK)) return MASK;   // already masked in part (the step's own fold): the whole name goes
+  /* One mask call per name, not one per underscore: mask() caches every distinct text it sees. A pattern begins at a
+     word boundary, which an underscore is not, so every suffix after an underscore is tried, space-separated. */
+  const tries = [name];
+  for (let i = name.indexOf('_'); i !== -1; i = name.indexOf('_', i + 1)) tries.push(name.slice(i + 1));
+  const all = tries.join(' ');
+  try { if (mask(all).text !== all) return MASK; } catch { return name; }
+  const m = /^mcp__(.+)__(.+)$/.exec(name);
+  if (!m) return name;
+  const words = (v) => v.replace(/_+/g, ' ').trim();
+  let server = m[1].replace(/^claude_ai_/, '');
+  const plugin = /^plugin_(.+)$/.exec(server);
+  if (plugin) {
+    const half = /^(.+)_\1$/.exec(plugin[1]);
+    server = half ? half[1] : plugin[1];
+  }
+  const tool = words(m[2]);
+  if (!tool) return name;
+  const from = words(server);
+  return from ? tool + ' from ' + from : tool;
+}
+
+/* kosmos#7386: the invisible characters a secret can be split by: every control (Cc: C0, DEL, C1), every format
+   character (Cf: the bidi marks, embeddings, overrides and isolates, the invisible operators, tag characters) and every
+   default-ignorable code point (variation selectors, Hangul fillers and the rest). By category, not by list (review 1:
+   a list of the bidi marks and C1 missed U+2061-2064, U+FE00-FE0F, the tags and more, and each let a key show). */
+/* Review 3: combining marks (Mn) and the Braille blank (U+2800) render as nothing too; review 4: private use (Co),
+   which some Windows fonts draw as nothing. */
+const STEP_HIDDEN = '\\p{Cc}\\p{Cf}\\p{Mn}\\p{Co}\\p{Default_Ignorable_Code_Point}\\u2800';
+/* Review 4 (cost): the value is read in ONE pass, a run of each kind at a time with a sticky regex (one native match per
+   run, so a megabyte of padding is one step), building the three copies together and stopping each at the cut:
+   - whitespace (JS \\s): one space in all three;
+   - a C0 control or DEL that is not whitespace: a space in what is shown (as before), removed in the "removed" copy;
+   - any other hidden character: kept in what is shown, removed in the "removed" copy, a space in the "spaced" one.
+   Line breaks and tabs are whitespace, so the "removed" copy keeps them as a space and does not join the lines of an
+   ordinary command into one long token (review 3). */
+/* Review 5: U+FEFF (the byte order mark, a zero-width no-break space) is whitespace to JS but invisible, so it goes
+   with the C0 controls: shown as a space, as on main, dropped from the "removed" copy, and the value marked hidden. */
+const RUN_SPACE = /[^\S\uFEFF]+/y;
+const RUN_C0 = /[\u0000-\u0008\u000e-\u001f\u007f\uFEFF]+/y;
+const RUN_HIDDEN = new RegExp('[' + STEP_HIDDEN + ']+', 'uy');
+const RUN_PLAIN = new RegExp('[^\\s\\u0000-\\u001f\\u007f' + STEP_HIDDEN + ']+', 'uy');
+function stepCopies(v, bound) {
+  const outs = [{ t: '', n: 0, sp: false }, { t: '', n: 0, sp: false }, { t: '', n: 0, sp: false }];   // shown, removed, spaced
+  const space = (o) => { if (o.n > 0 && !o.sp && o.n < bound) { o.t += ' '; o.n += 1; o.sp = true; } };
+  const text = (o, run) => {
+    if (o.n >= bound) return;
+    for (const ch of run) { if (o.n >= bound) break; o.t += ch; o.n += 1; }
+    o.sp = false;
+  };
+  let hidden = false;
+  let i = 0;
+  const take = (re) => { re.lastIndex = i; const m = re.exec(v); return m ? m[0] : null; };
+  while (i < v.length && !outs.every((o) => o.n >= bound)) {
+    let run;
+    /* A line break or a tab inside a value counts as hidden too (a newline in a tool name split a key, and the shown text
+       masked only its first half): its copies equal what is shown, so only a value whose shown text masks something is
+       masked whole, never an ordinary list of hashes (review 3). JS's other line breaks, U+2028 and U+2029, too (review 6). */
+    if ((run = take(RUN_SPACE)) !== null) { if (/[\t\n\v\f\r\u2028\u2029]/.test(run)) hidden = true; outs.forEach(space); }
+    else if ((run = take(RUN_C0)) !== null) { hidden = true; space(outs[0]); space(outs[2]); }
+    else if ((run = take(RUN_HIDDEN)) !== null) { hidden = true; text(outs[0], run); space(outs[2]); }
+    else if ((run = take(RUN_PLAIN)) !== null) { outs.forEach((o) => text(o, run)); }
+    else { run = String.fromCodePoint(v.codePointAt(i)); outs.forEach((o) => text(o, run)); }   // a lone surrogate
+    i += run.length;
+  }
+  const done = (o) => (o.sp && o.n < bound ? o.t.slice(0, -1) : o.t);
+  return { shown: done(outs[0]), removed: done(outs[1]), spaced: done(outs[2]), hidden };
+}
+/* kosmos#7368: one tool call's step: the shell command it runs in quotes, or the tool and what it acts on. Short, one line,
+   masked; never the whole input. */
+function stepOfUse(use) {
+  try {
+    if (!use || typeof use.name !== 'string' || !use.name) return null;
+    const input = use.input && typeof use.input === 'object' ? use.input : {};
+    /* Masked BEFORE it is cut (review 1 W2): a command can carry a token, and this text reaches the card and the board
+       log. Control characters go; the cut is by character, never inside one. */
+    const sm = require('./secretmask');
+    /* kosmos#7386: a C1 or bidi control inside a secret breaks the mask's patterns, and neither undoing it helps on its
+       own: as a space it splits a token the mask would rejoin, removed it joins words a spaced mask needs apart. So a
+       value holding one is masked as it is, and also as BOTH copies; if either copy masks anything, the whole value is
+       shown as the mask. Bounded first (review 3 of #7368), so the extra copies never cost more than the first. */
+    /* What is shown is what is checked (review 2): the value is folded for display FIRST and that exact text masked,
+       as before; a raw cap keeps the supervisor's loop bounded (review 3 of #7368), and the cut to STEP_MAX * 3 is taken
+       AFTER the fold, so padding cannot push half a key past it (review 2). */
+    const bound = STEP_MAX * 3;
+    /* What is shown is what is checked (review 2): the folded text, cut AFTER the fold (review 3), masked, as on main;
+       a value holding a hidden character is also masked as its two copies, and either firing shows the mask whole. */
+    const guarded = (c) => {
+      if (c.hidden && (sm.mask(c.removed).fired.length || sm.mask(c.spaced).fired.length)) return sm.MASK;
+      return sm.mask(c.shown).text;
+    };
+    const cut = (t) => {
+      const chars = Array.from(t);
+      return chars.length > STEP_MAX ? chars.slice(0, STEP_MAX - 1).join('') + '\u2026' : t;
+    };
+    /* The name is folded like the command and the target (review 1: a newline or a C0 control in an MCP tool name split
+       a key and broke the one-line step). Only the values a step shows are masked: with no invisible character a shell
+       step adds one entry to mask()'s shared cache, as before, and a tool step two; each value holding one adds two
+       more (review 2). */
+    /* A C0 control inside a key is one of the invisible characters, so the "removed" copy rejoins the key the display
+       fold splits (review 1); the display itself is always the folded, masked text (review 2). */
+    const shown = (v) => {
+      if (typeof v !== 'string' || !v) return '';
+      const c = stepCopies(v, bound);
+      return c.shown ? guarded(c) : '';
+    };
+    try {
+      const cmd = shown(input.command);
+      if (cmd) return cut('running "' + cmd + '"');   // quotes, not backticks: the page shows plain text
+      let target = '';
+      for (const v of [input.file_path, input.path, input.url, input.pattern, input.query]) { target = shown(v); if (target) break; }
+      const name = shown(use.name);
+      if (!name) return null;
+      /* kosmos#7368 follow-up: an MCP name reads as the tool and where it comes from. The folded name is cut to `bound`, so
+         a name longer than that is shown as it is (a reordered tail could put half a token in front of the cut). */
+      return cut('using ' + (Array.from(use.name).length > bound ? name : toolWords(name)) + (target ? ' on ' + target : ''));
+    } catch { return null; }
+  } catch { return null; }
+}
+
+/* Whether a process id names a running process. EPERM means it runs under another user, which is still alive. */
+function processAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return !!(e && e.code === 'EPERM'); }
+}
+
+/** kosmos#7368: a busy agent's step, { since (ISO, its last sign of activity, to within STEP_CLOCK_MS), step|null,
+    queued (messages written in while it was busy, not yet taken) }, from its state file, or null when it is not busy or
+    the file says nothing about a step. The caller has already seen the agent working (its card reads Working). */
+function turnFor(name) {
+  let rec;
+  try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
+  if (!rec || typeof rec !== 'object' || rec.v !== STATE_FILE_VERSION || rec.state !== BUSY) return null;
+  if (typeof rec.stepSince !== 'string' || !Number.isFinite(Date.parse(rec.stepSince))) return null;
+  /* Review 2 W5: a file its process outlived (a crash the supervisor did not clear) describes no agent running now. */
+  if (!Number.isInteger(rec.pid) || !processAlive(rec.pid)) return null;
+  const queued = Number.isInteger(rec.queued) && rec.queued > 0 ? rec.queued : 0;
+  return { since: rec.stepSince, step: typeof rec.step === 'string' && rec.step ? rec.step : null, queued };
 }
 
 /** #5805: an epoch time from `resetsAt` as an ISO string, or null. The schema gives seconds; a value already in
@@ -206,6 +375,53 @@ function isLimitToken(token) {
   return typeof token === 'string' && /^limit \S+ \S+ \S+/.test(token);
 }
 
+/** #7369: whether a state token is the signed-out one `stateFor` writes (`auth <since> <busy|idle>[ <line>]`). */
+function isAuthToken(token) {
+  return typeof token === 'string' && /^auth \S+ (?:busy|idle)(?: |$)/.test(token);
+}
+
+/** #7361: the stream's own idle token, `stream-idle <since>`, or bare `stream-idle` when the time is not known. */
+function streamIdleToken(since) {
+  return typeof since === 'string' && Number.isFinite(Date.parse(since)) && !/\s/.test(since) ? STREAM_IDLE + ' ' + since : STREAM_IDLE;
+}
+
+/** #7361: whether a state token is the stream's own idle (`streamIdleToken`). Never the `auth ... idle` one: a refused
+    turn's idle is the sign-in's to read (classify), not proof of a finished good turn. */
+function isStreamIdleToken(token) {
+  return typeof token === 'string' && /^stream-idle(?: \S+)?$/.test(token);
+}
+
+/** #7361: when a stream idle token says the file recorded idle, as an ISO string, or null when it does not say. */
+function streamIdleSince(token) {
+  if (!isStreamIdleToken(token)) return null;
+  const m = / (\S+)$/.exec(token);
+  return m && Number.isFinite(Date.parse(m[1])) ? new Date(Date.parse(m[1])).toISOString() : null;
+}
+
+/**
+ * #7369: what one `result` event says about the sign-in. `undefined` for no claim, or `{ line }` when Claude Code ended
+ * the turn on a sign-in error (is_error, and its sentence is one of claudesignintext's). Only a result: the assistant
+ * message flagged is_api_error_message carries the same words a moment earlier, and the result is the turn's verdict.
+ * Clearing is the publisher's, on the limit's own rule: a turn that reached the model and ended without an error.
+ */
+function signInAfterEvent(event, turnAuthRefused = false) {
+  if (!event || typeof event !== 'object' || Array.isArray(event) || event.type !== 'result' || event.is_error !== true) return undefined;
+  /* Review 4: the real stream's own markers (see the event loop): this turn's assistant refusal said
+     authentication_failed, or the result carries api_error_status 401. Either is the sign-in, whatever the words. */
+  if (turnAuthRefused === true || event.api_error_status === 401) {
+    const said = typeof event.result === 'string' ? event.result : '';
+    return { line: said.replace(/\s+/g, ' ').trim().slice(0, LIMIT_LINE_MAX) || null };
+  }
+  const text = typeof event.result === 'string' ? event.result : '';
+  let apiErr = '';
+  try { apiErr = event.api_error && typeof event.api_error === 'object' ? JSON.stringify(event.api_error) : (typeof event.api_error === 'string' ? event.api_error : ''); } catch { apiErr = ''; }
+  const { isStreamSignInError } = require('./claudesignintext');
+  /* A 401 status on the api_error itself is the sign-in too, whatever its words. */
+  const status401 = !!event.api_error && typeof event.api_error === 'object' && (event.api_error.status === 401 || event.api_error.statusCode === 401);
+  if (!isStreamSignInError(text) && !isStreamSignInError(apiErr) && !status401) return undefined;
+  return { line: text.replace(/\s+/g, ' ').trim().slice(0, LIMIT_LINE_MAX) || null };
+}
+
 /** One stream line as an event, or null when it is not JSON. */
 function parseEvent(line) {
   try { return JSON.parse(line); } catch { return null; }
@@ -307,8 +523,12 @@ function clearState(name, ownerPid) {
  *
  * @param {string} name the recorded agent name
  * @param {{sessionId: string, pid: number}} live the agent's row from `claude agents --json`
+ * @param {number} [nowMs] the clock a limit's reset is compared with (default Date.now())
+ * @param {{ streamIdle?: boolean }} [opts] #7361: `streamIdle` answers a plain idle as `stream-idle <at>` (the file's
+ *   own time), which win32capture asks for so classify can tell it from `agents --json`'s idle. Limit and auth tokens
+ *   are unchanged either way.
  */
-function stateFor(name, live, nowMs) {
+function stateFor(name, live, nowMs, opts) {
   if (!live || typeof live.sessionId !== 'string' || !live.sessionId || !Number.isInteger(live.pid)) return null;
   let rec;
   try { rec = JSON.parse(fs.readFileSync(statePath(name), 'utf8')); } catch { return null; }
@@ -330,6 +550,16 @@ function stateFor(name, live, nowMs) {
       return LIMIT + ' ' + until + ' ' + since + ' ' + kind + line;
     }
   }
+  /* #7369: refused for its sign-in: `auth <since> <busy|idle>[ <line>]`, after the limit (as the Mac's classify reads a
+     usage limit before a dead token). The plain state rides along, so when the account's live check reads it signed in
+     again (status.reconcileReport, #1930) the card falls back to what the agent is doing, not to "can't tell". No
+     expiry of its own: only a later good turn (the publisher) or that live check ends it. */
+  const auth = rec.auth;
+  if (auth && typeof auth === 'object' && typeof auth.since === 'string' && Number.isFinite(Date.parse(auth.since))) {
+    const line = typeof auth.line === 'string' && auth.line ? ' ' + auth.line : '';
+    return AUTH + ' ' + auth.since + ' ' + base + line;
+  }
+  if (base === IDLE && opts && opts.streamIdle === true) return streamIdleToken(typeof rec.at === 'string' ? rec.at : null);
   return base;
 }
 
@@ -357,7 +587,8 @@ function liveIdentity(name) {
 /**
  * The supervisor's side: keep `name`'s state file in step with its agent.
  *
- * Writes only on a TRANSITION, so a turn of a hundred events costs two writes.
+ * Writes only on a TRANSITION, so a turn of a hundred events costs two writes, plus (kosmos#7368) one when its queue
+ * changes, one when its step changes while something is queued, and at most one per STEP_CLOCK_MS for its activity clock.
  * `write`, `clear`, `setTimer` and `onProblem` are injectable for tests;
  * `onProblem` gets a sentence for the task log whenever a state could not be
  * recorded.
@@ -367,6 +598,7 @@ function publisher(name, opts) {
   const write = o.write || ((rec) => writeState(name, rec));
   const clear = o.clear || ((ownerPid) => clearState(name, ownerPid));
   const timer = o.setTimer || ((fn, ms) => setTimeout(fn, ms));
+  const nowMs = typeof o.now === 'function' ? o.now : Date.now;   // kosmos#7368: the step clock's, injectable for tests
   const onProblem = typeof o.onProblem === 'function' ? o.onProblem : () => {};
   /* kosmos#6570: the agent's Claude account folder (claudeAccountDirFor), where each rate_limit_event's readings are
      recorded the way the status line records them; none, and nothing is. `recordUsage` is injectable for tests. */
@@ -388,11 +620,30 @@ function publisher(name, opts) {
      the retry below -- or any transition that comes first -- is the second
      attempt, and a second failure in a row is what clears. */
   /* #5805: a refusal can arrive while the state token does not change, so a transition is the token AND the limit. */
-  function keyOf(c) { return c.state + '\u0000' + JSON.stringify(c.limit || null); }
+  /* kosmos#7368: the queue is part of what is on disk, and the step's clock only in STEP_CLOCK_MS buckets. The step
+     itself rides along with those writes but never forces one (review 2 W3): a busy agent calling many tools writes about
+     once per bucket, not once per tool. */
+  function keyOf(c) {
+    const clock = c.stepSince ? Math.floor(Date.parse(c.stepSince) / STEP_CLOCK_MS) : '';
+    /* Review 3 W3: while something is queued the step IS part of the key, so the card never names a finished step. */
+    /* #7369: and the sign-in record, which a result can set or clear while the token stays idle. */
+    return c.state + '\u0000' + JSON.stringify(c.limit || null) + '\u0000' + JSON.stringify(c.auth || null) + '\u0000' + clock
+      + '\u0000' + (c.queued || 0) + '\u0000' + ((c.queued || 0) > 0 ? (c.step || '') : '');
+  }
+  function setState(next) {
+    if (next === BUSY && current.state !== BUSY) { current.step = null; current.stepSince = new Date(nowMs()).toISOString(); }
+    if (next === IDLE) { current.step = null; current.stepSince = null; current.open.clear(); }
+    current.state = next;
+  }
   function flush() {
     if (!current || written === keyOf(current)) { retrying = false; return; }
     const rec = { v: STATE_FILE_VERSION, state: current.state, sessionId: current.sessionId, pid: current.pid, at: new Date().toISOString() };
     if (current.limit) rec.limit = current.limit;
+    /* kosmos#7368: while busy, when the agent last showed any activity and the step it is on; and, busy or not, how many
+       messages were written into it while it was busy and are not yet taken (they survive a board restart here). */
+    if (current.state === BUSY && current.stepSince) { rec.stepSince = current.stepSince; if (current.step) rec.step = current.step; }
+    if (current.queued > 0) rec.queued = current.queued;
+    if (current.auth) rec.auth = current.auth;
     const r = write(rec);
     if (r && r.ok) { written = keyOf(current); retrying = false; return; }
     onProblem('we could not record its state (' + ((r && r.because) || 'unknown') + ')');
@@ -425,7 +676,7 @@ function publisher(name, opts) {
         if (was) clear(was.pid);
         return;
       }
-      current = { pid, sessionId, state: IDLE, limit: null, reachedModel: false };
+      current = { pid, sessionId, state: IDLE, limit: null, auth: null, reachedModel: false, step: null, stepSince: null, queued: 0, open: new Map() };
       flush();
     },
     /** One parsed stream event. */
@@ -439,14 +690,40 @@ function publisher(name, opts) {
           if (u && typeof dir === 'string' && dir) recordUsage(dir, u);
         } catch { /* the next event tries again */ }
       }
+      const before = keyOf(current);
       const next = stateAfterEvent(e);
-      if (next) current.state = next;
+      if (next) setState(next);
+      /* kosmos#7368, measured on Claude Code 2.1.311 (reviews 2 to 4): a message written in while the main agent's tool
+         calls run is taken when the model is next called, which is when ALL of that message's calls have returned (two
+         calls run one after the other: the person's message waits for the second). So the main agent's open calls are
+         kept by id; the queue empties when the last one returns, or at the turn's result. A turn's start is not a
+         boundary, and a subagent's own calls (parent_tool_use_id) are not the main agent's. The step is the first call
+         still open: the one actually running. */
+      const content = e && e.message && Array.isArray(e.message.content) ? e.message.content : [];
+      if (e && !e.parent_tool_use_id && e.type === 'assistant') {
+        for (const c of content) if (c && c.type === 'tool_use' && typeof c.id === 'string') current.open.set(c.id, stepOfUse(c));
+      }
+      if (e && !e.parent_tool_use_id && e.type === 'user') {
+        let closed = false;
+        for (const c of content) if (c && c.type === 'tool_result' && current.open.delete(c.tool_use_id)) closed = true;
+        if (closed && current.open.size === 0) current.queued = 0;
+      }
+      if (e && e.type === 'result') { current.open.clear(); current.queued = 0; }
+      /* kosmos#7368 (review 1): ANY event while busy is activity, so the step clock is the last sign of life, not the
+         turn's start: an agent calling a new tool every minute is never on one step for an hour. */
+      if (current.state === BUSY && e && (e.type === 'assistant' || e.type === 'user' || e.type === 'system')) current.stepSince = new Date(nowMs()).toISOString();
+      current.step = current.state === BUSY && current.open.size ? (current.open.values().next().value || null) : null;
+      const stepChanged = before !== keyOf(current);
       /* #5805: a refusal is kept, room clears it, and the refused turn's own sentence rides with it. */
       /* Review 9: a refused request's own error message (is_api_error_message, in Claude Code's stream-json schema) did
          not reach the model, so it does not count; then even a result without is_error cannot clear the limit. */
       const apiError = e && (e.is_api_error_message === true || e.isApiErrorMessage === true
         || (e.message && typeof e.message === 'object' && (e.message.is_api_error_message === true || e.message.isApiErrorMessage === true)));
       if (e && e.type === 'assistant' && !apiError) current.reachedModel = true;
+      /* #7369 review 4: the shape the installed Claude Code sends when signed out (captured): the refused assistant
+         message carries `error: "authentication_failed"`, and the result `api_error_status` (401, or null for "Not
+         logged in"). The flag is this turn's, reset when the next message is written. */
+      if (e && e.type === 'assistant' && apiError && e.error === 'authentication_failed') current.authRefused = true;
       let lim = limitAfterEvent(e);
       /* A refused turn's error arrives as an assistant message flagged is_api_error_message (so it does not count as
          reaching the model, above), and its result carries is_error true and api_error (Claude Code 2.1.303's schema).
@@ -466,11 +743,33 @@ function publisher(name, opts) {
         const line = e.result.replace(/\s+/g, ' ').trim().slice(0, LIMIT_LINE_MAX);
         if (line) current.limit = { ...current.limit, line };
       }
-      if (next || lim !== undefined || current.limit) flush();
+      /* #7369: a turn Claude Code ended on a sign-in error is kept as the agent's `auth`, and a later turn that reached
+         the model and ended without an error clears it (the limit's own rule above, and for the same reason: a local
+         command's result made no API request, so it says nothing about the sign-in). Review 2: each refusal is stamped
+         with its own time: status keeps a refusal the account check has read as stale cleared by that stamp, so a NEW
+         refusal (signed out again before any good turn) must not carry an old, cleared one. */
+      const signIn = signInAfterEvent(e, current.authRefused === true);
+      // Review 5: the flag is this turn's, and a result ends the turn (a turn can start with no write: a wake-up).
+      if (e && e.type === 'result') current.authRefused = false;
+      let authChanged = false;
+      if (signIn) {
+        current.auth = { since: new Date().toISOString(), ...(signIn.line ? { line: signIn.line } : {}) };
+        authChanged = true;
+      } else if (current.auth && e && e.type === 'result' && e.is_error !== true && !e.api_error && current.reachedModel === true) {
+        current.auth = null;
+        authChanged = true;
+      }
+      if (next || lim !== undefined || current.limit || authChanged || stepChanged) flush();
     },
     /** A message reached the agent's stdin. */
     wrote() {
-      if (current) { current.state = BUSY; current.reachedModel = false; flush(); }
+      if (!current) return;
+      /* kosmos#7368: written into a busy agent, it waits for the agent's next boundary; into an idle one, it starts the turn. */
+      if (current.state === BUSY) current.queued = (current.queued || 0) + 1;
+      else setState(BUSY);
+      current.reachedModel = false;
+      current.authRefused = false;   // #7369
+      flush();
     },
     /** The agent process is gone. */
     stopped() {
@@ -499,4 +798,4 @@ function publisher(name, opts) {
   };
 }
 
-module.exports = { BUSY, IDLE, lineReader, parseEvent, publisher, stateFor, liveIdentity, isLimitToken, usageOfEvent, claudeAccountDirFor };
+module.exports = { STEP_CLOCK_MS, BUSY, IDLE, STREAM_IDLE, lineReader, parseEvent, publisher, stateFor, turnFor, liveIdentity, isLimitToken, isAuthToken, isStreamIdleToken, streamIdleToken, streamIdleSince, usageOfEvent, claudeAccountDirFor };

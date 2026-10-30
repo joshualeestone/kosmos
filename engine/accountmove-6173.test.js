@@ -154,7 +154,11 @@ test('#6173 review 2: the board wires the move to the engine\'s hold, and the cl
   const server = fs.readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
   const route = server.slice(server.indexOf("pathname === '/api/agents/account' && req.method === 'POST'"));
   assert.ok(route.length < server.length, 'the bulk move route is not in server.js');
-  const call = route.slice(0, route.indexOf('sendJson(res, started.status'));
+  const routeCall = route.slice(0, route.indexOf('sendJson(res, started.status'));
+  /* kosmos#7548: the move's deps live in accountMoveDeps(), shared with the automatic move (rule 1). */
+  assert.match(routeCall, /accountmove\.start\(body, accountMoveDeps\(\)\)/, 'the bulk move does not use the shared deps');
+  const depsAt = server.indexOf('function accountMoveDeps() {');
+  const call = server.slice(depsAt, server.indexOf('\n}\n', depsAt));
   assert.match(call, /hold: \(names\) => removal\.holdForMove\(names\)/, 'the move does not hold its agents in the engine');
   assert.match(call, /release: \(n\) => removal\.releaseFromMove\(n\)/, 'the move does not release its agents');
   assert.match(call, /restartAsync: \(n\) => restartForMoveAsync\(n, fromDirs\.has\(n\) \? fromDirs\.get\(n\) : null\)/, 'the move does not restart through #6174\'s note');
@@ -302,7 +306,11 @@ test('#6190: both account routes ask the engine\'s hold before they write (no ro
   assert.ok(at > 0, 'the one-agent account write is not in server.js');
   assert.ok(server.slice(at - 400, at).includes(heldGuard), 'the one-agent Move writes an agent a restart holds');
   const route = server.slice(server.indexOf("pathname === '/api/agents/account' && req.method === 'POST'"));
-  const call = route.slice(0, route.indexOf('sendJson(res, started.status'));
+  const routeCall = route.slice(0, route.indexOf('sendJson(res, started.status'));
+  /* kosmos#7548: the move's deps live in accountMoveDeps(), shared with the automatic move (rule 1). */
+  assert.match(routeCall, /accountmove\.start\(body, accountMoveDeps\(\)\)/, 'the bulk move does not use the shared deps');
+  const depsAt = server.indexOf('function accountMoveDeps() {');
+  const call = server.slice(depsAt, server.indexOf('\n}\n', depsAt));
   assert.match(call, /moveRefusal: \(n\) => removal\.moveRefusal\(n\),/, 'the bulk move does not ask the engine\'s hold');
 });
 

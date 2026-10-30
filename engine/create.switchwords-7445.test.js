@@ -1,0 +1,276 @@
+'use strict';
+
+/**
+ * #7445: a switch between two runners that are not Claude Code (Codex to Gemini, Gemini to Grok, ...) loses the
+ * conversation, so the result sentence says so and never says everything it knows stays. OpenAI <-> Qwen is one
+ * runner in one private Codex home (codexruntime.forSession, #4592), so it keeps the old sentence. The Claude cases
+ * (#7410) keep their exact result shape and words.
+ *
+ * Sandboxed like create.switchmem-7410.test.js (platform 'darwin', so the seeded plist is read on every platform and
+ * no schtasks runs).
+ *
+ *   node --test engine/create.switchwords-7445.test.js
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'switchwords-7445-'));
+const HOME = nodePath.join(SANDBOX, 'home');
+const BIN = nodePath.join(SANDBOX, 'bin');
+const CLAUDE_ROOT = nodePath.join(SANDBOX, 'claude-root');
+for (const d of [HOME, BIN, CLAUDE_ROOT, nodePath.join(SANDBOX, 'data'), nodePath.join(SANDBOX, 'workers'), nodePath.join(SANDBOX, 'launch')]) {
+  fs.mkdirSync(d, { recursive: true });
+}
+process.env.AGENT_WORKFORCE_HOME = HOME;
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = nodePath.join(SANDBOX, 'launch', 'systemd', 'user');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = CLAUDE_ROOT;
+delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+delete process.env.CODEX_HOME;
+
+const EXT = process.platform === 'win32' ? '.cmd' : '';
+const CLAUDE_BIN = nodePath.join(BIN, 'claude' + EXT);
+const CODEX_BIN = nodePath.join(BIN, 'codex' + EXT);
+const TMUX_BIN = nodePath.join(BIN, 'tmux' + EXT);
+for (const b of [CLAUDE_BIN, CODEX_BIN, TMUX_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+const OPTS = { claudeBin: CLAUDE_BIN, codexBin: CODEX_BIN, tmuxBin: TMUX_BIN, platform: 'darwin' };
+
+const SIGNIN = nodePath.join(HOME, '.codex');
+fs.mkdirSync(SIGNIN, { recursive: true });
+fs.writeFileSync(nodePath.join(SIGNIN, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttest7445' }), 'utf8');
+
+const create = require('./create');
+const store = require('./store');
+
+test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+
+function born(name) {
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  const plist = create.plistPath(name);
+  fs.mkdirSync(nodePath.dirname(plist), { recursive: true });
+  fs.writeFileSync(plist, create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
+  store.writeProfile(name, { provider: 'anthropic' });
+  fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), '# brief for this agent\n', 'utf8');
+  return name;
+}
+const notesDir = (name) => nodePath.join(create.workerDir(name), 'memory', 'claude-notes');
+const OLD = /^(\w+) it is\. Everything it knows and everything it has done stays\. $/;
+
+// Every non-Claude runner pair the switch menu can produce, by provider.
+const OTHERS = [['openai', 'codex'], ['google', 'gemini'], ['xai', 'grok'], ['antigravity', 'antigravity'], ['meta', 'muse']];
+
+test('#7445: every switch between two different runners that are not Claude Code loses the conversation', () => {
+  for (const [fp, fr] of OTHERS) {
+    for (const [tp, tr] of OTHERS) {
+      if (fp === tp) continue;
+      assert.equal(create.providerRunner(fp), fr); assert.equal(create.providerRunner(tp), tr);
+      assert.equal(create.switchLosesConversation(fr, tr, fp, tp), true, fp + ' -> ' + tp);
+    }
+    // Qwen runs on Codex too: a switch from it to any other non-Claude runner loses it the same way.
+    if (fr !== 'codex') {
+      assert.equal(create.switchLosesConversation('codex', fr, 'alibaba', fp), true, 'alibaba -> ' + fp);
+      assert.equal(create.switchLosesConversation(fr, 'codex', fp, 'alibaba'), true, fp + ' -> alibaba');
+    }
+  }
+});
+
+test('#7445: OpenAI <-> Qwen keeps it (one Codex home), and the #7410 rule is unchanged around it (controls)', () => {
+  assert.equal(create.switchLosesConversation('codex', 'codex', 'openai', 'alibaba'), false, 'OpenAI -> Qwen');
+  assert.equal(create.switchLosesConversation('codex', 'codex', 'alibaba', 'openai'), false, 'Qwen -> OpenAI');
+  /* The evidence for that call is the supervisor, not a function here: bin/agent-supervisor.sh (#4592, ~1016-1132)
+     launches every Codex agent with CODEX_HOME set to codexruntime.forSession(SESSION), whatever its account, and only
+     links the account's sign-in (or reads the Qwen endpoint) into it. Round 4: no assertion stands in for that here. */
+  assert.equal(create.switchLosesConversation('gemini', 'gemini', 'google', 'google'), false, 'same provider is not a switch');
+  assert.equal(create.switchLosesConversation('claude', 'codex', 'anthropic', 'openai'), true);
+  assert.equal(create.switchLosesConversation('gemini', 'claude', 'google', 'anthropic'), true);
+  assert.equal(create.switchLosesConversation('claude', 'claude', 'anthropic', 'deepseek'), true);
+  assert.equal(create.switchLosesConversation('claude', 'claude', 'anthropic', 'anthropic'), false);
+});
+
+test('#7445: Codex -> Gemini copies nothing and returns its own state; the sentence says the conversation does not come across', () => {
+  const name = born('sw7445-cg');
+  const r = create.carryClaudeNotes(name, { runner: 'codex' }, 'gemini', null, 'openai', 'google');
+  assert.deepEqual(r, { from: 'openai', toClaude: false, rootChange: false, notes: 'none-kept-by-runner', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false, between: true });
+  assert.equal(fs.existsSync(notesDir(name)), false, 'something was copied');
+  const w = create.switchCarryWords('Gemini', r, 'OpenAI');
+  assert.equal(w, 'Gemini it is. It keeps its name, its instructions and its files, but its conversation does not come across: '
+    + 'Gemini cannot read what it said on OpenAI. Anything it only remembered from talking is lost. '
+    // Round 4: Codex has its own memories feature, so whatever it kept stays with it; "any", it may have none.
+    + 'Any notes OpenAI saved for it stay behind there. ');
+  assert.doesNotMatch(w, /Everything it knows|Claude|copied/);
+  assert.doesNotMatch(w, /—/, 'an em dash');
+});
+
+test('#7445 round 4: every switch leaving a runner that is not Claude Code says its own notes stay behind, back to Claude too', () => {
+  // Gemini's save_memory writes into its (account's) Gemini home; Kosmos copies none of it.
+  const back = create.carryClaudeNotes(born('sw7445-g2c'), { runner: 'gemini' }, 'claude', null, 'google', 'anthropic');
+  assert.equal(back.toClaude, true);
+  assert.equal(create.switchCarryWords('Claude', back, 'Gemini'),
+    'Claude it is. It keeps its name, its instructions and its files, but its conversation does not come across: '
+    + 'Claude cannot read what it said on Gemini. Anything it only remembered from talking is lost. '
+    + 'Any notes Gemini saved for it stay behind there. ');
+  for (const [fr, fp, word] of [['grok', 'xai', 'Grok'], ['antigravity', 'antigravity', 'Gemini (Google subscription)'], ['muse', 'meta', 'Meta Muse']]) {
+    const r = create.carryClaudeNotes(born('sw7445-l-' + fr), { runner: fr }, 'codex', null, fp, 'openai');
+    assert.match(create.switchCarryWords('OpenAI', r, word), new RegExp('Any notes ' + word.replace(/[()]/g, '\\$&') + ' saved for it stay behind there\\. $'), fr);   // round 5: named once
+    assert.equal(create.switchCarryWords('OpenAI', r, word).split(word).length - 1, 2, fr + ': named in the conversation clause and once in the notes line');
+  }
+  // Controls: leaving Claude never says it (Claude's own notes have their #7410 sentences), and neither does a keep.
+  const off = create.carryClaudeNotes(born('sw7445-c2o'), { runner: 'claude' }, 'codex', null, 'anthropic', 'openai');
+  assert.doesNotMatch(create.switchCarryWords('OpenAI', off, 'Claude'), /saved for it stay behind/);
+  assert.doesNotMatch(create.switchCarryWords('Qwen', null), /saved for it stay behind/);
+});
+
+test('#7445: notes an earlier switch left in its folder stay pointed at, and are said; a pointer with nothing behind it is taken out', () => {
+  const name = born('sw7445-pointed');
+  const dir = create.workerDir(name);
+  fs.mkdirSync(notesDir(name), { recursive: true });
+  fs.writeFileSync(nodePath.join(notesDir(name), 'MEMORY.md'), 'kept from Claude days\n', 'utf8');
+  const pj = require('./projects');
+  const brief = nodePath.join(dir, 'AGENTS.md');
+  fs.renameSync(nodePath.join(dir, 'CLAUDE.md'), brief);
+  /* As setProvider leaves it before the carry: the new job and profile are written first. The instructions writer reads
+     the job's runner before the profile (instructions.fileFor via recordedRunner), so a job still saying claude would
+     send the pointer to CLAUDE.md on a Mac (the Windows box falls back to the profile). */
+  fs.writeFileSync(create.plistPath(name), create.plistFor(name, CODEX_BIN, TMUX_BIN, null, null, 'grok'), 'utf8');
+  store.writeProfile(name, { provider: 'xai' });
+  assert.equal(require('./instructions').fileFor(name), brief, 'fixture: the instructions writer resolves the AGENTS.md brief');
+  // A real-length brief: the instructions writer refuses one under 20 characters.
+  fs.writeFileSync(brief, pj.spliceBlock('# brief for this agent, long enough to keep\n', 'pointer', pj.CARRIED_NOTES_START, pj.CARRIED_NOTES_END), 'utf8');
+  const g = create.carryClaudeNotes(name, { runner: 'codex' }, 'grok', brief, 'openai', 'xai');
+  assert.equal(g.between, true);
+  assert.equal(g.notes, 'none-kept-by-runner');
+  assert.equal(g.pointed, true, 'the notes in its folder lost their pointer');
+  assert.equal(fs.readFileSync(brief, 'utf8').split(pj.CARRIED_NOTES_START).length - 1, 1, 'the pointer is there once');
+  assert.match(create.switchCarryWords('Grok', g, 'OpenAI'),
+    /Grok cannot read what it said on OpenAI\. The notes in its folder stay there for it to read, and anything it only remembered from talking is lost\. Any notes OpenAI saved for it stay behind there\. $/);
+  assert.equal(fs.readFileSync(nodePath.join(notesDir(name), 'MEMORY.md'), 'utf8'), 'kept from Claude days\n', 'a note was changed');
+
+  // Nothing real behind the pointer: it is taken out, and the sentence does not mention notes.
+  fs.rmSync(notesDir(name), { recursive: true, force: true });
+  const gone = create.carryClaudeNotes(name, { runner: 'codex' }, 'grok', brief, 'openai', 'xai');
+  assert.equal(gone.pointed, false);
+  assert.equal(fs.readFileSync(brief, 'utf8').includes(pj.CARRIED_NOTES_START), false, 'a pointer to nothing was left in');
+  assert.doesNotMatch(create.switchCarryWords('Grok', gone, 'OpenAI'), /notes in its folder/);
+});
+
+test('#7445: the Claude cases keep their exact shape (no between field) and words', () => {
+  const off = create.carryClaudeNotes(born('sw7445-claude-off'), { runner: 'claude' }, 'codex', null, 'anthropic', 'openai');
+  assert.equal('between' in off, false);
+  assert.equal(off.notes, 'none');
+  assert.match(create.switchCarryWords('OpenAI', off, 'Claude'), /had no saved notes to copy/);
+  const back = create.carryClaudeNotes(born('sw7445-claude-back'), { runner: 'gemini' }, 'claude', null, 'google', 'anthropic');
+  assert.equal('between' in back, false);
+  assert.equal(back.toClaude, true);
+  const ds = create.carryClaudeNotes(born('sw7445-ds'), { runner: 'claude' }, 'claude', null, 'anthropic', 'deepseek');
+  assert.deepEqual([ds.rootChange, ds.notes, 'between' in ds], [true, 'stayed', false]);
+  assert.match(create.switchCarryWords('DeepSeek', ds, 'Claude'), /Its saved notes stay behind with Claude/);
+});
+
+test('#7445: a switch that keeps the conversation keeps the old sentence', () => {
+  assert.equal(create.carryClaudeNotes(born('sw7445-qwen'), { runner: 'codex' }, 'codex', null, 'openai', 'alibaba'), null);
+  assert.match(create.switchCarryWords('Qwen', null), OLD);
+  assert.match(create.switchCarryWords('OpenAI', null, 'Qwen'), OLD);
+});
+
+test('#7445 round 1: a carry that throws still says the conversation does not come across, never that everything stays', (t) => {
+  const name = born('sw7445-throws');
+  // The seam that already exists: carryClaudeNotes reads ownedClaudeMemory off the module at call time.
+  const bs = require('./backupsessions');
+  const real = bs.ownedClaudeMemory;
+  bs.ownedClaudeMemory = () => { throw new Error('stubbed for #7445'); };
+  t.after(() => { bs.ownedClaudeMemory = real; });
+  assert.throws(() => create.carryClaudeNotes(name, { runner: 'claude' }, 'codex', null, 'anthropic', 'openai'), /stubbed/, 'CONTROL: the stub reaches the carry');
+  const sw = create.setProvider(name, 'openai', OPTS);
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
+  assert.ok(sw.carried, 'a switch off Claude whose carry threw came back as one that keeps its conversation');
+  // Round 2: nobody looked at its notes, so its own state, never 'none' ("it had no saved notes", maybe untrue).
+  assert.deepEqual(sw.carried, { from: 'anthropic', toClaude: false, rootChange: false, notes: 'unchecked-error', copied: 0, kept: 0, skipped: 0, occupied: 0, failed: 0, pointed: false });
+  assert.equal(create.switchCarryWords('OpenAI', sw.carried, 'Claude'),
+    'OpenAI it is. It keeps its name, its instructions and its files, but its conversation does not come across: '
+    + 'OpenAI cannot read what it said on Claude. '
+    + 'We could not check its saved notes; any it had are still where Claude keeps them, and anything it only remembered from talking is lost. ');
+});
+
+test('#7445 round 3: reading the provider it leaves can throw, and the result still says the conversation does not come across', (t) => {
+  const name = born('sw7445-from-throws');
+  // A named OpenAI account, so the job carries an account folder and jobProvider asks qwenaccounts.isQwenHome about it.
+  const work = nodePath.join(HOME, '.codex-work7445');
+  fs.mkdirSync(work, { recursive: true });
+  fs.writeFileSync(nodePath.join(work, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttest7446' }), 'utf8');
+  const first = create.setProvider(name, 'openai', { ...OPTS, accountDir: work });
+  assert.equal(first.outcome, create.OUTCOME.CREATED, first.because);
+  assert.ok(create.readJob(name, undefined, 'darwin').configDir, 'CONTROL: the job names its account folder, so isQwenHome is asked');
+
+  // The seam that already exists: jobProvider reads isQwenHome off the module at call time. It throws only once the
+  // switch has recorded the new provider, so a read AFTER that (the carry's, before round 4) is the one hit.
+  const qa = require('./qwenaccounts');
+  const real = qa.isQwenHome;
+  let threw = 0;
+  qa.isQwenHome = (dir) => {
+    if ((store.readProfile(name) || {}).provider === 'google') { threw += 1; throw new Error('stubbed for #7445 round 3'); }
+    return real(dir);
+  };
+  t.after(() => { qa.isQwenHome = real; });
+  const GEMINI_BIN = nodePath.join(BIN, 'gemini' + EXT);
+  fs.writeFileSync(GEMINI_BIN, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const sw = create.setProvider(name, 'google', { ...OPTS, geminiBin: GEMINI_BIN });
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
+  assert.ok(sw.carried, 'a throw reading the provider it left came back as a switch that keeps its conversation');
+  // Round 4: the provider it leaves is read once, before the switch is recorded, so the stub is never reached.
+  assert.equal(threw, 0, 'the provider it left was read again after the switch was recorded');
+  assert.equal(sw.carried.between, true);
+  assert.equal(sw.carried.from, 'openai');
+  const w = create.switchCarryWords('Gemini', sw.carried, 'OpenAI');
+  assert.match(w, /its conversation does not come across: Gemini cannot read what it said on OpenAI\./);
+  assert.doesNotMatch(w, /Everything it knows/);
+});
+
+test('#7445 round 4: DeepSeek -> Claude with a read that would throw after the switch still says the conversation does not come across', (t) => {
+  // A DeepSeek agent: a Claude job on a vendor account folder (as create.compat-7206.test.js builds one).
+  const compat = require('./anthropiccompat');
+  const ds = nodePath.join(HOME, '.kosmos-deepseek-sw7445');
+  compat.storeAccount(ds, { vendor: 'deepseek', model: 'deepseek-chat', key: 'sk-deepseek-sw7445-0123456789' });
+  const name = born('sw7445-ds2c');
+  fs.writeFileSync(create.plistPath(name), create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, ds, 'claude'), 'utf8');
+  store.writeProfile(name, { provider: 'deepseek', vendorAccount: ds });
+  assert.equal(create.jobProvider(create.readJob(name, undefined, 'darwin')), 'deepseek', 'CONTROL: it really is a DeepSeek agent');
+
+  // vendorOfName, read off the module at call time by jobProvider, throws once the switch has recorded Claude.
+  const real = compat.vendorOfName;
+  let threw = 0;
+  compat.vendorOfName = (dir) => {
+    if ((store.readProfile(name) || {}).provider === 'anthropic') { threw += 1; throw new Error('stubbed for #7445 round 4'); }
+    return real(dir);
+  };
+  t.after(() => { compat.vendorOfName = real; });
+  const sw = create.setProvider(name, 'anthropic', OPTS);
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
+  assert.ok(sw.carried, 'DeepSeek -> Claude came back as a switch that keeps its conversation');
+  assert.deepEqual([sw.carried.from, sw.carried.rootChange, sw.carried.notes], ['deepseek', true, 'stayed']);
+  const w = create.switchCarryWords('Claude', sw.carried, 'DeepSeek');
+  assert.match(w, /its conversation does not come across: Claude cannot read what it said on DeepSeek\. Its saved notes stay behind with DeepSeek/);
+  assert.doesNotMatch(w, /Everything it knows/);
+});
+
+test('#7445: end to end, Claude -> OpenAI -> Gemini says the conversation does not come across on the second switch too', () => {
+  const name = born('sw7445-e2e');
+  const first = create.setProvider(name, 'openai', OPTS);
+  assert.equal(first.outcome, create.OUTCOME.CREATED, first.because);
+  const GEMINI_BIN = nodePath.join(BIN, 'gemini' + EXT);
+  fs.writeFileSync(GEMINI_BIN, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  const sw = create.setProvider(name, 'google', { ...OPTS, geminiBin: GEMINI_BIN });
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, sw.because);
+  assert.ok(sw.carried, 'Codex -> Gemini came back as a switch that keeps its conversation');
+  assert.equal(sw.carried.between, true);
+  assert.equal(sw.carried.from, 'openai');
+  const w = create.switchCarryWords('Gemini', sw.carried, 'OpenAI');
+  assert.match(w, /its conversation does not come across: Gemini cannot read what it said on OpenAI\./);
+  assert.doesNotMatch(w, /Everything it knows/);
+});

@@ -315,6 +315,22 @@ const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textConte
     chk(/Your family asks it to report nothing\.$/.test(o15f.say) && !/company/i.test(o15f.say)
         && JSON.stringify(o15f.buttons) === '["Leave family"]' && o15fTitle === 'Your family',
       'O15f a family\'s joined Kosmos says family in its title, its sentence and its Leave button', JSON.stringify({ o15f, o15fTitle }));
+    // O15r (kosmos#7586): with reporting required and the computer not reporting, the sentence ends by saying so, for a
+    // company and a family (and a family still waiting on its words). CONTROLS: reporting, and a company that asks for
+    // no reports, say nothing more.
+    const REQ = ' requires this computer to report, and its console shows a computer that is not reporting.';
+    const fam = { org: { name: 'Rivera', slug: 'rivera', kind: 'family' } };
+    const o15r = { terms: await joinedAs({ reporting: false, reportingWait: null, reportingRequired: true }),
+      print: await joinedAs({ reporting: false, reportingWait: 'print', reportingRequired: true }),
+      noReports: await joinedAs({ reporting: false, reportingWait: 'noReports', reportingRequired: true }),
+      reporting: await joinedAs({ reporting: true, reportingRequired: true }),
+      family: await joinedAs(Object.assign({ reporting: false, reportingWait: null, reportingRequired: true }, fam)),
+      familyWords: await joinedAs(Object.assign({ reporting: false, wordsNeeded: true, reportingRequired: true }, fam)) };
+    chk(o15r.terms.say.endsWith("current terms. Your company" + REQ) && o15r.print.say.endsWith("identity. Your company" + REQ)
+        && /Your company asks it to report nothing\.$/.test(o15r.noReports.say) && o15r.reporting.say === 'This Kosmos is your work Kosmos for Acme.'
+        && o15r.family.say.endsWith('Your family' + REQ) && !/company/i.test(o15r.family.say)
+        && o15r.familyWords.say.endsWith('reads and accepts them. Your family' + REQ),
+      'O15r reporting required: the joined sentence says the company (or family) requires it and its console shows it; not when reporting or asked for none', JSON.stringify(o15r));
     await page.evaluate(() => { PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
 
     // O17 (review 1): on a FRESH page, before any click. (a) /api/org fails: still only the button. (b) This Kosmos is

@@ -17,6 +17,12 @@
  *   node --test server.projects.test.js
  */
 
+/* kosmos#7442: FIRST, so SANDBOX below lands inside this process's own temp directory, which is removed when the
+   process exits. The after hook's rmSync runs before the board's own timers stop: one that writes its state later
+   (prompter-nudges.json, board-alive.json, setup-guide-state.json were found) re-created the folder, and the #4273
+   leak check then saw aw-projects-*. The exit sweep runs after every in-process timer; a child process that outlives
+   this file is not covered (#6362), and none here does (stubbed reveal, fake tmux, DRY_RUN). */
+require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -3334,6 +3340,32 @@ test('#1895: the room text view renders a broadcast as "the room" in the operato
          timezone or a stray broadcast left behind would silently reach a later
          room-text test. */
       try { store.writeSettings({ timezone: null }); } catch { /* fine */ }
+      try { fsx.rmSync(messages.LOG, { force: true }); } catch { /* fine */ }
+    }
+  });
+});
+
+test('kosmos#7246 slice 2 (round 5): the room text view names the members a post woke, not the ones it left quiet', async () => {
+  reset();
+  const fsx = require('node:fs');
+  const messages = require('./engine/messages');
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    try {
+      const projectsEngine = require('./engine/projects');
+      projectsEngine.writeAll(projectsEngine.readAll().map((q) => (q.id === project.id ? { ...q, createdAt: '2026-09-01T00:00:00.000Z' } : q)));
+      const at = '2026-09-02T19:50:17.326Z';
+      const row = (id, text, outcomes) => fsx.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id, from: 'splinter2', to: ['mara', 'april'], operator: false, text, at, project: project.id, outcomes }) + '\n');
+      row('m7246a', 'one asked', { mara: 'placed', april: 'quiet' });
+      row('m7246b', 'an fyi', { mara: 'quiet', april: 'quiet' });
+      row('m7246c', 'from before', {});
+      row('m7246d', 'one failed', { mara: 'placed', april: 'could_not' });   // round 7
+      const lines = (await req(`/api/project/${project.id}/room?as=text`)).body.split('\n');
+      assert.match(lines.find((l) => l.includes('one asked')) || '', /splinter2 -> mara: one asked$/);
+      assert.match(lines.find((l) => l.includes('an fyi')) || '', /splinter2 -> the room: an fyi$/, 'a post that woke no one named its quiet members');
+      assert.match(lines.find((l) => l.includes('one failed')) || '', /splinter2 -> mara: one failed$/, 'a member it could not reach was listed');
+      assert.match(lines.find((l) => l.includes('from before')) || '', /splinter2 -> mara, april: from before$/, 'CONTROL: a row with no quiet outcome names everyone it went to');
+    } finally {
       try { fsx.rmSync(messages.LOG, { force: true }); } catch { /* fine */ }
     }
   });

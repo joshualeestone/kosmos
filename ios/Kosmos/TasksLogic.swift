@@ -142,6 +142,23 @@ enum Tasks {
         g.key == "decision" && (count == 0 || rosterUnknown) ? "--tsk-nobody" : g.token
     }
 
+    // kosmos#7269 (Josh, 2026-10-26: "a row of tiles with counts at the top", "open, needs you, working, done", "nice
+    // and clean"): four counts in Josh's order, counted from the groups the list is drawing (review 2: counted from the
+    // newest read, a task that moved while the list kept its place made the tile and its group disagree). Open is
+    // every drawn task not completed; Needs you is nil (shown "?") when the agents could not be read, as the board's
+    // tile says it cannot tell rather than 0. Display only: a tile does not filter.
+    struct Tile: Equatable { let key: String; let label: String; let count: Int? }
+    static func tiles(_ shown: [Section], rosterUnknown: Bool) -> [Tile] {
+        func n(_ key: String) -> Int { shown.filter { $0.group.key == key }.reduce(0) { $0 + $1.rows.count } }
+        let open = shown.filter { $0.group.key != "closed" }.reduce(0) { $0 + $1.rows.count }
+        return [
+            Tile(key: "open", label: "Open", count: open),
+            Tile(key: "decision", label: "Needs you", count: rosterUnknown ? nil : n("decision")),
+            Tile(key: "working", label: "Working", count: n("working")),
+            Tile(key: "closed", label: "Done", count: n("closed")),
+        ]
+    }
+
     // One group as the list draws it. `unknown` is the decision group that cannot tell (drawn even when empty).
     struct Section: Equatable {
         let group: Group
@@ -251,7 +268,16 @@ enum Tasks {
     static func title(_ read: Board.TasksRead?, project: String?) -> String {
         guard let read else { return "Tasks" }
         let rows = scoped(read.tasks, project: project)
-        let open = rows.filter { $0.state != "closed" }
+        return title(rows: rows, open: rows.filter { $0.state != "closed" }, read: read, project: project)
+    }
+    // kosmos#7269 review 3: the line under the count tiles counts the rows the list is drawing, as the tiles do, so a
+    // live update cannot make the two disagree; the picked project is still named from the read. Open is by the group a
+    // row is DRAWN in (a moved row keeps its place, with its fresh state), as the tiles count.
+    static func title(_ read: Board.TasksRead?, drawn: [Section], project: String?) -> String {
+        guard let read else { return "Tasks" }
+        return title(rows: drawn.flatMap(\.rows), open: drawn.filter { $0.group.key != "closed" }.flatMap(\.rows), read: read, project: project)
+    }
+    private static func title(rows: [Board.TaskRow], open: [Board.TaskRow], read: Board.TasksRead, project: String?) -> String {
         let head = String(open.count) + (open.count == 1 ? " Task" : " Tasks")
         if let project {
             let picked = pickerProjects(read).first { $0.id == project }
@@ -269,6 +295,11 @@ enum Tasks {
         let rows = scoped(read.tasks, project: project)
         return shareOneProject(rows) && (project != nil || rows.contains { $0.state != "closed" })
     }
+    // kosmos#7269 review 4: the same rule over the rows the list is drawing, open by the group each is drawn in, so it
+    // always agrees with the title (Tasks.title(_:drawn:project:)), which names the project exactly when this hides it.
+    static func leaveOutProjectLine(drawn: [Section], project: String?) -> Bool {
+        shareOneProject(drawn.flatMap(\.rows)) && (project != nil || drawn.contains { $0.group.key != "closed" && !$0.rows.isEmpty })
+    }
 
     // The picker: every project with a task, each with its open count, sorted by chain (pjChainCompare: each
     // sub-project after its parent). The words are pjChainOption's: "Ads (3), in Book A › Launch".
@@ -278,7 +309,8 @@ enum Tasks {
         var byId: [String: (chain: [String], open: Int)] = [:]
         for t in read.tasks {
             if byId[t.projectId] == nil { order.append(t.projectId); byId[t.projectId] = (chain(t), 0) }
-            if t.state != "closed" { byId[t.projectId]!.open += 1 }
+            // kosmos#7269 review 5: open by the states the list draws, as the title and the Open tile count.
+            if t.state != "closed" && groups.contains(where: { $0.key == t.state }) { byId[t.projectId]!.open += 1 }
         }
         return order.map { PickerProject(id: $0, chain: byId[$0]!.chain, open: byId[$0]!.open) }
             .enumerated().sorted { a, b in

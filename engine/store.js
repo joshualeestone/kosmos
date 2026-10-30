@@ -420,9 +420,14 @@ function resolveDataRoot(platform, home, env, app = APP) {
   return throwawayRootForThisProcess(platform, app);
 }
 
+/* This process's data root as root() returns it, without the migration (#1760: secureRoot needs it with no side effect). */
+function currentDataRoot() {
+  return resolveDataRoot(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env);
+}
+
 function root() {
   const env = process.env;
-  const resolved = resolveDataRoot(process.platform, env.AGENT_WORKFORCE_HOME || os.homedir(), env);
+  const resolved = currentDataRoot();
   // #5418: a throwaway root is not migrated (the migration's own target is the real store), and
   // neither is the REAL root when a test process allowed it only to read it (KOSMOS_ALLOW_REAL_ROOT);
   // a sandbox in that same process still migrates as usual.
@@ -452,8 +457,28 @@ function workersRootFor(env, home, platform = process.platform) {
   return e.AGENT_WORKFORCE_WORKERS || joinerFor(platform).join(home, 'work', 'workers');
 }
 
+/* #1760: chmod this process's data root (the app's own folder; a throwaway root in tests) to 0700, with no migration.
+   A test process never changes the real root, even when KOSMOS_ALLOW_REAL_ROOT lets it read it. Called by the board at
+   start and by ensure(), which skips a root already tried in this process. Best-effort: returns the root's mode
+   afterwards, or null when it could not be read or was left alone. */
+const securedRoots = new Set();
+function secureRoot() {
+  const r = currentDataRoot();
+  if (isTestProcess(process.env) && isRealRoot(r, process.platform)) { securedRoots.add(r); return null; }
+  // Recorded once tried, so ensure() does not retry a root it could not change; not when the root does not exist yet.
+  // #7554: nor after EBUSY, which is transient by nature, so the next write tries again. EPERM and EACCES (a root this
+  // user cannot change, usually for good) stay recorded: retrying them would cost a failing chmod on every write. The
+  // board's own start call always tries again, whatever is recorded, and says so.
+  try { fs.chmodSync(r, 0o700); securedRoots.add(r); } catch (err) {
+    const code = err && err.code;
+    if (code !== 'ENOENT' && code !== 'EBUSY') securedRoots.add(r);
+  }
+  try { return fs.statSync(r).mode & 0o777; } catch { return null; }
+}
+
 function ensure(dir) {
   fs.mkdirSync(dir, { recursive: true });
+  if (!securedRoots.has(currentDataRoot())) secureRoot();
   return dir;
 }
 
@@ -640,8 +665,9 @@ function saveAvatar(name, contentType, buffer) {
   // the old name would remove the new picture. So only a different file is removed.
   if (existing && existing !== dest) {
     try {
-      const a = fs.statSync(existing);
-      const b = fs.statSync(dest);
+      // #7229: BigInt ids, so on Windows two different pictures whose number ids collide are still told apart.
+      const a = fs.statSync(existing, { bigint: true });
+      const b = fs.statSync(dest, { bigint: true });
       if (a.ino !== b.ino || a.dev !== b.dev) fs.unlinkSync(existing);
     } catch { /* gone already, or left beside it; the lookup takes one */ }
   }
@@ -881,7 +907,7 @@ function writeSettings(patch) {
  * that names a gone pid on this host). Its test and test-support/data-root-sandbox.js are the
  * callers; nothing in the product calls it but the store itself.
  */
-module.exports = { saveFlushed /* #5434 slice 17 */, isTestProcess /* #6726: replyfile's test seam gates on it */, APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { secureRoot /* #1760 */, saveFlushed /* #5434 slice 17 */, isTestProcess /* #6726: replyfile's test seam gates on it */, APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

@@ -59,7 +59,8 @@ function arm(boxes) {
 const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
 const LATER = 'a later line that is long enough to read';
 
-test.beforeEach(() => { chat.resetForTests(); messages.resetForTests(); try { fs.rmSync(messages.LOG, { force: true }); } catch { /* fresh */ } });
+// kosmos#7246 slice 2: roomloop.resetForTests, so the per-project agent-wake cap never quiets a later test's post.
+test.beforeEach(() => { chat.resetForTests(); messages.resetForTests(); require('./roomloop').resetForTests(); try { fs.rmSync(messages.LOG, { force: true }); } catch { /* fresh */ } });
 test.after(() => { chat.setRunner(null); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 test('#6256 item 3, kosmos#6436: the unsent sentence says Kosmos presses it again on its own and before the next message', () => {
@@ -215,7 +216,8 @@ test('#6256 item 1: a room post held by text in the box notes it at the hold sit
   try {
     messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
     arm([box('the person is still writing something here')]);
-    const sent = messages.sendPost({ fromPane: '%7', project: 'lease', text: 'an update for the room' }, board.agents, ['leo', 'al']);
+    // kosmos#7246 slice 2: the post @-names al, so it reaches al's box (unaddressed, al would be quiet, not held).
+    const sent = messages.sendPost({ fromPane: '%7', project: 'lease', text: '@al an update for the room' }, board.agents, ['leo', 'al']);
     assert.deepEqual(roomhold.heldIn('al', 'lease').map(roomhold.plainId), [sent.id], 'PRECONDITION: held, not typed');
     const al = board.agents.find((c) => c.sessionName === 'al');
     // The hold site noted it: the sweep tells this project once the box reads empty (a real read of the box).

@@ -60,6 +60,10 @@ async function openAutomation(pg) {
   await pg.waitForTimeout(400);
   await pg.click('#s-nav button[data-go="automation"]');
   await pg.waitForTimeout(400);
+  /* #7211: the rows sit in a fold that is closed by default (render-community-index-7211.js checks that); every arm
+     here works on the rows themselves, so it opens the fold the way a person does. */
+  await pg.waitForSelector('#community-mine-all', { state: 'attached', timeout: 8000 }).catch(() => {});
+  await pg.evaluate(() => { const f = document.getElementById('community-mine-all'); if (f) f.open = true; });
 }
 
 function readList(pg) {
@@ -94,7 +98,7 @@ function readList(pg) {
 
 const answer = (body, status = 200) => (route) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 const row = (id, over) => ({ id, title: 'Post ' + id, agent: 'Ava', postedAt: '2026-09-28T08:00:00Z', state: 'sent', deleteRequested: false, takenDown: false, takeDownReason: null, agentRefused: false, deleteRetrying: false, canDelete: true, ...over });
-// #4801: communitymine.mineComments()'s row shape.
+// #4801: the comment row shape of communitymine.mineAll().comments.
 const CPOST = '7d1b0d2e-5a0e-4f6a-9c1e-2b3c4d5e6f70';   // the community post the comments are on
 const crow = (id, over) => ({ id, kind: 'comment', text: 'Reply ' + id, agent: 'Bo', postedAt: '2026-09-28T09:00:00Z', remotePostId: CPOST, state: 'sent', deleteRequested: false, deleteRetrying: false, agentRefused: false, untraceable: false, untraceableReason: null, traceUnknown: false, canDelete: true, ...over });
 
@@ -211,7 +215,7 @@ async function run() {
     let cdeleted = false;
     const cposts = [];
     await p5.route(MINE, (route) => answer({
-      posts: [row('a1', { postedAt: '2026-09-28T08:00:00Z' })],
+      posts: [row('a1', { postedAt: '2026-09-28T08:00:00Z' }), row('a2', { company: true, postedAt: '2017-09-28T10:00:00Z' })],   // kosmos#7543: a company post
       comments: [
         cdeleted ? crow('c1', { deleteRequested: true, canDelete: false }) : crow('c1', { postedAt: C1_AT }),
         crow('c2', { state: 'unconfirmed', untraceable: true, canDelete: false, postedAt: '2026-09-28T07:00:00Z' }),
@@ -229,13 +233,14 @@ async function run() {
         // review 5: a refused agent's comment that is also untraceable gives the refused reason, as requestCommentDelete does.
         crow('c13', { agentRefused: true, untraceable: true, untraceableReason: 'other-registration', canDelete: false, postedAt: '2026-09-28T00:02:00Z' }),
         crow('c8', { postedAt: '2019-09-28T10:00:00Z' }),   // review 2 NIT a: another year, so the date says the year
+        crow('c14', { company: true, postedAt: '2018-09-28T10:00:00Z' }),   // kosmos#7543: a company comment, with a plain post id
       ],
     })(route));
     await p5.route(DELETE, (route) => { cposts.push(route.request().postData()); cdeleted = true; return answer({ ok: true, state: 'sent' })(route); });
     await openAutomation(p5);
     const c = await readList(p5);
     const ids = c.rows.map((x) => x.id).join(',');
-    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c3,c4,c5,c6,c7,c9,c10,c11,c12,c13,c8', ids);
+    check('COMMENT: comments list with the posts, newest first', ids === 'c1,a1,c2,c3,c4,c5,c6,c7,c9,c10,c11,c12,c13,c8,c14,a2', ids);
     const byId = Object.fromEntries(c.rows.map((x) => [x.id, x]));
     check('COMMENT: a comment row reads as a comment, with its text and agent', byId.c1 && /^Comment: Reply c1/.test(byId.c1.text) && /Bo/.test(byId.c1.text) && /In the community/.test(byId.c1.text), JSON.stringify(byId.c1));
     check('COMMENT: Delete shows where the board says canDelete, and nowhere else', JSON.stringify(['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7'].map((i) => byId[i] && byId[i].del)) === '[true,false,false,false,true,false,false]', JSON.stringify(c.rows));
@@ -252,10 +257,14 @@ async function run() {
       return { href: a ? a.href : '', target: a ? a.target : '', rel: a ? a.rel : '', text: a ? a.textContent : '', label: a ? a.getAttribute('aria-label') : '',
         dt: t ? t.dateTime : '', day: t ? t.textContent : '', expectThisYear: fmt(c1At, false), expectWithYear: fmt(c1At, true),
         oldDay: old ? old.textContent : '', expectOld: fmt('2019-09-28T10:00:00Z', true), expectOldNoYear: fmt('2019-09-28T10:00:00Z', false),
-        links: { c9: linkOf('c9'), c10: linkOf('c10'), c8: linkOf('c8') } };
+        links: { c9: linkOf('c9'), c10: linkOf('c10'), c8: linkOf('c8'), c14: linkOf('c14') } };
     }, C1_AT);
     check('COMMENT: the row links to the post it is on, out of the board', where.href === 'https://community.kosmosplus.com/post/' + CPOST && where.target === '_blank' && /noopener/.test(where.rel) && where.text === 'on a community post', JSON.stringify(where));
     check('COMMENT: the post link\'s accessible name names the comment (review 2 NIT c)', where.label === 'The post this comment is on: Reply c1', JSON.stringify(where));
+    // kosmos#7543: a company item says it is in the company's own community, and a company comment's post (not on the
+    // public site) is named, never linked there; c8, a plain public comment, is the control that does link.
+    check('COMPANY: a company comment says where it is and gets no public link', where.links.c14 === 0 && byId.c14 && /on a post in your company’s own community/.test(byId.c14.text) && where.links.c8 === 1, JSON.stringify({ links: where.links, c14: byId.c14 }));
+    check('COMPANY: a company post says it is in the company’s own community; a public one does not', byId.a2 && /In your company’s own community/.test(byId.a2.text) && byId.a1 && !/company/.test(byId.a1.text), JSON.stringify({ a1: byId.a1, a2: byId.a2 }));
     check('COMMENT: a post id that is not a plain id, or none, gets no link; a plain one does (review 2 NIT b)', where.links.c9 === 0 && where.links.c10 === 0 && where.links.c8 === 1, JSON.stringify(where.links));
     // The two formats must differ, or the year checks below could not tell them apart.
     check('COMMENT: CONTROL: the this-year and with-year formats differ', where.expectThisYear !== where.expectWithYear && where.expectOld !== where.expectOldNoYear, JSON.stringify(where));

@@ -447,7 +447,7 @@ test('#5949 a failed Claude read while a codex agent is up holds the Claude card
     t += 5000;
     assert.equal(cap('cy:0.0'), 'busy', 'held, not forgotten');
     assert.deepEqual(cap.note('cy:0.0'), { held: true, cause: 'the status read timed out after 15 s' });
-    assert.equal(cap('cx:0.0'), 'idle', 'CONTROL: the codex agent is read as usual');
+    assert.equal(cap('cx:0.0'), 'stream-idle', 'CONTROL: the codex agent is read as usual (the idle from its state file, #7361)');
     assert.ok(lines.some((l) => l.name === 'cy' && l.event === 'status-read-failed'));
   } finally {
     win32live.byName = realByName;
@@ -556,7 +556,7 @@ test('#5949 a per-turn agent that stops while the Claude read is failing is forg
   const realByName = win32live.byName;
   win32live.byName = (o) => realByName({ ...o, codexLive: () => (codexUp ? [codexRow] : []) });
   try {
-    assert.equal(cap('cx:0.0'), 'idle', 'CONTROL: the codex agent is read');
+    assert.equal(cap('cx:0.0'), 'stream-idle', 'CONTROL: the codex agent is read (the idle from its state file, #7361)');
     assert.equal(cap('cy:0.0'), 'busy');
     claude = null;   // the Claude read fails ...
     codexUp = false;   // ... and the codex agent stops; a second codex agent keeps the live map alive
@@ -614,7 +614,7 @@ test('#5949 a streaming agent that has just started is not marked "could not che
   assert.deepEqual(cap.note('nia:0.0'), { unreadable: true, cause: 'its state file did not match the running session' },
     'it keeps failing: now the card says so, as the log does');
   token = 'idle';
-  assert.equal(look(), 'idle', 'CONTROL: once its state file is written it reads as usual');
+  assert.equal(look(), 'stream-idle', 'CONTROL: once its state file is written it reads as usual (as the idle of its stream, #7361)');
   assert.equal(cap.note('nia:0.0'), null);
 });
 
@@ -653,7 +653,7 @@ test('#5949 a good read of the per-turn agents alone ends the board-start carry 
   const realByName = win32live.byName;
   win32live.byName = (o) => realByName({ ...o, codexLive: () => rows });
   try {
-    assert.equal(cap('cx:0.0'), 'idle', 'CONTROL: the codex agent is read, with the Claude read failing');
+    assert.equal(cap('cx:0.0'), 'stream-idle', 'CONTROL: the codex agent is read, with the Claude read failing (the idle from its state file, #7361)');
     rows = [row('sid-x'), row('sid-z')];   // cz is relaunched: no state file yet
     t += 5000;
     assert.equal(cap('cz:0.0'), null, 'a start after the board was already reading does not wear its past session\'s state');

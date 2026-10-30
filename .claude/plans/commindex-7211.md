@@ -1,0 +1,66 @@
+# kosmos#7211: Settings stops listing every community post and comment
+
+## The card
+Settings > Automation > Kosmos+ community lists every post and comment by every agent, each with Delete (#4313,
+#4801): about 1,850 lines on Josh's board. Josh (10-26 10:35): take it out of Settings, keep what must be acted on
+("Waiting for you"), at most a one-line summary and a link; the full index belongs on the community site, or as a
+first slice the link goes to the community view of the person's agents.
+
+## The call (posted on the card 10:5x)
+- "Waiting for you" is unchanged.
+- A summary line, "Your agents have N posts and M comments in the community", counts only what is out there now:
+  a post that is sent, not taken down and has no delete asked; a comment that is sent and has no delete asked.
+- One line of links, "See them on each agent's community page:", gives each agent's name, linking to
+  community.kosmosplus.com/agent/<community name>. The site's agent page already has Posts and Replies tabs. The name
+  comes from the board's registration record (keys.json `name`, for an entry with an `apiKey`), never from the
+  display name.
+- The full list, with Delete unchanged, sits inside a `<details>` that is closed by default: "Show every one here,
+  to delete one".
+
+## Rejected
+- Removing the list entirely: Delete has no other home until the site has a person-scoped page.
+- A combined "my agents" view as the link: the site has none. It needs the person-to-agents link on the site, which
+  is the follow-up card.
+
+## Weakest premise
+That a closed disclosure counts as "out of Settings" for Josh. If not, the disclosure goes, and Delete waits for the
+site page.
+
+## Steps
+1. engine/communitysend.js `communityNames()`: {agentKey: name} from keys.json, null when it cannot be read.
+2. engine/communitymine.js `summary(posts, comments)`: the counts and the agents. Route: /api/community/mine gains
+   `summary`.
+3. web/index.html: the summary line, the links line, and the list inside the closed disclosure; the off-note's
+   "in the list below" now points at it.
+4. Tests: engine/communitymine-summary-7211.test.js (summary, communityNames, mineAll); the browser check
+   docs/browser-checks/render-community-index-7211.js (the closed fold, the summary, the links); the #4313 and #5958
+   browser checks open the fold before working on the rows.
+5. Design shots (/design-shots), challenge loop, validation, PR, then merge once the shots are posted.
+6. File the follow-up: a site page for the signed-in person, listing all their agents' posts and comments with
+   Delete.
+
+## Progress
+- [x] 1 - [x] 2 - [x] 3 - [x] 4 - [ ] 5 (challenge loop in round 6; design shots after the queued browser check) - [ ] 6
+
+## Deferred in review
+- Comments unreadable and no posts: the fold and the count hide, and the could-not-read line shows, so the page says
+  what is unknown rather than "none" (iteration 1).
+- The /agent/<name> route (iteration 2 asked): checked 10:57. kosmos-community web/app/agent/[name]/page.tsx decodes
+  the segment and reads /agents/by-name/<name> (web/lib/api.ts:156); live, that API answers 200 for a real agent and
+  404 for a made-up name. The page itself answers 200 for any name (it renders client-side), so the API is the check.
+- Comments unreadable: the count names posts only, and the could-not-read line beside it says why (iteration 3 nit).
+- A comment the community's moderators removed still counts in the summary (iteration 4): the service gives the board
+  no way to ask about a comment once it is sent, so the board holds no fact to exclude it with. Posts do carry
+  takenDown and are excluded.
+- The fold holds every row, including ones the count leaves out (held, coming down, refused); each row says its own
+  state, and the fold is labelled "every one", so the count above it is not claimed to describe the fold
+  (iteration 5).
+- The live rule is written twice, once for posts and once for comments, because only a post can carry takenDown
+  (iteration 5); a shared helper would hide that difference rather than remove it.
+
+## Design review (Mona Lisa, 10-26 11:31, shots at 20bccc9b3d): approved with two should-fixes, both done
+- The fold is drawn as the agent rows' fold (their chevron, turned while open) and reads "Hide them" while open.
+- When the fold holds rows that are not out there, the count line says how many ("The list below also has 1 that is
+  not in the community"), so the count and the rows never seem to disagree.
+- Nits done: "no comments" for 0; a gap above the first row when open. Left as she advised: opening the fold on a big
+  board still shows every row (it is closed by default and opened only to delete one); #7215 is the way out.

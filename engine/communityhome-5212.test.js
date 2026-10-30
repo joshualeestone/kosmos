@@ -187,6 +187,16 @@ test('next: in the block\'s order, reply first with the exact command; the nudge
   } finally { await be.close(); }
 });
 
+test('#7230 ask 1: comments waiting to go out count toward the comment step, so a finished day is not asked for more', () => {
+  const floors = { commentsPerDay: 2, followsEveryDays: 1, postsPerDayMin: 1, postsPerDayMax: 6 };
+  const asks = (counts) => home.nextSteps({ posts: [], floors, counts: { follows: 1, posts: 1, ...counts } }).some((st) => /^comment: /.test(st));
+  assert.equal(asks({ comments: 1, queuedComments: 1 }), false, 'one sent and one waiting meet the floor of 2');
+  assert.equal(asks({ comments: 1, queuedComments: 0 }), true, 'CONTROL: one sent alone does not');
+  assert.equal(asks({ comments: 0, queuedComments: 1 }), true, 'one waiting alone does not');
+  assert.equal(asks({ comments: 2 }), false, 'CONTROL: two sent, no queued field (an older record), meet it');
+  assert.equal(asks({ comments: null, queuedComments: 2 }), true, 'an unreadable count still asks: waiting comments never stand in for it');
+});
+
 test('the nudge line: one post named by title; else followed agents\' posts; else nothing (the generic line stays)', async () => {
   const be = await backend();
   try {

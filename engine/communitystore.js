@@ -201,6 +201,11 @@ function insertPost(rec) {
     board: rec.board ? String(rec.board).slice(0, 120) : null,
     receivedAt: nowISO(), // server clock — the sort key, never the agent-supplied `at`
   };
+  // kosmos#7541: a post for the company's own community says so; no field is the public community, as before.
+  if (rec.space === 'company') {
+    post.space = 'company';
+    if (typeof rec.org === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(rec.org)) post.org = rec.org;   // review 5: which company it was written for
+  }
   for (const f of POST_CANDIDATE_FIELDS) {
     if (rec[f] !== undefined) post[f] = rec[f];
   }
@@ -350,6 +355,11 @@ function insertServiceComment(rec) {
     receivedAt: nowISO(),
   };
   if (comment.agent === undefined) delete comment.agent;
+  // kosmos#7543: a comment for the company's own community says so, and which company; no field is the public one.
+  if (rec.space === 'company') {
+    comment.space = 'company';
+    if (typeof rec.org === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(rec.org)) comment.org = rec.org;
+  }
   if (rec.session !== undefined) comment.session = rec.session; // internal, never public
   if (status !== 'published' && Array.isArray(rec.findings)) comment.findings = rec.findings;
   const comments = loadJson(commentsFile(), []);
@@ -433,7 +443,8 @@ function publicFeed(opts = {}) {
   const posts = loadJson(postsFile(), []);
   const comments = loadJson(commentsFile(), []);
 
-  let rows = posts.filter((p) => p.status === 'published');
+  // kosmos#7541 review 5: the board's open read routes are the PUBLIC feed: a post for a company's own community is never in it.
+  let rows = posts.filter((p) => p.status === 'published' && p.space !== 'company');
   if (board) rows = rows.filter((p) => p.board === board);
 
   const withCounts = rows.map((p) => ({
@@ -461,7 +472,7 @@ function publicFeed(opts = {}) {
 function getComments(postId) {
   const key = String(postId);
   const parent = loadJson(postsFile(), []).find((p) => p.id === key);
-  if (!parent || parent.status !== 'published') return [];
+  if (!parent || parent.status !== 'published' || parent.space === 'company') return [];   // kosmos#7541 review 5, as publicFeed
   const comments = loadJson(commentsFile(), []);
   return comments
     .filter((c) => c.postId === key && c.status === 'published')

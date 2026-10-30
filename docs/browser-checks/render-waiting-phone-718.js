@@ -187,13 +187,23 @@ async function open(browser, opts) {
     // with /api/status stubbed and the page's own timers REAL, through tick -> settleWantAgent ->
     // openDetail -> the reveal. Present: it lands on the conversation. Missing: after the grace
     // it goes to the board home and the address loses the link.
-    const fromLink = async (agents, waitMs) => {
+    // #7280 review 1: `files` makes the agent's Files list (painted above every section) arrive 600 ms late with 8 rows,
+    // the drift the landing's hold exists for.
+    const fromLink = async (agents, waitMs, extra, files) => {
       const page = await browser.newPage({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
-      await page.addInitScript((list) => {
+      await page.addInitScript(([list, files]) => {
         const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
-        window.fetch = async (u) => (String(u).indexOf('/api/status') !== -1 ? enc({ agents: list, counts: {}, checkedAt: Date.now() }) : enc({}));
-      }, agents);
-      await page.goto(PAGE + '?tab=detail&agent=' + encodeURIComponent(BASE.sessionName));
+        const rows = Array.from({ length: 8 }, (_, i) => ({ name: 'notes-' + (i + 1) + '.md', modified: Date.now() - i * 60000, size: 1200 }));
+        // Chromium anchors scrolling and absorbs content growing above; WebKit (Safari, the iPhone) does not, which is why
+        // the hold exists. With the late list, anchoring is off so this measures what Safari would see.
+        if (files) document.addEventListener('DOMContentLoaded', () => { const st = document.createElement('style'); st.textContent = '* { overflow-anchor: none !important; }'; document.head.appendChild(st); });
+        window.fetch = async (u) => {
+          if (String(u).indexOf('/api/status') !== -1) return enc({ agents: list, counts: {}, checkedAt: Date.now() });
+          if (files && /\/api\/agent\/[^/]+\/files/.test(String(u))) { await new Promise((r) => setTimeout(r, 600)); return enc({ ok: true, stamp: 'late-7280', files: rows }); }
+          return enc({});
+        };
+      }, [agents, !!files]);
+      await page.goto(PAGE + '?tab=detail&agent=' + encodeURIComponent(BASE.sessionName) + (extra || ''));
       await page.evaluate(() => { const fr = document.getElementById('firstrun'); if (fr) fr.remove(); });
       await page.waitForTimeout(waitMs);
       const r = await page.evaluate(() => {
@@ -205,7 +215,14 @@ async function open(browser, opts) {
           docH: document.documentElement.scrollHeight, vh: window.innerHeight,
           boxBottom: box ? Math.round(box.getBoundingClientRect().bottom) : null,
           boxW: box ? Math.round(box.getBoundingClientRect().width) : 0, boxH: box ? Math.round(box.getBoundingClientRect().height) : 0,
-          talkShown: !!(talk && !talk.hidden) };
+          talkShown: !!(talk && !talk.hidden),
+          // #7280: AI Settings (d-sec-model) shown, and where it sits on the screen.
+          modelShown: !!(document.getElementById('d-sec-model') && !document.getElementById('d-sec-model').hidden),
+          modelTop: document.getElementById('d-sec-model') ? Math.round(document.getElementById('d-sec-model').getBoundingClientRect().top) : null,
+          fileRows: document.querySelectorAll('#d-files-list > *').length,
+          // Where a scroll lands under the app header on a phone (html scroll-padding-top): the section's correct top.
+          landing: Math.round(parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0),
+          filesShown: !!(document.getElementById('d-files') && !document.getElementById('d-files').hidden) };
       });
       await page.close();
       return r;
@@ -223,6 +240,28 @@ async function open(browser, opts) {
       && present.boxBottom !== null && present.boxBottom <= present.vh + 1;
     chk(present.detailShown && present.current === BASE.sessionName && (scrolledTo || wholeScreen),
       '[link/phone] a page load with ?tab=detail&agent= lands on that agent\'s conversation', JSON.stringify(present));
+    // #7280: the link may name a section. &sec=model opens AI Settings (not the conversation), on screen; an unknown
+    // section lands on the conversation as before. A main without the change lands &sec=model on the conversation,
+    // which the first arm reads as a failure (measured against origin/main when this was written).
+    const toModel = await fromLink([BASE], 2000, '&sec=model');
+    chk(toModel.detailShown && toModel.current === BASE.sessionName && toModel.modelShown && !toModel.talkShown
+      && toModel.modelTop !== null && toModel.modelTop >= 0 && toModel.modelTop < 667,
+      '[link/phone] ?tab=detail&agent=&sec=model opens that agent\'s AI Settings, on screen', JSON.stringify(toModel));
+    // Review 1: with the Files list landing late above it (scroll anchoring off, as on Safari), AI Settings is put back
+    // where a scroll lands, under the app header (scroll-padding-top, 187px at this width), not left pushed down. The
+    // stimulus must have fired (8 rows painted) or the arm proves nothing; the control with the hold replaced by a
+    // one-shot scroll must fail it.
+    const toModelFiles = await fromLink([BASE], 3000, '&sec=model', true);
+    if (!(toModelFiles.filesShown && toModelFiles.fileRows >= 8)) chk(false, '[link/phone] the late Files list really painted above AI Settings', JSON.stringify(toModelFiles));
+    else chk(toModelFiles.modelShown && toModelFiles.modelTop !== null && Math.abs(toModelFiles.modelTop - toModelFiles.landing) <= 2,
+      '[link/phone] &sec=model stays where it landed when the Files list arrives late above it', JSON.stringify(toModelFiles));
+    for (const sec of ['remove', 'term']) {
+      const r = await fromLink([BASE], 2000, '&sec=' + sec);
+      chk(r.detailShown && r.talkShown, '[link/phone] &sec=' + sec + ' is not a section a link opens: it lands on the conversation', JSON.stringify(r));
+    }
+    const toUnknown = await fromLink([BASE], 2000, '&sec=nonsense');
+    chk(toUnknown.detailShown && toUnknown.current === BASE.sessionName && toUnknown.talkShown && !toUnknown.modelShown,
+      '[link/phone] an unknown &sec= lands on the conversation as before', JSON.stringify(toUnknown));
     const missing = await fromLink([], 11000);
     // The board home is the agents tab. (The address loses agent= at boot anyway, before the
     // settle runs, so checking the address here could not fail; it is not asserted.)

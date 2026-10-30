@@ -323,7 +323,7 @@ test('#4588 B pin: givePart checks heldForQuota, then #4588 ask 3\'s heldForCap,
   const body = CODE.slice(fnAt, CODE.indexOf('\nfunction ', fnAt + 1));
   assert.match(body, /const r = roster \|\| safeRoster\(\);/, 'the hold checks no longer read the roster the assigner passed');
   const held = body.search(/heldForQuota\(who, r, now\)/);
-  const cap = body.search(/heldForCap\(who, r, now\)/);
+  const cap = body.search(/heldForCap\(who, r, now(?:, undefined, undefined, undefined, true)?\)/);   // kosmos#7406: it asks for the per-account cap too
   const assign = body.indexOf('tasks.assignPart(');
   assert.notEqual(held, -1, 'givePart no longer checks heldForQuota');
   assert.notEqual(cap, -1, 'givePart no longer checks the Gemini cap');

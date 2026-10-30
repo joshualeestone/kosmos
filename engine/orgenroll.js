@@ -416,6 +416,9 @@ const SAY = Object.freeze({
   org_consent_changed: 'Your company changed its terms just now. Nothing was joined. Press Connect Account again.',
   // kosmos#6239: a family joins only after its words are read here; an automatic accept never says they were.
   org_family_words_unseen: 'A family joins only after a parent or guardian reads and accepts its words on this computer. Nothing was joined. Press Connect Account to read them.',
+  /* kosmos#5537 slice G: the coordinator refuses a change whose audit row cannot be written, and changes nothing. A
+     member moving the work Kosmos here heard the join fallback ("Nothing was joined"), which names the wrong act. */
+  audit_unavailable: 'Your company could not record this just now, so nothing changed. Try again in a minute.',
 });
 /* kosmos#6251: the sentences a family hears instead, where this board knows the org is a family (its record, or the
    previewed org). Every other code is said as above. */
@@ -425,6 +428,7 @@ const FAMILY_SAY = Object.freeze({
   org_bad_world: 'This Kosmos could not be named to your family. Try again.',
   org_already_member: 'You are already in this family. Press Connect Account again to make this Kosmos the family\'s Kosmos on this computer.',
   org_consent_changed: 'The family\'s words changed just now. Nothing was joined. Press Connect Account to read them again.',
+  audit_unavailable: 'Your family account could not record this just now, so nothing changed. Try again in a minute.',
 });
 /* kosmos#6251: what this board knows of an org's kind. Anything but a family (none, an older coordinator) is a
    company's, as the coordinator reads it. */

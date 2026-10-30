@@ -259,8 +259,92 @@ check(Shell.macUnreachableTitle("10102026") == "10102026 isn't answering", "the 
 check(Shell.macUnreachableMessage("tmnt").contains("the Mac called tmnt didn't reply"), "the message names the Mac")
 check(Shell.macUnreachableTitle(nil) == "Your Mac isn't answering" && Shell.macUnreachableTitle("  ") == "Your Mac isn't answering",
       "CONTROL: no name keeps the old wording")
-check(Shell.macUnreachableMessage(nil) == "Your phone is online, but your Mac didn't reply. It may be asleep or turned off. Wake it, then try again.",
-      "CONTROL: the unnamed message is the old one, word for word")
+check(Shell.macUnreachableMessage(nil) == "Your phone is online, but your Mac didn't reply. It may be asleep, off or offline. Wake it, then try again.",
+      "kosmos#7416: the unnamed message with no time, word for word (Mona Lisa's first sentence)")
+// kosmos#7416 slice 2: when Kosmos+ last heard from the Mac, in the person's clock and Mona Lisa's words. A fixed
+// calendar, zone and locale, so the words do not depend on the Mac running the tests.
+do {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "America/Chicago")!
+    let en = Locale(identifier: "en_US")
+    func at(_ y: Int, _ mo: Int, _ d: Int, _ h: Int, _ mi: Int) -> Date {
+        cal.date(from: DateComponents(year: y, month: mo, day: d, hour: h, minute: mi))!
+    }
+    // The clock's space before AM/PM is a narrow no-break space on newer systems; compare words, not that byte.
+    func heard(_ t: Date?, _ now: Date) -> String? {
+        Shell.lastHeardSentence(t?.timeIntervalSince1970, now: now, calendar: cal, locale: en)?
+            .replacingOccurrences(of: "\u{202F}", with: " ")
+    }
+    let now = at(2026, 10, 27, 22, 0)   // a Tuesday
+    check(heard(at(2026, 10, 27, 20, 12), now) == "We last heard from it at 8:12 PM.", "today: the time alone")
+    check(heard(at(2026, 10, 26, 20, 12), now) == "We last heard from it yesterday at 8:12 PM.", "yesterday: yesterday at the time")
+    check(heard(at(2026, 10, 22, 9, 5), now) == "We last heard from it on Thursday at 9:05 AM.", "within the week: the weekday spelled out, and the time")
+    check(heard(at(2026, 10, 21, 9, 5), now) == "We last heard from it on Wednesday at 9:05 AM.", "six days back is still within the week")
+    check(heard(at(2026, 10, 20, 9, 5), now) == "We last heard from it on Oct 20.", "a week or more: the date, and no time")
+    check(heard(at(2026, 10, 27, 23, 50), at(2026, 10, 28, 0, 10)) == "We last heard from it yesterday at 11:50 PM.", "twenty minutes over midnight is yesterday: calendar days, not hours")
+    check(heard(at(2026, 11, 1, 0, 30), at(2026, 11, 2, 10, 0)) == "We last heard from it yesterday at 12:30 AM.", "the day the clocks went back is one calendar day, not two")
+    // Review 1: the fall-back day (25 h) rounds to one day even when counted in hours; the spring-forward day (23 h)
+    // is the case that tells calendar days from hours.
+    // (8 March is the 23 h day: midnight to midnight from the 8th to the 9th.)
+    check(heard(at(2026, 3, 8, 22, 0), at(2026, 3, 9, 10, 0)) == "We last heard from it yesterday at 10:00 PM.", "the evening of the day the clocks went forward is yesterday the next morning, not today")
+    check(Board.lastHeard(listed: 100, heard: Date(timeIntervalSince1970: 500)) == 500 && Board.lastHeard(listed: 900, heard: Date(timeIntervalSince1970: 500)) == 900,
+          "the later of the list's last_seen and the app's own last good read")
+    check(Board.lastHeard(listed: 0, heard: nil) == nil && Board.lastHeard(listed: nil, heard: nil) == nil && Board.lastHeard(listed: nil, heard: Date(timeIntervalSince1970: 7)) == 7,
+          "neither: no time; only the app's read: that one")
+    check(Board.lastHeard(listed: 9_000, heard: Date(timeIntervalSince1970: 500), now: Date(timeIntervalSince1970: 1_000)) == 500,
+          "review 5: a last_seen ahead of this phone's clock (a phone set behind) does not hide the phone's own read")
+    check(Board.lastHeard(listed: 1_050, heard: Date(timeIntervalSince1970: 500), now: Date(timeIntervalSince1970: 1_000)) == 1_050,
+          "CONTROL: a last_seen within the minute's allowance is still taken")
+    check(heard(nil, now) == nil && Shell.lastHeardSentence(0, now: now, calendar: cal, locale: en) == nil, "no time (none, or 0: never seen): no sentence")
+    check(heard(now.addingTimeInterval(2 * 3600), now) == nil, "a time ahead of now says nothing")
+    check(heard(now.addingTimeInterval(30), now) == "We last heard from it at 10:00 PM.", "CONTROL: a clock a few seconds ahead is still now")
+    let seen = at(2026, 10, 27, 20, 12).timeIntervalSince1970
+    check(Shell.macUnreachableMessage("tmnt", lastSeen: seen, now: now, calendar: cal, locale: en).replacingOccurrences(of: "\u{202F}", with: " ")
+            == "Your phone is online, but the Mac called tmnt didn't reply. It may be asleep, off or offline. We last heard from it at 8:12 PM. Wake it, then try again.",
+          "the message: the Mac named, Mona's first sentence, then the time")
+    check(Shell.macUnreachableMessage("tmnt", lastSeen: 0, now: now) == "Your phone is online, but the Mac called tmnt didn't reply. It may be asleep, off or offline. Wake it, then try again.",
+          "CONTROL: no time leaves the sentence out, nothing else")
+    // Which computer's time: by address, else by a name only one computer has.
+    let listed = [Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true, lastSeen: 300),
+                  Board.Mac(name: "Mac", address: "a.kosmosplus.com", usable: true, lastSeen: 100),
+                  Board.Mac(name: "Mac", address: "b.kosmosplus.com", usable: true, lastSeen: 200)]
+    check(Board.lastSeen(listed, address: "B.KosmosPlus.com", name: "Mac") == 200, "by the failed page's address, in any case")
+    check(Board.lastSeen(listed, address: nil, name: "Studio") == 300, "by name when only one computer has it")
+    check(Board.lastSeen(listed, address: nil, name: "Mac") == nil, "two of one name: no time rather than the other one's")
+    check(Board.lastSeen(listed, address: "gone.kosmosplus.com", name: nil) == nil && Board.lastSeen(listed, address: nil, name: nil) == nil, "a computer not listed: no time")
+    // The switcher's Offline row says when it was last seen; an online one does not.
+    // Review 2: the switcher takes the app's own reads too, so it says the screen's time, and a Mac read in the last
+    // 15 s is online whatever the list said.
+    let stale = [Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true, connected: false, lastSeen: 100)]
+    let readAt = at(2026, 10, 27, 21, 40)
+    check(Board.switcherRows(stale, shown: nil, heard: ["studio.kosmosplus.com": readAt], now: readAt.addingTimeInterval(5), calendar: cal, locale: en).map(\.status) == ["Online"],
+          "a Mac the app read 5 s ago is online, whatever the list said")
+    check(Board.switcherRows(stale, shown: nil, heard: ["studio.kosmosplus.com": readAt], now: now, calendar: cal, locale: en)
+            .map { $0.status.replacingOccurrences(of: "\u{202F}", with: " ") } == ["Not answering since 9:40 PM"],
+          "an offline row says the app's later read, as the screen does, not the list's older time")
+    let sw = Board.switcherRows([Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true, connected: false, lastSeen: seen),
+                                 Board.Mac(name: "Mini", address: "mini.kosmosplus.com", usable: true, lastSeen: seen),
+                                 Board.Mac(name: "Old", address: "old.kosmosplus.com", usable: true, connected: false)],
+                                shown: nil, now: now, calendar: cal, locale: en)
+    check(sw.map { $0.status.replacingOccurrences(of: "\u{202F}", with: " ") } == ["Online", "Not answering", "Not answering since 8:12 PM"],
+          "the switcher (Mona Lisa): \"Not answering since 8:12 PM\"; Online alone; \"Not answering\" alone when never heard from")
+    // Focused review: "Last checked" (how old the screen is) stays unless it says the same minute as "last heard".
+    let checkedAt = at(2026, 10, 27, 20, 12)
+    check(!Shell.saysLastChecked(checkedAt.addingTimeInterval(20), lastHeard: seen) && Shell.saysLastChecked(at(2026, 10, 27, 19, 40), lastHeard: seen),
+          "Last checked is left out only when it is the same minute as last heard; an older list still says how old it is")
+    check(Shell.saysLastChecked(checkedAt, lastHeard: nil) && !Shell.saysLastChecked(nil, lastHeard: seen),
+          "no last heard: Last checked as before; nothing checked: no Last checked")
+    // Mona Lisa's time words, bare (switcher, list line) and in a sentence (the message, as the board).
+    func words(_ t: Date) -> String? { Board.heardWhen(t.timeIntervalSince1970, now: now, calendar: cal, locale: en)?.words.replacingOccurrences(of: "\u{202F}", with: " ") }
+    check(words(at(2026, 10, 27, 20, 12)) == "8:12 PM" && words(at(2026, 10, 26, 20, 12)) == "yesterday at 8:12 PM"
+            && words(at(2026, 10, 22, 9, 5)) == "Thursday at 9:05 AM" && words(at(2026, 10, 20, 9, 5)) == "Oct 20",
+          "the bare time words are Mona Lisa's four: 8:12 PM, yesterday at 8:12 PM, Thursday at 9:05 AM, Oct 20")
+    check(Shell.notUpdatingLine("Studio", lastHeard: seen, now: now, calendar: cal, locale: en).replacingOccurrences(of: "\u{202F}", with: " ")
+            == "Not updating. Studio isn't answering, last heard 8:12 PM.",
+          "the list's line (Mona Lisa): the Mac named (#7197), then \"last heard 8:12 PM\"")
+    check(Shell.notUpdatingLine("Studio", lastHeard: nil) == "Not updating. Studio isn't answering." && Shell.notUpdatingLine("Studio", lastHeard: 0) == "Not updating. Studio isn't answering.",
+          "CONTROL: with no time the list's line is as before")
+}
 check(Shell.notUpdatingLine("tmnt") == "Not updating. tmnt isn't answering." && Shell.notUpdatingLine(nil) == "Not updating. Your Mac isn't answering.",
       "the banner over a list names the Mac, and keeps the old words with no name")
 check(BoardClient.Phase.unreachable(mac: "10102026").macName == "10102026" && BoardClient.Phase.live(mac: Board.Mac(name: "tmnt", address: "tmnt.kosmosplus.com", usable: true)).macName == "tmnt"
@@ -678,6 +762,8 @@ do {
     let macs = Board.parseMacs(Data(json.utf8)) ?? []
     check(macs.count == 4, "a row with no address is dropped")
     check(macs.map(\.usable) == [false, false, true, true], "retired and switched-off Macs are not usable; a null retired_at is")
+    check(Board.parseMacs(Data(#"{"macs":[{"address":"c.kosmosplus.com","hosted":true},{"address":"m.kosmosplus.com"}]}"#.utf8))?.map(\.hosted) == [true, false],
+          "kosmos#4903: hosted is read, and a row without it is not hosted")
     let heldRefused = Board.parseMacs(Data(#"{"macs":[{"address":"h.kosmosplus.com","held":true},{"address":"r.kosmosplus.com","refused":true}]}"#.utf8)) ?? []
     check(heldRefused.map(\.usable) == [false, false], "a held or refused Mac is not usable either")
     check(macs[3].name == "laptop.kosmosplus.com", "an empty name falls back to the address")
@@ -698,6 +784,38 @@ do {
     let refused = #"{"macs":[{"address":"new.kosmosplus.com","last_seen":900,"this_device":"denied"},{"address":"old.kosmosplus.com","last_seen":100}]}"#
     check(Board.pickMac(Board.parseMacs(Data(refused.utf8)) ?? [], remembered: nil)?.address == "old.kosmosplus.com", "a Mac that refused this iPhone is passed over while another can be tried")
     let onlyRefused = #"{"macs":[{"address":"new.kosmosplus.com","last_seen":900,"this_device":"denied"}]}"#
+    // kosmos#7266: the switcher's choice wins while usable, connected or not, and never a Mac that cannot be opened.
+    check(Board.pickMac(r, remembered: "mini.kosmosplus.com", chosen: "old.kosmosplus.com")?.address == "old.kosmosplus.com", "a chosen Mac wins even when it is not connected (its own screen says so)")
+    check(Board.pickMac(Board.parseMacs(Data(refused.utf8)) ?? [], remembered: nil, chosen: "new.kosmosplus.com")?.address == "new.kosmosplus.com", "a chosen Mac wins even when it refused this iPhone (the person asked for it)")
+    check(Board.pickMac(macs, remembered: nil, chosen: "old.kosmosplus.com")?.address == "laptop.kosmosplus.com", "a chosen Mac that was retired is not opened")
+    check(Board.pickMac(r, remembered: nil, chosen: "gone.kosmosplus.com")?.address == "studio.kosmosplus.com", "a chosen Mac no longer listed falls back to the usual pick")
+    let rows = Board.switcherRows(macs + r, shown: "mini.kosmosplus.com")
+    check(rows.map(\.name) == ["laptop.kosmosplus.com", "Mini", "Old laptop", "Studio", "Studio"], "the switcher lists the usable Macs by name, retired and switched-off ones left out")
+    let twins = [Board.Mac(name: "Mac", address: "b.kosmosplus.com", usable: true), Board.Mac(name: "Mac", address: "a.kosmosplus.com", usable: true)]
+    check(Board.switcherRows(twins, shown: nil).map(\.address) == ["a.kosmosplus.com", "b.kosmosplus.com"], "two of one name keep the order of their addresses")
+    check(rows.filter(\.shown).map(\.address) == ["mini.kosmosplus.com"], "only the shown Mac is checked")
+    check(rows.first(where: { $0.name == "Old laptop" })?.status != "Online" && rows.first(where: { $0.name == "Mini" })?.status == "Online", "each row says online or offline from not_connected")
+    check(Board.switcherRows(heldRefused, shown: nil).isEmpty, "a held or refused Mac is not offered")
+    // kosmos#7266 slice B: the person's name and picture.
+    let mac0 = URL(string: "https://studio.kosmosplus.com/")!
+    check(Board.youRequest(mac: mac0).url?.path == "/api/you" && Board.youPictureRequest(mac: mac0).url?.path == "/api/you/avatar", "the person's record and picture are the board's own routes")
+    check(Board.parseYouName(Data(#"{"state":"saved","you":{"name":"  Sam Carter ","does":"x"}}"#.utf8)) == "Sam Carter", "a saved name, trimmed")
+    check(Board.parseYouName(Data(#"{"state":"absent","you":null}"#.utf8)) == nil && Board.parseYouName(Data(#"{"state":"saved","you":{"name":"   "}}"#.utf8)) == nil, "no name when none is saved, or it is blank")
+    check(Board.parseYouName(Data(#"{"state":"unknown","you":{"name":"Old"}}"#.utf8)) == nil && Board.parseYouName(Data("<html>".utf8)) == nil, "nor from an unreadable record or a page")
+    // Mona Lisa's review: no picture shows the person's letter, as an agent with none; never a letter for no name.
+    check(Board.youLetter("Sam Carter") == "S" && Board.youLetter("  sam ") == "S", "the name's first letter, upper-cased, spaces ignored")
+    check(Board.youLetter(nil) == nil && Board.youLetter("   ") == nil, "no letter while the name is not known (the gear shows then)")
+    check(Board.youLetter("élodie") == "É" && Board.youLetter("李明") == "李", "a first letter outside A to Z is kept whole")
+    // Review 1: only "no record" or a saved blank name clears the name; anything that is not the record keeps it.
+    check(Board.youName(Data(#"{"state":"saved","you":{"name":"Sam"}}"#.utf8)) == .name("Sam"), "a saved name")
+    check(Board.youName(Data(#"{"state":"absent","you":null}"#.utf8)) == .none && Board.youName(Data(#"{"state":"saved","you":{"name":" "}}"#.utf8)) == .none, "absent or blank: no name")
+    check(Board.youName(Data("<html>sign in</html>".utf8)) == .unknown && Board.youName(Data(#"{"state":"unknown","you":null}"#.utf8)) == .unknown, "the gate's page or an unreadable record learns nothing")
+    let png = Data([0x89, 0x50, 0x4e, 0x47])
+    check(Board.youPicture(status: 200, contentType: "image/png", data: png) == .picture(png), "a picture")
+    check(Board.youPicture(status: 204, contentType: nil, data: Data()) == .none && Board.youPicture(status: 404, contentType: "text/plain", data: Data("x".utf8)) == .none, "204 (none yet) and an older board's 404 are no picture")
+    check(Board.youPicture(status: 200, contentType: "text/html", data: Data("<html>".utf8)) == .unknown, "the gate's sign-in page at 200 is not a picture, and does not clear one")
+    check(Board.youPicture(status: 500, contentType: nil, data: nil) == .unknown && Board.youPicture(status: nil, contentType: nil, data: nil) == .unknown, "a 5xx or no answer learns nothing")
+    check(Board.switcherRows([Board.Mac(name: "b", address: "b.kosmosplus.com", usable: true), Board.Mac(name: "A", address: "a.kosmosplus.com", usable: true)], shown: nil).map(\.name) == ["A", "b"], "by name, whatever its case")
     check(Board.pickMac(Board.parseMacs(Data(onlyRefused.utf8)) ?? [], remembered: nil)?.address == "new.kosmosplus.com", "and still picked when it is the only one, so the screen can say it refused")
     check(Board.parseMacs(Data("[]".utf8)) == nil, "a body that is not the list reads as nothing")
     check(Board.parseHandoffToken(Data(#"{"token":"t"}"#.utf8)) == "t" && Board.parseHandoffToken(Data(#"{"token":""}"#.utf8)) == nil, "the handoff token, never an empty one")
@@ -1062,6 +1180,68 @@ do {
 section("native chat: what follows a new message down")
 do {
     func r(_ id: String, _ at: String?) -> Board.ChatRow { Board.ChatRow(id: id, atRaw: at, at: Board.isoDate(at), text: id, who: .agent) }
+    // kosmos#7265 (Josh 10-27): an open chat keeps the rows a read slides out of the latest window (carryDropped), and its
+    // eager stack starts where it started at opening (eagerStart), so nothing above the reader moves.
+    do {
+        func rows(_ ids: ClosedRange<Int>) -> [Board.ChatRow] { ids.map { r("m\($0)", nil) } }
+        let before = Board.Thread(rows: rows(10...14), olderCount: 10)   // m10..m14 at positions 10..14
+        let slid = Board.Thread(rows: rows(12...16), olderCount: 12)     // two new messages pushed m10, m11 out
+        let kept = Board.carryDropped(Board.Earlier(), previous: before, fresh: slid)
+        check(kept.open && kept.rows.map(\.id) == ["m10", "m11"] && kept.before == 10 && kept.end == 12,
+              "kosmos#7265: rows a read slid out are kept above the window (\(kept.rows.map(\.id)), \(kept.before)..<\(kept.end))")
+        check(Board.shownRows(kept, thread: slid).map(\.id) == (10...16).map { "m\($0)" }, "and the chat still shows every row it showed, in order")
+        check(!Board.hasGap(end: kept.end, olderCount: slid.olderCount), "with no gap left for a page to fetch")
+        // Open already (a page loaded up to the window): only the new part is added, never a duplicate.
+        var open = Board.Earlier(); open.open = true; open.rows = rows(5...9); open.before = 5; open.end = 10
+        let more = Board.carryDropped(open, previous: before, fresh: slid)
+        check(more.rows.map(\.id) == (5...11).map { "m\($0)" } && more.end == 12, "an open chat appends only what left: \(more.rows.map(\.id))")
+        // CONTROLS: reads that do not overlap by id, a window that did not slide, and a page in flight change nothing.
+        let other = Board.Thread(rows: [r("x1", nil), r("x2", nil)], olderCount: 12)
+        check(Board.carryDropped(Board.Earlier(), previous: before, fresh: other) == Board.Earlier(), "CONTROL: reads that do not overlap carry nothing")
+        check(Board.carryDropped(Board.Earlier(), previous: before, fresh: before) == Board.Earlier(), "CONTROL: an unchanged window carries nothing")
+        var loading = Board.Earlier(); loading.loading = true
+        check(Board.carryDropped(loading, previous: before, fresh: slid) == loading, "CONTROL: nothing is carried while a page is loading")
+        check(Board.carryDropped(Board.Earlier(), previous: nil, fresh: slid) == Board.Earlier(), "CONTROL: nothing before the first read")
+        // The eager stack keeps its first row as messages arrive: no row moves back to the lazy rows above the reader.
+        let items = Board.chatItems(rows(1...50), now: Date(), calendar: .current)
+        let from = items[Board.eagerStart(items, from: nil, eager: 40)].id
+        let grown = Board.chatItems(rows(1...53), now: Date(), calendar: .current)
+        check(grown[Board.eagerStart(grown, from: from, eager: 40)].id == from, "kosmos#7265: new messages leave the eager stack's first row where it was")
+        check(grown[Board.eagerStart(grown, from: nil, eager: 40)].id != from, "CONTROL: without the kept start the boundary moves with each new message")
+        check(Board.eagerStart(grown, from: "gone", eager: 40) == grown.count - 40, "a start no longer shown falls back to the last 40")
+    }
+    // kosmos#7346 review: with no send arrow, a Send that cannot go says why; nothing to send says nothing.
+    do {
+        let long = String(repeating: "word ", count: 2500)
+        check(Board.dmSendBlocked(said: long, files: 0, uploading: 0, dictating: false, finishing: false) == Board.tooLongLine, "kosmos#7346: a message over the board's limit says it is too long")
+        check(Board.dmSendBlocked(said: "hi", files: 0, uploading: 0, dictating: false, finishing: false) == nil, "CONTROL: a message that can go has no reason")
+        check(Board.dmSendBlocked(said: "  ", files: 0, uploading: 0, dictating: false, finishing: false) == nil, "an empty box says nothing")
+        check(Board.dmSendBlocked(said: "hi", files: 0, uploading: 0, dictating: true, finishing: false) == Board.sendStopDictating, "dictating says stop first")
+        check(Board.dmSendBlocked(said: "a.png", files: 1, uploading: 1, dictating: false, finishing: false) == Board.stillAddingLine, "a file on its way says so")
+        check(Board.dmSendBlocked(said: "hi", files: 0, uploading: 1, dictating: false, finishing: false) == nil, "CONTROL: words alone go while another upload runs (no file of theirs waits)")
+        check(Board.roomPostBlocked(words: "@ann ", mentionOnly: true, read: true, files: 0, uploading: 0, dictating: false, finishing: false) == Board.roomOnlyMentionLine, "a room post of only the @name asks for words")
+        check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: false, files: 0, uploading: 0, dictating: false, finishing: false) == Board.roomNotReadLine, "a room not read yet says it is loading")
+        check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: true, files: Board.maxFiles + 1, uploading: 0, dictating: false, finishing: false) != nil, "too many files says so")
+        check(Board.roomPostBlocked(words: "hello", mentionOnly: false, read: true, files: 1, uploading: 0, dictating: false, finishing: false) == nil, "CONTROL: a room post that can go has no reason")
+        check(Board.roomPostBlocked(words: "", mentionOnly: false, read: false, files: 0, uploading: 0, dictating: false, finishing: false) == nil, "an empty room box says nothing")
+        check(Board.dmSendBlocked(said: long, files: 1, uploading: 1, dictating: true, finishing: true) == Board.sendWaitWords, "the last words landing comes first, before every other reason")
+        check(Board.roomPostBlocked(words: "hi", mentionOnly: true, read: false, files: 1, uploading: 1, dictating: true, finishing: true) == Board.sendWaitWords, "and in a room")
+        check(Board.roomPostBlocked(words: "hi", mentionOnly: true, read: false, files: 1, uploading: 1, dictating: true, finishing: false) == Board.sendStopDictating, "then dictating")
+    }
+    // kosmos#7348 (Josh 10-27): the sent text filling back into the box just after a send is caught; anything else is not.
+    do {
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        let sent = "Let's add a little margin inside the bubbles"
+        check(Board.refilledWithSent(sent, was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "kosmos#7348: the sent text back in the box a second later is caught")
+        check(Board.refilledWithSent(sent + " ", was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(4)), "and with a trailing space, as dictation leaves it")
+        check(!Board.refilledWithSent(sent, was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(6)), "CONTROL: after the window it is the person typing it again")
+        check(!Board.refilledWithSent("Let's add a little", was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: different words are the person's")
+        check(!Board.refilledWithSent("", was: "", sent: sent, sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: an empty box is not a refill")
+        check(!Board.refilledWithSent(sent, was: "", sent: nil, sentAt: nil, now: t0), "CONTROL: nothing sent, nothing to catch")
+        // Review: typing a longer word that begins with the sent text passes through it one letter at a time.
+        check(!Board.refilledWithSent("ok", was: "o", sent: "ok", sentAt: t0, now: t0.addingTimeInterval(1)), "kosmos#7348 review: typing through the sent text is not a refill")
+        check(Board.refilledWithSent("ok", was: "", sent: "ok", sentAt: t0, now: t0.addingTimeInterval(1)), "CONTROL: the same text from an empty box in one change is")
+    }
     let before = Board.Thread(rows: [r("a", "T1"), r("b", "T2")], olderCount: 5)
     let shifted = Board.Thread(rows: [r("b", "T2"), r("c", "T3")], olderCount: 6)
     check(Board.followKey(before) != Board.followKey(shifted), "at the Mac's 200-row cap the count stays the same, and the key still moves")
@@ -1648,9 +1828,32 @@ do {
 // A fake world: Kosmos+ answers the Mac list and handoffs, the Mac's gate admits (setting its cookie in the client's
 // jar, as a real Set-Cookie would), and /api/status answers from a queue. Waiting advances a fake clock, so the 15 s
 // grace and the 30 s reconnect gap are real arithmetic, not real seconds.
+extension Data {
+    // kosmos#7337: unpadded base64url, for checking a signature the client sent.
+    init?(base64URLForTests text: String) {
+        var b = text.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while b.count % 4 != 0 { b += "=" }
+        self.init(base64Encoded: b)
+    }
+}
+
 final class FakeBoardWorld {
     var clock = Date(timeIntervalSince1970: 1_000_000)
     var requests: [String] = []
+    var handoffAnswer: (Int, String) = (200, #"{"token":"hand"}"#)
+    // kosmos#7337: the gate's nonces (nil: the route answers 404, as an older tunnel), each one new; the session
+    // bodies posted; answers taken before sessionAnswer; and this iPhone's device key (nil: none).
+    var issuesNonces = false
+    var noncesIssued = 0
+    // The nonce route's other answers: none at all, or this status (nil: as issuesNonces says).
+    var nonceNoAnswer = false
+    var nonceStatus: Int? = nil
+    // Review 4: the nonce route answered by an older gate's sign-in page (200 HTML).
+    var nonceHTML = false
+    var sessionBodies: [[String: Any]] = []
+    var sessionQueue: [(Int, String)] = []
+    var deviceKey: SignIn.DeviceKey? = nil
+    var handoffBodies: [[String: Any]] = []
     var macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":100}]}"#
     var sessionAnswer: (Int, String) = (200, #"{"ok":true}"#)
     var sessionNoAnswer = false
@@ -1663,6 +1866,10 @@ final class FakeBoardWorld {
     var tasksAnswer: (Int, String)? = (200, #"{"tasks":[{"projectId":"p1","projectName":"Catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtBy":"dana"}]}"#)
     // #7034: the board's starred agents (GET /api/agent-stars); nil answers nothing, as before the route.
     var starsAnswer: (Int, String)? = nil
+    // kosmos#7034: the answer to a star pressed on the phone (PUT /api/agent-stars), and the last body it carried.
+    var starWriteAnswer: (Int, String)? = nil
+    var starWriteBodies: [String] = []
+    var starWriteYields = 0   // review 2: hold a star's save this many turns
     // Each stars read waits the first count's yields before it answers; empty: none.
     var starsYields: [Int] = []
     // Each status read waits the first count's yields before it is sent; statusStarted counts the status reads begun.
@@ -1672,6 +1879,13 @@ final class FakeBoardWorld {
     // The Mac cookie each status request carried, as the real session would send it from the jar.
     var presented: [String] = []
     var macsStatus = 200
+    // kosmos#7416 review 4: when not empty, each list read takes the first: it waits that many yields, then answers
+    // that body (nil: no answer at all). The body is the one queued, not macsBody when it answers.
+    var macsQueue: [(Int, String?)] = []
+    var macsAnswered = 0
+    // kosmos#7266 slice B: the person's record and picture (nil: no answer at all).
+    var youAnswer: (Int, String)? = nil
+    var youPictureAnswer: (Int, String, Data)? = nil
     // The gate's own cookie keyed apart from the one the app restored (a leading-dot domain), as a real host-only
     // Set-Cookie might be: both then sit in the jar side by side.
     var admitKeyedApart = false
@@ -1741,10 +1955,22 @@ final class FakeBoardWorld {
         }
         switch url.path {
         case "/v1/account/macs": return answer(macsStatus, macsStatus == 200 ? macsBody : "{}")
-        case "/v1/account/handoff": return answer(200, #"{"token":"hand"}"#)
+        case "/v1/account/handoff":
+            // kosmos#4903: each handoff's body, and an answer a test can set (a step-up refusal, say).
+            handoffBodies.append(r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:])
+            return answer(handoffAnswer.0, handoffAnswer.1)
+        case "/_kosmos/nonce":
+            if nonceNoAnswer { return nil }
+            if nonceHTML { return answer(200, "<!doctype html><title>Sign in</title>") }
+            if let code = nonceStatus { return answer(code, #"{"retry":true}"#) }
+            guard issuesNonces else { return answer(404, "{}") }
+            noncesIssued += 1
+            return answer(200, #"{"nonce":"n\#(noncesIssued)"}"#)
         case "/_kosmos/session":
             if sessionNoAnswer { return nil }
             if sessionNoAnswerFirst > 0 { sessionNoAnswerFirst -= 1; return nil }
+            sessionBodies.append(r.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:])
+            if !sessionQueue.isEmpty { let next = sessionQueue.removeFirst(); return answer(next.0, next.1) }
             if sessionAnswer.0 == 200 {
                 admitted += 1
                 cookies.setCookie(HTTPCookie(properties: [.name: Board.macCookieName, .value: "fresh-\(admitted)", .domain: (admitKeyedApart ? "." : "") + url.host!, .path: "/", .secure: "TRUE"])!)
@@ -1753,7 +1979,15 @@ final class FakeBoardWorld {
         case "/api/tasks":
             return tasksAnswer.map { answer($0.0, $0.1) }
         case "/api/agent-stars":
+            if r.httpMethod == "PUT" {
+                starWriteBodies.append(r.httpBody.map { String(decoding: $0, as: UTF8.self) } ?? "")
+                return starWriteAnswer.map { answer($0.0, $0.1) }
+            }
             return starsAnswer.map { answer($0.0, $0.1) }
+        case "/api/you":
+            return youAnswer.map { answer($0.0, $0.1) }
+        case "/api/you/avatar":
+            return youPictureAnswer.map { (code, type, body) in (body, HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": type])!) }
         case "/api/status":
             presented.append((cookies.cookies(for: url) ?? []).filter { $0.name == Board.macCookieName }.map(\.value).joined(separator: ","))
             if let hook = onStatusRead { onStatusRead = nil; hook() }
@@ -1819,7 +2053,15 @@ func boardLoopTests() async {
                                  env: .init(send: { r in
                                                 if r.httpMethod == "POST" { for _ in 0..<world.postYields { await Task.yield() } }
                                                 else if r.url?.path.hasSuffix("/thread") == true { for _ in 0..<world.threadYields { await Task.yield() } }
-                                                else if r.url?.path == "/api/agent-stars", !world.starsYields.isEmpty { for _ in 0..<world.starsYields.removeFirst() { await Task.yield() } }
+                                                if r.url?.path == "/api/agent-stars", r.httpMethod == "PUT" { for _ in 0..<world.starWriteYields { await Task.yield() } }
+                                                else if r.url?.path == "/api/agent-stars", r.httpMethod != "PUT", !world.starsYields.isEmpty { for _ in 0..<world.starsYields.removeFirst() { await Task.yield() } }
+                                                else if r.url?.path == "/v1/account/macs", !world.macsQueue.isEmpty {
+                                                    let (n, body) = world.macsQueue.removeFirst()
+                                                    _ = world.send(r)   // recorded as asked
+                                                    for _ in 0..<n { await Task.yield() }
+                                                    world.macsAnswered += 1
+                                                    return body.map { (Data($0.utf8), HTTPURLResponse(url: r.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!) }
+                                                }
                                                 else if r.url?.path == "/api/status" { world.statusStarted += 1; if !world.statusYields.isEmpty { for _ in 0..<world.statusYields.removeFirst() { await Task.yield() } } }
                                                 else if r.url?.path.hasPrefix("/api/attachment/") == true { world.attachmentStarted.append(r.url!.path); for _ in 0..<world.attachmentYields { await Task.yield() } }
                                                 return world.send(r)
@@ -1832,7 +2074,8 @@ func boardLoopTests() async {
                                                 for _ in 0..<world.uploadYields { await Task.yield() }
                                                 return world.upload(r, file)
                                             },
-                                            uploads: testUploads))
+                                            uploads: testUploads,
+                                            deviceKey: { world.deviceKey }))
         return (client, world, sessions, macs)
     }
     func settle(_ cond: () -> Bool) async -> Bool {
@@ -1881,6 +2124,89 @@ do {
     check(pic?.hasAvatar == true && pic?.avatarVer == "3", "the picture flag and version are read from the snapshot")
 }
 
+section("starring from the phone (kosmos#7034)")
+    do {
+        let mac = URL(string: "https://studio.kosmosplus.com/")!
+        let put = Board.starWriteRequest(mac: mac, name: "wes", on: true)
+        let sent = put?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        check(put?.httpMethod == "PUT" && put?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent-stars" && sent?["name"] as? String == "wes" && sent?["on"] as? Bool == true,
+              "a star is the board's own write: PUT /api/agent-stars { name, on }")
+        check(Board.starFailure(on: true, status: 400, data: Data(#"{"error":"too many starred agents"}"#.utf8)).contains("500 agents are starred already")
+              && Board.starFailure(on: true, status: 400, data: Data(#"{"error":"x"}"#.utf8)) == "That agent cannot be starred."
+              && Board.starFailure(on: false, status: 500, data: Data(#"{"error":"we could not save that star"}"#.utf8)).hasPrefix("Stars cannot be changed right now")
+              && Board.starFailure(on: false, status: 502, data: nil) == "That star could not be removed. Try again in a moment.",
+              "a star that did not save says why in the board's words (STAR_MSG), retry only where a retry can help")
+        let (c, w, _, _) = make("kst1")
+        c.setAgentSort(.name, projects: [:])
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"},{"sessionName":"wes","name":"Wes","state":"working"}]}"#)
+        w.starsAnswer = (200, #"{"names":[],"ok":true}"#)
+        c.start()
+        let ok = await settle { isLive(c) }
+        check(ok && c.agents.map(\.session) == ["dana", "wes"] && !c.isStarred("wes"), "premise: nobody starred, Name A to Z")
+        w.starWriteAnswer = (200, #"{"names":["wes"],"ok":true}"#)
+        await c.toggleStar("wes")
+        check(c.isStarred("wes") && c.agents.map(\.session) == ["wes", "dana"] && c.starNote == nil, "a star pressed on the phone saves, and the agent moves to the top at once")
+        check(w.starWriteBodies.last?.contains("\"on\":true") == true && w.starWriteBodies.last?.contains("\"name\":\"wes\"") == true, "it sends the agent and on")
+        w.starWriteAnswer = (500, #"{"error":"we could not save that star"}"#)
+        await c.toggleStar("wes")
+        check(c.isStarred("wes") && c.agents.map(\.session) == ["wes", "dana"] && c.starNote?.hasPrefix("Stars cannot be changed right now") == true,
+              "an unstar that did not save goes back, with the board's words why")
+        w.starWriteAnswer = (200, #"{"names":[],"ok":true}"#)
+        await c.toggleStar("wes")
+        check(!c.isStarred("wes") && c.agents.map(\.session) == ["dana", "wes"] && c.starNote == nil, "an unstar that saves takes the agent back to its place, and the note goes")
+        w.starWriteAnswer = (200, #"{"names":["dana","wes"],"ok":true}"#)
+        await c.toggleStar("dana")
+        check(c.isStarred("wes") && c.isStarred("dana"), "the board's answer decides: a star set elsewhere meanwhile shows too")
+        // Review 1: a pull whose stars read began before a press never undoes the press.
+        w.starsAnswer = (200, #"{"names":["dana","wes"],"ok":true}"#)   // the stars as they were when the pull began
+        w.starsYields = [400]
+        let epochBefore = c.sortEpoch
+        let starGets = w.requests.filter { $0 == "GET studio.kosmosplus.com/api/agent-stars" }.count
+        async let pull: () = c.refreshNow()
+        let inRead = await settle { w.requests.filter { $0 == "GET studio.kosmosplus.com/api/agent-stars" }.count > starGets }
+        check(inRead, "premise: the pull's stars read is out (held) before the press")
+        w.starWriteAnswer = (200, #"{"names":["dana"],"ok":true}"#)
+        await c.toggleStar("wes")
+        await pull
+        check(!c.isStarred("wes") && c.isStarred("dana"), "a pull that was already reading when wes was unstarred does not put his star back")
+        check(c.sortEpoch > epochBefore, "review 1: a star tells Today to re-take its order")
+        // Review 1: a failed save puts back only its own agent, never another star the board confirmed meanwhile.
+        w.starWriteAnswer = (502, "{}")
+        await c.toggleStar("dana")
+        check(c.isStarred("dana") && !c.isStarred("wes"), "a failed unstar puts back only that agent")
+        c.stop()
+    }
+
+    do {
+        // Review 2: a pull that begins while a star is still saving never undoes it (its read may predate the save).
+        let (c, w, _, _) = make("kst1")
+        w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"},{"sessionName":"wes","name":"Wes","state":"working"}]}"#)
+        w.starsAnswer = (200, #"{"names":[],"ok":true}"#)
+        c.start()
+        let ok = await settle { isLive(c) }
+        w.starsAnswer = (200, #"{"names":[],"ok":true}"#)   // the board's list before it applied the press
+        // The save is out first; the pull begins while it is out; the save ends; only then does the pull's stars read land.
+        w.starWriteYields = 60
+        w.starWriteAnswer = (200, #"{"names":["wes"],"ok":true}"#)
+        async let press: () = c.toggleStar("wes")
+        let outNow = await settle { c.starring.contains("wes") }
+        check(ok && outNow && c.isStarred("wes"), "premise: the star is out (held) and already shown")
+        w.starsYields = [600]
+        async let pull: () = c.refreshNow()
+        await press
+        await pull
+        check(c.isStarred("wes"), "review 2: a pull begun while the star was saving does not take it away")
+        // Review 3: a computer switch while a save is out leaves nothing pending for the next computer.
+        w.starWriteYields = 400
+        async let late: () = c.toggleStar("dana")
+        let out2 = await settle { c.starring.contains("dana") }
+        c.showMac(address: "laptop.kosmosplus.com")
+        check(out2 && c.starring.isEmpty, "review 3: switching computers drops a save still out, so the next computer's stars are read")
+        await late
+        check(c.starring.isEmpty, "and its late answer leaves nothing behind")
+        c.stop()
+    }
+
 section("native board loop: connecting")
     do {
         // #7034: the list comes starred first; an unreadable answer on a later pull keeps the order; a pull re-reads.
@@ -1928,6 +2254,10 @@ section("native board loop: connecting")
         let back = await settle { isLive(c) }
         check(back && c.agents.map(\.session) == ["dana", "wes"], "after a sign-out, stars that cannot be read are no stars")
         c.stop()
+        // kosmos#7416 review 2: an account change (forget, the loop stopped so nothing restarts) keeps no read times.
+        let hadRead = !c.heardFrom.isEmpty
+        c.accountChanged()
+        check(hadRead && c.heardFrom.isEmpty, "kosmos#7416: another account starts with no read times (CONTROL: there were some)")
     }
     do {
         // #7034: a read that started before the list now shown never puts its older rows back over it.
@@ -1948,6 +2278,7 @@ section("native board loop: connecting")
     do {
         // #7034: a pull that read nothing leaves no re-sort behind, even when a read already in the air landed meanwhile.
         let (c, w, _, _) = make("kst1")
+        c.setAgentSort(.needs, projects: [:])   // kosmos#7421: the re-sort mechanics, under Needs you first
         w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"},{"sessionName":"wes","name":"Wes","state":"working"}]}"#)
         w.starsAnswer = (200, #"{"names":[],"ok":true}"#)
         c.start()
@@ -1985,6 +2316,176 @@ section("native board loop: connecting")
         c.stop()
     }
     do {
+        // kosmos#7337: with a device key, every session request carries the gate's proof, signed over exactly
+        // gateproof::message (relay crates/tunnel/src/gateproof.rs), and it verifies with the key sent beside it.
+        let k = P256.Signing.PrivateKey()
+        let (c, w, _, _) = make("kst1")
+        w.deviceKey = .software(k)
+        w.issuesNonces = true
+        c.start()
+        let live = await settle { isLive(c) }
+        check(live, "a keyed iPhone opens a computer whose gate issues nonces")
+        let b = w.sessionBodies.first ?? [:]
+        check(b["token"] as? String == "hand" && b["nonce"] as? String == "n1" && b["key"] as? String == SignIn.base64url(k.publicKey.derRepresentation),
+              "the session carries the token, the nonce and the key")
+        let tokenHash = SignIn.base64url(Data(SHA256.hash(data: Data("hand".utf8))))
+        let keyID = SignIn.deviceID(spki: k.publicKey.derRepresentation)
+        func verifies(_ text: String) -> Bool {
+            guard let sigText = b["sig"] as? String, let sig = Data(base64URLForTests: sigText),
+                  let signature = try? P256.Signing.ECDSASignature(rawRepresentation: sig) else { return false }
+            return k.publicKey.isValidSignature(signature, for: Data(text.utf8))
+        }
+        check(verifies("kosmos-gate-v2\nstudio.kosmosplus.com\nn1\n\(tokenHash)\n\(keyID)"), "the signature verifies over the gate's message")
+        check(!verifies("kosmos-gate-v2\nother.kosmosplus.com\nn1\n\(tokenHash)\n\(keyID)"), "CONTROL: and not over another computer's")
+        c.stop()
+        // A hosted box that has just allowed the key answers 409 retry: the iPhone signs again with a NEW nonce and is let in.
+        let (c2, w2, _, _) = make("kst1")
+        w2.deviceKey = .software(k)
+        w2.issuesNonces = true
+        w2.sessionQueue = [(409, #"{"retry":true}"#)]
+        c2.start()
+        let in2 = await settle { isLive(c2) }
+        check(in2, "after a 409 retry the iPhone signs again and is let in")
+        check(w2.sessionBodies.map { $0["nonce"] as? String ?? "" } == ["n1", "n2"], "each try signs a new nonce: \(w2.sessionBodies.map { $0["nonce"] as? String ?? "" })")
+        c2.stop()
+        // CONTROL: no key asks for no nonce and sends the token alone, as before #7337.
+        let (c3, w3, _, _) = make("kst1")
+        w3.issuesNonces = true
+        c3.start()
+        let in3 = await settle { isLive(c3) }
+        check(in3 && w3.count("/_kosmos/nonce") == 0 && w3.sessionBodies.first?.keys.sorted() == ["token"], "CONTROL: with no key, the token alone and no nonce asked")
+        c3.stop()
+        // Review 1: a nonce that gets no answer, or a 503, is a miss: no session post, and three end at not answering.
+        for (label, configure) in [("no answer", { (w: FakeBoardWorld) in w.nonceNoAnswer = true }),
+                                   ("a 503", { (w: FakeBoardWorld) in w.nonceStatus = 503 })] {
+            let (cm, wm, _, _) = make("kst1")
+            wm.deviceKey = .software(k)
+            configure(wm)
+            cm.start()
+            let gone = await settle { cm.phase == .unreachable(mac: "Studio") }
+            check(gone && wm.count("/_kosmos/session") == 0, "a nonce with \(label) is a miss: no session sent, and it says not answering (phase \(cm.phase))")
+            cm.stop()
+        }
+        // Review 1: a gate that answers 409 retry for ever, or 503 busy for ever, ends at not answering, not Connecting.
+        for (label, code, body) in [("409 retry", 409, #"{"retry":true}"#), ("503 busy", 503, #"{"retry":true}"#)] {
+            let (cl, wl, _, _) = make("kst1")
+            wl.deviceKey = .software(k)
+            wl.issuesNonces = true
+            wl.sessionAnswer = (code, body)
+            cl.start()
+            let stopped = await settle { cl.phase == .unreachable(mac: "Studio") }
+            check(stopped, "a gate answering \(label) for ever ends at not answering (phase \(cl.phase))")
+            // 409: three misses of six posts each (the first and five re-signs); 503: one post per miss.
+            let expected = code == 409 ? 18 : 3
+            check(wl.sessionBodies.count == expected, "\(label): \(expected) posts before not answering, not \(wl.sessionBodies.count)")
+            cl.stop()
+        }
+        check(Board.classifySession(status: 409, body: Data(#"{"because":"no"}"#.utf8), waiting: false) == .refused(because: "no"),
+              "CONTROL: a 409 without retry is still a refusal")
+        // Review 3: a session 429, and a 403 paused or keep, are the gate page's "not taking new sign-ins now" (gate.html):
+        // held, with the gate's sentence, never a refusal that asks for fresh handoffs.
+        check(Board.classifySession(status: 429, body: Data(#"{"because":"too many waiting"}"#.utf8), waiting: false) == .held(because: "too many waiting"),
+              "review 3: a session 429 is held, not refused")
+        check(Board.classifySession(status: 403, body: Data(#"{"because":"this computer cannot check sign-ins right now","keep":true}"#.utf8), waiting: false)
+              == .held(because: "this computer cannot check sign-ins right now"), "a 403 keep is held (the gate's own body)")
+        check(Board.classifySession(status: 403, body: Data(#"{"paused":true}"#.utf8), waiting: false) == .held(because: nil), "a 403 paused is held")
+        check(Board.classifySession(status: 403, body: Data(#"{"because":"no"}"#.utf8), waiting: false) == .refused(because: "no"),
+              "CONTROL: a plain 403 is still a refusal")
+        check(Board.gateSentence("too many waiting") == "Too many waiting." && Board.gateSentence("Done.") == "Done.", "the gate's words read as a sentence")
+        check(Board.sessionRequest(mac: URL(string: "https://studio.kosmosplus.com")!, handoffToken: "t").value(forHTTPHeaderField: "User-Agent")?.contains("iPhone") == true
+              && Board.nonceRequest(mac: URL(string: "https://studio.kosmosplus.com")!).value(forHTTPHeaderField: "User-Agent")?.contains("iPhone") == true,
+              "review 3: the session and nonce requests say iPhone, so the Mac's Allow card names it (gatev2 ua_class)")
+        // A held answer ends the connect at once: no fresh handoffs.
+        do {
+            let (c6, w6, _, _) = make("kst1")
+            w6.sessionAnswer = (429, #"{"because":"too many waiting"}"#)
+            c6.start()
+            let held = await settle { if case .macHeld = c6.phase { return true } else { return false } }
+            check(held, "a 429 at the session ends at held (phase \(c6.phase))")
+            check(w6.handoffBodies.count == 1 && w6.sessionBodies.count == 1, "held asks for no fresh handoff and posts once (\(w6.handoffBodies.count) handoffs, \(w6.sessionBodies.count) posts)")
+            c6.stop()
+        }
+        // Review 2: a nonce route an older gate refuses with 401 is no nonce route: the token alone, and still let in.
+        let (c5, w5, _, _) = make("kst1")
+        w5.deviceKey = .software(k)
+        w5.nonceStatus = 401
+        c5.start()
+        let in5 = await settle { isLive(c5) }
+        check(in5 && w5.sessionBodies.first?.keys.sorted() == ["token"], "a 401 on the nonce route sends the token alone and is let in")
+        c5.stop()
+        // Review 2: a long Allow wait with nonces does not end on misses: busy, busy, then pending resets the count.
+        let (c6, w6, _, _) = make("kst1")
+        w6.deviceKey = .software(k)
+        w6.issuesNonces = true
+        w6.sessionQueue = [(503, #"{"retry":true}"#), (503, #"{"retry":true}"#), (403, #"{"pending":true,"code":"K7-3M"}"#),
+                           (503, #"{"retry":true}"#), (503, #"{"retry":true}"#), (403, #"{"pending":true,"code":"K7-3M"}"#)]
+        c6.start()
+        let in6 = await settle { isLive(c6) }
+        check(in6, "busy answers between Allow polls do not end the wait (phase \(c6.phase))")
+        check(w6.sessionBodies.allSatisfy { $0["nonce"] != nil }, "every Allow poll carries a fresh proof")
+        c6.stop()
+        // An older tunnel with no nonce route (404): the token alone, still let in.
+        let (c4, w4, _, _) = make("kst1")
+        w4.deviceKey = .software(k)
+        c4.start()
+        let in4 = await settle { isLive(c4) }
+        check(in4 && w4.sessionBodies.first?.keys.sorted() == ["token"], "a gate that issues no nonce gets the token alone, as before")
+        c4.stop()
+    }
+    do {
+        // kosmos#4903: a Kosmos cloud machine (hosted in the Mac list) is asked with a fresh handoff, and a step-up
+        // refusal says sign in again, naming it, rather than "Kosmos+ did not let this iPhone in".
+        let (c, w, _, _) = make("kst1")
+        w.macsBody = #"{"macs":[{"name":"Your cloud machine","address":"josh.kosmosplus.com","last_seen":100,"hosted":true}]}"#
+        c.start()
+        let live = await settle { isLive(c) }
+        check(live, "a hosted computer whose fresh handoff is granted opens as any other")
+        check(w.handoffBodies.first?["fresh"] as? Bool == true, "the hosted computer is asked with a fresh handoff")
+        c.stop()
+        let (c2, w2, _, _) = make("kst1")
+        w2.macsBody = w.macsBody
+        w2.handoffAnswer = (403, #"{"error":"sign in again for this","code":"step_up_required"}"#)
+        c2.start()
+        let again = await settle { c2.phase == .signInAgain(mac: "Your cloud machine") }
+        check(again, "a step-up refusal on a hosted computer says sign in again, naming it (phase: \(c2.phase))")
+        check(w2.count("/_kosmos/session") == 0, "and nothing goes to the gate with no handoff")
+        c2.stop()
+        // CONTROL: a Mac (no hosted field) is asked as before, with no fresh key, and the same 403 stays Kosmos+'s refusal.
+        let (c3, w3, _, _) = make("kst1")
+        w3.handoffAnswer = w2.handoffAnswer
+        c3.start()
+        let refused = await settle { c3.phase == .kosmosPlusRefused }
+        check(refused, "CONTROL: a Mac's 403 is still Kosmos+ refusing (phase: \(c3.phase))")
+        check(!w3.handoffBodies.isEmpty && w3.handoffBodies.first?["address"] != nil && w3.handoffBodies.first?["fresh"] == nil,
+              "CONTROL: a Mac is asked with no fresh key")
+        c3.stop()
+        // Review 4: a key-less phone refused by a cloud machine (the gate's NO_KEY) says sign in again at once: no fresh
+        // handoff cures a missing key.
+        let noKey = #"{"because":"this browser has not shown the key this computer allowed; sign in again on this browser, and allow it on this computer if it asks"}"#
+        let (c4, w4, _, _) = make("kst1")
+        w4.macsBody = w.macsBody
+        w4.sessionAnswer = (403, noKey)
+        c4.start()
+        let signAgain = await settle { c4.phase == .signInHere(mac: "Your cloud machine") }
+        check(signAgain && w4.handoffBodies.count == 1, "review 5: a hosted refusal of a key-less phone says sign in on this iPhone (not recent) after one handoff (\(w4.handoffBodies.count) asked, phase \(c4.phase))")
+        c4.stop()
+        // CONTROL: a Mac's same refusal still gets the fresh handoffs it always did.
+        let (c7, w7, _, _) = make("kst1")
+        w7.sessionAnswer = (403, noKey)
+        c7.start()
+        let macRefused = await settle { c7.phase == .macRefused(mac: "Studio") }
+        check(macRefused && w7.handoffBodies.count > 1, "CONTROL: a Mac refusing still retries fresh handoffs (\(w7.handoffBodies.count) asked)")
+        c7.stop()
+        // Review 4: an older gate answers the nonce route with its sign-in page (200 HTML): no nonce, the token alone.
+        let (c8, w8, _, _) = make("kst1")
+        w8.deviceKey = .software(P256.Signing.PrivateKey())
+        w8.nonceHTML = true
+        c8.start()
+        let in8 = await settle { isLive(c8) }
+        check(in8 && w8.sessionBodies.first?.keys.sorted() == ["token"], "review 4: an HTML page on the nonce route sends the token alone and is let in")
+        c8.stop()
+    }
+    do {
         let (c, w, _, macs) = make("kst1")
         c.start()
         let ok1 = await settle { isLive(c) }
@@ -2010,6 +2511,263 @@ section("native board loop: connecting")
         check(ok3, "a kept session the Mac has ended is replaced and the list comes back")
         check(w.count("/v1/account/handoff") == 1, "by one fresh sign-in, not by restoring the ended record again")
         check(Board.usableSaved(macs.value, session: "kst1", coordinator: coordinator)?.cookie == "fresh-1", "and the new session is the one kept")
+        c.stop()
+    }
+
+    section("the Kosmos switcher (kosmos#7266 slice C)")
+    do {
+        // Review 2 (a blocker): the common launch restores the kept session and never ran chooseMac, so the list was empty.
+        let (c, w, _, _) = make("kst1", kept: keptRecord("kst1", cookie: "kept"))
+        w.macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":100}]}"#
+        c.start()
+        let listed = await settle { isLive(c) && c.macs.count == 2 }
+        check(listed, "a launch from the kept session still lists the account's computers for the switcher")
+        check(w.count("/v1/account/handoff") == 0 && w.count("/_kosmos/session") == 0, "without a new sign-in to the Mac")
+        c.stop()
+    }
+    do {
+        let (c, w, sessions, _) = make("kst1", kept: keptRecord("kst1", cookie: "kept"))
+        w.macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":100,"not_connected":true}]}"#
+        w.starsAnswer = (200, #"{"stars":["dana"]}"#)
+        c.start()
+        let live = await settle { isLive(c) }
+        check(live && c.switcherShown == "studio.kosmosplus.com", "on Studio, from its kept session")
+        // The kept session skips the Mac list, so a first Try again asks Kosmos+ for it.
+        c.retry(); c.retry()
+        let listed = await settle { c.macs.count == 2 && isLive(c) }
+        check(listed, "the switcher has the account's two computers once Kosmos+ is asked")
+        let before = Board.switcherRows(c.macs, shown: c.switcherShown)
+        check(before.map(\.name) == ["Laptop", "Studio"] && before.filter(\.shown).map(\.name) == ["Studio"], "Studio checked, Laptop listed")
+        let epoch = c.chatEpoch
+        let studioReads = w.requests.filter { $0 == "GET studio.kosmosplus.com/api/status" }.count
+        c.showMac(address: "studio.kosmosplus.com")
+        check(c.chatEpoch == epoch && isLive(c), "choosing the computer already shown does nothing")
+        w.sessionNoAnswer = true   // Laptop does not answer
+        w.clock += 120   // kosmos#7416 review 3: Studio's earlier list read is over a minute old, so only the switch's counts
+        c.showMac(address: "laptop.kosmosplus.com")
+        check(c.agents.isEmpty && c.shownMacName == nil && c.chatEpoch > epoch, "a switch clears Studio's list and chats at once")
+        check(c.switcherShown == "laptop.kosmosplus.com", "and the switcher checks Laptop while it opens")
+        let down = await settle { if case .unreachable = c.phase { return true }; return false }
+        check(down && c.phase.macName == "Laptop" && c.failingMacName == "Laptop", "an offline choice says Laptop is not answering, never Studio")
+        // kosmos#7416 review 2: a Mac that never let the session in is the failing address too (openSession), its time is
+        // the list's, and the not-answering screen asks Kosmos+ for the list again (once a minute at most).
+        check(c.failingAddress == "laptop.kosmosplus.com" && c.lastHeard(address: c.failingAddress, name: "Laptop") == 100,
+              "kosmos#7416: Laptop, by address, with the list's time (the app never read it)")
+        let lists0 = w.count("/v1/account/macs")
+        w.macsBody = w.macsBody.replacingOccurrences(of: #""last_seen":100"#, with: #""last_seen":5000"#)
+        c.refreshLastSeen()
+        _ = await settle { w.count("/v1/account/macs") > lists0 }
+        check(w.count("/v1/account/macs") == lists0, "kosmos#7416 review 3: not read again within a minute of the switch's own read")
+        w.clock += 61
+        c.refreshLastSeen()
+        let fresher = await settle { c.lastHeard(address: c.failingAddress, name: "Laptop") == 5000 }
+        check(fresher && w.count("/v1/account/macs") == lists0 + 1, "kosmos#7416: the screen reads the list again and says its fresher time")
+        c.refreshLastSeen()
+        _ = await settle { w.count("/v1/account/macs") > lists0 + 1 }
+        check(w.count("/v1/account/macs") == lists0 + 1, "kosmos#7416: and not again within the minute")
+        // The bug review 1 found: any later start restored Studio's kept session and undid the choice.
+        c.retry()
+        _ = await settle { if case .unreachable = c.phase { return true }; return false }
+        c.start()
+        _ = await settle { if case .unreachable = c.phase { return true }; return false }
+        check(c.phase.macName == "Laptop" && c.agents.isEmpty && c.switcherShown == "laptop.kosmosplus.com", "a Try again or a return to the app stays on Laptop")
+        check(w.requests.filter { $0 == "GET studio.kosmosplus.com/api/status" }.count == studioReads, "and never reads Studio again")
+        w.sessionNoAnswer = false
+        c.retry()
+        let onLaptop = await settle { isLive(c) && c.shownMacName == "Laptop" }
+        check(onLaptop, "once Laptop answers, its list shows")
+        check(UserDefaults(suiteName: "kosmos-board-loop-tests")!.string(forKey: Board.rememberedMacKey) == "laptop.kosmosplus.com", "and Laptop is remembered for the next launch")
+        sessions.value = nil
+        c.start()
+        check(c.macs.isEmpty && c.switcherShown == nil, "a sign-out clears the switcher")
+        c.stop()
+    }
+    section("kosmos#7416 review 4: the list read again for its time, in order and for the right account")
+    do {
+        let (c, w, sessions, _) = make("kst1")
+        func listed(_ laptop: Int) -> String {
+            #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":\#(laptop)}]}"#
+        }
+        w.macsBody = listed(100)
+        c.start()
+        _ = await settle { isLive(c) && c.macs.count == 2 }
+        func laptop() -> Double? { c.macs.first { $0.address == "laptop.kosmosplus.com" }?.lastSeen }
+        // An older answer never lands over a newer one: the screen's slow read, then the switch's fast one.
+        w.clock += 61
+        w.sessionNoAnswer = true
+        w.macsQueue = [(3000, listed(111)), (0, listed(222))]
+        c.refreshLastSeen()
+        c.showMac(address: "laptop.kosmosplus.com")
+        _ = await settle { w.macsAnswered == 2 }
+        let older = await settle { laptop() == 111 }
+        check(w.macsAnswered == 2 && !older && laptop() == 222, "the switch's newer list stays when the screen's older read lands after it")
+        // A newer read that fails never costs an older good answer.
+        _ = await settle { if case .unreachable = c.phase { return true }; return false }
+        w.clock += 61
+        w.macsQueue = [(3000, listed(333)), (0, nil)]
+        c.refreshLastSeen()
+        c.showMac(address: "studio.kosmosplus.com")
+        let kept = await settle { w.macsAnswered == 4 && laptop() == 333 }
+        check(kept, "a newer list read with no answer does not drop the older good one")
+        // A read that lands after another account signed in is not shown.
+        c.stop()
+        w.clock += 61
+        w.macsQueue = [(3000, listed(444))]
+        c.refreshLastSeen()
+        sessions.value = "kst2"
+        _ = await settle { w.macsAnswered == 5 }
+        let wrong = await settle { laptop() == 444 }
+        check(w.macsAnswered == 5 && !wrong, "a list that lands after another account signed in is not shown under the first")
+        sessions.value = "kst1"
+        // CONTROL: the same slow read for the same account is shown.
+        w.clock += 61
+        w.macsQueue = [(3000, listed(555))]
+        c.refreshLastSeen()
+        let shown = await settle { w.macsAnswered == 6 && laptop() == 555 }
+        check(shown, "CONTROL: the same slow read for the account still signed in is shown")
+        // Review 6: the other order: a switch's slow list read lands after a newer refresh read; the newer list stays,
+        // and the switch still opens the computer from its own answer.
+        // Review 7: the newer list leaves Laptop out, so the switch opening Laptop proves it picked from its own answer.
+        w.clock += 61
+        let studioOnly = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":777}]}"#
+        w.macsQueue = [(3000, listed(666)), (0, studioOnly)]
+        c.showMac(address: "laptop.kosmosplus.com")
+        _ = await settle { w.macsAnswered >= 6 && w.macsQueue.count == 1 }   // the switch's read has been sent
+        c.refreshLastSeen()
+        _ = await settle { w.macsAnswered == 8 }
+        let reverted = await settle { laptop() == 666 }
+        let opened = await settle { c.phase.macName == "Laptop" }
+        check(w.macsAnswered == 8 && !reverted && laptop() == nil && c.macs.first?.lastSeen == 777 && opened,
+              "a switch's older list never lands over a newer refresh, and the switch still opens its computer from its own answer")
+        // Review 7: a refresh already in flight is not sent twice.
+        w.clock += 61
+        let before = w.count("/v1/account/macs")
+        w.macsQueue = [(3000, listed(888))]
+        c.refreshLastSeen()
+        c.refreshLastSeen()
+        _ = await settle { w.macsAnswered == 9 }
+        _ = await settle { w.count("/v1/account/macs") > before + 1 }
+        check(w.count("/v1/account/macs") == before + 1, "a second refresh while one is in flight sends nothing")
+    }
+
+    section("the person's name and picture (kosmos#7266 slice B)")
+    do {
+        let (c, w, _, _) = make("kst1")
+        w.macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":300},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":100}]}"#
+        let face = Data([0x89, 0x50, 0x4e, 0x47, 1, 2, 3])
+        w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter","does":"runs the shop"}}"#)
+        w.youPictureAnswer = (200, "image/png", face)
+        c.start()
+        let got = await settle { c.youName == "Sam Carter" && c.youPicture == face }
+        check(got, "the shown computer's name and picture are read with its first list")
+        let reads = w.count("/api/you/avatar"), names = w.count("/api/you")
+        w.youPictureAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
+        w.youAnswer = (200, "<html>sign in</html>")
+        for _ in 0..<3 { await c.refreshNow() }
+        check(w.count("/api/you/avatar") == reads && w.count("/api/you") == names, "and not on every 5-second read")
+        w.clock += Board.youEvery + 1
+        await c.refreshNow()
+        // No idle settle here: each pass of the poll advances the fake clock 5 s, so idling would pass 30 minutes.
+        _ = await settle { w.count("/api/you") > names }
+        check(w.count("/api/you") > names, "after 5 minutes the name is read again (\(w.count("/api/you")) after \(names))")
+        check(w.count("/api/you/avatar") == reads, "and the picture is not (review 1: every 30 minutes; \(w.count("/api/you/avatar")) after \(reads))")
+        check(c.youName == "Sam Carter", "a name read that is the gate's page keeps the name (review 1)")
+        w.clock += Board.youPictureEvery + 1
+        await c.refreshNow()
+        _ = await settle { w.count("/api/you/avatar") > reads }
+        _ = await settle { false }
+        check(w.count("/api/you/avatar") > reads && c.youPicture == face, "after 30 minutes the picture is read; the gate's page keeps the picture shown")
+        w.youPictureAnswer = (204, "text/plain", Data())
+        w.youAnswer = (200, #"{"state":"absent","you":null}"#)
+        c.showMac(address: "laptop.kosmosplus.com")
+        check(c.youName == nil && c.youPicture == nil, "a switch forgets the other computer's person at once")
+        let laptop = await settle { isLive(c) && c.shownMacName == "Laptop" }
+        _ = await settle { w.requests.contains("GET laptop.kosmosplus.com/api/you/avatar") }
+        check(laptop && c.youName == nil && c.youPicture == nil, "a computer with no name or picture shows none (the gear and You)")
+        c.stop()
+    }
+    do {
+        // Review 4: a first read that learns nothing (the Mac's startup sign-in window) is tried again after youRetry, not
+        // after 5 minutes; the elapsed fake time is checked so a 5-minute re-read cannot pass this.
+        let (c, w, _, _) = make("kst1")
+        let face = Data([0x89, 0x50, 0x4e, 0x47, 4, 5])
+        w.youAnswer = (200, "<html>sign in</html>")
+        w.youPictureAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
+        c.start()
+        _ = await settle { w.count("/api/you/avatar") > 0 }
+        check(c.youName == nil && c.youPicture == nil, "a first read that is the sign-in page shows nothing yet")
+        let from = w.clock
+        w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter"}}"#)
+        w.youPictureAnswer = (200, "image/png", face)
+        let got = await settle { c.youName == "Sam Carter" && c.youPicture == face }
+        check(got && w.clock.timeIntervalSince(from) <= Board.youRetry + 10, "both are read again after youRetry plus up to two polls, not 5 minutes later (\(w.clock.timeIntervalSince(from)) s)")
+        // The picture alone: a name read that worked, then a picture read that learned nothing, retries the picture by itself.
+        let names = w.count("/api/you"), pics = w.count("/api/you/avatar")
+        w.youPictureAnswer = (500, "text/plain", Data())
+        w.clock += Board.youPictureEvery + 1
+        await c.refreshNow()
+        _ = await settle { w.count("/api/you/avatar") > pics }
+        let mid = w.clock, namesMid = w.count("/api/you")
+        w.youPictureAnswer = (200, "image/png", Data([0x89, 0x50, 0x4e, 0x47, 6]))
+        let again = await settle { c.youPicture == Data([0x89, 0x50, 0x4e, 0x47, 6]) }
+        check(again && w.clock.timeIntervalSince(mid) <= Board.youRetry + 10, "a picture read that failed is retried on its own after youRetry plus up to two polls (\(w.clock.timeIntervalSince(mid)) s)")
+        check(w.count("/api/you") == namesMid && namesMid > names, "and the name is not read again with it")
+        // Review 5: an older board answers the name read with 404; that is no name, learned, so it is not asked every 30 s.
+        // CONTROL first: the same loop with the sign-in page (nothing learned) does ask again, so the loop can see a retry.
+        // Each arm on its own client: a read still in flight from one arm would otherwise land in the next.
+        func namesAfterRetries(_ answer: (Int, String)) async -> Int {
+            let (c, w, _, _) = make("kst1")
+            w.youAnswer = answer
+            w.youPictureAnswer = (204, "text/plain", Data())
+            c.start()
+            _ = await settle { isLive(c) && w.count("/api/you") > 0 }
+            defer { c.stop() }
+            w.clock += Board.youEvery + 1
+            let before = w.count("/api/you")
+            await c.refreshNow()
+            _ = await settle { w.count("/api/you") > before }
+            let first = w.count("/api/you"), start = w.clock
+            for _ in 0..<2 {
+                w.clock += Board.youRetry + 1
+                await c.refreshNow()
+                // A bounded wait: settle idles through enough 5 s polls to reach the 5-minute re-read itself.
+                for _ in 0..<40 where w.count("/api/you") == first { await Task.yield() }
+            }
+            check(w.clock.timeIntervalSince(start) < Board.youEvery, "#7266 review 5: the retry loop stays inside 5 minutes (\(w.clock.timeIntervalSince(start)) s)")
+            return w.count("/api/you") - first
+        }
+        let signInAgain = await namesAfterRetries((200, "<html>sign in</html>"))
+        check(signInAgain > 0, "#7266 review 5: CONTROL: a sign-in page answer is asked again after youRetry (\(signInAgain) more)")
+        let olderAgain = await namesAfterRetries((404, "not found"))
+        check(olderAgain == 0, "#7266 review 5: a 404 (an older board) is not asked again every 30 s (\(olderAgain) more)")
+        do {
+            // Review 6: a 404 keeps a name already shown (something other than the board may answer 404).
+            let (c, w, _, _) = make("kst1")
+            w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter"}}"#)
+            w.youPictureAnswer = (204, "text/plain", Data())
+            c.start()
+            let named = await settle { c.youName == "Sam Carter" }
+            w.youAnswer = (404, "not found")
+            let before = w.count("/api/you")
+            w.clock += Board.youEvery + 1
+            await c.refreshNow()
+            _ = await settle { w.count("/api/you") > before }
+            for _ in 0..<40 { await Task.yield() }
+            check(named && w.count("/api/you") > before && c.youName == "Sam Carter", "#7266 review 6: a 404 read keeps the name shown")
+            c.stop()
+        }
+        c.stop()
+    }
+    do {
+        // Review 1: a sign-out forgets the person too, not only a switch.
+        let (c, w, sessions, _) = make("kst1")
+        w.youAnswer = (200, #"{"state":"saved","you":{"name":"Sam Carter"}}"#)
+        w.youPictureAnswer = (200, "image/png", Data([0x89, 0x50, 0x4e, 0x47, 9]))
+        c.start()
+        let got = await settle { c.youName == "Sam Carter" && c.youPicture != nil }
+        sessions.value = nil
+        c.start()
+        check(got && c.youName == nil && c.youPicture == nil, "a sign-out forgets the person's name and picture")
         c.stop()
     }
 
@@ -2797,10 +3555,13 @@ section("native board loop: connecting")
         let ok6 = await settle { isLive(c) && Board.usableSaved(macs.value, session: "kst2", coordinator: coordinator) != nil }
         check(ok6, "and connects again under the new account")
         check(w.count("/v1/account/handoff") == 2, "with its own sign-in to the Mac")
+        let readBefore = !c.heardFrom.isEmpty
         sessions.value = nil
         c.start()
         let ok7 = await settle { c.phase == .signedOut } && c.agents.isEmpty
         check(ok7, "signed out: nothing shown")
+        check(readBefore && c.heardFrom.isEmpty && c.lastHeard(address: "studio.kosmosplus.com", name: "Studio") == nil,
+              "kosmos#7416 review 2: signed out, no read times are kept for the next account (CONTROL: there were some)")
         check(macs.value != nil, "the kept Mac session is left for the sign-out itself to delete (PushNotificationManager)")
         c.stop()
     }
@@ -2813,6 +3574,11 @@ section("native board loop: connecting")
         w.statusDefault = nil
         let ok8 = await settle { c.phase == .unreachable(mac: "Studio") }
         check(ok8, "three refreshes with no answer say the Mac is not answering")
+        // kosmos#7416 review 1: the time is this app's own last good read (the fake clock, about 1,000,000), not the
+        // list's last_seen (100), which is as old as the list's one read.
+        let heard = c.lastHeard(address: c.failingAddress, name: "Studio") ?? 0
+        check(c.failingAddress == "studio.kosmosplus.com" && heard > 100 && heard <= w.clock.timeIntervalSince1970,
+              "kosmos#7416: the not-answering time is the app's last good read of that Mac, not the list's older last_seen")
         let lists = w.count("/v1/account/macs")
         w.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working"}]}"#)
         c.retry()
@@ -2923,6 +3689,8 @@ section("native board loop: connecting")
     section("native board loop: rows hold still until pull to refresh")
     do {
         let (c, w, _, _) = make("kst1")
+        check(c.agentSort == .talked, "kosmos#7421: a new phone starts on the desktop's default, Last talked to")
+        c.setAgentSort(.needs, projects: [:])   // kosmos#7421: the order these rows are held in, Needs you first
         w.statusDefault = (200, #"{"agents":[{"sessionName":"zed","name":"Zed","state":"working"},{"sessionName":"amy","name":"Amy","state":"idle"}]}"#)
         c.start()
         let ok40 = await settle { isLive(c) }
@@ -3045,9 +3813,9 @@ section("native board loop: connecting")
 // MARK: - The app's tab bar (#6846 part b)
 
 section("app tabs: the bar")
-check(AppTabs.visible(tasksTab: true) == [.today, .agents, .projects, .tasks, .settings], "five tabs in Mona Lisa's order once Tasks is earned")
-check(AppTabs.visible(tasksTab: false) == [.today, .agents, .projects, .settings], "four before it, Tasks left out (#3559)")
-check(AppTabs.keep(.tasks, tasksTab: false) == .today, "Tasks leaving the bar while showing goes to Today")
+check(AppTabs.visible(tasksTab: true, todayTab: true) == [.today, .agents, .projects, .tasks, .settings], "five tabs in Mona Lisa's order once Tasks is earned")
+check(AppTabs.visible(tasksTab: false, todayTab: true) == [.today, .agents, .projects, .settings], "four before it, Tasks left out (#3559)")
+check(AppTabs.keep(.tasks, tasksTab: false, todayTab: true) == .today, "Tasks leaving the bar while showing goes to Today")
 check(AppTabs.keep(.projects, tasksTab: false) == .projects, "any other tab stays where it is")
 check(AppTabs.keep(.tasks, tasksTab: true) == .tasks, "Tasks stays while it is in the bar")
 check(AppTabs.Tab.today.boardName == "agents", "Today opens the board's home, its agents tab")
@@ -3097,8 +3865,9 @@ let anyURL = ["?tab=agents", "?tab=detail&agent=a", "?tab=projects", "?tab=tasks
 check(anyURL.allSatisfy { AppTabs.afterAnswer(.refused, pageURL: $0).barTo != .agents }, "no refusal ever puts the bar on Agents, where the box would be out of sight")
 
 section("app tabs: the bar's labels")
-check(AppTabs.visible(tasksTab: true).map(\.title) == ["Today", "Agents", "Projects", "Tasks", "Settings"], "the bar's words, in order")
-check(AppTabs.visible(tasksTab: true).map(\.symbol) == ["sun.max", "person.2", "folder", "checklist", "gearshape"], "the spec's symbols")
+check(AppTabs.visible(tasksTab: true, todayTab: true).map(\.title) == ["Today", "Agents", "Projects", "Tasks", "Settings"], "the bar's words, in order")
+check(AppTabs.visible(tasksTab: true, todayTab: true).map(\.symbol) == ["sun.max", "person.2", "briefcase", "checklist", "gearshape"], "the spec's symbols (#7266: a briefcase for Projects)")
+check(AppTabs.Tab.agents.asset == "TabAgent" && AppTabs.Tab.allCases.filter { $0 != .agents }.allSatisfy { $0.asset == nil }, "#7266: Agents draws its own icon, the rest SF Symbols")
 
 section("app tabs: press bookkeeping")
 do {
@@ -3317,6 +4086,25 @@ check(PhoneNotice.words(status: 200, contentType: json, data: answer, userInfo: 
 check(PhoneNotice.words(status: 200, contentType: json, data: Data(#"{"kind":"report","session":"irma","agent":"Irma","text":"  ","picture":null}"#.utf8), userInfo: pushed) == nil, "blank words: nothing")
 check(PhoneNotice.words(status: 200, contentType: json, data: Data(repeating: 0x20, count: PhoneNotice.maxAnswerBytes + 1), userInfo: pushed) == nil, "an oversized answer is not read")
 
+section("no banner for the conversation on screen (kosmos#7420)")
+// Josh 10-27: a banner for the chat he had open dropped over it. The relay's push shape (kind, session, address).
+let openDana = PushBridge.OpenChat(host: "M-ABC123.kosmosplus.com", session: "dana")
+let danaReplied: [AnyHashable: Any] = ["kind": "replied", "id": "reply:x:dana", "address": "m-abc123.kosmosplus.com", "session": "dana"]
+check(!PushBridge.showsBanner(danaReplied, openChat: openDana), "an answer from the chat on screen: no banner (address without case)")
+var danaAsks = danaReplied; danaAsks["kind"] = "needs_you"
+check(!PushBridge.showsBanner(danaAsks, openChat: openDana), "a question from the chat on screen: no banner")
+check(PushBridge.showsBanner(danaReplied, openChat: nil), "CONTROL: no chat open: the banner shows")
+var eliReplied = danaReplied; eliReplied["session"] = "eli"
+check(PushBridge.showsBanner(eliReplied, openChat: openDana), "another agent: the banner shows")
+var danaElsewhere = danaReplied; danaElsewhere["address"] = "m-zzz999.kosmosplus.com"
+check(PushBridge.showsBanner(danaElsewhere, openChat: openDana), "the same name on another computer: the banner shows")
+for kind in ["posted", "ready"] {
+    var k = danaReplied; k["kind"] = kind
+    check(PushBridge.showsBanner(k, openChat: openDana), "a \(kind) notice from that agent is not the conversation itself: the banner shows")
+}
+var noKind = danaReplied; noKind["kind"] = nil
+check(PushBridge.showsBanner(noKind, openChat: openDana), "a notice with no kind shows, as before")
+
 section("phone notice: a room post names its room (kosmos#7032)")
 // The push exactly as the relay sends it (kosmos-relay coordinator/src/apns.rs payload): no project in it.
 let postPush: [AnyHashable: Any] = ["aps": ["alert": ["title": "Dana posted"], "mutable-content": 1], "kind": "posted", "id": "post:m901", "address": "m-abc123.kosmosplus.com", "session": "dana"]
@@ -3345,6 +4133,27 @@ if let w {
         check(PhoneNotice.pictureRequest(b, userInfo: pushed, stored: savedMac) == nil, "a picture address off that route is refused: \(bad)")
     }
     check(PhoneNotice.pictureRequest(PhoneNotice.Words(kind: "report", session: "irma", agent: "Irma", text: "x", picture: nil), userInfo: pushed, stored: savedMac) == nil, "no picture: no request")
+}
+// kosmos#7345: a "ready" (work waiting for the person's check) has no words to ask for, and still shows its agent's picture.
+do {
+    // Shaped as the relay sends it (kosmos-relay apns.rs payload: kind, id, address, session; no shown name).
+    let ready: [AnyHashable: Any] = ["id": "built:p1:4:1793000000000", "address": "m-abc123.kosmosplus.com", "session": "irma", "kind": "ready"]
+    check(PhoneNotice.wordsRequest(userInfo: ready, stored: savedMac) == nil, "kosmos#7345: a ready push has no words to ask for (its id is not askable)")
+    check(PhoneNotice.pictureOnlyRequest(userInfo: ready, stored: savedMac)?.url?.absoluteString == "https://m-abc123.kosmosplus.com/api/agent/irma/avatar",
+          "its picture comes from the same computer's avatar route, for the session the push names")
+    check(PhoneNotice.pictureOnlyRequest(userInfo: ready, stored: savedMac)?.value(forHTTPHeaderField: "Sec-Fetch-Site") == "same-origin", "and says it is the board's own")
+    for bad in ["../x", "Irma", "", "a/b", "a.b", "a%2Fb", String(repeating: "a", count: 65)] {
+        var b = ready; b["session"] = bad
+        check(PhoneNotice.pictureOnlyRequest(userInfo: b, stored: savedMac) == nil, "CONTROL: a session the app would not accept is never asked for: \(bad)")
+    }
+    var other = ready; other["address"] = "m-other.kosmosplus.com"
+    check(PhoneNotice.pictureOnlyRequest(userInfo: other, stored: savedMac) == nil, "CONTROL: never another computer's")
+    check(PhoneNotice.pictureOnlyRequest(userInfo: ready, stored: nil) == nil, "CONTROL: nothing without the app's kept session")
+    // The extension's copy of the app's session rule agrees with the app's on every case here.
+    for s in ["irma", "a-b_c", "9x", "Irma", "-a", "_a", "a.b", "", String(repeating: "a", count: 64), String(repeating: "a", count: 65)] {
+        check(PhoneNotice.isAgentSession(s) == PushBridge.isAgentSession(s), "the extension's session rule matches the app's: \(s.prefix(10))")
+    }
+    check(PhoneNotice.soundName == "bubble-pop.caf", "the notification sound is the bubble pop shipped in the app")
 }
 check(PhoneNotice.pictureData(status: 200, contentType: "image/png", data: Data([1, 2, 3])) != nil, "a 200 image is shown")
 check(PhoneNotice.pictureData(status: 200, contentType: "text/html", data: Data([1])) == nil && PhoneNotice.pictureData(status: 404, contentType: "image/png", data: Data([1])) == nil, "anything else is not")
@@ -3417,6 +4226,48 @@ do {
         check(body["email"] as? String == "Ada@Example.com" && body["code"] as? String == "123456", "the email and code go as signed")
     } else { check(false, "the verify body is built") }
     check(SignIn.startBody(email: "a@b.co", deviceID: key.id, deviceName: "n").count == 3, "start sends the email, the id and the name only")
+}
+
+section("sign-in: the App Store review door (kosmos#7357)")
+do {
+    check(SignIn.reviewDoorOpen(status: 405) == true, "open: the door takes POST only, so a GET answers 405 (kosmos-relay review.rs)")
+    check(SignIn.reviewDoorOpen(status: 404) == false, "closed: it answers like a path that does not exist")
+    check(SignIn.reviewDoorOpen(status: 200) == nil && SignIn.reviewDoorOpen(status: 429) == nil && SignIn.reviewDoorOpen(status: 503) == nil,
+          "CONTROL: any other answer is not read as open (no password sign-in on a guess)")
+    let body = SignIn.reviewBody(email: "review@example.com", password: "p", deviceName: "iPhone")
+    check(body.count == 3 && body["email"] as? String == "review@example.com" && body["password"] as? String == "p"
+          && body["device_name"] as? String == "iPhone", "the review sign-in sends the email, the password and the name only")
+    check(body["device_id"] == nil, "and no device id: the server makes its own review device")
+    check(SignIn.reviewPath == "/v1/signin/review", "the door's path")
+    // Its answer is verify's: a session that waits for the computer's Allow, and the server's device id is ignored.
+    let admitted = SignIn.answer(status: 200, json: ["token": "t", "device_status": "pending", "match_code": "K7Q2",
+                                                     "addresses": ["a"], "device_id": "review-1"] as [String: Any])
+    check(admitted == .signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: "K7Q2", hasComputer: true)),
+          "an admitted review sign-in waits for the review computer's Allow, as any sign-in does")
+    // Review 1: a refusal stays on the password step (never the code step: no code was sent), a 404 is the door closed.
+    // The server's real bodies (kosmos-relay review.rs REFUSED, ratelimit::code_sends_refused).
+    check(SignIn.reviewAnswer(status: 401, json: ["error": "that email and password do not match"]) == .refused("That email and password do not match."),
+          "a wrong password stays on the password step, in Kosmos+'s words as a sentence")
+    check(SignIn.reviewAnswer(status: 429, json: ["error": "too many codes asked for from this network; wait a moment and try again", "retry_after_secs": 20] as [String: Any]) == .refused(SignIn.reviewTooMany),
+          "review 3: the door's rate limit says wait, never the code limiter's words about codes")
+    check(SignIn.reviewAnswer(status: 401, json: ["error": "this account is being deleted"]) == .refused("This account is being deleted."),
+          "CONTROL: a 401 that is not about the password keeps its own sentence")
+    check(SignIn.sentence("Done already.") == "Done already." && SignIn.sentence("") == "", "a sentence that already ends is left as it is")
+    check(SignIn.reviewAnswer(status: 403, json: ["error": "this account signs in through its company"]) == .refused("This account signs in through its company."),
+          "and so does any other refusal")
+    check(SignIn.reviewAnswer(status: 503, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer) && SignIn.reviewAnswer(status: 400, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer),
+          "and a server error or a bad request says try again")
+    check(SignIn.reviewAnswer(status: 401, json: [:] as [String: Any]) == .refused(SignIn.reviewRefused), "with no sentence from Kosmos+, the phone's own")
+    check(SignIn.reviewAnswer(status: 404, json: nil) == .closed, "a 404 is the door closed since the link showed")
+    // m733: on the very value the password step switches on (SignIn.reviewAnswer), from the server's answers.
+    let admittedReview = SignIn.reviewAnswer(status: 200, json: ["token": "t", "device_status": "pending", "device_id": "review-1"] as [String: Any])
+    check(SignIn.reviewDropsKey(admittedReview), "m733: an admitted review sign-in drops a key kept by an earlier code sign-in (its device is the server's review-*)")
+    check(SignIn.reviewDropsKey(.answered(.second(kind: "totp", challenge: "c", sentTo: nil))), "and so would one going on to a second step, should the door ever ask")
+    check(!SignIn.reviewDropsKey(SignIn.reviewAnswer(status: 401, json: ["error": "that email and password do not match"])), "CONTROL: a wrong password keeps the key")
+    check(!SignIn.reviewDropsKey(SignIn.reviewAnswer(status: 404, json: nil)), "CONTROL: a closed door keeps the key")
+    check(!SignIn.reviewDropsKey(SignIn.reviewAnswer(status: 200, json: ["nothing": true] as [String: Any])), "CONTROL: an answer this cannot read keeps the key")
+    check(SignIn.reviewAnswer(status: 200, json: ["token": "t", "device_status": "pending"] as [String: Any]) == .answered(.signedIn(SignIn.Session(token: "t", deviceStatus: .pending, matchCode: nil, hasComputer: false))),
+          "an admitted sign-in goes on to the Allow")
 }
 
 section("sign-in: what was typed")
@@ -3632,6 +4483,182 @@ do {
     let boardPage = (try? String(contentsOf: page, encoding: .utf8)) ?? ""
     check(boardPage.contains("const NEARLY_FULL = 80;") && boardPage.contains("const WARM = 60;"),
           "the board's bands are still 60 and 80 (read from web/index.html)")
+    // kosmos#7421: the eight orders are the desktop's own, keys and words in its order (read from web/index.html).
+    let deskKeys = boardPage.range(of: "const AGENT_SORTS = [").map { String(boardPage[$0.upperBound...].prefix(while: { $0 != "]" })) } ?? ""
+    check(deskKeys.replacingOccurrences(of: "'", with: "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } == Board.AgentSort.allCases.map(\.rawValue), "the phone's orders are the desktop's AGENT_SORTS, in its order")
+    check(Board.AgentSort.allCases.allSatisfy { boardPage.contains("['\($0.rawValue)', '\(Board.agentSortLabel($0))']") }, "each order's words are the desktop's menu words (agentSortControlHtml)")
+    // kosmos#7421 build 11 (Mona Lisa): one spoken label on both tabs, and "pressed" keyed on each tab's own default.
+    check(Board.sortButtonLabel(Board.agentSortLabel(.newest)) == "Sort: Newest first", "the Agents sort button says Sort: <order> (Projects: room tests)")
+    check(Board.agentSortDefault == .talked && Board.agentSort(saved: "") == Board.agentSortDefault, "the pressed look is off at Last talked to, and a fresh install reads as it")
+    check(boardPage.contains("const AGENT_SORT_DEFAULT = '\(Board.agentSortDefault.rawValue)';"), "the default order is the desktop's")
+    // kosmos#7341: the avatar dot's presence table is the board's CARD_ST pres, state for state (read from web/index.html).
+    do {
+        var board: [String: Board.Presence] = [:]
+        if let start = boardPage.range(of: "const CARD_ST = {"), let end = boardPage.range(of: "\n};", range: start.upperBound..<boardPage.endIndex) {
+            let block = String(boardPage[start.upperBound..<end.lowerBound])
+            let rx = try! NSRegularExpression(pattern: #"^\s*([a-z_]+):\s*\{[^}]*pres:\s*'(on|off|unsure)'"#, options: [.anchorsMatchLines])
+            for m in rx.matches(in: block, range: NSRange(block.startIndex..., in: block)) {
+                let key = String(block[Range(m.range(at: 1), in: block)!]), pres = String(block[Range(m.range(at: 2), in: block)!])
+                board[key] = pres == "on" ? .on : pres == "off" ? .off : .unsure
+            }
+        }
+        check(board.count >= 10, "kosmos#7341: the board's CARD_ST was read (\(board.count) states)")
+        check(board == Board.presenceOf, "kosmos#7341: the phone's presence table is the board's CARD_ST pres for every state")
+        func a(_ state: String, running: Bool = true, trust: Bool = false, failed: Bool = false) -> Board.Agent {
+            var x = Board.Agent(session: "s", name: "S", role: nil, state: state, task: nil, needsYou: false)
+            x.running = running; x.needsTrust = trust; x.restartFailed = failed
+            return x
+        }
+        check(Board.presence(a("idle")) == .on && Board.presence(a("working")) == .on && Board.presence(a("needs_you")) == .on,
+              "kosmos#7341: idle, working and stuck agents that run are green (Josh: every agent looked red or grey)")
+        check(Board.presence(a("stopped")) == .off, "a stopped agent is grey")
+        check(Board.presence(a("working", running: false)) == .off, "an agent not running is grey whatever its last state")
+        check(Board.presence(a("restarting", running: false)) == .on, "CONTROL: except while restarting")
+        check(Board.presence(a("idle", trust: true)) == .unsure, "an agent waiting on a trust prompt is hollow, never green")
+        check(Board.presence(a("idle", running: false, trust: true)) == .unsure, "and the trust prompt comes before not running")
+        check(Board.presence(a("needs_you", failed: true)) == .off, "a failed restart is grey (the board's CARD_ST_FAILED_RESTART)")
+        check(Board.presence(a("working", failed: true)) == .on, "CONTROL: only on needs_you, as the board")
+        check(Board.presence(a("unknown")) == .unsure && Board.presence(a("something_new")) == .unsure,
+              "unknown, and a state the phone does not know, are hollow")
+        let parsed = Board.parseAgents(Data(#"{"agents":[{"sessionName":"f","state":"needs_you","disruption":{"failed":true}}]}"#.utf8))
+        check(parsed?.first?.restartFailed == true, "kosmos#7341: disruption.failed is read from /api/status")
+        // kosmos#7342: a pill only when there is something to see; its colour follows the state the word comes from.
+        func q(_ x: Board.Agent, _ f: (inout Board.Agent) -> Void) -> Board.Agent { var y = x; f(&y); return y }
+        check(Board.pill(a("idle")) == nil, "kosmos#7342: Idle shows no pill (Josh: no pill means all is well)")
+        // Mona Lisa's ruling (10-27 15:4x): a red pill never says Idle or Working; it says Issue. Other words stay as sent.
+        let redIdle = q(a("idle")) { $0 = Board.Agent(session: $0.session, name: $0.name, role: nil, state: "idle", task: nil, needsYou: true) }
+        let redWorking = q(a("working")) { $0.macTone = .needsYou }
+        check(Board.pill(redIdle) == .problem && Board.pillWord(redIdle) == "Issue", "kosmos#7342: a red pill that would say Idle says Issue")
+        check(Board.pill(redWorking) == .problem && Board.pillWord(redWorking) == "Issue", "kosmos#7342: a red pill that would say Working says Issue")
+        check(Board.pillWord(a("working")) == "Working" && Board.pillWord(a("idle")) == "Idle", "CONTROL: a green Working and a plain Idle keep their words")
+        let stuckWord = q(a("working")) { $0.macTone = .needsYou; $0.macWord = "Messages stuck" }
+        check(Board.pillWord(stuckWord) == "Messages stuck", "kosmos#7342: a word the Mac sent other than Idle or Working stays as sent")
+        // Review 1: the word and its colour never disagree, by either rule, over every red route found.
+        let routes: [Board.Agent] = [redIdle, redWorking, q(a("idle")) { $0.crashLooping = true }, q(a("working")) { $0.crashLooping = true },
+                                     a("idle", failed: true), q(a("idle")) { $0 = Board.Agent(session: $0.session, name: $0.name, role: nil, state: "idle", task: nil, needsYou: true, macTone: .quiet) },
+                                     a("working"), a("idle"), stuckWord]
+        check(routes.allSatisfy { r in (Board.pillWord(r) == "Issue") == (Board.pill(r) == .problem && ["Idle", "Working"].contains(Board.statusWord(r)))
+                                    && (Board.toneWord(r) == "Issue") == (Board.tone(r) == .needsYou && ["Idle", "Working"].contains(Board.statusWord(r))) },
+              "review 1: Issue appears exactly where its colour is red, for the pill and for the tone (\(routes.count) routes)")
+        let quietTone = Board.Agent(session: "z", name: "Z", role: nil, state: "idle", task: nil, needsYou: true, macTone: .quiet)
+        check(Board.pillWord(quietTone) == "Issue" && Board.toneWord(quietTone) == "Idle" && Board.tone(quietTone) == .quiet,
+              "review 2: a red pill (Issue) on the row, and the Mac's quiet tone (Idle, grey) on Today and the header: each word matches its own colour")
+        check(Board.pill(a("working")) == .working, "working is the green pill with the Sweep")
+        check(Board.pill(q(a("needs_you")) { $0.reportedByAgent = true }) == .asks, "an agent's question is blue")
+        check(Board.pill(q(a("needs_you")) { $0.awaitingApproval = true }) == .asks, "a permission waiting is blue")
+        check(Board.pill(a("needs_you")) == .problem, "CONTROL: a plain needs_you (the board's Issue) is a real problem, red")
+        check(Board.pill(a("idle", running: false, trust: true)) == .asks, "a trust prompt is the person's to answer: blue")
+        check(Board.pill(a("rate_limited")) == .held && Board.pill(a("restarting", running: false)) == .held,
+              "rate limited and restarting are amber: held by something outside the agent")
+        // kosmos#7342 (Josh 10-28 09:34): "Waiting" told him nothing: a blocked agent shows no pill, as an idle one does,
+        // unless it needs him (then the red pill, from needsYou).
+        check(Board.pill(a("blocked")) == nil, "a blocked agent shows no Waiting pill")
+        check(Board.pill(Board.Agent(session: "x", name: "x", role: nil, state: "blocked", task: nil, needsYou: true)) == .problem, "CONTROL: a blocked agent that needs him still shows the red pill")
+        // Review 1: a current Mac sends a blocked agent's tone as needs-you; on the phone it is still no pill, and quiet.
+        check(Board.pill(q(a("blocked")) { $0.macTone = .needsYou }) == nil, "the Mac's needs-you tone does not bring back a Waiting pill")
+        check(Board.tone(q(a("blocked")) { $0.macTone = .needsYou }) == .quiet, "a blocked agent is not sorted or listed as needing him on the phone")
+        check(Board.pill(q(a("idle")) { $0.macTone = .needsYou }) == .problem, "CONTROL: the Mac's needs-you tone still reddens any other quiet state")
+        check(Board.pill(a("idle", running: false)) == .problem && Board.pill(a("stopped")) == .problem, "not running is red")
+        check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true }) == .cantTell, "a job Kosmos cannot see is grey, not red")
+        check(Board.pill(q(a("working")) { $0.crashLooping = true }) == .problem, "a crash loop is red")
+        check(Board.pill(a("unknown")) == .cantTell && Board.pill(a("something_new")) == .cantTell, "unknown and unrecognised states are grey")
+        // kosmos#7354: the red count on each avatar is the Mac's waiting total (engine/status.js waitingTotal), agent by agent.
+        do {
+            let rows = Board.parseAgents(Data(#"{"agents":[{"sessionName":"a","state":"needs_you","dmUnread":2},{"sessionName":"b","state":"idle","dmUnread":3},{"sessionName":"g","state":"needs_you","dmUnread":4,"isGuide":true},{"sessionName":"c","state":"working","dmUnread":null},{"sessionName":"d","state":"idle"},{"sessionName":"e","state":"working","deliveryStall":{"since":"2026-10-27T10:00:00Z"}},{"sessionName":"f","state":"idle","deliveryStall":null}]}"#.utf8)) ?? []
+            check(rows.map(\.dmUnread) == [2, 3, 4, 0, 0, 0, 0] && rows.map(\.isGuide) == [false, false, true, false, false, false, false],
+                  "kosmos#7354: dmUnread and isGuide are read; a null or missing count is 0")
+            // Expected values written out from the Mac's rules (engine/status.js needsPerson and waitingTotal, server.js
+            // countAgents over non-guide rows), not from the phone's own needsYou: a needs_you agent counts 1, each unread
+            // reply 1, a stalled delivery 1, the guide nothing, a null stall nothing.
+            check(rows.map(Board.noticeCount) == [3, 3, 0, 0, 0, 1, 0], "review: each avatar's count is its share of the Mac's total (\(rows.map(Board.noticeCount)))")
+            check(rows.map(Board.noticeCount).reduce(0, +) == 7, "the rows add up to the Mac's total for agents: 7")
+            check(Board.jsTruthy(["since": "x"]) && !Board.jsTruthy(NSNull()) && !Board.jsTruthy(nil) && !Board.jsTruthy(false) && !Board.jsTruthy(0) && !Board.jsTruthy(""),
+                  "a field reads as the Mac's Boolean() reads it")
+            check(Board.noticeCount(Board.Agent(session: "x", name: "x", role: nil, state: "idle", task: nil, needsYou: false)) == 0,
+                  "CONTROL: an agent with nothing waiting shows no count")
+            check(Board.noticeWords(3) == "3 notifications" && Board.noticeWords(1) == "1 notification" && Board.noticeWords(0) == nil,
+                  "VoiceOver hears the count as notifications (Mona Lisa, #7342), never a zero")
+            // kosmos#7342 (Mona Lisa): the bubble's number in full to 99, then 99+; nothing at 0.
+            check(Board.noticeBubbleText(0) == nil && Board.noticeBubbleText(7) == "7" && Board.noticeBubbleText(99) == "99" && Board.noticeBubbleText(100) == "99+",
+                  "the bubble shows 1 to 99 in full, then 99+ (never 9+)")
+            // kosmos#7342: the Agents tab is the rows' bubbles added up, so the rows always explain it; off is none.
+            let rowsA = [Board.Agent(session: "a", name: "A", role: nil, state: "idle", task: nil, needsYou: true),
+                         Board.Agent(session: "b", name: "B", role: nil, state: "idle", task: nil, needsYou: false)]
+            let sum = rowsA.reduce(0) { $0 + Board.noticeCount($1) }
+            check(Board.agentsTabBadge(waiting: 292, agents: rowsA) == sum && sum == 1,
+                  "the Agents tab is the sum of its rows' counts, not the Mac's total (292 was all project-room posts)")
+            check(Board.agentsTabBadge(waiting: nil, agents: rowsA) == 0, "with the count switched off, no Agents badge")
+            check(Board.agentsTabBadge(waiting: 292, agents: rowsA, stale: true) == 0, "review 1: a list shown as not updating shows no bubbles, so no tab badge")
+            let seen = Board.dmSeenRequest(mac: URL(string: "https://studio.kosmosplus.com")!, session: "dana")
+            check(seen?.httpMethod == "POST" && seen?.url?.path == "/api/agent/dana/seen", "opening the chat moves the board's read cursor (server.js dmSeen)")
+            check(Board.dmSeenRequest(mac: URL(string: "https://studio.kosmosplus.com")!, session: "../x") == nil, "CONTROL: a name the board would refuse is never sent")
+        }
+        check(Board.presenceWords(.off, word: "Issue") == "not running", "review: a grey dot beside another word is spoken")
+        check(Board.presenceWords(.off, word: "Not running") == nil, "CONTROL: not said twice when the word says it")
+        check(Board.presenceWords(.unsure, word: "Idle") != nil && Board.presenceWords(.on, word: "Idle") == nil, "a hollow dot is spoken; a green one adds nothing")
+        // Review: the pill is never calmer than what the board counts as needing the person.
+        func needing(_ s: String) -> Board.Agent { Board.Agent(session: "x", name: "x", role: nil, state: s, task: nil, needsYou: true) }
+        check(Board.pill(needing("connection_lost")) == .problem, "review: a reconnect that gave up is red, not amber")
+        check(Board.pill(a("connection_lost")) == .held, "CONTROL: a connection still being retried stays amber")
+        check(Board.pill(needing("rate_limited")) == .problem, "review: a rate limit stuck on its error is red")
+        check(Board.pill(needing("idle")) == .problem, "review: an idle agent whose helper gave up shows a red pill, not none")
+        check(Board.pill(q(a("working")) { $0.macWord = "Messages stuck"; $0.macTone = .needsYou }) == .problem,
+              "review: a word the Mac counts as needs you (Messages stuck) is red, not a green Working pill")
+        check(Board.pill(q(a("unknown")) { $0.macWord = "Can't tell"; $0.macTone = .needsYou }) == .cantTell,
+              "review: Can't tell stays grey though the Mac's tone for it is needs you")
+        check(Board.pill(q(a("idle", running: false)) { $0.jobRunningUnseen = true; $0.macWord = "Can't tell"; $0.macTone = .needsYou }) == .cantTell,
+              "review: and so does a job Kosmos cannot see, as a current Mac sends it")
+        check(Board.pill(q(a("rate_limited")) { $0.macTone = .needsYou }) == .held, "CONTROL: the Mac's needs-you tone leaves a held state amber")
+        check(Board.pill(q(needing("needs_you")) { $0.reportedByAgent = true }) == .asks,
+              "CONTROL: an agent's question stays blue though the board counts it as needing the person")
+        // kosmos#7421: the desktop's eight orders (web/index.html sortAgents), each with a tie on name and on position.
+        func ag(_ s: String, _ n: String, state: String = "idle", needs: Bool = false, role: String? = nil, model: String? = nil,
+                talked: Double? = nil, active: Double? = nil, made: Double? = nil) -> Board.Agent {
+            var a = Board.Agent(session: s, name: n, role: role, state: state, task: nil, needsYou: needs)
+            a.model = model
+            a.lastTalkedAt = talked.map { Date(timeIntervalSince1970: $0) }
+            a.lastActiveAt = active.map { Date(timeIntervalSince1970: $0) }
+            a.createdAt = made.map { Date(timeIntervalSince1970: $0) }
+            return a
+        }
+        let crew = [ag("b", "bea", state: "working", role: "writer", model: "Claude Opus 5", talked: 100, active: 50, made: 1),
+                    ag("a", "Al", state: "blocked", role: nil, model: nil, talked: 300, active: nil, made: 3),
+                    ag("c", "al", needs: true, role: "Analyst", model: "codex", talked: nil, active: 90, made: 2),
+                    ag("d", "Dee", role: "writer", model: "Claude Opus 5", talked: 100, active: 50, made: nil)]
+        func order(_ s: Board.AgentSort, projects: [String: String] = [:], stars: Set<String>? = nil) -> [String] {
+            Board.agentOrder(crew, sort: s, projects: projects, stars: stars).map(\.session)
+        }
+        check(order(.name) == ["a", "c", "b", "d"], "Name A to Z: without case, a tie keeps the computer's order")
+        check(order(.talked) == ["a", "b", "d", "c"], "Last talked to: newest first, a tie by name, never talked to last")
+        check(order(.active) == ["c", "b", "d", "a"], "Recently active: newest first, unknown last")
+        check(order(.newest) == ["a", "c", "b", "d"], "Newest first: by when it was made, unknown last")
+        check(order(.needs) == ["c", "a", "b", "d"], "Needs you first: needs you, blocked, working, idle (the desktop's needsRank)")
+        check(order(.model) == ["b", "d", "c", "a"], "By model: A to Z, no model last")
+        check(order(.role) == ["c", "b", "d", "a"], "By role: A to Z by the role line, none last")
+        check(order(.project, projects: ["d": "Alpha", "a": "beta"]) == ["d", "a", "c", "b"], "By project: the first project A to Z, none last (by name)")
+        check(order(.name, stars: ["d"]) == ["d", "a", "c", "b"] && order(.talked, stars: ["d", "c"]) == ["d", "c", "a", "b"], "starred agents first in every order, the order applied within each group (#6719)")
+        check(Board.agentSort(saved: "board") == .needs && Board.agentSort(saved: "name") == .name && Board.agentSort(saved: "x") == .talked, "the phone's older saved choice still means Needs you first; anything unknown is the desktop's default")
+        check(Board.sortModel(["earlierModelName": "Opus 4.5"]) == "Claude Opus 4.5" && Board.sortModel(["modelName": "Claude Sonnet 5", "plannedModelName": "x"]) == "Claude Sonnet 5" && Board.sortModel(["runner": "claude"]) == nil && Board.sortModel(["runner": "codex"]) == "OpenAI Codex", "the model the order reads: live, then planned, then the earlier session's")
+        check(Board.sortModel(["runner": "codex", "modelName": "o3"]) == "OpenAI o3" && Board.sortModel(["runner": "codex", "modelName": "GPT 5.6"]) == "GPT 5.6"
+              && Board.sortModel(["runner": "codex", "account": ["provider": "alibaba"], "modelName": "3 Max"]) == "Qwen 3 Max"
+              && Board.sortModel(["runner": "antigravity"]) == "Gemini (Google subscription)" && Board.sortModel(["runner": "muse"]) == "Meta Muse"
+              && Board.sortModel(["runner": "gemini", "modelName": "Gemini 3.8 Flash", "settingModelName": "Gemini 3 Pro"]) == "Gemini 3.8 Flash (set to Gemini 3 Pro)"
+              && Board.sortModel(["state": "stopped", "modelName": "Haiku 4.5", "plannedModelName": "Opus 5"]) == "Claude Opus 5"
+              && Board.sortModel(["state": "working", "modelName": "Haiku 4.5", "plannedModelName": "Opus 5"]) == "Claude Haiku 4.5",
+              "review 1: By model reads the desktop's own model line (modelLine), provider words and a stopped agent's planned model included")
+        let row = #"{"agents":[{"sessionName":"eli","name":"Eli","state":"idle","lastTalkedAt":"2026-10-27T20:00:00Z","lastActiveAt":"2026-10-27T21:00:00Z","createdAt":"2026-10-01T09:00:00Z","modelName":"Opus 5","role":"writes copy","profile":{"role":"Designer"},"deliveryStall":{"since":"2026-10-27T20:00:00Z"}}]}"#
+        let parsedRow = Board.parseAgents(Data(row.utf8))?.first
+        check(parsedRow?.lastTalkedAt == Board.isoDate("2026-10-27T20:00:00Z") && parsedRow?.lastActiveAt == Board.isoDate("2026-10-27T21:00:00Z")
+              && parsedRow?.createdAt == Board.isoDate("2026-10-01T09:00:00Z") && parsedRow?.model == "Claude Opus 5"
+              && parsedRow?.profileRole == "Designer" && parsedRow?.deliveryStall == true && parsedRow?.lastTalkedAt != nil,
+              "review 1: the status row's times, model, picked role and stuck messages are read")
+        var picked = ag("e", "Eve", role: "zz parsed"); picked.profileRole = "Aa picked"
+        check(Board.agentOrder([crew[0], picked], sort: .role).map(\.session) == ["e", "b"], "review 1: By role reads the role picked on the profile before the parsed line (the desktop's roleLine)")
+        check(Board.keepingOrder([crew[0]], with: [crew[0], crew[3], crew[1]], sort: .name).map(\.session) == ["b", "a", "d"], "review 2: agents new on a live update join the end in the chosen order, the shown rows held still")
+        check(Board.sortModel(["state": "needs_you", "disruption": ["failed": true], "modelName": "Haiku 4.5", "plannedModelName": "Opus 5"]) == "Claude Opus 5", "review 2: a failed restart counts as not running, as on the desktop (its planned model)")
+        var stuck = ag("f", "Fay", state: "idle"); stuck.deliveryStall = true
+        check(Board.agentOrder([crew[0], stuck], sort: .needs).map(\.session) == ["f", "b"], "review 1: stuck messages rank with needs you (the desktop's agentNeedsAttention)")
+    }
 }
 
 await boardLoopTests()
@@ -3656,6 +4683,273 @@ do {
         check(!PushBridge.offersAsk(permission: p, agentsCurrent: true, dismissed: false),
               "#7222 permission \(p) (already answered, or not read yet): not offered")
     }
+}
+
+// MARK: - kosmos#7252: the Today tab switched off (Josh, 2026-10-26: "kill the today tab for now")
+
+check(AppTabs.todayTab == false, "#7252: the shipped app has the Today tab switched off")
+check(AppTabs.visible(tasksTab: true) == [.agents, .projects, .tasks, .settings], "#7252: no Today in the bar, Tasks earned")
+check(AppTabs.visible(tasksTab: false) == [.agents, .projects, .tasks, .settings], "#7266: four tabs, Tasks shown whether or not the board has earned it")
+check(AppTabs.keep(.tasks, tasksTab: false) == .tasks, "#7266: Tasks never leaves the four-tab bar")
+check(AppTabs.visible(tasksTab: false, todayTab: true) == [.today, .agents, .projects, .settings], "#7266: the five-tab bar (screenshot build) still earns Tasks")
+check(AppTabs.keep(.today, tasksTab: true) == .agents, "#7252: a selection on the hidden Today goes to Agents")
+check(AppTabs.barTab(forPage: .today, tasksTab: true) == .today, "#7252: the board's home page is still the board page (shown over the tabs)")
+check(AppTabs.barTab(forPage: .settings, tasksTab: true) == .today, "#7252: the board's Settings is the board page, not the native Settings")
+// Review 2: with Today off every tab the bar offers is native, so the board page moving by itself never moves the bar.
+for sel in AppTabs.visible(tasksTab: true) {
+    let a = URL(string: "https://mac.example/#agents"), b = URL(string: "https://mac.example/#settings")
+    check(AppTabs.follow(from: a, to: b, selected: sel, barHeld: false, tasksTab: true) == nil, "#7252: a page move leaves \(sel) where it is")
+}
+
+// MARK: - kosmos#7266: the + buttons ask the board's door for a create
+
+check(AppTabs.pressScript(door: "new-agent").contains("window.kosmosAppTab('new-agent')"), "#7266: the create name goes to the door")
+check(AppTabs.pressScript(.agents) == nil && AppTabs.pressScript(.projects) == AppTabs.pressScript(door: "projects"), "#7266: a section press is unchanged")
+check(AppTabs.pressScript(door: "new-agent").contains("return 'covered'; return 'refused'") && !AppTabs.pressScript(door: "projects").contains(".rm-back"), "#7266 review 2: only a create reads a covered board as covered; a section press is unchanged")
+// Review 3 (switcher): a + goes to the computer the switcher shows.
+let studioURL = URL(string: "https://studio.kosmosplus.com/")!, laptopURL = URL(string: "https://laptop.kosmosplus.com/")!
+check(AppTabs.createTarget(pageURL: URL(string: "https://studio.kosmosplus.com/?tab=agents"), shown: laptopURL) == laptopURL, "#7266 review 3: the page on Studio while Laptop is shown loads Laptop's board first")
+check(AppTabs.createTarget(pageURL: URL(string: "https://LAPTOP.kosmosplus.com/?tab=agents"), shown: laptopURL) == nil && AppTabs.createTarget(pageURL: studioURL, shown: nil) == nil, "#7266 review 3: already there, or no computer shown: press where the page is")
+// Review 3: through the real answer parsing, the covered answer waits and never falls back (review 2 returned 'absent',
+// which answer() reads as .noDoor and the fallback fired).
+let coveredMac = URL(string: "https://studio.kosmosplus.com/?tab=agents")!
+check(AppTabs.answer("covered", error: nil) == .absent && AppTabs.createFallback(door: "new-agent", AppTabs.answer("covered", error: nil), pageURL: coveredMac) == nil, "#7266 review 3: a covered create's own answer string waits and has no fallback")
+check(AppTabs.createFallback(door: "new-agent", AppTabs.answer("refused", error: nil), pageURL: coveredMac) != nil, "#7266 review 3: CONTROL: a plain refusal through the same parsing does fall back")
+var lateT = PressTracker()
+let firstRun = lateT.press(.projects, page: .ready, section: true, door: "new-project")
+_ = lateT.press(.tasks, page: .ready, section: true)
+check(firstRun.map { !lateT.isCurrent($0.serial) } == true, "#7266 review 3: an answer to an earlier press is not current (its fallback is skipped)")
+do {
+    var t = PressTracker()
+    let waited = t.press(.agents, page: .loading, section: true, door: AppTabs.Create.agent.rawValue)
+    check(waited == nil && t.pending == .agents && t.pendingDoor == "new-agent", "#7266: a create on a loading page waits, with its door kept for the replay")
+    // Review 1: through the tracker's own replay rule (ContentView.loaded uses it), not a hand-built door.
+    check(t.replay?.tab == .agents && t.replay?.door == "new-agent", "#7266: a waiting create has a replay with its door")
+    let replay = t.replay ?? (tab: .agents, door: nil, host: nil)
+    let run = t.press(replay.tab, page: .ready, section: true, door: replay.door)
+    check(run?.script.contains("'new-agent'") == true, "#7266: the replay presses the create, not the bare section")
+    _ = t.press(.agents, page: .ready)   // the native Agents tab
+    check(t.pending == nil && t.pendingDoor == nil, "#7266: the native tab ends a waiting create")
+    _ = t.press(.projects, page: .loading, section: true, door: AppTabs.Create.project.rawValue)
+    t.loadingOwnPage()
+    check(t.pendingDoor == nil, "#7266: a page the app loads itself clears a waiting create")
+    // Review 1: a create the board turned down falls back; a waiting or opened press, or no create, does not.
+    let mac = URL(string: "https://studio.kosmosplus.com/?tab=agents#x")!
+    check(AppTabs.createFallback(door: "new-project", .refused, pageURL: mac) == .projects, "#7266: a refused project create opens the board's Projects")
+    check(AppTabs.createFallback(door: "new-agent", .refused, pageURL: mac) == .load(URL(string: "https://studio.kosmosplus.com/?tab=create")!), "#7266: a refused agent create loads the board's create page on the same Mac")
+    check(AppTabs.createFallback(door: "new-agent", .noDoor, pageURL: mac) != nil, "#7266: an older board without the door falls back too")
+    check(AppTabs.createFallback(door: "new-agent", .opened, pageURL: mac) == nil && AppTabs.createFallback(door: "new-agent", .absent, pageURL: mac) == nil, "#7266: an opened or still-waiting create has no fallback")
+    check(AppTabs.createFallback(door: "new-agent", .noDoor, pageURL: URL(string: "https://login.kosmosplus.com/")!) == nil, "#7266: on the sign-in page the create still waits")
+    check(AppTabs.createFallback(door: nil, .refused, pageURL: mac) == nil, "#7266: a plain section press has no create fallback")
+}
+do {
+    // Review 5: a create meant for one computer (its board loaded for it) replays only on that computer's board.
+    var t = PressTracker()
+    _ = t.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    check(t.replay(host: "studio.kosmosplus.com") == nil, "#7266 review 5: a load on another computer does not replay the create")
+    check(t.pending == .agents && t.pendingDoor == "new-agent", "#7266 review 5: and the create keeps waiting (a sign-in hop on the way is not a drop)")
+    let back = t.replay(host: "laptop.kosmosplus.com")
+    check(back?.door == "new-agent" && back?.host == "laptop.kosmosplus.com", "#7266 review 5: the named computer's load replays it, its host carried")
+    _ = t.press(.agents, page: .ready, section: true, door: back?.door, host: back?.host)
+    check(t.pendingHost == "laptop.kosmosplus.com", "#7266 review 5: a replayed create that waits again keeps its computer")
+    t.loadingOwnPage()
+    check(t.pendingHost == nil, "#7266 review 5: a page the app loads itself clears it")
+    var any = PressTracker()
+    _ = any.press(.agents, page: .loading, section: true, door: "new-agent")
+    check(any.replay(host: "studio.kosmosplus.com")?.door == "new-agent", "#7266 review 5: CONTROL: a create with no computer named replays on any page")
+}
+do {
+    // Review 6: a failed load of the named computer ends its create; a failed load elsewhere does not (the control).
+    var t = PressTracker()
+    _ = t.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    t.loadFailed(host: "studio.kosmosplus.com")
+    check(t.pending == .agents && t.pendingHost == "laptop.kosmosplus.com", "#7266 review 6: CONTROL: a failed load of another computer leaves the create waiting")
+    t.loadFailed(host: "Laptop.KosmosPlus.com")
+    check(t.pending == nil && t.pendingDoor == nil && t.pendingHost == nil, "#7266 review 6: a failed load of the named computer (any case) ends the create")
+    var u = PressTracker()
+    _ = u.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    check(u.replay(host: "LAPTOP.kosmosplus.com")?.door == "new-agent", "#7266 review 6: the replay's host match ignores case, as createTarget's does")
+    let run = u.press(.agents, page: .ready, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    _ = u.answered(serial: run?.serial ?? -1, .opened, pageURL: URL(string: "https://laptop.kosmosplus.com/"))
+    check(u.pendingHost == nil, "#7266 review 6: an opened create clears its computer")
+    var d = PressTracker()
+    _ = d.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    d.drop(selected: .agents)
+    check(d.pendingHost == nil, "#7266 review 6: a dropped page clears it")
+    var n = PressTracker()
+    _ = n.press(.agents, page: .loading, section: true, door: "new-agent", host: "laptop.kosmosplus.com")
+    _ = n.press(.agents, page: .ready)
+    check(n.pendingHost == nil, "#7266 review 6: the native tab clears it")
+}
+
+section("kosmos#7389: a Kosmos+ download, saved through the share sheet (the Mac's #5167 rules)")
+do {
+    let coord = URL(string: "https://login.kosmosplus.com")!
+    let page = URL(string: "https://studio.kosmosplus.com/?tab=files")!
+    let file = URL(string: "https://studio.kosmosplus.com/api/files/report.pdf")!
+    check(Download.isBoardPage(page, coordinator: coord), "a computer's Kosmos+ address is a board")
+    for bad in ["https://login.kosmosplus.com/", "https://www.kosmosplus.com/", "https://billing.kosmosplus.com/", "https://evil.example/",
+                "http://studio.kosmosplus.com/", "https://a.b.kosmosplus.com/", "https://studio.kosmosplus.com:8443/", "https://u@studio.kosmosplus.com/"] {
+        check(!Download.isBoardPage(URL(string: bad)!, coordinator: coord), "CONTROL: not a board: \(bad)")
+    }
+    check(!Download.isBoardPage(nil, coordinator: coord), "no page is not a board")
+    check(Download.isSameOrigin(file, page: page) && Download.isSameOrigin(URL(string: "https://studio.kosmosplus.com:443/x")!, page: page),
+          "the same origin, the default port written or not")
+    check(!Download.isSameOrigin(URL(string: "https://other.kosmosplus.com/x")!, page: page) && !Download.isSameOrigin(URL(string: "http://studio.kosmosplus.com/x")!, page: page),
+          "CONTROL: another computer or another scheme is not the same origin")
+    // A download the page asked for (<a download>).
+    check(Download.decideAction(target: file, page: page, coordinator: coord) == .save, "a board's own file is saved")
+    check(Download.decideAction(target: URL(string: "https://other.kosmosplus.com/x")!, page: page, coordinator: coord) == .refuse(Download.notFromThisBoard),
+          "CONTROL: a file from another address is refused, in the Mac's words")
+    check(Download.decideAction(target: file, page: URL(string: "https://evil.example/")!, coordinator: coord) == .refuse(Download.notABoard),
+          "CONTROL: a page that is not a board cannot save")
+    // A main-frame answer.
+    func resp(_ status: Int, attachment: Bool = true, canShow: Bool = false, target: URL? = file, page p: URL? = page) -> Download.ResponseDecision {
+        Download.decideResponse(status: status, attachment: attachment, canShow: canShow, target: target, page: p, coordinator: coord)
+    }
+    check(resp(200) == .save, "an attachment from the board is saved")
+    check(resp(200, attachment: false, canShow: false) == .save, "a board file the window cannot show (a .zip) is saved")
+    check(resp(200, attachment: false, canShow: true) == .show, "CONTROL: a page the window can show is shown, not saved")
+    check(resp(204) == .show && resp(205) == .show, "a 204 or 205 has nothing to save")
+    check(resp(200, target: URL(string: "https://other.kosmosplus.com/x")!) == .refuse(Download.fromElsewhere), "an attachment from elsewhere is refused")
+    check(resp(200, attachment: false, target: URL(string: "https://other.kosmosplus.com/x")!) == .refuse(Download.notOpenedElsewhere),
+          "review 1: a file the window cannot show, from elsewhere, is said as not opened or saved (the Mac's words)")
+    check(resp(200, page: URL(string: "https://evil.example/")!) == .refuse(Download.notABoard)
+          && resp(200, attachment: false, page: URL(string: "https://evil.example/")!) == .refuse(Download.notOpenedNotABoard),
+          "a page that is not a board cannot save, in the Mac's two wordings")
+    check(resp(200, page: nil) == .refuse(nil), "no page yet (the app's own load): refused and not said")
+    // Review 1: every board download is an <a download>, which never reaches the response policy: what arrives is judged
+    // at its destination (Download.decideDestination), the Mac's decideDestinationUsing.
+    let dl = URL(string: "https://studio.kosmosplus.com/api/attachments/a1")!
+    let filesDl = URL(string: "https://studio.kosmosplus.com/api/agent/dana/files/download?path=x")!
+    check(Download.decideDestination(status: 200, mimeType: "application/pdf", attachment: true, url: dl) == .keep, "a file that arrived is kept")
+    check(Download.decideDestination(status: 204, mimeType: nil, attachment: false, url: dl) == .drop(nil),
+          "review 1: a 204 (the board refused the download and its page says why) keeps nothing and says nothing")
+    check(Download.decideDestination(status: 404, mimeType: "application/json", attachment: false, url: dl) == .drop(Download.couldNotGet),
+          "an error answer is never kept as the file, and is said")
+    check(Download.decideDestination(status: 200, mimeType: "text/html", attachment: false, url: dl) == .drop(Download.couldNotGet),
+          "review 1: a web page where a file was expected (a signed-out computer's sign-in page) is never kept")
+    check(Download.decideDestination(status: 200, mimeType: "text/html", attachment: true, url: dl) == .keep,
+          "review 1: CONTROL: a web page sent as an attachment IS the file (an agent's .html attachment)")
+    check(Download.decideDestination(status: 500, mimeType: "text/html", attachment: false, url: filesDl) == .drop(nil),
+          "the Files lists' own routes say a refusal on the page, so the app says nothing")
+    check(Download.pageSaysRefusal(filesDl) && Download.pageSaysRefusal(URL(string: "https://s.kosmosplus.com/api/project/p1/file-download")!)
+          && !Download.pageSaysRefusal(dl), "the routes whose page says it themselves (the Mac's pageSaysDownloadRefusal)")
+    check(Download.pageSaysRefusal(URL(string: "https://s.kosmosplus.com/api/agent/dana/files/download-folder?path=x")!),
+          "review 3: the folder download (#6724) says its refusals on the page too")
+    check(Download.redirectedElsewhere == "The file pointed somewhere Kosmos does not save from, so it was not saved.", "a redirect elsewhere in the Mac's words")
+    // The name.
+    check(Download.fileName("report.pdf") == "report.pdf" && Download.fileName(nil) == "download" && Download.fileName("../../etc/x") == "-..-etc-x"
+          && Download.fileName(".hidden") == "hidden" && Download.fileName("   ") == "download", "the name is safe for a file")
+    // The Mac's guard.
+    let t0 = Date(timeIntervalSince1970: 1_000_000)
+    check(Download.shouldSay(up: false, refusal: true, lastAt: nil, now: t0, shownThisPage: 0), "the first refusal is said")
+    check(!Download.shouldSay(up: true, refusal: true, lastAt: nil, now: t0, shownThisPage: 0), "none while one is on screen")
+    check(!Download.shouldSay(up: false, refusal: true, lastAt: t0, now: t0.addingTimeInterval(5), shownThisPage: 1), "none within 10 s of the last, whatever its sentence")
+    check(Download.shouldSay(up: false, refusal: true, lastAt: t0, now: t0.addingTimeInterval(10), shownThisPage: 1), "CONTROL: said again after 10 s")
+    check(!Download.shouldSay(up: false, refusal: true, lastAt: nil, now: t0, shownThisPage: 2), "at most twice for one sentence on one page")
+    check(Download.fileName(String(repeating: "a", count: 130) + "." + String(repeating: "b", count: 119)).first != "." && Download.fileName(String(repeating: "a", count: 200)).count == 120,
+          "review 4: a long name is cut to 120 and never starts on a dot")
+    check(Download.fileName("photo\u{202E}gpj.exe") == "photogpj.exe" && Download.fileName("a\u{2028}b") == "ab", "review 1: no direction or separator characters in a name")
+    check(Download.getting("report.pdf") == "Getting report.pdf" && Download.failed("The network connection was lost.") == "The file could not be downloaded (The network connection was lost.).",
+          "Mona Lisa's words")
+}
+
+section("kosmos#7575: the chat's sideways-shift report")
+do {
+    var r = Board.ChatShiftReport()
+    var snaps = 0
+    r.add(offset: 8, isNew: true, dragging: false) { snaps += 1; return (402, 410, false, ["message": 3]) }
+    r.add(offset: -16, isNew: true, dragging: true) { snaps += 1; return (402, 434, true, ["reactions": 1, "working": 1]) }
+    r.add(offset: 4, isNew: true, dragging: false) { snaps += 1; return (300, 300, false, ["day": 1]) }
+    check(r.shifts == 3 && r.largest == 16 && r.whileDragging, "every new shift counted; the largest kept by size; any shift while scrolling marked")
+    check(r.listWidth == 402 && r.contentWidth == 434 && r.keyboardUp && r.rows == ["reactions": 1, "working": 1],
+          "the widths, keyboard and rows are those at the largest shift, not the last")
+    check(snaps == 2, "review 1: a smaller shift takes no snapshot (the rows are not walked)")
+    r.add(offset: 40, isNew: false, dragging: false) { snaps += 1; return (402, 480, true, ["file": 1]) }
+    check(r.shifts == 3 && r.largest == 40 && r.contentWidth == 480 && snaps == 3, "review 1: a shift growing past the largest is its peak, not a new shift")
+    var early = Board.ChatShiftReport()
+    early.add(offset: 30, isNew: false, dragging: true) { (402, 450, false, ["message": 1]) }
+    check(early.shifts == 0 && early.largest == 0 && !early.whileDragging, "review 2: a shift that began before the count does not enter it")
+    let body = r.body(app: "1.4 (18)", ios: "27.0", model: "iPhone17,1", countSeconds: 41.5)
+    check(Set(body.keys) == ["app", "ios", "model", "shifts", "largest", "whileDragging", "listWidth", "contentWidth", "keyboardUp", "countSeconds", "rows"],
+          "the body holds only the fields the board keeps (engine/chatshifts.js)")
+    let req = Board.chatShiftRequest(mac: URL(string: "https://studio.kosmosplus.com")!, body: body)
+    check(req?.httpMethod == "POST" && req?.url?.absoluteString == "https://studio.kosmosplus.com/api/phone/chat-shift", "POST /api/phone/chat-shift")
+    let sent = (req?.httpBody).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check((sent?["shifts"] as? Int) == 3 && (sent?["rows"] as? [String: Int]) == ["file": 1], "the body is sent as JSON")
+
+    let msg = Board.ChatRow(id: "m", atRaw: "A1", at: nil, text: "hi", who: .agent)
+    var reacted = Board.ChatRow(id: "r", atRaw: "A2", at: nil, text: "hi", who: .agent); reacted.reactions = [Board.ChatReaction(emoji: "x", count: 1, mine: false)]
+    var asked = Board.ChatRow(id: "q", atRaw: "A3", at: nil, text: "pick", who: .agent); asked.wayThrough = .question
+    let items = [Board.ChatItem(id: "d", kind: .day("Today")), Board.ChatItem(id: "m", kind: .row(msg, firstOfRun: true, lastOfRun: true)),
+                 Board.ChatItem(id: "r", kind: .row(reacted, firstOfRun: true, lastOfRun: true)),
+                 Board.ChatItem(id: "q", kind: .row(asked, firstOfRun: true, lastOfRun: true))]
+    check(Board.chatRowKinds(items, onScreen: ["d", "m", "r", "q"], working: true) == ["day": 1, "message": 1, "reactions": 1, "choice": 1, "working": 1],
+          "each row on screen by its kind, and the working line")
+    check(Board.chatRowKinds(items, onScreen: ["m"], working: false) == ["message": 1], "CONTROL: rows off screen are not counted")
+    check(Board.ChatShiftReport.kinds.contains("other") && Set(Board.chatRowKinds(items, onScreen: ["d", "m", "r", "q"], working: true).keys).isSubset(of: Set(Board.ChatShiftReport.kinds)),
+          "every kind it names is one the board keeps")
+    check(!Board.deviceModel().isEmpty, "a device model is read")
+
+    // Review 3: the lock's decision, reading by reading.
+    var st = (shifted: false, peak: 0.0, event: Board.ShiftEvent.none)
+    func step(_ x: Double, resumed: Bool = false, was: Bool = false) -> Board.ShiftEvent {
+        st = Board.sideShiftStep(x: x, shifted: st.shifted, wasShifted: was, resumed: resumed, peak: st.peak); return st.event
+    }
+    check(step(16) == .new && step(16) == .none && step(30) == .grew && step(0) == .none && step(16) == .new,
+          "a shift is new once, grows past its peak, and after going back a shift is new again")
+    st = (false, 0, .none); _ = step(16); _ = step(0)
+    check(step(16, resumed: true, was: false) == .new, "review 3: a fresh 16 pt shift after the info page is counted (the old one had gone back)")
+    st = (false, 16, .none)   // the window move clears shifted; the lock remembered it as wasShifted
+    check(step(16, resumed: true, was: true) == .none && st.shifted, "review 2: the same shift still in place after the info page is not counted again")
+    st = (false, 16, .none)
+    check(step(32, resumed: true, was: true) == .grew && st.peak == 32, "review 4: a shift in place that grew during the move is the same shift, grown")
+    st = (false, 16, .none)
+    check(step(10, resumed: true, was: true) == .none && st.peak == 16, "review 4: one that shrank is the same shift, not a new one")
+    check(Board.sideShiftStep(x: 0.4, shifted: true, wasShifted: false, resumed: false, peak: 16) == (false, 0, .none), "back at rest clears the shift and its peak")
+
+    // kosmos#7596: the + panel's rules.
+    check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
+    check(Board.cameraState(available: true, auth: .authorized) == .ready && Board.cameraState(available: true, auth: .notDetermined) == .notAsked,
+          "a camera allowed is ready; one not yet asked about asks first")
+    check(Board.cameraState(available: true, auth: .denied) == .notAllowed && Board.cameraState(available: true, auth: .restricted) == .blocked,
+          "a camera turned off for Kosmos (Settings can undo it) is kept apart from one restricted on the device (it cannot)")
+    check(Board.cameraState(available: false, auth: .authorized) == .unavailable, "CONTROL: no camera on the device wins over any permission")
+    check(!Board.attachRowOff(.camera, atLimit: false, camera: .ready) && !Board.attachRowOff(.camera, atLimit: false, camera: .notAllowed),
+          "Camera stays on when ready, and when not allowed (it opens Settings)")
+    check(Board.attachRowOff(.camera, atLimit: false, camera: .unavailable) && !Board.attachRowOff(.photos, atLimit: false, camera: .unavailable),
+          "no camera dims only Camera")
+    check(Board.attachRowOff(.camera, atLimit: false, camera: .blocked) && Board.cameraNote(.blocked) != Board.cameraNote(.notAllowed),
+          "a restricted camera is dimmed (Settings cannot undo it) and says something other than the Settings line")
+    check(AttachChoice.allCases.allSatisfy { Board.attachRowOff($0, atLimit: true, camera: .ready) }, "at the file limit every row is off")
+    check(Board.cameraDeniedLine.contains("Settings") && !Board.cameraDeniedLine.contains("\u{2014}"), "a Don't Allow says where the camera is turned back on")
+    check(([Board.cameraDeniedLine] + [CameraState.notAllowed, .blocked, .unavailable].compactMap { Board.cameraNote($0) } + AttachChoice.allCases.map(\.title))
+            .allSatisfy { !$0.contains("\u{2014}") }, "none of the panel's words has an em dash")
+    check(Board.cameraNote(.ready) == nil && Board.cameraNote(.notAsked) == nil && Board.cameraNote(.notAllowed) != nil
+          && Board.cameraNote(.blocked) != nil && Board.cameraNote(.unavailable) != nil,
+          "Camera says why only when it will not open the camera")
+
+    // Review 3: the box over a chat's life.
+    var sends: [Int] = []
+    var box: Board.ShiftBox? = Board.ShiftBox()
+    let t0 = Date(timeIntervalSince1970: 1000)
+    box!.add(offset: 16, isNew: true, dragging: false) { (402, 434, false, [:]) }   // before the chat appears
+    box!.attach { r, _ in sends.append(r.shifts) }                                  // onAppear: the count is kept
+    box!.add(offset: 16, isNew: true, dragging: false) { (402, 434, false, [:]) }
+    box!.flush(now: t0)                                                             // background
+    check(sends == [2], "review 3: a shift before onAppear is in the first report")
+    box!.flush(now: t0)                                                             // close with nothing new
+    check(sends == [2], "nothing more is sent for a count with no shift")
+    box!.add(offset: 16, isNew: true, dragging: false) { (402, 434, false, [:]) }   // under the info page, then torn down
+    box = nil
+    check(sends == [2, 1], "review 2: a box thrown away sends what it counted")
+    let other = Board.ShiftBox(); var otherSends = 0
+    other.attach { _, _ in otherSends += 1 }
+    other.add(offset: 16, isNew: true, dragging: false) { (402, 434, false, [:]) }
+    other.reset()                                                                  // another computer
+    other.flush()
+    check(otherSends == 0, "review 1: a count dropped on a computer switch is never sent")
 }
 
 print("")

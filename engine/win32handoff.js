@@ -67,6 +67,10 @@ const OLD_BOARD_GRACE_MS = 3000;
    second after `/End`. This floor is why the worst case exceeds the budget (see
    HANDOFF_BUDGET_MS). */
 const MIN_PORT_RELEASE_WAIT_MS = 2000;
+/* #2988 round 2: how long the hold lasts at most when the hand-off serves in a window. That board
+   listens within seconds and then releases it; two minutes covers a slow boot, and a board that dies
+   first holds nothing (its pid is gone). */
+const HANDOFF_HOLD_MS = 2 * 60 * 1000;
 
 /* A task board still booting can answer AFTER our `/Run` as another board -- an
    older build, or the world it was booting into -- and the second round replaces
@@ -658,9 +662,22 @@ async function attemptHandOff(o, deps) {
   /* Not confirmed. End the task so a late start cannot take the port from the
      board about to serve here, then let it go. */
   if (!ran) return serveHere('there was no time left to start the background board');
+  /* #2988 round 2: hold the board's watchdog off while this board takes the port, or a tick between
+     the /End and this board's listen would start the background board again. The caller releases it
+     once this board is listening (server.js); a board that never gets there leaves it to expire, and
+     to its own exit, after which it holds nothing. */
+  const hold = deps.hold ? deps.hold('Kosmos is starting in a window because its background board did not answer') : null;
   board.end();
   await waitUntil(gone, Math.max(left(), MIN_PORT_RELEASE_WAIT_MS));
-  return serveHere('the background board did not answer in time');
+  const served = {
+    ...serveHere('the background board did not answer in time'),
+    /* server.js refreshes the hold every minute while this board starts, and releases it once it listens. */
+    refreshHold: () => (hold ? hold.refresh() : false),
+    releaseHold: () => { if (hold) hold.release(); },
+  };
+  /* #2988 round 3: a hold that could not be written is said, not swallowed (server.js prints it). */
+  if (hold && !hold.held) served.holdProblem = hold.because || 'no detail';
+  return served;
 }
 
 /**
@@ -774,7 +791,18 @@ async function decideHandOff(o) {
     const attempt = thisBootsWorldAttempt(o.worlds);
     attempt.retract();
     const runHandOff = downgrade ? handOffToNewer : attemptHandOff;
-    const result = await runHandOff(o, { board, probe, sleep, now })
+    /* #2988 round 2: the board hold (engine/win32boardwatch.js). `o.hold` is a test seam, `o.holdDir` a
+       test's sandbox; a test process with neither takes none, so no suite writes the real anchor. */
+    const hold = typeof o.hold === 'function' ? o.hold : (why) => {
+      let dir = o.holdDir || null;
+      if (!dir && !require('./live-execution').inTestProcess()) {
+        /* The environment before any world: the anchor the watchdog's shim lives in (win32board's machineEnv rule). */
+        try { dir = require('./win32anchor').anchorDir(process.platform, require('node:os').homedir(), require('./worlds').preWorldEnv(process.env)); } catch { dir = null; }
+      }
+      if (!dir && require('./live-execution').inTestProcess()) return null;   // no sandbox: no hold, and nothing to report
+      return require('./win32boardwatch').holdBoard(dir, why, { ttlMs: HANDOFF_HOLD_MS });
+    };
+    const result = await runHandOff(o, { board, probe, sleep, now, hold })
       .catch((err) => ({ serve: true, attempted: true, because: 'the hand-off failed (' + String((err && err.message) || err) + ')' }));
     if (result.serve) attempt.restore();
     return result;

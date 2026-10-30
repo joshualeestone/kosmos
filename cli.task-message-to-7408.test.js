@@ -1,0 +1,424 @@
+'use strict';
+
+/**
+ * #7408: kosmos task message --to <agent> tells agents besides the assignees, from both commands (Mac install/kosmos,
+ * Windows tools/windows/kosmos-cli.js), against a real board and the real task engine, and from the route itself.
+ *
+ * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE (HOME included).
+ *
+ *   node --test cli.task-message-to-7408.test.js
+ */
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+const { execFile } = require('node:child_process');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-taskmsgto-cli-'));
+const HOME = path.join(SANDBOX, 'home');
+fs.mkdirSync(HOME, { recursive: true });
+process.env.HOME = HOME;
+process.env.AGENT_WORKFORCE_HOME = HOME;
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = path.join(SANDBOX, 'claude-config-dir');
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { start, server } = require('./server');
+const projects = require('./engine/projects');
+const tasks = require('./engine/tasks');
+const taskchat = require('./engine/taskchat');
+const sendertoken = require('./engine/sendertoken');
+const fleet = require('./test-support/fleet');
+const chat = require('./engine/chat');
+const cli = require('./tools/windows/kosmos-cli');
+
+let base;
+let projectId;
+let board;
+test.before(async () => {
+  board = fleet.install([fleet.agent('mara', { state: 'idle' }), fleet.agent('otto', { state: 'idle' }), fleet.agent('kai', { state: 'idle' })]);
+  await start(0);
+  base = `http://127.0.0.1:${server.address().port}`;
+  projectId = projects.create({ name: 'MsgTo' }).id;
+  projects.mutate(projectId, (p) => ({ ...p, agents: ['mara', 'otto'] }));   // kai is NOT on it
+});
+test.after(() => {
+  try { server.close(); } catch { /* already down */ }
+  try { board.restore(); } catch { /* ignore */ }
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
+
+const taskOf = (n) => tasks.byNumber(projects.readAll().find((p) => p.id === projectId), n);
+const isDone = (n) => tasks.progressOf(taskOf(n)).closed;
+const token = (name) => sendertoken.mint(name).token;
+
+async function win(argv, agentToken = null) {
+  const out = []; const err = [];
+  const code = await cli.main(argv, {
+    env: {}, url: base,
+    hook: { resolveUrl: () => base, readBoardToken: () => null, agentToken: () => agentToken },
+    out: (s) => out.push(s), err: (s) => err.push(s),
+  });
+  return { code, text: out.concat(err).join('\n') };
+}
+const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
+fs.mkdirSync(path.join(MAC_HOME, 'runtime', 'bin'), { recursive: true });
+fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));
+function mac(args, agentToken = '', port = server.address().port) {
+  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: agentToken };
+  return new Promise((resolve, reject) => {
+    execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000 }, (err, stdout, stderr) => {
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code: ' + (stderr || err.signal))); return; }
+      resolve({ code: err ? err.code : 0, text: (stdout || '') + (stderr || '') });
+    });
+  });
+}
+const BOTH = [['Windows', win], ['Mac', mac]];
+
+const said = (n) => taskchat.read(projectId, n).filter((x) => x.kind === 'said');
+const make = (label, who) => tasks.create(projectId, { sentence: 'Message to ' + label, ...(who ? { who } : {}) }).number;
+/* Review 2: delivery reached otto's window. This board is a dry run that types into no window, so a delivery that got
+   that far reads "Not told: otto (we could not check its window ...)"; any earlier stop (off the project, switched off)
+   gives another reason, and a dropped name gives no otto at all. */
+const REACHED_OTTO = /(\bTold [^.]*\botto\b|Not told: otto \(we could not check its window)/;
+// As an agent with its own token (mara by default); null sends none (the person at a terminal, allowed since review 3).
+const post = (n, body, as = 'mara') => fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', ...(as ? { 'x-kosmos-agent-token': token(as) } : {}) }, body: JSON.stringify(body) });
+
+test('#7408: on a task nobody holds, either command says nobody was told and how to name someone', async () => {
+  for (const [label, run] of BOTH) {
+    const n = make('nobody ' + label);
+    const r = await run(['task', 'message', projectId, String(n), 'a ruling'], token('mara'));
+    assert.equal(r.code, 0, label + ': ' + r.text);
+    assert.match(r.text, /Nobody is assigned to it, so no agent was told\./, label + ': ' + r.text);
+    assert.match(r.text, /To tell an agent anyway, name it: --to <agent>\./, label + ': ' + r.text);
+    assert.equal(said(n).length, 1, label);
+  }
+});
+
+test('#7408: --to tells a named agent on a task nobody holds, from either command', async () => {
+  for (const [label, run] of BOTH) {
+    const n = make('to ' + label);
+    const r = await run(['task', 'message', projectId, String(n), '--to', 'otto', 'the', 'ruling'], token('mara'));
+    assert.equal(r.code, 0, label + ': ' + r.text);
+    assert.doesNotMatch(r.text, /Nobody is assigned|--to <agent>/, label + ': ' + r.text);
+    assert.match(r.text, REACHED_OTTO, label + ': delivery reached otto: ' + r.text);
+    assert.doesNotMatch(r.text, /does not know --to/, label);
+    assert.equal(said(n).length, 1, label);
+    assert.equal(said(n)[0].text, 'the ruling', label + ': --to and its name are not part of the words');
+  }
+});
+
+test('#7408: --to an agent already assigned tells it once; the sender is never told', async () => {
+  for (const [label, run] of BOTH) {
+    const n = make('dup ' + label, 'otto');
+    const r = await run(['task', 'message', projectId, String(n), '--to', 'otto', '--to', 'mara', 'once'], token('mara'));
+    assert.equal(r.code, 0, label + ': ' + r.text);
+    assert.match(r.text, REACHED_OTTO, label + ': delivery reached otto: ' + r.text);
+    assert.doesNotMatch(r.text, /mara/, label + ': the sender is not told: ' + r.text);
+    assert.equal((r.text.match(/\botto\b/g) || []).length, 1, label + ': otto is said once: ' + r.text);
+  }
+});
+
+test('#7408: --to an agent not on the project is refused and nothing is recorded', async () => {
+  for (const [label, run] of BOTH) {
+    const n = make('off ' + label);
+    const r = await run(['task', 'message', projectId, String(n), '--to', 'kai', 'hello'], token('mara'));
+    assert.equal(r.code, 1, label + ': ' + r.text);
+    assert.match(r.text, /kai is not on this project \(name agents on it, or add them first\), so that message was not recorded/, label + ': ' + r.text);
+    assert.equal(said(n).length, 0, label + ': recorded anyway');
+  }
+});
+
+test('#7408: a malformed --to is refused before anything is sent; past -- it is words', async () => {
+  for (const [label, run] of BOTH) {
+    const n = make('bad ' + label);
+    for (const argv of [['--to'], ['--to', '--', 'x'], ['--to=otto', 'x'], ['--to', 'ot"to', 'x'], ['--to', 'otto']]) {
+      const r = await run(['task', 'message', projectId, String(n), ...argv], token('mara'));
+      assert.equal(r.code, 2, label + ' ' + argv.join(' ') + ': ' + r.text);
+    }
+    const eleven = Array.from({ length: 11 }, () => ['--to', 'otto']).flat();
+    const many = await run(['task', 'message', projectId, String(n), ...eleven, 'x'], token('mara'));
+    assert.equal(many.code, 2, label + ': ' + many.text);
+    assert.match(many.text, /up to 10 agents/, label);
+    assert.equal(said(n).length, 0, label + ': a refusal recorded something');
+    const words = await run(['task', 'message', projectId, String(n), '--', '--to', 'otto'], token('mara'));
+    assert.equal(words.code, 0, label + ': ' + words.text);
+    assert.equal(said(n)[0].text, '--to otto', label + ': past -- it is the message');
+  }
+});
+
+test('#7408: the route refuses a to that is not a list of 1 to 10 names, before recording', async () => {
+  const n = make('route');
+  for (const to of ['otto', [], [''], ['  '], [3], Array.from({ length: 11 }, () => 'otto'), ['x'.repeat(65)]]) {
+    const r = await post(n, { text: 'hi', to });
+    assert.equal(r.status, 400, JSON.stringify(to));
+    assert.match(await r.text(), /to has to be a list of 1 to 10 agent names/, JSON.stringify(to));
+  }
+  const two = await post(n, { text: 'hi', to: ['kai', 'zed'] });
+  assert.equal(two.status, 400);
+  assert.match(await two.text(), /kai, zed are not on this project/);
+  assert.equal(said(n).length, 0, 'a refusal recorded something');
+  const ok = await post(n, { text: 'hi', to: ['otto'] });
+  assert.equal(ok.status, 200, await ok.text());
+  assert.equal(said(n).length, 1);
+});
+
+test('#7408: CONTROL, a message with no --to on an assigned task still tells the assignee only', async () => {
+  for (const [label, run] of BOTH) {
+    const n = make('ctl ' + label, 'otto');
+    const r = await run(['task', 'message', projectId, String(n), 'plain'], token('mara'));
+    assert.equal(r.code, 0, label + ': ' + r.text);
+    assert.match(r.text, /otto/, label);
+    assert.doesNotMatch(r.text, /--to <agent>/, label);
+  }
+});
+
+test('#7408 review 1: the route delivers to a --to name once, also when it is assigned, and answers the names it took', async () => {
+  const n = make('route-dup', 'otto');
+  const r = await post(n, { text: 'once', to: ['otto', 'otto'] });
+  assert.equal(r.status, 200);
+  const j = await r.json();
+  assert.equal(j.delivered.filter((d) => d.agent === 'otto').length, 1, JSON.stringify(j.delivered));
+  assert.deepEqual(j.to, ['otto']);
+  const m = make('route-plain');
+  const plain = await (await post(m, { text: 'no to' })).json();
+  assert.equal('to' in plain, false, 'a message with no to answers none');
+  const u = make('route-unassigned');
+  const u1 = await (await post(u, { text: 'x', to: ['otto'] })).json();
+  assert.deepEqual(u1.delivered.map((d) => d.agent), ['otto'], 'an unassigned task tells the --to name');
+  assert.ok(u1.delivered[0].state === chat.DELIVERY.PLACED || /check its window/.test(u1.delivered[0].because || ''), 'delivery reached otto: ' + JSON.stringify(u1.delivered));
+});
+
+test('#7408 review 1: a sender that names only itself on a task nobody holds hears that nobody is assigned', async () => {
+  for (const [label, run] of BOTH) {
+    const n = make('self ' + label);
+    const r = await run(['task', 'message', projectId, String(n), '--to', 'mara', 'me'], token('mara'));
+    assert.equal(r.code, 0, label + ': ' + r.text);
+    assert.match(r.text, /Nobody is assigned to it, so no agent was told\./, label + ': ' + r.text);
+  }
+});
+
+test('#7408 review 1: against an older board that ignores to, both commands say the names were not told', async () => {
+  const http = require('node:http');
+  const old = http.createServer((req, res) => {
+    if (req.method === 'POST' && /\/task\/\d+\/message$/.test(req.url)) {
+      req.resume();
+      req.on('end', () => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ ok: true, delivered: [], summary: 'Nobody is assigned to it, so no agent was told.' })); });
+      return;
+    }
+    const up = http.request({ host: '127.0.0.1', port: server.address().port, path: req.url, method: req.method, headers: req.headers }, (r) => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+    up.on('error', () => { res.statusCode = 502; res.end(); });
+    req.pipe(up);
+  });
+  await new Promise((r) => old.listen(0, '127.0.0.1', r));
+  const obase = 'http://127.0.0.1:' + old.address().port;
+  try {
+    const n = make('older');
+    const argv = ['task', 'message', projectId, String(n), '--to', 'otto', 'ruling'];
+    const m = await mac(argv, token('mara'), old.address().port);
+    const out = []; const err = [];
+    await cli.main(argv, { env: {}, url: obase, hook: { resolveUrl: () => obase, readBoardToken: () => null, agentToken: () => token('mara') }, out: (s) => out.push(s), err: (s) => err.push(s) });
+    for (const [label, text] of [['Mac', m.text], ['Windows', out.concat(err).join('\n')]]) {
+      assert.match(text, /This Kosmos does not know --to yet, so the agents you named were told only if they are assigned to the task\./, label + ': ' + text);
+      assert.doesNotMatch(text, /name it: --to/, label + ': never tells them to do what they did: ' + text);
+    }
+  } finally {
+    old.close();
+  }
+});
+
+test('#7408 review 2: an agent stored under its key is found by its name', async () => {
+  projects.mutate(projectId, (p) => ({ ...p, agents: [...p.agents, 'icecreamkitty'] }));
+  try {
+    const n = make('keyed');
+    const r = await post(n, { text: 'keyed', to: ['Ice Cream Kitty'] });
+    const j = await r.json();
+    assert.equal(r.status, 200, JSON.stringify(j));
+    assert.deepEqual(j.to, ['icecreamkitty'], 'matched by store key');
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'icecreamkitty') }));
+  }
+});
+
+test('#7408 review 3: a sender the board cannot name (the person at a terminal) may use to, and each agent it adds spends the limit', async () => {
+  const { taskMessageSendCountForTests } = require('./server');
+  const m = make('unnamed');
+  const c0 = taskMessageSendCountForTests();
+  const u = await post(m, { text: 'from the terminal', to: ['otto'] }, null);
+  const j = await u.json();
+  assert.equal(u.status, 200, JSON.stringify(j));
+  assert.deepEqual(j.delivered.map((x) => x.agent), ['otto'], 'otto reached');
+  assert.equal(taskMessageSendCountForTests() - c0, 2, 'the message, plus otto whom to added');
+  // CONTROL: the same message to an assignee through to adds nobody, so it counts once.
+  const a = make('assigned-to', 'otto');
+  const c1 = taskMessageSendCountForTests();
+  assert.equal((await post(a, { text: 'already his', to: ['otto'] })).status, 200);
+  assert.equal(taskMessageSendCountForTests() - c1, 1, 'an assignee named again costs nothing more');
+});
+
+test('#7408 review 3: a name that could be two agents is refused as such; a project that does not exist is refused, never dropped', async () => {
+  projects.mutate(projectId, (p) => ({ ...p, agents: [...p.agents, 'Ice Cream', 'icecream'] }));
+  try {
+    const n = make('twoways');
+    const before = said(n).length;
+    const r = await post(n, { text: 'which', to: ['ICECREAM'] });
+    assert.equal(r.status, 400);
+    assert.match((await r.json()).error, /could be more than one agent on this project/);
+    assert.equal(said(n).length, before, 'nothing recorded');
+  } finally {
+    projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'Ice Cream' && a !== 'icecream') }));
+  }
+  const gone = await fetch(`${base}/api/project/no-such-project-7408/task/1/message`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': token('mara') }, body: JSON.stringify({ text: 'x', to: ['otto'] }) });
+  assert.equal(gone.status, 404);
+});
+
+test('#7408 review 4: the limit counts every agent to names before the message is sent, and a screen claim with to is limited too', async () => {
+  const { taskMessageSendCountForTests, setTaskMsgCapForTests } = require('./server');
+  projects.mutate(projectId, (p) => ({ ...p, agents: [...p.agents, 'kai'] }));
+  try {
+    const n = make('cap-to');
+    const c = taskMessageSendCountForTests();
+    setTaskMsgCapForTests(c + 2);
+    const before = said(n).length;
+    const over = await post(n, { text: 'two more', to: ['otto', 'kai'] });   // 1 + 2 would make c + 3
+    const oj = await over.json();
+    assert.equal(over.status, 429, 'refused before it is sent: ' + JSON.stringify(oj));
+    // Review 5: its own words, with the real count (not one that includes the names), and when it fits again.
+    assert.match(oj.error, new RegExp('^that message and the 2 agents it adds to tell count 3 toward the limit of ' + (c + 2) + ' task messages an hour, shared by all agents together .*, and ' + c + ' (counted in the last hour|task messages were sent)'), oj.error);
+    assert.ok(Number(oj.retry_after_secs) > 0, 'says when it fits');
+    assert.equal(said(n).length, before, 'nothing recorded');
+    assert.equal(taskMessageSendCountForTests(), c, 'nothing counted');
+    // A screen claim (a browser header, no token) naming agents is refused (review 8: the screen names nobody).
+    const screen = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'as the screen', to: ['otto', 'kai'] }) });
+    assert.equal(screen.status, 400, 'a screen claim with to is not the screen');
+    assert.match((await screen.json()).error, /the screen tells the task's assignees and names no other agents/);
+    // CONTROL: one name fits (c + 2), and naming yourself adds nothing.
+    const fits = await post(n, { text: 'one more', to: ['otto', 'mara'] });
+    assert.equal(fits.status, 200, JSON.stringify(await fits.json()));
+    assert.equal(taskMessageSendCountForTests(), c + 2, 'the message plus otto; mara is the sender');
+  } finally {
+    setTaskMsgCapForTests();
+    projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'kai') }));
+  }
+});
+
+test('#7408 review 5: naming an assignee costs nothing at the edge of the limit, and a list bigger than the limit can never fit', async () => {
+  const { taskMessageSendCountForTests, setTaskMsgCapForTests } = require('./server');
+  projects.mutate(projectId, (p) => ({ ...p, agents: [...p.agents, 'kai'] }));
+  try {
+    const n = make('edge', 'otto');
+    const c = taskMessageSendCountForTests();
+    setTaskMsgCapForTests(c + 1);   // room for exactly one
+    const r = await post(n, { text: 'his already', to: ['otto'] });
+    assert.equal(r.status, 200, 'an assignee named with to adds nobody, so it fits: ' + JSON.stringify(await r.json()));
+    assert.equal(taskMessageSendCountForTests(), c + 1, 'counted once, the same as the check');
+    // Never fits: room left under the limit, but the list alone costs more than the whole limit.
+    const { taskMessageRefusal } = require('./server');
+    const c2 = taskMessageSendCountForTests();
+    setTaskMsgCapForTests(c2 + 1);
+    const never = taskMessageRefusal(Date.now(), c2 + 5);
+    assert.ok(never, 'refused');
+    assert.match(never.because, new RegExp('count ' + (c2 + 6) + ' toward the limit of ' + (c2 + 1) + ' .*, so it can never fit; name at most ' + c2 + ' agent'), never.because);
+    assert.equal(never.retryAfterSecs, null, 'no retry time: waiting does not help');
+    assert.equal(taskMessageRefusal(Date.now(), 0), null, 'CONTROL: a plain message still fits');
+  } finally {
+    setTaskMsgCapForTests();
+    projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'kai') }));
+  }
+});
+
+test('#7408 review 6: at the limit, a message with to is told the wait for its own cost; a screen claim without to is never limited; a list that can never fit has no retry time', async () => {
+  const { taskMessageSendCountForTests, setTaskMsgCapForTests } = require('./server');
+  projects.mutate(projectId, (p) => ({ ...p, agents: [...p.agents, 'kai'] }));
+  try {
+    const n = make('atlimit');
+    const c = taskMessageSendCountForTests();
+    setTaskMsgCapForTests(c);   // the limit is already reached
+    const r = await post(n, { text: 'two more', to: ['otto', 'kai'] });
+    const j = await r.json();
+    assert.equal(r.status, 429);
+    assert.match(j.error, /^that message and the 2 agents it adds to tell count 3 /, 'its own words, not the plain limit: ' + j.error);
+    assert.ok(Number(j.retry_after_secs) > 0, j.error);
+    // Review 8: at the limit, naming fewer cannot help, so only the wait is offered.
+    assert.match(j.error, /so it would pass the limit; send it again in about \d+ minutes?$/, j.error);
+    assert.doesNotMatch(j.error, /name at most|name fewer|without --to/, j.error);
+    // A screen claim WITHOUT to is never limited (CONTROL for the screen arm), and records once.
+    const before = said(n).length;
+    const screenPlain = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'the person' }) });
+    assert.equal(screenPlain.status, 200, 'the screen is not limited');
+    assert.equal(said(n).length, before + 1);
+    // A screen claim WITH to is limited, and records and counts nothing.
+    const c2 = taskMessageSendCountForTests();
+    const screenTo = await fetch(`${base}/api/project/${encodeURIComponent(projectId)}/task/${n}/message`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'as the screen', to: ['otto'] }) });
+    assert.equal(screenTo.status, 400, 'refused, not limited: the screen names nobody');
+    assert.equal(said(n).length, before + 1, 'nothing recorded');
+    assert.equal(taskMessageSendCountForTests(), c2, 'nothing counted');
+    // Never fits, end to end: a limit of 2 and a list adding 2 (cost 3).
+    setTaskMsgCapForTests(2);
+    const big = await post(n, { text: 'too many', to: ['otto', 'kai'] });
+    const bj = await big.json();
+    assert.equal(big.status, 429);
+    assert.match(bj.error, /count 3 toward the limit of 2 .*, so it can never fit; name at most 1 agent$/, bj.error);
+    assert.equal(big.headers.get('retry-after'), null, 'no retry-after: waiting does not help');
+  } finally {
+    setTaskMsgCapForTests();
+    projects.mutate(projectId, (p) => ({ ...p, agents: p.agents.filter((a) => a !== 'kai') }));
+  }
+});
+
+test('#7408 review 7: the wait for a message with to is exact, and the count is said as what it holds', () => {
+  const { seedTaskMessageSendsForTests, taskMessageRefusal, setTaskMsgCapForTests } = require('./server');
+  const now = Date.now();
+  const min = 60000;
+  // Five entries at known ages (oldest first): 50, 40, 30, 20 and 10 minutes ago; three messages, two named agents.
+  const entries = [50, 40, 30, 20, 10].map((m) => now - m * min);
+  const restore = seedTaskMessageSendsForTests(entries, [entries[0], entries[2], entries[4]]);
+  try {
+    setTaskMsgCapForTests(6);
+    // Cost 2 (one agent): 5 + 2 = 7, one over, so the oldest must leave: 50 minutes ago + 60 = in 10 minutes.
+    const two = taskMessageRefusal(now, 1);
+    assert.equal(two.retryAfterSecs, 10 * 60, two.because);
+    assert.match(two.because, /about 10 minutes$/);
+    assert.match(two.because, /, and 5 counted in the last hour \(3 messages, and 2 for the agents they named\)/, two.because);
+    // Cost 3 (two agents): two over, so the 2nd oldest must leave: 40 minutes ago + 60 = in 20 minutes.
+    const three = taskMessageRefusal(now, 2);
+    assert.equal(three.retryAfterSecs, 20 * 60, three.because);
+    // The plain path, once the count is reached, says what it counts (not "sent 6 task messages").
+    setTaskMsgCapForTests(5);
+    const plain = taskMessageRefusal(now, 0);
+    assert.match(plain.because, /^agents have used 5 of the hourly task-message count \(one per message, and one per agent a message named with --to\)/, plain.because);
+    // CONTROL: with no agents named, the plain words are unchanged.
+    restore();
+    const restore2 = seedTaskMessageSendsForTests(entries, entries);
+    try {
+      assert.match(taskMessageRefusal(now, 0).because, /^agents have sent 5 task messages in the last hour/);
+    } finally { restore2(); }
+  } finally {
+    setTaskMsgCapForTests();
+    restore();
+  }
+});
+
+test('#7408 review 8: below the limit the advice says how many fit; a limit of 1 says to send it without --to', () => {
+  const { seedTaskMessageSendsForTests, taskMessageRefusal, setTaskMsgCapForTests } = require('./server');
+  const now = Date.now();
+  const entries = [50, 40, 30].map((m) => now - m * 60000);
+  const restore = seedTaskMessageSendsForTests(entries, entries);
+  try {
+    setTaskMsgCapForTests(5);   // 3 sent: room for the message and 1 agent
+    assert.match(taskMessageRefusal(now, 3).because, /so it would pass the limit; name at most 1 agent, or send it again in about \d+ minutes?$/);
+    setTaskMsgCapForTests(4);   // room for the message alone
+    assert.match(taskMessageRefusal(now, 2).because, /so it would pass the limit; send it without --to, or send it again in about/);
+    setTaskMsgCapForTests(1);
+    assert.match(taskMessageRefusal(now, 1).because, /so it can never fit; send it without --to$/);
+  } finally {
+    setTaskMsgCapForTests();
+    restore();
+  }
+});

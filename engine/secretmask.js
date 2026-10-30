@@ -23,22 +23,26 @@ const MASK = '••••';
 
 /* Order matters only for reporting: the specific shapes run before the generic ones, so a key is
    counted as what it is rather than as "long random token". */
+/* kosmos#7395: a key shape starts where the text before it is not a letter or a digit, not at a word boundary: `_` is a
+   word character, so `mcp__AKIA...` or `MY_xoxb-...` never started a match, and a key glued to an identifier showed.
+   A letter or digit before the prefix still blocks it, so a word that only contains a prefix (risk-ant-, desk-) is not
+   taken for a key. The AWS id ends the same way. */
 const PATTERNS = [
   { kind: 'private_key', re: /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY-----[\s\S]{0,12000}?-----END [A-Z0-9 ]{0,40}PRIVATE KEY-----/g },
   /* A header with no end in reach: mask the header and the key text after it on the same run. */
   { kind: 'private_key', re: /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY-----[A-Za-z0-9+/=\s]{0,12000}/g },
-  { kind: 'anthropic_key', re: /\bsk-ant-[A-Za-z0-9_-]{8,300}/g },
-  { kind: 'openai_key', re: /\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{16,300}/g },
-  { kind: 'xai_key', re: /\bxai-[A-Za-z0-9_-]{16,300}/g },
-  { kind: 'google_key', re: /\bAIza[0-9A-Za-z_-]{30,60}/g },
-  { kind: 'github_token', re: /\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,255}/g },
-  { kind: 'github_token', re: /\bgithub_pat_[A-Za-z0-9_]{20,255}/g },
-  { kind: 'aws_key', re: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
-  { kind: 'slack_token', re: /\bxox[abprs]-[A-Za-z0-9-]{10,300}/g },
-  { kind: 'stripe_key', re: /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,300}/g },
-  { kind: 'gitlab_token', re: /\bglpat-[A-Za-z0-9_-]{20,300}/g },
+  { kind: 'anthropic_key', re: /(?<![A-Za-z0-9])sk-ant-[A-Za-z0-9_-]{8,300}/g },
+  { kind: 'openai_key', re: /(?<![A-Za-z0-9])sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{16,300}/g },
+  { kind: 'xai_key', re: /(?<![A-Za-z0-9])xai-[A-Za-z0-9_-]{16,300}/g },
+  { kind: 'google_key', re: /(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{30,60}/g },
+  { kind: 'github_token', re: /(?<![A-Za-z0-9])(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,255}/g },
+  { kind: 'github_token', re: /(?<![A-Za-z0-9])github_pat_[A-Za-z0-9_]{20,255}/g },
+  { kind: 'aws_key', re: /(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])/g },
+  { kind: 'slack_token', re: /(?<![A-Za-z0-9])xox[abprs]-[A-Za-z0-9-]{10,300}/g },
+  { kind: 'stripe_key', re: /(?<![A-Za-z0-9])(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{10,300}/g },
+  { kind: 'gitlab_token', re: /(?<![A-Za-z0-9])glpat-[A-Za-z0-9_-]{20,300}/g },
   /* A JSON Web Token, all three parts: the middle one is short enough to slip past the catch-all. */
-  { kind: 'jwt', re: /\beyJ[A-Za-z0-9_-]{8,2000}\.[A-Za-z0-9_-]{4,4000}\.[A-Za-z0-9_-]{8,2000}/g },
+  { kind: 'jwt', re: /(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{8,2000}\.[A-Za-z0-9_-]{4,4000}\.[A-Za-z0-9_-]{8,2000}/g },
 ];
 
 /*

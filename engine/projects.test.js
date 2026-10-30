@@ -2368,7 +2368,7 @@ test('#3923: syncAgent reports which projects the write newly put in the block, 
 test('#3923: the retry line says the instructions now list the project, never a second join', () => {
   const qc = folder('qc-3923');
   const line = projects.membershipLine({ id: 'q1', name: 'Quarter close', folder: qc }, 'listed');
-  assert.ok(line.startsWith('Your instructions now list the project "Quarter close". Its folder on this computer is `' + qc + '`. Post to everyone on it with: '), line);
+  assert.ok(line.startsWith('Your instructions now list the project "Quarter close". Its folder on this computer is `' + qc + '`. Post to the room (it wakes only the members it addresses: start with \'YourName -> Name:\', @-name them, or use @all) with: '), line);   // kosmos#7246 slice 2
   assert.match(line, / post q1 "your message"\.$/);
   assert.doesNotMatch(line, /put you on/, 'the retry line announced the join again');
   assert.match(projects.membershipLine({ id: 'q1', name: 'Quarter close' }, 'joined'), /^Kosmos put you on the project/, 'CONTROL: the join line is unchanged');

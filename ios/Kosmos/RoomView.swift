@@ -16,6 +16,10 @@ struct RoomView: View {
     let openPage: (URL) -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
+    // kosmos#7348: the box's text at the last post and when, so the box filling back with it is cleared again (as the chat).
+    @State private var lastSent: (text: String, at: Date)?
+    // kosmos#7346 review: the reason a Send could not post, and the box text it was about; any other text clears it.
+    @State private var blocked: (text: String, note: String)?
     @State private var replying: Board.RoomRow?
     // The @name the last Reply put at the front of the box, so the next Reply swaps it and Post refuses it alone.
     @State private var replyMention: String?
@@ -54,6 +58,11 @@ struct RoomView: View {
     @State private var olderShowing = false
     @State private var pendingCount = 0
     @FocusState private var typing: Bool
+    // kosmos#7268: the emoji panel (in the keyboard's place while open), the glyph waiting to go in at the cursor, and
+    // dictation into the box.
+    @State private var emojiOpen = false
+    @State private var emojiInsert: ComposerExtras.Pick?
+    @StateObject private var dictation = Dictation()
     // kosmos#7096: the room's search, as the chat's (#7089, Mona Lisa's design): the magnifier opens the row, it stays
     // while it holds words, and its x or Cancel empties it and puts it away.
     @State private var query = ""
@@ -79,7 +88,17 @@ struct RoomView: View {
     // The row open or words in it: no older pages (the chat's rule, #7089, from the board's earlierNearTop).
     private var searchMode: Bool { searchOpen || searching }
 
-    private var rows: [Board.RoomRow] { store.rows[project.id] ?? [] }
+    // kosmos#7365 slice 3c: the archive view, when open (the board's PJ_ARCH); its rows replace the live ones on screen.
+    private var archiveView: RoomStore.ArchiveView? { store.archive[project.id] }
+    // The archive once its first page is in; while it opens, the live room stays painted (review 1, as the board).
+    private var archiveShown: RoomStore.ArchiveView? { archiveView.flatMap { $0.opening ? nil : $0 } }
+    private var rows: [Board.RoomRow] { archiveShown?.rows ?? (store.rows[project.id] ?? []) }
+    @AccessibilityFocusState private var archiveBackFocused: Bool
+    // Review 1: the archive was showing (its rows in), so Back can put the reader back at the boundary row.
+    @State private var archiveWasShown = false
+    // Review 2 and 3: which part the new-row scroll last saw; a change of part is the archive's handler's to place, read
+    // here rather than from a flag the other handler sets (their order in one update is not documented).
+    @State private var rowsPart = false
     // The rows the search keeps, before refusals fold (as the board filters before its fold).
     private var shownRows: [Board.RoomRow] {
         guard searching else { return rows }
@@ -100,7 +119,9 @@ struct RoomView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 16).padding(.vertical, 8)
             }
+            if let arch = archiveShown { archiveHead(arch) }
             thread
+                .messagesVisibleArea()   // kosmos#7419 review 4: the lit message's hole stays in the posts' own area
                 .background(GeometryReader { g in Color.clear.onAppear { threadHeight = g.size.height }
                     .onChange(of: g.size.height) { threadHeight = $0 } })
             // The board has one line here and the newest write wins: a jump to a hidden post is the newest when it
@@ -108,6 +129,17 @@ struct RoomView: View {
             if hiddenBySearch {
                 Text(Board.roomHiddenBySearch).font(.footnote).foregroundColor(Palette.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 4)
+            } else if let note = store.archiveNote[project.id] {
+                // The board's toast when the archive would not open: said once, shown for a few seconds (review 1).
+                Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
+                    .id(store.archiveNoteId[project.id] ?? 0)   // review 3: each note its own appearance and timer
+                    .onAppear {
+                        Self.say(note)
+                        let id = store.archiveNoteId[project.id]
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                            if store.archiveNoteId[project.id] == id { store.archiveNote[project.id] = nil }
+                        }
+                    }
             } else if let note = store.notes[project.id] {
                 Text(note).font(.footnote).foregroundColor(Palette.secondary).padding(.horizontal, 16).padding(.top, 4)
             } else if sentWhileSearching {
@@ -117,12 +149,27 @@ struct RoomView: View {
                     // Spoken, as the chat's line is: the search field keeps VoiceOver's focus.
                     .onAppear { Self.say(Board.chatSentWhileSearching) }
             }
-            workingLine
-            heldNotice
-            composer
+            // The archive is for reading: no composer, held notice or working line while it shows (the board hides its
+            // composer in the archive view).
+            if archiveShown == nil {
+                workingLine
+                heldNotice
+                composer
+            } else {
+                // The board's line in the composer's place (pj-arch-note).
+                HStack(spacing: 4) {
+                    Text(Board.Archive.readingFirst).foregroundColor(Palette.secondary)
+                    Button(Board.Archive.back) { backToRoom() }.frame(minHeight: 44)
+                    Text(Board.Archive.readingLast).foregroundColor(Palette.secondary)
+                }
+                .font(.footnote).frame(maxWidth: .infinity).padding(.horizontal, 16).padding(.vertical, 6)
+                .accessibilityElement(children: .contain)
+            }
         }
-        .background(Palette.ground.ignoresSafeArea())
+        .background(Palette.chatGround.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
+        .kosmosSolidTopBar(fade: false, ground: Palette.chatGround)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
+        .messageActionsHost()   // kosmos#7419: the one long-press sheet of this room, around its posts
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
@@ -130,6 +177,7 @@ struct RoomView: View {
                     Text(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents").font(.footnote).foregroundColor(Palette.secondary)
                 }
                 .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("room-title")   // kosmos#7489: the UI tests find the open room by this, never the back button
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
@@ -186,6 +234,8 @@ struct RoomView: View {
             // scroll again, as putting it away does.
             if filteredInMode { settledAtBottom = false }
             clears += 1   // a clear's delayed steps belong to this visit
+            // kosmos#7365 slice 3c: the archive is a reading posture too: coming back shows the live room.
+            if archiveView != nil { store.closeArchive(project.id); archiveWasShown = false }
             filteredInMode = false
             query = ""
             searchOpen = false
@@ -195,7 +245,11 @@ struct RoomView: View {
             hiddenBySearch = false
             spokeEmpty = false
         }
-        .onChange(of: searching) { now in if now { filteredInMode = true } }
+        .onChange(of: searching) { now in
+            if now { filteredInMode = true }
+            // Review 1: a search is of the live room; the board closes the archive when one starts.
+            if now && archiveView != nil { store.closeArchive(project.id); archiveWasShown = false }
+        }
         .onChange(of: query) { _ in sentWhileSearching = false; hiddenBySearch = false }
         .onChange(of: searching && shownRows.isEmpty) { empty in if !empty { spokeEmpty = false } }
         // A post that did not go says so on its own line; the search's line is not about it.
@@ -214,6 +268,7 @@ struct RoomView: View {
         // Signed out, another account or another Mac: the files this room showed belong to the one before (the chat's
         // reset, review 1).
         .onChange(of: client.chatEpoch) { _ in
+            dictation.reset(); emojiOpen = false   // kosmos#7268: another account's room starts clean
             clears += 1   // a clear's delayed steps belong to the account before
             if filteredInMode { settledAtBottom = false }   // the next room settles as on opening, as onDisappear does
             filteredInMode = false
@@ -252,11 +307,80 @@ struct RoomView: View {
                 // earlier visit included), or one that finished after the person left, is not the person seeing it.
                 if Task.isCancelled { break }
                 // By the newest row, not the count: a re-read that replaced 50 rows with 50 newer ones is still new.
-                if read, let shown = store.rows[project.id], !seenOnce || shown.last?.id != lastSeen {
+                // Review 1: not while the archive shows, where a new live post is not on screen (the board marks seen
+                // when the archive closes; the next read after Back does here).
+                if read, store.archive[project.id] == nil, let shown = store.rows[project.id], !seenOnce || shown.last?.id != lastSeen {
                     seenOnce = true; lastSeen = shown.last?.id
                     await store.markSeen(project.id)
                 }
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+    }
+
+    // kosmos#7365 slice 3c: the boundary row at the start of the live part (the board's pjRoomTopEdge).
+    private var archiveBoundary: some View {
+        HStack(spacing: 6) {
+            Text(Board.Archive.boundary).foregroundColor(Palette.secondary)
+            if archiveView?.opening == true {
+                Text(Board.Archive.opening).foregroundColor(Palette.secondary).frame(minHeight: 44)
+            } else {
+                Button(Board.Archive.view) {
+                    Task {
+                        await store.openArchive(project.id)
+                        if let a = store.archive[project.id], !a.opening { Self.say(Board.Archive.showing(a.count)) }
+                    }
+                }
+                .frame(minHeight: 44)
+            }
+        }
+        .font(.footnote).frame(maxWidth: .infinity).padding(.vertical, 4)
+    }
+    // The archive's header, as the board's pj-arch-head: Archive, how many, and the way back.
+    private func archiveHead(_ arch: RoomStore.ArchiveView) -> some View {
+        HStack(spacing: 8) {
+            Text(Board.Archive.title).font(.subheadline.weight(.semibold))
+            Text(Board.Archive.count(arch.count)).font(.subheadline).foregroundColor(Palette.secondary)
+            Spacer()
+            Button(Board.Archive.back) { backToRoom() }
+                .font(.subheadline).frame(minHeight: 44)
+                .accessibilityFocused($archiveBackFocused)
+        }
+        .padding(.horizontal, 16)
+        .accessibilityElement(children: .contain)
+    }
+    // Back to the room, said, with VoiceOver's focus on the message box (the board focuses its composer).
+    private func backToRoom() {
+        store.closeArchive(project.id)
+        Self.say(Board.Archive.backAnnouncement)
+        Task { await store.markSeen(project.id) }   // review 2: seen on Back, as the board's pjArchClose, not at the next poll
+        DispatchQueue.main.async { composerFocused = true }
+    }
+    // The archive's top: opening, its earlier pages on reaching the top (as the live part's), or the start of the room.
+    @ViewBuilder private func archiveTop(_ arch: RoomStore.ArchiveView, _ proxy: ScrollViewProxy) -> some View {
+        if arch.older.cursor != nil && !searchMode {
+            if arch.olderFailed {
+                Button(Board.Archive.couldNotReadEarlier) { loadArchiveOlder(proxy) }
+                    .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
+            } else {
+                HStack { Spacer(); ProgressView(); Spacer() }
+                    .onAppear { olderShowing = true; if settledAtBottom { loadArchiveOlder(proxy) } }
+                    .onDisappear { olderShowing = false }
+            }
+        } else if arch.older.cursor == nil {
+            Text(Board.Archive.start).font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity).padding(.vertical, 4)
+        }
+    }
+    private func loadArchiveOlder(_ proxy: ScrollViewProxy) {
+        guard !searchMode else { return }
+        let anchor = items.first(where: { if case let .row(r, _, _) = $0.kind { return r.kind == .post } else { return false } })?.id
+        Task {
+            let before = store.archive[project.id]?.older.cursor
+            await store.loadArchiveOlder(project.id)
+            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            let after = store.archive[project.id]?.older.cursor
+            if olderShowing, after != nil, after != before, store.archive[project.id]?.olderFailed == false {
+                DispatchQueue.main.async { if olderShowing { loadArchiveOlder(proxy) } }
             }
         }
     }
@@ -298,6 +422,7 @@ struct RoomView: View {
     private func takeReturned() {
         guard draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, replying == nil,
               let back = store.takeReturned(project.id) else { return }
+        lastSent = nil   // kosmos#7348: a refused post's words come back on purpose
         draft = back.text
         replying = back.replyTo
     }
@@ -546,7 +671,9 @@ struct RoomView: View {
                     // row happened, even if the end marker was not reached (estimated row heights; ChatView's rule).
                     Color.clear.frame(height: 1)
                         .onDisappear { if !rows.isEmpty { settledAtBottom = true } }
-                    if store.older[project.id]?.cursor != nil && !searchMode {
+                    if let arch = archiveShown {
+                        archiveTop(arch, proxy)
+                    } else if store.older[project.id]?.cursor != nil && !searchMode {
                         if store.olderFailed.contains(project.id) {
                             Button("We could not load earlier messages. Try again") { loadOlder(proxy) }
                                 .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
@@ -556,7 +683,19 @@ struct RoomView: View {
                                 .onDisappear { olderShowing = false }
                         }
                     }
-                    if store.rows[project.id] != nil && rows.isEmpty { emptyRoom }
+                    // kosmos#7365 slice 3c: the start of the live part with messages archived: the board's boundary row.
+                    if archiveShown == nil, store.rows[project.id] != nil,
+                       Board.Archive.boundaryShown(olderCursor: store.older[project.id]?.cursor,
+                                                   archivedCount: store.archivedCount[project.id] ?? 0, searching: searchMode) {
+                        archiveBoundary.id("archiveBoundary")
+                    }
+                    // Review 1: with messages archived, an empty live part is not "nothing here yet" (the board's
+                    // `rows || (archived ? '' : empty)`); an empty archive says so, as the board's.
+                    if let arch = archiveShown {
+                        if arch.rows.isEmpty {
+                            Text(Board.Archive.nothing).font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity).padding(.top, 8)
+                        }
+                    } else if store.rows[project.id] != nil && rows.isEmpty && (store.archivedCount[project.id] ?? 0) == 0 { emptyRoom }
                     // On a read that could not read all of the room, what matches may be in the part it missed: the
                     // board's partial-read line there, not its no-match sentence (paintRoom on body.ok === false).
                     else if searching && shownRows.isEmpty && !rows.isEmpty {
@@ -568,8 +707,8 @@ struct RoomView: View {
                         } else { noMatch }
                     }
                     ForEach(items) { item in itemView(item).id(item.id).accessibilityFocused($focusedPost, equals: item.id) }
-                    ForEach(store.pending[project.id] ?? []) { p in pendingView(p) }
-                    if store.roomFailed.contains(project.id) {
+                    if archiveShown == nil { ForEach(store.pending[project.id] ?? []) { p in pendingView(p) } }   // review 1: the live room's only
+                    if archiveShown == nil && store.roomFailed.contains(project.id) {
                         Text("We cannot read this room right now. What is shown may be behind.")
                             .font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity).padding(.top, 8)
                     }
@@ -584,7 +723,9 @@ struct RoomView: View {
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
             }
+            .kosmosTopFade(ground: Palette.chatGround)   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
             .onChange(of: rows.last?.id) { _ in
+                if rowsPart != (archiveShown != nil) { rowsPart = archiveShown != nil; return }   // the archive's handler places the reader
                 if !settledAtBottom {
                     // The first page: straight to the newest row, then the top may ask for older ones. A page that fits
                     // on one screen moves neither marker, so settle here when the end is already showing.
@@ -634,7 +775,10 @@ struct RoomView: View {
                 pendingCount = n
             }
             // The first scroll has happened and the top is already showing (a room shorter than the screen).
-            .onChange(of: settledAtBottom) { done in if done && olderShowing { loadOlder(proxy) } }
+            .onChange(of: settledAtBottom) { done in
+                guard done && olderShowing else { return }
+                if archiveShown != nil { loadArchiveOlder(proxy) } else { loadOlder(proxy) }   // review 2: the part on screen
+            }
             // The magnifier opened the row over a reader at the newest post: back there once the keyboard is up too (the
             // room has no other keyboard rule; the chat's keepNewestInView does this there).
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
@@ -663,6 +807,25 @@ struct RoomView: View {
                 DispatchQueue.main.async { if !searchMode && visible && clears == clear { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     if !searchMode && visible && clears == clear && !settledAtBottom && !rows.isEmpty { settledAtBottom = true }
+                }
+            }
+            // kosmos#7365 slice 3c: the archive's first page in: at its newest message, and the top asks for earlier pages
+            // only once that scroll has settled, as on opening the room (review 1). Back: the reader is put back at the
+            // boundary row they left from, as the board's PJ_ARCH.anchor. A failed open never moved them.
+            .onChange(of: archiveShown != nil) { shown in
+                if shown {
+                    archiveWasShown = true
+                    settledAtBottom = false
+                    proxy.scrollTo("bottom", anchor: .bottom)
+                    DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { if archiveShown != nil && !settledAtBottom { settledAtBottom = true } }
+                    archiveBackFocused = true
+                } else if archiveWasShown {
+                    archiveWasShown = false
+                    // The boundary row, when it is still drawn; else the newest post (an Undo on the computer took it).
+                    let back = Board.Archive.boundaryShown(olderCursor: store.older[project.id]?.cursor,
+                                                           archivedCount: store.archivedCount[project.id] ?? 0, searching: searchMode)
+                    DispatchQueue.main.async { if back { proxy.scrollTo("archiveBoundary", anchor: .top) } else { proxy.scrollTo("bottom", anchor: .bottom) } }
                 }
             }
             .onAppear {
@@ -773,7 +936,10 @@ struct RoomView: View {
                            replied: row.replyTo.flatMap { id in rows.first { $0.id == id && $0.kind != .kosmos } },
                            // Only once the whole room is loaded can an original be said to be gone; before that it may
                            // simply be on an older page.
-                           roomComplete: store.older[project.id]?.cursor == nil, nameOf: { displayName($0) },
+                           roomComplete: (archiveShown.map { $0.older.cursor } ?? store.older[project.id]?.cursor) == nil,
+                           // Review 1: the start of the live part reached with messages archived (the board's words).
+                           mayBeArchived: archiveShown == nil && (store.archivedCount[project.id] ?? 0) > 0 && !searching,
+                           nameOf: { displayName($0) },
                            react: { emoji in Task { await store.react(emoji, to: row, in: project.id) } },
                            reply: {
                                replying = row
@@ -786,6 +952,7 @@ struct RoomView: View {
                            jump: { if let id = row.replyTo { jumpTo = id } }, flashing: flashed == row.id,
                            mentionNames: row.mentioned.compactMap { store.names[$0] },
                            thumbnails: client.thumbnails, fileStates: fileStates, openFile: openFile)
+                    .modifier(ArchivedBubble(on: archiveShown != nil))
                     .padding(.top, first ? 6 : 0)
                     .task { for f in row.attachments { await client.loadThumbnail(f) } }
             }
@@ -858,11 +1025,14 @@ struct RoomView: View {
     // Words to post: not empty, and not only the @name Reply put there. Files alone count, as their names (kosmos#7093,
     // the board's pjPostSend), once none is still on its way, so a post never leaves one behind.
     private var postWords: String { Board.roomPostWords(draft, files: attachedHere, replyMention: replyMention) }
-    private var canPost: Bool {
-        // Not before the room's first read: with nothing read, an older post with the same words could settle it.
-        store.rows[project.id] != nil && !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !Board.isOnlyMention(postWords, mention: replyMention) && (attachedHere.isEmpty || uploadingHere == 0)
-            && attachedHere.count <= Board.maxFiles
+    // Not before the room's first read: with nothing read, an older post with the same words could settle it.
+    // kosmos#7268 review 4: not while dictating or while its last words land; stop first, then post. Read from the same
+    // rule that says why (roomPostBlocked), so a Send that cannot post always has a reason to show.
+    private var canPost: Bool { !postWords.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && postBlocked == nil }
+    private var postBlocked: String? {
+        Board.roomPostBlocked(words: postWords, mentionOnly: Board.isOnlyMention(postWords, mention: replyMention),
+                              read: store.rows[project.id] != nil, files: attachedHere.count, uploading: uploadingHere,
+                              dictating: dictation.busy, finishing: dictation.finishing)
     }
 
     // MARK: Adding files (kosmos#7093: the board's + on the room's composer, through the chat's upload, #7071)
@@ -870,6 +1040,10 @@ struct RoomView: View {
     @State private var photoPicks: [PhotosPickerItem] = []
     @State private var showPhotos = false
     @State private var showFiles = false
+    @State private var showCamera = false   // kosmos#7596
+    // The account or computer the camera was opened under: a photo taken across a switch is never sent under the new one
+    // (client.attach's epoch), however long the camera was open; it is dropped without a line, as a pick would be.
+    @State private var cameraEpoch = 0
     private var attachKey: String { Board.roomAttachKey(project.id) }
     private var attachedHere: [Board.Attached] { client.attached[attachKey] ?? [] }
     private var uploadingHere: Int { client.uploading[attachKey] ?? 0 }
@@ -878,25 +1052,20 @@ struct RoomView: View {
     }
     private var atFileLimit: Bool { countedFiles >= Board.maxFiles }
 
+    // kosmos#7596: Camera, Photos and Files in the larger panel (AttachMenu.swift), as in a chat.
     private var addButton: some View {
-        Menu {
-            Button { showPhotos = true } label: { Label("Photo Library", systemImage: "photo.on.rectangle") }
-                .disabled(atFileLimit)
-            Button { showFiles = true } label: { Label("Files", systemImage: "folder") }
-                .disabled(atFileLimit)
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(Palette.primary)
-                .frame(width: 34, height: 34)
-                .background(Circle().fill(Palette.card))
-                .overlay(Circle().stroke(Palette.separator, lineWidth: 0.5))
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
         // The board's own label for its + (#pj-attach).
-        .accessibilityLabel("Add a file to this conversation")
-        .accessibilityHint(atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "")
+        AttachPlusButton(atLimit: atFileLimit, label: "Add a file to this conversation",
+                         hint: atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "",
+                         onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } },
+                         onCameraDenied: { if cameraEpoch == client.chatEpoch { client.attachLine[attachKey] = Board.cameraDeniedLine } }) { choice in
+            switch choice {
+            // Review 11: not after an account or computer switch during iOS's camera prompt (the photo could not be sent).
+            case .camera: if cameraEpoch == client.chatEpoch { showCamera = true }
+            case .photos: showPhotos = true
+            case .files: showFiles = true
+            }
+        }
     }
 
     private var chips: some View {
@@ -935,6 +1104,16 @@ struct RoomView: View {
         }
     }
 
+    // Encoded inside the load, off the main thread, as a picked photo is read.
+    private func addTaken(_ image: UIImage, epoch: Int) async {
+        guard epoch == client.chatEpoch else { return }   // review 7: never clears another account's line
+        client.attachLine[attachKey] = nil
+        await store.attach(.photo(load: {
+            guard let data = await Task.detached(operation: { image.jpegData(compressionQuality: 0.85) }).value else { return nil }
+            return (Board.photoName(at: Date(), ext: "jpg", number: 1), data)
+        }), epoch: epoch, to: project.id)
+    }
+
     private func addFiles(_ urls: [URL]) async {
         let epoch = client.chatEpoch
         client.attachLine[attachKey] = nil
@@ -963,16 +1142,29 @@ struct RoomView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 4)
             }
             if !attachedHere.isEmpty || uploadingHere > 0 { chips }
-            HStack(alignment: .bottom, spacing: 8) {
+            // kosmos#7346 (Josh 10-27, Mona Lisa's design): one floating box, + then the text then emoji and mic, and no
+            // Post arrow: the keyboard's Send key posts (typedReturn). The chat's box, in the room's own column.
+            HStack(alignment: .bottom, spacing: 0) {
                 addButton
-                TextField("Write something or @name to message someone…", text: $draft, axis: .vertical)
-                    .lineLimit(1...5)
-                    .focused($typing)
-                    .accessibilityFocused($composerFocused)
-                    .accessibilityLabel("Post to everyone on this project")
-                    .padding(.vertical, 10).padding(.horizontal, 14)
-                    .background(RoundedRectangle(cornerRadius: 20).fill(Palette.card))
-                    .overlay(RoundedRectangle(cornerRadius: 20).stroke(Palette.separator))
+                // kosmos#7268: the emoji face and the microphone inside the box, at its trailing end (the board's
+                // .emojibtn sits inside its input); the box's text runs up to them.
+                HStack(alignment: .bottom, spacing: 0) {
+                    CursorField(placeholder: "Message \(project.name)", text: $draft, focus: $typing, insert: $emojiInsert)
+                        .lineLimit(1...6)
+                        .submitLabel(.send)
+                        .accessibilityFocused($composerFocused)
+                        .accessibilityLabel("Post to everyone on this project")
+                        // With no Post arrow on screen, VoiceOver gets Post as an action on the box itself.
+                        .accessibilityAction(named: "Post") { postOrSayWhy() }
+                        .padding(.vertical, 13).padding(.leading, 2)
+                    ComposerEmojiButton(open: emojiOpen) {
+                        if emojiOpen { emojiOpen = false; typing = true } else { emojiOpen = true; typing = false }
+                    }
+                    ComposerMicButton(dictation: dictation) {
+                        dictation.toggle(base: draft, current: { draft }) { draft = $0 }
+                    }
+                    .padding(.trailing, 4)
+                }
                     .overlay(alignment: .top) { mentionList.alignmentGuide(.top) { $0[.bottom] + 6 } }
                     // VoiceOver hears the list open, once, not on every letter (the board's aria-activedescendant has
                     // no iOS form; review 1), queued behind the key echo (review 2).
@@ -980,17 +1172,59 @@ struct RoomView: View {
                         if closed { mentionRowsHeight = 0 }   // each open starts from its own estimate (review 3)
                         if !closed, let n = mentionOptions?.count { Self.say(Board.mentionOpened(n)) }
                     }
-                Button { send() } label: {
-                    Image(systemName: "arrow.up").font(.body.weight(.bold)).foregroundColor(Palette.sendGlyph)
-                        .frame(width: 44, height: 44).background(Circle().fill(Palette.sendFill))
-                }
-                .disabled(!canPost)
-                .opacity(canPost ? 1 : 0.5)
-                .accessibilityLabel("Post")
             }
-            .padding(.horizontal, 12).padding(.vertical, 8)
+            .frame(minHeight: 48)
+            .background(RoundedRectangle(cornerRadius: 24).fill(Palette.card)
+                // kosmos#7628 (Josh 10-30, build 21): on the white chat ground the old soft shadow (radius 10) read as a grey
+                // band behind the box; a tight one keeps the white box's edge without the band.
+                .shadow(color: Color.black.opacity(0.08), radius: 3, x: 0, y: 1))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Palette.separator, lineWidth: 0.5))
+            .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
+            if let line = ComposerExtras.micLine(dictation.state) {
+                Text(line).font(.footnote).foregroundColor(Palette.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 6)
+            }
+            // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it.
+            if emojiOpen { EmojiPanel { emojiInsert = ComposerExtras.Pick(glyph: $0) } }
         }
-        .background(Palette.ground)
+        .background(Palette.chatGround)
+        .onChange(of: typing) { focused in if focused { emojiOpen = false } }
+        // Review 8: the search field's keyboard closes the panel too, or it sits on top of it and hides the results.
+        .onChange(of: searchFocused) { focused in if focused { emojiOpen = false } }
+        // The panel stands in for the keyboard, which covers the tab bar; so does the panel, or its last rows sit
+        // under the bar.
+        .toolbar(emojiOpen ? .hidden : .automatic, for: .tabBar)
+        #if DEBUG
+        // KOSMOS_SAMPLE_EMOJI=open (with the room samples): the panel open, for the design shots.
+        .onAppear { if RoomStore.sample, ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
+        #endif
+        // Leaving the room lets go of the microphone and closes the panel (the board's: the panel belongs to the composer
+        // being left).
+        .onDisappear { dictation.reset(); emojiOpen = false }
+        .onChange(of: draft) { [was = draft] now in
+            // kosmos#7346: the keyboard's Send key arrives as a lone new line: take it out, and post if there is something
+            // to post (canPost: as the arrow was, not while dictation finishes or a file is on its way).
+            if let without = ComposerExtras.typedReturn(was: was, now: now) {
+                draft = without
+                // With the @name list open, Send picks its first name, as Enter does on the board, rather than posting a
+                // half-typed name.
+                if let first = mentionOptions?.first, let text = Board.mentionPick(draft, key: first.session) { draft = text; return }
+                postOrSayWhy()
+                return
+            }
+            // The person changed what Send was refused for: the reason no longer applies to it.
+            if let b = blocked, now != b.text {
+                if client.attachLine[attachKey] == b.note { client.attachLine[attachKey] = nil }
+                blocked = nil
+            }
+            // kosmos#7348: the posted text came back into the box (the keyboard's dictation or Writing Tools finishing late).
+            if Board.refilledWithSent(now, was: was, sent: lastSent?.text, sentAt: lastSent?.at, now: Date()) {
+                draft = ""
+                takeReturned()   // review: a refused post's words that arrived in the same pass are taken now
+                return
+            }
+            dictation.boxChanged(to: now)
+        }
         // Each picker on a host of its own, as the chat's (two presentations on one view can leave one that never opens).
         .background(Color.clear.photosPicker(isPresented: $showPhotos, selection: $photoPicks,
                                              maxSelectionCount: max(1, Board.maxFiles - countedFiles),
@@ -1000,6 +1234,16 @@ struct RoomView: View {
             photoPicks = []
             Task { await addPhotos(picks) }
         }
+        // kosmos#7596: a photo taken with the camera goes up as a picked one does, named the same way.
+        .background(Color.clear.fullScreenCover(isPresented: $showCamera) {
+            CameraCapture { image in
+                showCamera = false
+                guard let image else { return }
+                let epoch = cameraEpoch
+                Task { await addTaken(image, epoch: epoch) }
+            }
+            .ignoresSafeArea()
+        })
         .background(Color.clear.fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): Task { await addFiles(urls) }
@@ -1075,14 +1319,23 @@ struct RoomView: View {
         .accessibilityHint("Puts @" + m.session + " in your post")
     }
 
+    // kosmos#7346 review: with no arrow to grey out, a Send that cannot post says why, to VoiceOver and on screen, until
+    // the box changes.
+    private func postOrSayWhy() {
+        if canPost { send(); return }
+        if let why = postBlocked { client.attachLine[attachKey] = why; blocked = (draft, why); Self.say(why) }
+    }
+
     // The box clears at once, so the person can keep typing. A refused or not-confirmed post's words come back through
     // the store (RoomStore.returned), which keeps them if the person has left the room or typed something since.
     private func send() {
         guard canPost else { return }
+        dictation.stop()   // kosmos#7268 review 1: before the box is cleared, so no late result brings the words back
         let text = postWords
         let reply = replying
         let files = attachedHere
         client.attachLine[attachKey] = nil
+        lastSent = (draft, Date())
         draft = ""; replying = nil; replyMention = nil
         if searching { sentWhileSearching = true }
         hiddenBySearch = false   // the post is the newest thing to say
@@ -1092,6 +1345,17 @@ struct RoomView: View {
 
 // One post in a room: the sender's picture and name on the first of a run, the board's bubble colours, a reply header,
 // reactions and the silence line under it.
+// kosmos#7365 slice 3c: an archived post is read, not answered (the archive view has no composer), and drawn a shade
+// quieter, as the board's archive bubbles. Copy stays (the bubble's own actions are limited by `archived`).
+struct ArchivedBubble: ViewModifier {
+    let on: Bool
+    func body(content: Content) -> some View { content.opacity(on ? 0.85 : 1).environment(\.roomArchived, on) }
+}
+private struct RoomArchivedKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var roomArchived: Bool { get { self[RoomArchivedKey.self] } set { self[RoomArchivedKey.self] = newValue } }
+}
+
 struct RoomBubble: View {
     let row: Board.RoomRow
     let first: Bool
@@ -1100,6 +1364,7 @@ struct RoomBubble: View {
     let picture: UIImage?
     let replied: Board.RoomRow?
     let roomComplete: Bool
+    var mayBeArchived = false   // kosmos#7365 slice 3c review 1: the original may be in the archive
     let nameOf: (Board.RoomRow) -> String
     let react: (String) -> Void
     let reply: () -> Void
@@ -1113,7 +1378,9 @@ struct RoomBubble: View {
     // kosmos#7062: the words shown beside the post's files (Board.roomWords, tested).
     private var words: String { Board.roomWords(row) }
     // Reply and reactions only on a post of this room: the board's route takes neither for an outside message.
-    private var answerable: Bool { row.kind == .post }
+    // kosmos#7365 slice 3c: nor on an archived one, which the archive view shows for reading.
+    @Environment(\.roomArchived) private var archived
+    private var answerable: Bool { row.kind == .post && !archived }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
@@ -1150,7 +1417,7 @@ struct RoomBubble: View {
                 }
                 Button("Reply", action: reply)
             }
-            Button("Copy") { UIPasteboard.general.string = row.text }
+            Button("Copy") { UIPasteboard.general.string = Board.roomWords(row) }   // kosmos#7419 review 3: the words shown, as the sheet
             if replied != nil {
                 Button(Board.replyJumpAction, action: jump)
                 // The double-tap goes, as the label says (review 2); the agent's chat, which the avatar gave it, stays.
@@ -1203,7 +1470,7 @@ struct RoomBubble: View {
                 // Read as the board's label (review 1), as words in the post; the jump is the post's double-tap (below).
                 .accessibilityRepresentation { Text(Board.replyJumpLabel(who: nameOf(replied), gist: gist)) }
             } else if row.replyTo != nil && roomComplete {
-                Text("Original message unavailable").font(.footnote).foregroundColor(Palette.tertiary)
+                Text(mayBeArchived ? Board.Archive.originalMayBe : "Original message unavailable").font(.footnote).foregroundColor(Palette.tertiary)
             }
             if !words.isEmpty || row.attachments.isEmpty {
                 Text(row.kind == .external ? AttributedString(words) : Self.withMentions(Board.messageText(words), mentioned: row.mentioned, names: mentionNames))
@@ -1233,22 +1500,20 @@ struct RoomBubble: View {
                 .accessibilityLabel("Files: " + row.attachments.map(\.name).joined(separator: ", "))
             }
         }
-        .padding(.vertical, 8).padding(.horizontal, 12)
+        // kosmos#7347 (Josh 10-27, Mona Lisa): 10 pt by 14 pt around the words, the Mac board's proportion.
+        .padding(.vertical, 10).padding(.horizontal, 14)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(mine ? Palette.personBubble : Palette.agentBubble))
         // kosmos#7101: the board's .msg-flash, a gold-deep outline on the post a reply's header went to, fading out.
         // A 2 pt ring 2 pt out, as the board's outline-offset, its corners kept parallel to the bubble's (review 5).
+        .overlay(PressedBubbleMark())   // kosmos#7419 build 11: where the lit bubble is, when its sheet is up
         .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(Self.flashGold, lineWidth: 2).padding(-4)
             .opacity(flashing ? 1 : 0).animation(reduceMotionHere ? nil : .easeOut(duration: 0.3), value: flashing))
+        // kosmos#7419: the long-press sheet, as in a direct message (Reply and reactions only on a post of this room).
+        // Build 11: on the bubble itself, inside the width frame, so the ring that marks it while its sheet is up goes
+        // round the bubble, not round the empty side of the frame.
+        .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: answerable ? react : nil,
+                        reply: answerable ? reply : nil, text: Board.roomWords(row))   // review 2: the words shown
         .frame(maxWidth: UIScreen.main.bounds.width * 0.78, alignment: mine ? .trailing : .leading)
-        .contextMenu {
-            if answerable {
-                Button { react("👍") } label: { Text("👍") }
-                Button { react("❤️") } label: { Text("❤️") }
-                Button { react("🔥") } label: { Text("🔥") }
-                Button(action: reply) { Label("Reply", systemImage: "arrowshape.turn.up.left") }
-            }
-            Button { UIPasteboard.general.string = row.text } label: { Label("Copy", systemImage: "doc.on.doc") }
-        }
     }
 
     var mentionNames: [String] = []
@@ -1287,7 +1552,8 @@ struct RoomBubble: View {
     }
 
     private var reactions: some View {
-        HStack(spacing: 6) {
+        // kosmos#7420: wrapped, never one row wider than the screen (it widened the whole room and shifted every post).
+        FlowLayout(spacing: 6, trailing: mine) {
             ForEach(row.reactions, id: \.emoji) { r in
                 Button { react(r.emoji) } label: {
                     Text("\(r.emoji) \(r.count)").font(.footnote)
@@ -1302,23 +1568,178 @@ struct RoomBubble: View {
     }
 }
 
-// kosmos#7080: the board's three working dots (.act i), fading in turn 0.16s apart. Grey and fade-only, as the phone's
-// chat WorkingLine (the board's are green and also rise 4px). With Reduce Motion they still fade, slower (the board's
-// work-fade, #4591: Josh read still dots as frozen; a fade is not movement). Opacity is read from the clock (review 1:
-// a repeatForever started on appear can catch layout changes in a pushed view), at 30 frames a second at most.
+// kosmos#7427 (Josh 10-27 20:56): the board's three working dots exactly (web/index.html .act i, @keyframes work): a
+// 1.1 s ease-in-out loop, each dot 0.16 s after the one before, rising 4 pt with its opacity going .45 to 1 and back,
+// so the three read as a wave, never a pulse in unison. With Reduce Motion the same stagger, opacity only (.35 to 1)
+// over 1.6 s and no movement (@keyframes work-fade, #4591: still dots read as frozen; a fade is not movement). The
+// ease is a cosine, which is the CSS ease-in-out to within a few percent. Drawn from the clock at 30 frames a second
+// at most (kosmos#7080 review 1: a repeatForever started on appear catches layout changes in a pushed view).
 struct WorkingDots: View {
+    var color: Color = Palette.pillWord(.working)   // the Working green, light and dark (the board's #2f7d5a is too dark on the dark ground)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    // With the person's text size, as the line beside them (review 4).
+    // With the person's text size, as the line beside them (kosmos#7080 review 4): 4 pt at the default size where the
+    // board's are 3 px, a deliberate step up so they read on a phone; timing and rise are the board's exactly.
     @ScaledMetric(relativeTo: .footnote) private var size: CGFloat = 4
+
+    // Where dot i is in its loop at time t, 0 at rest and 1 at the top (the 50% keyframe).
+    static func phase(_ t: Double, dot i: Int, reduceMotion: Bool) -> Double {
+        let period = reduceMotion ? 1.6 : 1.1
+        return 0.5 - 0.5 * cos((t - Double(i) * 0.16) * 2 * .pi / period)
+    }
+
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
             let t = tl.date.timeIntervalSinceReferenceDate
-            let period = reduceMotion ? 1.6 : 1.1, low = reduceMotion ? 0.35 : 0.45
-            HStack(spacing: size * 0.75) {
+            let low = reduceMotion ? 0.35 : 0.45
+            HStack(alignment: .bottom, spacing: size * 0.75) {
                 ForEach(0..<3, id: \.self) { i in
-                    Circle().fill(Palette.secondary).frame(width: size, height: size)
-                        .opacity(low + (1 - low) * (0.5 - 0.5 * cos((t - Double(i) * 0.16) * 2 * .pi / period)))
+                    let p = Self.phase(t, dot: i, reduceMotion: reduceMotion)
+                    Circle().fill(color).frame(width: size, height: size)
+                        .opacity(low + (1 - low) * p)
+                        .offset(y: reduceMotion ? 0 : -4 * p)
                 }
+            }
+            .frame(height: size + 4, alignment: .bottom)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+// kosmos#7427 review 2 (measured on the simulator 10-27, the kosmos#7420 A/B): the same wave for a line INSIDE a scrolling
+// thread (the chat's working line). WorkingDots redraws from the clock 30 times a second, and inside the chat's lazy
+// stack that kept the thread from following new messages with the keyboard up (the newest ones sat behind the box).
+// Here each dot runs its own repeating animation, delayed 0.16 s per dot, which moves only the dot (opacity and
+// offset) and never asks the thread to lay out again. The animation is tied to this view's own switch, so nothing
+// else on the page animates with it (kosmos#7080 review 1).
+struct WaveDots: View {
+    var color: Color = Palette.pillWord(.working)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .footnote) private var size: CGFloat = 4
+    @State private var up = false
+
+    var body: some View {
+        let low = reduceMotion ? 0.35 : 0.45, half = (reduceMotion ? 1.6 : 1.1) / 2
+        HStack(alignment: .bottom, spacing: size * 0.75) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle().fill(color).frame(width: size, height: size)
+                    .opacity(up ? 1 : low)
+                    .offset(y: up && !reduceMotion ? -4 : 0)
+                    .animation(.easeInOut(duration: half).repeatForever(autoreverses: true).delay(Double(i) * 0.16), value: up)
+            }
+        }
+        .frame(height: size + 4, alignment: .bottom)
+        .onAppear { up = true }
+        // Review 3: a lazy thread keeps this state while the line is scrolled away and drops the running animation, so
+        // it goes back to rest without animating and the next appear starts the wave again (never frozen, raised).
+        .onDisappear { var t = Transaction(); t.disablesAnimations = true; withTransaction(t) { up = false } }
+        .accessibilityHidden(true)
+    }
+}
+
+// kosmos#7427 build 16 (Josh 10-28, build 15: the chat's dots still bounced in unison, the Agents pill's did not): the
+// chat's working dots drawn by Core Animation. Each dot's loop is fixed in its own layer animation, a phase 0.16 s behind
+// the one before (timeOffset), so nothing SwiftUI does to the thread (a re-render, a row re-laid out, the line coming
+// back into view) can restart them together, and the thread is never asked to lay out for them (why the clock-drawn
+// WorkingDots stays out of the thread, review 2). The board's numbers, as WorkingDots: 1.1 s ease-in-out, a 4 pt rise
+// with opacity .45 to 1; Reduce Motion 1.6 s, opacity .35 to 1, no rise.
+struct LayerWaveDots: View {
+    var color: Color = Palette.pillWord(.working)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+    @ScaledMetric(relativeTo: .footnote) private var size: CGFloat = 4
+
+    var body: some View {
+        DotLayers(color: UIColor(color), dark: scheme == .dark, size: size, still: reduceMotion)
+            .frame(width: size * 3 + size * 0.75 * 2, height: size + 4)
+            // Its bottom on the line's baseline, as WaveDots sits (a UIKit view gives SwiftUI no baseline of its own, and
+            // measured in the simulator it hung about 5 pt below the words).
+            .alignmentGuide(.firstTextBaseline) { $0[.bottom] }
+            .accessibilityHidden(true)
+    }
+
+    struct DotLayers: UIViewRepresentable {
+        let color: UIColor
+        let dark: Bool
+        let size: CGFloat
+        let still: Bool
+        func makeUIView(context: Context) -> Dots { Dots() }
+        func updateUIView(_ v: Dots, context: Context) {
+            v.set(color: color.resolvedColor(with: UITraitCollection(userInterfaceStyle: dark ? .dark : .light)).cgColor,
+                  size: size, still: still)
+        }
+    }
+
+    final class Dots: UIView {
+        private let dots = (0..<3).map { _ in CALayer() }
+        private var size: CGFloat = 4
+        private var still = false
+        private var running: (CGFloat, Bool)?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            dots.forEach { layer.addSublayer($0) }
+            // The system takes a layer's animations away when the app leaves the screen; they go back on return.
+            NotificationCenter.default.addObserver(self, selector: #selector(restart), name: UIApplication.willEnterForegroundNotification, object: nil)
+        }
+        required init?(coder: NSCoder) { nil }
+
+        func set(color: CGColor, size: CGFloat, still: Bool) {
+            // Review 1: only on a change, and without the layer's implicit fade (a re-render or a theme switch snaps).
+            if dots[0].backgroundColor != color {
+                CATransaction.begin(); CATransaction.setDisableActions(true)
+                dots.forEach { $0.backgroundColor = color }
+                CATransaction.commit()
+            }
+            if self.size != size || self.still != still { self.size = size; self.still = still; setNeedsLayout() }
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            for (i, d) in dots.enumerated() {
+                d.frame = CGRect(x: CGFloat(i) * size * 1.75, y: bounds.height - size, width: size, height: size)
+                d.cornerRadius = size / 2
+            }
+            CATransaction.commit()
+            if running.map({ $0 != size || $1 != still }) ?? true { start() }
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil { start() }
+        }
+
+        @objc private func restart() { start() }
+
+        private func start() {
+            running = (size, still)
+            let period = still ? 1.6 : 1.1, low: Float = still ? 0.35 : 0.45
+            // Review 1: the model opacity is set with no implicit animation beside the wave.
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
+            for (i, d) in dots.enumerated() {
+                d.removeAllAnimations()
+                // Review 2: each part runs the whole half-loop (a part left at 0 runs Core Animation's 0.25 s default).
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = low; fade.toValue = Float(1); fade.duration = period / 2
+                var parts: [CAAnimation] = [fade]
+                if !still {
+                    let rise = CABasicAnimation(keyPath: "transform.translation.y")
+                    rise.fromValue = 0; rise.toValue = -4; rise.duration = period / 2
+                    parts.append(rise)
+                }
+                let wave = CAAnimationGroup()
+                wave.animations = parts
+                wave.duration = period / 2
+                wave.autoreverses = true
+                wave.repeatCount = .infinity
+                wave.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                // Dot i is 0.16 s behind dot 0: its loop starts that far before its own beginning.
+                wave.timeOffset = period - Double(i) * 0.16
+                wave.isRemovedOnCompletion = false
+                d.opacity = low
+                d.add(wave, forKey: "wave")
             }
         }
     }

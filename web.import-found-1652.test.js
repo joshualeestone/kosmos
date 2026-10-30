@@ -117,7 +117,7 @@ test('#2419: the found list is wired to the import panel and its one Add handler
   assert.doesNotMatch(SCRIPT, /closest\('\.fr-importgo'\)[\s\S]{0,400}closest\('#fr-fleet'\)/,
     'the Add click handler still branches on #fr-fleet to jump into create');
   // The container exists in the panel markup.
-  assert.match(PAGE, /<div class="import-found" id="import-found" hidden><\/div>/, 'the found-import container is missing from the import panel');
+  assert.match(PAGE, /<div class="import-found" id="import-found"(?: data-cloud-hide)? hidden><\/div>/, 'the found-import container is missing from the import panel');
 });
 
 test('#3877: the one-click found-agent add sends the create form\'s default-on notifyCreated choice', () => {

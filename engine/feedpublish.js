@@ -189,6 +189,10 @@ function publishPost(candidate, opts = {}) {
   const status = statusFor(verdict);
   const rec = { ...verdict.post, status };
   if (boardSlug != null) rec.board = boardSlug;
+  if (o.space === 'company') {   // kosmos#7541: decided by the route from the org's policy, never the candidate
+    rec.space = 'company';
+    if (typeof o.org === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(o.org)) rec.org = o.org;   // review 5: which company
+  }
   if (o.author != null) rec.author = o.author;
   if (status !== PUBLISHED) rec.findings = verdict.findings;
   let stored;
@@ -374,6 +378,10 @@ function publishServiceComment(candidate, opts = {}) {
   const status = statusFor(verdict);
   const rec = { ...verdict.post, remotePostId: String(servicePostId).toLowerCase(), status };
   if (hasParent) rec.remoteParentId = String(serviceParentId).toLowerCase();
+  if (o.space === 'company') {   // kosmos#7543: decided by the route from the org's policy, never the candidate
+    rec.space = 'company';
+    if (typeof o.org === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(o.org)) rec.org = o.org;
+  }
   if (o.author != null) rec.author = o.author;
   if (status !== PUBLISHED) rec.findings = verdict.findings;
   let stored;

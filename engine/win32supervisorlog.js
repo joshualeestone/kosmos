@@ -114,11 +114,15 @@ function redactSecrets(text) {
 function logger(name, opts) {
   const o = opts || {};
   const cap = Number.isInteger(o.maxBytes) && o.maxBytes > 0 ? o.maxBytes : MAX_BYTES;
-  const file = logPath(name);
+  /* #2988: `opts.dir` names the folder for a log that must not follow a named world's root (the
+     board's, engine/win32boardwatch.js, whose watchdog reads it from outside any world). */
+  const dir = typeof o.dir === 'string' && o.dir ? o.dir : logDir();
+  const file = path.join(dir, store.safeKey(name) + '.log');
   return {
+    file,
     line(text) {
       try {
-        fs.mkdirSync(logDir(), { recursive: true });
+        fs.mkdirSync(dir, { recursive: true });
         // One entry per line: collapse any embedded newline so a multi-line error
         // tail cannot split one event across several log lines.
         const clean = redactSecrets(String(text == null ? '' : text)).replace(/\r?\n/g, ' ');

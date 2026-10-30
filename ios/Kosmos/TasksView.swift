@@ -25,7 +25,7 @@ struct TasksTab: View {
                       answer: answer,
                       refresh: { await client.refreshTasks() },
                       newTask: { picked in notice = nil; newTaskFor = NewTaskStart(picked: picked) },
-                      notice: notice)
+                      notice: notice, switcher: AnyView(MacSwitcher(client: client)))
                 .background(chatLink)
                 .background(taskLink)
                 .sheet(item: $newTaskFor) { start in
@@ -130,6 +130,8 @@ struct TasksView: View {
     // sheet leaves after a create ("Added task 12 to Launch."). Both optional, so the samples and checks need neither.
     var newTask: ((String?) -> Void)? = nil
     var notice: String? = nil
+    // kosmos#7343: the computer switcher for the shared bar (TasksTab passes it; previews and tests need none).
+    var switcher: AnyView? = nil
 
     @State private var project: String? = nil
     @State private var shown: [Tasks.Section] = []
@@ -141,12 +143,18 @@ struct TasksView: View {
     var body: some View {
         content
             .navigationTitle("Tasks")
+            // kosmos#7343 (Mona Lisa's design): the shared bar, no big title. The switcher takes the place of "All
+            // projects"; choosing a project moves into the filter button, left of +, in one capsule.
+            .navigationBarTitleDisplayMode(.inline)
+            .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
             .toolbar {
-                if let read, !read.tasks.isEmpty { ToolbarItem(placement: .navigationBarTrailing) { picker } }
-                // Not gated on the Tasks read: the sheet reads its own projects, so a failed list does not stop a new task.
-                if let newTask {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button { newTask(project) } label: { Image(systemName: "plus") }
+                ToolbarItem(placement: .principal) { ScreenHeading(title: "Tasks") }
+                KosmosBarLeading(switcher: switcher)
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    if let read, !read.tasks.isEmpty { picker }
+                    // Not gated on the Tasks read: the sheet reads its own projects, so a failed list does not stop a new task.
+                    if let newTask {
+                        Button { newTask(project) } label: { Image(systemName: "plus").font(.body.weight(.semibold)) }
                             .accessibilityLabel("New task")
                     }
                 }
@@ -184,14 +192,28 @@ struct TasksView: View {
     }
 
     private func list(_ read: Board.TasksRead) -> some View {
-        let projectShown = !Tasks.leaveOutProjectLine(read, project: project)
+        let projectShown = !Tasks.leaveOutProjectLine(drawn: shown, project: project)
         return ScrollViewReader { scroller in List {
+            // kosmos#7269: the count tiles, as a header with no inset, so their edges line up with the cards under them (in
+            // the title's header they sat in its text inset, 20pt further in; as a row, the list clipped the outer tiles'
+            // corners to the section's rounding).
+            Section {
+                EmptyView()
+            } header: {
+                TaskTiles(tiles: Tasks.tiles(shown, rosterUnknown: read.rosterUnknown))
+                    .listRowInsets(EdgeInsets())
+                    .padding(.top, 4)
+            }
             Section {
                 EmptyView()
             } header: {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(Tasks.title(read, project: project))
-                        .font(.subheadline).foregroundColor(Palette.secondary).textCase(nil)
+                    // kosmos#7343: the "77 Tasks on 4 Projects" line is gone (the count tiles say it); a chosen project
+                    // is named here, so the filter is never hidden.
+                    if project != nil {
+                        Text(Tasks.title(read, drawn: shown, project: project))
+                            .font(.subheadline).foregroundColor(Palette.secondary).textCase(nil)
+                    }
                     // kosmos#7078: the board's tsk-msg line after a New task, where the board puts it.
                     if let notice {
                         Text(notice).font(.footnote).foregroundColor(Palette.primary).textCase(nil)
@@ -282,9 +304,13 @@ struct TasksView: View {
             .fixedSize()
             .accessibilityHidden(true)
             Text(s.group.label).foregroundColor(Palette.primary)
-            Text(count).foregroundColor(Palette.secondary)
+            // kosmos#7343 (Mona Lisa): the count as a small capsule at the right edge, aligned with the list's inset.
+            Spacer(minLength: 8)
+            Text(count).font(.caption.weight(.semibold)).foregroundColor(Palette.secondary)
+                .padding(.horizontal, 7).frame(minHeight: 20)
+                .background(Capsule().fill(Palette.card))
         }
-        .font(.footnote.weight(.semibold))
+        .font(.subheadline.weight(.semibold))
         .textCase(nil)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(s.group.label + ", " + (s.unknown ? "cannot tell" : count))
@@ -351,11 +377,8 @@ struct TasksView: View {
             Button("All projects") { project = nil }
             ForEach(projects, id: \.id) { p in Button(Tasks.pickerWords(p)) { project = p.id } }
         } label: {
-            HStack(spacing: 4) {
-                Text(name).lineLimit(1)
-                Image(systemName: "chevron.down").font(.footnote.weight(.semibold))
-            }
-            .foregroundColor(Palette.primary)
+            // kosmos#7343: a filter button in the bar's capsule; filled while one project is chosen.
+            Image(systemName: project == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
         }
         .accessibilityLabel("Project: " + name)
     }
@@ -394,6 +417,40 @@ private struct AnswerAction: ViewModifier {
     let run: () -> Void
     @ViewBuilder func body(content: Content) -> some View {
         if on { content.accessibilityAction(named: Text("Answer"), run) } else { content }
+    }
+}
+
+// kosmos#7269 (Josh, 2026-10-26: "a row of tiles with counts at the top", "nice and clean"): four counts in one row, each
+// a quiet card with its number over its word, the board's tile (.tsk-tile: surface, rule border, 12pt corners) at phone
+// size. Needs you turns red only with something in it, as the board's decision tile does; "?" when the agents could not
+// be read. Not buttons: they do not filter (yet), so they do not look pressable. Two rows of two at the largest text.
+struct TaskTiles: View {
+    let tiles: [Tasks.Tile]
+    @Environment(\.dynamicTypeSize) private var typeSize
+    var body: some View {
+        let cols = typeSize.isAccessibilitySize ? 2 : 4
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: cols), spacing: 8) {
+            ForEach(tiles, id: \.key) { t in tile(t) }
+        }
+        .textCase(nil)
+    }
+    private func tile(_ t: Tasks.Tile) -> some View {
+        let alarm = t.key == "decision" && (t.count ?? 0) > 0
+        let ink = alarm ? TasksPalette.dot("--tsk-decision") : Palette.primary
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(t.count.map(String.init) ?? "?")
+                .font(.title2.weight(.semibold)).monospacedDigit().foregroundColor(ink)
+                .lineLimit(1).minimumScaleFactor(0.6)
+            Text(t.label)
+                .font(.caption.weight(.semibold)).foregroundColor(alarm ? ink : Palette.secondary)
+                .lineLimit(2).minimumScaleFactor(0.85)
+        }
+        .frame(maxWidth: .infinity, minHeight: 58, alignment: .topLeading)
+        .padding(.horizontal, 10).padding(.vertical, 9)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Palette.card))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(alarm ? ink.opacity(0.45) : Palette.separator, lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(t.label + ", " + (t.count.map(String.init) ?? "cannot tell"))
     }
 }
 

@@ -224,6 +224,7 @@ const PROVIDER_NAMES = Object.freeze({
   xai: 'xAI Grok',
   meta: 'Meta Muse',
   alibaba: 'Alibaba Qwen',
+  deepseek: 'DeepSeek',   // #7206: a vendor on the claude runner (engine/anthropiccompat.js VENDORS)
 });
 function providerName(provider) {
   return Object.prototype.hasOwnProperty.call(PROVIDER_NAMES, provider) ? PROVIDER_NAMES[provider] : 'this provider';
@@ -301,6 +302,23 @@ function communityAllows(policy = currentStrict(), kind) {
   if (oc && typeof oc === 'object' && oc.enabled === false) return { ok: false, because: CONTACT_STOPS };
   const k = kind === undefined ? require('./orgenroll').kindStrict() : kind;
   return k === 'family' ? { ok: false, because: FAMILY_COMMUNITY_STOPS, family: true } : { ok: true };
+}
+
+const PUBLIC_COMMUNITY_STOPS = `${POLICY_SETTER} keeps agents' posts in the company's own community, not the public Kosmos+ one`;
+/** kosmos#7541 (slice 3 of #7538, Renet Tilley's contract on #7538): which community an agent's posts and reads go to.
+ *  The company's own space only on a computer joined to a company (never a family) whose policy says
+ *  `company_community: { enabled: true }` exactly; anything else, no policy included, is the public community as before.
+ *  `public_community: "off"` refuses the public one, and only while the company's own is on (it is that switch's
+ *  companion; with no company community, outside_contact is what keeps agents out). Read it after communityAllows,
+ *  which still decides whether agents take part at all.
+ *  { space: 'company' | 'public', publicAllowed, because? }. Throws as contactAllows does. */
+function communitySpace(policy = currentStrict(), kind) {
+  const k = kind === undefined ? require('./orgenroll').kindStrict() : kind;
+  const cc = policy && policy.company_community;
+  const on = k === 'company' && !!cc && typeof cc === 'object' && cc.enabled === true;
+  if (!on) return { space: 'public', publicAllowed: true };
+  const off = policy.public_community === 'off';
+  return off ? { space: 'company', publicAllowed: false, because: PUBLIC_COMMUNITY_STOPS } : { space: 'company', publicAllowed: true };
 }
 
 /* The local weekday (0 Sunday) and minute of the day at `ms` in `tz`. */
@@ -439,4 +457,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, communityAllows, FAMILY_COMMUNITY_STOPS, FAMILY_CONTACT_STOPS, CONTACT_STOPS, reportingRequired, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, communityAllows, communitySpace, PUBLIC_COMMUNITY_STOPS, FAMILY_COMMUNITY_STOPS, FAMILY_CONTACT_STOPS, CONTACT_STOPS, reportingRequired, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };

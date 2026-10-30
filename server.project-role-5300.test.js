@@ -159,3 +159,17 @@ test('#5300 review 13: a write that fails for a reason of the board\'s own is a 
     assert.ok(!body.error.includes(dir), 'the file system\'s details reached the caller');
   } finally { fs.chmodSync(dir, 0o755); board.restore(); }
 });
+
+test('#7429: the answer says when a role reads as review only; a role that also builds says nothing (control)', async () => {
+  const { board, ada, bo } = twoAgents();
+  try {
+    const p = projects.create({ name: 'Role Review Only' });
+    projects.addAgent(p.id, ada, board.agents); projects.addAgent(p.id, bo, board.agents);
+    const minted = sendertoken.mint(ada);
+    assert.equal(minted.ok, true, 'fixture: no token was minted');
+    const r = await asAgent(p.id, minted.token, { role: 'Review only' });
+    assert.deepEqual(await r.json(), { ok: true, role: 'Review only', reviewOnly: true });
+    const c = await asAgent(p.id, minted.token, { role: 'builds and reviews' });
+    assert.deepEqual(await c.json(), { ok: true, role: 'builds and reviews' });
+  } finally { board.restore(); }
+});

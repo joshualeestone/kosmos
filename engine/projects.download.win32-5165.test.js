@@ -121,7 +121,9 @@ test('W6: sameOpenedFile refuses a swap where the file system reports no inode, 
   assert.equal(projects.sameOpenedFile(g, stat({ birthtimeMs: 0 }), 'win32'), true, 'a missing creation time on one side refused the same file');
   assert.equal(projects.sameOpenedFile(g, stat({ ino: 77 }), 'win32'), true, 'one side without an inode must fall back, not refuse');
   assert.equal(projects.sameOpenedFile(stat({ ino: 5 }), stat({ ino: 6 }), 'win32'), false, 'different inodes passed');
-  assert.equal(projects.sameOpenedFile(stat({ ino: 5, dev: 1 }), stat({ ino: 5, dev: 2 }), 'win32'), true, 'Windows compares no device');
+  // #7333: NTFS ids are per volume, so Windows compares the device too (an equal id on another volume is another file).
+  assert.equal(projects.sameOpenedFile(stat({ ino: 5, dev: 1 }), stat({ ino: 5, dev: 2 }), 'win32'), false, 'Windows: the same id on another volume passed');
+  assert.equal(projects.sameOpenedFile(stat({ ino: 5, dev: 1 }), stat({ ino: 5, dev: 1 }), 'win32'), true, 'CONTROL: the same id on the same volume is the same file');
   assert.equal(projects.sameOpenedFile(stat({ ino: 5, dev: 1 }), stat({ ino: 5, dev: 2 }), 'darwin'), false, 'off Windows a different device passed');
   assert.equal(projects.sameOpenedFile(g, { ...stat({}), isFile: () => false }, 'win32'), false, 'a folder passed');
   assert.equal(projects.sameOpenedFile(g, null, 'win32'), false);

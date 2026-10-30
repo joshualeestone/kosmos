@@ -117,3 +117,20 @@ test('another agent reading the room does not clear this agent\'s held posts', a
   await room(pid, tokenFor('poster'));
   assert.deepEqual(heldPlain(pid), [a], 'one agent\'s read cleared another agent\'s held posts');
 });
+
+test('kosmos#7365: a held post that is now archived stops being held when the agent reads the room', async () => {
+  const p = projects.create({ name: 'Archived4926' }); datedBack(p.id);
+  projects.addAgent(p.id, WHO, roster);
+  const old = postRow(p.id, 'An ask from long ago', 40 * 24 * 60);
+  const live = postRow(p.id, 'A live line', 1);
+  roomhold.hold(WHO, p.id, old);
+  roomhold.hold(WHO, p.id, live);
+  assert.equal(require('./engine/roomarchive').setMarker(p.id, new Date(Date.now() - 30 * 24 * 60 * 60000).toISOString()).ok, true);
+  // CONTROL first: a read nobody identified leaves both held, so the drop below is the agent's read.
+  await room(p.id);
+  assert.deepEqual(heldPlain(p.id), [old, live]);
+  const r = await room(p.id, tokenFor(WHO));
+  assert.match(r.text, /A live line/);
+  assert.doesNotMatch(r.text, /An ask from long ago/, 'fixture: the archived post was shown to the agent');
+  assert.deepEqual(heldPlain(p.id), [], 'the archived post is still held, so its idle reminder names a post the room no longer shows');
+});

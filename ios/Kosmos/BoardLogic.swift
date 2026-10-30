@@ -22,25 +22,67 @@ enum Board {
         return r
     }
 
-    static func handoffRequest(coordinator: URL, session: String, address: String) -> URLRequest {
+    // kosmos#4903: fresh for a Kosmos cloud machine (hosted). Its gate lets a sign-in in with no Allow only when the
+    // sign-in is recent, and nobody can press Allow on it; Kosmos+ answers step_up_required when this session is not.
+    static func handoffRequest(coordinator: URL, session: String, address: String, fresh: Bool = false) -> URLRequest {
         var r = URLRequest(url: URL(string: "/v1/account/handoff", relativeTo: coordinator)!.absoluteURL)
         r.httpMethod = "POST"
         r.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.httpBody = try? JSONSerialization.data(withJSONObject: ["address": address])
+        var body: [String: Any] = ["address": address]
+        if fresh { body["fresh"] = true }
+        r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         r.httpShouldHandleCookies = false
         return r
     }
 
-    // The gate's own page posts {token} as JSON. No Origin header is set: the
+    // kosmos#7337: the device key's proof at the gate (relay crates/tunnel/src/gateproof.rs), as gate.html sends it: a
+    // nonce this computer issued, signed with the key over its host, the nonce, the token's hash and the key's id.
+    struct GateProof: Equatable { let nonce: String; let key: String; let sig: String }
+
+    // Review 3: the gate names the device on the Mac's Allow card from the User-Agent (relay gatev2.rs ua_class), and
+    // one holding "iPhone" (or "iPad") reads as "iPhone or iPad"; the system's own (CFNetwork, Darwin) reads as
+    // "another browser".
+    static let gateUserAgent = "Kosmos (iPhone)"
+
+    static func nonceRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/_kosmos/nonce", relativeTo: mac)!.absoluteURL)
+        r.timeoutInterval = 8
+        r.setValue(gateUserAgent, forHTTPHeaderField: "User-Agent")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+
+    static func parseNonce(_ data: Data?) -> String? {
+        guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let nonce = obj["nonce"] as? String, !nonce.isEmpty else { return nil }
+        return nonce
+    }
+
+    // gateproof::message: one field per line, the key's id last.
+    static func gateMessage(host: String, nonce: String, token: String, keyID: String) -> Data {
+        let tokenHash = SignIn.base64url(Data(SHA256.hash(data: Data(token.utf8))))
+        return Data(["kosmos-gate-v2", host, nonce, tokenHash, keyID].joined(separator: "\n").utf8)
+    }
+
+    // nil when the key cannot sign (the kept key no longer usable); the session is then sent as before, unproven.
+    static func gateProof(host: String, nonce: String, token: String, key: SignIn.DeviceKey) -> GateProof? {
+        guard let sig = try? key.sign(gateMessage(host: host, nonce: nonce, token: token, keyID: key.id)) else { return nil }
+        return GateProof(nonce: nonce, key: SignIn.base64url(key.spki), sig: SignIn.base64url(sig))
+    }
+
+    // The gate's own page posts {token} as JSON (and, with a key, the proof beside it). No Origin header is set: the
     // gate's cross-site guard refuses only a foreign one.
-    static func sessionRequest(mac: URL, handoffToken: String) -> URLRequest {
+    static func sessionRequest(mac: URL, handoffToken: String, proof: GateProof? = nil) -> URLRequest {
         var r = URLRequest(url: URL(string: "/_kosmos/session", relativeTo: mac)!.absoluteURL)
         // kosmos#7197: three tries before "not answering", so each waits 8 s, not the session's 15 s (about 30 s in all).
         r.timeoutInterval = 8
         r.httpMethod = "POST"
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        r.httpBody = try? JSONSerialization.data(withJSONObject: ["token": handoffToken])
+        r.setValue(gateUserAgent, forHTTPHeaderField: "User-Agent")
+        var body: [String: Any] = ["token": handoffToken]
+        if let proof { body["nonce"] = proof.nonce; body["key"] = proof.key; body["sig"] = proof.sig }
+        r.httpBody = try? JSONSerialization.data(withJSONObject: body)
         return r
     }
 
@@ -77,6 +119,8 @@ enum Board {
         var lastSeen: Double = 0
         // Kosmos+ says this Mac refused this iPhone (`this_device` "denied").
         var refusedThisDevice = false
+        // kosmos#4903: a Kosmos cloud machine (`hosted`), opened with a fresh handoff.
+        var hosted = false
     }
 
     // `{macs:[{name,address,last_seen,retired_at,remote_off,not_connected,held,refused}]}`.
@@ -96,7 +140,8 @@ enum Board {
                        // A Mac in the middle of an update (updating_until) is ranked like one not connected.
                        connected: !(row["not_connected"] as? Bool ?? false) && !(row["updating_until"] is NSNumber),
                        lastSeen: (row["last_seen"] as? NSNumber)?.doubleValue ?? 0,
-                       refusedThisDevice: (row["this_device"] as? String) == "denied")
+                       refusedThisDevice: (row["this_device"] as? String) == "denied",
+                       hosted: (row["hosted"] as? Bool) == true)
         }
     }
 
@@ -108,14 +153,55 @@ enum Board {
     // The Mac remembered from last time while it is usable and connected; else a connected usable one, most
     // recently seen first; else the remembered or most recently seen usable one. A Mac that refused this iPhone is
     // picked only when there is no other.
-    static func pickMac(_ macs: [Mac], remembered: String?) -> Mac? {
+    // kosmos#7266: a Mac the person chose in the switcher wins while it is usable, connected or not (choosing one that
+    // is offline shows its own "not answering" screen, which names it).
+    static func pickMac(_ macs: [Mac], remembered: String?, chosen: String? = nil) -> Mac? {
         let all = macs.filter(\.usable).sorted { ($0.lastSeen, $1.address) > ($1.lastSeen, $0.address) }
+        if let c = chosen, let m = all.first(where: { $0.address == c }) { return m }
         let open = all.filter { !$0.refusedThisDevice }
         let usable = open.isEmpty ? all : open
         if let r = remembered, let m = usable.first(where: { $0.address == r && $0.connected }) { return m }
         if let m = usable.first(where: { $0.connected }) { return m }
         if let r = remembered, let m = usable.first(where: { $0.address == r }) { return m }
         return usable.first
+    }
+
+    // MARK: - The switcher (kosmos#7266)
+
+    struct SwitcherRow: Equatable {
+        let name: String
+        let address: String
+        let online: Bool
+        let shown: Bool
+        // kosmos#7416 slice 2: when an offline computer was last heard from ("8:12 PM", Board.heardWhen), else nil.
+        var seen: String? = nil
+        // Mona Lisa (#7416 card): "Not answering since 8:12 PM" where it said Offline; with no time, "Not answering" (as
+        // her board note drops only the time it does not have), so one list never mixes Offline and Not answering.
+        var status: String { online ? "Online" : seen.map { "Not answering since \($0)" } ?? "Not answering" }
+    }
+
+    // The computers the switcher lists: the usable ones, by name (then address, so two of one name keep their order),
+    // the shown one marked. A retired, held, refused or switched-off Mac is not listed: it cannot be opened.
+    // kosmos#7416 review 2: `heard` is the app's own last good read of each Mac (BoardClient.heardFrom), so a row says
+    // the same time as the not-answering screen (Board.lastHeard), and a Mac the app read in the last 15 s is online
+    // whatever the list said when it was read.
+    static func switcherRows(_ macs: [Mac], shown: String?, heard: [String: Date] = [:], now: Date = Date(),
+                             calendar: Calendar = .current, locale: Locale = .current) -> [SwitcherRow] {
+        macs.filter(\.usable)
+            .sorted { ($0.name.lowercased(), $0.address) < ($1.name.lowercased(), $1.address) }
+            .map { mac in
+                let read = heard[mac.address.lowercased()]
+                let online = mac.connected || (read.map { now.timeIntervalSince($0) < 15 } ?? false)
+                return SwitcherRow(name: mac.name, address: mac.address, online: online, shown: mac.address == shown,
+                                   seen: online ? nil : heardWhen(lastHeard(listed: mac.lastSeen, heard: read, now: now),
+                                                                        now: now, calendar: calendar, locale: locale)?.words)
+            }
+    }
+
+    // kosmos#4903: Kosmos+ refused a fresh handoff because this session did not sign in recently enough.
+    static func isStepUpRequired(_ data: Data?) -> Bool {
+        guard let data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return (obj["code"] as? String) == "step_up_required"
     }
 
     static func parseHandoffToken(_ data: Data) -> String? {
@@ -134,7 +220,22 @@ enum Board {
         case denied
         // A slow network cut the request short while waiting; ask again.
         case retry
+        // kosmos#7337: 409 retry. The nonce was spent, or a hosted box has just allowed this key: sign again, at once.
+        case resign
+        // kosmos#7337: 503 retry: counted as a session that got no answer.
+        case busy
+        // Review 3: a 403 with paused or keep, or a 429: the computer is not taking new sign-ins now (a certificate warning
+        // unread, sign-ins it cannot check, too many waiting). Nothing is wrong with this sign-in; the gate page stops,
+        // shows `because` and keeps the token, and so does the app (no fresh handoffs).
+        case held(because: String?)
         case refused(because: String?)
+    }
+
+    // Review 3: the gate's `because` as a sentence on the phone (a capital and a stop).
+    static func gateSentence(_ s: String) -> String {
+        guard let first = s.first else { return s }
+        let capital = first.uppercased() + s.dropFirst()
+        return ".!?".contains(capital.last!) ? capital : capital + "."
     }
 
     // The gate page's own rules (kosmos-relay crates/tunnel/src/gate.html).
@@ -147,6 +248,12 @@ enum Board {
             return .pending(code: code)
         }
         if waiting && status == 400 { return .retry }
+        if status == 409, obj?["retry"] as? Bool == true { return .resign }
+        // kosmos#7337: a gate too busy to take the sign-in now (503 retry): the gate page's miss, never a new handoff.
+        if status == 503, obj?["retry"] as? Bool == true { return .busy }
+        if (status == 403 && (obj?["paused"] as? Bool == true || obj?["keep"] as? Bool == true)) || status == 429 {
+            return .held(because: (obj?["because"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+        }
         return .refused(because: obj?["because"] as? String)
     }
 
@@ -210,6 +317,8 @@ enum Board {
         var needsTrust = false
         var jobRunningUnseen = false
         var restartTimedOut = false
+        // kosmos#7341: a restart that failed (disruption.failed), which the board draws as stopped.
+        var restartFailed = false
         var hasAvatar = false
         var avatarVer = ""
         // #7004: the card's word and tone as the Mac sends them ready-made (cardWord, cardTone). nil from a Mac that
@@ -229,7 +338,169 @@ enum Board {
         // agent carries none), and whether it is over its ceiling (context.overCeiling, the board's "Full").
         var contextPercent: Double? = nil
         var contextFull = false
+        // kosmos#7354: the agent's replies the person has not read (dmUnread, server.js withDmUnread), and whether it is
+        // the guide, which the Mac's waiting total leaves out of the DM count.
+        var dmUnread = 0
+        var isGuide = false
+        // kosmos#7421: what the desktop's orders read (web/index.html sortAgents): when the person last talked to it, when
+        // it was last active, when it was made, and the model it shows; nil when the row does not say.
+        var lastTalkedAt: Date? = nil
+        var lastActiveAt: Date? = nil
+        var createdAt: Date? = nil
+        var model: String? = nil
+        // The role the person picked on the agent's profile (profile.role), which the desktop's roleLine names before the
+        // line parsed from its instructions; and whether its messages are stuck (deliveryStall, #7212), which the
+        // desktop's Needs you first ranks with the agents that need the person.
+        var profileRole: String? = nil
+        var deliveryStall = false
+        // kosmos#7488: the desktop's boardCanSeeIt (a live session that is ours, not stopped). /api/status also lists an
+        // agent whose folder or job exists with no session yet; a just-made agent is that first.
+        var boardSeesIt = false
         var id: String { session }
+    }
+
+    // kosmos#7354 (Josh 10-27, Mona Lisa's design): the red count on an agent's avatar: one when it needs the person, plus
+    // its unread replies; nothing for the guide, which the Mac leaves out of both. This is the Mac's waitingTotal (engine/status.js) agent by
+    // agent, so the rows add up to the tab's number less the rooms' unread, which the Projects tab shows.
+    static func noticeCount(_ a: Agent) -> Int {
+        a.isGuide ? 0 : (a.needsYou ? 1 : 0) + max(0, a.dmUnread)   // the Mac counts nothing of the guide's (server.js countAgents)
+    }
+    // The count to VoiceOver, which does not see the badge (Mona Lisa, #7342: "Dana, Working, 3 notifications").
+    static func noticeWords(_ n: Int) -> String? { n > 0 ? (n == 1 ? "1 notification" : "\(n) notifications") : nil }
+    // kosmos#7342 (Mona Lisa): the row's bubble shows the number in full to 99, then "99+" ("9+" hid exactly what Josh
+    // was looking for); nothing at 0.
+    static func noticeBubbleText(_ n: Int) -> String? { n <= 0 ? nil : (n <= 99 ? String(n) : "99+") }
+    // kosmos#7342: the Agents tab's badge is the rows' own counts added up, so the bubbles always explain it. The Mac's
+    // waiting total also counts unread project-room posts, which the Projects tab shows; counted here too they could
+    // never be found on this list (Josh: "292" with no row saying whose). nil (the person turned the count off) is none.
+    // Review 1: none while the list is shown as not updating, since its rows then show no bubbles either.
+    static func agentsTabBadge(waiting: Int?, agents: [Agent], stale: Bool = false) -> Int {
+        guard waiting != nil, !stale else { return 0 }
+        return agents.reduce(0) { $0 + noticeCount($1) }
+    }
+
+    // kosmos#7354: POST /api/agent/<name>/seen, the person has this agent's DM open (server.js dmSeen, the board's
+    // own read cursor); its unread replies stop counting. nil for a name the board would refuse.
+    static func dmSeenRequest(mac: URL, session: String) -> URLRequest? {
+        guard isAgentSession(session) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent/\(session)/seen", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        return r
+    }
+
+    // kosmos#7575 (follow-up to #7420): the chat's own report of being shifted sideways, sent to the person's board once
+    // per chat open so an agent on that Mac can find the cause (server.js /api/phone/chat-shift, engine/chatshifts.js).
+    // Numbers, versions and row-kind words only: never message text, an agent's name or an address.
+    struct ChatShiftReport: Equatable {
+        static let kinds = ["message", "reactions", "file", "choice", "working", "day", "other"]
+        var shifts = 0
+        var largest: Double = 0
+        var whileDragging = false
+        // At the largest shift: the list's width, the widest the content was, the keyboard, and the rows on screen.
+        var listWidth: Double = 0
+        var contentWidth: Double = 0
+        var keyboardUp = false
+        var rows: [String: Int] = [:]
+
+        // A new shift is counted; a shift growing (isNew false) is not counted again. Only a new largest offset takes the
+        // snapshot (list width, content width, keyboard up, rows on screen), so the rows are walked rarely.
+        mutating func add(offset: Double, isNew: Bool, dragging: Bool,
+                          snapshot: () -> (Double, Double, Bool, [String: Int])) {
+            if !isNew && shifts == 0 { return }   // review 2: a shift that began before this count is not this count's
+            if isNew { shifts += 1 }
+            if dragging { whileDragging = true }
+            guard abs(offset) > largest else { return }
+            largest = abs(offset)
+            (listWidth, contentWidth, keyboardUp, rows) = snapshot()
+        }
+
+        // countSeconds: how long this count ran (from the last report or the chat's first count), not time on screen.
+        func body(app: String, ios: String, model: String, countSeconds: Double) -> [String: Any] {
+            ["app": app, "ios": ios, "model": model, "shifts": shifts, "largest": largest, "whileDragging": whileDragging,
+             "listWidth": listWidth, "contentWidth": contentWidth, "keyboardUp": keyboardUp, "countSeconds": countSeconds,
+             "rows": rows]
+        }
+    }
+
+    // kosmos#7575 review 3: one sideways reading, decided. shifted: a shift is in place now; wasShifted: one was in place
+    // when the lock last left its window; resumed: this is the first reading since it came back. A shift still in place
+    // across a window move is the same shift (not counted again); one that grows past its peak reports its new size.
+    enum ShiftEvent: Equatable { case none, new, grew }
+    static func sideShiftStep(x: Double, shifted: Bool, wasShifted: Bool, resumed: Bool, peak: Double)
+        -> (shifted: Bool, peak: Double, event: ShiftEvent) {
+        guard abs(x) > 0.5 else { return (false, 0, .none) }
+        // Review 4: still in place after the move whatever its size now (rotation, a safe area): the same shift, grown or not.
+        if !shifted, resumed, wasShifted, peak > 0 { return abs(x) > peak + 0.5 ? (true, abs(x), .grew) : (true, peak, .none) }
+        if shifted { return abs(x) > peak + 0.5 ? (true, abs(x), .grew) : (true, peak, .none) }
+        return (true, abs(x), .new)
+    }
+
+    // kosmos#7575: the chat's running count and when it goes. The count always runs (a shift before the chat's onAppear
+    // is kept, review 3); flush() sends what was counted, if anything, and starts the next count at once. attach() gives
+    // the sender (the chat showing on this computer); reset() drops the count (another computer: never sent elsewhere).
+    // A class, so counting mid-layout redraws nothing; flushed as it goes too (a chat closed under its info page).
+    final class ShiftBox {
+        private(set) var report = ChatShiftReport()
+        private(set) var openedAt = Date()
+        private var send: ((ChatShiftReport, Date) -> Void)?
+        init() {}
+        func add(offset: Double, isNew: Bool, dragging: Bool, snapshot: () -> (Double, Double, Bool, [String: Int])) {
+            report.add(offset: offset, isNew: isNew, dragging: dragging, snapshot: snapshot)
+        }
+        func attach(send: @escaping (ChatShiftReport, Date) -> Void) { self.send = send }
+        func reset(now: Date = Date()) { report = ChatShiftReport(); openedAt = now }
+        func flush(now: Date = Date()) {
+            let was = report, since = openedAt
+            reset(now: now)
+            if was.shifts > 0 { send?(was, since) }
+        }
+        deinit { flush() }
+    }
+
+    // The kind of each row on screen, counted. A message with reactions counts as reactions, one with files as file, a
+    // question or permission as choice; the working line and day lines by their own words.
+    static func chatRowKinds(_ items: [ChatItem], onScreen: Set<String>, working: Bool) -> [String: Int] {
+        var out: [String: Int] = [:]
+        for item in items where onScreen.contains(item.id) {
+            let kind: String
+            switch item.kind {
+            case .day: kind = "day"
+            case .row(let row, _, _):
+                if !row.reactions.isEmpty { kind = "reactions" }
+                else if !row.attachments.isEmpty { kind = "file" }
+                else if row.wayThrough == .question || row.wayThrough == .permission { kind = "choice" }
+                else { kind = "message" }
+            }
+            out[kind, default: 0] += 1
+        }
+        if working { out["working", default: 0] += 1 }
+        return out
+    }
+
+    // POST /api/phone/chat-shift with the report. nil when the body cannot be made.
+    static func chatShiftRequest(mac: URL, body: [String: Any]) -> URLRequest? {
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/phone/chat-shift", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.httpBody = data
+        return r
+    }
+
+    // The device model (for example "iPhone17,1"), from the system, not the person's name for the phone.
+    static func deviceModel() -> String {
+        var info = utsname(); uname(&info)
+        return withUnsafeBytes(of: &info.machine) { raw in String(decoding: raw.prefix(while: { $0 != 0 }), as: UTF8.self) }
+    }
+
+    // kosmos#7488: the desktop's SWARMS_ON, which offers New Agent's Swarm: the board says so, or a row already carries
+    // a swarm.
+    static func swarmsOn(fromStatus data: Data) -> Bool {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        if obj["swarms"] as? Bool == true { return true }
+        return ((obj["agents"] as? [[String: Any]]) ?? []).contains { $0.keys.contains("swarm") }
     }
 
     // `/api/status`'s `agents`: one row per agent, keyed by `sessionName`.
@@ -257,6 +528,7 @@ enum Board {
                          needsTrust: (row["needsTrust"] as? Bool) == true,
                          jobRunningUnseen: (row["jobRunningUnseen"] as? Bool) == true,
                          restartTimedOut: ((row["disruption"] as? [String: Any])?["timedOut"] as? Bool) == true,
+                         restartFailed: ((row["disruption"] as? [String: Any])?["failed"] as? Bool) == true,
                          hasAvatar: (row["hasAvatar"] as? Bool) == true,
                          avatarVer: (row["avatarVer"] as? NSNumber)?.stringValue ?? (row["avatarVer"] as? String) ?? "",
                          macWord: (row["cardWord"] as? String).flatMap { $0.isEmpty ? nil : $0 },
@@ -266,7 +538,16 @@ enum Board {
                          waitingSince: isoDate(row["waitingSince"] as? String),
                          stateProject: (row["stateProject"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                          contextPercent: Board.contextPercent(row["context"]),
-                         contextFull: Board.isRealTrue((row["context"] as? [String: Any])?["overCeiling"]))
+                         contextFull: Board.isRealTrue((row["context"] as? [String: Any])?["overCeiling"]),
+                         dmUnread: max(0, (row["dmUnread"] as? NSNumber)?.intValue ?? 0),
+                         isGuide: (row["isGuide"] as? Bool) == true,
+                         lastTalkedAt: isoDate(row["lastTalkedAt"] as? String),
+                         lastActiveAt: isoDate(row["lastActiveAt"] as? String),
+                         createdAt: isoDate(row["createdAt"] as? String),
+                         model: Board.sortModel(row),
+                         profileRole: ((row["profile"] as? [String: Any])?["role"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 },
+                         deliveryStall: row["deliveryStall"] is [String: Any] || (row["deliveryStall"] as? Bool) == true,
+                         boardSeesIt: (row["isAgentSession"] as? Bool) == true && (row["isNamedOurs"] as? Bool) == true && state != "stopped")
         }
     }
 
@@ -282,6 +563,176 @@ enum Board {
         "idle": "Idle", "restarting": "Restarting agent", "stopped": "Not running", "unknown": "Can't tell",
         "needs_trust": "Waiting on a trust prompt", "question": "Question", "approval": "Needs permission",
     ]
+
+    // kosmos#7342 (Josh 10-27, Mona Lisa's design): the Agents list's status is a small pill, only when there is
+    // something to see. Idle shows none. Green working, blue a question or a choice waiting for the person, amber held by
+    // something outside the agent, red only a real problem, grey when Kosmos cannot tell. The word is still the Mac's
+    // own (statusWord); the pill's colour comes from the same state the word does.
+    enum Pill: Equatable { case working, asks, held, problem, cantTell }
+    // Review: an agent the board counts as needing the person (needsPerson: a reconnect that gave up, a stuck error, a
+    // helper that gave up) is red whatever its state, unless it is asking; and when the Mac's own tone says needs you
+    // (a word the phone does not map, such as Messages stuck), a pill that would be Working or missing is red too.
+    // Grey stays grey (the Mac counts Can't tell as needs you; the design keeps it grey).
+    // So a Working pill or no pill never hides what the board counts as needing the person.
+    // kosmos#7342 (Mona Lisa's ruling, 10-27 15:4x): a red pill never says Idle or Working, which contradicts its colour; it
+    // says Issue, the Mac's own red word for needs you (stateCopy). Any other word the Mac sent (Messages stuck, Keeps
+    // stopping) stays as sent. Rejected: "Needs you", which is blue's meaning on this screen.
+    static func pillWord(_ a: Agent) -> String {
+        let word = statusWord(a)
+        return pill(a) == .problem && (word == "Idle" || word == "Working") ? "Issue" : word
+    }
+    // Review 1: where the word is coloured by the tone instead (Today, the DM header), the same rule keyed on that tone, so
+    // the word and its colour can never disagree (never a grey or green Issue, never a red Idle).
+    static func toneWord(_ a: Agent) -> String {
+        let word = statusWord(a)
+        return tone(a) == .needsYou && (word == "Idle" || word == "Working") ? "Issue" : word
+    }
+
+    static func pill(_ a: Agent) -> Pill? {
+        let p = statePill(a)
+        if p == .asks { return p }
+        if a.needsYou { return .problem }
+        // kosmos#7342 review 1: a current Mac sends a blocked agent's tone as needs-you ("Waiting" is in its
+        // NEEDS_YOU_WORDS), but its needsPerson does not count it; Josh ruled Waiting off the row, so that tone alone
+        // never draws a pill for it (a blocked agent that really needs him has needsYou, checked above).
+        if a.macTone == .needsYou && (p == nil || p == .working) && a.state != "blocked" { return .problem }
+        return p
+    }
+    private static func statePill(_ a: Agent) -> Pill? {
+        if !a.running && a.state != "restarting" {
+            if a.needsTrust { return .asks }
+            return a.jobRunningUnseen ? .cantTell : .problem
+        }
+        if a.crashLooping || a.restartFailed { return .problem }
+        switch a.state {
+        // kosmos#7342 (Josh 10-28 09:34, build 11): "Waiting" tells him nothing, so a blocked agent shows no pill, as an
+        // idle one does. One that needs him still shows the red pill (pill(_:) checks needsYou first).
+        case "idle", "blocked": return nil
+        case "working": return .working
+        case "needs_you": return a.reportedByAgent || a.awaitingApproval ? .asks : .problem
+        case "question", "approval", "needs_trust": return .asks
+        case "rate_limited", "connection_lost", "restarting": return .held
+        case "auth_failed", "stopped": return .problem
+        default: return .cantTell
+        }
+    }
+
+    // kosmos#7343: the Agents list's order: the list's own (starred agents, then needs you first, Board.sorted), or by name.
+    // kosmos#7421 (Josh 10-27 20:34: "the sort options for agent mobile should mirror the desktop app"): the desktop's
+    // eight orders, its keys, its words and its order (web/index.html AGENT_SORTS and agentSortControlHtml), Last
+    // talked to first as there. A test reads both lists out of web/index.html so they cannot drift apart.
+    enum AgentSort: String, CaseIterable { case talked, model, name, needs, active, newest, project, role }
+    static let agentSortDefault = AgentSort.talked
+    static func agentSortLabel(_ s: AgentSort) -> String {
+        switch s {
+        case .talked: return "Last talked to"
+        case .model: return "By model"
+        case .name: return "Name A to Z"
+        case .needs: return "Needs you first"
+        case .active: return "Recently active"
+        case .newest: return "Newest first"
+        case .project: return "By project"
+        case .role: return "By role"
+        }
+    }
+    // kosmos#7421 (Mona Lisa's build 11 note): one spoken label for the sort button on Agents and Projects.
+    static func sortButtonLabel(_ order: String) -> String { "Sort: \(order)" }
+    // A saved choice: one of the eight, or the phone's older "board" (its Needs you first), else the default.
+    static func agentSort(saved: String) -> AgentSort { saved == "board" ? .needs : AgentSort(rawValue: saved) ?? agentSortDefault }
+
+    // The model line the desktop's order reads (web/index.html sortAgents: tileModelLine over modelLine), ported branch
+    // for branch so an agent groups with the same model on both: a stopped agent names the model its job will start on;
+    // Codex, Qwen, DeepSeek, Gemini, Grok, Antigravity and Muse carry their provider's words; a Claude name gets "Claude ";
+    // an agent known only by an earlier session's model is named by that. nil (sorted last) when the desktop's key is.
+    static func sortModel(_ row: [String: Any]) -> String? {
+        func text(_ k: String) -> String? { (row[k] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        func has(_ s: String, _ pattern: String) -> Bool { s.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil }
+        let runner = text("runner"), provider = (row["account"] as? [String: Any])?["provider"] as? String
+        let earlier = text("earlierModelName")
+        guard ["codex", "gemini", "grok", "antigravity", "muse"].contains(runner ?? "") || text("modelName") != nil
+                || text("plannedModelName") != nil || earlier != nil else { return nil }
+        // The desktop's cardStOf(a).pres off: stopped, or a restart that failed (needs_you with disruption.failed, review 2).
+        let notRunning = text("state") == "stopped" || (text("state") == "needs_you" && ((row["disruption"] as? [String: Any])?["failed"] as? Bool) == true)
+        let name = (notRunning ? text("plannedModelName") : nil) ?? text("modelName") ?? text("plannedModelName")
+        let line: String
+        if runner == "codex" && provider == "alibaba" { line = name.map { has($0, "qwen") ? $0 : "Qwen " + $0 } ?? "Qwen" }
+        else if runner == "codex" { line = name.map { has($0, "^(gpt|openai|codex)\\b") ? $0 : "OpenAI " + $0 } ?? "OpenAI Codex" }
+        else if provider == "deepseek" { line = name.map { has($0, "deepseek") ? $0 : "DeepSeek " + $0 } ?? "DeepSeek" }
+        else if runner == "gemini", let n = name, !notRunning, let set = text("settingModelName") { line = n + " (set to " + set + ")" }
+        else if runner == "gemini" || runner == "grok" { line = name ?? (runner == "gemini" ? "Gemini" : "Grok") }
+        else if runner == "antigravity" { line = name ?? "Gemini (Google subscription)" }
+        else if runner == "muse" { line = name ?? "Meta Muse" }
+        else if let n = name { line = has(n, "^claude") ? n : "Claude " + n }
+        else { line = (row["neverRecorded"] as? Bool) == true ? "Made before Kosmos recorded this" : "Unknown Model" }
+        // tileModelLine: an agent with only an earlier session's model is named by it.
+        if let e = earlier, text("modelName") == nil, text("plannedModelName") == nil,
+           line == "Made before Kosmos recorded this" || line == "Unknown Model" { return has(e, "^claude") ? e : "Claude " + e }
+        return line
+    }
+
+    // The role as the desktop's roleLine shows it for the order: the first character a capital, the rest as written.
+    static func sortRole(_ role: String?) -> String? {
+        guard let r = role?.trimmingCharacters(in: .whitespaces), let first = r.first else { return nil }
+        return first.uppercased() + r.dropFirst()
+    }
+
+    // The desktop's sortAgents: starred agents first in every order (`stars`, by session; nil when not known), then the
+    // chosen key, then the name, then the computer's own order. A missing value sorts after every present one.
+    // `projects` is each agent's first project name A to Z (by session), for By project.
+    static func agentOrder(_ list: [Agent], sort: AgentSort, projects: [String: String] = [:], stars: Set<String>? = nil) -> [Agent] {
+        func cmpText(_ a: String?, _ b: String?) -> Int {
+            switch (a, b) {
+            case (nil, nil): return 0
+            case (nil, _): return 1
+            case (_, nil): return -1
+            case let (x?, y?):
+                switch x.compare(y, options: [.caseInsensitive, .diacriticInsensitive], locale: .current) {
+                case .orderedAscending: return -1
+                case .orderedDescending: return 1
+                case .orderedSame: return 0
+                }
+            }
+        }
+        func cmpTime(_ a: Date?, _ b: Date?) -> Int {
+            switch (a, b) {
+            case (nil, nil): return 0
+            case (nil, _): return 1
+            case (_, nil): return -1
+            case let (x?, y?): return x == y ? 0 : (x > y ? -1 : 1)   // newest first
+            }
+        }
+        func needsRank(_ a: Agent) -> Int {
+            if a.needsYou || a.deliveryStall { return 0 }
+            switch a.state {
+            case "blocked": return 1
+            case "working", "restarting": return 2
+            case "idle": return 3
+            default: return 4
+            }
+        }
+        func key(_ a: Agent, _ b: Agent) -> Int {
+            switch sort {
+            case .name: return 0
+            case .model: return cmpText(a.model, b.model)
+            case .needs: return needsRank(a) - needsRank(b)
+            case .project: return cmpText(projects[a.session], projects[b.session])
+            case .role: return cmpText(sortRole(a.profileRole ?? a.role), sortRole(b.profileRole ?? b.role))
+            case .active: return cmpTime(a.lastActiveAt, b.lastActiveAt)
+            case .newest: return cmpTime(a.createdAt, b.createdAt)
+            case .talked: return cmpTime(a.lastTalkedAt, b.lastTalkedAt)
+            }
+        }
+        func starred(_ a: Agent) -> Int { stars?.contains(a.session) == true ? 0 : 1 }
+        return list.enumerated().sorted { l, r in
+            let s = starred(l.element) - starred(r.element)
+            if s != 0 { return s < 0 }
+            let k = key(l.element, r.element)
+            if k != 0 { return k < 0 }
+            let n = cmpText(l.element.name, r.element.name)
+            return n != 0 ? n < 0 : l.offset < r.offset
+        }.map(\.element)
+    }
+
 
     static func statusWord(_ agent: Agent) -> String {
         if let word = agent.macWord { return word }
@@ -307,10 +758,47 @@ enum Board {
         return state == "needs_you" || state == "needs_trust"
             || (state == "connection_lost" && ((row["reconnect"] as? [String: Any])?["phase"] as? String) == "gave_up")
             || flag("crashLoop", "looping") || flag("stuckError", "stuck") || flag("ownBound", "raised")
+            || jsTruthy(row["deliveryStall"])   // kosmos#7354 review: #7212's stalled delivery, as engine/status.js needsPerson
+    }
+
+    // A value as JavaScript's Boolean() reads it: absent, null, false, 0 and "" are false; anything else is true.
+    static func jsTruthy(_ v: Any?) -> Bool {
+        switch v {
+        case nil, is NSNull: return false
+        case let n as NSNumber: return n.doubleValue != 0
+        case let s as String: return !s.isEmpty
+        default: return true
+        }
     }
 
     // Mona Lisa's slice 1 spec (kosmos#6838): each status word has a tone, which sets the dot and the word's colour.
     enum Tone: Equatable { case needsYou, asked, working, quiet }
+
+    // kosmos#7341 (Josh 10-27): the avatar's dot says one thing, whether the agent is there: green while it runs, grey
+    // when stopped, hollow when Kosmos cannot tell. Its work state is the word beside it. The board's memberDotClass
+    // (web/index.html) with CARD_ST's pres, in its order: a trust prompt is unsure; not running (unless restarting) is
+    // off; then the state's own presence, where a failed restart is off (the grid card's cardStOf presence; the
+    // member dot alone would keep it green) and a state the phone does not know is unsure.
+    enum Presence: Equatable { case on, off, unsure }
+    static let presenceOf: [String: Presence] = [
+        "working": .on, "needs_you": .on, "question": .on, "rate_limited": .on, "auth_failed": .on,
+        "connection_lost": .on, "blocked": .on, "idle": .on, "restarting": .on,
+        "stopped": .off, "unknown": .unsure, "needs_trust": .unsure,
+    ]
+    static func presence(_ a: Agent) -> Presence {
+        if a.needsTrust || a.state == "needs_trust" { return .unsure }
+        if !a.running && a.state != "restarting" { return .off }
+        if a.state == "needs_you" && a.restartFailed { return .off }   // the board's CARD_ST_FAILED_RESTART
+        return presenceOf[a.state] ?? .unsure
+    }
+    // Review: the dot is colour (and fill) only, so VoiceOver hears what it says when the status word does not already.
+    static func presenceWords(_ p: Presence, word: String) -> String? {
+        switch p {
+        case .on: return nil
+        case .off: return word == "Not running" ? nil : "not running"
+        case .unsure: return word == "Can't tell" ? nil : "Kosmos can't tell if it is running"
+        }
+    }
 
     // The Mac's cardTone (engine/cardlabel.js toneOf). A name the phone does not know is nil, and the phone's own rule
     // decides, so a tone the Mac adds later never shows as something it is not.
@@ -333,6 +821,9 @@ enum Board {
     // (needsPerson: a crash loop and the like, whose words the table does not list), are needs you; Working is
     // working; anything else, including a word the phone does not know, is quiet.
     static func tone(_ agent: Agent) -> Tone {
+        // kosmos#7342 review 1: a blocked agent that does not need the person is quiet on the phone (no pill, not first
+        // in "Needs you first", not on Today), whatever tone the Mac sends, so the order agrees with the row.
+        if agent.state == "blocked" && !agent.needsYou && !agent.crashLooping { return .quiet }
         if let tone = agent.macTone { return tone }
         // A state the phone does not know yet (one the Mac adds later) is quiet, never red at the top, unless the
         // board itself counts the agent as needing the person. A real "unknown" state is in the table.
@@ -354,11 +845,15 @@ enum Board {
 
     // A live update changes rows in place and never moves them under the person's thumb: the shown order is kept,
     // a row that is gone is dropped, and a new agent joins at the end (new ones sorted among themselves).
-    static func keepingOrder(_ shown: [Agent], with fresh: [Agent], stars: Set<String>? = nil) -> [Agent] {
+    // kosmos#7421 review 2: the newcomers at the end are put in the chosen order among themselves (sort nil: the older
+    // status order, for callers that pick none).
+    static func keepingOrder(_ shown: [Agent], with fresh: [Agent], stars: Set<String>? = nil, sort: AgentSort? = nil,
+                             projects: [String: String] = [:]) -> [Agent] {
         let byKey = Dictionary(fresh.map { ($0.session, $0) }, uniquingKeysWith: { a, _ in a })
         let kept = shown.compactMap { byKey[$0.session] }
         let known = Set(shown.map(\.session))
-        return kept + sorted(fresh.filter { !known.contains($0.session) }, stars: stars)
+        let newcomers = fresh.filter { !known.contains($0.session) }
+        return kept + (sort.map { agentOrder(newcomers, sort: $0, projects: projects, stars: stars) } ?? sorted(newcomers, stars: stars))
     }
 
     // #7034 (#6719 on the phone): the person's starred agents, by session name, as the board keeps them
@@ -371,6 +866,28 @@ enum Board {
         r.cachePolicy = .reloadIgnoringLocalCacheData
         r.timeoutInterval = starsTimeout
         return r
+    }
+
+    // kosmos#7034 (Josh 10-27 20:38: "Where do I star them on the phone"): star or unstar one agent, as the board's own
+    // star does (PUT /api/agent-stars { name, on }); the answer is the whole list as now saved ({ names, ok }).
+    static func starWriteRequest(mac: URL, name: String, on: Bool) -> URLRequest? {
+        guard let body = try? JSONSerialization.data(withJSONObject: ["name": name, "on": on]) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/agent-stars", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "PUT"
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.httpBody = body
+        r.timeoutInterval = starsTimeout
+        return r
+    }
+
+    // The board's words when a star does not save (web/index.html STAR_MSG and saveStar), by its answer: a refusal no
+    // retry fixes says so; anything else asks to try again.
+    static func starFailure(on: Bool, status: Int, data: Data?) -> String {
+        let error = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["error"] as? String
+        if status == 400 { return error == "too many starred agents" ? "That star could not be saved: 500 agents are starred already. Unstar one first." : "That agent cannot be starred." }
+        if status == 500, error == "we could not save that star" { return "Stars cannot be changed right now: Kosmos cannot read or save its list of starred agents." }
+        return on ? "That star could not be saved. Try again in a moment." : "That star could not be removed. Try again in a moment."
     }
 
     // nil for an answer the board could not read its list for (`ok` false) or one not in that shape: then no order
@@ -397,6 +914,63 @@ enum Board {
         r.setValue("image/*", forHTTPHeaderField: "Accept")
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
+    }
+
+    // kosmos#7266 slice B: the person on this Mac, for the Settings tab's picture and the profile page. GET /api/you
+    // answers { state, you: { name, ... } } (engine/you.js read); GET /api/you/avatar answers 200 with the picture, or
+    // 204 when there is none.
+    static let youEvery: TimeInterval = 300
+    // Review 1: the picture is the big read (up to 5 MB, served no-store, with no version), so it is read on the first list
+    // and then every 30 minutes, not with every name read.
+    static let youPictureEvery: TimeInterval = 1800
+    // Review 4: a read that learns nothing (the Mac's startup sign-in window, the gate's page, a 5xx, no answer) is tried
+    // again after 30 seconds, not after the full wait, so a fresh launch does not show the gear and You for 5 minutes.
+    static let youRetry: TimeInterval = 30
+    static func youRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/you", relativeTo: mac)!.absoluteURL)
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    static func youPictureRequest(mac: URL) -> URLRequest {
+        var r = URLRequest(url: URL(string: "/api/you/avatar", relativeTo: mac)!.absoluteURL)
+        r.setValue("image/*", forHTTPHeaderField: "Accept")
+        r.cachePolicy = .reloadIgnoringLocalCacheData
+        return r
+    }
+    // Mona Lisa's review: a person with no picture shows their letter on the avatar cream, as an agent with none does
+    // (its name's first letter, upper-cased). nil while the name is not known, so a wrong letter is never shown.
+    static func youLetter(_ name: String?) -> String? {
+        guard let first = name?.trimmingCharacters(in: .whitespacesAndNewlines).first else { return nil }
+        return String(first).uppercased()
+    }
+
+    // The saved name, trimmed; nil when the board has none (absent, unreadable, or blank).
+    static func parseYouName(_ data: Data) -> String? {
+        if case .name(let n) = youName(data) { return n }
+        return nil
+    }
+    // Review 1: what the name read means. Only the board saying there is no record (absent) or a saved blank name
+    // clears it; an answer that is not the record (the gate's sign-in page at 200, the board's own "unknown" while the
+    // file is mid-write) learns nothing and keeps what was shown, as the picture read does.
+    enum YouName: Equatable { case name(String), none, unknown }
+    static func youName(_ data: Data) -> YouName {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let state = obj["state"] as? String
+        else { return .unknown }
+        if state == "absent" { return .none }
+        guard state == "saved", let you = obj["you"] as? [String: Any] else { return .unknown }
+        let name = (you["name"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return name.isEmpty ? .none : .name(name)
+    }
+
+    // What the picture read means: a picture, none (204, or a 404 from an older board without the route), or nothing
+    // learned (no answer, the gate's sign-in page, a 5xx), which keeps what was shown.
+    enum YouPicture: Equatable { case picture(Data), none, unknown }
+    static func youPicture(status: Int?, contentType: String?, data: Data?) -> YouPicture {
+        guard let status else { return .unknown }
+        if status == 204 || status == 404 { return .none }
+        if (200...299).contains(status), (contentType ?? "").lowercased().hasPrefix("image/"), let data, !data.isEmpty { return .picture(data) }
+        return .unknown
     }
 
     // The same agent-name characters a notification tap accepts.
@@ -480,6 +1054,33 @@ enum Board {
     static func fitsBoard(_ text: String) -> Bool {
         let said = sameWords(text)
         return !said.isEmpty && said.utf16.count <= maxMessage
+    }
+
+    // kosmos#7346 review: with no send arrow to grey out, a Send key that cannot send says why. Nil when nothing stops
+    // it, or when there is nothing to send (an empty box says nothing). `said` is sendWords: the words, or the files' names.
+    static let tooLongLine = "This message is too long to send. Shorten it or send it in two."
+    static let sendWaitWords = "Waiting for the last words."
+    static let sendStopDictating = "Stop dictating first."
+    static func dmSendBlocked(said: String, files: Int, uploading: Int, dictating: Bool, finishing: Bool) -> String? {
+        guard !sameWords(said).isEmpty else { return nil }
+        if finishing { return sendWaitWords }
+        if dictating { return sendStopDictating }
+        if files > 0 && uploading > 0 { return stillAddingLine }
+        if !fitsBoard(said) { return tooLongLine }
+        return nil
+    }
+    static let roomNotReadLine = "The room is still loading. Try again in a moment."
+    static let roomOnlyMentionLine = "Add your words after the @name."
+    static func roomPostBlocked(words: String, mentionOnly: Bool, read: Bool, files: Int, uploading: Int,
+                                dictating: Bool, finishing: Bool) -> String? {
+        guard !words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        if finishing { return sendWaitWords }
+        if dictating { return sendStopDictating }
+        if files > 0 && uploading > 0 { return stillAddingLine }
+        if !read { return roomNotReadLine }
+        if mentionOnly { return roomOnlyMentionLine }
+        if files > maxFiles { return uploadRefusal(size: nil, waiting: maxFiles) }
+        return nil
     }
 
     // A message's words with every run of whitespace one space and the ends trimmed: how the board compares and counts
@@ -577,8 +1178,9 @@ enum Board {
         }
     }
 
-    // The three the long-press offers (the native room's menu); a pill already on a message toggles any other.
-    static let quickReactions = ["\u{1F44D}", "\u{2764}\u{FE0F}", "\u{1F525}"]
+    // kosmos#7419 (Mona Lisa's design, 10-27): the long-press sheet's seven, Josh's three first, then the four a work room
+    // uses most (seen, done, funny, celebrate); all seven are in the board's own list (PJ_EMOJI).
+    static let quickReactions = ["\u{1F44D}", "\u{2764}\u{FE0F}", "\u{1F525}", "\u{1F602}", "\u{1F440}", "\u{2705}", "\u{1F389}"]
 
     // MARK: Replying and reacting (kosmos#7083; the board's DM reply #4256 and reactions #3650)
 
@@ -1524,6 +2126,52 @@ enum Board {
     // What the chat draws: the earlier rows, then the latest read's.
     static func shownRows(_ e: Earlier, thread: Thread) -> [ChatRow] { e.open ? e.rows + thread.rows : thread.rows }
 
+    // kosmos#7265 (Josh 10-27): a read that slid the latest window (a new message pushes the oldest out) took those rows
+    // off the top of an open chat, and a scroll view keeps its offset, so the conversation the person was reading jumped.
+    // The rows that left are kept in the loaded earlier rows from the previous read itself: only when the two reads
+    // overlap by id (the fresh window's first row is the previous one's row at the same position), and not while a page
+    // or a gap fill is in flight (they write the same rows). Otherwise unchanged, and fillGap fetches them as before.
+    static func carryDropped(_ e: Earlier, previous: Thread?, fresh: Thread) -> Earlier {
+        guard let previous, !e.loading, !e.filling else { return e }
+        let shift = fresh.olderCount - previous.olderCount
+        guard shift > 0, shift < previous.rows.count, let first = fresh.rows.first, previous.rows[shift].id == first.id else { return e }
+        let dropped = Array(previous.rows[..<shift])   // positions previous.olderCount ..< fresh.olderCount
+        var next = e
+        if !e.open {
+            next.open = true
+            next.rows = dropped
+            next.before = previous.olderCount
+            next.end = fresh.olderCount
+            return next
+        }
+        // Open: only what lies at or after the loaded rows' end, and only when they reach the previous window.
+        guard e.end >= previous.olderCount, e.end < fresh.olderCount else { return e }
+        let known = Set(e.rows.map(\.id))
+        next.rows = e.rows + dropped[(e.end - previous.olderCount)...].filter { !known.contains($0.id) }
+        next.end = fresh.olderCount
+        return next
+    }
+
+    // kosmos#7348 (Josh 10-27): the box filled back with exactly the text just sent, within a few seconds of the send (the
+    // keyboard's dictation or Writing Tools finishing after the box was cleared): one more tap would post it twice.
+    static let sentRefillWindow: TimeInterval = 5
+    // Only a jump from an empty box straight to the whole text (review: typing "okay" after sending "ok" passes through
+    // "ok" one letter at a time and must not be wiped).
+    static func refilledWithSent(_ box: String, was: String, sent: String?, sentAt: Date?, now: Date) -> Bool {
+        guard was.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard let sent, let sentAt, now.timeIntervalSince(sentAt) <= sentRefillWindow else { return false }
+        let b = box.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !b.isEmpty && b == sent.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // kosmos#7265: where the eager newest rows begin, kept by the row's id from the chat's opening, so a new message
+    // never moves a row from the eager stack back to the lazy rows above the reader (its height would be estimated
+    // again and the conversation jump). `from` nil, or a row no longer shown: the last `eager` rows, as at opening.
+    static func eagerStart(_ items: [ChatItem], from: String?, eager: Int) -> Int {
+        if let from, let at = items.firstIndex(where: { $0.id == from }) { return at }
+        return max(0, items.count - eager)
+    }
+
     // A read of the conversation: the conversation, the Mac's own reason it could not give one (a name it refuses, a
     // history it could not read), or no answer at all.
     enum ThreadRead: Equatable { case thread(Thread), refused(String), noAnswer }
@@ -1839,5 +2487,143 @@ extension Board {
     static func failingMacName(shown: String?, phase: String?) -> String? {
         if let s = shown, !s.isEmpty { return s }
         return phase
+    }
+
+    // kosmos#7416 slice 2: Kosmos+'s last_seen for the computer a "not answering" screen names, from the account's
+    // list. By address when the screen knows it (a failed page's host, the Mac being opened), else by name, and by name
+    // only when one listed computer has it: two of one name give no time rather than the other one's.
+    static func lastSeen(_ macs: [Mac], address: String?, name: String?) -> Double? {
+        listedMac(macs, address: address, name: name)?.lastSeen
+    }
+
+    static func listedMac(_ macs: [Mac], address: String?, name: String?) -> Mac? {
+        if let a = address?.lowercased(), !a.isEmpty {
+            return macs.first(where: { $0.address.lowercased() == a })
+        }
+        guard let n = name, !n.isEmpty else { return nil }
+        let named = macs.filter { $0.name == n }
+        return named.count == 1 ? named[0] : nil
+    }
+
+    // How far ahead of this phone's clock a time may be and still be taken as now (the board's 60 s too).
+    static let clockAllowance: Double = 60
+
+    // kosmos#7416: here, not in ShellLogic.swift, because the switcher (switcherRows) uses it and the agentinfo, newtask
+    // and tasks LogicTests runners compile BoardLogic.swift without ShellLogic.swift.
+    // When a computer was last heard from, in Mona Lisa's time words (#7416 card): `words` is "8:12 PM" today,
+    // "yesterday at 8:12 PM", "Tuesday at 8:12 PM" within the week, "Oct 21" before that, as the switcher ("Not
+    // answering since 8:12 PM") and the list's line ("last heard 8:12 PM") say them; `inSentence` adds what a sentence
+    // needs ("We last heard from it at 8:12 PM", "on Tuesday at 8:12 PM", "on Oct 21"), as the board does. `lastSeen` is unix
+    // seconds, in the app the later of Kosmos+'s last_seen and the app's own last good read (Board.lastHeard). nil when
+    // there is none (0: never seen) and for a time more than clockAllowance ahead of now (Board.lastHeard already drops
+    // such a last_seen; this is the same rule for any other caller). One function for the message and the switcher.
+    struct Heard: Equatable {
+        let words: String
+        let inSentence: String
+    }
+
+    static func heardWhen(_ lastSeen: Double?, now: Date = Date(),
+                          calendar: Calendar = .current, locale: Locale = .current) -> Heard? {
+        guard let s = lastSeen, s.isFinite, s > 0 else { return nil }
+        let t = Date(timeIntervalSince1970: s)
+        guard t.timeIntervalSince(now) <= clockAllowance else { return nil }
+        func words(_ template: String) -> String {
+            let f = DateFormatter()
+            f.locale = locale
+            f.calendar = calendar
+            f.timeZone = calendar.timeZone
+            f.setLocalizedDateFormatFromTemplate(template)
+            return f.string(from: t)
+        }
+        let clock = words("jmm")
+        // Calendar days, so a clock change is not a day.
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: t), to: calendar.startOfDay(for: now)).day ?? 0
+        if days <= 0 { return Heard(words: clock, inSentence: "at \(clock)") }
+        if days == 1 { return Heard(words: "yesterday at \(clock)", inSentence: "yesterday at \(clock)") }
+        if days < 7 { let w = "\(words("EEEE")) at \(clock)"; return Heard(words: w, inSentence: "on \(w)") }
+        let d = words("MMMd")
+        return Heard(words: d, inSentence: "on \(d)")
+    }
+
+    // Review 1: the list's last_seen is as of the list's last read (once a launch, a switch or a Try again), so a Mac
+    // this app read every 5 s all day would say "at 7:58 AM" at night. The later of the two, as the board says the time
+    // of its own last good status read. nil when neither has a time (0 is "never").
+    // Review 5: last_seen is Kosmos+'s clock; one more than a minute ahead of this phone's (a phone set behind) is not
+    // taken, or it would win and then be refused as a future time, losing a good read of the phone's own.
+    static func lastHeard(listed: Double?, heard: Date?, now: Date = Date()) -> Double? {
+        let l = (listed ?? 0) <= now.timeIntervalSince1970 + clockAllowance ? (listed ?? 0) : 0
+        let t = max(l, heard?.timeIntervalSince1970 ?? 0)
+        return t > 0 ? t : nil
+    }
+}
+
+// kosmos#7280: here, not in AgentInfoLogic.swift, because BoardClient.chatURL calls it and every LogicTests runner
+// that compiles BoardClient.swift compiles this file.
+extension Board {
+    // kosmos#7280: the board's agent deep link with a section (?tab=detail&agent=<n>&sec=model opens AI Settings). A
+    // board without #7280 ignores sec and lands on the conversation, as before. Only the board's own section names.
+    static let boardSections: Set<String> = ["profile", "model"]
+    static func withBoardSection(_ url: URL, _ sec: String) -> URL? {
+        guard boardSections.contains(sec), var parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              parts.queryItems?.contains(where: { $0.name == "tab" && $0.value == "detail" }) == true else { return nil }
+        parts.queryItems = (parts.queryItems ?? []).filter { $0.name != "sec" } + [URLQueryItem(name: "sec", value: sec)]
+        return parts.url
+    }
+}
+
+// kosmos#7596 (Josh 10-29 21:27 and 21:28): the + panel's choices, Camera, Photos and Files, and when each can be used.
+enum AttachChoice: CaseIterable {
+    case camera, photos, files
+    var title: String {
+        switch self {
+        case .camera: return "Camera"
+        case .photos: return "Photos"
+        case .files: return "Files"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .camera: return "camera"
+        case .photos: return "photo.on.rectangle"
+        case .files: return "folder"
+        }
+    }
+}
+
+// Whether the panel's Camera can open. notAsked: iOS has not asked yet, so the camera asks first. notAllowed: turned off
+// for Kosmos, which Settings can undo. blocked: restricted by Screen Time or a device profile, which Kosmos's Settings
+// page cannot undo.
+enum CameraState { case ready, notAsked, notAllowed, blocked, unavailable }   // review 11: never .none, which reads as nil
+// The camera permission as iOS reports it (AVAuthorizationStatus), kept free of AVFoundation so it can be tested here.
+enum CameraAuth { case notDetermined, denied, restricted, authorized }
+
+extension Board {
+    static func cameraState(available: Bool, auth: CameraAuth) -> CameraState {
+        guard available else { return .unavailable }
+        switch auth {
+        case .authorized: return .ready
+        case .notDetermined: return .notAsked
+        case .denied: return .notAllowed
+        case .restricted: return .blocked
+        }
+    }
+
+    // At the file limit every row is off; Camera is off too where the device has none or blocks it. One turned off for
+    // Kosmos stays on, to open Settings.
+    static func attachRowOff(_ choice: AttachChoice, atLimit: Bool, camera: CameraState) -> Bool {
+        atLimit || (choice == .camera && (camera == .unavailable || camera == .blocked))
+    }
+
+    // The line above the composer when the person answers iOS's camera prompt with Don't Allow (review 8).
+    static let cameraDeniedLine = "The camera is turned off for Kosmos. You can turn it on in Settings."
+
+    // The line under Camera that says why it will not open the camera.
+    static func cameraNote(_ camera: CameraState) -> String? {
+        switch camera {
+        case .ready, .notAsked: return nil
+        case .notAllowed: return "Turned off for Kosmos in Settings"
+        case .blocked: return "Not allowed on this device"
+        case .unavailable: return "Not available on this device"
+        }
     }
 }

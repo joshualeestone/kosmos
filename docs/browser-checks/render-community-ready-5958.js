@@ -450,6 +450,9 @@ async function run() {
     let deletes = 0;
     await p10.route('**/api/community/delete', (route) => { deletes += 1; return answer({ ok: true, state: 'sent' })(route); });
     await openAutomation(p10);
+    // #7211: the rows sit in a fold that is closed by default; this arm deletes one, so it opens the fold as a person does.
+    await p10.waitForSelector('#community-mine-all:not([hidden])', { timeout: 5000 }).catch(() => {});
+    await p10.evaluate(() => { const f = document.getElementById('community-mine-all'); if (f) f.open = true; });
     await p10.waitForSelector('#community-mine-list .community-mine-start', { timeout: 5000 }).catch(() => {});
     const beforeD = readsD;
     await p10.click('#community-mine-list .community-mine-start').catch(() => {});

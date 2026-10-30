@@ -53,10 +53,10 @@ was not sent. In the simulator each is passed as `SIMCTL_CHILD_<name>` to `xcrun
   Info.plist carries it.
 - No hand-written Info.plist: `GENERATE_INFOPLIST_FILE = YES`.
 - Permission strings (`INFOPLIST_KEY_NS*UsageDescription`) for the camera, the microphone and
-  adding to Photos, as well as Face ID. No Swift code asks for these, but the board's photo pickers
-  offer Take Photo or Video inside the WebView and a long-pressed image offers Add to Photos, and
-  iOS closes an app that uses one without its sentence. iOS CI checks all four in the built app,
-  Debug and Release (`tools/check-usage-strings.sh`).
+  adding to Photos, as well as Face ID. The native chat's and room's + asks for the camera (Camera,
+  kosmos#7596). The board's photo pickers also offer Take Photo or Video inside the WebView, and a
+  long-pressed image offers Add to Photos. iOS closes an app that uses one without its sentence.
+  iOS CI checks all four in the built app, Debug and Release (`tools/check-usage-strings.sh`).
 - iPhone only (`TARGETED_DEVICE_FAMILY = 1`): iPad layouts are not designed or tested. An iPad
   can still run it in a scaled iPhone window, so the board must stay usable there.
 
@@ -234,7 +234,8 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
 ## The shell on a phone (#718)
 
 - **A page that cannot load** shows a native page (offline; your Mac not answering, when a
-  Mac's own address gave no answer, with "It may be asleep or turned off"; Kosmos+ not
+  Mac's own address gave no answer, with "It may be asleep, off or offline" and when it was
+  last heard from, by Kosmos+ or by the app (#7416); Kosmos+ not
   answering, for any other address or error; or the system's own reason) with Try again, and
   reloads by itself when an offline phone reconnects (`ShellViews.swift`, `Shell.loadFailure`).
 - **Pull to refresh** reloads the page.

@@ -63,6 +63,35 @@ const CASES = {
     { kind: 'decision', at: now - 5 * 60e3, moves: [{ agent: 's-x', from: '/home/.claude-full', to: '/home/.claude-gone', toLabel: 'Old', why: WHY, kind: 'usage' }] },
     { kind: 'decision', at: now - 10 * 60e3, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: 'its login has stopped working', kind: 'login' }] },
     { kind: 'decision', at: now - 3 * 24 * H, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }] }] } },
+  /* kosmos#7548 (slice 3b): the mover's own lines, with moves switched on (moving), newest first. */
+  moving: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, moving: true, recent: [
+    { kind: 'works', at: now - 1 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', works: 'no' },
+    { kind: 'works', at: now - 2 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', works: 'yes' },
+    { kind: 'works', at: now - 3 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', works: 'not-seen' },
+    { kind: 'released', at: now - 4 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare' },
+    { kind: 'skipped', at: now - 5 * 60e3, agent: 's-x', from: '/home/.claude-full', to: '/home/.claude-spare' },
+    { kind: 'move', at: now - 6 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'refused' },
+    { kind: 'move', at: now - 7 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'unknown' },
+    { kind: 'move', at: now - 8 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'partial' },
+    { kind: 'move', at: now - 9 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'stopped' },
+    { kind: 'move', at: now - 10 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-gone', toLabel: 'Old', outcome: 'changed', why: WHY }] } },
+  /* CONTROL: the same record with moving left out says nothing moves on its own. */
+  movingOff: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, recent: [] } },
+  /* Review round 6: moves switched off after a run: the mover's lines are still in the record. */
+  movedThenOff: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, recent: [
+    { kind: 'move', at: now - 10 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'changed', why: WHY }] } },
+  /* Review round 6: a moving board waiting for its record, and a moving board's move lines (a usage move, and one off a
+     stopped login, which the mover leaves). */
+  movingPaused: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, moving: true, movePaused: 'record', recent: [] } },
+  movingNow: { accounts: TWO, autobalance: { on: true, eligible: 2, held: [], short: [], recording: true, moving: true, recent: [],
+    /* Review round 8: moves as ab.decide() sends them, with no kind; the kind is on the account's atRisk entry. */
+    moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY },
+      { agent: 's-x', from: '/home/.claude-spare', to: '/home/.claude-full', why: 'its login has stopped working' }],
+    atRisk: [{ from: '/home/.claude-full', why: WHY, kind: 'usage' }, { from: '/home/.claude-spare', why: 'its login has stopped working', kind: 'login' }] } },
+  /* Review round 7: a move the mover is leaving alone for now (moved or refused lately). */
+  movingLeft: { accounts: TWO, autobalance: { on: true, eligible: 2, held: [], short: [], recording: true, moving: true, recent: [],
+    moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, leaving: true }],
+    atRisk: [{ from: '/home/.claude-full', why: WHY, kind: 'usage' }] } },
   /* Review 20: the last check could not measure every account, and a recorded line made during a gap. */
   gapRecent: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, lastTick: 'gap',
     recent: [{ kind: 'decision', at: now - 60e3, unmeasured: ['/home/.claude-spare'], moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }] }] } },
@@ -227,6 +256,33 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       const br = r.badRecent;
       say(br && br.lines[0] === 'Kosmos could not work out what it would move just now.' && br.recent.length === 3 && /would have moved Ada/.test(br.recent[2]),
         tag + ' an unreadable decision still shows the record', JSON.stringify(br && br.recent));
+      /* kosmos#7548: the mover's lines, one each, newest first, and "moves itself" only when the board says it moves. */
+      const mv = r.moving && r.moving.recent;
+      const wantMv = [/^Kosmos moves them itself, one agent at a time, and says each move here\.$/, /^Lately$/,
+        /^At 11:59\sAM, Ada's first request on Spare was refused\. Move it back if it needs to work now; Kosmos will not move agents to Spare for a day\.$/,
+        /^At 11:58\sAM, Ada was seen working on Spare\.$/,
+        /^At 11:57\sAM, Ada was not seen working on Spare in the day since it moved, so Kosmos waits a day before moving another agent there\.$/,
+        /^At 11:56\sAM, Ada is not on Spare now \(a person moved it or removed it, or the move did not go through\), so Kosmos leaves it where it is for a day\.$/,
+        /^At 11:55\sAM, Kosmos did not move <b>Bo<\/b>, because it was no longer idle\.$/,
+        /^At 11:54\sAM, Kosmos tried to move Ada to Spare, and the move was refused, so it stays on Work\.$/,
+        /^At 11:53\sAM, Kosmos tried to move Ada to Spare and could not tell whether it went through\. Check which account it is on above\.$/,
+        /^At 11:52\sAM, Kosmos saved Spare for Ada but could not start it again, so it stays on Work until it restarts\.$/,
+        /^At 11:51\sAM, the move of Ada to Spare was stopped\. Check which account it is on above\.$/,
+        new RegExp('^At 11:50\\sAM, Kosmos moved Ada from Work to Old, because ' + WHY + '\\.$')];
+      say(mv && mv.length === wantMv.length && wantMv.every((re, i) => re.test(mv[i])), tag + ' the mover: each line said once, newest first, with moves on', JSON.stringify(mv));
+      say(r.moving && !r.moving.recentMarkup, tag + ' a name with markup in a move line is shown as text', '');
+      say(r.movingOff && r.movingOff.recent[0] === NONE, tag + ' CONTROL: without moving, it does not say it moves', JSON.stringify(r.movingOff && r.movingOff.recent));
+      /* Review round 6 */
+      say(r.movedThenOff && r.movedThenOff.recent[0] === 'Kosmos is not moving agents on this computer now. It keeps a record of what it would have moved.' && /Kosmos moved Ada/.test(r.movedThenOff.recent[2] || ''),
+        tag + ' moves switched off after a run: the header does not say "not yet" above a move', JSON.stringify(r.movedThenOff && r.movedThenOff.recent));
+      say(r.movingPaused && r.movingPaused.recent[0] === 'Kosmos has stopped moving agents for now, because it could not write its record. It starts again once it can.',
+        tag + ' a moving board waiting for its record says so', JSON.stringify(r.movingPaused && r.movingPaused.recent));
+      say(r.movingLeft && r.movingLeft.lines.length === 1 && r.movingLeft.lines[0] === 'Kosmos would move Ada from Work to Spare, because ' + WHY + ', but it was moved lately, or a move of it was refused, so Kosmos leaves it where it is for now.',
+        tag + ' with moves on, an agent the mover leaves alone is not said to be moved', JSON.stringify(r.movingLeft && r.movingLeft.lines));
+      const mn = r.movingNow && r.movingNow.lines;
+      say(mn && mn.length === 2 && mn[0] === 'Kosmos will move Ada from Work to Spare once it is idle at two checks in a row, because ' + WHY + '.'
+        && mn[1] === '<b>Bo</b> is on Spare, which cannot be used right now. Kosmos moves agents only when an account is running out, so move it yourself if it needs to work.' && !r.movingNow.markup,
+        tag + ' with moves on, a move line says what the mover will do, and a stopped login is left to the person', JSON.stringify(mn));
       say(r.off && r.off.recent.length === 0 && r.one && r.one.recent.length === 0, tag + ' switched off, or one account: no record drawn', JSON.stringify([r.off && r.off.recent, r.one && r.one.recent]));
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
       await page.close();

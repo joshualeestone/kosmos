@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const { scaleBudget } = require('./test-support/eventually');   // #5727 Group C: scale the CLI kill budget by host load (floor 1 so CI is byte-identical)
 /* #4796: the CLI reads the board token from the data root. A fresh one here, so the live board's token never
    travels to this test's stub board. */
 const DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-accounts-5359-'));
@@ -57,12 +58,13 @@ function cli(port, args, extraEnv = {}) {
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { out += d; });
-    const t = setTimeout(() => child.kill('SIGKILL'), 20000);
+    const killMs = scaleBudget(20000);
+    const t = setTimeout(() => child.kill('SIGKILL'), killMs);
     child.on('close', (code, sig) => {
       clearTimeout(t);
       const r = { code, out };
       /* #3628: a killed CLI has no exit code; it must fail the test, never read as one. */
-      if (typeof r.code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '): killed by the 20s limit. ' + out)); return; }
+      if (typeof r.code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '): killed by the ' + killMs + 'ms kill budget (#5727 scales it by host load). ' + out)); return; }
       resolve(r);
     });
   });

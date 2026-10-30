@@ -194,8 +194,12 @@ struct TodayView: View {
     }
 
     private var notUpdating: some View {
-        Text((client.phase.isUnreachable ? Shell.notUpdatingLine(client.failingMacName) : "Checking for updates.")
-             + (client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""))
+        // kosmos#7416: not answering, the line says when the Mac was last heard from; "Last checked" stays unless it
+        // says the same minute (Shell.saysLastChecked).
+        let heard = client.phase.isUnreachable ? client.failingMacLastHeard : nil
+        return Text((client.phase.isUnreachable ? Shell.notUpdatingLine(client.failingMacName, lastHeard: heard) : "Checking for updates.")
+             + (Shell.saysLastChecked(client.updatedAt, lastHeard: heard)
+                ? client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? "" : ""))
             .font(.footnote)
             .foregroundColor(Palette.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -252,7 +256,7 @@ private struct NeedsYouCard: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var tone: Board.Tone { stale ? .quiet : Board.tone(agent) }
-    private var word: String { Board.statusWord(agent) }
+    private var word: String { stale ? Board.statusWord(agent) : Board.toneWord(agent) }   // kosmos#7342: never a red Idle or Working (keyed on the tone it is drawn in)
     private var why: (sentence: String, action: Board.TodayAction) { Board.todayReason(agent) }
     private var meta: String? {
         let parts = [agent.stateProjectName, ago(agent.waitingSince)].compactMap { $0 }

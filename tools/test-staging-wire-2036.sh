@@ -138,7 +138,7 @@ source_channel_write() {  # $1 = KOSMOS_UPDATE_CHANNEL, $2 = AGENT_WORKFORCE_DAT
   [ "${KOSMOS_UPDATE_CHANNEL:-}" = staging ] && _PTR_FILE="latest-staging.json"
   if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then _wf_base="$AGENT_WORKFORCE_DATA"; else _wf_base="${AGENT_WORKFORCE_HOME:-$HOME}/Library/Application Support"; fi
   if [ -d "$_wf_base/AgentWorkforce" ] && [ ! -d "$_wf_base/Kosmos" ]; then _wf_data_root="$_wf_base/AgentWorkforce"; else _wf_data_root="$_wf_base/Kosmos"; fi
-  if [ "$_PTR_FILE" = "latest-staging.json" ]; then _source_channel=staging; else _source_channel=prod; fi
+  case "$_PTR_FILE" in *staging.json) _source_channel=staging ;; *) _source_channel=prod ;; esac   # kosmos#7281: the Linux family's latest-linux-staging.json too
   case "${KOSMOS_SOURCE_CHANNEL:-}" in staging|prod) _source_channel="$KOSMOS_SOURCE_CHANNEL" ;; esac
   mkdir -p "$_wf_data_root" 2>/dev/null && printf '%s\n' "$_source_channel" > "$_wf_data_root/source-channel"
 }
@@ -167,7 +167,7 @@ scM="$T/sc-migrate"; mkdir -p "$scM/AgentWorkforce"; source_channel_write stagin
   || no "source-channel: pre-migration update wrote to Kosmos and would orphan the legacy store"
 # Guard the extracted copy against drift from the real setup.sh (red-capable: removing the write fails these).
 grep -qF 'printf '"'"'%s\n'"'"' "$_source_channel" > "$_wf_data_root/source-channel"' "$REPO/install/setup.sh" && ok "source-channel: setup.sh carries the write (extract matches source)" || no "source-channel: setup.sh no longer writes source-channel (the STAGING badge would never light)"
-grep -qF 'if [ "$_PTR_FILE" = "latest-staging.json" ]; then _source_channel=staging; else _source_channel=prod; fi' "$REPO/install/setup.sh" && ok "source-channel: setup.sh keys the token on _PTR_FILE (the same selector the pointer fetch uses)" || no "source-channel: setup.sh token selector drifted"
+grep -qF 'case "$_PTR_FILE" in *staging.json) _source_channel=staging ;; *) _source_channel=prod ;; esac' "$REPO/install/setup.sh" && ok "source-channel: setup.sh keys the token on _PTR_FILE (the same selector the pointer fetch uses)" || no "source-channel: setup.sh token selector drifted"
 grep -qF '_wf_base="$AGENT_WORKFORCE_DATA"' "$REPO/install/setup.sh" && ok "source-channel: setup.sh honors AGENT_WORKFORCE_DATA (mirrors dataRootFor, so tests + sandbox seed the real path)" || no "source-channel: setup.sh data-root override drifted from dataRootFor"
 # #2439: the write targets the CURRENT store leaf -- legacy AgentWorkforce when it exists and Kosmos does
 # not, else Kosmos -- so a pre-migration update does not pre-create Kosmos and orphan the old data (store.js:221).

@@ -9,8 +9,12 @@ struct AgentsView: View {
     @ObservedObject var client: BoardClient
     // kosmos#7222: notification permission is asked here, over a connected Mac's agents, not at launch.
     @ObservedObject var push: PushNotificationManager
+    // kosmos#7418: the chat a tapped notification asked for (ContentView.openAgentChat); opened, then cleared.
+    @Binding var agentRequest: PushBridge.AgentTarget?
     let openChat: (URL) -> Void
     let openBoard: () -> Void
+    // kosmos#7266: the + at the top right, the board's own new-agent form (ContentView.openCreate).
+    var create: () -> Void = {}
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
@@ -21,10 +25,77 @@ struct AgentsView: View {
     private static var sampleOpened = false
     #endif
 
+    // kosmos#7343: the order the list is in, kept on this phone: as the computer orders them (who needs you first), or by
+    // name.
+    @AppStorage("kosmos.agentSort") private var agentSort = Board.agentSortDefault.rawValue
+    // kosmos#7421: By project's key, each agent's first project name, read when that order is chosen or the list shows.
+    @State private var projectNames: [String: String] = [:]
+    private var sortChoice: Board.AgentSort { Board.agentSort(saved: agentSort) }
+    #if DEBUG
+    static func pressSortControl() {
+        // A SwiftUI toolbar Menu is not a UIControl that carries its spoken label, so look three ways, and write what
+        // was found to tmp/sortmenu.txt in the app's container (the first run found nothing and said nothing).
+        var notes: [String] = []
+        func label(_ o: NSObject) -> String { o.accessibilityLabel ?? "" }
+        func findElement(_ o: NSObject, depth: Int) -> NSObject? {
+            if depth > 40 { return nil }
+            if label(o).hasPrefix("Sort:") { return o }
+            if let v = o as? UIView {
+                for sv in v.subviews { if let f = findElement(sv, depth: depth + 1) { return f } }
+            }
+            for e in (o.accessibilityElements ?? []) { if let n = e as? NSObject, let f = findElement(n, depth: depth + 1) { return f } }
+            return nil
+        }
+        // Run 2 pressed the first menu in the bar (the computer switcher, on the left); run 3 found no menu listing the
+        // orders (SwiftUI fills it only when it opens). The sort menu is the bar's rightmost menu, beside +.
+        func menuButtons(_ v: UIView) -> [UIButton] {
+            ((v as? UIButton).flatMap { $0.menu != nil ? [$0] : nil } ?? []) + v.subviews.flatMap(menuButtons)
+        }
+        func findMenuButton(_ v: UIView) -> UIButton? {
+            menuButtons(v).filter { $0.window != nil }.max { $0.convert($0.bounds, to: nil).midX < $1.convert($1.bounds, to: nil).midX }
+        }
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        if let found = windows.lazy.compactMap({ findElement($0, depth: 0) }).first {
+            notes.append("element \(type(of: found)) label=\(label(found))")
+            if let c = found as? UIControl, #available(iOS 17.4, *) { c.performPrimaryAction(); notes.append("performPrimaryAction") }
+            else { notes.append("accessibilityActivate=\(found.accessibilityActivate())") }
+        } else if let b = windows.lazy.compactMap({ findMenuButton($0) }).first {
+            notes.append("menu button \(type(of: b))")
+            if #available(iOS 17.4, *) { b.performPrimaryAction(); notes.append("performPrimaryAction") }
+            else { notes.append("not pressed: performPrimaryAction needs iOS 17.4") }
+        } else {
+            notes.append("nothing found")
+        }
+        try? notes.joined(separator: "\n").write(to: FileManager.default.temporaryDirectory.appendingPathComponent("sortmenu.txt"), atomically: true, encoding: .utf8)
+    }
+    #endif
+    private var agentSortMenu: some View {
+        Menu {
+            Picker("Sort agents", selection: Binding(get: { sortChoice.rawValue }, set: { agentSort = $0 })) {
+                ForEach(Board.AgentSort.allCases, id: \.rawValue) { s in Text(Board.agentSortLabel(s)).tag(s.rawValue) }
+            }
+        } label: { SortButtonLabel(pressed: sortChoice != Board.agentSortDefault) }
+        .accessibilityLabel(Board.sortButtonLabel(Board.agentSortLabel(sortChoice)))
+        .accessibilityAddTraits(sortChoice != Board.agentSortDefault ? .isSelected : [])
+    }
+
     var body: some View {
         NavigationView {
             content
                 .navigationTitle("Agents")
+                // kosmos#7343 (Josh 10-27, Mona Lisa's design): one bar on Agents, Projects and Tasks, no big title (the
+                // tab bar names the screen): the Kosmos mark, the computer switcher, then order and + in one capsule.
+                .navigationBarTitleDisplayMode(.inline)
+                .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
+                .toolbar {
+                    ToolbarItem(placement: .principal) { ScreenHeading(title: "Agents") }
+                    KosmosBarLeading(switcher: MacSwitcher(client: client))
+                    ToolbarItemGroup(placement: .navigationBarTrailing) {
+                        agentSortMenu
+                        Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
+                            .accessibilityLabel("Add agent")
+                    }
+                }
                 .background(Palette.ground.ignoresSafeArea())
                 // The link sits on the page, not on a row: a row (or the whole list) that stops being drawn, as when the
                 // Mac asks for Allow again, would otherwise close the chat under the person.
@@ -34,6 +105,9 @@ struct AgentsView: View {
                             ChatView(client: client, agent: agent, openOnBoard: {
                                 if let url = client.chatURL(for: agent) { openChat(url) }
                             })
+                            // kosmos#7418 review 1: a notification for another agent while a chat is open starts that
+                            // agent's chat afresh (draft kept, reading loop ended), never the old one under a new name.
+                            .id(agent.session)
                         }
                     } label: { EmptyView() }
                     .hidden()
@@ -42,9 +116,20 @@ struct AgentsView: View {
         .navigationViewStyle(.stack)
         // Signed out, another account or another Mac: the open chat was the previous one's, so it closes.
         .onChange(of: client.chatEpoch) { _ in openAgent = nil }
+        .onChange(of: agentRequest) { _ in openRequested() }
+        // kosmos#7421: the chosen order goes to the list at once, and on each visit; By project first reads each agent's
+        // projects (again after a computer or account change, whose names were the other one's).
+        .task(id: SortRead(sort: sortChoice, epoch: client.chatEpoch)) {
+            let epoch = client.chatEpoch
+            if sortChoice != .project { projectNames = [:] } else { await readProjectNames() }
+            // Review 2: a task replaced meanwhile (another order picked, another computer) hands nothing over.
+            guard !Task.isCancelled, epoch == client.chatEpoch else { return }
+            client.setAgentSort(sortChoice, projects: projectNames)
+        }
         .onAppear {
             visible = true
             client.show(BoardClient.agentsViewer)   // kosmos#7030: Today reads the same list
+            openRequested()   // kosmos#7418: a tap on a cold launch, or while another tab showed
             // kosmos#7222: a change made in iOS Settings is seen here, and a yes given there registers (review 1).
             push.refreshPermission(registerIfAllowed: true)
             #if DEBUG
@@ -52,6 +137,11 @@ struct AgentsView: View {
             if !Self.sampleOpened, let open = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_OPEN"], !open.isEmpty {
                 Self.sampleOpened = true
                 openAgent = Board.Agent(session: open, name: open.prefix(1).uppercased() + open.dropFirst(), role: nil, state: "idle", task: nil, needsYou: false)
+            }
+            // KOSMOS_SAMPLE_SORTMENU=1 (Mona Lisa's #7421 shot): the sort menu opens by itself, since a simulator run
+            // cannot tap. It presses the bar's rightmost menu button (the sort button), on iOS 17.4 or later.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SORTMENU"] == "1" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { Self.pressSortControl() }
             }
             #endif
         }
@@ -65,17 +155,43 @@ struct AgentsView: View {
         }
     }
 
+    // kosmos#7034: the row's star control, for the swipe and the long press.
+    private func starButton(_ agent: Board.Agent) -> some View {
+        let on = client.isStarred(agent.session)
+        return Button { Task { await client.toggleStar(agent.session) } } label: {
+            Label(on ? "Unstar" : "Star", systemImage: on ? "star.slash" : "star.fill")
+        }
+        .tint(Palette.starGold)
+    }
+
+    // kosmos#7421: each agent's first project name, for By project. A read that fails keeps the last answer (agents with no
+    // known project sort last, after the rest, as on the desktop).
+    private func readProjectNames() async {
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.projectsRequest(mac: $0) }
+        guard epoch == client.chatEpoch else { return }   // review 1: never another computer's names
+        if let answer, answer.1.statusCode == 200, let list = Board.parseProjects(answer.0) { projectNames = Board.firstProjects(list) }
+        else { projectNames = [:] }   // review 1: unread is unknown (sorted last), never an older map
+    }
+
+    // kosmos#7418: a notification's agent opens as a tap on its row would: the list's own entry when it has it (its
+    // status and picture), else one made from the notice, which the chat then follows as the list arrives.
+    private func openRequested() {
+        guard let target = agentRequest else { return }
+        agentRequest = nil
+        openAgent = client.agents.first(where: { $0.session == target.session })
+            ?? Board.Agent(session: target.session, name: target.name, role: nil, state: "idle", task: nil, needsYou: false)
+    }
+
     // Whether the list is on screen, and if so whether it is marked not updating. Decided once, so the list is drawn
     // from a single place: a list drawn from several switch branches is a new list at every phase change, which throws
     // the person back to the top and cancels a pull in progress.
     private var shownList: Bool? {
         guard !client.agents.isEmpty else { return nil }
+        // The reaching spinner is only for a first connect with nothing to show yet (spec frame 3); the rule for "not
+        // updating" is the client's, shared with the tab badge (kosmos#7342 review 1).
         switch client.phase {
-        // A list already on screen stays while the app reconnects or the Mac does not answer, marked not updating; the
-        // reaching spinner is only for a first connect with nothing to show yet (spec frame 3).
-        case .starting, .connecting, .unreachable: return true
-        // Back on the tab with a list from an earlier read: shown as not current until the first new read.
-        case .live: return !client.fresh
+        case .starting, .connecting, .unreachable, .live: return client.agentsListStale
         default: return nil
         }
     }
@@ -90,7 +206,8 @@ struct AgentsView: View {
 
     @ViewBuilder private var content: some View {
         if let stale = shownList {
-            list(stale: stale || Self.sampleStale)
+            // kosmos#7559: the name the scripted sign-in waits on (ios/KosmosUITests): drawn only from the board's answer.
+            list(stale: stale || Self.sampleStale).accessibilityIdentifier("agents-list")
         } else {
             others
         }
@@ -101,10 +218,11 @@ struct AgentsView: View {
         BoardStates(client: client, openBoard: openBoard) { noAgents }
     }
 
-    // No agents (spec frame 4): no list and no footer line.
+    // No agents (spec frame 4): no list.
     private var noAgents: some View {
         VStack(spacing: 6) {
             Text("No agents yet").font(.headline).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("agents-empty")   // kosmos#7559: the board answered, with no agents
             Text("Make your first one on your computer.").font(.subheadline).foregroundColor(Palette.secondary)
         }
         .multilineTextAlignment(.center)
@@ -128,16 +246,33 @@ struct AgentsView: View {
                         .listRowBackground(Color.clear)
                 }
             }
-            Section(footer: footer) {
-                ForEach(client.agents) { agent in
+            // kosmos#7034: a star that did not save says why, in the board's words, until the next press or a tap here.
+            if let note = client.starNote {
+                Section {
+                    Button { client.clearStarNote() } label: {
+                        Text(note).font(.footnote).foregroundColor(Palette.primary).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Dismisses this message")
+                    .listRowBackground(Palette.banner)
+                    .onAppear { UIAccessibility.post(notification: .announcement, argument: note) }
+                }
+            }
+            // kosmos#7528 (Josh 10-28): no footer line under the list.
+            Section {
+                ForEach(client.agents) { agent in   // in the chosen order (BoardClient.setAgentSort, kosmos#7421)
                     // kosmos#7008: the agent's chat, native; anything it does not draw opens the board's (openChat).
                     Button {
                         openAgent = agent
                     } label: {
                         // A picture the agent no longer has is not shown, whatever was fetched before.
-                        AgentRow(agent: agent, picture: agent.hasAvatar ? client.pictures[agent.session].flatMap(UIImage.init(data:)) : nil, stale: stale)
+                        AgentRow(agent: agent, picture: agent.hasAvatar ? client.pictures[agent.session].flatMap(UIImage.init(data:)) : nil, stale: stale,
+                                 starred: client.isStarred(agent.session))
                     }
                     .buttonStyle(.plain)
+                    // kosmos#7034: star or unstar from the row: a swipe to the right (VoiceOver offers it as an action), or a long press.
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent) }
+                    .contextMenu { starButton(agent) }
                     .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
                     .listRowBackground(Palette.card)
                     .listRowSeparatorTint(Palette.separator)
@@ -189,7 +324,9 @@ struct AgentsView: View {
     // Lost while open (spec frames 5 and 6): the time of the last good read, in the system's time format.
     private var notUpdating: some View {
         // "Isn't answering" only when that is what happened; while reconnecting or checking it says it is checking.
-        Text(notUpdatingWords + (client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? ""))
+        // kosmos#7416: "Last checked" unless it says the same minute as "last heard" (Shell.saysLastChecked).
+        Text(notUpdatingWords + (Shell.saysLastChecked(client.updatedAt, lastHeard: notUpdatingHeard)
+                                 ? client.updatedAt.map { " Last checked \($0.formatted(date: .omitted, time: .shortened))." } ?? "" : ""))
             .font(.footnote)
             .foregroundColor(Palette.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -198,16 +335,13 @@ struct AgentsView: View {
             .background(RoundedRectangle(cornerRadius: 10).fill(Palette.banner))
     }
 
+    // Not `phase.isUnreachable`: that one is fileprivate to TodayView.swift.
+    private var notUpdatingHeard: Double? { if case .unreachable = client.phase { return client.failingMacLastHeard }; return nil }
     private var notUpdatingWords: String {
-        if case .unreachable = client.phase { return Shell.notUpdatingLine(client.failingMacName) }   // kosmos#7197: named
+        if case .unreachable = client.phase { return Shell.notUpdatingLine(client.failingMacName, lastHeard: notUpdatingHeard) }   // kosmos#7197: named; #7416: when
         return "Checking for updates."
     }
 
-    private var footer: some View {
-        Text("New agents, models and connections are set up on your computer.")
-            .font(.footnote)
-            .foregroundColor(Palette.tertiary)
-    }
 }
 
 // The states before a list can be shown, and after a refusal (kosmos#6838 slice 1's frames), for every tab that reads
@@ -227,7 +361,9 @@ struct BoardStates<Empty: View>: View {
             if client.updatedAt == nil || !client.fresh { reaching } else { empty() }
         case .unreachable(let mac):
             // Today's navy page, as it is: no title over it, and Back opens Today, the board. kosmos#7197: naming the Mac.
-            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard, macName: mac)
+            LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard, macName: mac,
+                            lastHeard: client.lastHeard(address: client.failingAddress, name: mac))
+                .onAppear { client.refreshLastSeen() }   // kosmos#7416 review 2: the list's time, read afresh
                 .navigationBarHidden(true)
         case .kosmosPlusDown:
             LoadFailureView(failure: .unreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard)
@@ -259,6 +395,24 @@ struct BoardStates<Empty: View>: View {
             message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.", retry: true)
         case .macRefused(let mac):
             message("\(mac) did not accept this iPhone's sign-in.", detail: "Try again in a moment. If it keeps happening, log out under Settings, Kosmos+, and sign in again.", retry: true)
+        case .signInAgain(let mac):
+            // kosmos#4903: the remedy the macRefused line already names, for a cloud machine that takes only a recent
+            // sign-in (nobody can press Allow on it). No Sign in button: openBoard opens the board's Today, which keeps
+            // the same (not recent) sign-in; a one-tap way needs a log out wired here (recorded on kosmos#7337).
+            message("Sign in again to open \(mac).",
+                    detail: "Your cloud machine takes only a recent sign-in. Log out under Settings, Kosmos+, sign in again, then come back here.",
+                    retry: true)
+        case .signInHere(let mac):
+            // Review 5: not "recent" but "here": the cloud machine needs this iPhone's own key, kept only by signing in in the app.
+            message("Sign in on this iPhone to open \(mac).",
+                    detail: "Your cloud machine opens only for an iPhone signed in here in the app. Log out under Settings, Kosmos+, then sign in again in the app, not on the web page.",
+                    retry: true)
+        case .macHeld(let mac, let because):
+            // Review 3: the gate page's own answer to a computer not taking new sign-ins now: its sentence, and the sign-in
+            // is kept, so trying again later needs nothing else.
+            message("\(mac) is not taking new sign-ins right now.",
+                    detail: because.map(Board.gateSentence) ?? "Nothing is wrong with your sign-in. Try again in a moment.",
+                    retry: true)
         case .kosmosPlusRefused:
             // kosmos#7030 review 2: Today is native now, so "on the Today tab" no longer leads to a sign-in; the button does.
             VStack(spacing: 12) {
@@ -300,10 +454,16 @@ struct AgentRow: View {
     let picture: UIImage?
     // Not updating: every dot quiet and every word secondary, so nothing old reads as live or urgent.
     let stale: Bool
+    // kosmos#7034: starred on this computer (the board's star), shown as a small filled star after the name.
+    var starred = false
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    private var tone: Board.Tone { stale ? .quiet : Board.tone(agent) }
-    private var word: String { Board.statusWord(agent) }
+    // kosmos#7342: the pill's word (Issue on a red pill that would say Idle or Working); a list not updating keeps the plain
+    // word, as its pill is grey.
+    private var word: String { stale ? Board.statusWord(agent) : Board.pillWord(agent) }
+    // kosmos#7342 review 2: a blocked agent that does not need him has no pill, so neither the not-updating grey pill nor
+    // VoiceOver says "Waiting" either (Josh ruled the word off the row).
+    private var quietBlocked: Bool { agent.state == "blocked" && Board.pill(agent) == nil }
     private var large: Bool { typeSize.isAccessibilitySize }
 
     var body: some View {
@@ -322,7 +482,9 @@ struct AgentRow: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         // A list shown as not current says so to VoiceOver too, not only by colour.
-        .accessibilityLabel(([agent.name, agent.role, word, Board.memoryWords(agent.contextPercent, full: agent.contextFull)]
+        .accessibilityLabel(([agent.name, starred ? "starred" : nil, agent.role, quietBlocked ? nil : word, stale ? nil : Board.presenceWords(Board.presence(agent), word: word),
+                              stale ? nil : Board.noticeWords(Board.noticeCount(agent)),
+                              Board.memoryWords(agent.contextPercent, full: agent.contextFull)]
                              + (stale ? ["not updating"] : [])).compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the chat")
@@ -331,12 +493,16 @@ struct AgentRow: View {
     private var size: CGFloat { large ? 48 : 40 }
 
     private var avatar: some View {
-        AgentAvatar(name: agent.name, picture: picture, tone: tone, size: size, memoryPercent: agent.contextPercent,
+        // kosmos#7342 (Josh 10-28, Mona Lisa): the count moved off the avatar's corner to the row's right (NoticeBubble).
+        AgentAvatar(name: agent.name, picture: picture, tone: nil, presence: stale ? .unsure : Board.presence(agent), size: size, memoryPercent: agent.contextPercent,
                     memoryQuiet: stale)
     }
 
     private var name: some View {
-        Text(agent.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(large ? nil : 1)
+        HStack(spacing: 4) {
+            Text(agent.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(large ? nil : 1)
+            if starred { StarredStar().font(.caption2).accessibilityHidden(true) }
+        }
     }
 
     @ViewBuilder private var role: some View {
@@ -347,17 +513,38 @@ struct AgentRow: View {
 
     // The board's own word, never truncated (it wraps at the largest sizes rather than run off the row); a live
     // change crossfades in 0.2s, the animation on the container so the outgoing word fades as the new one comes in.
-    private var status: some View {
-        ZStack(alignment: large ? .leading : .trailing) {
-            Text(word)
-                .font(.footnote.weight(tone == .asked || tone == .needsYou ? .semibold : .regular))
-                .foregroundColor(Palette.word(tone))
-                .fixedSize(horizontal: !large, vertical: true)
-                .id(word)
-                .transition(.opacity)
+    // kosmos#7342: a pill only when there is something to see (Board.pill); Idle shows nothing. Not updating: every row
+    // keeps its last word in a grey pill, Idle included, so no row reads as current.
+    // kosmos#7342 (Josh 10-28 09:34, Mona Lisa's spec): the agent's unread notifications as a red numbered bubble, to the
+    // right of the pill (6 pt) or alone. A list not updating shows none, as it showed no avatar count.
+    @ViewBuilder private var status: some View {
+        HStack(spacing: 6) {
+            ZStack(alignment: large ? .leading : .trailing) {
+                if (stale && !quietBlocked) || Board.pill(agent) != nil {
+                    StatusPill(word: word, pill: stale ? .cantTell : Board.pill(agent) ?? .cantTell, wraps: large)
+                        .id(word)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: word)
+            if !stale, let text = Board.noticeBubbleText(Board.noticeCount(agent)) { NoticeBubble(text: text) }
         }
-        .animation(.easeInOut(duration: 0.2), value: word)
-        .animation(.easeInOut(duration: 0.2), value: tone)
+    }
+}
+
+// kosmos#7342 (Mona Lisa): the tab bar badge's look, the system red with white bold numerals, a capsule 20 pt tall and at
+// least 20 wide, its padding growing with the digits. The row's VoiceOver label says the count (Board.noticeWords).
+struct NoticeBubble: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .bold)).monospacedDigit()
+            .foregroundColor(.white)
+            .padding(.horizontal, 6)
+            .frame(minWidth: 20, minHeight: 20)
+            .background(Capsule().fill(Color.red))
+            .fixedSize()
+            .accessibilityHidden(true)
     }
 }
 
@@ -367,6 +554,9 @@ struct AgentAvatar: View {
     let name: String
     let picture: UIImage?
     let tone: Board.Tone?
+    // kosmos#7341: when set, the dot is the agent's presence (green, grey, hollow) rather than its tone. The Agents list
+    // sets it; screens that still colour by state pass a tone instead.
+    var presence: Board.Presence? = nil
     let size: CGFloat
     // kosmos#7120: the context ring round the picture, as the board's list row draws it (lrowRing); nil draws none.
     var memoryPercent: Double? = nil
@@ -391,7 +581,16 @@ struct AgentAvatar: View {
             .frame(width: size, height: size)
             .clipShape(Circle())
             .overlay { memoryRing }
-            if let tone {
+            if let presence {
+                // kosmos#7341: hollow is a ring in the quiet grey on the card colour, as the board's pjd-unk.
+                Circle()
+                    .fill(presence == .unsure ? Palette.card : Palette.presence(presence))
+                    .overlay(Circle().inset(by: 1.5).stroke(presence == .unsure ? Palette.presence(.off) : .clear, lineWidth: 1.5))
+                    .frame(width: 12, height: 12)
+                    .overlay(Circle().stroke(Palette.card, lineWidth: 2))
+                    .offset(x: 1, y: 1)
+                    .animation(.easeInOut(duration: 0.2), value: presence)
+            } else if let tone {
                 // The status dot, 12pt with a 2pt ring in the card colour, 1pt outside the picture.
                 Circle()
                     .fill(Palette.dot(tone))
@@ -403,6 +602,8 @@ struct AgentAvatar: View {
         }
         .accessibilityHidden(true)
     }
+
+    // kosmos#7342: #7354's corner count moved to the row's right (NoticeBubble), one fact in one place.
 
     // A track and an arc of the percent from 12 o'clock, just outside the picture, one weight in every band as the
     // board's small rings keep (the arc's length carries the value, the colour repeats it). It overhangs the picture's
@@ -430,10 +631,15 @@ enum Palette {
         return Color(UIColor { $0.userInterfaceStyle == .dark ? color(dark, darkAlpha) : color(light, lightAlpha) })
     }
     static let ground = pair(0xfaf9f7, 0x0c0d0f)
+    // kosmos#7628 (Josh 10-30): the ground of a conversation (a DM, a project room), as the desktop board paints its
+    // own: #d-talk-box and #pj-room measured rgb(255,255,255) light and rgb(0,0,0) dark, while the page around them is
+    // `ground`. The bubbles on it are unchanged (agentBubble already matches the board's --agent-msg).
+    static let chatGround = pair(0xffffff, 0x000000)
     static let card = pair(0xffffff, 0x17191c)
     static let primary = pair(0x14161a, 0xf5f5f4)
     static let secondary = pair(0x4a4f57, 0xa9adb3)
-    static let tertiary = pair(0x14161a, 0xf5f5f4, lightAlpha: 0.61, darkAlpha: 0.47)
+    // kosmos#7628 review 1: dark 0.49 (was 0.47), so small text straight on the chat's pure black stays AA (~4.6:1).
+    static let tertiary = pair(0x14161a, 0xf5f5f4, lightAlpha: 0.61, darkAlpha: 0.49)
     static let separator = pair(0xe3e1dc, 0x2a2d31)
     static let avatarFill = pair(0xece7dd, 0x252529)
     static let avatarLetter = pair(0x4a4f57, 0xc7c7cc)
@@ -446,10 +652,46 @@ enum Palette {
         switch band { case .ok: return ringOk; case .warn: return ringWarn; case .high: return ringHigh }
     }
     static let banner = pair(0xf3efe6, 0x1c1f23)
+    // kosmos#7034: the board's star (.astar.on): its deep gold in light (#9c741b, which holds 3:1 on the card where the
+    // bright gold does not), its bright gold in dark (--gold-bright).
+    static let starGold = pair(0x9c741b, 0xe3b341)
+    // kosmos#7529 (Josh 10-28: "still a dingy brown"; Mona Lisa's spec): a starred star is the bright gold filled, under a
+    // thin starGold outline, as the board's .astar.on draws it. In dark both are the bright gold, so it looks as before.
+    static let starFill = pair(0xe3b341, 0xe3b341)
+    // kosmos#7419: a reaction already the person's, in the long-press sheet: a warm fill under the gold ring (Mona Lisa).
+    static let mineReaction = pair(0xfbf1d9, 0x3a2f12)
     static let askedWord = pair(0x7a5200, 0xffca55)
     static let dangerWord = pair(0xb3261e, 0xff6b5e)
     // kosmos#7030: the board's built colour (--pj-mention), the dot before a ready-to-check card's "Marked built" line.
     static let built = pair(0x0a58d8, 0x5aa2ff)
+
+    // kosmos#7341: the presence dot, the board's green and grey (unsure is drawn as a ring of the grey).
+    static func presence(_ p: Board.Presence) -> Color {
+        switch p {
+        case .on: return dot(.working)
+        case .off, .unsure: return dot(.quiet)
+        }
+    }
+
+    // kosmos#7342: the pills' ground and words (Mona Lisa's values; each word clears 4.5:1 on its own ground).
+    static func pillGround(_ p: Board.Pill) -> Color {
+        switch p {
+        case .working: return pair(0xe3f1e8, 0x173a26)
+        case .asks: return pair(0xe6eefb, 0x1b2c4a)
+        case .held: return pair(0xfbefd9, 0x3d2e0f)
+        case .problem: return pair(0xfbe3e1, 0x4a1c19)
+        case .cantTell: return pair(0xececee, 0x2c2c2e)
+        }
+    }
+    static func pillWord(_ p: Board.Pill) -> Color {
+        switch p {
+        case .working: return pair(0x2b7149, 0x6fd69a)
+        case .asks: return pair(0x2d5fb3, 0x8fb4ff)
+        case .held: return pair(0x8a5a00, 0xf2c260)
+        case .problem: return pair(0xb3261e, 0xff8a80)
+        case .cantTell: return pair(0x5f5f66, 0xa1a1a8)
+        }
+    }
 
     static func dot(_ tone: Board.Tone) -> Color {
         switch tone {
@@ -465,6 +707,161 @@ enum Palette {
         case .asked: return askedWord
         case .needsYou: return dangerWord
         case .working, .quiet: return secondary
+        }
+    }
+}
+
+// kosmos#7343 (Mona Lisa's design): the Kosmos mark at the bar's left, a 44 pt gold circle (the app icon's gold) with
+// the icon's dotted K. Decoration only, so VoiceOver skips it.
+struct KosmosMark: View {
+    var body: some View {
+        ZStack {
+            Circle().fill(Color(red: 0xe2 / 255, green: 0xac / 255, blue: 0x1e / 255))
+            Image("KosmosMark").resizable().scaledToFill().frame(width: 38, height: 38).clipShape(Circle())
+        }
+        .frame(width: 44, height: 44)
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+        .accessibilityHidden(true)
+    }
+}
+
+// kosmos#7417 (Josh 10-27): the mark is its own circle, apart from the computer switcher. On iOS 26 the bar draws
+// neighbouring items in one glass pill, which clipped the mark's sides; so the mark draws no glass of its own and a
+// fixed gap starts a new pill for the switcher. Before iOS 26 there is no pill and the two simply sit side by side.
+// kosmos#7421: what the Agents list's sort read is keyed on.
+private struct SortRead: Equatable { let sort: Board.AgentSort; let epoch: Int }
+
+struct KosmosBarLeading<S: View>: ToolbarContent {
+    let switcher: S?
+
+    var body: some ToolbarContent {
+        if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }.sharedBackgroundVisibility(.hidden)
+            ToolbarSpacer(.fixed, placement: .navigationBarLeading)
+        } else {
+            ToolbarItem(placement: .navigationBarLeading) { KosmosMark() }
+        }
+        if let switcher { ToolbarItem(placement: .navigationBarLeading) { switcher } }
+    }
+}
+
+// kosmos#7346 (Josh 10-27 20:21): the top of every screen gets the bottom strip's treatment: the bar is solid in the
+// page's own colour, so a scrolled row never shows behind the mark, the switcher or the buttons, and rows fade into
+// it over a few points just below it. Drawn over the page, so it takes no room and no touches.
+extension View {
+    // `fade: false` for a page whose top is a fixed row (a banner, a search field): the fade goes on its scrolling part
+    // instead (kosmosTopFade), so it never washes over the fixed row (review 1).
+    // kosmos#7628: `ground` is the page's own colour; a conversation passes Palette.chatGround, as the desktop draws its
+    // header inside the conversation's white (or black) box (measured: #d-talk-label sits on #d-talk-box).
+    @ViewBuilder func kosmosSolidTopBar(fade: Bool = true, ground: Color = Palette.ground) -> some View {
+        let solid = toolbarBackground(ground, for: .navigationBar).toolbarBackground(.visible, for: .navigationBar)
+        if fade { solid.kosmosTopFade(ground: ground) } else { solid }
+    }
+
+    func kosmosTopFade(ground: Color = Palette.ground) -> some View {
+        overlay(alignment: .top) {
+            LinearGradient(colors: [ground, ground.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 10).allowsHitTesting(false).accessibilityHidden(true)
+        }
+    }
+}
+
+// kosmos#7343: no title shows in the bar, but VoiceOver still hears the screen's name as its heading.
+// kosmos#7343 / #7421 (Mona Lisa): the ⇅ button on Agents and Projects is drawn heavier while a non-default order is on,
+// so a person who chose another order last week can see the list is not in its usual one: the symbol in a heavier
+// weight (the soft circle behind it went, #7532). The same size either way, so the bar does not shift.
+struct SortButtonLabel: View {
+    let pressed: Bool
+    var body: some View {
+        Image(systemName: "arrow.up.arrow.down")
+            .font(.body.weight(pressed ? .semibold : .regular))
+            .frame(width: 30, height: 30)
+    }
+}
+
+struct ScreenHeading: View {
+    let title: String
+    var body: some View {
+        Color.clear.frame(width: 1, height: 1)
+            .accessibilityElement()
+            .accessibilityLabel(title)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+// kosmos#7266 slice C: the Kosmos switcher, top left of Agents and Projects. It names the computer whose agents and
+// projects are shown; with two or more on the account it opens a list of them, online or offline, the shown one
+// checked, and choosing one shows that computer (BoardClient.showMac). With one it is the name alone.
+struct MacSwitcher: View {
+    @ObservedObject var client: BoardClient
+
+    var body: some View {
+        let rows = Board.switcherRows(client.macs, shown: client.switcherShown, heard: client.heardFrom)
+        let name = rows.first(where: \.shown)?.name ?? client.shownMacName ?? client.phase.macName
+        if let name {
+            if rows.count > 1 {
+                Menu {
+                    Section("Your computers") {
+                        ForEach(rows, id: \.address) { row in
+                            Button { client.showMac(address: row.address) } label: {
+                                if row.shown {
+                                    Label { Text(row.name); Text(row.status) } icon: { Image(systemName: "checkmark") }
+                                } else {
+                                    Text(row.name); Text(row.status)
+                                }
+                            }
+                            .accessibilityLabel("\(row.name), \(row.status)\(row.shown ? ", showing" : "")")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                        Image(systemName: "chevron.down").font(.caption.weight(.semibold))
+                    }
+                    .foregroundColor(Palette.primary)
+                }
+                .accessibilityLabel("Showing \(name)")
+                .accessibilityHint("Choose another computer")
+            } else {
+                Text(name).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    .foregroundColor(Palette.secondary)
+                    .accessibilityLabel("Showing \(name)")
+            }
+        }
+    }
+}
+
+// kosmos#7342: one status pill, 20 pt tall and fully round, 12 pt semibold with 8 pt sides. Working carries the board's
+// three dots, the board's wave (WorkingDots, kosmos#7427), in place of the Sweep of 09-05.
+struct StatusPill: View {
+    let word: String
+    let pill: Board.Pill
+    var wraps = false
+    var body: some View {
+        HStack(spacing: 5) {
+            if pill == .working { sweep }
+            Text(word)
+                .font(.caption.weight(.semibold))
+                .fixedSize(horizontal: !wraps, vertical: true)
+        }
+        .foregroundColor(Palette.pillWord(pill))
+        .padding(.horizontal, 8)
+        .frame(minHeight: 20)
+        .background(Capsule().fill(Palette.pillGround(pill)))
+    }
+
+    // kosmos#7427 (Josh 10-27 20:56): the board's wave, as everywhere else on the phone (WorkingDots), in the pill's own
+    // word colour so it reads on the pill.
+    private var sweep: some View { WorkingDots(color: Palette.pillWord(pill)) }
+}
+
+// kosmos#7529: the starred star, everywhere one is drawn filled (the chat's header, beside a name on the Agents list).
+// The font comes from where it is used, so the fill and its outline are one symbol size.
+struct StarredStar: View {
+    var body: some View {
+        ZStack {
+            Image(systemName: "star.fill").foregroundColor(Palette.starFill)
+            Image(systemName: "star").foregroundColor(Palette.starGold)
         }
     }
 }

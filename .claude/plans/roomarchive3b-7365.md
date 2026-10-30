@@ -1,0 +1,267 @@
+# roomarchive3b-7365: the room archive on the page (kosmos#7365 slice 3b)
+
+Base: local merge of slice 2 (`roomwindow-7365`) and slice 3a (`roomarchive3-7365`) onto main. Rebase onto main once
+both are merged; do not push before then (it would carry two unmerged branches).
+
+## Design (Mona, card comment 6449440652; nothing here is new)
+- The live room scrolls back to a boundary row: "Older messages are archived" with a "View archive" link. It shows only
+  when the reader has reached the start of the live history (olderCount 0) and archivedCount > 0, never as a standing notice.
+- "View archive" switches the same panel into the archive: header "Archive · N messages · Undo · Back to the room",
+  rows newest first at the bottom and earlier pages on scroll to the top (the same window code), bubbles a shade quieter.
+- The room's menu gets "Archive older messages", with a confirm: "Archive messages older than [this week ▾]? They
+  leave this room and what agents read here. You can still search and open them, and undo this from the archive."
+  Choices: this week, this month, everything before today.
+- Search: one list; an archived hit carries an "Archived" tag.
+
+## Decided for the build
+- **One switch in pjWinRead:** every live read sends `archive=0`, the archive view sends `archive=1`; both keep the
+  cursor code as is (3a's cursors are shared across views). Each read stores `archivedCount` on PJ_WIN.
+- **Archive view state is its own object** (PJ_ARCH: on, rows, cursor, olderCount, loading, because), reset by
+  pjWinReset/openProject. While it is on, loadRoom's poll still reads the live newest page (unread counts, the working
+  line) but does NOT paint the room; Back to the room paints the window from PJ_WIN and polls as before.
+- **The boundary row is drawn by paintRoom** as the first row of the live room when the condition holds, so it moves
+  with the rows and never floats. In the archive view, the top row says "This is the start of the room" when the
+  archive's olderCount reaches 0.
+- **Undo** posts `/room/archive/undo`, then leaves the archive view and re-reads (rows the automatic rule archives stay
+  archived, and the count shown says so).
+- **The confirm's time** is computed on the page in the person's zone (this week = 7 days ago, this month = 30 days ago,
+  everything before today = local midnight) and sent as ISO with Z. The server keeps the last day live (3a's floor), so
+  the confirm's wording must not promise more than that: show the time the server answered with in the receipt
+  ("Messages before Tue 26 Oct, 4:10 PM are archived").
+- **Search tag:** pjRoomRow adds `<span class="msg-archived">Archived</span>` beside the time when `m.archived`.
+- **iPhone (3c, its own PR):** the phone's paged read sends no `archive` today and keeps reaching every message; 3c
+  adds the boundary row and archive view in Swift.
+
+## Proof to collect
+- web tests lifting the boundary condition, the archive-view poll guard and the confirm's time math.
+- A browser check (docs/browser-checks/render-room-archive-7365.js) on a seeded board: boundary row appears only at the
+  start of the live history, View archive pages back, Undo restores, an archived search hit shows its tag. It must
+  declare its surface tokens on line 1.
+- design-shots for Mona (light/dark, desktop/phone).
+- Run web.api-routes-3957 (new fetches need literal paths with '?' inside the literal) and both browser-check gates
+  (tools/lib/browser-check-gate.sh, tools/lib/browser-check-surface-gate.sh) after every web/ commit.
+
+## Weakest premise
+That pausing the room's paint while the archive is open is safe for everything else loadRoom paints (the held strip,
+the unanswered lines). Check each before building.
+It was not safe: review 1 found the early return skipped the speech stamps, the hold strip, pending posts and the reply
+map. Fixed by moving the return to just before the rows are written.
+
+## Review rounds
+1. (general-purpose, 17:5x CDT 2026-10-27) 1 BLOCKER, 9 WARNINGs, 1 CONVENTION, 4 NITs; the BLOCKER, all WARNINGs, the
+   CONVENTION and NITs 1 and 2 applied (24b6f23f1e).
+   - (B) Undo read e.currentTarget after an await (null by then) and threw before leaving the archive: it holds the
+     button first.
+   - (W) the archive's early return in paintRoom skipped every state update: moved to just before the rows are written
+     (test pins the order; mutation to the top reds it).
+   - (W) pjWinReset closed the archive, and the poll resets the window on a gap read: decoupled (test, mutation reds).
+   - (W) the poll's let-go measured the archive's DOM, and Back lost the reader's place: guarded, and the place is
+     anchored on open and restored on Back.
+   - (W) "everything before today" always became 24 hours back on the server: relabelled "everything older than a day".
+     Mona's design said "before today"; noted for her design review.
+   - (W) reply headers said "unavailable" for archived originals: "Original message may be in the archive" in the live
+     room ("may": the page cannot tell archived from removed, the weakest part of this fix), and the archive view looks
+     originals up among its own posts.
+   - (W) a failed earlier archive page could not be retried: it uses the earlier-pages line with Try again.
+   - (W) focus and announcements on every view change: focus to Back on open, to the message box on Back and Undo.
+   - (W) Undo did not reset the window: it does, as Archive does.
+   - (W) the tests and the check left the risky paths unproven: three source-order tests; the check gains a poll
+     landing while the archive is open, archived-original headers, focus, Back's place, the "older than a day" time,
+     and the final step asserts the archive is closed.
+   - (C) indentation fixed. Phone width: still unmeasured until the design shots.
+   - NIT 1 (a late poll restoring the old count): stored after loadRoom's generation check. NIT 2 (focus during the
+     Archive request): moves to the Working line.
+   - NIT 3 (the count says "messages" but counts every archived row) and NIT 4 (the archive view is a snapshot; a
+     reaction made in it does not repaint): left, recorded. Kosmos lines in a room are rare and read as messages to a
+     person; reactions in the archive are a follow-up if anyone asks for them.
+   - Found by the sweep, not the reviewer: the confirm was a 42nd body child (web.consolidated-980), so it moved inside
+     the room's section; the modal sweep needed its row; the check needed its four wiring lines.
+2. (sonnet, 18:1x CDT) 0 BLOCKERs, 8 WARNINGs, 1 CONVENTION, 3 NITs; all applied.
+   - (W) a gap read's pjWinReset zeroed the archive count for one poll after it was stored: stored after the gap block.
+   - (W) every row in the archive view carried the Archived tag (the server marks archive=1 rows too): not inside the
+     archive view (the browser check asserts none).
+   - (W) inside the archive, an original on an unread earlier archive page said "unavailable": "further back".
+   - (W) a reaction made in the archive was taken back off by the next archive page's paint: PJ_ARCH.rows is patched
+     too.
+   - (W) View archive had no busy state and no generation check: "Opening the archive..." on the line, a second press
+     while a read is out does nothing, and a stale read never lands (executed test, mutation-proven).
+   - (W) the archive functions had only source-order tests: a vm harness runs pjArchOpen, pjArchEarlier and
+     pjArchClose (open and Back with the anchor restored and focus moved; a stale read; a failed page, no retry by
+     scroll, Try again), each mutation-proven.
+   - (W) browser-check gaps: Undo's toast and focus, a refused Archive (route 503), a failed earlier archive page and
+     Try again (route 500 once), no Archived tag in the archive view, Tab containment, the cutoff line, and a 390 px
+     pass for the header.
+   - (W) the button promised an archive when nothing was old enough: after Archive the page reads the count, and with
+     nothing archived it says so instead of the receipt.
+   - (W) "this week" means seven days back, not a calendar week: the confirm shows the cutoff time beside the choice and
+     follows it. The labels stay Mona's.
+   - (C) Tab is contained in the confirm, and opening another project closes it.
+   - NITs: no raw server reason in the failure line; a successful Archive is announced; a search closes the archive
+     quietly.
+   - Found by me while fixing: my new pjArchWhen replaced the archived-projects list's own pjArchWhen (a function
+     declared twice; the later wins with no error). Renamed pjRoomArchWhen, and a new test asserts every top-level
+     function in the page is declared once (mutation: a second pjArchWhen reds it).
+3. (general-purpose, 18:3x CDT) 1 BLOCKER, 7 WARNINGs, 1 CONVENTION, 5 NITs; all applied.
+   - (B) the browser check read the receipt from the body before the page wrote it (the page reads the count after
+     closing the confirm, and the toast writes 60 ms late): it waits on #msg-toast's own words.
+   - (W) Undo read focus after disabling the focused button (focus goes to the body; WebKit never focuses a clicked
+     button): it reads focus first and passes it to pjArchClose, which also counts focus on the body as "from the header".
+   - (W) a slow Archive could act on a confirm opened later for another project: a per-opening token; a closed opening's
+     answer touches nothing, and the choice is locked while a request is out. Its result then shows nowhere: the person
+     moved to another project, and the archive is set; noted as the weakest part of this fix.
+   - (W) on a phone the archive header pushed the thread's newest rows under the composer: pjFitRoomPhone runs after
+     paintArch and pjArchReset; the 390 px arm opens the archive and asserts the thread ends above the composer.
+   - (W) the 390 px assertion passed when the button was not rendered: split into "no sideways scroll" and "the button
+     is shown inside its header".
+   - (W) the gap-block fix had no pin: the count is asserted after the LAST pjWinReset in loadRoom (mutation reds it).
+   - (W) "nothing archived" compared the total against 0: pjArchOutcome compares the count before and after (receipt,
+     "back in the room" for an earlier cutoff, "nothing more" for the same one), with no hole where a time is missing;
+     unit test and two browser arms.
+   - (W) the archive reaction fix had no test: a vm test, mutation reds it.
+   - (C) the README row now lists every arm.
+   - NITs: labels match their assertions (the live count is asserted); "Opening the archive..." is a flag
+     pjWinOlderLine honours; the confirm is checked to paint on top (elementFromPoint at the middle and two corners);
+     the CSS comment describes its rules, and the archive's bubbles are quieter by opacity, not a filter; the poll's
+     no-repaint stamp includes the archive count, so an archive set elsewhere draws the boundary row.
+   - Also: 3a's two room-read pin fixes (roomRows) are applied here, since this branch merges 3a.
+4. (sonnet, 18:5x CDT) 0 BLOCKERs, 5 WARNINGs, 5 NITs; the WARNINGs and NITs 6 and 8 applied; NITs 7, 9, 10 answered.
+   - (W) the "poll lands while the archive is open" step slept 6.5 s and never proved a poll ran: it waits until
+     PJ_WIN.newest holds the new post (a CONTROL that fails on timeout), then asserts the archive is untouched.
+   - (W) the 390 px section filled a search box that may be hidden at phone width: dropped (already cleared).
+   - (W) openProject's close of the confirm moved focus to the new room's button, and an in-flight Archive's outcome
+     was said nowhere: that close keeps focus where it is, and the answer is said by the project's name.
+   - (W) a slow Undo closed an archive view opened again meanwhile: it closes only the view it was pressed in. Not
+     reachable by the vm harness (the handler is a listener); the browser check's Undo step runs the normal order.
+   - (W) the Undo sentence repeats the server's 30 days and 1,000: a test ties it to ARCHIVE_AGE_MS and ARCHIVE_KEEP
+     (mutation: 31 days reds it).
+   - NIT 6: msgToast is a polite live region, so Archive and Undo no longer also call pjRoomAnnounce (heard once).
+   - NIT 8: Back marks the room seen when it is on screen.
+   - NIT 7, answered: the typeof PJ_ARCH guards are for lifted tests that run loadRoom or pjRoomRow WITHOUT PJ_ARCH
+     declared at all (typeof an undeclared name is 'undefined'); in the page nothing calls them before load.
+   - NIT 9, left: two small reads per Archive press (n=1); the server builds the room rows for each. Not measured as
+     costly; the POST answering its own count would remove both, a server change for a later slice.
+   - NIT 10, answered: the archive route is an operator write that needs only the project, so a room with no agents
+     archives normally; nothing ends in "could not" there.
+5. (general-purpose, 19:0x CDT) 0 BLOCKERs, 4 WARNINGs, 1 CONVENTION, 4 NITs; all applied.
+   - (W) Archive pressed inside the archive view reset it without repainting, leaving its rows unlabelled: it closes
+     through pjArchClose (which repaints); vm test and a browser arm.
+   - (W) the 390 px fit arm clamped what it measured and compared against the textarea: it measures the composer box
+     with the thread scrolled to its end, and asserts the newest post's own bottom.
+   - (W) review 4's fixes had no tests: vm tests for the confirm closing on a project switch (focus untouched, the
+     opening over, no listener left, the outcome said by name, nothing reloaded for another room) and for Back marking
+     the room seen before its paint (not on a search's close), each mutation-proven.
+   - (W) the Tab trap held every Tab on the page if the room's section was hidden some other way: the confirm closes
+     when it has no box on screen.
+   - (C) a slow Undo with the archive closed and reopened meanwhile left that view stale: it reads again.
+   - NITs: the project-switch toast says the real outcome and the room reloads if it is back on screen; 260 to 0 says
+     nothing is archived; Back marks seen before its paint and not on a search's close; the check's View archive waits
+     are now labelled (fixed with the run below).
+6. Browser run 1 (c8b1b3b8e0, queued-heavy 19:07): 45 PASS, 5 FAIL, all five the check's own defects, none the page's:
+   - three matched a row by its whole text with `\b` after the number, but a row's text runs into its time ("live
+     post 17:07"), so no row matched: they match the message paragraph (.msg-bd > p) exactly;
+   - "Back puts the reader back" assumed the boundary row was in view before opening, but the last earlier page's
+     anchor keeps the reader's place and scrolls it away: it compares the top message and its offset before and after;
+   - archiveWith returned the matched part of the toast, not the sentence: it returns the whole toast.
+   - The labelled View archive waits (round 5's last NIT) landed with this commit, not with the run above as the line
+     before first said: a missing button is a named FAIL and the run stops, no unlabelled 30-second click timeout.
+   - Also applied here: slice 2's fix for its CI red (#7394): render-room-send-shows-now-6168 and
+     render-federation-invite-4649 answer the room's paged read in their fetch stubs.
+7. Review 6 (sonnet, 19:3x CDT) 0 BLOCKERs, 4 WARNINGs, 3 NITs; the WARNINGs and NIT 1 applied, NITs 2 and 3 answered.
+   - (W) a toast keeps its words after it hides, so the check's last arm matched the previous toast and read the room
+     before the archive closed: archiveWith clears the toast first, the arm's pattern is anchored, and it waits for the
+     archive to close and the live rows to arrive.
+   - (W) the confirm closing because its box left the screen dropped an in-flight Archive's outcome: it is said, by
+     the project's name (vm test, mutation reds it).
+   - (W) Undo landing while a reopened archive was still reading was swallowed by the loading guard: pjArchOpen(true)
+     reads again (the older read is discarded by the reset's generation) and keeps the live room's first anchor (vm
+     test, mutation reds it).
+   - (W) closing the archive after Archive painted the last body, which held rows just archived, as live: that close
+     paints nothing and restores no anchor; the room is empty for the moment until loadRoom paints the fresh read (vm
+     test, mutation reds it). The comment that claimed otherwise is corrected.
+   - NIT 1: the archive header's count and Undo follow the poll (pjArchHead from loadRoom; vm test, mutation reds it).
+   - NIT 2, answered: Escape on the focused choice cancels the confirm, which is the expected way out of a dialog; an
+     open native popup takes its own Escape first.
+   - NIT 3, left: the project-switch path reads the count a second time; cosmetic.
+8. Review 7 (general-purpose, 19:4x CDT) 0 BLOCKERs, 4 WARNINGs, 4 NITs; all applied or answered.
+   - (W) my round-6 fix left the room blank until loadRoom painted, and a failed read then said "What is shown may be
+     behind" over nothing. Replaced, not patched: Archive answers with the time the server used, and pjArchAfter drops
+     every row older than it from the held body and pages (pjRoomDropArchived, the server's own split by `at`) and paints
+     at once, then loadRoom paints the fresh read. Never blank, nothing archived shown as live (vm tests for both paths,
+     archive open and closed; mutations: no filter, or the requested time instead of the server's, each red).
+   - (W) the call-site change was unpinned (the harness stub ignored arguments): the stub records pjArchAfter's time and
+     both paths (the confirm, the project switch) are asserted. A browser arm that archives NEW rows from inside the
+     archive is not possible on this board: the server keeps the last day live and every older seeded row is already
+     archived by then; the vm arms carry it.
+   - (W) the header followed the poll while the rows did not: the header describes the archive page under it, and a
+     poll that sees the archive's count or marker change reads the archive again (pjArchOpen(true), keeping the
+     reader's place). Source pin, mutation reds it.
+   - (W) the off-screen close relied on a keypress: the answer checks whether the confirm is on screen when it lands
+     (vm test, both outcomes; mutation reds it).
+   - NIT 5: a re-read keeps the header and archive look while it reads; a failed open restores the reader's place.
+   - NIT 6: answered by the header change (the page's own count).
+   - NITs 7 and 8: no longer apply (nothing clears the body now, and nothing is marked seen over a blank room).
+9. Review 8 (sonnet, 19:4x CDT, the LAST round under the fleet's 8-round cap) 0 BLOCKERs, 3 WARNINGs, 2 NITs; all
+   applied. The loop stops here, with no BLOCKER open.
+   - (W) the poll's re-read ran a button-press open's tail (scroll to the bottom, focus to Back, announce): a background
+     re-read restores the archive's own place and leaves focus and the screen reader alone (vm test, mutation reds it).
+   - (W) a change seen while a page was loading was lost (the next poll compared with the previous one): the archive
+     records the count and marker it was read under (readAs), and each poll compares with that, so a skipped or failed
+     re-read is caught next time (source pin, mutation reds it).
+   - (W) a failed background re-read closed the archive: it keeps the view and says "We could not refresh the archive
+     just now; what is shown may be behind." on the line; the next poll tries again (vm test, mutation reds it).
+   - NIT 1: after Archive the live room drops only the leading run older than the cutoff, stopping at the first row
+     that is not older or has no readable time, as the server splits (vm test, mutation reds it).
+   - NIT 2: Undo's visibility comes from the archive page's own marker, like its count.
+10. Browser run 2 (473e7a449e, queued-heavy 20:4x): 51 PASS, 1 FAIL, a real defect: Back did not return the reader to
+    their place. While the archive was open, loadRoom measured "is the reader on the newest row" on the room box, which
+    shows the archive scrolled to its bottom, so a new post's push dropped the reader's row (live post 30) from the
+    window and Back fell to the top. offFloorNow now counts the reader as off the newest row while the archive is open
+    (their place is the anchor). Test in web.room-window-7365.test.js with a control (no archive: the rows go);
+    mutation reds it.
+11. Browser run 3 (1ae86106fc): the same one FAIL, so run 2's fix (offFloorNow) was not the cause, or not all of it. Read
+    from the code: paintThreadInto measures the reader's floor and pixel top on the box as it stands just before the
+    write, and on Back the box still shows the archive, so the archive's scroll carried into the room (the check scrolls
+    the archive to its top, and the room landed at its top). Back now clears the room's held scroll state first and
+    sets it from the anchor (vm test; the mutation reds it). A probe of the Back step (five samples, 0 to 7 s) is
+    queued to confirm, before run 4.
+12. The Back probe (five samples after Back, 0 to 7 s) answered runs 2 and 3: the page returned the reader exactly to
+    where they were when View archive was pressed (the anchor, "live post 0" 321px down, i.e. the room's top). The check
+    measured "before" ahead of Playwright's click, which first scrolled the button (at the room's top) into view and
+    moved the reader. The two page fixes made for runs 2 and 3 were not what that check was catching; both are kept,
+    since each closes a real gap (the window read the archive's box for the reader's place; Back's paint inherited the
+    archive's scroll), each with its own test. The check now starts from a place that is NOT the top (a CONTROL asserts
+    it), clicks with a DOM click as a person clicks a button they can see part of, and compares Back with that place
+    (4018dcad9a).
+13. Browser run 4 (4018dcad9a): 55 PASS, 0 FAIL ("all passed"), the Back arm included (live post 0 at 38px, before and
+    after).
+14. Full validation on 3b00ea9693 (after the rebase onto main): 25093 tests, 1 FAIL: tools.shell-shard-4317's run-tests.sh
+    arm, which runs the browser-check surface gate. The gate refused 16 surface-mapped checks whose tokens this branch's
+    web/index.html changes touch: the per-check trailers slice 2 carried sat on its own commits, now on main, so they do
+    not count for this diff. My local runs of the gate script had exited 0 silently, which proved nothing. The 16 checks
+    are run on 4018dcad9a and their results go in Browser-check-surface trailers on an empty commit.
+15. Surface checks on 4018dcad9a: 15 of 16 green; render-msgref-4631's touch arm C6 red, a real regression. On a
+    375x667 phone the header's "Archive older messages" took a 44 px row of its own, and pjFitRoomPhone (#7196) took
+    that height out of the thread (113 px to its 96 px floor), so the newest message's last lines sat under the composer.
+    Probe 2 measured that reordering it beside Search still gave it its own row.
+16. Placement, with Mona Lisa (04:0x CDT): on a phone, the link leaves the header for the top of the thread. A focused
+    review then measured that a room longer than one page loads its earlier page whenever the reader is within 300 px
+    of the top, so the link pushed itself 200 messages away each time it came into view.
+17. Placement, FINAL with Mona Lisa (07:3x CDT, card comment 6469129307): on a phone (the 30rem room query) the link is
+    the thread's LAST row (pjRoomEndAsk), only in a room of more than one page (allRows > 200, or an earlier page to
+    load), not while searching or in an empty room; desktop unchanged (header). Same review: focus after Archive on a
+    phone (pjArchAfter; pjArchAskShown never returns a hidden link). Unit tests 32/32, room tests 487/487, placement
+    mutations red. The browser check reaches the link by scrolling to the END and asserts the last row, on screen,
+    44 px, header has none. Run 7 and all 16 surface checks green at e22bc4fe3e.
+18. Design shots (4a7e641b8e, ~/work/design-shots/kosmos-7365-slice3b): Mona Lisa approved with one change: the archive
+    VIEW drops its end row (everything there is already archived). c1de0f9f7a: the unit test that opens the archive
+    asserts no such link (red with the old line put back, 31 pass, 1 fail); the browser check asserts it at 390 px.
+19. One blind review of the final placement (after the 8-round cap, on the change made after it): a repaint that
+    rebuilds the thread replaced a focused end row and focus fell to the page (a post landing by poll, or the read after
+    Archive). Fixed in c1de0f9f7a and 3c3aca725e: paintRoom keeps focus on the link on screen, else the composer. My
+    first browser arm passed with the fix off (a same-shape read keeps the node); added one that can fail: focus the end
+    row, post, wait. Run 9: fix green, fix off red alone.
+    Decided, not fixed: the end row sits about 60 px under the newest message, so a reader who scrolls back only that
+    far is not "at the bottom" and new posts stop following (the bottom measure is shared by seven call sites);
+    pjArchAskShown can name a composer the archive view hides, unreachable now the archive view has no end row.
+20. Browser run 10 at 3c3aca725e (queued-heavy): render-room-archive-7365 and all 16 surface checks green; trailers in
+    cba915fb50.

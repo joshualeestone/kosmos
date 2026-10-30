@@ -77,6 +77,11 @@ const PERSON_TELLS = 3;
 const PERSONS_CAPFULL_READS = 3;   // review 6: with the hour's cap met, at most this many agents are read a pass, for persons only
 const PERSONS_KEPT_MS = 14 * 24 * 60 * 60 * 1000;   // an entry no count has seen for this long is dropped
 
+/* kosmos#7543 review 5: ' --public' on a computer whose company has its own community on (a plain command would go
+   there) while the public one is allowed; '' everywhere else, so a board with no company is unchanged. */
+function publicFlag() {
+  try { const s = require('./communitysend').communityScope(); return s && s.company && s.publicAllowed ? ' --public' : ''; } catch { return ''; }
+}
 /* agentnudge's helper, plus (review 1) the invisible characters it leaves: line and paragraph separators, bidi controls
    and zero-width marks, so a title cannot break the typed line or hide its direction. */
 function plainWords(v, cap) {
@@ -129,7 +134,7 @@ function commentText(due) {
   if (due.length === 1) {
     return 'Kosmos here: a person, not an agent, replied to you on your community post' + title + ' and is' + again + ' waiting for your'
       + ' answer. Answer them once, in your own words and under the community rules, in that thread:'
-      + ' kosmos community comment ' + first.remoteId + ' --reply-to ' + first.id + ' with your text on stdin, as the community rules show'
+      + ' kosmos community comment ' + first.remoteId + ' --reply-to ' + first.id + publicFlag() + ' with your text on stdin, as the community rules show'
       + ' (read what they wrote first with kosmos community read --replies).' + done;
   }
   return 'Kosmos here: ' + due.length + ' people, not agents, replied to you on your community posts, and each is' + again + ' waiting for'
@@ -149,9 +154,9 @@ function assignText(posts, lead) {
        but this one is not the agent's), and in a trusted "Kosmos here" line it could read as the board's words, as a
        name could (slice A's review 1). The agent reads it inside the read's quote frame. */
     return head + 'a person, not an agent, posted in the community, no agent has answered them yet, and the community'
-      + ' picked you to answer. They are' + again + ' waiting. Read it with kosmos community read --post ' + p.remoteId
+      + ' picked you to answer. They are' + again + ' waiting. Read it with kosmos community read --post ' + p.remoteId + publicFlag()
       + ', then answer once, in your own words and under the community rules: kosmos community comment ' + p.remoteId
-      + ' with your text on stdin, as the community rules show.' + done;
+      + publicFlag() + ' with your text on stdin, as the community rules show.' + done;
   }
   return head + posts.length + ' posts by people, not agents, are in the community, no agent has answered them yet, and the community'
     + ' picked you to answer each. They are' + again + ' waiting. For each, read it with kosmos community read --post <id> and answer'
@@ -368,7 +373,7 @@ async function sweepOnce(o) {
          would hold it (no try counted), so it would fill a slot every pass until the reset and starve later agents. */
       if (typeof o.quotaHeld === 'function') {
         let q = false; try { q = o.quotaHeld(session, o.roster) === true; } catch { q = false; }   // review 6: the pass's roster, no new snapshot
-        if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: 'its machine\'s shared Google quota is out, or its Gemini agents are at the limit set for working at once' }); continue; }
+        if (q) { results.push({ session, name: plainWords(card.name || session, 80), act: 'quota-held', because: (card.runner === 'antigravity' ? 'its machine\'s shared Google quota is out, or ' : '') + require('./agyquota').capWords(session, o.roster).replace('the limit you set', 'the limit set') }); continue; }
       }
       prune();   // review 8: the hour's log ages out during a long pass too
       // Review 1: the hour's cap met reads no further for the regular comments; #5623: a person's comment takes no slot, so
@@ -650,7 +655,7 @@ async function sweepOnce(o) {
         if (held || paneBusy) {
           rollBack();
           const act = held ? (heldBy === 'input' ? 'input-held' : heldBy === 'menu' ? 'menu-held' : heldBy === 'signin' ? 'signin-held' : heldBy === 'limit' ? 'limit-held' : 'quota-held') : 'pane-busy';
-          results.push({ session, name: display, act, delivered: false, delivery: state, because: held ? p.because + (heldBy === 'input' ? '; held while its input box holds text not yet sent (#6249)' : heldBy === 'cap' ? '; held by the Gemini limit' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'signin' ? '; held while it is signed out (#5948)' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota') : p.because });
+          results.push({ session, name: display, act, delivered: false, delivery: state, because: held ? p.because + (heldBy === 'input' ? '; held while its input box holds text not yet sent (#6249)' : heldBy === 'cap' ? '; held by a working-at-once limit you set' : heldBy === 'menu' ? '; held while it waits for an answer on its screen' : heldBy === 'signin' ? '; held while it is signed out (#5948)' : heldBy === 'limit' ? '; held while it is out of usage (#5805)' : '; held on the shared Google quota') : p.because });
           const m = book.get(session) || {};
           if (m.waitSaid !== act) { say({ name: display, session, act, delivered: false, delivery: state, because: p.because }); book.set(session, { ...m, waitSaid: act }); }
           continue;

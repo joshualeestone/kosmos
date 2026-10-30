@@ -174,6 +174,30 @@ esac
 # run-tests.sh itself runs its shell part one at a time rather than 4 shards inside a shard. A test that scrubs the
 # environment (env -i, or dropping KOSMOS_ variables) gets the unset default instead, as any run with no value does.
 _RT_SHELL_PARALLEL="$KOSMOS_SHELL_PARALLEL"; export KOSMOS_SHELL_PARALLEL=1
+# #7247: on a Windows computer (Git Bash, MSYS, Cygwin), every node this run starts loads tools/no-schtasks-preload.cjs
+# unless CI is set or KOSMOS_TESTS_REAL_SCHTASKS=1, so the suite cannot reach the computer's real Task Scheduler,
+# where one test that reaches it could end the board's own task. The rule and the NODE_OPTIONS it builds are
+# tools/windows-tests.js's own (childEnv, schedulerLine), read here rather than written twice. cygpath gives node a
+# path it can read; without it the guard cannot be set up, and the run stops rather than reach the real scheduler.
+_RT_WIN=0   # set below on Windows only; never taken from the environment (review 1 of #7257)
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    _RT_WIN=1   # #7257: read below by the suite and harness checks and by the node --test line
+    if ! _rt_wt="$(cygpath -m "$REPO/tools/windows-tests.js" 2>/dev/null)" || [ -z "$_rt_wt" ]; then
+      case "${CI:-}" in ""|false|FALSE|False|0) _rt_ci="" ;; *) _rt_ci=1 ;; esac   # as windows-tests.js onCi reads it
+      if [ "${KOSMOS_TESTS_REAL_SCHTASKS:-}" != 1 ] && [ -z "$_rt_ci" ]; then
+        echo "run-tests: cygpath is missing, so the #7247 schtasks guard cannot be set up; KOSMOS_TESTS_REAL_SCHTASKS=1 runs against the real Task Scheduler" >&2
+        exit 2
+      fi
+      echo "run-tests: schtasks calls reach this computer's REAL Task Scheduler (#7247; CI or KOSMOS_TESTS_REAL_SCHTASKS=1 asked for it)" >&2
+    else
+      _rt_sched="$(node -e 'const w = require(process.argv[1]); const e = w.childEnv(process.env, "win32"); process.stdout.write((e.NODE_OPTIONS || "") + "\n" + (w.schedulerLine(process.env, "win32") || ""))' "$_rt_wt")" \
+        || { echo "run-tests: could not read the #7247 schtasks rule from tools/windows-tests.js" >&2; exit 2; }
+      _rt_opts="$(printf '%s\n' "$_rt_sched" | head -n 1)"
+      if [ -n "$_rt_opts" ]; then export NODE_OPTIONS="$_rt_opts"; fi
+      echo "run-tests: $(printf '%s\n' "$_rt_sched" | tail -n 1)" >&2
+    fi ;;
+esac
 # #6791: which platform's share of test:shell a shard runs (tools/shell-macos-only.txt): linux or mac, only with a shard.
 if [ -n "${KOSMOS_SHELL_PLATFORM:-}" ]; then
   if [ -z "${KOSMOS_SHELL_SHARD:-}" ] || { [ "$KOSMOS_SHELL_PLATFORM" != linux ] && [ "$KOSMOS_SHELL_PLATFORM" != mac ]; }; then
@@ -622,12 +646,16 @@ _rt_suite_max_now() {
 }
 _rt_suite_check=1
 { [ "${KOSMOS_TESTS_IGNORE_SUITE:-0}" = 1 ] || _kosmos_pid_is_test_fixture "$$" "$0"; } 2>/dev/null && _rt_suite_check=0
+# #7334: on Windows these checks read Git Bash's own process table (/proc) through the reader in
+# tools/lib/process-fixture.sh, so the suite queue, its cap and the harness check run there as on a Mac (#7257 had
+# switched them off there, when Git Bash's ps could not answer them).
+_rt_harness_check=1
 _rt_box_clear() {
   kosmos_refuse_if_machine_claimed "this test run" || return 1
   if [ "$_rt_suite_check" = 1 ]; then
     kosmos_refuse_if_suite_live "this test run" "KOSMOS_TESTS_IGNORE_SUITE=1 runs anyway" "$(($(_rt_suite_max_now) - 1))" || return 1
   fi
-  if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
+  if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ] && [ "$_rt_harness_check" = 1 ]; then
     kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" || return 1
   fi
   return 0
@@ -648,7 +676,7 @@ if [ "$KOSMOS_ONLY" = 1 ]; then
   if command -v kosmos_refuse_if_machine_claimed >/dev/null 2>&1; then
     if ! kosmos_holds_machine_claim; then
       kosmos_refuse_if_machine_claimed "this --only run" || exit 1
-      if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
+      if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ] && [ "$_rt_harness_check" = 1 ]; then
         kosmos_refuse_if_harness_live "this --only run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs it anyway" || exit 1
       fi
     fi
@@ -820,6 +848,79 @@ fi
 #
 # #6059: fresh-connections.js makes the global fetch open a new connection per request, so a kept-alive socket
 # left idle on a loaded runner cannot come back ECONNRESET on the next request (one preload for ~240 files).
+# #7257: Windows caps a command line at about 32K characters, so one node --test over every file stopped with
+# "Argument list too long" and ran nothing. There, node is this function for the one call over KOSMOS_TEST_FILES: the
+# same options and trailing arguments over the files in chunks of under 24,000 characters (the cap is 32,767; the rest
+# is headroom for node.exe's own path and Git Bash rewriting each relative path), in order, the worst exit
+# status as the node part's, and one line naming the chunk count (so a run that did one chunk of many shows). A test
+# failure outranks a 126/127 from another chunk (so the "not a failing test" line below stays true), and a chunk that
+# ends from a signal (128 and up, a Ctrl-C) stops the rest. Every other node call goes to node itself. The node --test line below stays as it is (three guards find it flush left).
+# The per-file watchdog has never run on Windows (it reads ps -A and pgrep, which Git Bash lacks), chunked or not.
+if [ "${_RT_WIN:-0}" = 1 ]; then
+  node() {
+    local n=${#KOSMOS_TEST_FILES[@]} k=-1 i
+    local a=("$@")
+    if [ "${1:-}" = --test ] && [ "$n" -gt 0 ]; then
+      for ((i = 0; i + n <= ${#a[@]}; i++)); do
+        if [ "${a[i]}" = "${KOSMOS_TEST_FILES[0]}" ] && [ "${a[i + n - 1]}" = "${KOSMOS_TEST_FILES[n - 1]}" ]; then k=$i; break; fi
+      done
+    fi
+    if [ "$k" -lt 0 ]; then command node "$@"; return; fi
+    # Arrays read as ${x[@]+"${x[@]}"}: an empty one under set -u is "unbound" in bash before 4.4 (review 3).
+    local opts=() extra=() chunk=() base=0 len=0 worst=0 failed=0 rc=0 chunks=0 ran=0 x f prev=""
+    for ((i = 0; i < k; i++)); do opts+=("${a[i]}"); done
+    # Trailing arguments (reviews 3 to 5): an option goes to every chunk, and so does the word after one of the options
+    # that take a value (listed here; any other option is a flag, so --test-only x.test.js is a flag and a file). A word
+    # naming one of the suite's files (in any spelling: ./x, the repo's own path) is dropped, since it runs in its chunk.
+    # Anything else (another file, a glob, a folder) would run once per chunk, or rerun files of earlier chunks that one
+    # node --test call would have run once, so it is refused: name such files with --only.
+    for ((i = k + n; i < ${#a[@]}; i++)); do
+      x="${a[i]}"
+      if [ "${x#-}" != "$x" ]; then
+        extra+=("$x")
+        case "$x" in
+          --test-name-pattern|--test-skip-pattern|--test-concurrency|--test-reporter|--test-reporter-destination|--test-shard|--test-timeout|--import|--require|-r|--loader|--experimental-loader|--conditions|-C|--env-file) prev="$x" ;;
+          *) prev="" ;;
+        esac
+        continue
+      fi
+      if [ -n "$prev" ]; then extra+=("$x"); prev=""; continue; fi
+      f="${x#./}"; f="${f#"$REPO"/}"
+      for x in "${KOSMOS_TEST_FILES[@]}"; do [ "$x" = "$f" ] && continue 2; done
+      echo "run-tests: on Windows, test files after the suite's own are not taken ('${a[i]}'): the suite runs in chunks, so it would run once per chunk. Name them with --only (#7257)." >&2
+      return 2
+    done
+    for x in ${opts[@]+"${opts[@]}"} ${extra[@]+"${extra[@]}"}; do base=$((base + ${#x} + 3)); done
+    for x in ${extra[@]+"${extra[@]}"}; do   # the user's own options (review 5: opts are the runner's, fixed)
+      case "$x" in --test-reporter-destination*) echo "run-tests: --test-reporter-destination is written again by each chunk on Windows, so it holds the last chunk's results (#7257)" >&2 ;; esac
+    done
+    _rt_chunk() {
+      command node ${opts[@]+"${opts[@]}"} ${chunk[@]+"${chunk[@]}"} ${extra[@]+"${extra[@]}"}; rc=$?
+      chunks=$((chunks + 1)); ran=$((ran + ${#chunk[@]})); chunk=(); len=0
+      case "$rc" in 0|126|127) ;; *) [ "$rc" -gt "$failed" ] && failed=$rc ;; esac
+      [ "$rc" -gt "$worst" ] && worst=$rc
+      # 126/127: node itself could not run, so no later chunk can; 128 and up: a signal (Ctrl-C) stops the rest.
+      [ "$rc" -lt 126 ]
+    }
+    for f in "${KOSMOS_TEST_FILES[@]}"; do
+      if [ "${#chunk[@]}" -gt 0 ] && [ $((base + len + ${#f} + 3)) -gt 24000 ]; then
+        _rt_chunk || break
+      fi
+      chunk+=("$f"); len=$((len + ${#f} + 3))
+    done
+    # The last chunk, unless an earlier one stopped the run. Never a call with no files: node --test with none would
+    # find and run every test file itself (review 4).
+    if [ "${#chunk[@]}" -gt 0 ] && [ "$rc" -lt 126 ]; then _rt_chunk; fi
+    if [ "$ran" -lt "$n" ]; then
+      echo "run-tests: node --test stopped after $chunks chunk(s) (exit $rc): $((n - ran)) of $n file(s) not run (#7257)" >&2
+    else
+      echo "run-tests: node --test ran in $chunks chunk(s) over $n file(s) (#7257: Windows caps a command line)" >&2
+    fi
+    unset -f _rt_chunk
+    if [ "$failed" -gt 0 ]; then return "$failed"; fi
+    return "$worst"
+  }
+fi
 NODE_STATUS=0
 _rt_wd_pid=""
 _rt_wd_flag=""

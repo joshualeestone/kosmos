@@ -25,7 +25,7 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const HEADING = 'How would you like to set up Kosmos on this computer?';
 const RUN = 'Run agents on this computer';
 const CONNECT = 'Connect to agents on another computer';
-const BOTH = 'Run agents here and connect to other computers';
+const BOTH = 'Run agents on this computer and connect to agents on another computer';   // kosmos#7205: Josh's words
 
 /* The screen's markup: from its opening tag to the matching close, counted by <div> depth, so a
    line added anywhere inside it is inside what the tests read. */

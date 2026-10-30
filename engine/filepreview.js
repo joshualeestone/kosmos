@@ -54,7 +54,7 @@ function readChecked(got) {
   try {
     // O_NONBLOCK (review 2): a FIFO swapped in after the walk must not block the board; isFile() below refuses it.
     fd = fs.openSync(got.target, fs.constants.O_RDONLY | (NOFOLLOW || 0) | (NONBLOCK || 0));
-    const st = fs.fstatSync(fd);
+    const st = projects.exactOpenedStat(fs.fstatSync(fd), fd);   // #7229: the exact id on Windows
     // #5165's sameOpenedFile: the same inode (and device), or, where a drive reports inode 0, the same size and times.
     if (!st.isFile() || !projects.sameOpenedFile(got.st, st)) return { ok: false, because: 'that file changed while it was being read' };
     if (tooBig(st)) return { ok: false, because: 'that file is too big to show here' };
@@ -73,7 +73,7 @@ function readHead(got, max) {
   let fd = null;
   try {
     fd = fs.openSync(got.target, fs.constants.O_RDONLY | (NOFOLLOW || 0) | (NONBLOCK || 0));
-    const st = fs.fstatSync(fd);
+    const st = projects.exactOpenedStat(fs.fstatSync(fd), fd);   // #7229: the exact id on Windows
     if (!st.isFile() || !projects.sameOpenedFile(got.st, st)) return { ok: false, because: 'that file changed while it was being read' };
     const want = Math.min(st.size, max);
     const bytes = Buffer.alloc(want);
@@ -133,7 +133,7 @@ async function preview(folder, name, where, opts) {
   /* Review 1: the stamp names THIS file (device, inode, size, both times). Review 3: the page is stored UNDER its stamp
      (one file, named by a hash of it), so a picture and the stamp it belongs to can never be paired wrongly by two
      previews racing; each render works in its own folder and is renamed into place whole. */
-  const stamp = [got.st.dev, got.st.ino, got.st.size, got.st.mtimeMs, got.st.ctimeMs].join('|');   // hashed only (#1732: not ':')
+  const stamp = [got.st.dev, got.st.ino, got.st.size, got.st.mtimeMs, got.st.ctimeMs].concat(got.st.inoExact === undefined ? [] : [String(got.st.inoExact)]).join('|');   // hashed only (#1732: not ':'); #7229: the exact id on Windows
   const out = path.join(dir, crypto.createHash('sha256').update(stamp).digest('hex').slice(0, 32) + '.png');
   if (!fs.existsSync(out)) {
     const read = readChecked(got);   // review 2: the renderer reads a private copy, never the person's path

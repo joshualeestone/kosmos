@@ -76,6 +76,9 @@ extension Board {
         // The computer's cursor for the page before this one; nil at the start of the room.
         let olderCursor: String?
         let held: Bool
+        // kosmos#7365 slice 3c: how many of the room's messages are archived (the route's archivedCount; 0 when the
+        // computer did not say, so an older computer draws no boundary row).
+        var archivedCount = 0
         // kosmos#7072: when the hold should lift on its own (the route's held.until), nil when it did not say.
         var heldUntil: Date? = nil
         // The route's `unanswered` for the WHOLE room (messages.unanswered is not filtered by page), names shown; nil
@@ -88,11 +91,15 @@ extension Board {
         var unread = false
     }
 
+    // kosmos#7365 slice 3c: which part of the room a page is drawn from. The phone reads the live part, as agents do
+    // (the board's pjWinRead sends archive=0); the archive view reads the archive (archive=1). The cursors are shared.
+    enum RoomPart: String { case live = "0", archive = "1" }
+
     // The newest page (no cursor) or the page before a cursor the computer gave.
-    static func roomRequest(mac: URL, project: String, n: Int, cursor: String? = nil) -> URLRequest? {
+    static func roomRequest(mac: URL, project: String, n: Int, cursor: String? = nil, part: RoomPart = .live) -> URLRequest? {
         guard isProjectId(project), (1...200).contains(n) else { return nil }
         var parts = URLComponents(url: URL(string: "/api/project/\(project)/room", relativeTo: mac)!.absoluteURL, resolvingAgainstBaseURL: true)
-        var items = [URLQueryItem(name: "n", value: String(n))]
+        var items = [URLQueryItem(name: "n", value: String(n)), URLQueryItem(name: "archive", value: part.rawValue)]
         if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
         parts?.queryItems = items
         guard let url = parts?.url else { return nil }
@@ -100,6 +107,35 @@ extension Board {
         r.setValue("application/json", forHTTPHeaderField: "Accept")
         r.cachePolicy = .reloadIgnoringLocalCacheData
         return r
+    }
+
+    // kosmos#7365 slice 3c: the archive, in the board's words (web/index.html, slice 3b). The boundary row shows only
+    // once the reader has reached the start of the live part (no earlier page to read) and something is archived, as
+    // the board's paintRoom draws it; never while searching, which shortens the room.
+    enum Archive {
+        static let boundary = "Older messages are archived."
+        static let view = "View archive"
+        static let title = "Archive"
+        static let back = "Back to the room"
+        static let start = "This is the start of the room."
+        static let opening = "Opening the archive\u{2026}"
+        static let couldNotOpen = "We could not open the archive just now."
+        static let couldNotReadEarlier = "We could not read the earlier archived messages."
+        static let backAnnouncement = "Back in the room."
+        // Review 1: the composer's place while the archive shows ("You are reading the archive. Back to the room to write."),
+        // an empty archive, and a reply whose original is not in the live part once its start is reached.
+        static let readingFirst = "You are reading the archive."
+        static let readingLast = "to write."
+        static let nothing = "Nothing in this room is archived now."
+        static let originalMayBe = "Original message may be in the archive"
+        static func count(_ n: Int) -> String {
+            let f = NumberFormatter(); f.numberStyle = .decimal; f.locale = Locale(identifier: "en_US")
+            return (f.string(from: NSNumber(value: n)) ?? String(n)) + (n == 1 ? " message" : " messages")
+        }
+        static func showing(_ n: Int) -> String { "Showing the archive, " + count(n) + "." }
+        static func boundaryShown(olderCursor: String?, archivedCount: Int, searching: Bool) -> Bool {
+            olderCursor == nil && archivedCount > 0 && !searching
+        }
     }
 
     // kosmos#7072: a held room (#5800), as the board says it above its composer (web/index.html pjHeldNotice), word for
@@ -300,6 +336,7 @@ extension Board {
         var page = RoomPage(rows: rows, olderCount: max(0, integer(obj["olderCount"]) ?? 0), olderCursor: cursor,
                             held: obj["held"] is [String: Any])
         page.heldUntil = isoDate((obj["held"] as? [String: Any])?["until"] as? String)
+        page.archivedCount = max(0, integer(obj["archivedCount"]) ?? 0)
         if obj["unanswered"] is [String: Any] { page.silent = silent.mapValues { $0.map(shown) } }
         page.unread = (obj["ok"] as? Bool) == false
         return page
@@ -365,6 +402,42 @@ extension Board {
     // (it still points before the oldest row shown). When it shares no row with them and the computer says older rows
     // exist, more than a page arrived while the room was away: merging would hide a gap no cursor can reach, so the
     // page replaces what was shown and its own cursor takes over.
+    // kosmos#7365 slice 3c (reviews 3 to 5): the newest live page when the archived count moved since the rows shown
+    // were read; nil means merge as usual. The first read (was nil) is never a move.
+    // - Fewer archived (an undo): at the live start the page and its cursor replace the rows, so the rows given back are
+    //   reachable above; with earlier pages still unread, the earlier-page read finds them.
+    // - More archived, and the page reaches the live start (olderCount 0): the page holds the whole live part, so every
+    //   row shown before its first row is archived, found by the row itself (its id), or by time when the phone does not
+    //   hold that row. The page's nil cursor is taken.
+    // - More archived, the live start off the page: the earlier rows still unread were archived first; only the rest of
+    //   the move (beyond older.count) reaches the rows shown, the first ones, and then nothing earlier is left to read.
+    // Review 6: every move keeps older.count (the earlier live rows still unread) in step, a move that stops short of the
+    // rows shown included, so the next one is measured against the truth.
+    static func archiveMoved(_ shown: [RoomRow]?, older: (count: Int, cursor: String?)?, was: Int?, page: RoomPage)
+        -> (rows: [RoomRow], older: (count: Int, cursor: String?))? {
+        guard let was, was != page.archivedCount, let shown, let older else { return nil }
+        let start = (count: 0, cursor: String?.none)
+        if page.archivedCount < was {
+            if older.cursor == nil { return (page.rows, (page.olderCount, page.olderCursor)) }
+            return refreshRoom(shown, older: (older.count + (was - page.archivedCount), older.cursor), page: page)
+        }
+        let kept: [RoomRow]
+        if page.olderCount == 0 {
+            guard let first = page.rows.first else { return (page.rows, start) }
+            if let i = shown.firstIndex(where: { $0.id == first.id }) { kept = Array(shown[i...]) }
+            else if let cut = first.at { kept = shown.filter { ($0.at ?? .distantFuture) > cut } }
+            else { kept = [] }
+        } else {
+            let unread = older.cursor == nil ? 0 : older.count
+            let k = page.archivedCount - was - unread
+            guard k > 0 else { return refreshRoom(shown, older: (unread - (page.archivedCount - was), older.cursor), page: page) }
+            kept = Array(shown.dropFirst(k))
+        }
+        // Nothing shown is still live: the page and its own cursor, so the live rows before it stay reachable.
+        if kept.isEmpty { return (page.rows, (page.olderCount, page.olderCursor)) }
+        return refreshRoom(kept, older: start, page: page)
+    }
+
     static func refreshRoom(_ shown: [RoomRow]?, older: (count: Int, cursor: String?)?, page: RoomPage)
         -> (rows: [RoomRow], older: (count: Int, cursor: String?)) {
         guard let shown, let older else { return (page.rows, (page.olderCount, page.olderCursor)) }
@@ -549,6 +622,8 @@ extension Board {
         let session: String
         let name: String
         let hasAvatar: Bool
+        // The engine's provider family. Nothing on the phone reads it since #7269 took the tally off the row; kept
+        // parsed (and tested) for the agent page's AI Settings (#7267), planned.
         let provider: String?
         // kosmos#7106: why the projects route counts this member as needing the person on THIS project (null: not), the
         // key Dismiss sends back, and the agent's own reason (the board's pjNeedsNotice reads all three).
@@ -575,6 +650,9 @@ extension Board {
         let needsYouQuestions: Int
         let working: Int
         let restarting: Int
+        // kosmos#7342 (Mona Lisa): on Mentions only or Muted (the board's notify, #7210): its count stays on its row but
+        // adds nothing to the Projects tab or the Dock, so its bubble is grey.
+        var quiet = false
     }
 
     struct ProjectList: Equatable {
@@ -583,74 +661,16 @@ extension Board {
         let agentsUnreadable: Bool
     }
 
-    // kosmos#7114: which AI a project's agents run on, as one tally beside "N agents" (web/index.html pjProviderTally,
-    // #6966). `provider` is the engine's family name; a member without one is left out, so the tally can count fewer
-    // than the members. One entry per word, in PJ_TALLY order, then any other provider by its own name as it comes.
-    // `mark` is the asset of the board's own mark (nil: the board's initial-letter chip).
-    static let providerTallyOrder: [(provider: String, pick: String, word: String)] = [
-        ("Claude", "claude", "Claude"), ("OpenAI", "openai", "GPT"), ("Gemini", "google", "Gemini"),
-        ("Gemini (Google subscription)", "antigravity", "Gemini"), ("Grok", "xai", "Grok"), ("Meta Muse", "meta", "Meta"),
-        ("Qwen", "alibaba", "Qwen"),
-    ]
-    // The board's PROVIDER_MARK_KEY, from the tally's pick to the first-run screen's mark, for the marks the phone
-    // carries. An unknown provider is picked by its lowercased name, as on the board; "anthropic" wears Claude's mark
-    // there too. Marks the phone does not carry (Mistral, Kimi and the like) are the board's initial chip here.
-    static let providerMarkAsset: [String: String] = [
-        "claude": "MarkClaude", "anthropic": "MarkClaude", "openai": "MarkOpenAI", "google": "MarkGemini",
-        "antigravity": "MarkGemini", "xai": "MarkGrok", "meta": "MarkMeta", "alibaba": "MarkQwen",
-    ]
-    struct TallyEntry: Equatable, Identifiable {
-        let word: String
-        let mark: String?
-        let n: Int
-        var id: String { word }
-        // The board's initial-letter chip, for a provider without a mark.
-        var initial: String {
-            let first = String(word.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()   // JS trim
-            return first.isEmpty ? "?" : first   // the board's || '?'
+    // kosmos#7421: By project on the Agents list: each agent's first project name A to Z, by session, from this list's
+    // members (the desktop's agentFirstProject).
+    static func firstProjects(_ list: ProjectList?) -> [String: String] {
+        var names: [String: [String]] = [:]
+        for p in list?.projects ?? [] where !p.name.trimmingCharacters(in: .whitespaces).isEmpty {
+            for m in p.members { names[m.session, default: []].append(p.name.trimmingCharacters(in: .whitespaces)) }
         }
+        return names.mapValues { $0.sorted { $0.compare($1, options: [.caseInsensitive, .diacriticInsensitive], locale: .current) == .orderedAscending }[0] }
     }
-    static func providerTally(_ members: [ProjectMember]) -> [TallyEntry] {
-        var counts: [String: (pick: String, n: Int, at: Int)] = [:]
-        var order: [String] = []
-        for m in members {
-            guard let provider = m.provider, !provider.isEmpty else { continue }
-            let row = providerTallyOrder.firstIndex { $0.provider == provider }
-            let word = row.map { providerTallyOrder[$0].word } ?? provider
-            if let got = counts[word] { counts[word] = (got.pick, got.n + 1, got.at); continue }
-            counts[word] = (row.map { providerTallyOrder[$0].pick } ?? provider.lowercased(), 1, row ?? providerTallyOrder.count)
-            order.append(word)
-        }
-        // A stable sort by PJ_TALLY position, as the board's: unknown providers keep the order they came in.
-        let sorted = order.enumerated().sorted { (counts[$0.element]!.at, $0.offset) < (counts[$1.element]!.at, $1.offset) }.map(\.element)
-        return sorted.map { w in TallyEntry(word: w, mark: providerMarkAsset[counts[w]!.pick], n: counts[w]!.n) }
-    }
-    // The tally's line breaking (review 3: the layout measured with one rule and placed with another, so a line could
-    // be drawn below the height it reported). One rule for both: an entry goes on the next line when it and the
-    // spacing before it would pass the width. Returns each line's entry indices, in order.
-    static func flowLines(_ widths: [Double], width: Double, spacing: Double) -> [[Int]] {
-        flowLayout(widths, width: width, spacing: spacing).lines
-    }
-    // The same, with each line's width summed exactly as it was compared (review 5): reporting these widths means that
-    // breaking again at the reported width, or anywhere between it and the proposal, replays the same lines.
-    static func flowLayout(_ widths: [Double], width: Double, spacing: Double) -> (lines: [[Int]], widths: [Double]) {
-        var lines: [[Int]] = []
-        var lineWidths: [Double] = []
-        var x = 0.0
-        for (i, w) in widths.enumerated() {
-            if let last = lines.indices.last, !lines[last].isEmpty, x + spacing + w <= width {
-                lines[last].append(i); x = x + spacing + w
-            } else {
-                lines.append([i]); x = w; lineWidths.append(0)
-            }
-            lineWidths[lineWidths.count - 1] = x
-        }
-        return (lines, lineWidths)
-    }
-    // What VoiceOver hears after the count (the board's visually hidden ", 2 Claude, 1 Gemini").
-    static func providerTallySpoken(_ tally: [TallyEntry]) -> String {
-        tally.isEmpty ? "" : ", " + tally.map { "\($0.n) \($0.word)" }.joined(separator: ", ")
-    }
+
 
     // kosmos#7106: the room's needs-you notice (the board's pjNeedsNotice, PJ_NEEDS_WHY): one row per member the route
     // counts here, with the board's reason and action words, and the key Dismiss sends.
@@ -799,7 +819,8 @@ extension Board {
                               paused: isTrue(p["paused"]), createdAt: isoDate(p["createdAt"] as? String), members: members,
                               folderProblem: folderProblem.flatMap { $0.isEmpty ? nil : $0 },
                               needsYou: integer(s["needsYou"]) ?? 0, needsYouQuestions: integer(s["needsYouQuestions"]) ?? 0,
-                              working: integer(s["working"]) ?? 0, restarting: integer(s["restarting"]) ?? 0)
+                              working: integer(s["working"]) ?? 0, restarting: integer(s["restarting"]) ?? 0,
+                              quiet: ["mentions", "muted"].contains(p["notify"] as? String ?? ""))
         }
         return ProjectList(projects: rows, agentsUnreadable: isTrue(obj["agentsUnreadable"]))
     }
@@ -834,6 +855,7 @@ extension Board {
     }
 
     enum ProjectSort: String, CaseIterable { case newest, oldest, az, za }
+    static let projectSortDefault = ProjectSort.newest
     static func projectSortLabel(_ s: ProjectSort) -> String {
         switch s {
         case .newest: return "Newest first"
@@ -872,7 +894,24 @@ extension Board {
     struct ProjectTreeRow: Equatable, Identifiable {
         let project: ProjectRow
         let depth: Int
+        // kosmos#7269: the last of its parent's sub-projects, so its connector line stops at its elbow (the board's
+        // .pj-lastkid, #5712). Always false at the top level, which draws no line.
+        var lastKid = false
+        // kosmos#7269: it has sub-projects shown right under it, so it starts their line below its first face.
+        var hasKids = false
+        // kosmos#7269: the levels (1 = under a top-level project) whose line runs on past this row to a later sibling of
+        // one of its ancestors, so a deeper row carries that line through instead of breaking it.
+        var through: [Int] = []
         var id: String { project.id }
+    }
+
+    // kosmos#7269 (Josh, 2026-10-26: "show the members as small avatar bubbles", "the first N, then +3"): how many faces a
+    // project row draws and the "+N" after them. Up to `room` faces fit, so a crowd shows room - 1 faces and the rest as
+    // "+N" (12 members: 9 faces, +3). 0 members: no faces, no "+".
+    static func faceBubbles(_ count: Int, room: Int = 10) -> (faces: Int, more: Int) {
+        let n = max(0, count)
+        let fit = max(1, room)
+        return n <= fit ? (n, 0) : (fit - 1, n - (fit - 1))
     }
 
     // The active projects as the board's tree (pjTreeRows): sorted, then each sub-project right after its parent, one
@@ -885,14 +924,19 @@ extension Board {
         for p in active { kids[(p.parent.flatMap { ids.contains($0) ? $0 : nil }) ?? "", default: []].append(p) }
         var out: [ProjectTreeRow] = []
         var seen = Set<String>()
-        func emit(_ parent: String, _ depth: Int) {
-            for c in kids[parent] ?? [] where !seen.contains(c.id) {
+        // `open`: the levels above this one whose line runs on (an ancestor at that level has a later sibling).
+        func emit(_ parent: String, _ depth: Int, _ open: [Int]) {
+            let under = (kids[parent] ?? []).filter { !seen.contains($0.id) }
+            for (i, c) in under.enumerated() where !seen.contains(c.id) {
                 seen.insert(c.id)
-                out.append(ProjectTreeRow(project: c, depth: depth))
-                emit(c.id, depth + 1)
+                let last = depth > 0 && i == under.count - 1
+                out.append(ProjectTreeRow(project: c, depth: depth, lastKid: last, through: open))
+                let at = out.count - 1
+                emit(c.id, depth + 1, depth > 0 && !last ? open + [depth] : open)
+                out[at].hasKids = out.count > at + 1 && out[at + 1].depth == depth + 1
             }
         }
-        emit("", 0)
+        emit("", 0, [])
         for p in active where !seen.contains(p.id) {   // a cycle kept it out of the walk: still shown, at the top
             seen.insert(p.id)
             out.append(ProjectTreeRow(project: p, depth: 0))
@@ -1074,5 +1118,70 @@ extension Board {
         var next = rooms
         if partial { next.insert(project) } else { next.remove(project) }
         return next
+    }
+}
+
+// kosmos#7489 (Josh 10-28 09:41, build 11): + on Projects loaded the board's web page over Kosmos+, which took over a
+// minute behind a blank screen. A native form opens at once (as New task, #7078) and sends one request on Create:
+// POST /api/projects, the route the board's own Create project button uses. Name is enough (the board's own rule:
+// "a name is enough to start"); the description is optional. The words are the board's (web/index.html, #pj-add-).
+enum NewProject {
+    struct Draft: Equatable { var name = ""; var description = "" }
+
+    static func trimmed(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
+    static func canCreate(_ d: Draft) -> Bool { !trimmed(d.name).isEmpty }
+
+    static func body(_ d: Draft) -> [String: Any] {
+        var b: [String: Any] = ["name": trimmed(d.name)]
+        let desc = trimmed(d.description)
+        if !desc.isEmpty { b["description"] = desc }
+        return b
+    }
+
+    // The route reads whether the person's screen asked (isViaScreen); every request BoardClient sends carries that
+    // (#7075), so nothing is added here.
+    static func request(mac: URL, draft d: Draft) -> URLRequest? {
+        guard canCreate(d), let data = try? JSONSerialization.data(withJSONObject: body(d)) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/projects", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = data
+        return r
+    }
+
+    enum Result: Equatable {
+        case made(id: String)
+        case refused(String)
+        // No answer came back (none at all, or a server error with no sentence of the Mac's), so it may have been made.
+        case unknown
+    }
+
+    static let fallback = "We could not make that project."
+    static let unsureWords = "Kosmos could not tell whether that went through. Look in Projects before you try again."
+
+    // Any 2xx with the new project's id is made; otherwise the Mac's own sentence; a server error with none, or no answer,
+    // is unknown; nothing sent (no request built, or not connected) is certainly not made.
+    static func result(sent: Bool, status: Int, body: Data?) -> Result {
+        if !sent { return .refused(fallback) }
+        if status == 0 { return .unknown }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if (200...299).contains(status) {
+            if let id = obj?["id"] as? String, Board.isProjectId(id) { return .made(id: id) }
+            return .unknown   // made, by its status, but with no id to open it by: say so rather than guess
+        }
+        if let e = obj?["error"] as? String, !trimmed(e).isEmpty { return .refused(e) }
+        return status >= 500 ? .unknown : .refused(fallback)
+    }
+
+    enum Words {
+        static let title = "New project"
+        static let name = "Name"
+        static let nameExample = "Henderson lease"
+        static let description = "Description"
+        static let descriptionHint = "Up to 1000 characters."
+        static let descriptionExample = "Renewing the Henderson lease before October."
+        // kosmos#7489 (Mona, 10-28): "Create", on every size, so the title fits beside Cancel on the smallest phone.
+        static let create = "Create"
     }
 }

@@ -102,8 +102,8 @@ function signedIn(row) {
 }
 
 /* The best target for agents leaving `from`, or null. */
-function targetFor(from, rows, nowMs) {
-  const ok = rows.filter((r) => !sameAccount(r, from) && bulkTargetable(r, nowMs) && signedIn(r)
+function targetFor(from, rows, nowMs, skip) {
+  const ok = rows.filter((r) => !sameAccount(r, from) && !(typeof skip === 'function' && skip(r.dir)) && bulkTargetable(r, nowMs) && signedIn(r)
     && weeklyNow(r, nowMs) && weeklyNow(r, nowMs).usedPct < TARGET_MAX_PCT
     && !(fiveHourNow(r, nowMs) && fiveHourNow(r, nowMs).usedPct >= FIVE_HOUR_MAX_PCT));
   ok.sort((x, y) => (weeklyNow(x, nowMs).usedPct - weeklyNow(y, nowMs).usedPct)
@@ -121,13 +121,14 @@ function eligible(rows) {
 /**
  * The decision. `rows`: the Claude account rows (/api/accounts shape: dir, provider, email, organization,
  * memoryShared, offerable, apiKey, connection.badge, weekly, fiveHour, agentsHere.names and .complete).
- * `movable(session)`: whether that agent may move now. Returns { moves: [{ agent, from, to, why }], held: [{ from,
+ * `movable(session)`: whether that agent may move now. `skipTarget(dir)` (optional, slice 3b, kosmos#7548): targets the
+ * mover holds; the sweep's record never passes it, so its decisions stay the rule Settings shows. Returns { moves: [{ agent, from, to, why }], held: [{ from,
  * why }], short: [dir], atRisk: [{ from, why, kind: 'usage' | 'login' }] }: `held` names an at-risk account with movable agents but no target,
  * so the page can say nothing could take them; `short` names an at-risk account whose list of agents may be incomplete
  * (review 1), so the page does not read "nothing to move" as the whole truth; `atRisk` names every account at risk,
  * so an at-risk account with no idle agent on it is said, not silent (review 3).
  */
-function decide({ rows, movable, nowMs }) {
+function decide({ rows, movable, nowMs, skipTarget }) {
   const all = Array.isArray(rows) ? rows.filter((r) => r && r.provider === 'anthropic' && r.dir) : [];
   const moves = [];
   const held = [];
@@ -144,7 +145,7 @@ function decide({ rows, movable, nowMs }) {
     const moving = new Set(from.agentsHere && Array.isArray(from.agentsHere.moving) ? from.agentsHere.moving : []);
     const going = names.filter((n) => !moving.has(n) && typeof movable === 'function' && movable(n) === true);
     if (!going.length) continue;
-    const to = targetFor(from, all, nowMs);
+    const to = targetFor(from, all, nowMs, skipTarget);
     if (!to) { held.push({ from: from.dir, why }); continue; }
     for (const agent of going.slice().sort()) moves.push({ agent, from: from.dir, to: to.dir, why });
   }
@@ -170,10 +171,13 @@ function markTargets(rows, nowMs) {
    Slice 3 (slice 2's review 11): the guide FAILS CLOSED here. The route's walk leaves it out too (skipGuide), but that
    test reads a check that throws as "not the guide", which is wrong for a move. `isGuide(session)` throws when it
    cannot tell; `guideName()` is the name the guide was seeded under, and throws (from movableFor itself, review 10)
-   when its record cannot be read. */
+   when its record cannot be read.
+   kosmos#7548 rule 12: `strict` (the mover's re-check just before a move) THROWS where a check cannot be made (the agent
+   gone from the roster, its box, guide check or commitment unreadable), so only "not free" reads as "no longer idle".
+   Without it every such case is "not movable", as the decision needs. */
 function movableFor({ cards, records, readCommitment, assigner = require('./assigner'),
   isGuide = (s) => require('./setup-assistant').isGuideFolderStrict(s),
-  guideName = () => require('./setup-assistant').guideNameStrict() }) {
+  guideName = () => require('./setup-assistant').guideNameStrict(), strict = false }) {
   /* Review 3: a roster that could not be read is not an empty one: the caller says "could not work out". */
   if (!Array.isArray(cards)) throw new Error('the roster could not be read');
   const bySession = new Map(cards.filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
@@ -181,21 +185,23 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
      ("could not work out"), not every agent "not idle". */
   const g = guideName();
   const guide = typeof g === 'string' && g ? g.trim().toLowerCase() : null;
+  const cannot = (why) => { if (strict) throw new Error(why); return false; };
   return (session) => {
     const c = bySession.get(session);
-    if (!c || !assigner.idleCard(c)) return false;
+    if (!c) return cannot('the agent is not on the roster');
+    if (!assigner.idleCard(c)) return false;
     /* Review 2 (slice 3): words sitting unsent in its box are a person's or a peer's, and a restart would drop them. A
        card that cannot say is not movable. Review 5: the card says so only once the same words have sat there for
        status.js's UNSENT_SHOW_MS (3 minutes), so words typed more recently are not seen; the two-tick rule narrows
        that and does not close it. */
-    try { if (c.unsentInput) return false; } catch { return false; }
+    try { if (c.unsentInput) return false; } catch { return cannot('its box could not be read'); }
     /* Not from the card: a roster card carries no isGuide (only the status rows are marked); a test pins that. */
     try {
       if (isGuide(session) !== false) return false;
       if (guide && guide === String(session).trim().toLowerCase()) return false;
-    } catch { return false; }
+    } catch { return cannot('whether it is the guide could not be read'); }
     let rec = null;
-    try { rec = readCommitment(session); } catch { rec = null; }
+    try { rec = readCommitment(session); } catch { return cannot('its commitments could not be read'); }
     const all = typeof records === 'function' ? records() : records;
     /* Review 9: the Assigner's own filter (assigner.js step), so one bad entry in the projects file is skipped rather
        than failing the whole decision. */

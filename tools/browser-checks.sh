@@ -1478,6 +1478,9 @@ if boot_board "$sb7" "$P8"; then
   # #5359: the note that this computer restarted under a running Kosmos. Stubs GET /api/board/restart-note at the
   # network edge (today, yesterday, older, an empty control, and the dismiss), so any board serves; headless-fine.
   run_one "render-reboot-note-5359" env KOSMOS_URL="$B8" node docs/browser-checks/render-reboot-note-5359.js "$sb7/shots-reboot-note"
+  # kosmos#7411: the restart line. Stubs GET /api/restart-line, its Not now and the per-agent restart at the network
+  # edge (and shortens the wake wait), so any board serves and nothing is restarted; headless-fine.
+  run_one "render-restart-line-7411" env KOSMOS_URL="$B8" node docs/browser-checks/render-restart-line-7411.js "$sb7/shots-restart-line"
   # #6160: the streak by the K mark. Stubs POST /api/streak at the network edge (a note, its control, day 1, none, a
   # long press, midnight), so any board serves; headless-fine.
   run_one "render-streak-6160" env KOSMOS_URL="$B8" node docs/browser-checks/render-streak-6160.js "$sb7/shots-streak"
@@ -1498,6 +1501,10 @@ if boot_board "$sb7" "$P8"; then
   # #4313: your agents' posts in the community, each with Delete (empty, rows, ask, keep, delete,
   # reopen, a refused delete, 403). /api/community/mine and /delete are answered at the browser, so it writes nothing.
   run_one "render-community-delete-4313" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-delete-4313.js
+  # #7211: Settings shows a count and each agent's community page instead of every row; the rows sit in a fold, closed
+  # by default (closed, open, unread comments, no links, empty, an older board's answer). /api/community/mine is
+  # answered at the browser, so it writes nothing.
+  run_one "render-community-index-7211" env KOSMOS_URL="$B8" node docs/browser-checks/render-community-index-7211.js
   # #5958: where each agent stands, below that list (rows, open, keys, times in the page's zone, kept open across a
   # repaint, markup shown as text, empty, 503, 403, rows it cannot paint, a phone). /api/community/ready is answered at
   # the browser, so it writes nothing.

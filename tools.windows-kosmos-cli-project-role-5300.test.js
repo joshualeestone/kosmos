@@ -51,3 +51,12 @@ test('#5300 Windows: a refusal says the board\'s reason; bad calls are refused b
   const opt = await run(['project', 'role', 'p1', '--clear'], () => ({ body: '{}' }));
   assert.match(opt.err, /--clear is not an option of kosmos project role, so nothing was done\.\nUsage: kosmos project role <project-id> "<what you do here>"/, opt.err);
 });
+
+test('#7429 Windows: a role the board reads as review only says what that does; without the flag nothing more (control)', async () => {
+  const r = await run(['project', 'role', 'p1', 'QA only'], () => ({ body: JSON.stringify({ ok: true, role: 'QA only', reviewOnly: true }) }));
+  assert.equal(r.code, 0, r.err);
+  assert.match(r.out, /It says you only review, so the automatic Assigner hands you none of this project's tasks \(your person still can\)\./);
+  const c = await run(['project', 'role', 'p1', 'Builder'], () => ({ body: JSON.stringify({ ok: true, role: 'Builder' }) }));
+  assert.equal(c.code, 0, c.err);
+  assert.doesNotMatch(c.out, /only review/, 'a builder was told it only reviews');
+});

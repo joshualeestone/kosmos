@@ -19,6 +19,10 @@
  *     the title line under the name; on a touch screen its tap area is 44 x 44, inside its own row, and clear of the
  *     title's visible end and the unread badge;
  *   - a filled star is at least 3:1 on every tile and row ground in both themes (CONTROL: the brand gold is not).
+ *   - #7339: a starred star is filled with --gold-bright; its edge is drawn (the path's own stroke) and is --gold-bright
+ *     in both dark paths; every grid and rail star, at rest and hovered, at 1x/1.5x/2x, has a drawn 3:1 edge on 80%
+ *     of its outline (CONTROLS: no edge, and a 1-unit icon-space edge at 1x, both fail); 2x draws the thin .75px
+ *     edge; forced colors fill it with the system colour.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-star-6719.js [shots-dir]
  */
@@ -35,9 +39,9 @@ const chk = (ok, label, extra) => {
   if (!ok) fail.push(label);
 };
 
-async function open(browser, eng, w, h, theme, touchArg) {
+async function open(browser, eng, w, h, theme, touchArg, dsf) {
   const touch = typeof touchArg === 'boolean' ? touchArg : w < 700;
-  const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: theme, hasTouch: touch, isMobile: touch && eng === 'chromium' });
+  const ctx = await browser.newContext({ viewport: { width: w, height: h }, colorScheme: theme, hasTouch: touch, isMobile: touch && eng === 'chromium', deviceScaleFactor: dsf || 1 });
   const page = await ctx.newPage();
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
@@ -265,9 +269,13 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
     // Review 13: a filled star is a glyph, so it needs 3:1 on every ground it sits on: the plain, working and needs-you
     // tiles and the list row, in both themes. The grounds are composited from the page's own tokens. CONTROL: the
     // brand gold measured the same way fails in light, so the instrument can return the dangerous answer.
-    for (const theme of ['light', 'dark']) {
+    // #7339: the star is FILLED with --gold-bright (Josh: "the brightest gold that we have") and its EDGE is the button's
+    // colour. The 3:1 is the edge's job, so `edge` below is what is measured; the fill is checked to be --gold-bright.
+    // #7339 review 1: 'in-app-dark' is the in-app Dark setting (data-theme="dark" on a light system), which has its own rule.
+    for (const theme of ['light', 'dark', 'in-app-dark']) {
       const t = `[${eng} ${theme} filled-star contrast]`;
-      const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme);
+      const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme === 'in-app-dark' ? 'light' : theme);
+      if (theme === 'in-app-dark') await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
       const c = await page.evaluate(() => {
         const st = document.querySelector('#grid .astar');
         if (!st) return { star: false };
@@ -281,15 +289,124 @@ const star = (page, root, who) => page.evaluate(([r, w]) => {
         const over = (bg, wash) => (wash && wash.length === 4 ? bg.map((v, i) => v * (1 - wash[3]) + wash[i] * wash[3]) : bg);
         const surface = resolve(css('--k-surface'));
         const grounds = { plain: surface, working: over(surface, resolve(css('--wash-working'))), attn: over(surface, resolve(css('--wash-attn'))), row: over(surface, [120, 120, 128, 0.07]) };
-        const fill = rgb(getComputedStyle(st).color); const brand = resolve(css('--gold-deep'));
-        const out = { star: true, fill, min: Infinity, brandMin: Infinity, by: {} };
-        for (const [k, g] of Object.entries(grounds)) { const r = ratio(fill, g); out.by[k] = +r.toFixed(2); out.min = Math.min(out.min, r); out.brandMin = Math.min(out.brandMin, ratio(brand, g)); }
+        const edge = rgb(getComputedStyle(st).color); const brand = resolve(css('--gold-deep'));
+        const ps = getComputedStyle(st.querySelector('svg path'));
+        const fill = rgb(ps.fill); const bright = resolve(css('--gold-bright'));
+        // The edge is what is DRAWN: the path's own stroke, which must be the button's colour and actually painted.
+        const stroke = rgb(ps.stroke); const strokeW = parseFloat(ps.strokeWidth);
+        const drawn = !!stroke && stroke.slice(0, 3).join() === edge.slice(0, 3).join() && strokeW > 0;
+        const out = { star: true, edge, stroke, strokeW, drawn, fill, brightFill: !!fill && !!bright && fill.slice(0, 3).join() === bright.slice(0, 3).join(), min: Infinity, brandMin: Infinity, by: {} };
+        for (const [k, g] of Object.entries(grounds)) { const r = ratio(edge, g); out.by[k] = +r.toFixed(2); out.min = Math.min(out.min, r); out.brandMin = Math.min(out.brandMin, ratio(brand, g)); }
         out.min = +out.min.toFixed(2); out.brandMin = +out.brandMin.toFixed(2);
         probe.remove(); st.classList.remove('on');
         return out;
       });
-      chk(c.star && c.min >= 3, `${t} the filled star is at least 3:1 on every tile and row ground`, JSON.stringify(c));
+      chk(c.star && c.brightFill, `${t} #7339: the filled star is filled with --gold-bright, the brightest gold`, JSON.stringify(c));
+      chk(c.star && c.drawn, `${t} #7339: the edge is drawn, the path's stroke in the button's colour`, JSON.stringify(c));
+      chk(c.star && c.min >= 3, `${t} the filled star's edge is at least 3:1 on every tile and row ground`, JSON.stringify(c));
       if (theme === 'light') chk(c.star && c.brandMin < 3, `${t} CONTROL: the brand gold measured the same way is under 3:1 here`, JSON.stringify(c));
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await ctx.close();
+    }
+    // #7339 reviews 1 and 2: the edge as DRAWN, not as declared. EVERY star is photographed starred, on its own tile
+    // or row (each ground the sample data has: plain, needs-you and stopped; it has no working agent), at rest and
+    // hovered, in the grid (18px) and the consolidated rail (15px), on 1x, 1.5x and 2x screens. The ground is read at
+    // the icon's own corner pixel, which sits inside the star's button, so a hover tint is what the edge is measured
+    // against. A star that cannot be photographed, or a hover that does not land, is a failure, never a skip. Each star's outline (star pixels touching the ground) must have a
+    // pixel of 3:1 or more within one device pixel on at least 80% of it: the outermost pixel is always part-blended,
+    // so it alone is never the measure. CONTROLS: the same star with no edge fails, and a 1-unit icon-space edge
+    // (review 1's blocker) fails at 1x, so the instrument can return the dangerous answer.
+    const scoreStar = async (page, loc) => {
+      const png = await loc.screenshot().catch(() => null);
+      if (!png) return null;
+      return page.evaluate(async (b64) => {
+        const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+        const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
+        const g = cv.getContext('2d'); g.drawImage(img, 0, 0); const d = g.getImageData(0, 0, cv.width, cv.height).data;
+        const W = cv.width, H = cv.height, px = (x, y) => { const i = (y * W + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
+        const lum = ([r, gg, b]) => { const f = (x) => { x /= 255; return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(gg) + 0.0722 * f(b); };
+        const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+        const ground = px(0, 0); const isStar = (x, y) => ratio(px(x, y), ground) > 1.15;
+        let outline = 0, strong = 0;
+        for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+          if (!isStar(x, y)) continue;
+          if (isStar(x - 1, y) && isStar(x + 1, y) && isStar(x, y - 1) && isStar(x, y + 1)) continue;
+          outline++;
+          let near = false;
+          for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1 && !near; dx++) near = ratio(px(x + dx, y + dy), ground) >= 3;
+          if (near) strong++;
+        }
+        return { outline, share: outline ? +(strong / outline).toFixed(2) : 0 };
+      }, png.toString('base64'));
+    };
+    for (const dsf of [1, 1.5, 2]) {
+      for (const where of ['grid', 'rail']) {
+        const t = `[${eng} light ${dsf}x ${where} drawn edge]`;
+        const { ctx, page, errs } = await open(browser, eng, 1280, 900, 'light', false, dsf);
+        const sel = await page.evaluate((where) => {
+          if (where === 'rail') { document.documentElement.setAttribute('data-layout', 'consolidated'); showTab('projects'); repaintAgentOrder(); }
+          const stars = [...document.querySelectorAll(where === 'rail' ? '#alist .lrow .lname .astar' : '#grid .acard > .astar')];
+          stars.forEach((s, k) => { s.classList.add('on'); s.setAttribute('data-px', String(k)); });
+          return stars.map((s, k) => ({ k, ground: (s.closest('.acard, .lrow') || {}).className || '' }));
+        }, where);
+        chk(sel.length >= 3, `${t} CONTROL: at least three stars to measure`, JSON.stringify(sel.length));
+        const fails = []; let measured = 0;
+        for (const { k, ground } of sel) {
+          const loc = page.locator(`[data-px="${k}"] svg`);
+          for (const hover of [false, true]) {
+            if (hover) await page.locator(`[data-px="${k}"]`).hover().catch(() => {}); else await page.mouse.move(1, 1);
+            const landed = await page.evaluate(([k, hover]) => document.querySelector(`[data-px="${k}"]`).matches(':hover') === hover, [k, hover]);
+            if (!landed) { fails.push(`${k}${hover ? ' hovered' : ''}: the hover state did not land`); continue; }
+            const r = await scoreStar(page, loc);
+            if (!r || !r.outline) { fails.push(`${k}${hover ? ' hovered' : ''}: not measured`); continue; }
+            measured++;
+            if (r.share < 0.8) fails.push(`${k}${hover ? ' hovered' : ''} (${ground.replace(/\s+/g, '.')}): ${r.share}`);
+          }
+        }
+        await page.mouse.move(1, 1);
+        chk(measured === sel.length * 2 && fails.length === 0, `${t} every starred star, at rest and hovered, has a 3:1 edge on 80% of its outline`, `measured ${measured}; ${fails.join(' | ') || 'none under'}`);
+        if (where === 'grid') {
+          const first = page.locator('[data-px="0"] svg');
+          await page.evaluate(() => { const p = document.querySelector('[data-px="0"] svg path'); if (p) p.style.stroke = 'none'; });
+          const bare = await scoreStar(page, first);
+          chk(!!bare && bare.outline > 0 && bare.share < 0.8, `${t} CONTROL: the same star with no edge fails this measure`, JSON.stringify(bare));
+          if (dsf === 1) {
+            await page.evaluate(() => { const p = document.querySelector('[data-px="0"] svg path'); if (p) { p.style.stroke = ''; p.style.vectorEffect = 'none'; p.style.strokeWidth = '1'; } });
+            const thin = await scoreStar(page, first);
+            chk(!!thin && thin.outline > 0 && thin.share < 0.8, `${t} CONTROL: a 1-unit icon-space edge (review 1) fails this measure`, JSON.stringify(thin));
+          }
+          if (dsf === 2) {
+            const w = await page.evaluate(() => { const p = document.querySelector('[data-px="1"] svg path'); return p ? getComputedStyle(p).strokeWidth : ''; });
+            chk(w === '0.75px', `${t} a 2x screen draws the thin .75px edge`, w);
+          }
+        }
+        chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+        await ctx.close();
+      }
+    }
+    // Dark edges, both dark paths: the edge is --gold-bright (the old --gold-deep is what Josh called dingy).
+    for (const theme of ['dark', 'in-app-dark']) {
+      const t = `[${eng} ${theme} edge colour]`;
+      const { ctx, page, errs } = await open(browser, eng, 1280, 900, theme === 'in-app-dark' ? 'light' : theme);
+      const r = await page.evaluate((theme) => {
+        if (theme === 'in-app-dark') document.documentElement.setAttribute('data-theme', 'dark');
+        const st = document.querySelector('#grid .astar'); if (!st) return null; st.classList.add('on');
+        const probe = document.createElement('i'); document.body.appendChild(probe);
+        probe.style.color = 'var(--gold-bright)'; const bright = getComputedStyle(probe).color; probe.remove();
+        return { edge: getComputedStyle(st).color, bright };
+      }, theme);
+      chk(!!r && r.edge === r.bright, `${t} the starred star's edge is --gold-bright`, JSON.stringify(r));
+      chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
+      await ctx.close();
+    }
+    // High contrast (forced colors): the fill gives way to the system colour, as before #7339. Chromium emulates it.
+    if (eng === 'chromium') {
+      const t = `[${eng} forced colors]`;
+      const { ctx, page, errs } = await open(browser, eng, 1280, 900, 'light');
+      await page.emulateMedia({ forcedColors: 'active' });
+      const r = await page.evaluate(() => { const st = document.querySelector('#grid .astar'); if (!st) return null; st.classList.add('on');
+        return { fill: getComputedStyle(st.querySelector('svg path')).fill, color: getComputedStyle(st).color }; });
+      chk(!!r && r.fill === r.color, `${t} the starred star is filled with the system colour`, JSON.stringify(r));
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
       await ctx.close();
     }

@@ -229,7 +229,9 @@ run_writer() {  # <site> <name> : sets WRC and out (not in a subshell, so both r
     # otherwise refuse as "a second cut" at its live-cut guard, before it makes its cut-only home, and the home check
     # below reds the cut that is running it (0.7.64, 10-22). The freeze refusal under test comes before that guard.
     # KOSMOS_RUN_MARKER_DIR pins its markers and machine claim to the sandbox even if a cut ever exports that path.
-    release) HOME="$SB" TMPDIR="$T/tmp" KOSMOS_SITE="$site" KOSMOS_HARNESS_IGNORE_CUT=1 KOSMOS_RUN_MARKER_DIR="$SB/.cache/kosmos-run-markers" bash "$RSANDBOX/tools/release.sh" "$NEXTV" > "$T/w.out" 2>&1; WRC=$? ;;   # the next patch: past the version-jump guard
+    # KOSMOS_CUT_NO_WHATS_NEW=1: the sandbox has no What's New tools, and since kosmos#7349 their check runs before the
+    # cut home is made (it comes after the freeze refusal under test; tools/test-whats-new-early-7349.sh covers it).
+    release) HOME="$SB" TMPDIR="$T/tmp" KOSMOS_SITE="$site" KOSMOS_HARNESS_IGNORE_CUT=1 KOSMOS_CUT_NO_WHATS_NEW=1 KOSMOS_RUN_MARKER_DIR="$SB/.cache/kosmos-run-markers" bash "$RSANDBOX/tools/release.sh" "$NEXTV" > "$T/w.out" 2>&1; WRC=$? ;;   # the next patch: past the version-jump guard
     promote-channel) HOME="$SB" KOSMOS_SITE="$site" bash "$HERE/promote-channel.sh" > "$T/w.out" 2>&1; WRC=$? ;;
     publish-staging-pointer) HOME="$SB" bash "$HERE/publish-staging-pointer.sh" "$site" 9.9.9 > "$T/w.out" 2>&1; WRC=$? ;;
     publish-kosmos-windows) HOME="$SB" KOSMOS_SITE="$site" bash "$HERE/publish-kosmos-windows.sh" "$T/kosmos-9.9.9-win-x64.zip" > "$T/w.out" 2>&1; WRC=$? ;;

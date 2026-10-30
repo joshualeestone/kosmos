@@ -963,6 +963,20 @@ test('#5531 follow-up b review 2: a MOVE refused because the words changed says 
   assert.match(r.because, /Nothing moved\. Press Connect Account again/, r.because);
 });
 
+test('kosmos#5537 slice G: a move refused because the company could not record it says nothing changed, never that nothing was joined', async (t) => {
+  const { a } = sandbox(t);
+  const co = { macRequest: async (m, route) => (route === org.ROUTES.enroll ? { ok: false, because: '503 {"because":"audit_unavailable"}' } : { ok: true, data: { member: false } }) };
+  for (const [kind, want] of [[undefined, /^Your company could not record this just now, so nothing changed\. Try again in a minute\.$/],
+    ['family', /^Your family account could not record this just now, so nothing changed\. Try again in a minute\.$/]]) {
+    const r = await org.enroll(null, true, { root: a, remote: co, consentHash: 'ab'.repeat(32), orgKind: kind });
+    assert.equal(r.ok, false, JSON.stringify(r));
+    assert.equal(r.code, 'audit_unavailable', JSON.stringify(r));
+    assert.match(r.because, want, r.because);
+    assert.doesNotMatch(r.because, /joined/i, 'a move was told about a join: ' + r.because);
+    assert.equal(org.joinUnknown({ root: a }), null, 'a certain refusal was kept as an unknown join');
+  }
+});
+
 test('#5531 follow-up b review 3: what the enrollment records is exactly the hash the enroll sent', async (t) => {
   const { a } = sandbox(t);
   const H = '3c'.repeat(32);
@@ -1071,6 +1085,8 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
     [{ ok: false, because: '409 {"because":"org_consent_changed"}' }, /changed its terms again.*tries again on its own/],
     [{ ok: false, because: '403 {"because":"org_not_member"}' }, /no longer in it\. Nothing changed/],
     [{ ok: false, because: '400 {"because":"org_bad_world"}' }, /did not take the acceptance.*tries again on its own/],
+    // kosmos#5537 slice G: a certain refusal (nothing changed), not "it is not known whether accepting reached".
+    [{ ok: false, because: '503 {"because":"audit_unavailable"}' }, /did not take the acceptance\. Nothing changed.*tries again on its own/],
     [{ ok: false, notSent: true, because: 'not connected' }, /Nothing was sent; Kosmos tries again on its own/]]) {
     const refused = await org.enroll(null, true, { root: a, review: true, consentHash: SERVED, orgId: r.org.id, remote: { macRequest: async (m, route) => (route === org.ROUTES.enroll ? ans : withConsent().macRequest(m, route)) } });
     assert.equal(refused.ok, false, JSON.stringify(refused));

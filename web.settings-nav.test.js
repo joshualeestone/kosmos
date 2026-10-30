@@ -96,8 +96,9 @@ test('#2054/#3138/#2619/#4288: Automation holds Auto-save, Prompter, Agent Commu
   // because it is a different consent.
   // #5080: "Language" (the language agents write to the person in) sits directly below Community, whose English rule
   // its hint names (Mona Lisa's design review on #5080).
-  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Gemini subscription agents at once', 'Agent Communication', 'Daily report', 'Community', 'Language', 'Recommender', 'Assigner'],
-    'the Automation blocks are not Auto-save, Prompter, Gemini subscription agents at once, Agent Communication, Daily report, Community, Language, Recommender, Assigner in that order (#4588 added the Gemini cap; #2619 added Recommender and Assigner; #4288 added Community; #5080 added Language; Sounds moved out per #3138)');
+  // kosmos#7406: "Agents on one account at once" sits directly below the Gemini cap, the same control for every other agent.
+  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Gemini subscription agents at once', 'Agents on one account at once', 'Agent Communication', 'Daily report', 'Community', 'Language', 'Recommender', 'Assigner'],
+    'the Automation blocks are not Auto-save, Prompter, Gemini subscription agents at once, Agents on one account at once, Agent Communication, Daily report, Community, Language, Recommender, Assigner in that order (#4588 added the Gemini cap; #7406 the per-account cap; #2619 added Recommender and Assigner; #4288 added Community; #5080 added Language; Sounds moved out per #3138)');
   assert.ok(!headings.includes('Sounds'), '#3138: Sounds must NOT be in Automation anymore');
   // #2619: the Recommender carries its three irreversible-consequence guards, each a
   // real checkbox, all present. (Their DEFAULT-checked state + persistence are pinned

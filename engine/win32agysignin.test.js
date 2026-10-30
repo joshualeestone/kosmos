@@ -6,7 +6,7 @@
  * reads its console; the real typer is exercised by the win32-only test at the end, against a child
  * that reads CONIN$ the way agy does).
  *
- *   node -r <no-schtasks-preload> --test engine/win32agysignin.test.js
+ *   node -r ./tools/no-schtasks-preload.cjs --test engine/win32agysignin.test.js
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

@@ -38,6 +38,10 @@ const RULE = '─'.repeat(80) + '\n';
 const STATUS_LINE = RULE + '❯ \n' + RULE + '  casey · Opus 4.8 · 7d 100%\n' + '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n';
 const FOOTER = '✻ Sautéed for 0s · done 10:35 PM\n';
 const NEW_FOOTER = '✻ Baked for 2s · done 11:02 AM\n';   // the footer of a later turn
+// kosmos#7358: the same footers with no done time. A late row is timed from its footer's done time when it has one,
+// which a fixed clock here would read differently in each zone the suite runs in; the sighting rules are tested on these.
+const UNDATED_FOOTER = '✻ Sautéed for 0s\n';
+const UNDATED_NEW_FOOTER = '✻ Baked for 2s\n';
 const limitScreen = (line, menu) => '❯ hello\n' + `  ⎿  ${line}\n` + FOOTER
   + (menu ? '   What do you want to do?\n   1. Stop and wait for limit to reset\n' : '') + STATUS_LINE;
 
@@ -240,7 +244,11 @@ test('#5805 3b review 7: an older row the board saw late does not hide a newer l
   read(t14, oldBlock + STATUS_LINE, 'rate_limited', (card) => assert.equal(card.limitUntil, null, 'CONTROL: the row seen late has no time'));
   // 17:00 CDT: woken, it worked and hit a new limit (9pm) under the old row; the board captured all along.
   const t17 = Date.parse('2026-10-10T22:00:00Z');
-  for (let t = t14 + 60e3; t < t17; t += 60e3) read(t, oldBlock + STATUS_LINE, 'rate_limited', () => {});
+  // kosmos#7264: the row seen late is timed from that sighting for retiring, so it is retired at its own 4pm reset
+  // (21:00Z, plus the minute's grace) and the agent reads idle until the newer limit at 17:00. Before #7264 a late row
+  // was never retired, and this loop asked for rate_limited all the way to 17:00.
+  const oldReset = Date.parse('2026-10-10T21:00:00Z') + 60e3;
+  for (let t = t14 + 60e3; t < t17; t += 60e3) read(t, oldBlock + STATUS_LINE, t < oldReset ? 'rate_limited' : 'idle', () => {});
   read(t17, both, 'rate_limited', (card, roster) => {
     assert.ok(card.limitUntil && Date.parse(card.limitUntil) === Date.parse('2026-10-11T02:00:00Z'), 'the newer limit\'s reset was hidden: ' + card.limitUntil);
     const v = chat.limitHeldVerdict('casey', roster, t17);
@@ -277,4 +285,250 @@ test('#5805 3b review 9: a quoted limit line ending a turn is never timed, so a 
   status.noteLimitRows('kim', STATUS_LINE, t0 - 30e3);
   status.noteLimitRows('kim', '❯ hello\n' + `  ⎿  ${quoted}\n` + '✻ Cooked for 3s · done 11:02 AM\n' + STATUS_LINE, t0);
   assert.equal(status.limitFirstSeenOf('kim', quoted), t0, 'CONTROL: a real limit under the prompt was not timed');
+});
+
+test('kosmos#7264: a dateless row the board saw late (on its first capture after a restart) is retired, not kept for good', () => {
+  const real = Date.now;
+  const read = (ms, screen, state, fn) => {
+    Date.now = () => ms;
+    try {
+      const board = fleet.install([fleet.agent('camille', { state, runner: 'claude', command: 'claude', screen })]);
+      try { return fn(board.agents.find((c) => c.sessionName === 'camille'), board.agents); } finally { board.restore(); }
+    } finally { Date.now = real; }
+  };
+  const row = `You've hit your session limit · resets 6pm ${Z}`;
+  const screen = '❯ hello\n' + `  ⎿  ${row}\n` + FOOTER + STATUS_LINE;
+  // Josh's laptop, 10-26: the limit at 17:32 CDT, reset 6pm, the board restarting at 19:20 with the row still on an idle
+  // agent's screen. The next 6pm is beyond a session limit's span, so the reset was the one before the sighting: idle.
+  const restart = Date.parse('2026-10-27T00:20:00Z');
+  read(restart, screen, 'idle', (card, roster) => {
+    assert.equal(card.state, status.STATE.IDLE, 'a late row whose reset had passed kept the card capped (Rate Limit for good)');
+    assert.equal(chat.limitHeldVerdict('camille', roster, restart), null, 'a message to it was held');
+  });
+  // A late row whose reset is still ahead: seen at 17:40 CDT, before 6pm. Capped until 18:00 (plus the grace), idle after.
+  status.resetLimitFirstSeenForTests();
+  const early = Date.parse('2026-10-26T22:40:00Z');
+  read(early, screen, 'rate_limited', (card, roster) => {
+    assert.equal(card.limitUntil, null, 'CONTROL: a late row still has no limitUntil, so delivery is not held on it');
+    assert.equal(chat.limitHeldVerdict('camille', roster, early), null, 'CONTROL: and a message to it is typed');
+  });
+  const bound = Date.parse('2026-10-26T23:00:00Z') + 60e3;
+  for (let t = early + 60e3; t < bound; t += 60e3) read(t, screen, 'rate_limited', () => {});
+  read(bound, screen, 'idle', (card) => assert.equal(card.state, status.STATE.IDLE, 'the late row was not retired at its reset plus the grace'));
+});
+
+test('kosmos#7264: the late rules, as retireResetLimits reads them: never early, and gone once the reset is past', () => {
+  const row = `You've hit your session limit · resets 6pm ${Z}`;   // 23:00Z on 10-26
+  const screen = '❯ hello\n' + `  ⎿  ${row}\n` + UNDATED_FOOTER + STATUS_LINE;
+  const kept = (now, first) => status.retireResetLimits(screen, now, () => first).includes('session limit');
+  // Seen late at 17:40 CDT, before 6pm: the reset is still ahead, so capped until it (never early), gone after it.
+  const s1740 = Date.parse('2026-10-26T22:40:00Z');
+  assert.ok(kept(Date.parse('2026-10-26T22:59:00Z'), { at: s1740, late: true, count: 1 }), 'a late row was retired before its reset');
+  assert.ok(!kept(Date.parse('2026-10-26T23:02:00Z'), { at: s1740, late: true, count: 1 }), 'CONTROL: and not after it');
+  // Seen late long after the reset (03:00 CDT, more than a session span later): gone at once.
+  const s0300 = Date.parse('2026-10-27T08:00:00Z');
+  assert.ok(!kept(s0300, { at: s0300, late: true, count: 1 }), 'a late row seen more than a span after its reset was kept');
+  // The same sighting NOT late (seen arriving) keeps it: a row timed from its arrival is never read as already past.
+  assert.ok(kept(s0300, { at: s0300, late: false, count: 1 }), 'CONTROL: a row seen arriving was retired at once');
+  // A row this cannot read (an unknown zone): kept, as before.
+  const odd = screen.replace('(America/Chicago)', '(Nowhere/Atlantis)');
+  assert.ok(status.retireResetLimits(odd, s0300, () => ({ at: s0300, late: true, count: 1 })).includes('session limit'), 'an unreadable row was retired');
+  // A daily wording seen late within its day: retired at its next reset, never sooner.
+  const weekly = `You've hit your weekly limit · resets 6pm ${Z}`;
+  const wscreen = '❯ hello\n' + `  ⎿  ${weekly}\n` + UNDATED_FOOTER + STATUS_LINE;
+  assert.ok(status.retireResetLimits(wscreen, Date.parse('2026-10-27T22:59:00Z'), () => ({ at: s0300, late: true, count: 1 })).includes('weekly limit'), 'a late daily row was retired before its next reset');
+  assert.ok(!status.retireResetLimits(wscreen, Date.parse('2026-10-27T23:02:00Z'), () => ({ at: s0300, late: true, count: 1 })).includes('weekly limit'), 'CONTROL: and kept after it');
+  // And with no sighting at all, kept, as before.
+  assert.ok(kept(Date.parse('2026-10-28T00:00:00Z'), null), 'a row with no sighting was retired');
+});
+
+test('kosmos#7264 review 2: a NEW limit printing the same words after a late sighting is timed from its arrival, never lifted while it binds; a redraw does not re-cap a retired row', () => {
+  const real = Date.now;
+  const read = (ms, screen, state) => {
+    Date.now = () => ms;
+    try { const board = fleet.install([fleet.agent('camille', { state, runner: 'claude', command: 'claude', screen })]); board.restore(); }
+    finally { Date.now = real; }
+  };
+  const row = `You've hit your session limit · resets 6pm ${Z}`;
+  const oldBlock = '❯ hello\n' + `  ⎿  ${row}\n` + UNDATED_FOOTER;
+  const newBlock = '❯ do the report\n' + `  ⎿  ${row}\n` + UNDATED_NEW_FOOTER;
+  const minutes = (from, to, screen, state) => { for (let t = from; t < to; t += 60e3) read(t, screen, state); };
+  // Scenario A: restart 17:40 CDT on day 1 with the 6pm row (late, retired at 18:01), the row left on screen overnight;
+  // day 2 at 15:00 a new 6pm limit prints under it. It binds until 18:00 on day 2.
+  status.resetLimitFirstSeenForTests();
+  const d1 = Date.parse('2026-10-26T22:40:00Z');
+  minutes(d1, Date.parse('2026-10-26T23:01:00Z'), oldBlock + STATUS_LINE, 'rate_limited');
+  const d2 = Date.parse('2026-10-27T20:00:00Z');   // 15:00 CDT
+  minutes(Date.parse('2026-10-26T23:01:00Z'), d2, oldBlock + STATUS_LINE, 'idle');
+  minutes(d2, Date.parse('2026-10-27T23:01:00Z'), oldBlock + newBlock + STATUS_LINE, 'rate_limited');
+  read(Date.parse('2026-10-27T23:01:00Z'), oldBlock + newBlock + STATUS_LINE, 'idle');
+  // Scenario B: restart 19:20 CDT after the reset (retired at once); day 2 the new limit's capture is the first without
+  // the old row (scrolled off in the same capture). Still timed from its arrival, so capped until 18:00.
+  status.resetLimitFirstSeenForTests();
+  const r = Date.parse('2026-10-27T00:20:00Z');
+  minutes(r, d2, oldBlock + STATUS_LINE, 'idle');
+  minutes(d2, Date.parse('2026-10-27T23:01:00Z'), newBlock + STATUS_LINE, 'rate_limited');
+  // Redraw: after that late row was retired, a resize reprints the old block twice with its own footer: still idle.
+  status.resetLimitFirstSeenForTests();
+  minutes(r, r + 30 * 60e3, oldBlock + STATUS_LINE, 'idle');
+  minutes(r + 30 * 60e3, r + 40 * 60e3, oldBlock + oldBlock + STATUS_LINE, 'idle');
+  // (These reads assert by fleet.install, which throws when the engine classifies a screen as other than asked.)
+});
+
+test('kosmos#7264 review 3: a gap, a footer that repeats, a footer that changes in place, and a laptop that sleeps', () => {
+  const real = Date.now;
+  const read = (ms, screen, state, fn) => {
+    Date.now = () => ms;
+    try {
+      const board = fleet.install([fleet.agent('camille', { state, runner: 'claude', command: 'claude', screen })]);
+      try { if (fn) fn(board.agents.find((c) => c.sessionName === 'camille'), board.agents); } finally { board.restore(); }
+    } finally { Date.now = real; }
+  };
+  const row = `You've hit your session limit · resets 6pm ${Z}`;
+  const block = (prompt, footer) => '❯ ' + prompt + '\n' + `  ⎿  ${row}\n` + footer;
+  const old = block('hello', UNDATED_FOOTER);
+  const day2 = Date.parse('2026-10-27T20:00:00Z');   // 15:00 CDT
+  const after = Date.parse('2026-10-27T23:01:00Z');   // 18:01 CDT, the new limit's reset plus grace
+  // A gap: restart at 10:00 (yesterday's row late, retired at once), the Mac asleep 13:00 to 15:00, and a new 6pm
+  // limit on screen at the first capture after the gap. Capped until 18:01, not lifted at once.
+  status.resetLimitFirstSeenForTests();
+  const ten = Date.parse('2026-10-27T15:00:00Z');
+  read(ten, old + STATUS_LINE, 'idle');
+  read(Date.parse('2026-10-27T18:00:00Z'), old + STATUS_LINE, 'idle');
+  read(day2, old + block('do the report', UNDATED_NEW_FOOTER) + STATUS_LINE, 'rate_limited');
+  read(after - 60e3, old + block('do the report', UNDATED_NEW_FOOTER) + STATUS_LINE, 'rate_limited');
+  read(after, old + block('do the report', UNDATED_NEW_FOOTER) + STATUS_LINE, 'idle');   // released at its own reset
+  // A footer that repeats the old one's text exactly cannot be told from a redraw (challenge loop), so it moves
+  // nothing and the row stays released: the stated residual, chosen over re-capping on every redraw.
+  status.resetLimitFirstSeenForTests();
+  read(ten, old + STATUS_LINE, 'idle');
+  read(day2, old + block('again', UNDATED_FOOTER) + STATUS_LINE, 'idle');
+  // The redraw itself, within one span of the next 6pm (14:00 CDT the next day): the old block reprinted twice, footer
+  // and all. Before the challenge loop this re-capped the released row until 18:01.
+  status.resetLimitFirstSeenForTests();
+  read(Date.parse('2026-10-27T00:20:00Z'), old + STATUS_LINE, 'idle');   // restart at 19:20 CDT the night before
+  read(Date.parse('2026-10-27T19:00:00Z'), old + old + STATUS_LINE, 'idle');
+  // CONTROL: the same moment with a turn footer the entry has not seen is a new limit, capped.
+  status.resetLimitFirstSeenForTests();
+  read(Date.parse('2026-10-27T00:20:00Z'), old + STATUS_LINE, 'idle');   // restart at 19:20 CDT the night before
+  read(Date.parse('2026-10-27T19:00:00Z'), old + block('do the report', UNDATED_NEW_FOOTER) + STATUS_LINE, 'rate_limited');
+  // A footer that changes in place (the background-agents row, then the turn's own), seen late at 16:00 CDT: capped
+  // until 18:01 at most, never a hold (no limitUntil), and released at the reset.
+  status.resetLimitFirstSeenForTests();
+  const four = Date.parse('2026-10-27T21:00:00Z');
+  read(four, block('hello', '✻ Waiting for 1 background agent to finish\n') + STATUS_LINE, 'rate_limited');   // the limit binds until 6pm
+  read(four + 60e3, old + STATUS_LINE, 'rate_limited', (card, roster) => {
+    assert.equal(card.limitUntil, null, 'a footer that changed in place gave the row a time');
+    assert.equal(chat.limitHeldVerdict('camille', roster, four + 60e3), null, 'and a message to it was held');
+  });
+  read(after - 60e3, old + STATUS_LINE, 'rate_limited');
+  read(after, old + STATUS_LINE, 'idle');
+  const r = Date.parse('2026-10-27T00:20:00Z');
+  // Review 4: the old row scrolls off, then the same words AND the same footer text print a minute later. That is the
+  // old block scrolled back as much as a new limit, so it moves nothing (challenge loop: the stated residual).
+  // Captured every minute, so the entry is still alive (gone under LIMIT_ROW_GONE_MS) when the new row arrives.
+  status.resetLimitFirstSeenForTests();
+  for (let t = ten; t < day2 - 60e3; t += 60e3) read(t, old + STATUS_LINE, 'idle');
+  read(day2 - 60e3, '❯ other work\n● Done.\n' + UNDATED_NEW_FOOTER + STATUS_LINE, 'idle');
+  read(day2, block('do the report', UNDATED_FOOTER) + STATUS_LINE, 'idle');
+  // A laptop that sleeps: captures with long gaps and the same screen. Yesterday's row stays released on every wake.
+  status.resetLimitFirstSeenForTests();
+  for (const t of [r, Date.parse('2026-10-27T14:00:00Z'), Date.parse('2026-10-27T16:30:00Z'), Date.parse('2026-10-27T17:55:00Z')]) {
+    read(t, old + STATUS_LINE, 'idle', (card) => assert.equal(card.state, status.STATE.IDLE, 'a wake re-capped a released row'));
+  }
+});
+
+/* kosmos#7358: Claude Code prints the turn footer's "done" time in this machine's local time, so the test writes it the
+   same way (whatever zone the suite runs in). */
+function localClock(ms) {
+  return new Date(ms).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+test('kosmos#7358: a weekly limit on its last day seen late is timed from its turn\'s done time, so a passed reset is retired at once', () => {
+  const row = `You've hit your weekly limit · resets 6pm ${Z}`;   // 6pm CDT, 23:00Z on 10-26
+  const hit = Date.parse('2026-10-26T22:32:00Z');               // the turn hit it at 17:32 CDT
+  const restart = Date.parse('2026-10-27T00:20:00Z');           // the board restarted at 19:20 CDT
+  const screen = (footer) => '❯ hello\n' + `  ⎿  ${row}\n` + footer + STATUS_LINE;
+  const late = () => ({ at: restart, late: true });
+  const withDone = screen(`✻ Sautéed for 3s · done ${localClock(hit)}\n`);
+  assert.ok(!status.retireResetLimits(withDone, restart, late).includes('weekly limit'),
+    'a weekly last-day limit whose 6pm reset passed before the restart still read Rate Limit (timed from the sighting, it waits for tomorrow\'s 6pm)');
+  // CONTROL: the same row with no done time in its footer is timed from the sighting, as before: kept until tomorrow 6pm.
+  assert.ok(status.retireResetLimits(screen('✻ Sautéed for 3s\n'), restart, late).includes('weekly limit'),
+    'CONTROL: with no done time the row is kept, as before');
+  // CONTROL: a limit hit AFTER that day's 6pm resets the next day, so it stays capped at the restart.
+  const afterSix = screen(`✻ Sautéed for 3s · done ${localClock(Date.parse('2026-10-26T23:30:00Z'))}\n`);
+  assert.ok(status.retireResetLimits(afterSix, restart, late).includes('weekly limit'),
+    'CONTROL: a limit hit after its reset time is not retired early');
+  // A row the board watched arrive (not late) keeps its own first-seen timing: the done time is not read.
+  assert.ok(status.retireResetLimits(withDone, restart, () => ({ at: restart, late: false })).includes('weekly limit'),
+    'CONTROL: a row seen as it arrived is timed from that sighting, not the footer');
+});
+
+test('kosmos#7358: turnDoneAt reads the footer\'s clock as the latest such instant at or before the sighting', () => {
+  const at = Date.parse('2026-10-27T00:20:00Z');
+  const back = (ms) => status.turnDoneAt(`✻ Baked for 2s · done ${localClock(ms)}`, at);
+  const t = Date.parse('2026-10-26T22:32:00Z');
+  assert.equal(back(t), t, 'a done time earlier the same evening');
+  // A clock later than the sighting's is the previous day's.
+  const later = at + 3600e3;
+  assert.equal(back(later), later - 24 * 3600e3, 'a clock past the sighting reads as the day before');
+  assert.equal(status.turnDoneAt('✻ Baked for 2s', at), null, 'no done time: null');
+  assert.equal(status.turnDoneAt('✻ Baked for 2s · done 25:10', at), null, 'CONTROL: an impossible clock is null');
+});
+
+test('kosmos#7358 review 1: the night the clocks go back, an ambiguous done time is read as the later instant (never early)', () => {
+  const saved = process.env.TZ;
+  process.env.TZ = 'America/Chicago';
+  try {
+    // 2026-11-01: 1:30 AM happens twice (06:30Z in CDT, 07:30Z in CST). The turn ended at the second; the limit resets
+    // at 1am CST, 07:00Z, the NEXT night, 2026-11-02.
+    const sighting = Date.parse('2026-11-01T08:00:00Z');
+    assert.equal(status.turnDoneAt('✻ Sautéed for 3s · done 1:30 AM', sighting), Date.parse('2026-11-01T07:30:00Z'),
+      'the first 1:30 was taken; a reset after it would be read as already passed');
+    const row = `You've hit your weekly limit · resets 1am ${Z}`;
+    const screen = '❯ hello\n' + `  ⎿  ${row}\n` + '✻ Sautéed for 3s · done 1:30 AM\n' + STATUS_LINE;
+    assert.ok(status.retireResetLimits(screen, sighting, () => ({ at: sighting, late: true })).includes('weekly limit'),
+      'a weekly limit that still binds was released about a day early');
+    // CONTROL: a clock that happens once that night is read as before.
+    assert.equal(status.turnDoneAt('✻ Sautéed for 3s · done 2:30 AM', sighting), Date.parse('2026-10-31T07:30:00Z'),
+      'CONTROL: an unambiguous clock past the sighting is the day before');
+  } finally {
+    if (saved === undefined) delete process.env.TZ; else process.env.TZ = saved;
+  }
+});
+
+test('kosmos#7358 review 1: a done time this cannot read for sure is not read (a clock with seconds)', () => {
+  const at = Date.parse('2026-10-27T00:20:00Z');
+  assert.equal(status.turnDoneAt('✻ Baked for 2s · done 5:32:10 PM', at), null, 'a clock with seconds was read (as 05:32, twelve hours off)');
+  assert.notEqual(status.turnDoneAt(`✻ Baked for 2s · done ${localClock(Date.parse('2026-10-26T22:32:00Z'))}`, at), null, 'CONTROL: h:mm AM/PM is read');
+  assert.notEqual(status.turnDoneAt('✻ Baked for 2s · done 17:32', at), null, 'CONTROL: a 24-hour h:mm is read');
+});
+
+test('kosmos#7358 review 2: a turn done in the reset\'s own minute is timed from the end of that minute (the next reset, never early)', () => {
+  const reset = Date.parse('2026-10-26T23:00:00Z');   // 6pm CDT
+  const row = `You've hit your weekly limit · resets 6pm ${Z}`;
+  const sighting = Date.parse('2026-10-27T00:20:00Z');
+  const late = () => ({ at: sighting, late: true });
+  const sameMinute = '❯ hello\n' + `  ⎿  ${row}\n` + `✻ Sautéed for 3s · done ${localClock(reset)}\n` + STATUS_LINE;
+  assert.ok(status.retireResetLimits(sameMinute, sighting + 2 * 60e3, late).includes('weekly limit'),
+    'a limit hit in the reset minute (done 6:00 PM) may be the next day\'s and was released at once');
+  // CONTROL: a minute earlier, the turn ended before the reset: released once it passed.
+  const minuteBefore = '❯ hello\n' + `  ⎿  ${row}\n` + `✻ Sautéed for 3s · done ${localClock(reset - 60e3)}\n` + STATUS_LINE;
+  assert.ok(!status.retireResetLimits(minuteBefore, sighting + 2 * 60e3, late).includes('weekly limit'),
+    'CONTROL: a turn done the minute before the reset is released after it');
+});
+
+test('kosmos#7358 review 3: a sighting just after the reset is released as before, not held a day by the done minute', () => {
+  const reset = Date.parse('2026-10-26T23:00:00Z');   // 6pm CDT
+  const row = `You've hit your weekly limit · resets 6pm ${Z}`;
+  const sighting = reset + 30e3;                      // the board's first capture 30 s after the reset
+  const late = () => ({ at: sighting, late: true });
+  const screen = '❯ hello\n' + `  ⎿  ${row}\n` + `✻ Sautéed for 3s · done ${localClock(reset)}\n` + STATUS_LINE;
+  assert.ok(!status.retireResetLimits(screen, reset + 2 * 60e3, late).includes('weekly limit'),
+    'held about a day longer than the sighting rule (the done minute\'s skip won over an earlier, also never-early, reset)');
+  // CONTROL: the same footer seen later still takes the next reset (the skip stands when the sighting gives nothing sooner).
+  const laterSighting = Date.parse('2026-10-27T00:20:00Z');
+  assert.ok(status.retireResetLimits(screen, laterSighting + 2 * 60e3, () => ({ at: laterSighting, late: true })).includes('weekly limit'),
+    'CONTROL: seen at 19:20, a done-in-the-reset-minute limit is still held');
 });

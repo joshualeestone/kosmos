@@ -274,7 +274,11 @@ test('#6214: the board wires the stop route, the strict account read, the sync +
   const routeAt = server.indexOf("pathname === '/api/agents/account' && req.method === 'POST'");
   assert.ok(routeAt > 0, 'the bulk move route is not in server.js');
   const route = server.slice(routeAt);
-  const call = route.slice(0, route.indexOf('sendJson(res, started.status'));
+  const routeCall = route.slice(0, route.indexOf('sendJson(res, started.status'));
+  /* kosmos#7548: the move's deps live in accountMoveDeps(), shared with the automatic move (rule 1). */
+  assert.match(routeCall, /accountmove\.start\(body, accountMoveDeps\(\)\)/, 'the bulk move does not use the shared deps');
+  const depsAt = server.indexOf('function accountMoveDeps() {');
+  const call = server.slice(depsAt, server.indexOf('\n}\n', depsAt));
   /* Strict: a job that cannot be read throws, so the put-back never takes an unreadable agent for one on the default
      account (moveFromDir folds that into null). */
   assert.match(call, /readAccount: \(n\) => \{\n\s+const job = create\.readJob\(create\.cleanName\(n\)\);\n\s+if \(!job\) throw new Error\('its launch job could not be read'\);\n\s+return job\.configDir \|\| null;\n\s+\},/,

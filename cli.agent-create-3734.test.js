@@ -13,6 +13,7 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const fs = require('node:fs');
 const os = require('node:os');
+const { scaleBudget } = require('./test-support/eventually');   // #5727 Group C: scale the CLI kill budget by host load (floor 1 so CI is byte-identical)
 const run = promisify(execFile);
 
 // A sandboxed KOSMOS_HOME with its own runtime/bin/node, and a PATH with no node on it: the CLI must find
@@ -61,7 +62,7 @@ async function cli(port, args, token, home = HOME) {
     AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh') };
   if (token) env.KOSMOS_AGENT_TOKEN = token;
   try {
-    const { stdout, stderr } = await run(CLI, args, { env, timeout: 20000 });
+    const { stdout, stderr } = await run(CLI, args, { env, timeout: scaleBudget(20000) });
     return { code: 0, out: stdout + stderr };
   } catch (e) { return { code: e.code, out: String(e.stdout || '') + String(e.stderr || '') }; }
 }
@@ -145,7 +146,7 @@ test('#3734 kosmos agent --help and -h show the agent usage, not the top-level b
     for (const flag of ['--help', '-h']) {
       const r = await cli(port, ['agent', flag]);
       assert.equal(r.code, 0, flag + ' did not exit 0');
-      assert.match(r.out, /Usage: kosmos agent <create\|roles\|role-draft\|instructions-add>/, flag + ' showed: ' + r.out);   // #4474 added role-draft, #5293 instructions-add
+      assert.match(r.out, /Usage: kosmos agent <create\|roles\|role-draft\|instructions-add\|remove>/, flag + ' showed: ' + r.out);   // #4474 added role-draft, #5293 instructions-add, #7362 remove
       assert.match(r.out, /--new-role "<label>" --from <file>/, flag + ' did not show the new-role form');
       assert.doesNotMatch(r.out, /kosmos start \| stop/, flag + ' fell through to the top-level banner');
     }

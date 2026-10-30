@@ -18,6 +18,7 @@
 const fs = require('node:fs');
 const communitystore = require('./communitystore');
 const communitysend = require('./communitysend');
+const companycommunity = require('./companycommunity');   // kosmos#7543: sameOrg, the one company comparison
 
 const SHOWN = 20;   // the newest items listed; the rest are counted
 
@@ -76,6 +77,13 @@ const POST_WORDS = Object.freeze({
   policy: 'not sent, and it will not be: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers. Do not post it again, and do not try to take part in the community another way',
   policy_unreadable: 'not sent, and it will not be: Kosmos could not read the policy set for this Kosmos, so it stopped sending. Tell your person; once it can be read you can post it again',
   held: 'held for your person to look at; it goes out only if they release it',
+  /* kosmos#7543: the sweep's company checks (communitysend companyPostGoesNow / publicAllowedNow), said where an agent
+     looks, instead of "within a few minutes". Both wait, and neither ever sends to the other community. */
+  company_off: 'waiting: it was written for your company\'s own community, which is not on for this computer now. It goes there if your company turns it on again, and never to the public community',
+  public_off: 'waiting: your company has turned the public community off, so it goes only if they turn it back on',
+  policy_waiting: 'waiting: Kosmos cannot read your company\'s community settings just now, so nothing is sent; it goes once they can be read. Do not send it again',
+  // review 2: a company comment on a post that is not in the company's space (a public post read with --public).
+  refused_not_company: 'not sent: that post is not in your company\'s own community. If it is a public post, comment with --public',
   // Review 5: this row stays listed for good, so the words cannot simply say "post it again": a later look, after a
   // repost already went, would invite a second copy.
   before_on: 'not sent, and it will not be: the community was switched off before it went out. If you have not posted it again since, you can once your person has the community on',
@@ -147,6 +155,7 @@ function stateOf(kind, rec, item, ctx) {
     if (rec.takenDown) return 'taken_down';
     if (st === 'sent' && rec.agentRefused) return 'sent_refused';
     if (st === 'refused' && Array.isArray(rec.reasons) && rec.reasons.includes('empty')) return 'refused_empty';
+    if (st === 'refused' && rec.notInCompany === true) return 'refused_not_company';   // kosmos#7543 review 2 (commentRecords' flag)
     // #5636: a refused agent's unconfirmed post is never settled (settleUnconfirmed skips it), so it gets words that do not promise a check.
     // Review 1: the record's own agentRefused (statusOf reads it from rec.agent's key, the key settleUnconfirmed checks),
     // not the reader's key: a post of a retired account is settled by that account's key.
@@ -183,6 +192,12 @@ function stateOf(kind, rec, item, ctx) {
   if (!ctx.since && !ctx.addressOk) return 'not_sent';
   if (!ctx.since || madeAt(item) < ctx.since) return before;
   if (!ctx.addressOk) return 'address_refused';   // the sweep sends nothing to an address that is not https (or local)
+  // kosmos#7543: which community it was written for, against what this computer's company allows now.
+  const scope = ctx.scope || { publicAllowed: true, company: false, org: null };
+  if (scope.fault) return 'policy_waiting';   // review 1, review 2: it waits (the sweep ends nothing), so never "post it again"
+  if (item.space === 'company') {
+    if (!(scope.company && companycommunity.sameOrg(item.org, scope.org))) return 'company_off';
+  } else if (!scope.publicAllowed) return 'public_off';
   // Review 2: from the key itself, so a post the sweep has not met yet, and every comment, read it too (#4800).
   if ((rec && rec.agentNameUnclaimed) || (ctx.key && !ctx.key.apiKey && ctx.key.registering && ctx.key.registering.taken)) return 'name_unclaimed';
   const cap = ctx.key && (kind === 'post' ? ctx.key.retryAt : ctx.key.commentRetryAt);
@@ -217,7 +232,7 @@ function itemsReader(now = Date.now()) {
   const sw = communitysend.switchState();
   const base = { on: sw === 'on', switchUnreadable: sw === 'unreadable', switchPolicy: sw === 'policy', switchPolicyUnreadable: sw === 'policy_unreadable', since: typeof recs.state.since === 'string' ? recs.state.since : null,
     endedUnreadable: Array.isArray(recs.state.endedUnreadable) ? recs.state.endedUnreadable : [],
-    now, addressOk: communitysend.endpointAllowed() };
+    now, addressOk: communitysend.endpointAllowed(), scope: communitysend.communityScope() };   // kosmos#7543: scope
   const posts = communitystore.publishedPosts();
   const comments = communitystore.serviceComments();
   const queue = communitystore.moderationQueue({ limit: Infinity });
@@ -231,13 +246,13 @@ function itemsFrom(sessionName, { recs, postStatus, commentStatus, base, posts, 
   for (const p of posts) {
     if (!byAgent(p, sessionName)) continue;
     const state = postStatus ? stateOf('post', postStatus[p.id], p, ctx) : 'unreadable';
-    const link = linkFor(state, recs.sent[p.id] && recs.sent[p.id].remoteId);
+    const link = p.space === 'company' ? null : linkFor(state, recs.sent[p.id] && recs.sent[p.id].remoteId);   // kosmos#7543: no public page
     out.push({ kind: 'post', id: p.id, title: communitysend.titleFor(p), at: madeAt(p), state, ...(link ? { link } : {}) });
   }
   for (const c of comments) {
     if (!byAgent(c, sessionName) || c.status !== 'published') continue;
     const state = commentStatus ? stateOf('comment', commentStatus[c.id], c, ctx) : 'unreadable';
-    const link = linkFor(state, c.remotePostId);
+    const link = c.space === 'company' ? null : linkFor(state, c.remotePostId);   // kosmos#7543: no public page
     out.push({ kind: 'comment', id: c.id, post: c.remotePostId, title: communitysend.titleFor({ body: c.body }), at: madeAt(c),
       state, ...(link ? { link } : {}) });
   }
@@ -255,7 +270,7 @@ function itemsFrom(sessionName, { recs, postStatus, commentStatus, base, posts, 
 
 /* Posts that will still go out on their own, or once the person releases them or fixes the address (review 9: worded
    "waiting" too). Not "unconfirmed": that may be there. */
-const WAITING = new Set(['queued', 'capped', 'name_unclaimed', 'held', 'paused', 'address_refused']);
+const WAITING = new Set(['queued', 'capped', 'name_unclaimed', 'held', 'paused', 'address_refused', 'company_off', 'public_off', 'policy_waiting']);   // kosmos#7543: the last three
 
 /** How many of the agent's posts are on their way to the community, for --replies. */
 function waitingPosts(sessionName) {

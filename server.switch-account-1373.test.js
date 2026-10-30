@@ -191,7 +191,7 @@ test('#1373 route: the fixture really offers a choice, or nothing below means an
 test('#1373 route: the PARTIAL branch names the account in the future tense', async () => {
   /* 🛑 THE ONLY ARM THAT EXECUTES THE PARTIAL SENTENCE. Every other route test here
      seeds a fake whose `has-session` reports the window GONE, so all four land on the
-     OK branch and `runsOn('When it restarts it will run on')` was guarded by nothing
+     OK branch and `runsOn('Then it will run on')` was guarded by nothing
      but a source regex in the sibling file. That is precisely the mutation this file
      was created to catch on the OK branch (compute the sentence, forget to append it),
      left open one branch over.
@@ -213,17 +213,17 @@ test('#1373 route: the PARTIAL branch names the account in the future tense', as
   assert.equal(r.body.outcome, 'partial',
     'the fixture did not reach the partial branch, so this test proves nothing about it: ' + JSON.stringify(r.body));
 
-  assert.match(r.body.because, /When it restarts it will run on/,
+  assert.match(r.body.because, /Then it will run on/,
     'the partial answer dropped its account sentence entirely: ' + r.body.because);
   assert.match(r.body.because, /API key ending BETA/,
     'the partial answer names no account, so the person is told less on the branch where something went wrong: ' + r.body.because);
 
   /* 🛑 AND THE TENSE, WHICH IS THE WHOLE POINT OF THE BRANCH EXISTING. The sentence one
-     line up says it is still running as before; a present-tense "It runs on X" would
+     line up says to start or restart it to put the switch into effect; a present-tense "It runs on X" would
      contradict it in the same paragraph. */
   assert.doesNotMatch(r.body.because, /It runs on/,
-    'the partial answer claims present tense, contradicting "still running as before" in its own paragraph: ' + r.body.because);
-  assert.match(r.body.because, /still running as before until it restarts/,
+    'the partial answer claims present tense, contradicting "start or restart it to put the switch into effect" in its own paragraph: ' + r.body.because);
+  assert.match(r.body.because, /Start or restart it from its card to put the switch into effect\./,
     'control: the partial branch no longer says what it used to, so the tense assertion above is not about the sentence it was written for: ' + r.body.because);
 });
 
@@ -351,7 +351,7 @@ test('#2790 route (PARTIAL branch): a ChatGPT sign-in still carries the warning'
   assert.equal(r.status, 200, 'the route errored instead of answering partially: ' + JSON.stringify(r.body));
   assert.equal(r.body.outcome, 'partial',
     'the fixture did not reach the partial branch, so this proves nothing about it: ' + JSON.stringify(r.body));
-  assert.match(r.body.because, /When it restarts it will run on/,
+  assert.match(r.body.because, /Then it will run on/,
     'the partial branch dropped its account sentence, so the note has nothing to ride: ' + r.body.because);
   assert.match(r.body.because, /cannot live-check an OpenAI sign-in/,
     'the partial branch names a sign-in but omits the unverifiability warning: ' + r.body.because);
@@ -398,4 +398,104 @@ test('#5145 route: an OpenAI switch answers accountDir = the sign-in it landed o
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.outcome, 'changed', JSON.stringify(r.body));
   assert.equal(r.body.accountDir, require('node:path').resolve(BETA), JSON.stringify(r.body));
+});
+
+/* #7470: a not-restarted switch said "It is still running as before" of an agent that was not running, and followed
+   "We saved the switch" with the restart's own "Nothing was changed.". Both on the restart-failed branch. */
+test('#7470 route: a stopped agent is never said to be still running, and the switch says what puts it into effect', async () => {
+  const name = born('route-7470-stopped');
+  fs.writeFileSync(PANES, '');   // no window: the agent is not running
+  const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(r.body.because, /is not running, so there is nothing to restart/, 'the fixture did not reach the not-running restart: ' + r.body.because);
+  assert.doesNotMatch(r.body.because, /still running as before/, 'it is not running: ' + r.body.because);
+  assert.match(r.body.because, /Start or restart it from its card to put the switch into effect\./, r.body.because);
+  // Review 4: the positive controls for the untied test's absences, on the same switch where a start can help.
+  assert.match(r.body.because, /Then it will run on/, r.body.because);
+  assert.match(r.body.because, /When it does start again/, r.body.because);
+  assert.equal(store.readProfile(name).provider, 'openai', 'CONTROL: the switch was saved');
+});
+
+test('#7470 route: a window that would not close is still running, and the saved switch is never followed by "Nothing was changed"', async () => {
+  const alive = () => ({ ok: true, stdout: '' });
+  const name = born('route-7470-alive');
+  create.setRunner(alive);
+  require('./engine/remove').setRunner(alive);
+  let r;
+  try {
+    r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
+  } finally {
+    create.setRunner(fakeRun);
+    require('./engine/remove').setRunner(fakeRun);
+  }
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(r.body.because, /We saved the switch to /, r.body.because);
+  assert.match(r.body.because, /still running the older instructions/, 'the fixture did not reach the window that would not close: ' + r.body.because);
+  assert.doesNotMatch(r.body.because, /Nothing was changed/, 'the switch WAS saved: ' + r.body.because);
+  assert.equal(store.readProfile(name).provider, 'openai', 'CONTROL: the switch was saved');
+  // CONTROL: the restart's own words are unchanged for a restart with nothing saved before it.
+  assert.equal(require('./engine/remove').RESTART_CHANGED_NOTHING, 'Nothing was changed.');
+});
+
+test('#7470 route: the model switch, its window still open, says to start or restart it to put the new model into effect, never "Nothing was changed"', async () => {
+  const alive = () => ({ ok: true, stdout: '' });
+  const name = born('route-7470-model');
+  create.setRunner(alive);
+  require('./engine/remove').setRunner(alive);
+  let r;
+  try {
+    const res = await fetch(base + '/api/agent/' + encodeURIComponent(name) + '/model', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'haiku' }) });
+    r = { status: res.status, body: await res.json() };
+  } finally {
+    create.setRunner(fakeRun);
+    require('./engine/remove').setRunner(fakeRun);
+  }
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(r.body.because, /We saved .*, but could not start it again: /, r.body.because);
+  assert.match(r.body.because, /still running the older instructions/, 'the fixture did not reach the window that would not close: ' + r.body.because);
+  assert.doesNotMatch(r.body.because, /Nothing was changed/, 'the model WAS saved: ' + r.body.because);
+  assert.doesNotMatch(r.body.because, /still running the old one until it restarts/, r.body.because);
+  assert.match(r.body.because, /Start or restart it from its card to put the new model into effect\./, r.body.because);
+});
+
+test('#7470 review 2: the switch answer\'s helpers keep a full stop and leave out a step that would not help', () => {
+  const { switchRestartWhy, switchNextStep, switchCanStart } = require('./server');
+  assert.equal(switchRestartWhy({ because: 'we could not close X\'s window, so it is still running the older instructions. Nothing was changed.' }),
+    'we could not close X\'s window, so it is still running the older instructions.');
+  assert.equal(switchRestartWhy({ because: 'spawn failed' }), 'spawn failed.', 'a thrown error\'s message still ends its sentence');
+  const dry = 'it is still running the older instructions. Nothing was changed. (Nothing actually happened: this is a dry run.)';
+  assert.equal(switchRestartWhy({ because: dry }), dry, 'under dry-run the restart\'s own words are left whole (true there)');
+  assert.equal(switchRestartWhy({ because: 'launchctl failed (code 5)' }), 'launchctl failed (code 5).', 'a bare ) still ends its sentence');
+  // Review 3: by the restart's own flag, never its words.
+  assert.equal(switchNextStep({ because: 'anything', cannotStart: true }, 'Start it.'), '', 'a start would not help');
+  assert.equal(switchCanStart({ because: 'anything', cannotStart: true }), false);
+  assert.equal(switchNextStep({ because: 'X is not running, so there is nothing to restart.' }, 'Start it.'), ' Start it.', 'CONTROL');
+});
+
+test('#7470 review 3: a window Kosmos cannot tie to the agent gets no next step it cannot take, and no account or conversation sentence', async () => {
+  const name = born('route-7470-untied');
+  // A pane under its name that somebody else claims: the restart (and the card's Start/Restart) leaves it alone.
+  fs.writeFileSync(PANES, fleet.line({ session: name, title: 'working' }) + '\n');
+  const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.match(r.body.because, /we cannot confirm it is this agent/, 'the fixture did not reach the untied refusal: ' + r.body.because);
+  assert.doesNotMatch(r.body.because, /Start or restart it from its card/, 'the card meets the same refusal: ' + r.body.because);
+  assert.doesNotMatch(r.body.because, /Then it will run on/, r.body.because);
+  assert.doesNotMatch(r.body.because, /When it does start again/, r.body.because);
+  assert.equal(store.readProfile(name).provider, 'openai', 'CONTROL: the switch was saved');
+});
+
+test('#7470 review 4: the restart marks a job Kosmos did not start as one a start cannot fix', () => {
+  const name = born('route-7470-nojob');
+  fs.rmSync(jobfix.jobPath(name), { force: true });   // no launch job: Kosmos did not start it
+  const back = require('./engine/remove').restart(name, 'test');
+  assert.match(back.because, /was not started by Kosmos/, JSON.stringify(back));
+  assert.equal(back.cannotStart, true, 'the switch answer reads this flag, never the words');
+  // CONTROL: a stopped agent WITH its job is one a start can help.
+  const ok = born('route-7470-hasjob');
+  fs.writeFileSync(PANES, '');
+  const stopped = require('./engine/remove').restart(ok, 'test');
+  assert.match(stopped.because, /is not running/, JSON.stringify(stopped));
+  assert.notEqual(stopped.cannotStart, true);
 });

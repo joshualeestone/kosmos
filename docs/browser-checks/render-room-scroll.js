@@ -472,6 +472,306 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     };
     await sendJumpArms('');
 
+    /* ---- 4b. kosmos#7196: ON A PHONE THE NEWEST ROW IS NOT UNDER THE COMPOSER. The room column ran about 85px past
+       the screen in the phone tab layout, so the sticky composer covered the thread's floor: a reader "at the bottom"
+       could not see the newest row until the page was nudged. Measured on a fresh phone page of this same board (tab
+       layout, before section 5 switches it), at the room's floor, against the composer's top edge. */
+    {
+      const ph = await b.newPage({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+      ph.on('pageerror', (e) => errs.push('phone: ' + String(e)));
+      try {
+        await ph.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+        if (await ph.isVisible('#firstrun')) await ph.keyboard.press('Escape');
+        const tab = ph.locator('[data-tab="projects"]').first();
+        if (await tab.isVisible().catch(() => false)) await tab.click();
+        else await ph.evaluate(() => { const t = document.querySelector('[data-tab="projects"]'); if (t) t.click(); });
+        await ph.locator('#pj-list').getByText('Scroll Repro').first().click();
+        await ph.waitForSelector('#pj-room', { state: 'visible', timeout: GROW_MS });
+        await ph.waitForFunction(() => document.getElementById('pj-room').children.length > 20, null, { timeout: GROW_MS }).catch(() => {});
+        /* lift: the CONTROL's lifted fit, written in the same step as the measurement (review 2: the room's 5 s refresh
+           re-fits it, so a lift written in an earlier step could be undone before the read, a flaky "cannot fail"). */
+        const floor = (lift) => ph.evaluate(async (lift) => {
+          const room = document.getElementById('pj-room'), comp = document.querySelector('.pjmid .composer');
+          if (lift) room.style.setProperty('--pj-room-fit', '2000px');
+          room.scrollTop = room.scrollHeight;
+          await new Promise((r) => setTimeout(r, 300));
+          if (lift) { room.style.setProperty('--pj-room-fit', '2000px'); room.scrollTop = room.scrollHeight; }
+          const rows = [...room.children].filter((e) => e.getBoundingClientRect().height > 0);
+          const last = rows[rows.length - 1];
+          return { cls: last ? last.className : '', lastBottom: Math.round(last ? last.getBoundingClientRect().bottom : 0),
+            composerTop: Math.round(comp.getBoundingClientRect().top), composerBottom: Math.round(comp.getBoundingClientRect().bottom),
+            roomH: Math.round(room.getBoundingClientRect().height), viewport: innerHeight,
+            phoneTab: !document.body.classList.contains('consolidated') && matchMedia('(max-width: 30rem)').matches };
+        }, !!lift);
+        const post = await floor();
+        if (!post.phoneTab) bad('#7196 the phone arms run in the phone tab layout', JSON.stringify(post));
+        else if (post.lastBottom <= post.composerTop) ok('#7196 on a phone the newest post sits above the composer (' + post.lastBottom + ' <= ' + post.composerTop + ')');
+        else bad('#7196 on a phone the newest post sits above the composer', JSON.stringify(post));
+        // CONTROL: lift the cap the fix writes, and the same measurement must see the newest row go under the composer.
+        const lifted = await floor(true);
+        if (lifted.lastBottom > lifted.composerTop) ok('#7196 CONTROL: without the fit, the measurement sees the newest row under the composer');
+        else bad('#7196 CONTROL: without the fit, the measurement sees the newest row under the composer', 'it cannot fail: ' + JSON.stringify(lifted));
+        await ph.evaluate(() => pjFitRoomPhone());
+        // An automated notice as the newest row (the shape Josh's report showed), not only an ordinary post.
+        await ph.evaluate(async () => {
+          await fetch('/api/project/scrollrepro/notice', { method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ source: 'email digest', text: 'Email cleanup\n- main inbox: 3 marked read\n\nNothing needs you today.' }) });
+        });
+        await ph.waitForFunction(() => /msg-valve/.test((document.getElementById('pj-room').lastElementChild || {}).className || ''), null, { timeout: GROW_MS }).catch(() => {});
+        const notice = await floor();
+        if (!/msg-valve/.test(notice.cls)) bad('#7196 the notice arm has a notice as the newest row', JSON.stringify(notice));
+        else if (notice.lastBottom <= notice.composerTop) ok('#7196 on a phone a notice as the newest row sits above the composer');
+        else bad('#7196 on a phone a notice as the newest row sits above the composer', JSON.stringify(notice));
+        // The keyboard: the visible height shrinks; the thread shrinks with it and the composer stays on screen.
+        await ph.setViewportSize({ width: 393, height: 852 - 336 });
+        await ph.waitForTimeout(500);
+        const kb = await floor();
+        // Review 1: the newest row itself, not only the boxes (the old cap alone also shrinks the room, and a sticky
+        // composer is always on screen), with a lifted-fit control at this size.
+        if (kb.lastBottom <= kb.composerTop && kb.composerBottom <= kb.viewport) ok('#7196 with the keyboard up the newest row stays above the composer');
+        else bad('#7196 with the keyboard up the newest row stays above the composer', JSON.stringify({ before: post, kb }));
+        const kbLifted = await floor(true);
+        if (kbLifted.lastBottom > kbLifted.composerTop) ok('#7196 CONTROL: with the keyboard up and no fit, the measurement sees the newest row hidden');
+        else bad('#7196 CONTROL: with the keyboard up and no fit, the measurement sees the newest row hidden', 'it cannot fail: ' + JSON.stringify(kbLifted));
+        await ph.setViewportSize({ width: 393, height: 852 });
+        await ph.evaluate(() => pjFitRoomPhone());
+        /* Review 4: a real iPhone keyboard shrinks only the VISUAL viewport and fires only its resize (the window arm above
+           fires window's). Stub visualViewport.height and fire its resize alone; the fit must shrink. CONTROL: with the
+           visualViewport listener removed, the same step must leave the fit where it was. */
+        const vv = await ph.evaluate(async () => {
+          const room = document.getElementById('pj-room');
+          const fitNow = () => parseFloat(room.style.getPropertyValue('--pj-room-fit'));
+          const fire = async () => {
+            Object.defineProperty(window.visualViewport, 'height', { configurable: true, get: () => 852 - 336 });
+            window.visualViewport.dispatchEvent(new Event('resize'));
+            const v = fitNow();
+            delete window.visualViewport.height;
+            pjFitRoomPhone();
+            return v;
+          };
+          const before = fitNow();
+          const withFix = await fire();
+          window.visualViewport.removeEventListener('resize', pjFitRoomPhone);
+          const without = await fire();
+          window.visualViewport.addEventListener('resize', pjFitRoomPhone);
+          return { before, withFix, without, after: fitNow() };
+        });
+        if (vv.withFix < vv.before) ok('#7196 the keyboard as iOS reports it (visual viewport only) shrinks the thread (' + vv.before + ' -> ' + vv.withFix + ')');
+        else bad('#7196 the keyboard as iOS reports it (visual viewport only) shrinks the thread', JSON.stringify(vv));
+        if (vv.without === vv.before) ok('#7196 CONTROL: without the visualViewport listener the same step changes nothing');
+        else bad('#7196 CONTROL: without the visualViewport listener the same step changes nothing', 'it cannot fail: ' + JSON.stringify(vv));
+        /* Review 4: the "Replying to" bar sits between the thread and the composer, through the page's own painter. The
+           newest row and the bar must both stay above the composer. CONTROL: the fit the code wrote before review 4 (the
+           bar's height not taken off) must put one of them under it. */
+        /* Review 5: room repaints counted (paintRoom re-fits on every 5 s poll), so an arm that must prove the watchers re-fit
+           is retried when a repaint landed inside it, rather than passing on the poll's re-fit. */
+        await ph.evaluate(() => {
+          if (window.__pjPaints !== undefined) return;
+          window.__pjPaints = 0;
+          const orig = paintRoom;
+          paintRoom = function (...a) { window.__pjPaints++; return orig.apply(this, a); };
+        });
+        const replyArm = (old) => ph.evaluate(async (old) => {
+          const room = document.getElementById('pj-room'), comp = document.querySelector('.pjmid .composer'), bar = document.getElementById('pj-reply');
+          const paints0 = window.__pjPaints;
+          PJ_REPLY.scrollrepro = { id: 'r7196', from: 'scrollrepro-agent', who: 'Repro' };
+          pjReplyPaint('scrollrepro');
+          // Review 5: no explicit re-fit for the arm itself: the bar showing must re-fit the room through its observer.
+          await new Promise((r) => setTimeout(r, 300));
+          const lift = () => { const cs = getComputedStyle(bar); room.style.setProperty('--pj-room-fit', (parseFloat(room.style.getPropertyValue('--pj-room-fit')) + bar.getBoundingClientRect().height + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0)) + 'px'); };
+          if (old) { pjFitRoomPhone(); lift(); }
+          room.scrollTop = room.scrollHeight;
+          await new Promise((r) => setTimeout(r, 100));
+          // The control's lift written again after the wait (review 5 nit: a poll could re-fit over it, as in floor()).
+          if (old) { pjFitRoomPhone(); lift(); room.scrollTop = room.scrollHeight; }
+          const rows = [...room.children].filter((e) => e.getBoundingClientRect().height > 0);
+          const out = { repainted: window.__pjPaints !== paints0, shown: !bar.hidden, barH: Math.round(bar.getBoundingClientRect().height), barBottom: Math.round(bar.getBoundingClientRect().bottom),
+            lastBottom: Math.round(rows[rows.length - 1].getBoundingClientRect().bottom), composerTop: Math.round(comp.getBoundingClientRect().top) };
+          delete PJ_REPLY.scrollrepro;
+          pjReplyPaint('scrollrepro');
+          pjFitRoomPhone();
+          return out;
+        }, !!old);
+        let rep = await replyArm(false);
+        for (let i = 0; i < 3 && rep.repainted; i++) rep = await replyArm(false);
+        if (rep.repainted) bad('#7196 the reply arm ran without a room repaint inside it (three tries)', JSON.stringify(rep));
+        else if (!rep.shown || rep.barH < 10) bad('#7196 the reply arm shows the Replying to bar', JSON.stringify(rep));
+        else if (rep.lastBottom <= rep.composerTop && rep.barBottom <= rep.composerTop) ok('#7196 with Replying to open, the newest row and the bar sit above the composer');
+        else bad('#7196 with Replying to open, the newest row and the bar sit above the composer', JSON.stringify(rep));
+        const repOld = await replyArm(true);
+        if (repOld.lastBottom > repOld.composerTop || repOld.barBottom > repOld.composerTop) ok('#7196 CONTROL: the fit before review 4 hides the bar or the newest row');
+        else bad('#7196 CONTROL: the fit before review 4 hides the bar or the newest row', 'it cannot fail: ' + JSON.stringify(repOld));
+        // Review 4: the space already left under the newest row, so the typing arm's growth is checked against it.
+        // Review 5: and retried when a room repaint landed inside it, so only the composer's observer can have re-fit.
+        let preType, typed, afterType, typedPaints;
+        for (let i = 0; i < 4; i++) {
+          const p0 = await ph.evaluate(() => window.__pjPaints);
+          preType = await floor();
+          // Review 1: typing a long message grows the composer with no repaint or resize; the thread must give way.
+          typed = await ph.evaluate(async () => {
+            const box = document.getElementById('pj-post'), comp = document.querySelector('.pjmid .composer');
+            const h0 = comp.getBoundingClientRect().height;
+            box.value = 'line one\nline two\nline three\nline four\nline five'; box.dispatchEvent(new Event('input', { bubbles: true }));
+            if (typeof pjGrowComposer === 'function') pjGrowComposer(box);
+            await new Promise((r) => setTimeout(r, 400));
+            return { grew: comp.getBoundingClientRect().height - h0 };
+          });
+          afterType = await floor();
+          typedPaints = (await ph.evaluate(() => window.__pjPaints)) - p0;
+          if (typedPaints === 0) break;
+          await ph.evaluate(() => { const box = document.getElementById('pj-post'); box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); if (typeof pjGrowComposer === 'function') pjGrowComposer(box); pjFitRoomPhone(); });
+        }
+        const slack = preType.composerTop - preType.lastBottom;
+        if (typedPaints !== 0) bad('#7196 the typing arm ran without a room repaint inside it (four tries)', JSON.stringify({ typedPaints }));
+        else if (typed.grew <= slack + 4) bad('#7196 CONTROL: typing grew the composer by more than the space under the newest row', JSON.stringify({ typed, slack }));
+        else if (afterType.lastBottom <= afterType.composerTop) ok('#7196 typing a long message (composer +' + Math.round(typed.grew) + 'px) leaves the newest row above it');
+        else bad('#7196 typing a long message leaves the newest row above the composer', JSON.stringify({ typed, afterType }));
+        await ph.evaluate(() => { const box = document.getElementById('pj-post'); box.value = ''; box.dispatchEvent(new Event('input', { bubbles: true })); });
+      } catch (e) {
+        bad('#7196 the phone arms ran', String((e && e.message) || e));
+      } finally {
+        await ph.close().catch(() => {});
+      }
+    }
+
+    /* ---- 4c. kosmos#7272: ON A SHORT PHONE WITH THE KEYBOARD UP, THE HEADER GIVES WAY WHILE THE PERSON TYPES. An iPhone
+       SE (375x667) with a 336px keyboard leaves about 331px; Back and the room's title and search row took all of it, so no
+       post showed above the composer and the composer half-covered the search field. Focus goes in the composer first,
+       then the keyboard rises, as on a phone. Measured: the newest row above the composer and no header control under it,
+       with no fit call of the check's own; the connection notice kept; a room search holding a query keeps the header;
+       and the header back when focus leaves. */
+    {
+      const ph = await b.newPage({ viewport: { width: 375, height: 667 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+      ph.on('pageerror', (e) => errs.push('phone SE: ' + String(e)));
+      try {
+        await ph.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+        if (await ph.isVisible('#firstrun')) await ph.keyboard.press('Escape');
+        const tab = ph.locator('[data-tab="projects"]').first();
+        if (await tab.isVisible().catch(() => false)) await tab.click();
+        else await ph.evaluate(() => { const t = document.querySelector('[data-tab="projects"]'); if (t) t.click(); });
+        await ph.locator('#pj-list').getByText('Scroll Repro').first().click();
+        await ph.waitForSelector('#pj-room', { state: 'visible', timeout: GROW_MS });
+        await ph.waitForFunction(() => document.getElementById('pj-room').children.length > 20, null, { timeout: GROW_MS }).catch(() => {});
+        // force: show the header whatever the stylesheet says (the CONTROL), written in the same step as the read.
+        const look = (force) => ph.evaluate(async (force) => {
+          // Held on window, not by an id: the selectors guard requires every id a check names to be in web/index.html.
+          if (force && !window.__t7272pin) { const pin = document.createElement('style'); pin.textContent = '#pj-one-view .pjmidhead { display: flex !important; } #pj-one-view > .pj-crumbrow { display: flex !important; }'; document.head.appendChild(pin); window.__t7272pin = pin; }
+          if (!force && window.__t7272pin) { window.__t7272pin.remove(); window.__t7272pin = null; }
+          // Only the CONTROL fits by hand (its header is forced back with no event the page sees); otherwise the read
+          // is of what the page itself did.
+          if (force) pjFitRoomPhone();
+          const room = document.getElementById('pj-room'), comp = document.querySelector('.pjmid .composer');
+          room.scrollTop = room.scrollHeight;
+          await new Promise((r) => setTimeout(r, 300));
+          if (force) pjFitRoomPhone();
+          room.scrollTop = room.scrollHeight;
+          await new Promise((r) => requestAnimationFrame(() => r()));
+          const rows = [...room.children].filter((e) => e.getBoundingClientRect().height > 0);
+          const last = rows[rows.length - 1];
+          const cTop = comp.getBoundingClientRect().top;
+          // Every header control still drawn must end above the composer (none half under it).
+          const covered = [...document.querySelectorAll('#pj-one-view .pjmidhead input, #pj-one-view .pjmidhead button, #pj-one-view > .pj-crumbrow button')]
+            .filter((e) => { const r = e.getBoundingClientRect(); return r.height > 0 && r.bottom > cTop && r.top < comp.getBoundingClientRect().bottom; })
+            .map((e) => e.id || e.className);
+          const head = document.querySelector('#pj-one-view .pjmidhead'), conn = document.getElementById('conn');
+          return { connShown: !!conn && !conn.hidden && conn.getBoundingClientRect().height > 0, lastBottom: Math.round(last ? last.getBoundingClientRect().bottom : 0), composerTop: Math.round(cTop),
+            covered, headShown: !!head && head.getBoundingClientRect().height > 0,
+            kbUp: document.documentElement.classList.contains('kosmos-keyboard-up'), focusIn: !!document.activeElement && document.activeElement.id === 'pj-post',
+            phoneTab: !document.body.classList.contains('consolidated') && matchMedia('(max-width: 30rem)').matches };
+        }, !!force);
+        await ph.focus('#pj-post');
+        await ph.setViewportSize({ width: 375, height: 667 - 336 });
+        await ph.waitForTimeout(500);
+        const kb = await look();
+        if (!kb.phoneTab || !kb.kbUp || !kb.focusIn) bad('#7272 the arm has the phone tab layout, the keyboard up and focus in the composer', JSON.stringify(kb));
+        else if (kb.headShown) bad('#7272 typing with the keyboard up on an SE: the room header steps aside', JSON.stringify(kb));
+        else if (kb.lastBottom <= kb.composerTop && kb.composerTop - kb.lastBottom < 40 && kb.covered.length === 0) ok('#7272 typing with the keyboard up on an SE: the header steps aside and the newest row sits above the composer (' + kb.lastBottom + ' <= ' + kb.composerTop + ')');
+        else bad('#7272 typing with the keyboard up on an SE: the newest row sits above the composer and nothing is under it', JSON.stringify(kb));
+        // CONTROL: the header forced back at this size, and the same read must see a control under the composer or the
+        // newest row hidden (the card's screen).
+        const forced = await look(true);
+        if (forced.covered.length > 0 || forced.lastBottom > forced.composerTop) ok('#7272 CONTROL: with the header shown, the read sees it collide with the composer');
+        else bad('#7272 CONTROL: with the header shown, the read sees it collide with the composer', 'it cannot fail: ' + JSON.stringify(forced));
+        await look(false);
+        // The connection notice (the throwaway board has no subscription, so it shows) is kept while typing, as in the
+        // talk view: it is the one line saying an @-request cannot be answered.
+        if (kb.connShown) ok('#7272 the connection notice stays on screen while typing');
+        else bad('#7272 the connection notice stays on screen while typing', JSON.stringify(kb));
+        // A room search holding a query keeps the header while typing, so a filtered room never looks unfiltered.
+        await ph.evaluate(() => { document.activeElement.blur(); });
+        await ph.setViewportSize({ width: 375, height: 667 });
+        await ph.waitForTimeout(400);
+        await ph.fill('#pj-room-search', 'post');
+        await ph.focus('#pj-post');
+        await ph.setViewportSize({ width: 375, height: 667 - 336 });
+        await ph.waitForTimeout(500);
+        const searching = await ph.evaluate(() => { const h = document.querySelector('#pj-one-view .pjmidhead');
+          return { headShown: !!h && h.getBoundingClientRect().height > 0, kbUp: document.documentElement.classList.contains('kosmos-keyboard-up'),
+            focusIn: document.activeElement && document.activeElement.id === 'pj-post' }; });
+        if (!searching.kbUp || !searching.focusIn) bad('#7272 the search arm has the keyboard up and focus in the composer', JSON.stringify(searching));
+        else if (searching.headShown) ok('#7272 with a search query in the room, the header (and the query) stays while typing');
+        else bad('#7272 with a search query in the room, the header (and the query) stays while typing', JSON.stringify(searching));
+        await ph.evaluate(() => { document.activeElement.blur(); });
+        await ph.setViewportSize({ width: 375, height: 667 });
+        await ph.waitForTimeout(300);
+        await ph.fill('#pj-room-search', '');
+        await ph.focus('#pj-post');
+        await ph.setViewportSize({ width: 375, height: 667 - 336 });
+        await ph.waitForTimeout(500);
+        // From the search box to the composer with the keyboard already up (the keyboard stays, so no resize fires): the
+        // header hides, and the thread must take the freed space, not keep the cap it had under the header. A stale cap
+        // shows as the composer floating above the keyboard with a blank band under it (measured: 150px, the composer's
+        // bottom at 366 of 516 visible), since the composer follows the thread; so the composer must end at the visible
+        // bottom, and the newest row must sit just above it. On a 393x852 phone: on the SE the fit under the header is
+        // already at its 96px floor, so a stale fit cannot show there.
+        await ph.evaluate(() => { document.activeElement.blur(); });
+        await ph.setViewportSize({ width: 393, height: 852 });
+        await ph.waitForTimeout(400);
+        await ph.focus('#pj-room-search');
+        await ph.setViewportSize({ width: 393, height: 852 - 336 });
+        await ph.waitForTimeout(500);
+        await ph.focus('#pj-post');
+        await ph.waitForTimeout(400);
+        const hop = await ph.evaluate(async () => {
+          const room = document.getElementById('pj-room'), comp = document.querySelector('.pjmid .composer'), h = document.querySelector('#pj-one-view .pjmidhead');
+          room.scrollTop = room.scrollHeight;
+          await new Promise((r) => setTimeout(r, 200));
+          const rows = [...room.children].filter((e) => e.getBoundingClientRect().height > 0);
+          const last = rows[rows.length - 1];
+          return { headShown: !!h && h.getBoundingClientRect().height > 0, lastBottom: Math.round(last ? last.getBoundingClientRect().bottom : 0),
+            composerTop: Math.round(comp.getBoundingClientRect().top), composerBottom: Math.round(comp.getBoundingClientRect().bottom),
+            visible: Math.round(window.visualViewport ? window.visualViewport.height : innerHeight), fit: room.style.getPropertyValue('--pj-room-fit'),
+            kbUp: document.documentElement.classList.contains('kosmos-keyboard-up') };
+        });
+        const band = hop.composerTop - hop.lastBottom;   // the newest row's gap above the composer, as in the first arm
+        await ph.evaluate(() => { document.activeElement.blur(); });
+        await ph.setViewportSize({ width: 375, height: 667 });
+        await ph.waitForTimeout(400);
+        await ph.focus('#pj-post');
+        await ph.setViewportSize({ width: 375, height: 667 - 336 });
+        await ph.waitForTimeout(500);
+        if (!hop.kbUp || hop.headShown) bad('#7272 the search-to-composer arm has the keyboard up and the header hidden', JSON.stringify(hop));
+        else if (band >= 0 && band < 40 && Math.abs(hop.visible - hop.composerBottom) <= 4) ok('#7272 on a 393x852 phone, from the search box to the composer with the keyboard up, the thread takes the freed space (gap ' + band + 'px)');
+        else bad('#7272 on a 393x852 phone, from the search box to the composer with the keyboard up, the thread takes the freed space', JSON.stringify({ band, hop }));
+        // Focus leaves (a tap on the thread): the header comes back, keyed on the focus alone. Then the keyboard closes, as
+        // it does on a phone when the box loses focus, and the thread re-fits under the returned header: the newest row
+        // above the composer. (With the header back AND the keyboard up, an SE has no room for a thread at all; that is
+        // the screen this card fixes by hiding the header, and #7196's stated limit.)
+        await ph.evaluate(() => document.activeElement.blur());
+        await ph.waitForTimeout(300);
+        const back = await ph.evaluate(() => { const h = document.querySelector('#pj-one-view .pjmidhead'); return !!h && h.getBoundingClientRect().height > 0; });
+        await ph.setViewportSize({ width: 375, height: 667 });
+        await ph.waitForTimeout(500);
+        const closed = await look(false);
+        if (back && closed.headShown && closed.lastBottom <= closed.composerTop && closed.covered.length === 0) ok('#7272 focus leaving brings the header back, and with the keyboard closed the newest row sits above the composer');
+        else bad('#7272 focus leaving brings the header back, and with the keyboard closed the newest row sits above the composer', JSON.stringify({ back, closed }));
+      } catch (e) {
+        bad('#7272 the SE keyboard arm ran', String((e && e.message) || e));
+      } finally {
+        await ph.close().catch(() => {});
+      }
+    }
+
     /* ---- 5. THE SAME ARMS IN THE CONSOLIDATED VIEW, which is the layout Josh
        is actually using. It gives the room a different box entirely (grid rows,
        its own scroller), so every pass above is a statement about the TAB view

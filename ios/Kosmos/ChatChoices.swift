@@ -205,16 +205,24 @@ struct AgentBubbleBackground: ViewModifier {
     let widthShare: CGFloat
     func body(content: Content) -> some View {
         content
-            .padding(.vertical, 10).padding(.horizontal, 12)
+            .padding(.vertical, 10).padding(.horizontal, 14)   // kosmos#7347
             .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Palette.agentBubble))
+            .overlay(PressedBubbleMark())   // kosmos#7419 build 11: the bubble itself, before its width frame
             .frame(maxWidth: UIScreen.main.bounds.width * max(widthShare, 0.85), alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
     }
 }
 
-// Buttons placed left to right, wrapping to the next line when a row is full (iOS 16's Layout).
+// Buttons placed left to right, wrapping to the next line when a row is full (iOS 16's Layout). It needs a finite
+// width proposal: with none (a horizontal scroll view, fixedSize) everything sits on one row.
 struct FlowLayout: Layout {
     var spacing: CGFloat
+    // kosmos#7420 review 1: each row flush right (the person's own reactions, under a right-hand bubble), as the one
+    // HStack row it replaces sat; false keeps the left-to-right rows the answer buttons use.
+    var trailing = false
+    // kosmos#7420 (Mona Lisa, 10-29): the space between lines when it should differ from the space between items; nil
+    // keeps them the same. Tappable reactions carry a 44 pt tap area each, so their lines touch (0) without overlapping.
+    var rowSpacing: CGFloat? = nil
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let rows = arrange(width: proposal.width ?? .infinity, subviews: subviews)
@@ -226,7 +234,8 @@ struct FlowLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         for row in arrange(width: bounds.width, subviews: subviews) {
             for item in row.items {
-                subviews[item.index].place(at: CGPoint(x: bounds.minX + item.x, y: bounds.minY + row.y),
+                let shift = trailing ? max(0, bounds.width - row.width) : 0
+                subviews[item.index].place(at: CGPoint(x: bounds.minX + shift + item.x, y: bounds.minY + row.y),
                                            proposal: ProposedViewSize(width: item.width, height: nil))
             }
         }
@@ -244,8 +253,10 @@ struct FlowLayout: Layout {
             let h = view.sizeThatFits(ProposedViewSize(width: w, height: nil)).height
             var row = rows[rows.count - 1]
             let x = row.items.isEmpty ? 0 : row.width + spacing
-            if !row.items.isEmpty && x + w > width {
-                let y = row.y + row.height + spacing
+            // kosmos#7420 review 2: half a point of slack, so bounds a fraction narrower than the widest row (rounding)
+            // never wraps its last item onto a line the reported height did not count.
+            if !row.items.isEmpty && x + w > width + 0.5 {
+                let y = row.y + row.height + (rowSpacing ?? spacing)
                 rows.append(Row(y: y))
                 row = rows[rows.count - 1]
                 row.items.append(Item(index: i, x: 0, width: w))

@@ -142,21 +142,43 @@ records, server logs, and the processors), which matches `privacy-label.md`.
 2026 KOSMOS Agent Manager, Inc.
 <!-- /copyright -->
 
-## Notes for App Review (draft; App Review reads this, customers do not)
+## Notes for App Review (draft, rewritten 2026-10-27 for the native app, kosmos #7352; App Review reads this, customers do not)
+
+For us, not for App Review: everything from the next paragraph on is pasted into
+the Notes field. The demo account is the Play review account and review computer
+from kosmos #4090. The demo email goes in the sign-in user name field (and a
+password only once the password sign-in of kosmos #7357 ships in the app).
 
 Kosmos is a free companion to Kosmos+, a paid web service. Nothing is sold in
 the app and it links to no purchase (Guideline 3.1.3(f)).
 
-To review it you need two things we provide: a Kosmos+ demo account (below) and
-a computer running Kosmos that stays online during the review, signed in to that
-account, with the review phone already approved or approvable by us.
+What it does: Kosmos runs AI agents on the person's own computer. The app lets
+them see those agents, talk to them, and answer them from their phone.
 
-Native features beyond the web view: push notifications through APNs that open
-the agent that asked, an offline page that reloads by itself when the phone is
-back online, pull to refresh, and links to other sites that open in Safari rather than in the app.
+Native screens (Guideline 4.2): sign-in (email code, then a second step);
+Agents, a live list of the person's agents and what each is doing; a
+conversation with any agent, with photos, files, voice dictation and emoji;
+Projects, with each project's shared room; Tasks, grouped by project, and a
+page per task; Settings, including account deletion (Guideline 5.1.1(v)); push
+notifications that open the agent or room that asked, with Allow and Deny on a
+permission question. A few deeper pages show the person's own board (on
+their own computer), and their Kosmos+ account pages such as Delete account,
+in an in-app view; links to any other site open in Safari.
 
-Face ID: the build carries a Face ID purpose string for a lock that is built but switched off in this version; the app
-never asks for Face ID.
+To review it you need two things we provide: the demo account below, and a
+computer running Kosmos on that account that we keep online for the whole
+review. On first sign-in the computer is asked to allow the new phone; we
+approve it from our side, so nothing is needed from you beyond signing in.
 
-Demo account: (Josh to fill in)
+Signing in: enter the demo email and press Continue. The six-digit code
+arrives in the demo inbox. For the second step, add the authenticator setup
+key to any authenticator app and enter the code it shows. The demo inbox
+login and the setup key are given below.
+
+Demo inbox login and authenticator setup key: (Josh to paste here in App Store
+Connect; never committed to this file)
+
 Contact during review: (Josh to fill in)
+
+Face ID: the build carries a Face ID purpose string for a lock that is built
+but switched off in this version; the app never asks for Face ID.

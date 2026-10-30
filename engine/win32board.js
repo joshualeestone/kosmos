@@ -249,6 +249,88 @@ function bootJsFor(env) {
   return BOOT_JS.slice(0, at + marker.length) + line + BOOT_JS.slice(at + marker.length);
 }
 
+/**
+ * #2988: THE BOARD'S WATCHDOG, a second task beside the board's.
+ *
+ * 🛑 WHY A SECOND TASK, NOT A REPETITION ON THIS ONE. Measured on the Windows box 2026-10-28
+ * (kosmos#2988, the Windows lane's comment): a LogonTrigger repetition never fires before the
+ * next logon, and the board task is registered again on every boot and update, so it would
+ * protect nothing. A TimeTrigger repetition on the board task would run BOOT_JS every minute,
+ * and a tick that lands in an update's stop-swap-start window would start a board behind the
+ * updater's back. So the board task and BOOT_JS stay exactly as they are, and this task runs a
+ * small check once a minute that `/Run`s the board task only when the board is down and nothing
+ * means it to be (engine/win32boardwatch.js names every condition).
+ *
+ * The task is a TimeTrigger with a fixed StartBoundary in the past and a PT1M repetition with no
+ * duration: measured firing on the next minute after registration, and every minute after.
+ * IgnoreNew, so a check that is still running is never doubled. The task itself is always
+ * switched on: the board task's own switch is what says the board was stopped on purpose.
+ */
+const WATCHDOG_TASK_NAME = 'Kosmos\\board-watchdog';
+const WATCHDOG_REMOVE_HINT = 'schtasks /Delete /F /TN "' + WATCHDOG_TASK_NAME + '"';
+/* Beside board-boot.js, and for its reason: a task is forever and the extract root is not. */
+const WATCH_NAME = 'board-watchdog.js';
+/* The engine file the shim loads, through the same pointer BOOT_JS reads. */
+const WATCH_ENGINE_FILE = 'win32boardwatch.js';
+const WATCHDOG_START_BOUNDARY = '2020-01-01T00:00:00';
+/* engine/win32boardwatch.js's hold file and its longest life, which the shim reads before it loads
+   the engine. Spelled here because the shim is written from this file; a test pins the shim against
+   a hold holdBoard really wrote (engine/win32boardwatch.test.js). */
+const WATCH_HOLD_FILE = /^board-hold\.\d+\.json$/;
+const WATCH_HOLD_MAX_MS = 5 * 60 * 1000;
+const WATCHDOG_INTERVAL = 'PT1M';
+
+/**
+ * The watchdog's durable entry point. Like BOOT_JS it resolves the engine through the pointer
+ * at run time, so one refresh moves it with the board.
+ *
+ * 🛑 IT LOADS NOTHING WHILE AN UPDATE IS UNFINISHED. During an update the engine folder itself
+ * is being moved out and in, so loading it then could load half of two builds. Any journal that
+ * is not a whole, finished record makes the shim leave at once; the engine's own check
+ * (win32boardwatch.updateInFlight, through win32apply's readers) is the one that decides, and
+ * this only makes the shim stricter than it.
+ *
+ * It exits 0 whatever happens, so Task Scheduler's record of it is never mistaken for the board's.
+ */
+const WATCH_JS = [
+  "'use strict';",
+  '/* Written by engine/win32board.js. Do not edit: it is rewritten every time the board\'s',
+  '   logon task is registered. Once a minute it asks the engine beside the pointer whether the',
+  '   board should be started again (engine/' + WATCH_ENGINE_FILE + '). */',
+  "const fs = require('node:fs');",
+  "const path = require('node:path');",
+  'const journal = path.join(__dirname, ' + JSON.stringify(win32anchor.UPDATE_JOURNAL_NAME) + ');',
+  'try {',
+  "  if (fs.existsSync(journal) && JSON.parse(fs.readFileSync(journal, 'utf8')).finished !== true) process.exit(0);",
+  '} catch { process.exit(0); }',
+  '/* #2988: a deliberate stop that is not an update (a move, a hand-off serving in a window) holds',
+  '   the board for a few minutes while its owner runs, one file per owner (engine/win32boardwatch.js',
+  '   holdBoard). Any live one is enough. */',
+  'let names = [];',
+  'try { names = fs.readdirSync(__dirname); } catch {}',
+  'for (const name of names) {',
+  '  if (!' + WATCH_HOLD_FILE.toString() + '.test(name)) continue;',
+  '  try {',
+  "    const hold = JSON.parse(fs.readFileSync(path.join(__dirname, name), 'utf8'));",
+  '    const left = hold && Number.isFinite(hold.until) ? hold.until - Date.now() : 0;',
+  '    if (left > 0 && left <= ' + WATCH_HOLD_MAX_MS + ' && Number.isInteger(hold.pid) && hold.pid > 0) {',
+  '      let alive = true;',
+  "      try { process.kill(hold.pid, 0); } catch (e) { alive = !(e && e.code === 'ESRCH'); }",
+  '      if (alive) process.exit(0);',
+  '    }',
+  '  } catch { /* not a hold */ }',
+  '}',
+  "let engine = '';",
+  'try { engine = String(fs.readFileSync(path.join(__dirname, ' + JSON.stringify(win32anchor.POINTER_NAME) + "), 'utf8')).trim(); } catch {}",
+  'const watch = engine ? path.join(engine, ' + JSON.stringify(WATCH_ENGINE_FILE) + ') : \'\';',
+  'if (!watch || !fs.existsSync(watch)) process.exit(0);',
+  'let run = null;',
+  'try { run = require(watch).watchdogMain; } catch { process.exit(0); }',
+  "if (typeof run !== 'function') process.exit(0);",
+  'Promise.resolve().then(() => run({ anchorDir: __dirname })).then(() => process.exit(0), () => process.exit(0));',
+  '',
+].join('\n');
+
 /** Was THIS board started by its logon task? See MARKER_ENV. */
 function startedByTask(env) {
   const e = env || process.env;
@@ -322,6 +404,46 @@ function taskXml(spec, env) {
        board task back on. Only an explicit `false` disables: a first registration passes
        nothing and is enabled. */
     + '<Enabled>' + (spec && spec.enabled === false ? 'false' : 'true') + '</Enabled>'
+    + '</Settings>\n'
+    + '  <Actions Context="Author"><Exec>'
+    + '<Command>' + esc(exec.command) + '</Command>'
+    + '<Arguments>' + esc(exec.args) + '</Arguments>'
+    + (exec.workingDir ? '<WorkingDirectory>' + esc(exec.workingDir) + '</WorkingDirectory>' : '')
+    + '</Exec></Actions>\n'
+    + '</Task>\n';
+}
+
+/**
+ * #2988: the watchdog task's definition, as XML. The board task's shape (the same principal, the
+ * same headless wrapper, IgnoreNew, no time limit) with a different trigger: a TimeTrigger whose
+ * StartBoundary is fixed in the past and whose repetition has an interval and no duration, so it
+ * fires every minute from the next one on. Measured on the box with a StartBoundary of 2020-01-01:
+ * registered 11:53:22, first start 11:54:02. Always switched on (see WATCHDOG_TASK_NAME).
+ * `spec.watch` is the anchored shim; `spec.node` the anchored interpreter.
+ */
+function watchdogTaskXml(spec, env) {
+  const s = spec || {};
+  const exec = win32job.headlessExec({ command: s.node || process.execPath, args: '"' + String(s.watch || '') + '"', workingDir: s.workingDir || '' }, env);
+  const esc = win32job.xmlEscape;
+  const user = esc(win32job.taskUser(env));
+  return '<?xml version="1.0" encoding="UTF-16"?>\n'
+    + '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
+    + '  <RegistrationInfo><Description>Kosmos board check: once a minute, starts the Kosmos board again if it stopped by accident. '
+    + 'It does nothing while the board job (' + esc(TASK_NAME) + ') is switched off, and that is its only off switch: '
+    + 'switching this check off is undone the next time Kosmos starts. Remove with: ' + esc(WATCHDOG_REMOVE_HINT) + '</Description></RegistrationInfo>\n'
+    + '  <Triggers><TimeTrigger>'
+    + '<Repetition><Interval>' + WATCHDOG_INTERVAL + '</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition>'
+    + '<StartBoundary>' + WATCHDOG_START_BOUNDARY + '</StartBoundary>'
+    + '<Enabled>true</Enabled>'
+    + '</TimeTrigger></Triggers>\n'
+    + '  <Principals><Principal id="Author"><UserId>' + user + '</UserId>'
+    + '<LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\n'
+    + '  <Settings>'
+    + '<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>'
+    + '<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>'
+    + '<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>'
+    + '<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>'
+    + '<Enabled>true</Enabled>'
     + '</Settings>\n'
     + '  <Actions Context="Author"><Exec>'
     + '<Command>' + esc(exec.command) + '</Command>'
@@ -528,7 +650,47 @@ function install(spec) {
     try { fs.unlinkSync(xmlAt); } catch { /* best effort; it is in the temp root */ }
   }
   if (!r.ok) return { ok: false, because: 'we could not register the job that starts the board at logon (' + (r.out || 'no detail').trim().split('\n')[0] + ')' };
-  return { ok: true, task: TASK_NAME, boot: bootAt, removeHint: REMOVE_HINT };
+  return { ok: true, task: TASK_NAME, boot: bootAt, node: anchor.node, dir: anchor.dir, removeHint: REMOVE_HINT };
+}
+
+/**
+ * #2988: write the watchdog's shim beside the board's and register (or refresh) its task.
+ * `/Create /F` on the watchdog's own name only: the board task, and its switch, are not touched.
+ * `spec`: { node, dir, workingDir, env, timeoutMs }. Returns `{ok, task}` or `{ok: false, because}`.
+ * Never throws.
+ */
+function installWatchdog(spec) {
+  const s = spec || {};
+  if (!s.dir || !s.node) return { ok: false, because: 'we did not know where Kosmos keeps its startup files' };
+  const watchAt = path.join(s.dir, WATCH_NAME);
+  try {
+    win32swap.writeFileAtomic(watchAt, WATCH_JS);
+  } catch (e) {
+    return { ok: false, because: 'we could not write the file that checks on the board (' + ((e && e.message) || 'no detail') + ')' };
+  }
+  const xmlAt = path.join(os.tmpdir(), 'kosmos-board-watchdog-task-' + process.pid + '-' + Date.now() + '.xml');
+  let r;
+  try {
+    try {
+      fs.writeFileSync(xmlAt, Buffer.from('﻿' + watchdogTaskXml({ node: s.node, watch: watchAt, workingDir: s.workingDir }, s.env), 'utf16le'));
+    } catch (e) {
+      return { ok: false, because: 'we could not write the board check\'s job definition (' + ((e && e.message) || 'no detail') + ')' };
+    }
+    r = run(['/Create', '/F', '/TN', WATCHDOG_TASK_NAME, '/XML', xmlAt], s.timeoutMs);
+  } finally {
+    try { fs.unlinkSync(xmlAt); } catch { /* best effort; it is in the temp root */ }
+  }
+  if (!r.ok) return { ok: false, because: 'we could not register the job that restarts the board if it stops (' + (r.out || 'no detail').trim().split('\n')[0] + ')' };
+  return { ok: true, task: WATCHDOG_TASK_NAME, watch: watchAt, removeHint: WATCHDOG_REMOVE_HINT };
+}
+
+/** #2988: remove the watchdog's task. A task that is not there is already removed. */
+function removeWatchdog() {
+  const r = run(['/Delete', '/F', '/TN', WATCHDOG_TASK_NAME]);
+  if (!r.ok && !/cannot find|does not exist/i.test(r.out || '')) {
+    return { ok: false, because: 'we could not remove the job that restarts the board if it stops (' + (r.out || '').trim().split('\n')[0] + ')' };
+  }
+  return { ok: true };
 }
 
 /**
@@ -707,6 +869,10 @@ function setStartAtSignIn(on, opts) {
   if (platform !== 'win32') return { ok: false, because: 'only Kosmos on Windows starts from a sign-in task' };
   const live = typeof o.liveExecutionAllowed === 'function' ? o.liveExecutionAllowed() : liveExec.liveExecutionAllowed();
   if (!runFn && !live) return { ok: false, because: 'this Kosmos is not allowed to change Task Scheduler, so nothing was changed' };
+  /* #7498 review 3: the watchdog gets what is left of two schtasks timeouts from the start of this request (as
+     withWatchdog does at a boot), so a slow Task Scheduler costs it this time and adds nothing past that point. The
+     board task's own three calls (status, /Change, status) are bounded as before this card, up to three timeouts. */
+  const w = { ...o, deadline: (o.now || Date.now)() + 2 * SCHTASKS_TIMEOUT_MS };
   const before = status({ now: o.now });
   if (!before.known) {
     return { ok: false, because: 'we could not read the job that starts Kosmos when you sign in (' + before.because + '), so nothing was changed' };
@@ -714,7 +880,11 @@ function setStartAtSignIn(on, opts) {
   if (!before.registered) {
     return { ok: false, because: 'there is no job on this computer that starts Kosmos when you sign in, so there is nothing to turn on or off' };
   }
-  if (before.enabled === on) return { ok: true, on };
+  if (before.enabled === on) {
+    /* #7498 review 1: an "on" that is already on still heals a missing watchdog (a boot that ran out of time). */
+    const watchdog = on ? ensureWatchdog(w) : null;
+    return watchdog ? { ok: true, on, watchdog } : { ok: true, on };
+  }
   const changed = on ? enable() : disable();
   if (!changed.ok) return { ok: false, because: changed.because };
   const after = status({ now: o.now });
@@ -724,7 +894,69 @@ function setStartAtSignIn(on, opts) {
   if (after.enabled !== on) {
     return { ok: false, because: 'we asked Windows to turn it ' + (on ? 'on' : 'off') + ', but it still reads ' + (after.enabled ? 'on' : 'off') };
   }
+  /* #7498: the watchdog is otherwise registered only at a boot that registered or refreshed an enabled board task
+     (withWatchdog), so a switch turned on after a boot that left it off, or after one whose watchdog /Create did not
+     happen, left nothing to restart a board that stops until the next boot. */
+  if (on) {
+    const watchdog = ensureWatchdog(w);
+    if (watchdog) return { ok: true, on: after.enabled, watchdog };
+  }
   return { ok: true, on: after.enabled };
+}
+
+/**
+ * #7498: register the watchdog when it is missing, with the spec a boot uses (the anchor's node and shim folder, the
+ * bundle as working folder, the launch env). Left as it is when it is there. Null when there is nothing to do here
+ * (not a Windows build: a source checkout registers nothing, as ensureInstalled). A watchdog whose presence cannot be
+ * read is not created blind (#2973's rule for the board task): that is said instead. Never throws.
+ */
+function ensureWatchdog(opts) {
+  const o = opts || {};
+  try {
+    const root = bundleRoot(o);
+    if (!root) return null;
+    const now = o.now || Date.now;
+    const started = now();
+    /* Review 1: one schtasks budget for the /Query and the /Create (a Settings request blocks the board's thread).
+       Review 3: and never past the caller's request-wide deadline, when it gives one. */
+    const deadline = typeof o.deadline === 'number' ? o.deadline : Infinity;
+    const left = () => Math.min(SCHTASKS_TIMEOUT_MS - (now() - started), deadline - now());
+    /* Review 2: every schtasks call here, the list read included, spends the one budget. */
+    const ask = (a) => (left() < MIN_SCHTASKS_QUERY_MS ? { ok: false, out: NO_TIME_LEFT } : run(a, left()));
+    const q = ask(['/Query', '/TN', WATCHDOG_TASK_NAME]);
+    if (q.ok) return { ok: true, action: 'present', task: WATCHDOG_TASK_NAME };
+    /* Review 1: a missing task is known by English words OR, on any language, by the label-free task list (as
+       status() proves the board task absent, #2973). Neither: we cannot tell, so nothing is created blind. */
+    let absent = /cannot find|does not exist/i.test(q.out || '');
+    if (!absent) {
+      const all = win32job.machineTaskPaths(ask);
+      /* Review 3: listed is there, whatever its own query said. */
+      if (all.known && all.paths.some((x) => x.toLowerCase() === WATCHDOG_TASK_NAME.toLowerCase())) {
+        return { ok: true, action: 'present', task: WATCHDOG_TASK_NAME };
+      }
+      absent = all.known;
+    }
+    if (!absent && left() < MIN_SCHTASKS_QUERY_MS) {
+      return { ok: false, because: NO_TIME_LEFT + ', so the job that restarts Kosmos if it stops was not registered this time' };
+    }
+    if (!absent) {
+      return { ok: false, because: 'we could not tell whether the job that restarts Kosmos if it stops is there, so we left it as it is' };
+    }
+    /* Review 1: the spec a boot gives the watchdog, WITHOUT anchoring: anchoring rewrites the fleet's pointer and boot
+       shim and is the boot's job alone. The watchdog needs only the anchor's folder and its interpreter, because its
+       shim reads the pointer each time it runs. */
+    const env = machineEnv(o);
+    const dir = o.anchorDir || anchorDirFor(o);   // o.anchorDir: a caller's (or a test's) known anchor folder, as o.root
+    if (!dir) return { ok: false, because: 'we could not tell where Kosmos keeps its startup files' };
+    const node = path.join(dir, win32anchor.NODE_NAME);
+    const exists = o.exists || ((f) => fs.existsSync(f));
+    if (!exists(node)) return { ok: false, because: 'Kosmos has not set up its startup files on this computer yet, so the job that restarts it if it stops is registered the next time Kosmos starts' };
+    if (left() < MIN_SCHTASKS_QUERY_MS) return { ok: false, because: NO_TIME_LEFT + ', so the job that restarts Kosmos if it stops was not registered this time' };
+    const w = installWatchdog({ node, dir, workingDir: o.workingDir || root, env, timeoutMs: left() });
+    return w.ok ? { ok: true, action: 'registered', task: w.task } : { ok: false, because: w.because };
+  } catch (e) {
+    return { ok: false, because: 'we could not register the job that restarts Kosmos if it stops (' + ((e && e.message) || 'no detail') + ')' };
+  }
 }
 
 /** End the running board. This KILLS THE CALLER when the caller is that board. */
@@ -745,15 +977,18 @@ function runNow() {
 }
 
 /** Remove the job entirely, and the claim with it, so a later install can
-    register again from a clean slate. */
+    register again from a clean slate. #2988: the watchdog goes FIRST, so no check
+    can start the board between the two deletes. */
 function remove(opts) {
   const dir = anchorDirFor(opts);
   if (dir) { try { fs.unlinkSync(path.join(dir, CLAIM_NAME)); } catch { /* never claimed is ordinary */ } }
+  const watchdog = removeWatchdog();
   const r = run(['/Delete', '/F', '/TN', TASK_NAME]);
   if (!r.ok && !/cannot find|does not exist/i.test(r.out || '')) {
-    return { ok: false, because: 'we could not remove the board startup job (' + (r.out || '').trim().split('\n')[0] + ')' };
+    return { ok: false, because: 'we could not remove the board startup job (' + (r.out || '').trim().split('\n')[0] + ')', boardRemoved: false, watchdog };
   }
-  return { ok: true };
+  if (!watchdog.ok) return { ok: false, because: watchdog.because, boardRemoved: true, watchdog };
+  return { ok: true, boardRemoved: true, watchdog };
 }
 
 function claimed(opts) {
@@ -800,7 +1035,7 @@ function ensureInstalled(opts) {
      a real build, whatever state the task is in. Registration stays separate below: anchoring
      re-points, it never registers, re-creates or switches on a task. */
   const anchor = anchorBundle(o);
-  const task = registerOrLeaveBoardTask(o);
+  const task = withWatchdog(o, registerOrLeaveBoardTask(o));
   const result = anchor.ok ? task : { ...task, anchor };
   /* 🛑 #3016: either half seeing an older build means the fleet was not re-pointed
      to it. Surface it so the boot's hand-off (engine/win32handoff.js) sends the
@@ -809,8 +1044,33 @@ function ensureInstalled(opts) {
   return result;
 }
 
+/**
+ * #2988: the watchdog, registered (or refreshed) exactly when the board task was: a board task
+ * switched off, removed, unreadable or left to a newer build gets no watchdog from this boot.
+ *
+ * 🛑 ensureInstalled RUNS BEFORE THE HAND-OFF, AND ITS SCHTASKS TIME IS BUDGETED (#2973, #2983):
+ * at most two schtasks timeouts, its status read and its `/Create`. The watchdog's `/Create` gets
+ * what is left of those two and is not started with under MIN_SCHTASKS_QUERY_MS left, so a slow
+ * Task Scheduler costs this boot its watchdog (said in `watchdog.because`), never a slower boot.
+ * The next boot tries again. A watchdog that could not be registered never changes `ok`: the
+ * board task's answer is the board's.
+ */
+function withWatchdog(o, task) {
+  /* Only a board task this boot registered or refreshed carries `installed`. */
+  if (!task || !task.installed) return task;
+  const { installed, started, ...rest } = task;
+  const now = o.now || Date.now;
+  const left = 2 * SCHTASKS_TIMEOUT_MS - (now() - started);
+  if (left < MIN_SCHTASKS_QUERY_MS) {
+    return { ...rest, watchdog: { ok: false, because: NO_TIME_LEFT + ', so the job that restarts the board if it stops was not registered this time' } };
+  }
+  const w = installWatchdog({ node: installed.node, dir: installed.dir, workingDir: o.workingDir || bundleRoot(o), env: machineEnv(o), timeoutMs: left });
+  return { ...rest, watchdog: w.ok ? { ok: true, task: w.task } : { ok: false, because: w.because } };
+}
+
 /* The task half of ensureInstalled, for a Windows bundle (the five states above). */
 function registerOrLeaveBoardTask(o) {
+  const started = (o.now || Date.now)();
   const st = status({ now: o.now });
   /* #2973: a job we could not read is LEFT AS IT IS. Re-registering it could switch
      back on a task the person turned off, and registering "a missing one" could
@@ -839,7 +1099,8 @@ function registerOrLeaveBoardTask(o) {
       because: 'a newer version of Kosmos is already installed, so this older copy did not take over the fleet' };
   }
   if (!st.registered) claim(o);
-  return { ok: true, action: st.registered ? 'refreshed' : 'registered', task: TASK_NAME, removeHint: REMOVE_HINT };
+  return { ok: true, action: st.registered ? 'refreshed' : 'registered', task: TASK_NAME, removeHint: REMOVE_HINT,
+    installed: { node: r.node, dir: r.dir }, started };
 }
 
 /**
@@ -1033,8 +1294,11 @@ function describe(opts) {
 
 module.exports = {
   TASK_NAME, MARKER_ENV, BOOT_NAME, BOOT_JS, bootJsFor, CLAIM_NAME, REMOVE_HINT, HELPER_FLAG, SCHTASKS_TIMEOUT_MS,
-  taskExec, taskXml, bundleRoot, runningFromUpdateWork, anchorBundle, install, ensureInstalled, status, describe,
-  disable, enable, setStartAtSignIn, end, runNow, remove, restart, startedByTask,
+  /* #2988: WATCHDOG_TASK_NAME and removeWatchdog are the uninstall's; WATCH_NAME, WATCH_JS and
+     watchdogTaskXml mirror BOOT_NAME, BOOT_JS and taskXml (the definitions a suite runs and reads). */
+  WATCHDOG_TASK_NAME, WATCH_NAME, WATCH_JS,
+  taskExec, taskXml, watchdogTaskXml, bundleRoot, runningFromUpdateWork, anchorBundle, install, ensureInstalled, status, describe,
+  disable, enable, setStartAtSignIn, ensureWatchdog, end, runNow, remove, removeWatchdog, restart, startedByTask,
   claimed, claim, restartHelperMain, pidGone,
   setRunner, setAnchorer, setSpawner,
 };
