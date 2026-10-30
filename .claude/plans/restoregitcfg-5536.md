@@ -76,3 +76,19 @@ runs or loads something once the agent's git reaches it. The review screen must 
   every key shown is one git may act on (alias.* included), so there is no safe order to sort by.
 - Tests 62/62; engine.reachable, win32-separator-guard, windows-coupling-audit-1732 20/20. No test for the realpath:
   it changes only where git stops looking for a repository, which `config --file` does not use.
+
+## Review round 5 (opus): 0 BLOCKER, 2 WARNING, 3 CONVENTION, 4 NIT
+- FIXED: any lstat error read as absent, so a .git (or a project) that cannot be searched showed a git folder with no
+  settings and no "not checked". Only ENOENT and ENOTDIR are absent now (isAbsent); every other error says the
+  settings could not be checked, for the config, the .git itself, commondir, modules and worktrees.
+- FIXED: the include test could not fail (it pointed at a missing file and only names are shown). It now includes a
+  real file that sets core.editor, and asserts core.editor is never named.
+- FIXED: comments cited review rounds; they now say the reason. The config size cap, the read timeout and the output
+  buffer say why their values were chosen.
+- DEFERRED: logging why git failed. This module returns lines for a screen and logs nothing; the screen line already
+  says the settings were not checked, which is the safe direction.
+- DEFERRED (repeats of round 4): the 20-key cap order, values of remote/submodule url (a helper is an installed
+  program, ext:: is off by default), a repository in the shared temp folder (listing a --file runs nothing), and an
+  env-cleaning test.
+- Tests 63/63; the three guard files 20/20. Mutations (isAbsent always true; --includes for --no-includes) each red
+  (62/1); restored.

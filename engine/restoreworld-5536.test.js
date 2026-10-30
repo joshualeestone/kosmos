@@ -1025,7 +1025,8 @@ test('a restored project\'s git settings that run or load something are named be
   const pr = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_PROJECTS;
   const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(pr, rel)), { recursive: true }); fs.writeFileSync(path.join(pr, rel), text); };
   put('site/.git/config', '[core]\n\trepositoryformatversion = 0\n\tpager = touch /tmp/x\n\tsshCommand = x\n[remote "origin"]\n\turl = https://example.invalid/r\n'
-    + '[filter "lfs"]\n\tsmudge = x\n[diff "Foo.Bar"]\n\ttextconv = x\n[credential]\n\thelper = x\n[include]\n\tpath = /elsewhere\n');
+    + `[filter "lfs"]\n\tsmudge = x\n[diff "Foo.Bar"]\n\ttextconv = x\n[credential]\n\thelper = x\n[include]\n\tpath = ${path.join(pr, 'inc.cfg').replace(/\\/g, '/')}\n`);
+  put('inc.cfg', '[core]\n\teditor = x\n');   // a real file, so following the include would name core.editor
   put('site/.git/config.worktree', '[core]\n\tfsmonitor = x\n');
   put('quiet/.git/config', '[core]\n\tbare = false\n[branch "main"]\n\tremote = origin\n\tmerge = refs/heads/main\n');
   put('bare/HEAD', 'ref: refs/heads/main\n');
@@ -1040,7 +1041,7 @@ test('a restored project\'s git settings that run or load something are named be
   const set = (label) => runs[label].filter((r) => / sets /.test(r));
   assert.deepEqual(set('site'), ['.git/config sets core.pager', '.git/config sets core.sshcommand', '.git/config sets filter.lfs.smudge',
     '.git/config sets diff.Foo.Bar.textconv', '.git/config sets credential.helper', '.git/config sets include.path', '.git/config.worktree sets core.fsmonitor']);
-  assert.ok(!runs.site.some((r) => /\/elsewhere/.test(r)), 'the include is named, never followed');
+  assert.ok(!runs.site.some((r) => /core\.editor/.test(r)), 'the include is named, never followed');
   assert.deepEqual(set('quiet'), [], 'plain settings are not named');
   assert.deepEqual(set('bare'), ['config sets alias.st']);
   assert.ok(runs.broken.includes('.git/config (its git settings could not be checked)'), 'a config git cannot read is not read as empty');
@@ -1103,6 +1104,27 @@ test('git reads stop at the listing\'s time budget; submodule and worktree confi
   assert.ok(runs.sub.includes('.git/worktrees holds more git settings, which were not checked'));
   const late = runsOf(rw.listRestoredAgents({ base, world: p.world, nameOk, gitMs: 0 }));
   assert.ok(late.sub.includes('.git/config (its git settings were not checked: the listing has checked as many as it may)'), 'no time left reads as not checked');
+});
+
+test('a git folder that cannot be searched says not checked, not nothing', { skip: process.platform === 'win32' || process.getuid?.() === 0 ? 'POSIX modes, and not as root' : false }, (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const pr = worlds.envOverridesFor(base, p.world).AGENT_WORKFORCE_PROJECTS;
+  const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(pr, rel)), { recursive: true }); fs.writeFileSync(path.join(pr, rel), text); };
+  put('shut/.git/config', '[core]\n\tpager = x\n');
+  put('shut/.git/modules/lib/config', '[core]\n');
+  put('closed/.git/config', '[core]\n\tpager = x\n');
+  const shut = path.join(pr, 'shut', '.git'), closed = path.join(pr, 'closed');
+  let runs;
+  fs.chmodSync(shut, 0o644);   // listable, not searchable: lstat inside it fails with EACCES
+  fs.chmodSync(closed, 0o644);
+  try {
+    const l = rw.listRestoredAgents({ base, world: p.world, nameOk });
+    runs = Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
+  } finally { fs.chmodSync(shut, 0o755); fs.chmodSync(closed, 0o755); }   // before fresh() removes the folder
+  assert.ok(runs.shut.includes('.git/config (its git settings could not be checked)'), JSON.stringify(runs.shut));
+  assert.ok(runs.shut.includes('.git/modules holds more git settings, which were not checked'));
+  assert.ok(runs.closed.includes('.git (its git settings could not be checked)'), JSON.stringify(runs.closed));
 });
 
 test('checkout path guards are named; every part of a key is bounded; refused agent folders spend no git reads', (t) => {

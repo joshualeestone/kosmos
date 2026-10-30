@@ -82,7 +82,7 @@ const GIT_PLAIN_KEYS = new Set([
   'core.autocrlf', 'core.eol', 'core.safecrlf', 'core.quotepath',
   'core.abbrev', 'core.compression', 'core.checkstat', 'core.trustctime', 'core.untrackedcache', 'core.splitindex',
   'core.commitgraph', 'core.multipackindex', 'core.sparsecheckout', 'core.sparsecheckoutcone', 'core.longpaths',
-  'core.whitespace',   // not protectNTFS, protectHFS, symlinks, ignoreCase or precomposeUnicode: they guard checkout paths (review 3)
+  'core.whitespace',   // not protectNTFS, protectHFS, symlinks, ignoreCase or precomposeUnicode: they guard checkout paths
   'remote.*.url', 'remote.*.fetch', 'remote.*.push', 'remote.*.tagopt', 'remote.*.prune', 'remote.*.mirror',
   'branch.*.remote', 'branch.*.merge', 'branch.*.rebase', 'branch.*.pushremote', 'branch.*.vscode-merge-base',
   'user.name', 'user.email', 'pull.rebase', 'pull.ff', 'push.default', 'push.autosetupremote', 'fetch.prune',
@@ -91,13 +91,13 @@ const GIT_PLAIN_KEYS = new Set([
   'feature.manyfiles', 'submodule.*.url', 'submodule.*.active', 'lfs.repositoryformatversion',
 ]);
 const GIT_CONFIGS = ['config', 'config.worktree'];   // in a git folder; the second is read when extensions.worktreeConfig is set
-const MAX_GIT_CONFIG_BYTES = 1024 * 1024;
+const MAX_GIT_CONFIG_BYTES = 1024 * 1024;   // a hand-kept config is a few KB; past this it is named, not read
 const MAX_GIT_KEYS_SHOWN = 20;   // per config file; past it one line says how many more
-const GIT_READ_MS = 2000;
-const MAX_GIT_READ_TOTAL_MS = 20000;   // across one listing (review 2: 400 reads at the timeout each was a 13-minute bound)
-const MAX_GIT_READS = 400;   // git config runs per listing (review 1: four per folder across a thousand rows took 10 s)
+const GIT_READ_MS = 2000;   // one read takes a few ms; a git that hangs costs at most this
+const MAX_GIT_READ_TOTAL_MS = 20000;   // across one listing: MAX_GIT_READS at GIT_READ_MS each would be 13 minutes
+const MAX_GIT_READS = 400;   // git config runs per listing: up to four per project, across a thousand projects, took 10 s
 const MAX_SUBSECTION_CHARS = 30;   // shown of a key's subsection
-const MAX_KEY_PART_CHARS = 40;   // shown of its section and of its name (review 3: git takes either at any length)
+const MAX_KEY_PART_CHARS = 40;   // shown of its section and of its name, which git takes at any length
 /* Characters that draw nothing or only alter the one before, beside the classes cleanText drops: braille blank,
    Hangul and Khmer fillers, Mongolian and other variation selectors, the object replacement character. */
 const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180c, 0x180d, 0x034f, 0xfffc, ...Array.from({ length: 16 }, (_, i) => 0xfe00 + i), ...Array.from({ length: 240 }, (_, i) => 0xe0100 + i)].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
@@ -605,7 +605,7 @@ const isGit = (runs) => runs.some((r) => r === BARE || r.toLowerCase() === GIT);
    config is read, and git runs from the system's temporary folder, looking for no repository above it. A missing or broken git reads as not checked. */
 function gitSettingsOf(file, shown, budget) {
   let st;
-  try { st = fs.lstatSync(file); } catch { return []; }
+  try { st = fs.lstatSync(file); } catch (e) { return isAbsent(e) ? [] : [`${shown} (its git settings could not be checked)`]; }
   if (st.isSymbolicLink()) return [`${shown} is a link, so its git settings were not checked`];
   if (!st.isFile()) return [`${shown} is not a file, so its git settings were not checked`];
   if (st.size > MAX_GIT_CONFIG_BYTES) return [`${shown} is too large to check its git settings`];
@@ -617,6 +617,7 @@ function gitSettingsOf(file, shown, budget) {
   let tmp;
   try { tmp = fs.realpathSync(os.tmpdir()); } catch { tmp = os.tmpdir(); }
   Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: os.devNull, GIT_TERMINAL_PROMPT: '0', GIT_CEILING_DIRECTORIES: path.dirname(tmp) });
+  // Key names alone fit in the file's own size; the buffer allows twice that, and past it the read is not checked.
   const r = childProcess.spawnSync('git', ['config', '--file', file, '--no-includes', '--null', '--name-only', '--list'],
     { cwd: tmp, env, encoding: 'utf8', timeout: GIT_READ_MS, maxBuffer: 2 * MAX_GIT_CONFIG_BYTES, windowsHide: true });
   if (r.error || r.status !== 0) return [`${shown} (its git settings could not be checked)`];
@@ -626,7 +627,7 @@ function gitSettingsOf(file, shown, budget) {
   return out;
 }
 /* A key as shown: its section, subsection and name each cleaned and cut on its own, so a long subsection cannot push
-   the name off the line (review 1) and no part makes the line unbounded (review 3). */
+   the name off the line and no part makes the line unbounded. */
 function keyLabelOf(key) {
   const first = key.indexOf('.'), last = key.lastIndexOf('.');
   const part = (x, max) => cleanText(x, max, '(a name that cannot be shown)');
@@ -645,23 +646,25 @@ function gitSettingsIn(folder, runs, budget) {
   const out = [];
   const dirs = [];
   if (runs.some((r) => r.toLowerCase() === GIT)) {
-    let st;
-    try { st = fs.lstatSync(path.join(folder, GIT)); } catch { st = null; }
+    let st = null;
+    try { st = fs.lstatSync(path.join(folder, GIT)); } catch (e) { if (!isAbsent(e)) out.push(`${GIT} (its git settings could not be checked)`); }
     if (st && st.isDirectory()) dirs.push([path.join(folder, GIT), GIT]);
     else if (st) out.push(`${GIT} is ${st.isSymbolicLink() ? 'a link' : 'not a folder'}, so its git settings were not checked`);
   }
   if (runs.includes(BARE)) dirs.push([folder, '']);
   for (const [dir, shown] of dirs) {
     const at = (n) => (shown ? `${shown}/${n}` : n);
-    try { fs.lstatSync(path.join(dir, 'commondir')); out.push(`${at('commondir')} moves its git settings elsewhere, so they were not checked`); } catch { /* absent */ }
+    // Present, or not readable enough to tell, both say not checked; only a missing entry says nothing.
+    const there = (n) => { try { fs.lstatSync(path.join(dir, n)); return true; } catch (e) { return !isAbsent(e); } };
+    if (there('commondir')) out.push(`${at('commondir')} moves its git settings elsewhere, so they were not checked`);
     for (const c of GIT_CONFIGS) out.push(...gitSettingsOf(path.join(dir, c), at(c), budget));
     // Submodules and linked worktrees keep configs of their own, which git reads when an agent works in them.
-    for (const n of ['modules', 'worktrees']) {
-      try { fs.lstatSync(path.join(dir, n)); out.push(`${at(n)} holds more git settings, which were not checked`); } catch { /* absent */ }
-    }
+    for (const n of ['modules', 'worktrees']) if (there(n)) out.push(`${at(n)} holds more git settings, which were not checked`);
   }
   return out;
 }
+/* Only a missing entry is absent. A folder that cannot be searched (EACCES) may hold a config git reads later. */
+const isAbsent = (e) => e.code === 'ENOENT' || e.code === 'ENOTDIR';
 
 /* What in a folder runs or loads something when a provider starts there: its dot-entries and PLAIN_AT_START names (a
    link counts, unopened), a git repository in either form, linked briefs, briefs that are not plain UTF-8 text, and
@@ -736,8 +739,8 @@ const labelOf = (name) => cleanText(name, MAX_MEMBER_CHARS, '(a name that cannot
    Restored world until its finish has run: an agent or project made there first fills the folders finish needs
    empty. An empty `runs` also says nothing about
    files a shell hook (direnv, mise) would run on entering a folder, nor about a repository in a project's subfolders
-   or a .gitattributes, neither of whose git settings are checked: the screen says both in words before Enable
-   (review 4). Nothing is registered, started or written.
+   or a .gitattributes, neither of whose git settings are checked: the screen says both in words before Enable.
+   Nothing is registered, started or written.
    A world not on the list (no registry row, hidden, or its folder swapped for a link) answers with no rows and a
    `because`, so a refusal cannot read as an empty restore.
    opts.maxListed lowers MAX_LISTED and opts.briefTotal lowers MAX_BRIEF_TOTAL and opts.gitReads MAX_GIT_READS and opts.gitMs MAX_GIT_READ_TOTAL_MS (tests). */
