@@ -54743,6 +54743,8 @@ async function paintPlus() {
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
   if (epoch !== PLUS_EPOCH) return;
+  // kosmos#7598: the account-only sign-up on this board's own coordinator (an unread answer keeps the last one).
+  if (r && typeof r.signupUrl === 'string') PLUS_SIGNUP_URL = plusSignupUrl(r.signupUrl);
   /* #1615: gate the connected flow on `enrolled`, NOT `configured`. `configured` is
      `Boolean(RELAY())` and RELAY() falls back to a production default (engine/remote.js),
      so it is permanently true and showed the on-switch to every user with no paid gate.
@@ -57073,6 +57075,12 @@ const PLUS_SI_CODE_LATE_MS = 60000;
 /* var, not let: plusSiShow and plusSiClear (defined far above) call plusSiCodeLateReset, and a let read before this
    line runs would throw; a var is already there, as undefined. */
 var PLUS_SI_CODE_LATE_TIMER = null;
+/* kosmos#7598: the account-only sign-up (/signup on the coordinator this board signs in to), from /api/remote. Not the
+   pricing page: a company member's seat is already paid for by the company, so buying there pays for nothing.
+   Empty until read, and then the line offers no link. */
+var PLUS_SIGNUP_URL = '';
+// An https address with nothing a link should not carry (no sign-in part before the host), or '' (then no link).
+function plusSignupUrl(v) { return typeof v === 'string' && /^https:\/\/[^\s"'<>@\/?#\\]+(\/[^\s"'<>]*)?$/.test(v) ? v : ''; }
 function plusSiCodeLateReset() {
   if (PLUS_SI_CODE_LATE_TIMER) { clearTimeout(PLUS_SI_CODE_LATE_TIMER); PLUS_SI_CODE_LATE_TIMER = null; }
   const late = document.getElementById('plus-si-code-late'); if (late) late.textContent = '';
@@ -57085,15 +57093,15 @@ function plusSiCodeLateArm() {
     const inp = document.getElementById('plus-si-code-in');
     const late = document.getElementById('plus-si-code-late');
     if (!late || !step || step.hidden || (inp && inp.value.trim())) return;
-    const site = document.getElementById('plus-site-link');
-    const href = site && site.getAttribute('href') && site.getAttribute('href') !== '#' ? site.href : '';
+    const href = PLUS_SIGNUP_URL;
     const parts = [document.createTextNode('Nothing yet? Check the address above for a typo, and look in spam.')];
     if (href) {   // no sign-up address known: no link, rather than one that goes nowhere
       const join = document.createElement('a');
       join.id = 'plus-si-code-join'; join.className = 'plus-signin-link'; join.target = '_blank'; join.rel = 'noreferrer noopener';
       join.href = href;
       join.textContent = 'Create an account';
-      parts.push(document.createTextNode(' New to Kosmos+? '), join);
+      parts.push(document.createTextNode(' New to Kosmos+? '), join,
+        document.createTextNode('. Joining your company? Stop before paying: your company\'s plan already covers you.'));
     }
     late.replaceChildren(...parts);
   }, PLUS_SI_CODE_LATE_MS);

@@ -11840,6 +11840,9 @@ const server = http.createServer(async (req, res) => {
         certWatch: remote.certWatch(),
         /* kosmos#6587: is the pinned coordinator key on the signed service key set (a state only). */
         serviceKeys: remote.serviceKeys(),
+        /* kosmos#7598: the account-only sign-up on the coordinator this board signs in to, for the code step's
+           "Create an account" (not the pricing page: a company member's seat is already paid for). */
+        signupUrl: String(remote.coordinator()).replace(/\/+$/, '') + '/signup',
       });
     } catch { sendJson(res, 500, { error: 'we could not read the Plus state' }); }
     return;
