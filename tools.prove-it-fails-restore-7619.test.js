@@ -20,6 +20,7 @@ function sandbox(t) {
   fs.mkdirSync(path.join(dir, 'tools'));
   fs.copyFileSync(SCRIPT, path.join(dir, 'tools', 'prove-it-fails.sh'));
   fs.writeFileSync(path.join(dir, 'a.js'), 'const x = 1;\n');
+  fs.writeFileSync(path.join(dir, 'b.js'), 'const y = 1;\n');   // a colleague's file, edited during one run
   // The test the tool runs: it records its pid, then holds for 30 s, far past the point the signal arrives.
   fs.writeFileSync(path.join(dir, 'slow.test.js'),
     "require('node:fs').writeFileSync(__dirname + '/test.pid', String(process.pid));\n" +
@@ -29,13 +30,15 @@ function sandbox(t) {
   return dir;
 }
 
-for (const sig of ['SIGTERM', 'SIGHUP']) {
-  test(`#7619 a ${sig} while the test runs restores the broken file and ends the test`, async (t) => {
+// Exit 128 + the signal's number, as a shell reports a death by that signal (review 2: TERM is not an interrupt).
+for (const [sig, want, colleague] of [['SIGTERM', 143, false], ['SIGHUP', 129, false], ['SIGINT', 130, false], ['SIGTERM', 143, true]]) {
+  test(`#7619 a ${sig} while the test runs restores the broken file and ends the test${colleague ? ', and leaves a colleague\'s edit alone' : ''}`, async (t) => {
     const dir = sandbox(t);
     // Without the outer runner's context, or the inner node --test reads itself as nested and runs nothing.
     const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
     const started = Date.now();
-    const child = spawn('bash', ['tools/prove-it-fails.sh', 'slow.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
+    // /bin/bash: macOS's own bash 3.2, the one the script's shebang names (an empty array under set -u differs there).
+    const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'slow.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
       { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
@@ -47,15 +50,34 @@ for (const sig of ['SIGTERM', 'SIGHUP']) {
     assert.ok(fs.existsSync(pidFile), 'premise: the slow test started: ' + out);
     assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 2;\n', 'premise: the break was applied');
     const testPid = Number(fs.readFileSync(pidFile, 'utf8'));
+    if (colleague) fs.writeFileSync(path.join(dir, 'b.js'), 'const y = 2;   // edited by someone else mid-run\n');
     child.kill(sig);
     const { code } = await exited;
     assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 1;\n', 'the break was left in the tree: ' + out);
     // The tool's own pid file is untracked; everything tracked is back.
-    assert.equal(execFileSync('git', ['-C', dir, 'status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }), '');
-    assert.equal(code, 130, 'exit status: ' + out);
+    assert.equal(execFileSync('git', ['-C', dir, 'status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }), colleague ? ' M b.js\n' : '');
+    if (colleague) assert.equal(fs.readFileSync(path.join(dir, 'b.js'), 'utf8'), 'const y = 2;   // edited by someone else mid-run\n', 'a colleague\'s edit was wiped');
+    assert.equal(code, want, 'exit status: ' + out);
     assert.match(out, /interrupted: restored \(clean\)/);
     assert.ok(Date.now() - started < 20000, 'it waited for the 30 s test instead of restoring at once');
     for (let i = 0; i < 40 && alive(testPid); i++) await sleep(50);
     assert.equal(alive(testPid), false, 'the test it was running was left going');
   });
 }
+
+test('#7619 an ordinary run (no signal) still restores the break, through the same path-limited restore', (t) => {
+  const dir = sandbox(t);
+  // A test that reads the file and goes red on the break.
+  fs.writeFileSync(path.join(dir, 'quick.test.js'),
+    "require('node:test')('quick', () => { require('node:assert').match(require('node:fs').readFileSync(__dirname + '/a.js', 'utf8'), /x = [1]/); });   // [1], so the break's own replace cannot rewrite this file too\n");
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A'], { stdio: 'ignore' });
+  execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'quick'], { stdio: 'ignore' });
+  const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+  const out = execFileSync('/bin/bash', ['tools/prove-it-fails.sh', 'quick.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
+    { cwd: dir, env, encoding: 'utf8' });
+  assert.match(out, /✖ quick/, 'premise: the break turned the test red: ' + out);
+  assert.match(out, /restored\s*$/, out);
+  assert.doesNotMatch(out, /NOT restored/, out);
+  assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 1;\n');
+  assert.equal(execFileSync('git', ['-C', dir, 'status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' }), '');
+});

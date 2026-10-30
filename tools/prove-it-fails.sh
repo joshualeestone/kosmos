@@ -76,15 +76,36 @@ fi
 # end is: the tree was clean a moment ago). The test it was running is a child, so it is ended too, or it would keep
 # testing a tree that is no longer broken. SIGKILL cannot be caught: the refusal above then names the file at the
 # next start.
-_restore_on_signal() {
-  trap - HUP INT TERM
-  [ -n "${_test_pid:-}" ] && kill "$_test_pid" 2>/dev/null
-  rm -f "${_outf:-}"
-  git checkout -q -- . 2>/dev/null
-  echo "    interrupted: restored ($(git diff --quiet && echo clean || echo 'NOT clean, check git status'))"
-  exit 130
+#
+# It restores only the files the break changed, and each only while it still holds the break: a whole-tree checkout
+# would also wipe an edit somebody else made in this worktree during the run (review 2). A file that changed again
+# since the break is left alone and named.
+_broken=()
+_broken_hash=()
+_restore() {
+  local i f now left=""
+  for i in "${!_broken[@]}"; do
+    f="${_broken[$i]}"
+    now="$(git hash-object -- "$f" 2>/dev/null)"
+    if [ "$now" = "${_broken_hash[$i]}" ]; then git checkout -q -- "$f"; else left="$left $f"; fi
+  done
+  [ -z "$left" ] || echo "    NOT restored, changed again during the run (check by hand):$left"
+  [ -z "$left" ]
 }
-trap _restore_on_signal HUP INT TERM
+_restore_on_signal() {   # $1 the signal's number: the exit is 128 + it, as a shell reports a death by that signal
+  trap - HUP INT TERM
+  if [ -n "${_test_pid:-}" ]; then kill "$_test_pid" 2>/dev/null; wait "$_test_pid" 2>/dev/null; fi
+  rm -f "${_outf:-}"
+  if [ "${#_broken[@]}" -gt 0 ]; then
+    _restore && echo "    interrupted: restored (clean)" || echo "    interrupted: restore incomplete"
+  else
+    echo "    interrupted before the break was applied: nothing to restore"
+  fi
+  exit $((128 + $1))
+}
+trap '_restore_on_signal 1' HUP
+trap '_restore_on_signal 2' INT
+trap '_restore_on_signal 15' TERM
 before="$(git rev-parse HEAD)"
 echo "── $LABEL"
 node -e "
@@ -98,6 +119,7 @@ if git diff --quiet; then
   exit 1
 fi
 git diff --stat | tail -1 | sed 's/^/    changed: /'
+while IFS= read -r _f; do _broken+=("$_f"); _broken_hash+=("$(git hash-object -- "$_f")"); done < <(git diff --name-only)
 
 # 🛑 A SHELL MUTATION CANNOT BE PROVED BY THE NODE SUITE, and this refuses
 # rather than leaving it to a person to remember. `yarn test` never executes
@@ -154,7 +176,7 @@ case "$TESTFILE" in
       echo "       phrase, an ordering check - that is a legitimate proof and this"
       echo "       is the wrong refusal. Say so and it runs:"
       echo "           SHELL_READ_ONLY=1 bash tools/prove-it-fails.sh ..."
-      git checkout -q -- .
+      _restore
       echo "    restored"
       exit 1
     fi
@@ -192,7 +214,7 @@ failed="$(printf '%s' "$out" | sed -n '/failing tests:/,$p' | grep -c '^✖')"
 if [ -z "$summary" ]; then
   echo "    🛑 THE RUNNER PRODUCED NO SUMMARY, so nothing is proven either way."
   printf '%s\n' "$out" | head -4 | sed 's/^/      /'
-  git checkout -q -- .
+  _restore
   exit 1
 elif [ "$failed" -gt 0 ]; then
   printf '%s' "$out" | sed -n '/failing tests:/,$p' | grep '^✖' | sed 's/^/    /' | head -4
@@ -200,7 +222,7 @@ else
   echo "    ⚠️  NOTHING WENT RED. The break applied and no test noticed it."
   printf '%s' "$summary" | sed 's/^/      /'
 fi
-git checkout -q -- .
+_restore || { echo "    restore failed"; exit 1; }
 [ "$(git rev-parse HEAD)" = "$before" ] || { echo "    HEAD moved; something is wrong"; exit 1; }
-git diff --quiet || { echo "    restore failed"; exit 1; }
+git diff --quiet -- "${_broken[@]}" || { echo "    restore failed"; exit 1; }
 echo "    restored"
