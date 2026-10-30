@@ -166,9 +166,9 @@ struct RoomView: View {
                 .accessibilityElement(children: .contain)
             }
         }
-        .background(Palette.ground.ignoresSafeArea())
+        .background(Palette.chatGround.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
-        .kosmosSolidTopBar(fade: false)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
+        .kosmosSolidTopBar(fade: false, ground: Palette.chatGround)   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar; its fade is on the conversation
         .messageActionsHost()   // kosmos#7419: the one long-press sheet of this room, around its posts
         .toolbar {
             ToolbarItem(placement: .principal) {
@@ -723,7 +723,7 @@ struct RoomView: View {
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
             }
-            .kosmosTopFade()   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
+            .kosmosTopFade(ground: Palette.chatGround)   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
             .onChange(of: rows.last?.id) { _ in
                 if rowsPart != (archiveShown != nil) { rowsPart = archiveShown != nil; return }   // the archive's handler places the reader
                 if !settledAtBottom {
@@ -1185,7 +1185,7 @@ struct RoomView: View {
             // kosmos#7268: the emoji panel in the keyboard's place while open; typing in the box closes it.
             if emojiOpen { EmojiPanel { emojiInsert = ComposerExtras.Pick(glyph: $0) } }
         }
-        .background(Palette.ground)
+        .background(Palette.chatGround)
         .onChange(of: typing) { focused in if focused { emojiOpen = false } }
         // Review 8: the search field's keyboard closes the panel too, or it sits on top of it and hides the results.
         .onChange(of: searchFocused) { focused in if focused { emojiOpen = false } }

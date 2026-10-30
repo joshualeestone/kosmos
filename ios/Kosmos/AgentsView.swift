@@ -631,10 +631,15 @@ enum Palette {
         return Color(UIColor { $0.userInterfaceStyle == .dark ? color(dark, darkAlpha) : color(light, lightAlpha) })
     }
     static let ground = pair(0xfaf9f7, 0x0c0d0f)
+    // kosmos#7628 (Josh 10-30): the ground of a conversation (a DM, a project room), as the desktop board paints its
+    // own: #d-talk-box and #pj-room measured rgb(255,255,255) light and rgb(0,0,0) dark, while the page around them is
+    // `ground`. The bubbles on it are unchanged (agentBubble already matches the board's --agent-msg).
+    static let chatGround = pair(0xffffff, 0x000000)
     static let card = pair(0xffffff, 0x17191c)
     static let primary = pair(0x14161a, 0xf5f5f4)
     static let secondary = pair(0x4a4f57, 0xa9adb3)
-    static let tertiary = pair(0x14161a, 0xf5f5f4, lightAlpha: 0.61, darkAlpha: 0.47)
+    // kosmos#7628 review 1: dark 0.49 (was 0.47), so small text straight on the chat's pure black stays AA (~4.6:1).
+    static let tertiary = pair(0x14161a, 0xf5f5f4, lightAlpha: 0.61, darkAlpha: 0.49)
     static let separator = pair(0xe3e1dc, 0x2a2d31)
     static let avatarFill = pair(0xece7dd, 0x252529)
     static let avatarLetter = pair(0x4a4f57, 0xc7c7cc)
@@ -746,14 +751,16 @@ struct KosmosBarLeading<S: View>: ToolbarContent {
 extension View {
     // `fade: false` for a page whose top is a fixed row (a banner, a search field): the fade goes on its scrolling part
     // instead (kosmosTopFade), so it never washes over the fixed row (review 1).
-    @ViewBuilder func kosmosSolidTopBar(fade: Bool = true) -> some View {
-        let solid = toolbarBackground(Palette.ground, for: .navigationBar).toolbarBackground(.visible, for: .navigationBar)
-        if fade { solid.kosmosTopFade() } else { solid }
+    // kosmos#7628: `ground` is the page's own colour; a conversation passes Palette.chatGround, as the desktop draws its
+    // header inside the conversation's white (or black) box (measured: #d-talk-label sits on #d-talk-box).
+    @ViewBuilder func kosmosSolidTopBar(fade: Bool = true, ground: Color = Palette.ground) -> some View {
+        let solid = toolbarBackground(ground, for: .navigationBar).toolbarBackground(.visible, for: .navigationBar)
+        if fade { solid.kosmosTopFade(ground: ground) } else { solid }
     }
 
-    func kosmosTopFade() -> some View {
+    func kosmosTopFade(ground: Color = Palette.ground) -> some View {
         overlay(alignment: .top) {
-            LinearGradient(colors: [Palette.ground, Palette.ground.opacity(0)], startPoint: .top, endPoint: .bottom)
+            LinearGradient(colors: [ground, ground.opacity(0)], startPoint: .top, endPoint: .bottom)
                 .frame(height: 10).allowsHitTesting(false).accessibilityHidden(true)
         }
     }
