@@ -34,7 +34,14 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 143' TERM; trap 'exit 130' INT HUP
-runtime="$(xcrun simctl list runtimes available | sed -n 's/.*\(com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]*\).*/\1/p' | sort -V | tail -1)"
+# Review 1: the newest runtime the SELECTED Xcode can run (its simulator SDK), not merely the newest installed: a CI image
+# carries several Xcodes, and a runtime newer than the selected one's SDK is refused as a destination.
+sdk="$(xcrun --sdk iphonesimulator --show-sdk-version 2>/dev/null)"
+cap="$(printf '%s' "${sdk:-999}" | tr . -)"
+runtime="$(xcrun simctl list runtimes available | sed -n 's/.*\(com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]*\).*/\1/p' \
+  | sort -V | awk -v cap="$cap" '{ v = $0; sub(/.*iOS-/, "", v); if (cmp(v, cap) <= 0) last = $0 }
+      function cmp(a, b,   x, y, i, n) { n = split(a, x, "-"); split(b, y, "-"); for (i = 1; i <= 3; i++) { if (x[i] + 0 < y[i] + 0) return -1; if (x[i] + 0 > y[i] + 0) return 1 } return 0 }
+      END { print last }')"
 [ -n "$runtime" ] || { echo "FAIL  ui-sample: no iOS simulator runtime installed" >&2; exit 1; }
 # The smallest current phone this Xcode knows: the "e" model if there is one, else the newest plain iPhone.
 types="$(xcrun simctl list devicetypes | sed -n 's/.*(\(com\.apple\.CoreSimulator\.SimDeviceType\.iPhone-[0-9]*e\{0,1\}\))$/\1/p' | sort -V)"
@@ -51,14 +58,20 @@ log="$work/xcodebuild.log"
 ( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
     $only -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
 rc=$?
-ran="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z]+ [A-Za-z]+\]' (passed|failed)" "$log")"
-failed="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z]+ [A-Za-z]+\]' failed" "$log")"
-if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ]; then
+ran="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' (passed|failed)" "$log")"
+failed="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' failed" "$log")"
+# Review 1: each class must have run exactly its own number, so one class gaining a test cannot hide another skipping one.
+short=""
+for c in $classes; do
+  n="$(grep -c -E "^Test Case '-\[KosmosUITests\.${c%%:*} [A-Za-z0-9_]+\]' (passed|failed)" "$log")"
+  [ "$n" -eq "${c##*:}" ] || short="$short ${c%%:*}=$n/${c##*:}"
+done
+if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ] && [ -z "$short" ]; then
   echo "PASS  ui-sample: $ran of $want UI checks passed on a fresh simulator"
   exit 0
 fi
 why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z]*\) \([A-Za-z]*\)\] : /\1.\2: /p' "$log" | head -3)"
-echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)"
+echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)${short:+; per class:$short}"
 [ -n "$why" ] && printf '%s\n' "$why"
 [ "$keep" = 1 ] || echo "  (run again with --keep to keep the log and result)"
 exit 1

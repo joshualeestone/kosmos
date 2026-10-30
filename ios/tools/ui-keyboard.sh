@@ -1,7 +1,8 @@
 #!/bin/bash
 # kosmos#7344: the chat's keyboard checks (KosmosUITests/KeyboardSlideUITests) on a fresh simulator, with taps, so the
-# newest message staying above the message box can be measured on a Mac with no Simulator window. No CI job runs the UI
-# tests target; this is how they are run. Prints PASS, or FAIL with the failing check's own words.
+# newest message staying above the message box can be measured on a Mac with no Simulator window. CI runs them with the
+# other sample-board UI tests (ios/tools/ui-sample.sh, kosmos#7609); this runs these three alone. Prints PASS, or FAIL with
+# the failing check's own words.
 #
 #   ios/tools/ui-keyboard.sh [--keep]
 #
@@ -16,7 +17,7 @@ keep=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=1; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     *) echo "ui-keyboard: unknown argument $1" >&2; exit 2 ;;
   esac
 done

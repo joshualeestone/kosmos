@@ -2,7 +2,7 @@ import XCTest
 
 // kosmos#7344: with the conversation at its newest message, bringing the keyboard up keeps that message visible above
 // the message box; a conversation read higher up stays where it was. Sample agents (a Debug build), Dana's chat.
-// Run by ios/tools/ui-keyboard.sh on a fresh simulator; no CI job runs this target.
+// Run by ios/tools/ui-keyboard.sh on a fresh simulator, and in CI by the ios workflow's "ui tests (sample board)" job (ios/tools/ui-sample.sh, kosmos#7609).
 final class KeyboardSlideUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
