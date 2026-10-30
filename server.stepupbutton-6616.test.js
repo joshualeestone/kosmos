@@ -69,7 +69,9 @@ test('kosmos#7625: through the gate, a connector without fresh-signin still gets
   const proxied = remoteStepUpRefusal(req(), '/api/agents', t, new Set(['session-headers']));
   assert.equal(proxied, REMOTE_STEP_UP);
   assert.equal('signInAgain' in proxied, false);
-  assert.match(proxied.error, /computer itself/);
+  assert.match(proxied.error, /computer itself/);  // Review 1: a gate session with no second factor would sign in again and be refused the same way, so no log-out button.
+  const noSecond = remoteStepUpRefusal(req({ 'x-kosmos-session-iat': String(t - 3600), 'x-kosmos-session-second': '0' }), '/api/agents', t, new Set(['session-headers']));
+  assert.equal(noSecond, REMOTE_STEP_UP);
 });
 
 test('R01b: no button for a request that did not come through the gate (no session header: a proxy, or an old session)', () => {

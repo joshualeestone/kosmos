@@ -32,8 +32,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server, remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_SECS } = require('./server');
 /* kosmos#7625: a stale request the gate forwarded (it wrote a session header) is offered Sign in again by logging out;
-   one with no gate header (a proxy the owner set up) keeps the plain refusal. */
-const refusalFor = (extra) => ('x-kosmos-session-iat' in extra || 'x-kosmos-session-second' in extra ? REMOTE_STEP_UP_LOGOUT : REMOTE_STEP_UP);
+   one with no gate header (a proxy the owner set up), or with no second factor (signing in again cannot help:
+   review 1), keeps the plain refusal. */
+const refusalFor = (extra) => (extra['x-kosmos-session-second'] === '1' ? REMOTE_STEP_UP_LOGOUT : REMOTE_STEP_UP);
 const remote = require('./engine/remote');
 
 let base;
@@ -175,7 +176,7 @@ test('R01: the gate passes update and agent creation for a fresh remote session 
   const ahead = { ...VIA_PLUS, 'x-kosmos-session-iat': String(t + 600), 'x-kosmos-session-second': '1' };
   assert.equal(remoteStepUpRefusal(req(ahead), '/api/agents', t), REMOTE_STEP_UP_CLOCK);
   const aheadNoSecond = { ...ahead, 'x-kosmos-session-second': '0' };
-  assert.equal(remoteStepUpRefusal(req(aheadNoSecond), '/api/agents', t), REMOTE_STEP_UP_LOGOUT, 'no second factor is not a clock problem');
+  assert.equal(remoteStepUpRefusal(req(aheadNoSecond), '/api/agents', t), REMOTE_STEP_UP, 'no second factor is not a clock problem');
 });
 
 /* The guard that keeps the list honest (review iteration 1): every POST or PUT route in server.js, written in the
