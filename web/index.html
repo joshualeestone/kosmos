@@ -77320,8 +77320,10 @@ let MSG_DEL = null;
 function msgDelAsk(ref, row) {
   if (!ref || !row) return;
   /* A direct message is named by its row's `at` (the bar's data-at), never data-mid, which is the row's id when it has one. */
+  /* The room's project is the open room's (PJ_CURRENT, what loadRoom reads), never PJS_HOOKS.projectId: that is the webhooks
+     pane's, null until it opens and another project's after it, where the same message id could name a different post. */
   const bar = row.querySelector('.rxns[data-at]');
-  MSG_DEL = { host: ref.host, mid: ref.mid, at: bar ? bar.getAttribute('data-at') : '', back: row.querySelector('.rxn-dots') || null, project: (typeof PJS_HOOKS !== 'undefined' && PJS_HOOKS) ? PJS_HOOKS.projectId : null,
+  MSG_DEL = { host: ref.host, mid: ref.mid, at: bar ? bar.getAttribute('data-at') : '', back: row.querySelector('.rxn-dots') || null, project: (typeof PJ_CURRENT !== 'undefined' && PJ_CURRENT) ? PJ_CURRENT : null,
     agent: typeof CURRENT !== 'undefined' && CURRENT ? CURRENT.sessionName : null };
   document.getElementById('msgdel-msg').textContent = '';
   document.getElementById('msgdel-go').disabled = false;
@@ -77363,7 +77365,9 @@ document.getElementById('msgdel-go').addEventListener('click', async () => {
     const names = told.map((n) => (typeof tskAgentName === 'function' ? tskAgentName(n) : n));
     msgToast(names.length ? 'Deleted. Kosmos told ' + names.join(', ') + ' you withdrew it.' : 'Deleted.');
     if (room) { if (typeof loadRoom === 'function') { try { await loadRoom(); } catch { /* the next poll repaints */ } } }
-    else if (typeof loadThread === 'function') { try { await loadThread(); } catch { /* the next poll repaints */ } }
+    /* The agent's own page repaints by paintTalk, as dmHeldSend does (loadThread is a PROJECT's thread, not this one), and only
+       while that agent's page is still the one open. */
+    else if (CURRENT && CURRENT.sessionName === d.agent) { try { await paintTalk(d.agent, CURRENT.name); } catch { /* the next poll repaints */ } }
   } catch {
     say.textContent = 'We could not reach Kosmos to delete it. Try again in a moment.';
     btn.disabled = false;
