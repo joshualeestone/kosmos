@@ -58,3 +58,16 @@ Findings: ~/.cache/monalisa-review/review-7640-round1.md. 1 blocker, 2 warnings,
   rather than throwing; its poll label says what it measures.
 - DEFERRED nit: a named helper for the guarded asSentence expression. A test that lifts one function alone would not
   have the helper either, so it would need its own typeof guard at each sink: the same five tokens, one more name.
+
+## After review round 2 (sonnet, 12:3x CDT)
+
+Findings: ~/.cache/monalisa-review/review-7640-round2.md. No blockers; 1 warning, 3 nits.
+- ANSWERED W (no change; recorded as the known limit it asked for): a person at the computer who opens the board by a
+  non-loopback name (its .local name, a LAN address) no longer asks for the waiting list. That loses nothing: the route
+  answers only a loopback peer that no forwarder touched (server.js, /api/remote/waiting: `!isLoopbackPeer(req) ||
+  isRemoteRequest(req) || !boardCookieHere(req)` -> 403), so any page at a non-loopback name was already refused every
+  time, and the certificate alarm rides the same answer. Weakest premise: that a non-loopback hostname always means a
+  non-loopback peer (a hosts-file alias for 127.0.0.1 would be the exception; such a tab now shows no waiting list).
+- DEFERRED nits: plan-name timestamp (this repo names plans by branch, beside the proof); data-cloud-copy is applied at
+  load, which covers the five static sentences (a sentence painted later would need its own call, none exists); the sink
+  count is a source pin beside the behaviour tests, kept as a tripwire.
