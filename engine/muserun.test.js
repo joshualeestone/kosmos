@@ -125,6 +125,65 @@ test('#3939: runTurn says why in words: a busy session, no sign-in, a turn that 
   } finally { gate.resetForTests(); run.resetForTests(); }
 });
 
+test('kosmos#7615 item 4: quotaLine finds a quota refusal and quotes it, capped', () => {
+  assert.equal(run.quotaLine('429 Subscription quota exhausted. Resets at 2026-11-02T00:00:00Z'),
+    '429 Subscription quota exhausted. Resets at 2026-11-02T00:00:00Z');
+  assert.equal(run.quotaLine('', 'noise\nerror: monthly QUOTA exceeded; try again later\n'), 'error: monthly QUOTA exceeded; try again later');
+  assert.equal(run.quotaLine('HTTP 429 quota'), 'HTTP 429 quota');
+  // Neither half alone: a 429 with no quota is a rate limit, and "quota" alone is not a refusal.
+  assert.equal(run.quotaLine('429 Too Many Requests'), null);
+  assert.equal(run.quotaLine('your quota is 40% used'), null);
+  assert.equal(run.quotaLine(''), null);
+  const long = run.quotaLine('quota exhausted ' + 'x'.repeat(400));
+  assert.equal(long.length, 241);
+  assert.ok(long.endsWith('…'));
+});
+
+test('kosmos#7615 item 4: a turn refused for quota says so, with Meta\'s own sentence', { timeout: 20000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+  gate.allowLiveExecution();
+  run.setForTests({ turnTimeoutMs: 2000, hardCapMs: 4000 });
+  try {
+    const LINE = '429 Subscription quota exhausted, resets 2026-11-02 00:00 UTC';
+    fakeMuse('echo "' + LINE + '" >&2\nexit 1');
+    let r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.ok, false);
+    assert.equal(r.because, run.QUOTA_HEAD + '. Meta said: ' + LINE);
+    // In the event stream: a terminal event that did not complete, exit 0.
+    const failed = ev(9, 'run.terminal.completed', { kind: 'run_terminal_completed', terminal: 'failed', error: LINE });
+    fakeMuse("echo '" + failed + "'");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.ok, false);
+    assert.equal(r.because, run.QUOTA_HEAD + '. Meta said: ' + LINE, 'the event\'s own sentence, not its JSON');
+    // An event with no sentence field is searched as its line.
+    const bare = ev(9, 'run.failed', { kind: 'x', detail: { code: 429, note: 'quota exhausted' } });
+    fakeMuse("echo '" + bare + "'\nexit 1");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.ok(r.because.startsWith(run.QUOTA_HEAD + '. Meta said: {'), r.because);
+    // The same failed terminal event exiting non-zero.
+    fakeMuse("echo '" + failed + "'\nexit 1");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.ok(r.because.startsWith(run.QUOTA_HEAD), r.because);
+    // The model's own words about a quota are not a refusal: a crash after them is still COULD_NOT_RUN, and an early
+    // stop after them still says it stopped.
+    const said = ev(81, 'run.output.delta', { kind: 'run_output_delta', text: 'The 429 quota exhausted error means...' });
+    fakeMuse("echo '" + said + "'\nkill -SEGV $$");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.because, run.COULD_NOT_RUN);
+    fakeMuse("echo '" + said + "'");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.match(r.because, /stopped before finishing/);
+    // CONTROL: a completed turn whose text names a quota is ok.
+    const done = ev(90, 'run.terminal.completed', { kind: 'run_terminal_completed', text: 'quota exhausted 429 explained', terminal: 'completed' });
+    fakeMuse("echo '" + done + "'");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.ok, true);
+    // ...and the same completed text followed by a crash is not read as a quota refusal.
+    fakeMuse("echo '" + done + "'\nexit 1");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.because, run.COULD_NOT_RUN);
+  } finally { gate.resetForTests(); run.resetForTests(); }
+});
+
 test('#3939: a turn that ignores TERM is stopped by SIGKILL at the timeout', { timeout: 8000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
   fakeMuse("trap '' TERM\nexec sleep 7");
   run.setForTests({ turnTimeoutMs: 300, hardCapMs: 20000 });

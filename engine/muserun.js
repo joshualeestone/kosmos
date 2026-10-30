@@ -42,6 +42,42 @@ const NOT_WIRED_UP = 'Muse Code is not wired up on this computer yet';
 const STOPPED = 'Stopped before Muse Code finished';
 /* The session is still held by a turn that is ending (#4569: the front retries a stop note on this). */
 const BUSY = 'Muse Code is still working on this agent\'s last turn';
+/* kosmos#7615 item 4 (Josh's 0.7.75 report): Meta's "429 Subscription quota exhausted", with its reset time, reached the
+   person only as COULD_NOT_RUN. Said as a quota, with Meta's own sentence quoted, because that sentence carries the
+   reset time in whatever form Meta writes it and stays true when their wording changes (engine/accountproblem.js
+   quotes a vendor's sentence for the same reason). Weakest premise: no capture of Muse's quota output exists, so the
+   matcher is any line naming a quota together with 429, exhausted or exceeded, on stderr or in the event stream. */
+const QUOTA_HEAD = 'Meta\'s usage quota for Muse Code is used up, so this turn did not run';
+const QUOTA_LINE_MAX = 240;
+function quotaLine(...texts) {
+  for (const t of texts) {
+    for (const raw of String(t || '').split('\n')) {
+      const line = raw.trim();
+      if (/quota/i.test(line) && /\b429\b|exhausted|exceeded/i.test(line)) {
+        return line.length > QUOTA_LINE_MAX ? line.slice(0, QUOTA_LINE_MAX) + '…' : line;
+      }
+    }
+  }
+  return null;
+}
+const quotaBecause = (line) => QUOTA_HEAD + '. Meta said: ' + line;
+/* The event stream without the model's own words (output deltas, a COMPLETED turn's text): an agent that writes about a
+   quota, then fails for another reason, must not be reported as out of quota. A terminal event that did not complete
+   is kept: that is where a refused run may say why. */
+function notTheModelsWords(jsonl) {
+  const out = [];
+  for (const l of String(jsonl || '').split('\n')) {
+    let ev; try { ev = JSON.parse(l); } catch { out.push(l); continue; }
+    if (!ev || typeof ev !== 'object') { out.push(l); continue; }
+    if (ev.payload_type === 'run.output.delta') continue;
+    const p = ev.payload && typeof ev.payload === 'object' ? ev.payload : {};
+    if (ev.payload_type === 'run.terminal.completed' && p.terminal === 'completed') continue;
+    // The event's own sentence when it names one, so the person reads Meta's words rather than a line of JSON.
+    const said = ['error', 'message', 'reason'].map((k) => p[k]).find((v) => typeof v === 'string' && v.trim());
+    out.push(said || l);
+  }
+  return out.join('\n');
+}
 
 /**
  * The arguments for one turn, or { error } when an input is not one Kosmos will hand Muse.
@@ -227,8 +263,11 @@ function runTurn(input) {
           musestatus.markSignedOut(startedAt, atStart, Date.now());
         }
         // Timed out only when Kosmos stopped it (round 1): another signal is a crash, not a timeout.
-        else if (err) because = COULD_NOT_RUN;
-        else if (!parsed.done) because = 'Muse Code stopped before finishing the turn';
+        else if (err) { const q = quotaLine(stderr, notTheModelsWords(stdout)); because = q ? quotaBecause(q) : COULD_NOT_RUN; }
+        else if (!parsed.done) {
+          const q = quotaLine(stderr, notTheModelsWords(stdout));
+          because = q ? quotaBecause(q) : 'Muse Code stopped before finishing the turn';
+        }
         // #3939 3c-1: a completed turn proves the sign-in (a terminal `muse login` is seen only this way).
         if (!err && parsed.done) musestatus.markTurnSignedIn(startedAt);
         finish({ ok: !err && parsed.done, exitCode, sessionId: parsed.sessionId, model: parsed.model, text: parsed.text, done: parsed.done, because });
@@ -253,4 +292,4 @@ function setForTests(o) {
 }
 function resetForTests() { runMuse = REAL.runMuse; turnTimeoutMs = TURN_TIMEOUT_MS; hardCapMs = TURN_HARD_CAP_MS; maxBytes = TURN_MAX_BUFFER; platform = process.platform; }
 
-module.exports = { turnArgs, parseEvents, modelWatcher, runTurn, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, STOPPED, BUSY, setForTests, resetForTests };
+module.exports = { turnArgs, parseEvents, modelWatcher, runTurn, quotaLine, QUOTA_HEAD, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, STOPPED, BUSY, setForTests, resetForTests };
