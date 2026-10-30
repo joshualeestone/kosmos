@@ -1016,3 +1016,18 @@ test('#6487 a send that throws writes no "sent" line; the same send that goes wr
     phonenotify.setSender((url, headers, body) => sent.push({ url, headers, body: JSON.parse(body) }));
   }
 });
+
+/* kosmos#7212 review 1 W2: a delivery stall's needs-you keeps its own window, so a permission prompt's buzz and a
+   stall's do not swallow each other; the board-side `stall` flag never leaves the Mac. */
+test('#7212 a stall push and a needs-you buzz for one agent do not share a cooldown; the stall flag is not sent', async () => {
+  enrol();
+  await call('PUT', '/api/phone-notify', { body: { on: true } });
+  sent.length = 0;
+  phonenotify.happened({ kind: 'needs_you', id: 'report:1:leo', agent: 'leo', session: 'leo', project: null });
+  phonenotify.happened({ kind: 'needs_you', id: 'stall:leo:2026-10-30T12:00:00.000Z:0', agent: 'leo', session: 'leo', project: null, stall: true });
+  assert.equal(sent.length, 2, 'a stall push inside a needs-you window was swallowed');
+  assert.equal(Object.hasOwn(sent[1].body, 'stall'), false, 'the board-side stall flag was sent');
+  phonenotify.happened({ kind: 'needs_you', id: 'stall:leo:2026-10-30T12:00:00.000Z:1', agent: 'leo', session: 'leo', project: null, stall: true });
+  phonenotify.happened({ kind: 'needs_you', id: 'report:2:leo', agent: 'leo', session: 'leo', project: null });
+  assert.equal(sent.length, 2, 'CONTROL: each class still keeps its own window');
+});

@@ -230,15 +230,45 @@ function resetForTests() { streaks.clear(); }
 /* kosmos#7212 (#7615 item 1): the needs-you notification for a stall the board says (stallsToSay, or a stuck turn from
    turnsToSay), so the person is told away from the board, as a crash loop or a stuck terminal tells them. The id names
    the stall (its session and since), so each stall is one event; the phone shows the plain notice for it (phonenotice
-   cannot ask about a stall:/turn: id). `card` is the board's card for it ({ sessionName, name }). Null when there is
-   nothing to name. Never throws. */
-function stallEvent(card, stall) {
+   cannot ask about a stall:/turn: id). `card` is the board's card for it ({ sessionName, name }). The id ends with the
+   stall's day (0 on its first, 1 a day later), so each day's telling is its own event (review 1 W4). `stall: true`
+   is board-side: phonenotify keys its own cooldown on it and never sends it. Null when there is nothing to name.
+   Never throws. */
+function stallEvent(card, stall, now = Date.now()) {
   try {
     const session = card && typeof card.sessionName === 'string' && card.sessionName ? card.sessionName : null;
     if (!session || !stall || typeof stall.since !== 'string') return null;
     const kind = stall.lastWhy === 'turn' ? 'turn' : 'stall';
-    return { kind: 'needs_you', id: kind + ':' + session + ':' + stall.since, agent: (typeof card.name === 'string' && card.name) || session, session, project: null };
+    const since = Date.parse(stall.since);
+    const day = Number.isFinite(since) && now > since ? Math.floor((now - since) / RESAY_MS) : 0;
+    return { kind: 'needs_you', id: kind + ':' + session + ':' + stall.since + ':' + day, agent: (typeof card.name === 'string' && card.name) || session,
+      session, project: null, stall: true };
   } catch { return null; }
 }
 
-module.exports = { stallEvent, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+/* kosmos#7212 review 1 (W1, W3): the person is told about one agent's stalls at most once per PUSH_GAP_MS, whatever
+   ends and starts them: a board restart (the streaks and the said marks are in memory, so every stalled card would be
+   said again) or a stall that ends with one landed line and starts again. Kept in a small file under the data root, so
+   a restart does not tell again. True when the push should go now (and records it). A file that cannot be read reads
+   as nobody told; one that cannot be written still pushes (the in-memory said marks still hold it to once a day while
+   the board runs). Never throws. */
+const PUSH_GAP_MS = RESAY_MS;
+function pushDue(session, now, file) {
+  try {
+    if (typeof session !== 'string' || !session || typeof file !== 'string' || !file) return false;
+    const fs = require('fs');
+    let book = {};
+    try { const b = JSON.parse(fs.readFileSync(file, 'utf8')); if (b && typeof b === 'object' && !Array.isArray(b)) book = b; } catch { book = {}; }
+    const last = book[session];
+    if (Number.isFinite(last) && last <= now && now - last < PUSH_GAP_MS) return false;
+    book[session] = now;
+    for (const [k, t] of Object.entries(book)) if (!Number.isFinite(t) || now - t >= 2 * PUSH_GAP_MS) delete book[k];
+    try {
+      fs.mkdirSync(require('path').dirname(file), { recursive: true });
+      require('./store').saveFlushed(file, JSON.stringify(book) + '\n');
+    } catch { /* still pushes */ }
+    return true;
+  } catch { return false; }
+}
+
+module.exports = { stallEvent, pushDue, PUSH_GAP_MS, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };

@@ -26,3 +26,12 @@ following each restart, at most once per restart, and never more often than need
 ## Tests
 engine/stallpush-7212.test.js: the push fires once per said stall with the stall id, not for a stall the card does not
 show, not for a usage-limit-only streak, again after a day; the turn callback; and the wiring in sayStalls.
+
+## Review rounds
+- Round 1 (Sonnet): no BLOCKER. Each agent's stall is pushed at most once a day (deliverystreak.pushDue, kept in
+  stall-pushes.json under the data root), so a board restart or a stall that ends and starts again does not push again.
+  A stall's needs-you keeps its own cooldown class in phonenotify (the board-side `stall` flag, never sent), so it and a
+  permission prompt's buzz do not swallow each other. The id ends with the stall's day, so each day is its own event.
+  Left as it is: the session is the roster's sessionName, as the needs_you report path uses (crash loops use safeKey).
+  Also found while testing: my first related-tests run named a file that does not exist (engine/phonenotify.test.js)
+  and node --test said nothing; the run now asserts each file exists (14 files, 193 tests).

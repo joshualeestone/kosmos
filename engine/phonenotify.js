@@ -521,7 +521,9 @@ const lastSent = new Map();   // "<cooldownClass>:<key>" -> when it last buzzed
 function routeFor(event) {
   const agentKey = String(event.session || event.agent || '');
   switch (event.kind) {
-    case 'needs_you': return { sw: 'needsYou', cls: 'needs_you', key: agentKey, ms: NEEDS_YOU_COOLDOWN_MS };
+    /* kosmos#7212: a delivery stall (board-side flag `stall`, never in the payload) keeps its own window, so a permission
+       prompt's buzz and a stall's do not swallow each other. How often a stall is told is deliverystreak.pushDue's. */
+    case 'needs_you': return { sw: 'needsYou', cls: event.stall === true ? 'needs_you_stall' : 'needs_you', key: agentKey, ms: NEEDS_YOU_COOLDOWN_MS };
     case 'replied': return { sw: 'replied', cls: null };
     case 'ready': return { sw: 'ready', cls: 'ready', key: agentKey, ms: READY_COOLDOWN_MS };
     case 'posted': return event.namesPerson
