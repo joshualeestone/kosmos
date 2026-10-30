@@ -1196,7 +1196,7 @@ function applyPolicy(token, opts, orgId) {
 
 module.exports = {
   onEnrollmentEnded,   // #6232 review 10
-  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindStrict, kindNow, kindOf, codeOf,
+  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, JOIN_UNKNOWN_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindStrict, kindNow, kindOf, codeOf,
   cleanReviewerGrants, MAX_REVIEWER_GRANTS, // kosmos#6752
   worldId, siblingId, SIBLING_ID_FILE, STOPPED_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, stoppedKind, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, memberCheck, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };

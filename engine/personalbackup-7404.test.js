@@ -32,6 +32,7 @@ const ORG = { id: 'porg_1', name: 'Personal backup', slug: 'pb-x', kind: 'person
 const WORDS = { reports: [], backsUp: [], readers: ['you, on your own computers'], never: ['keys and passwords'] };
 const HASH = 'ab'.repeat(32);
 const SALT = 'cd'.repeat(16);
+const TOKEN = 'h.' + Buffer.from(JSON.stringify({ org: ORG.id, version: 9 })).toString('base64url') + '.s';
 
 /* A coordinator with the personal rules: personal-backup answers the words; the codeless enroll REFUSES without the
    served hash and wordsShown (org.rs: personal_backup_words_unseen); status names this world until a leave. */
@@ -46,11 +47,12 @@ function coordinator(over = {}) {
       if (route === oe.ROUTES.enroll) {
         if (body.consentHash !== HASH || body.wordsShown !== true) return { ok: false, because: '409 {"code":"personal_backup_words_unseen"}', refusal: { status: 409, code: 'personal_backup_words_unseen' } };
         world = body.world; left = false;
-        return { ok: true, data: { ok: true, org: ORG, role: 'admin', printPinned: true, enrolled: { computer: 'c1', world, thisComputer: true } } };
+        return { ok: true, data: { ok: true, org: over.enrollOrg || ORG, role: 'member', printPinned: true, enrolled: { computer: 'c1', world, thisComputer: true } } };
       }
       if (route === oe.ROUTES.status) {
         if (left || !world) return { ok: true, data: { member: false } };
-        return { ok: true, data: { member: true, org: ORG, role: 'admin', computerSalt: SALT, policy: null, enrolled: { computer: 'c1', world, thisComputer: true } } };
+        // A policy token naming this org, so orgenroll's applyPolicy reaches the policy module's BUNDLE (code review 1).
+        return { ok: true, data: { member: true, org: ORG, role: 'member', computerSalt: SALT, policy: TOKEN, enrolled: { computer: 'c1', world, thisComputer: true } } };
       }
       if (route === oe.ROUTES.leave) { left = true; return { ok: true, data: { ok: true, left: true } }; }
       return { ok: false, because: 'unexpected route ' + route };
@@ -65,9 +67,15 @@ function fresh(t) {
   cp._testRunner(() => DUMP, { platform: 'darwin' });
   return root;
 }
-/* A company policy in force at store.ROOT: the two files orgpolicy keeps (the bundle and the applied record). */
+/* A company policy in force at store.ROOT, readable as orgpolicy reads it: an applied record naming ANOTHER org (so a
+   policy call that reached it would see a foreign policy and clear it) and a bundle on disk. Code review 1: plain text
+   here made appliedOrg() null, so the enroll and follow-up arms could not fail. */
 function seedCompanyPolicy() {
-  for (const f of [orgpolicy.BUNDLE(), orgpolicy.APPLIED()]) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, 'COMPANY ' + path.basename(f)); }
+  fs.mkdirSync(path.dirname(orgpolicy.APPLIED()), { recursive: true });
+  fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ version: 3, org: 'acme_co', policy: { rules: [] } }));
+  fs.mkdirSync(path.dirname(orgpolicy.BUNDLE()), { recursive: true });
+  fs.writeFileSync(orgpolicy.BUNDLE(), 'h.' + Buffer.from(JSON.stringify({ org: 'acme_co', version: 3 })).toString('base64url') + '.s');
+  assert.equal(orgpolicy.appliedOrg(), 'acme_co', 'seed: the company policy is readable as in force');
 }
 const companyPolicy = () => [orgpolicy.BUNDLE(), orgpolicy.APPLIED()].map((f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null));
 
@@ -84,7 +92,10 @@ test('#7404: on, followed up and off under its own root; a company policy at sto
   assert.equal(on.code, 'TEST-CODE');
   assert.equal(pb.isOn({ root }), true);
   assert.deepEqual(companyPolicy(), before, 'a personal enroll changed the company policy');
+  pb._resetFollowUpForTests();
+  const n0 = c.sent.length;
   await pb.followUp({ root, remote: c });
+  assert.ok(c.sent.length > n0, 'control: the follow-up sent a status read');
   assert.deepEqual(companyPolicy(), before, 'a personal follow-up changed the company policy');
   const off = await pb.switchOff({ root, remote: c });
   assert.equal(off.ok, true, JSON.stringify(off));
@@ -95,11 +106,12 @@ test('#7404: on, followed up and off under its own root; a company policy at sto
 test('#7404 CONTROL: the same leave WITHOUT the inert policy wipes the company policy (the test can see a wipe)', async (t) => {
   const root = fresh(t);
   seedCompanyPolicy();
+  const before = companyPolicy();
   const c = coordinator();
   const p = await pb.preview({ remote: c });
   await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
   await oe.leave({ root, remote: c });   // orgenroll's default policy: the real orgpolicy at store.ROOT
-  assert.notDeepEqual(companyPolicy(), ['COMPANY org_policy.kst', 'COMPANY org-policy-applied.json'], 'control: a leave without the inert policy left the company policy, so the main test proves nothing');
+  assert.notDeepEqual(companyPolicy(), before, 'control: a leave without the inert policy left the company policy, so the main test proves nothing');
 });
 
 test('#7404: the enroll carries the served hash, wordsShown and org; a ticket is used once', async (t) => {
@@ -127,6 +139,10 @@ test('#7404: nothing lands where the company readers look', async (t) => {
   assert.equal(fs.existsSync(path.join(store.ROOT, oe.ENROLLMENT_FILE)), false, 'a personal enroll wrote the company record');
   assert.equal(oe.readEnrollment(), null);
   assert.equal(oe.mayReport(), false, 'a personal backup made the company side report');
+  for (const f of [oe.WORLD_ID_FILE, 'org-consent.json', oe.JOIN_UNKNOWN_FILE, path.join('backupkeys', 'org-key-pin.json')]) {
+    assert.equal(fs.existsSync(path.join(store.ROOT, f)), false, f + ' was written where the company readers look');
+  }
+  assert.equal(fs.existsSync(path.join(root, oe.WORLD_ID_FILE)), true, 'control: the personal world id is under its own root');
   assert.notEqual(pb.root(), store.ROOT);
 });
 
@@ -146,4 +162,67 @@ test('#7404: words that report anything, a non-personal org, or no hash are refu
   const off = await pb.preview({ remote: coordinator({ preview: { ok: false, refusal: { status: 404, code: 'personal_backup_off' } } }) });
   assert.equal(off.code, 'personal_backup_off');
   assert.match(off.because, /not available/);
+});
+
+test('#7404: a ticket expires after ten minutes, and survives a try that sent nothing', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ remote: c, now: () => 1000 });
+  const late = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK, now: () => 1000 + 10 * 60 * 1000 + 1 });
+  assert.equal(late.code, 'ticket');
+  const p2 = await pb.preview({ remote: c });
+  const unsent = await pb.switchOn(p2.ticket, true, { root, remote: { macRequest: undefined }, personalbackupkey: KEY_OK });
+  assert.equal(unsent.ok, false);
+  assert.notEqual(unsent.code, 'ticket');
+  const again = await pb.switchOn(p2.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  assert.equal(again.ok, true, 'a try that sent nothing spent the ticket: ' + JSON.stringify(again));
+});
+
+test('#7404: off then on here needs no new code; another computer is told to restore; a failed key step is needs-key', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const keys = (k) => ({ setUpPersonalKey: async () => k });
+  let p = await pb.preview({ remote: c });
+  const here = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: keys({ ok: false, code: 'already_here', because: 'x' }) });
+  assert.deepEqual([here.ok, here.code, here.already], [true, null, true]);
+  assert.equal(pb.state({ root }), 'on');
+  await pb.switchOff({ root, remote: c });
+  assert.equal(pb.state({ root }), 'off');
+  p = await pb.preview({ remote: c });
+  const other = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: keys({ ok: false, code: 'already_set_up', because: 'x' }) });
+  assert.deepEqual([other.ok, other.code], [false, 'restore']);
+  assert.match(other.because, /Restore it here/);
+  assert.equal(pb.state({ root }), 'needs-key', 'a stale key marker said on after a re-enable');
+  const later = await pb.setUpKey({ root, remote: c, personalbackupkey: KEY_OK });
+  assert.equal(later.ok, true);
+  assert.equal(pb.state({ root }), 'on');
+});
+
+test('#7404: an answer naming another org is not taken as on', async (t) => {
+  const root = fresh(t);
+  const c = coordinator({ enrollOrg: Object.assign({}, ORG, { id: 'porg_other' }) });
+  const p = await pb.preview({ remote: c });
+  const on = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  assert.equal(on.ok, false);
+  assert.equal(pb.state({ root }), 'off');
+});
+
+test('#7404: the follow-up sends nothing with no personal backup here, and refreshes at most hourly once settled', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  pb._resetFollowUpForTests();
+  await pb.followUp({ root, remote: c, now: () => 5 * 3600e3 });
+  assert.equal(c.sent.length, 0, 'a follow-up with no personal backup sent a request');
+  const p = await pb.preview({ remote: c });
+  await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  pb._resetFollowUpForTests();
+  const at = Date.now();
+  const n0 = c.sent.length;
+  await pb.followUp({ root, remote: c, now: () => at });
+  const n1 = c.sent.length;
+  assert.ok(n1 > n0, 'control: the first follow-up of a settled record refreshed');
+  await pb.followUp({ root, remote: c, now: () => at + 2 * 60e3 });
+  assert.equal(c.sent.length, n1, 'a settled record was refreshed again two minutes later');
+  await pb.followUp({ root, remote: c, now: () => at + 3600e3 + 1 });
+  assert.ok(c.sent.length > n1, 'an hour later the follow-up did not refresh');
 });

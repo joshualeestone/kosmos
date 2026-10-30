@@ -95,15 +95,15 @@ function issue(served, now) {
   TICKETS.set(id, Object.assign({ at: now }, served));
   return id;
 }
-function take(id, now) {
+function peek(id, now) {
   const t = typeof id === 'string' ? TICKETS.get(id) : undefined;
-  if (t) TICKETS.delete(id);
-  return t && now - t.at <= TICKET_MS ? t : null;
+  if (t && now - t.at > TICKET_MS) { TICKETS.delete(id); return null; }
+  return t || null;
 }
 
 const SAY = {
   personal_backup_off: 'Personal backup is not available on Kosmos+ yet. Nothing was turned on.',
-  personal_backup_in_org: 'This account is in a company or a family on Kosmos+, which backs it up its own way, so a personal backup cannot be turned on. Nothing changed.',
+  personal_backup_in_org: 'This account is in a company or a family on Kosmos+, so a personal backup cannot be turned on. Nothing changed.',
   personal_backup_raced: 'Something else changed this account on Kosmos+ at the same moment. Nothing was turned on; try again.',
   org_other_org: 'This account joined a company or a family on Kosmos+ meanwhile, so a personal backup was not turned on. Nothing changed here.',
   org_consent_changed: 'What a personal backup does changed on Kosmos+ just now. Nothing was turned on; open it again to read the new words.',
@@ -127,11 +127,11 @@ async function preview(opts = {}) {
     { ok: true, code, epoch } with the recovery code to show once, or { ok: false, because, code?, unknown? }. */
 async function switchOn(ticket, accepted, opts = {}) {
   if (accepted !== true) return { ok: false, declined: true, because: 'Not accepted, so nothing was sent.' };
-  const t = take(ticket, (opts.now || Date.now)());
+  const t = peek(ticket, (opts.now || Date.now)());
   if (!t) return { ok: false, code: 'ticket', because: 'These words were shown too long ago. Open personal backup again to read them.' };
   const oe = opts.orgenroll || require('./orgenroll');
-  // The hash is required (design review 1, blocker 2): without it a codeless enroll could move a company's binding.
-  if (!HASH.test(t.consentHash)) return { ok: false, because: 'Kosmos+ answered in a form this Kosmos does not read. Nothing was turned on.' };
+  // The hash was checked when the ticket was made (cleanPreview); it is what stops a hashless enroll moving a company's
+  // binding here (design review 1, blocker 2).
   let r;
   try {
     r = await oe.enroll(null, true, enrollOpts(opts, {
@@ -139,6 +139,10 @@ async function switchOn(ticket, accepted, opts = {}) {
     }));
   } catch { r = null; }
   if (!r) return { ok: false, because: UNREACHED };
+  /* The ticket is spent once the enroll may have reached Kosmos+: an answer, a refusal with a code, or an unknown. A
+     refusal before anything was sent (no connection, a print read to retry) keeps it, so "try again" works (code
+     review 1; orgenroll keeps its own ticket the same way, its review 27). */
+  if (r.ok || r.code || r.unknown || codeOf(r)) TICKETS.delete(ticket);
   if (!r.ok) {
     if (r.declined) return { ok: false, declined: true, because: 'Not accepted, so nothing was sent.' };
     if (r.unknown) return { ok: false, unknown: true, because: 'It is not known yet whether this computer was bound. Kosmos asks Kosmos+ again in a few minutes.' };
@@ -147,10 +151,31 @@ async function switchOn(ticket, accepted, opts = {}) {
     return { ok: false, code: c, because: 'Kosmos+ did not bind this computer just now. Nothing was turned on; try again in a minute.' };
   }
   if (!r.org || r.org.id !== t.org.id) return { ok: false, because: 'Kosmos+ did not confirm this computer, so nothing was turned on.' };
+  return setUpKey(opts);
+}
+
+/* The key step: the backup key and the recovery code to show once. Also what the screen calls when state() says
+   'needs-key' (a join settled later by the follow-up, or a key step that failed), so no fresh preview is needed.
+   { ok: true, code, epoch } (code null when this computer already holds the keys: turned off and on again here), or
+   { ok: false, code, because }. */
+const KEY_READY = 'personal-key-ready';
+async function setUpKey(opts = {}) {
+  if (!isOn(opts)) return { ok: false, code: 'not_on', because: 'Personal backup is not on for this computer yet.' };
   const pk = opts.personalbackupkey || require('./personalbackupkey');
-  const k = await pk.setUpPersonalKey({ macRequest: opts.macRequest || ((m, rt, b) => remoteOf(opts).macRequest(m, rt, b)) });
-  if (!k || !k.ok) return { ok: false, bound: true, code: k && k.code, because: 'This computer is bound, but its backup key could not be set up yet: ' + ((k && k.because) || 'try again') + '.' };
-  return { ok: true, code: k.code, epoch: k.epoch };
+  let k;
+  try { k = await pk.setUpPersonalKey({ macRequest: opts.macRequest || ((m, rt, b) => remoteOf(opts).macRequest(m, rt, b)) }); } catch { k = null; }
+  if (k && (k.ok || k.code === 'already_here')) {
+    try { fs.writeFileSync(path.join(root(opts), KEY_READY), new Date().toISOString() + '\n', { mode: 0o600 }); } catch { /* state() then says needs-key, and this runs again harmlessly */ }
+    return k.ok ? { ok: true, code: k.code, epoch: k.epoch } : { ok: true, code: null, already: true };
+  }
+  if (k && k.code === 'already_set_up') return { ok: false, code: 'restore', because: 'This backup already has a recovery code from another computer. Restore it here with that code.' };
+  return { ok: false, code: k && k.code, because: 'Personal backup is on for this computer, but its backup key could not be made yet: ' + ((k && k.because) || 'try again') + '.' };
+}
+
+/** 'off', 'needs-key' (on, the key step not finished here), or 'on'; from this module's own record only. */
+function state(opts = {}) {
+  if (!isOn(opts)) return 'off';
+  try { return fs.existsSync(path.join(root(opts), KEY_READY)) ? 'on' : 'needs-key'; } catch { return 'needs-key'; }
 }
 
 /** Whether this computer holds a personal backup's enrollment, from this module's own record only. */
@@ -159,16 +184,26 @@ function isOn(opts = {}) {
 }
 
 /** A lost join or a pending leave under this root, settled the way orgenroll settles the company's: one refresh. */
-// orgenroll.js JOIN_UNKNOWN_FILE (not exported) and LEAVE_PENDING_FILE.
-const JOIN_UNKNOWN_FILE = 'org-join-unknown.json';
-function hasPending(opts = {}) {
+/* The age of the oldest pending step (a lost join or leave), or null. */
+function pendingAge(opts, now) {
   const oe = opts.orgenroll || require('./orgenroll');
-  return [JOIN_UNKNOWN_FILE, oe.LEAVE_PENDING_FILE].some((f) => {
-    try { return fs.existsSync(path.join(root(opts), f)); } catch { return false; }
-  });
+  let age = null;
+  for (const f of [oe.JOIN_UNKNOWN_FILE, oe.LEAVE_PENDING_FILE]) {
+    try { const a = now - fs.statSync(path.join(root(opts), f)).mtimeMs; age = age === null ? a : Math.max(age, a); } catch { /* none */ }
+  }
+  return age;
 }
+/* As the company's (code review 1): every two minutes while a step is pending and under a day old, else hourly while a
+   record or a pending step is here; nothing at all otherwise. */
+const HOUR = 60 * 60 * 1000;
+let LAST_REFRESH = 0;
 async function followUp(opts = {}) {
-  if (!hasPending(opts) && !isOn(opts)) return { ok: true, idle: true };
+  const now = (opts.now || Date.now)();
+  const age = pendingAge(opts, now);
+  const on = isOn(opts);
+  if (age === null && !on) return { ok: true, idle: true };
+  if (!(age !== null && age < 24 * HOUR) && now - LAST_REFRESH < HOUR) return { ok: true, idle: true };
+  LAST_REFRESH = now;
   const oe = opts.orgenroll || require('./orgenroll');
   try { return await oe.refresh(enrollOpts(opts)); } catch { return { ok: false }; }
 }
@@ -186,9 +221,11 @@ async function switchOff(opts = {}) {
   const oe = opts.orgenroll || require('./orgenroll');
   let r;
   try { r = await oe.leave(enrollOpts(opts)); } catch { r = null; }
+  // Stopped here (left, or a leave pending): the key marker goes too, so turning it on again runs the key step again.
+  if (r && (r.ok || r.pending)) { try { fs.rmSync(path.join(root(opts), KEY_READY), { force: true }); } catch { /* best effort */ } }
   if (r && r.ok) return { ok: true };
-  if (r && r.pending) return { ok: false, pending: true, because: 'Turning it off is sent again until Kosmos+ answers.' };
+  if (r && r.pending) return { ok: false, pending: true, because: 'Personal backup has stopped on this computer. Kosmos tells Kosmos+ again until it answers.' };
   return { ok: false, because: 'Kosmos+ could not be reached just now. Personal backup is still on; try again in a minute.' };
 }
 
-module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, isOn, followUp, startFollowUp, switchOff, _TICKETS: TICKETS };
+module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, state, isOn, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; } };
