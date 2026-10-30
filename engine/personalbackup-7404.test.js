@@ -146,10 +146,12 @@ test('#7404: nothing lands where the company readers look', async (t) => {
   assert.equal(fs.existsSync(path.join(store.ROOT, oe.ENROLLMENT_FILE)), false, 'a personal enroll wrote the company record');
   assert.equal(oe.readEnrollment(), null);
   assert.equal(oe.mayReport(), false, 'a personal backup made the company side report');
-  for (const f of [oe.WORLD_ID_FILE, 'org-consent.json', oe.JOIN_UNKNOWN_FILE, path.join('backupkeys', 'org-key-pin.json')]) {
+  // Code review 7, warning 2: the pin by its real name, from the module (a typed 'org-key-pin.json' could never exist).
+  for (const f of [oe.WORLD_ID_FILE, 'org-consent.json', oe.JOIN_UNKNOWN_FILE, path.join('backupkeys', require('./orgkeypin').PIN_FILE)]) {
     assert.equal(fs.existsSync(path.join(store.ROOT, f)), false, f + ' was written where the company readers look');
   }
   assert.equal(fs.existsSync(path.join(root, oe.WORLD_ID_FILE)), true, 'control: the personal world id is under its own root');
+  assert.equal(fs.existsSync(path.join(root, 'backupkeys', require('./orgkeypin').PIN_FILE)), true, 'control: the pin landed under its own root');
   assert.notEqual(pb.root(), store.ROOT);
 });
 
@@ -593,3 +595,51 @@ test('#7404 review 6: a decline during an accept in flight is told it is under w
   release();
   assert.equal((await on).ok, true);
 });
+
+/* Code review 7, warning 1: a restart between Kosmos+ binding this computer and the record being written. The in-flight
+   marker makes it 'pending', not 'off'; the follow-up drops it when Kosmos+ did not bind this computer, and keeps it
+   (with an off that says how out) when it did. */
+test('#7404 review 7: an enroll interrupted by a restart reads pending until status settles it', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  // The enroll lands on Kosmos+, then the board dies before orgenroll writes its record. Modelled after the fact (an
+  // enroll that throws is settled by orgenroll's own lost-answer read, so it cannot stand in): a normal bind, then the
+  // record and join marker gone and the in-flight marker back, as a restart in that gap would find them.
+  await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  for (const f of [oe.ENROLLMENT_FILE, oe.JOIN_UNKNOWN_FILE]) fs.rmSync(path.join(root, f), { force: true });
+  fs.writeFileSync(path.join(root, 'personal-enrolling.json'), JSON.stringify({ org: ORG.id, at: Date.now() }));
+  assert.equal(pb.isOn({ root }), false, 'precondition: no record here');
+  assert.equal(pb.state({ root }), 'pending');
+  const off = await pb.switchOff({ root, remote: c, orgenroll: oe });
+  assert.equal(off.pending, true);
+  assert.match(off.because, /on again here/);
+  // CONTROL: not bound here (another computer, or nothing): the follow-up drops it and the state is off.
+  const root2 = fresh(t);
+  const c2 = coordinator();
+  fs.writeFileSync(path.join(root2, 'personal-enrolling.json'), JSON.stringify({ org: ORG.id, at: Date.now() }));
+  assert.equal(pb.state({ root: root2 }), 'pending');
+  pb._resetFollowUpForTests();
+  await pb.followUp({ root: root2, remote: c2 });
+  assert.equal(pb.state({ root: root2 }), 'off');
+});
+
+/* NIT 5: a coded-less refusal is a refusal, not "could not be reached". */
+test('#7404 review 7: an uncoded refusal at the preview is not called unreachable', async (t) => {
+  const root = fresh(t);
+  const r = await pb.preview({ root, remote: coordinator({ preview: { ok: false, because: '401 bad signature', refusal: { status: 401 } } }) });
+  assert.match(r.because, /refused/);
+  assert.doesNotMatch(r.because, /could not be reached/);
+});
+
+/* NIT 1: the key step needs this record's world bound, so another board on this computer is never set up from here. */
+test('#7404 review 7: the key step refuses when Kosmos+ binds another world on this computer', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true);
+  const real = c.macRequest;
+  c.macRequest = async (m, route, body) => (route === oe.ROUTES.status ? { ok: true, data: { member: true, org: ORG, enrolled: { computer: 'c1', world: 'e'.repeat(32), thisComputer: true } } } : real(m, route, body));
+  assert.equal((await pb.setUpKey({ root, remote: c, personalbackupkey: KEY_OK })).code, 'not_on');
+});
+

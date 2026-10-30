@@ -1,7 +1,7 @@
 'use strict';
 /**
- * kosmos#7404 (personalswitch-7404): turning a personal backup on, and off, on this computer. The engine only; nothing
- * calls it yet (the screens are the next slice).
+ * kosmos#7404 (personalswitch-7404): turning a personal backup on, and off, on this computer. The engine only: no
+ * screen calls it yet (the next slice); the board starts only its follow-up timer, idle while nothing is here.
  *
  * A personal backup is an account's own org of one on Kosmos+ (kosmos-relay #691). Turning it on is three steps:
  *   1. preview(): POST /v1/mac/personal-backup makes the account's personal org and membership and answers the words to
@@ -151,7 +151,12 @@ async function preview(opts = {}) {
   if (elsewhere(st)) return { ok: false, code: 'personal_on_elsewhere', because: ELSEWHERE };
   let r;
   try { r = await remote.macRequest('POST', ROUTE, {}); } catch { return { ok: false, because: UNREACHED }; }
-  if (!r || !r.ok) { const c = codeOf(r); return c && SAY[c] ? { ok: false, code: c, because: SAY[c] } : { ok: false, because: UNREACHED }; }
+  if (!r || !r.ok) {
+    const c = codeOf(r);
+    if (c && SAY[c]) return { ok: false, code: c, because: SAY[c] };
+    // Code review 7, NIT 5: an answer with no code is a refusal, not an unreachable Kosmos+.
+    return { ok: false, because: r && r.refusal ? 'Kosmos+ refused this just now. Nothing was turned on; try again in a minute.' : UNREACHED };
+  }
   const served = cleanPreview(r.data);
   if (!served) return { ok: false, because: 'Kosmos+ answered in a form this Kosmos does not read. Nothing was turned on.' };
   const now = (opts.now || Date.now)();
@@ -193,12 +198,17 @@ async function bindAndKey(ticket, t, opts) {
   if (st.data.member === true && st.data.org && st.data.org.id !== t.org.id) { TICKETS.delete(ticket); return { ok: false, code: 'org_other_org', because: SAY.org_other_org }; }
   // The hash was checked when the ticket was made (cleanPreview); it is what stops a hashless enroll moving a company's
   // binding here (design review 1, blocker 2).
+  /* Code review 7, warning 1: orgenroll writes its lost-join marker only after a failed answer, so a restart between
+     Kosmos+ binding this computer and the record being written left nothing on disk: 'off' here, "on for another of
+     your computers" everywhere else. This marker is down for the whole enroll and goes once an answer is in. */
+  noteEnrolling(t.org.id, opts);
   let r;
   try {
     r = await oe.enroll(null, true, enrollOpts(opts, {
       orgId: t.org.id, consentHash: t.consentHash, wordsShown: true, consent: t.words, computerSalt: t.computerSalt,
     }));
   } catch { r = null; }
+  forgetEnrolling(opts);
   if (!r) return { ok: false, because: UNREACHED };
   /* The ticket is spent once the enroll may have reached Kosmos+: an answer, a refusal with a code, or an unknown. A
      refusal before anything was sent (no connection, a print read to retry) keeps it, so "try again" works (code
@@ -217,7 +227,8 @@ async function bindAndKey(ticket, t, opts) {
     if (r.reason === 'no_folder') return { ok: false, because: 'This Kosmos\'s data folder cannot be written, so nothing was turned on. Fix the folder, then try again.' };
     return { ok: false, code: c, because: 'Kosmos+ did not bind this computer just now. Nothing was turned on; try again in a minute.' };
   }
-  // Code review 4, NIT 5: orgenroll has written its record by now when r.ok, so "nothing was turned on" would be false.
+  // A second line only (code review 7, NIT 3): orgenroll already refuses an answer naming another org (opts.orgId) as
+  // not_confirmed and writes no record, so this is unreachable with the real orgenroll.
   if (!r.org || r.org.id !== t.org.id) return { ok: false, because: 'Kosmos+ answered for a different backup than the one shown, so its key was not set up here. Turn personal backup off on this computer and open it again.' };
   /* The key-ready marker is NOT removed here (code review 6, NIT 4): state() compares its org and world with the record,
      so a marker from another membership already reads needs-key, and one for this same binding stays true even when
@@ -240,7 +251,8 @@ async function setUpKey(opts = {}) {
   const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
   if (!st) return { ok: false, code: 'unreached', because: 'Kosmos+ could not be reached just now, so the backup key was not set up yet. Try again in a minute.' };
   const d = st.data;
-  if (!(d.member === true && d.org && d.org.kind === 'personal' && d.org.id === rec.org.id && d.enrolled && d.enrolled.thisComputer === true)) {
+  // Code review 7, NIT 1: and this record's world, so another board on this same computer is never set up from here.
+  if (!(d.member === true && d.org && d.org.kind === 'personal' && d.org.id === rec.org.id && d.enrolled && d.enrolled.thisComputer === true && d.enrolled.world === rec.world)) {
     return { ok: false, code: 'not_on', because: 'Personal backup is no longer on for this computer on Kosmos+. Open personal backup again.' };
   }
   const pk = opts.personalbackupkey || require('./personalbackupkey');
@@ -265,7 +277,28 @@ async function setUpKey(opts = {}) {
     here, or its recovery code not yet confirmed), or 'on'; from this computer's own files only. */
 function joinUnsettled(opts) {
   const oe = opts.orgenroll || require('./orgenroll');
-  try { return fs.existsSync(path.join(root(opts), oe.JOIN_UNKNOWN_FILE)); } catch { return true; }
+  try { if (fs.existsSync(path.join(root(opts), oe.JOIN_UNKNOWN_FILE))) return true; } catch { return true; }
+  return !!readEnrolling(opts);
+}
+const ENROLLING = 'personal-enrolling.json';
+function noteEnrolling(orgId, opts) {
+  try { fs.mkdirSync(root(opts), { recursive: true, mode: 0o700 }); fs.writeFileSync(path.join(root(opts), ENROLLING), JSON.stringify({ org: orgId, at: Date.now() }) + '\n', { mode: 0o600 }); } catch { /* best effort */ }
+}
+function readEnrolling(opts) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(root(opts), ENROLLING), 'utf8')); return j && ID.test(String(j.org || '')) ? j : { org: null }; } catch (e) { return e && e.code === 'ENOENT' ? null : { org: null }; }
+}
+function forgetEnrolling(opts) { try { fs.rmSync(path.join(root(opts), ENROLLING), { force: true }); } catch { /* read as pending until it goes */ } }
+/* An in-flight marker left by a restart: once no switch-on here is running, status says whether Kosmos+ bound this
+   computer. Not bound: it goes ('off'). Bound with no record here: it stays ('pending'), and switchOff says how out. */
+async function settleEnrolling(opts) {
+  const e = readEnrolling(opts);
+  if (!e || CLAIMED.size || isOn(opts)) { if (e && isOn(opts)) forgetEnrolling(opts); return; }
+  const remote = remoteOf(opts);
+  const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
+  if (!st) return;
+  const d = st.data;
+  const boundHere = d.member === true && d.org && d.org.kind === 'personal' && d.enrolled && d.enrolled.thisComputer === true;
+  if (!boundHere) forgetEnrolling(opts);
 }
 function state(opts = {}) {
   const rec = record(opts);
@@ -321,6 +354,7 @@ const HOUR = 60 * 60 * 1000;
 let LAST_REFRESH = 0;
 async function followUp(opts = {}) {
   const now = (opts.now || Date.now)();
+  if (readEnrolling(opts)) await settleEnrolling(opts);
   const age = pendingAge(opts, now);
   const on = isOn(opts);
   if (age === null && !on) return { ok: true, idle: true };
@@ -352,6 +386,8 @@ async function switchOff(opts = {}) {
   /* Code review 6, warning 2: with a lost join and no record, orgenroll's leave clears locally and sends nothing, which
      would strand a binding the join may have made. Settled first (one refresh); still unsettled, nothing is done. */
   if (!isOn(opts) && joinUnsettled(opts)) {
+    await settleEnrolling(opts);
+    if (readEnrolling(opts) && !isOn(opts)) return { ok: false, pending: true, because: 'Kosmos+ has this computer down for personal backup, but this Kosmos lost its record of it. Turn personal backup on again here (it binds again without a new code), then turn it off.' };
     try { await oe.refresh(enrollOpts(opts)); } catch { /* still unsettled below */ }
     if (!isOn(opts) && joinUnsettled(opts)) return { ok: false, pending: true, because: 'It is not known yet whether this computer was bound. Kosmos asks Kosmos+ again in a few minutes; turn it off after that.' };
   }
