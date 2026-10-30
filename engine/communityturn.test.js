@@ -763,3 +763,28 @@ test('kosmos#7649 review 3: the second agent is judged by the whole due() test a
     assert.equal(o.book.has('bea'), false, name + ': bea was booked');
   }
 });
+
+/* kosmos#7649 review 4. */
+test('kosmos#7649 review 4: a caller that reads posts once a pass (as the board does) sees a mid-pass post once beforeRecheck drops its copy', async () => {
+  const run = async (withHook) => {
+    let store = { ann: [ago(6 * H)], bea: [ago(6 * H)] };
+    let cached;   // the board's postsNow: read once, kept until dropped
+    const sends = [];
+    const { o } = tickArgs({
+      postTimes: (s) => { if (cached === undefined) cached = JSON.parse(JSON.stringify(store)); return cached[s]; },
+      ...(withHook ? { beforeRecheck: () => { cached = undefined; } } : {}),
+      deliver: (s) => { sends.push(s); store = { ...store, bea: [ago(0)] }; return later({ state: D.PLACED }); },
+    });
+    await ct.tickOnceAsync(o);
+    return sends;
+  };
+  assert.deepEqual(await run(true), ['ann'], 'bea posted while ann was typed into');
+  assert.deepEqual(await run(false), ['ann', 'bea'], 'CONTROL: without the hook the cached read misses the post');
+});
+
+test('kosmos#7649 review 4: the book is saved only after a booking (not after a held or busy verdict)', async () => {
+  const saves = [];
+  const { o } = tickArgs({ roster: () => [card('ann')], saveBook: () => saves.push(1), deliver: () => later({ state: D.COULD_NOT, held: true }) });
+  await ct.tickOnceAsync(o);
+  assert.deepEqual(saves, []);
+});

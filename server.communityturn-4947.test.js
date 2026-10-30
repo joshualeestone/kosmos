@@ -166,3 +166,7 @@ test('kosmos#7649 review 1: the book is saved after each booking (a stop mid-pas
 test('kosmos#7649 review 3: the turn asks chat whether the pane is still placing another message before it sends', () => {
   assert.match(w, /paneBusy:\s*\(session, r\)\s*=>\s*chat\.paneBusyVerdict\(session, r\),/);
 });
+
+test('kosmos#7649 review 4: the re-check before a later agent drops the pass copy of posts.json', () => {
+  assert.match(w, /beforeRecheck:\s*\(\)\s*=>\s*\{ postsNow = undefined; \},/);
+});

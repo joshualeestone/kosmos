@@ -398,6 +398,8 @@ async function tickOnceAsync(o) {
       if (n > 0) {
         if (!gatesOpen(o)) { if (o.idleSeen instanceof Set) o.idleSeen.clear(); break; }   // as begin's off()
         if (!Number.isFinite(o.now)) p.now = Date.now();
+        // Review 4: the caller drops what it read once a pass (the board caches posts.json), so due() below reads it now.
+        if (typeof o.beforeRecheck === 'function') { try { o.beforeRecheck(d.session); } catch { /* reads what it has */ } }
         /* Review 3: the whole due() test again, for this one agent, on a fresh roster and projects and the current
            clock: idle long enough, not stood down, no post or try since, its quota, all judged as the first agent was. */
         let again = [];
@@ -437,7 +439,8 @@ async function tickOnceAsync(o) {
       const held = p.sent.lastIndexOf(p.now);
       if (held !== -1) p.sent.splice(held, 1);   // given back: settle logs it again if it reached
       settle(p, d, v);
-      if (typeof o.saveBook === 'function') { try { o.saveBook(p.book); } catch { /* the board writes it after the pass too */ } }
+      const booked = !(v && (v.held === true || v.busy === true));   // review 4: as settle books
+      if (booked && typeof o.saveBook === 'function') { try { o.saveBook(p.book); } catch { /* the board writes it after the pass too */ } }
     }
   } catch { /* never rejects: a sweep is best-effort */ }
   return results;

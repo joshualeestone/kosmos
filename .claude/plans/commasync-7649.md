@@ -57,3 +57,13 @@ longer, that agent is booked as unconfirmed and its line may still land later: o
     it stood nobody down, so the case tested nothing until fixed.
   Decided, not changed: a deadline books UNCONFIRMED even if the late delivery is refused later (errs safe, accepted in
   round 1); the one-pass flag is pinned by source, not run (the timer body needs the whole board).
+- Round 4 (Sonnet, whole branch): no BLOCKER; it found chat.deliver unchanged for its other callers. Fixed, each with a
+  test and a red mutant:
+  - W1 the round-3 re-check could not see a post made mid-pass: the board reads posts.json once a pass, and my unit
+    test used a fresh reader, so it passed while the wiring did not. The pass now calls o.beforeRecheck, which the
+    board uses to drop its copy; the new test models the board's caching reader, and its control (no hook) shows the
+    miss.
+  - N the book is saved only after a booking, not after a held or busy verdict.
+  Decided, not changed: W2 (a deadline then a late refusal costs the agent its turn) as round 1; the hour cap read once
+  a pass (a limit lowered mid-pass applies from the next pass, at most two agents later); the roster re-read is the
+  same snapshot every timer reads each tick, at most once a pass; the 30 ms clock test (Date.now has 1 ms resolution).
