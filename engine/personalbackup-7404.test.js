@@ -64,6 +64,7 @@ function coordinator(over = {}) {
     },
   };
 }
+const HOUR_MS = 60 * 60 * 1000;
 const KEY_OK = { setUpPersonalKey: async () => ({ ok: true, code: 'TEST-CODE', epoch: 1 }) };
 
 function fresh(t) {
@@ -339,4 +340,55 @@ test('#7404 blocker 1: an unanswered leave keeps the marker, and a bound compute
   const n = c2.sent.length;
   await pb.switchOn(p3.ticket, false, { root: root2, remote: c2 });
   assert.equal(c2.sent.length, n, 'on here: a decline sends nothing');
+});
+
+/* Code review 2, warning 3: a pending leave's age is when this module first saw it, not the file's mtime (leaveNow
+   rewrites that file on every try), so a leave nobody answers falls back to hourly after its first day. */
+test('#7404 warning 3: a pending leave rewritten on every try still falls back to hourly after a day', async (t) => {
+  const root = fresh(t);
+  let n = 0;
+  const stub = { JOIN_UNKNOWN_FILE: oe.JOIN_UNKNOWN_FILE, LEAVE_PENDING_FILE: oe.LEAVE_PENDING_FILE, readEnrollment: () => null,
+    refresh: async () => { n++; fs.writeFileSync(path.join(root, oe.LEAVE_PENDING_FILE), '{}\n'); return { ok: false, pending: true }; } };
+  fs.writeFileSync(path.join(root, oe.LEAVE_PENDING_FILE), '{}\n');
+  pb._resetFollowUpForTests();
+  let now = 5_000_000_000;
+  const at = () => now;
+  await pb.followUp({ root, orgenroll: stub, now: at });
+  now += 2 * 60 * 1000;
+  await pb.followUp({ root, orgenroll: stub, now: at });
+  assert.equal(n, 2, 'inside the first day: every pass');
+  now += 25 * HOUR_MS;
+  await pb.followUp({ root, orgenroll: stub, now: at });
+  const settled = n;
+  now += 2 * 60 * 1000;
+  await pb.followUp({ root, orgenroll: stub, now: at });
+  assert.equal(n, settled, 'past a day: not every two minutes, though the file was just rewritten');
+  now += HOUR_MS;
+  await pb.followUp({ root, orgenroll: stub, now: at });
+  assert.equal(n, settled + 1, 'hourly');
+  fs.rmSync(path.join(root, oe.LEAVE_PENDING_FILE));
+  await pb.followUp({ root, orgenroll: stub, now: at });
+  assert.equal(fs.existsSync(path.join(root, 'personal-leave-seen')), false, 'no leave pending: the first-seen time goes');
+});
+
+test('#7404 warning 3: a lost join is aged by its own at, and an unreadable at reads as a day old', async (t) => {
+  const root = fresh(t);
+  let n = 0;
+  const stub = { JOIN_UNKNOWN_FILE: oe.JOIN_UNKNOWN_FILE, LEAVE_PENDING_FILE: oe.LEAVE_PENDING_FILE, readEnrollment: () => null, refresh: async () => { n++; return { ok: false }; } };
+  let now = 5_000_000_000;
+  const at = () => now;
+  fs.writeFileSync(path.join(root, oe.JOIN_UNKNOWN_FILE), JSON.stringify({ at: new Date(now - 25 * HOUR_MS).toISOString() }));
+  pb._resetFollowUpForTests();
+  await pb.followUp({ root, orgenroll: stub, now: at });
+  now += 2 * 60 * 1000;
+  await pb.followUp({ root, orgenroll: stub, now: at });
+  assert.equal(n, 1, 'a join lost over a day ago (fresh mtime): hourly');
+  fs.writeFileSync(path.join(root, oe.JOIN_UNKNOWN_FILE), JSON.stringify({ at: new Date(now - 60 * 1000).toISOString() }));
+  now += 2 * 60 * 1000;
+  await pb.followUp({ root, orgenroll: stub, now: at });
+  assert.equal(n, 2, 'CONTROL: a join lost a minute ago is followed up at once');
+  fs.writeFileSync(path.join(root, oe.JOIN_UNKNOWN_FILE), 'not json');
+  now += 2 * 60 * 1000;
+  await pb.followUp({ root, orgenroll: stub, now: at });
+  assert.equal(n, 2, 'unreadable: hourly');
 });
