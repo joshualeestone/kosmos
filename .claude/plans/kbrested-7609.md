@@ -33,7 +33,7 @@ A second guess, unmeasured: a read of the conversation landing between the scrol
 re-pins the chat to the end while `atBottom` is still true. Nothing here shows it happens.
 
 So this branch also makes the next failure explain itself: check 3 runs with `KOSMOS_SAMPLE_TRACE=1`, and on a failure
-`ui-keyboard.sh` prints the last 30 scroll events from the app's `Documents/trace.txt` before deleting the simulator.
+`ui-keyboard.sh` prints the last 60 lines of the app's `Documents/trace.txt` (scroll, viewport and keyboard events) before deleting the simulator.
 
 ## Arms
 
@@ -54,7 +54,7 @@ is what will say.
 ## After review round 1
 
 - The flag and its overlay are inside `#if DEBUG`, like the hook, so a release build carries neither; the hook resets
-  the flag when it schedules a scroll-up, so the marker means "this scroll-up has rested".
+  the flag when it schedules a scroll-up, so the marker means "a scheduled scroll-up step has run". It is a plain flag, not a count: if the list appeared twice within 3.6 s, the first step could show the marker before the second scroll-up ran. No run has shown a second appearance (review round 3 found this by reading; not measured).
 - The trace prints only when the log shows check 3 itself failed (a failure of check 1 or 2 no longer prints a passing
   run's events under another check's failure). The pattern was checked against a failed check 3, a failed check 1 and a
   passed check 3: it matched only the first.
@@ -87,3 +87,10 @@ trace. The runner has no timeout of its own, so a CI job that wraps it should se
   no scroll-up hook, so nothing in this branch reaches it) with XCUITest's own "Timed out while evaluating UI query";
   the second passed 3 of 3 with this Mac's load at 222. Read as load on the test runner, not this change; recorded
   rather than dropped, because a second such timeout in check 2 would be its own card.
+
+## After review round 3 (opus, 08:15 CDT 10-30)
+
+No blockers, no should-fix. Two plan-wording nits, both applied: the runner prints the last 60 trace lines, not "30
+scroll events"; and the marker is a flag that says a scroll-up step ran, not proof the latest scroll-up rested (a
+second list appearance inside 3.6 s would show it early; never observed). Findings file:
+~/work/workers/monalisa/tools/review-7609-round3.md. Converged: round 3 raised nothing in code.
