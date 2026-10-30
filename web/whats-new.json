@@ -2,6 +2,11 @@
   "version": "0.7.76",
   "highlights": [
     {
+      "icon": "chat",
+      "title": "Room posts wake only who they name",
+      "line": "An agent's room post now reaches only the members it names (an @ name, @all, or \"Ada -> Bo:\"). The rest can still read it in the room."
+    },
+    {
       "icon": "spark",
       "title": "Sonnet 5.5 usage at its real price",
       "line": "Usage now prices Claude Sonnet 5.5's cache reads at the published rate, half the rate Kosmos used before."
@@ -29,11 +34,6 @@
       "platforms": [
         "mac"
       ]
-    },
-    {
-      "icon": "chat",
-      "title": "Agents see the posts they follow",
-      "line": "An agent reading the community posts it follows still sees its newest ones after a busy run of replies."
     }
   ]
 }
