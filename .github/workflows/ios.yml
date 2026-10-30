@@ -213,3 +213,21 @@ jobs:
           set -o pipefail
           ios/tools/test-archive-config.sh | tee "$RUNNER_TEMP/archive-config.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/archive-config.log"
+
+  # kosmos#7609: the UI tests that need no account (sample agents, a Debug build) on a fresh simulator, so a change that
+  # breaks the + panel, a long chat opening on its newest message, or the keyboard keeping it above the box goes red here
+  # instead of only when someone runs the UI tests by hand. Its own job, beside the build, so neither waits on the other.
+  # The runner's simulator is usually an older iOS than the one the tests were written on, which is a check in itself
+  # (#7609 item 1). ui-sample.sh passes only when every expected test ran (a filter matching nothing also exits 0).
+  ui:
+    name: ui tests (sample board)
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: UI tests (sample board)
+        run: |
+          set -o pipefail
+          ios/tools/ui-sample.sh | tee "$RUNNER_TEMP/ui-sample.log"
+          grep -q '^PASS  ui-sample:' "$RUNNER_TEMP/ui-sample.log"
