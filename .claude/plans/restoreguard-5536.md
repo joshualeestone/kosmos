@@ -54,3 +54,9 @@ Design call on #5536 (comment 6511811154). The first of 4c's three parts; the re
    - the new tests hide the worlds they make and remove the other base in a finally;
    - the export pin's comment says it covers the export forms only.
    After: 5/5 named tests; 41 files 1327 tests, 0 fail.
+3. sonnet: 0 BLOCKER, 0 MAJOR, 2 MINOR, 2 NIT. Converged.
+   - MINOR fixed: the first test's restored world is now hidden on every path (everything after it is in the try).
+   - MINOR fixed: the base-mismatch test has a control: the same other-base launch, its folder under a folder with no
+     mark, gets no guard (so a check that answered yes for any absolute folder would fail).
+   - NIT, not changed: the mark check is lexical (dirname twice). It is the second, base-free check; isRestoredWorld is
+     the first. NIT, not changed: the source pins break on cosmetic refactors, by design (they say what to re-aim).

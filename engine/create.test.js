@@ -6890,23 +6890,24 @@ test('kosmos#5536 4c-1: an agent in a world a restore made starts with git hooks
   const restoreworld = require('./restoreworld');
   const made = restoreworld.prepareRestoreWorld(worlds.baseRoot(process.env), { member: 'Probe Member', memberId: 'm-5536', now: Date.UTC(2026, 9, 29) });
   assert.ok(made.ok, made.because || 'no restored world');
-  assert.ok(restoreworld.isRestoredWorld(worlds.baseRoot(process.env), made.world), 'premise: the made world reads as restored');
-  const restored = paneEnvIn5536(made.world.id);
-  for (const v of GIT_GUARD_5536) assert.ok(restored.includes(v), `the restored world's pane lacks ${v}: ` + JSON.stringify(restored));
-  // CONTROL: an ordinary named world (no restore mark) gets none of it, so the guard is keyed on the mark, not on
-  // "a named world".
-  const plain = paneEnvIn5536('qa');
-  assert.ok(plain.includes('KOSMOS_WORLD=qa'), 'premise: the plain launch ran in qa: ' + JSON.stringify(plain));
-  assert.equal(plain.filter((v) => v.startsWith('GIT_CONFIG_')).length, 0, 'an ordinary world was given the git guard: ' + JSON.stringify(plain));
-  // CONTROL 2: a named world whose folder EXISTS and has no mark (qa above has no folder, so it only takes the
-  // certainly-absent branch).
-  const made2 = worlds.createWorld(worlds.baseRoot(process.env), 'Plain 5536');
+  let made2 = null;
   try {
+    assert.ok(restoreworld.isRestoredWorld(worlds.baseRoot(process.env), made.world), 'premise: the made world reads as restored');
+    const restored = paneEnvIn5536(made.world.id);
+    for (const v of GIT_GUARD_5536) assert.ok(restored.includes(v), `the restored world's pane lacks ${v}: ` + JSON.stringify(restored));
+    // CONTROL: an ordinary named world (no restore mark) gets none of it, so the guard is keyed on the mark, not on
+    // "a named world".
+    const plain = paneEnvIn5536('qa');
+    assert.ok(plain.includes('KOSMOS_WORLD=qa'), 'premise: the plain launch ran in qa: ' + JSON.stringify(plain));
+    assert.equal(plain.filter((v) => v.startsWith('GIT_CONFIG_')).length, 0, 'an ordinary world was given the git guard: ' + JSON.stringify(plain));
+    // CONTROL 2: a named world whose folder EXISTS and has no mark (qa above has no folder, so it only takes the
+    // certainly-absent branch).
+    made2 = worlds.createWorld(worlds.baseRoot(process.env), 'Plain 5536');
     assert.ok(fs.existsSync(worlds.worldBaseDir(worlds.baseRoot(process.env), made2)), 'premise: the plain world has a folder');
     const plain2 = paneEnvIn5536(made2.id);
     assert.equal(plain2.filter((v) => v.startsWith('GIT_CONFIG_')).length, 0, 'an existing unmarked world was given the guard: ' + JSON.stringify(plain2));
   } finally {
-    try { worlds.hideWorld(worlds.baseRoot(process.env), made2.id); } catch { /* the sandbox goes with the run */ }
+    if (made2) { try { worlds.hideWorld(worlds.baseRoot(process.env), made2.id); } catch { /* the sandbox goes with the run */ } }
     try { worlds.hideWorld(worlds.baseRoot(process.env), made.world.id); } catch { /* likewise */ }
   }
 });
@@ -6924,6 +6925,12 @@ test('kosmos#5536 4c-1: the mark beside the agent\'s own folder guards it even w
   try {
     const env = paneEnvIn5536(made.world.id, { workdir, env: { AGENT_WORKFORCE_DATA: elsewhere } });
     for (const v of GIT_GUARD_5536) assert.ok(env.includes(v), `the restored agent's pane lacks ${v} when the base differs: ` + JSON.stringify(env));
+    // CONTROL: the same other-base launch, its working folder two levels under a folder with no mark, gets no guard,
+    // so the check reads the mark rather than answering yes for any absolute folder.
+    const unmarked = nodePath.join(elsewhere, 'world-like', 'workers', 'probe');
+    fs.mkdirSync(unmarked, { recursive: true });
+    const plain = paneEnvIn5536(made.world.id, { workdir: unmarked, env: { AGENT_WORKFORCE_DATA: elsewhere } });
+    assert.equal(plain.filter((v) => v.startsWith('GIT_CONFIG_')).length, 0, 'a folder with no mark above it was guarded: ' + JSON.stringify(plain));
   } finally {
     fs.rmSync(elsewhere, { recursive: true, force: true });
     try { worlds.hideWorld(worlds.baseRoot(process.env), made.world.id); } catch { /* the sandbox goes with the run */ }
