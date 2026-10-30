@@ -84,12 +84,14 @@ struct AttachPanel: View {
 
     private func note(_ choice: AttachChoice) -> String? { choice == .camera ? Board.cameraNote(camera) : nil }
 
-    // Review 3: at the largest text sizes the rows can outgrow the panel, so they scroll there.
+    // Review 3 and 5: at the largest text sizes the rows can outgrow the panel, so they scroll there. The panel is held to
+    // a fixed height, so the choice between the two is made against a real limit, not the panel's own ideal size.
     var body: some View {
         ViewThatFits(in: .vertical) {
             rows
             ScrollView { rows }
         }
+        .frame(maxHeight: 360)
     }
 
     private var rows: some View {

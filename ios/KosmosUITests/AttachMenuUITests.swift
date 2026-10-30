@@ -23,6 +23,9 @@ final class AttachMenuUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 5), "the panel did not offer \(choice)")
         shot(app, "panel before \(choice)")
         row.tap()
+        // Review 5: the panel itself has gone, so a panel stuck open cannot pass for the picker below.
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: row)
+        waitForExpectations(timeout: 5)
         // The picker covers the chat: the + can no longer be tapped. A dropped presentation leaves it tappable.
         let covered = NSPredicate(format: "isHittable == false")
         expectation(for: covered, evaluatedWith: plus)

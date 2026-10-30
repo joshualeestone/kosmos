@@ -117,7 +117,7 @@ struct ChatView: View {
     @State private var showFiles = false
     @State private var showCamera = false   // kosmos#7596
     // The account or computer the camera was opened under: a photo taken across a switch is never sent under the new one
-    // (client.attach's epoch), however long the camera was open.
+    // (client.attach's epoch), however long the camera was open; it is dropped without a line, as a pick would be.
     @State private var cameraEpoch = 0
     // kosmos#7083: the agent's message the next send answers (the board's DM reply strip); the box's focus, taken by
     // Reply; the last reaction refusal shown (only it is cleared by the next reaction that goes); reactions in the air.

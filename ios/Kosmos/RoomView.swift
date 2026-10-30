@@ -1041,7 +1041,7 @@ struct RoomView: View {
     @State private var showFiles = false
     @State private var showCamera = false   // kosmos#7596
     // The account or computer the camera was opened under: a photo taken across a switch is never sent under the new one
-    // (client.attach's epoch), however long the camera was open.
+    // (client.attach's epoch), however long the camera was open; it is dropped without a line, as a pick would be.
     @State private var cameraEpoch = 0
     private var attachKey: String { Board.roomAttachKey(project.id) }
     private var attachedHere: [Board.Attached] { client.attached[attachKey] ?? [] }
