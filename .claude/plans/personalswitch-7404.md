@@ -224,3 +224,17 @@ left as a second line.
 Relay residuals filed as kosmos#7661: W1 two computers switching on at once (the codeless enroll always moves the
 binding; needs a guard inside org_reenroll), operator org-create and billing standing seeing an unbound membership.
 All three before KOSMOS_PERSONAL_BACKUP goes on, alongside #7658.
+
+## Code review 7 (blind, 17:2x 10-30): NO blockers, two warnings, six nits. Addressed (ec3b00533f)
+
+W1 a restart between Kosmos+ binding this computer and the record being written read 'off' here and "on elsewhere"
+everywhere else: an in-flight marker (personal-enrolling.json) is down for the whole enroll; 'pending' while it stands;
+the follow-up drops it when status shows this computer not bound; bound with no record, switchOff says how out (on
+again here, then off). Not automatic recovery: orgenroll does not export its lost-join writer and its file is not
+mine to forge. W2 the pin check named a file that never exists (org-key-pin.json): now PIN_FILE from orgkeypin, plus
+a control that the pin lands under the personal root. NIT 1 setUpKey needs this record's world bound. NIT 3 the
+unreachable branch is commented as a second line. NIT 5 an uncoded refusal says "refused", not "unreachable". NIT 6
+header. Mutants M1 to M4 red.
+NOT taken: NIT 1's elsewhere() world check (a second board on the same Mac under one identity; rare, and the relay
+guard in #7661 is the real fix); NIT 2 already_here without a listed row (personalbackupkey's rule, out of this
+slice: noted for the restore slice); NIT 4 reachability excused by name coincidence (the screens slice wires them).
