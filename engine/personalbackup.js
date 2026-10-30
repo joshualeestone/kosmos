@@ -199,12 +199,18 @@ async function switchOn(ticket, accepted, opts = {}) {
   /* The ticket is spent once the enroll may have reached Kosmos+: an answer, a refusal with a code, or an unknown. A
      refusal before anything was sent (no connection, a print read to retry) keeps it, so "try again" works (code
      review 1; orgenroll keeps its own ticket the same way, its review 27). */
-  if (r.ok || r.code || r.unknown || codeOf(r)) TICKETS.delete(ticket);
+  // Warning 5: Kosmos+ also answered when it did not confirm this computer, or confirmed one this Kosmos could not record.
+  if (r.ok || r.code || r.unknown || codeOf(r) || r.reason === 'not_confirmed' || r.reason === 'not_recorded') TICKETS.delete(ticket);
   if (!r.ok) {
     if (r.declined) return { ok: false, declined: true, because: 'Not accepted, so nothing was sent.' };
     if (r.unknown) return { ok: false, unknown: true, because: 'It is not known yet whether this computer was bound. Kosmos asks Kosmos+ again in a few minutes.' };
     const c = r.code || codeOf(r);
     if (c && SAY[c]) return { ok: false, code: c, because: SAY[c] };
+    /* Code review 2, warning 5: orgenroll's own refusals in this module's words, never the generic one. A personal enroll
+       sends no code, so orgenroll reads it as a move: nothing is undone (a leave would end the membership). */
+    if (r.reason === 'not_confirmed') return { ok: false, because: 'Kosmos+ did not confirm this computer, so nothing was turned on. Open personal backup again.' };
+    if (r.reason === 'not_recorded') return { ok: false, because: 'Kosmos+ took this computer, but this Kosmos could not record it, so nothing is backed up. Check that its data folder can be written, then open personal backup again.' };
+    if (r.reason === 'no_folder') return { ok: false, because: 'This Kosmos\'s data folder cannot be written, so nothing was turned on. Fix the folder, then try again.' };
     return { ok: false, code: c, because: 'Kosmos+ did not bind this computer just now. Nothing was turned on; try again in a minute.' };
   }
   if (!r.org || r.org.id !== t.org.id) return { ok: false, because: 'Kosmos+ did not confirm this computer, so nothing was turned on.' };

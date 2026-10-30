@@ -620,7 +620,8 @@ async function enrollNow(code, accepted, opts) {
   const asReview = !!(opts && opts.review === true && code == null);
   if (asReview && !(held && held.world === readWorldId(opts))) return { ok: false, code: 'org_not_here', because: inKind(KIND, 'This Kosmos is no longer your work Kosmos, so nothing was sent.') };   // kosmos#6567
   const world = worldId(opts);
-  if (!world) return { ok: false, because: "This Kosmos's data folder cannot be written, so nothing was sent." };
+  // kosmos#7404: `reason` lets a caller (personalbackup.js) say this in its own words without matching the sentence.
+  if (!world) return { ok: false, reason: 'no_folder', because: "This Kosmos's data folder cannot be written, so nothing was sent." };
   const body = { world, accepted: true };
   /* v1.4: opts.consentHash is the hash the COMPANY served with the words the person accepted. It is the one option for
      that fact: sent here and recorded below, so what is recorded is always what was sent (consenthash review 3). The
@@ -719,7 +720,7 @@ async function enrollNow(code, accepted, opts) {
   if (!org || !role || !en || en.world !== world || en.thisComputer !== true || otherOrg) {
     const NOCONFIRM = 'Your company did not confirm this Kosmos, so it is not your work Kosmos.';
     if (review) return { ok: false, because: inKind(KIND, 'Your company did not confirm this Kosmos, so nothing changed. Kosmos tries again on its own.') };
-    if (move) return { ok: false, because: inKind(KIND, NOCONFIRM + ' Press Connect Account again in a minute.') };
+    if (move) return { ok: false, reason: 'not_confirmed', because: inKind(KIND, NOCONFIRM + ' Press Connect Account again in a minute.') };
     return undoFirstJoin(NOCONFIRM, Object.assign({}, opts, { printSent: !!body.computerPrint, orgKind: KIND }));
   }
   // A review's Accept is not a new enrollment: it keeps the date this Kosmos joined (orgreview review 1).
@@ -752,7 +753,7 @@ async function enrollNow(code, accepted, opts) {
          leave would end that membership too (review 13). Each says only what actually happened. */
       const NOWRITE = "This Kosmos's data folder could not be written.";
       if (review) return { ok: false, because: inKind(KIND, NOWRITE + ' Your company has your acceptance, but this Kosmos could not record it, so it is still not reporting. Fix the folder; Kosmos then tries again on its own.') };
-      if (move) return { ok: false, because: inKind(KIND, NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Connect Account again.') };
+      if (move) return { ok: false, reason: 'not_recorded', because: inKind(KIND, NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Connect Account again.') };
       return undoFirstJoin(NOWRITE, Object.assign({}, opts, { printSent: !!body.computerPrint, orgKind: KIND }));
     }
   }

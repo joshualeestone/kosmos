@@ -50,7 +50,7 @@ function coordinator(over = {}) {
         if (over.enrollRefuse) return { ok: false, because: '409 {"code":"' + over.enrollRefuse + '"}', refusal: { status: 409, code: over.enrollRefuse } };
         if (body.consentHash !== HASH || body.wordsShown !== true) return { ok: false, because: '409 {"code":"personal_backup_words_unseen"}', refusal: { status: 409, code: 'personal_backup_words_unseen' } };
         world = body.world; left = false;
-        return { ok: true, data: { ok: true, org: over.enrollOrg || ORG, role: 'member', printPinned: true, enrolled: { computer: 'c1', world, thisComputer: true } } };
+        return { ok: true, data: { ok: true, org: over.enrollOrg || ORG, role: 'member', printPinned: true, enrolled: { computer: 'c1', world, thisComputer: over.notThisComputer ? false : true } } };
       }
       if (route === oe.ROUTES.status) {
         if (over.statusAnswer) return over.statusAnswer;
@@ -414,4 +414,44 @@ test('#7404 warning 4: a key marker for another world or org reads needs-key; a 
   const r = await pb.switchOn(p2.ticket, true, { root, remote: c, personalbackupkey: { setUpPersonalKey: async () => ({ ok: false, code: 'x', because: 'down' }) } });
   assert.equal(r.ok, false);
   assert.equal(pb.state({ root }), 'needs-key');
+});
+
+/* Code review 2, warning 5: switchOn says what actually happened for orgenroll's own refusals, driven through orgenroll
+   itself (so a reworded sentence there turns these red), never the generic "try again in a minute". */
+const GENERIC = /try again in a minute/;
+test('#7404 warning 5: not confirmed: its own sentence, and the ticket is spent', async (t) => {
+  const root = fresh(t);
+  const c = coordinator({ notThisComputer: true });
+  const p = await pb.preview({ root, remote: c });
+  const r = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  assert.match(r.because, /did not confirm this computer, so nothing was turned on/);
+  assert.equal(LEAVE_N(c), 0, 'a personal enroll is a move to orgenroll: nothing is undone');
+  assert.doesNotMatch(r.because, GENERIC);
+  assert.equal(pb._TICKETS.has(p.ticket), false, 'Kosmos+ answered: the ticket is spent');
+});
+
+test('#7404 warning 5: bound but not recorded: says the data folder, and the ticket is spent', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  fs.mkdirSync(path.join(root, oe.ENROLLMENT_FILE), { recursive: true });   // the record cannot be written over a folder
+  const r = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  assert.match(r.because, /could not record it, so nothing is backed up/);
+  assert.doesNotMatch(r.because, GENERIC);
+  assert.equal(pb._TICKETS.has(p.ticket), false, 'Kosmos+ answered: the ticket is spent');
+});
+
+test('#7404 warning 5: an unwritable data folder before anything is sent: says so, keeps the ticket', async (t) => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) return t.skip('needs a folder this user cannot write');
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  fs.rmSync(path.join(root, pb._PREVIEW_OPEN), { force: true });
+  fs.chmodSync(root, 0o500);
+  t.after(() => { try { fs.chmodSync(root, 0o700); } catch { /* already removed */ } });
+  const r = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  fs.chmodSync(root, 0o700);
+  assert.match(r.because, /data folder cannot be written, so nothing was turned on/);
+  assert.equal(c.sent.filter((x) => x.route === oe.ROUTES.enroll).length, 0, 'precondition: nothing was sent');
+  assert.equal(pb._TICKETS.has(p.ticket), true, 'nothing sent: the ticket is kept');
 });
