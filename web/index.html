@@ -7581,6 +7581,15 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* Grey smiley, muted like the composer's emoji glyph (#2357): a colour-font glyph
    ignores CSS `color`, so grayscale it with a filter. */
 .rxn-more-glyph { filter: grayscale(1) opacity(.6); font-size: .95rem; line-height: 1; }
+/* kosmos#7614 (Josh 10-30, Discord's bar as the reference): a divider between the quick reactions and the rest, and
+   "..." last, which opens the message menu (Copy message, Copy message id, and Delete on the person's own). */
+.rxn-div { flex: none; width: 1px; height: 16px; margin: 0 4px; background: var(--k-rule); }
+.rxn-dots { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 4px;
+            border-radius: 100px; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2);
+            font: inherit; font-size: 1rem; line-height: 1; cursor: pointer; padding: 0; }
+.rxn-dots:hover, .rxn-dots[aria-expanded="true"] { color: var(--k-ink); border-color: var(--gold-bright); }
+.rxn-dots:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.msg-menu-i.msg-menu-danger { color: var(--danger); }
 .rxn-more:focus-visible, .rxn:focus-visible, .rxn-pick:focus-visible, .rxn-reply:focus-visible, .msg-replyto:focus-visible, .pj-replying-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }   /* #3745: Reply, the header and the x get the bar's ring */
 /* The full picker the grey smiley opens (PJ_EMOJI): a scrollable grid. It is
    `position: fixed` and JS-positioned from the smiley's rect (see the room click
@@ -14400,6 +14409,21 @@ window.kosmosMeasureScrollbarWidth();
      SHAPE is copied because the rules it encodes are right for any
      cannot-be-undone act: both buttons name the act rather than saying Yes and
      No, and the keeping one takes focus so an unaimed Enter is harmless. -->
+<!-- kosmos#7614: Delete message, the same cannot-be-undone shape as the history dialog below: both buttons name the
+     act, and keeping takes focus. The words are the ones agreed for the phone's sheet too. -->
+<div class="rm-back" id="msgdel-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true"
+       aria-labelledby="msgdel-title" aria-describedby="msgdel-small">
+    <h2 class="rm-title" id="msgdel-title">Delete this message?</h2>
+    <p class="rm-small" id="msgdel-small">It goes from this conversation for everyone. Agents who already read it still remember it, and Kosmos tells them you withdrew it.</p>
+    <div class="rm-acts">
+      <button class="btn" id="msgdel-keep" type="button">Keep it</button>
+      <button class="btn danger-btn" id="msgdel-go" type="button">Delete</button>
+    </div>
+    <div class="fmsg" id="msgdel-msg" role="alert" aria-live="assertive"></div>
+  </div>
+</div>
+
 <div class="rm-back" id="hist-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true"
        aria-labelledby="hist-title" aria-describedby="hist-small">
@@ -42550,7 +42574,10 @@ function dmRow(m, name, replyAdjacent) {
   /* #6774: a copy not sent because the same words are kept above is not a failure (that copy goes), so it keeps its
      own words and gets no failed line. */
   const failedLine = (m.delivery && (m.delivery.state === 'could_not' || retryingHere) && !m.delivery.duplicateOf && typeof dmFailedLine === 'function') ? dmFailedLine(m) : '';   // guarded: the lifted dmRow tests
-  return '<div class="msg you" data-mid="' + midOf(m) + '">' + youAv
+  /* kosmos#7614: the person's own message, deletable from "..." (the bar has nothing else for it: no reaction on one's own). */
+  const ownBar = (typeof m.at === 'string' && m.at && typeof rxnsInner === 'function')
+    ? '<div class="rxns" data-at="' + esc(m.at) + '">' + rxnsInner([], false, false, '', null, { react: false }) + '</div>' : '';
+  return '<div class="msg you" data-mid="' + midOf(m) + '"' + (ownBar ? ' data-own="1"' : '') + '>' + youAv
     + '<div class="msg-b"><div class="msg-bd">'
     + (typeof dmReplyHead === 'function' ? dmReplyHead(m, name, replyAdjacent) : '')   // #4256: the message this answers
     + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m)
@@ -42558,7 +42585,7 @@ function dmRow(m, name, replyAdjacent) {
     + (v.said && !failedLine ? ' <span class="delivery' + (v.mark || ' placed') + '">' + v.said + '</span>' : '')
     + (m.delivery && m.delivery.state === 'held' && typeof m.at === 'string' && m.delivery.heldFor !== 'input' && m.delivery.behindFor !== 'input'   // #6774: the box must clear first
       ? '<button type="button" class="dm-held-send" data-held-at="' + esc(m.at) + '">Send now anyway</button>' : '')   // #5805
-    + '</span></div>' + failedLine + '</div></div>';
+    + '</span></div>' + failedLine + ownBar + '</div></div>';
 }
 
 /* kosmos#6720: the rows being sent again from this page, by agent and row. During the flight the board serves the
@@ -72076,6 +72103,7 @@ document.getElementById('nt-go').addEventListener('click', async () => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (!document.getElementById('hist-modal').hidden) closeHistModal();
+  if (!document.getElementById('msgdel-modal').hidden) msgDelClose();   // kosmos#7614
   /* #539's consent dialog leaves on Escape like every sibling. The fleet-wide
      one went with kosmos#1002; the per-agent dialog is the one that remains. */
   if (!document.getElementById('doc-modal').hidden) closeDocModal();
@@ -77195,6 +77223,7 @@ function msgMenuClose(restoreFocus) {
   const m = document.getElementById('msg-menu');
   if (!m || m.hidden) return;
   m.hidden = true; m.msgRef = null;
+  if (m.msgDots) { m.msgDots.setAttribute('aria-expanded', 'false'); m.msgDots = null; }   // kosmos#7614
   const back = m.msgBack; m.msgBack = null;
   if (restoreFocus && back && back.isConnected && typeof back.focus === 'function') back.focus({ preventScroll: true });
 }
@@ -77207,18 +77236,22 @@ function msgMenuRow(ref) {
   const found = host && ref.mid ? [...host.querySelectorAll('.msg')].find((r) => r.getAttribute('data-mid') === ref.mid) : null;
   return found || ref.row;
 }
-function msgMenuOpen(row, x, y) {
+function msgMenuOpen(row, x, y, dots) {
   let m = document.getElementById('msg-menu');
   if (!m) {
     m = document.createElement('div');
     m.id = 'msg-menu'; m.className = 'msg-menu'; m.setAttribute('role', 'menu'); m.hidden = true;
     m.innerHTML = '<button type="button" role="menuitem" class="msg-menu-i" id="msg-menu-text">Copy message</button>'
-      + '<button type="button" role="menuitem" class="msg-menu-i" id="msg-menu-copy">Copy message id</button>';
+      + '<button type="button" role="menuitem" class="msg-menu-i" id="msg-menu-copy">Copy message id</button>'
+      + '<button type="button" role="menuitem" class="msg-menu-i msg-menu-danger" id="msg-menu-del">Delete message</button>';   // kosmos#7614
     document.body.appendChild(m);
     m.addEventListener('click', (e) => {
-      const item = e.target.closest('#msg-menu-copy, #msg-menu-text');
+      const item = e.target.closest('#msg-menu-copy, #msg-menu-text, #msg-menu-del');
       if (!item) return;
-      const r = msgMenuRow(m.msgRef); msgMenuClose(true);
+      const ref = m.msgRef;
+      const r = msgMenuRow(ref);
+      if (item.id === 'msg-menu-del') { msgMenuClose(false); msgDelAsk(ref, r); return; }   // kosmos#7614: the dialog takes focus
+      msgMenuClose(true);
       if (item.id === 'msg-menu-text') msgTextCopy(r); else msgRefCopy(r);
     });
     m.addEventListener('keydown', (e) => {
@@ -77243,11 +77276,18 @@ function msgMenuOpen(row, x, y) {
   /* Each item only where it has something to copy: an outside guest's row has words but no id. With neither, no menu
      (the touch bar's Copy reaches here without msgMenuRowFor's check). */
   const hasText = !!msgCopyText(row), hasRef = !!msgRefText(row);
-  if (!hasText && !hasRef) { msgMenuClose(false); return; }
+  const hasDel = row.getAttribute('data-own') === '1';   // kosmos#7614: the person's own message
+  if (!hasText && !hasRef && !hasDel) { msgMenuClose(false); return; }
   m.msgRef = { row, host, mid: row.getAttribute('data-mid') || '' };   // set only for a menu that opens
   document.getElementById('msg-menu-text').hidden = !hasText;
   document.getElementById('msg-menu-copy').hidden = !hasRef;
-  m.msgBack = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
+  document.getElementById('msg-menu-del').hidden = !hasDel;
+  /* kosmos#7614: opened from "...": focus goes back to it, and it says it is open. WebKit does not focus a clicked
+     button, so the active element is not a reliable way back. */
+  if (m.msgDots && m.msgDots !== dots) m.msgDots.setAttribute('aria-expanded', 'false');
+  m.msgDots = dots || null;
+  if (dots) dots.setAttribute('aria-expanded', 'true');
+  m.msgBack = dots || (document.activeElement && document.activeElement !== document.body ? document.activeElement : null);
   m.hidden = false;
   /* A keyboard's menu key reports no pointer position (0, 0): open it at the message instead of the corner. */
   if (!x && !y) { const r = row.getBoundingClientRect(); x = r.left + 16; y = r.top + 16; }
@@ -77307,7 +77347,8 @@ document.addEventListener('contextmenu', (e) => {
 /* A Mac already turns ctrl-click into the contextmenu above; elsewhere ctrl-click is a plain click. */
 document.addEventListener('click', (e) => {
   const m = document.getElementById('msg-menu');
-  if (m && !m.hidden && !(e.target.closest && e.target.closest('#msg-menu'))) msgMenuClose();
+  // kosmos#7614: a press on "..." is its own listener's to open, close or move (below), not an outside click.
+  if (m && !m.hidden && !(e.target.closest && (e.target.closest('#msg-menu') || e.target.closest('.rxn-dots')))) msgMenuClose();
   if (MSG_MENU_MAC || !e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
   const row = msgMenuRowFor(e);
   if (!row) return;
@@ -77316,6 +77357,73 @@ document.addEventListener('click', (e) => {
 });
 window.addEventListener('scroll', () => msgMenuClose(false), true);   // never the event as restoreFocus
 window.addEventListener('resize', () => msgMenuClose(false));
+/* kosmos#7614: "..." on a message's bar opens the same menu, under the button. Its own listener, so both the room and
+   a direct conversation get it; a second press on an open menu closes it. */
+document.addEventListener('click', (e) => {
+  const dots = e.target && e.target.closest ? e.target.closest('#pj-room .rxn-dots, #d-dmthread .rxn-dots') : null;
+  if (!dots) return;
+  const row = dots.closest('.msg');
+  if (!row) return;
+  const m = document.getElementById('msg-menu');
+  if (m && !m.hidden && m.msgDots === dots) { msgMenuClose(true); return; }
+  if (typeof rxnCloseAllPickers === 'function') rxnCloseAllPickers();
+  const r = dots.getBoundingClientRect();
+  msgMenuOpen(row, r.left, r.bottom + 4, dots);
+});
+/* kosmos#7614: Delete message. The dialog says plainly what it does and what it cannot do (an agent that read it still
+   remembers it); keeping takes focus, the removal dialog's rule. The words are the ones agreed for the phone too. */
+let MSG_DEL = null;
+function msgDelAsk(ref, row) {
+  if (!ref || !row) return;
+  MSG_DEL = { host: ref.host, mid: ref.mid, back: row.querySelector('.rxn-dots') || null, project: (typeof PJS_HOOKS !== 'undefined' && PJS_HOOKS) ? PJS_HOOKS.projectId : null,
+    agent: typeof CURRENT !== 'undefined' && CURRENT ? CURRENT.sessionName : null };
+  document.getElementById('msgdel-msg').textContent = '';
+  document.getElementById('msgdel-go').disabled = false;
+  document.getElementById('msgdel-modal').hidden = false;
+  document.getElementById('msgdel-keep').focus();
+}
+function msgDelClose() {
+  document.getElementById('msgdel-modal').hidden = true;
+  const back = MSG_DEL && MSG_DEL.back && MSG_DEL.back.isConnected ? MSG_DEL.back : null;
+  MSG_DEL = null;
+  if (back) back.focus({ preventScroll: true });
+}
+document.getElementById('msgdel-keep').addEventListener('click', msgDelClose);
+document.getElementById('msgdel-modal').addEventListener('click', (e) => { if (e.target.id === 'msgdel-modal') msgDelClose(); });
+document.getElementById('msgdel-go').addEventListener('click', async () => {
+  const d = MSG_DEL;
+  const btn = document.getElementById('msgdel-go');
+  const say = document.getElementById('msgdel-msg');
+  if (!d || !d.mid) return;
+  const room = d.host === 'pj-room';
+  if (room ? !d.project : !d.agent) { say.textContent = 'We could not tell which conversation this is. Open it again and try once more.'; return; }
+  btn.disabled = true;
+  say.textContent = 'Deleting\u2026';
+  try {
+    const res = room
+      ? await fetch('/api/project/' + encodeURIComponent(d.project) + '/room/' + encodeURIComponent(d.mid) + '/delete',
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+      : await fetch('/api/agent/' + encodeURIComponent(d.agent) + '/thread/delete',
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: d.mid }) });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) {
+      const why = (out && out.error) || 'we could not delete it';
+      say.textContent = why.charAt(0).toUpperCase() + why.slice(1) + '.';
+      btn.disabled = false;
+      return;
+    }
+    MSG_DEL = null;
+    document.getElementById('msgdel-modal').hidden = true;
+    const told = out && Array.isArray(out.told) ? out.told : [];
+    const names = told.map((n) => (typeof tskAgentName === 'function' ? tskAgentName(n) : n));
+    msgToast(names.length ? 'Deleted. Kosmos told ' + names.join(', ') + ' you withdrew it.' : 'Deleted.');
+    if (room) { if (typeof loadRoom === 'function') { try { await loadRoom(); } catch { /* the next poll repaints */ } } }
+    else if (typeof loadThread === 'function') { try { await loadThread(); } catch { /* the next poll repaints */ } }
+  } catch {
+    say.textContent = 'We could not reach Kosmos to delete it. Try again in a moment.';
+    btn.disabled = false;
+  }
+});
 /* #6949: the room post's 🙋 claim ({by, at}, from the room read or a room route's answer) as the page shows it: the
    holder's name and how long ago, or null when there is no claim. Only a room post has one; a DM never passes it.
  */
@@ -77335,7 +77443,8 @@ function rxnClaimAgeWords(at) {
 /* Every raised hand a pill can show (a skin tone, the gendered forms), the engine's isClaimEmoji: a holder whose only
    live 🙋 is a row from before the engine stored them plain still shows as the claim. */
 const RXN_CLAIM_FORM = /^\u{1F64B}[\u{1F3FB}-\u{1F3FF}\u200D\u2640\u2642\uFE0E\uFE0F]*$/u;
-function rxnsInner(list, withReply, withSpeak, mid, claim) {
+function rxnsInner(list, withReply, withSpeak, mid, claim, opts) {
+  const react = !(opts && opts.react === false);   // kosmos#7614: the person's own DM row takes no reaction, only "..."
   const held = typeof rxnClaimShown === 'function' ? rxnClaimShown(claim) : null;   // guarded: tests lift rxnsInner alone
   /* One claim label and one Free per post, on the raised-hand pill the holder is on (another 🙋 form can sit beside
      it: one from before the engine stored them plain, or a removed agent's), else on the first raised-hand pill. */
@@ -77383,14 +77492,17 @@ function rxnsInner(list, withReply, withSpeak, mid, claim) {
      only where the page can speak (html.has-speak). */
   const speak = withSpeak ? '<button class="rxn-speak" type="button" aria-label="Read this message aloud" aria-pressed="false" title="Read aloud">'
     + '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>' : '';
+  /* kosmos#7614 (Josh 10-30): one compact bar, Discord's shape: the quick reactions, a divider, add reaction,
+     read-aloud (agents' messages), Reply, then "...". Copy message and Copy message id (#4631, #5312) moved behind
+     "...", into the message menu right-click already opened, where Delete joins them on the person's own messages. */
+  const dots = '<button class="rxn-dots" type="button" aria-label="More actions for this message" aria-haspopup="menu" aria-expanded="false">'
+    + '<span aria-hidden="true">\u22EF</span></button>';
   return pills
-    /* #4631 and #5312: Copy message, then Copy message id, go FIRST, so the emoji stay together and Reply stays last
-       (#4358); the id's faint number reads as the message's own label. Guarded: tests lift rxnsInner alone. */
-    + '<span class="rxn-quick">' + (typeof msgCopyButton === 'function' ? msgCopyButton() : '')   // #5312: Copy message, then Copy message id
-    + (typeof msgRefButton === 'function' ? msgRefButton(mid) : '') + quicks
-    + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
-    + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
-    + speak + reply   // #4358 keeps Reply LAST, so read-aloud sits between the smiley and Reply
+    + '<span class="rxn-quick">'
+    + (react ? quicks + '<span class="rxn-div" aria-hidden="true"></span>'
+      + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
+      + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>' : '')
+    + speak + reply + dots   // #4358's Reply stays after the emoji; "..." closes the bar, as in Discord
     + '</span>';
 }
 function pjReactions(m) {
@@ -78613,7 +78725,9 @@ function pjRoomRow(m, p, hideHeader) {
   const closingEl = pjClosingTag(m);   // #6925
   const hasBubble = bd;
   /* #3743: data-mid, as a DM row has, so an unread post can be found after the paint and given its edge. */
-  return '<div class="msg' + (isOp ? ' you' : '') + '" data-mid="' + esc(String(m.id || m.at || '')) + '">' + av
+  /* kosmos#7614: the person's own post can be deleted (not one shown from the archive, which the room no longer holds). */
+  const own = isOp && m.id && m.archived !== true ? ' data-own="1"' : '';
+  return '<div class="msg' + (isOp ? ' you' : '') + '" data-mid="' + esc(String(m.id || m.at || '')) + '"' + own + '>' + av
     + '<div class="msg-b">'
     + (hasBubble ? '<div class="msg-bd">' + nameEl + replyEl + bd + closingEl + timeEl + '</div>' : '')
     + pjReactions(m) + '</div></div>';
