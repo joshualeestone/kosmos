@@ -12432,9 +12432,10 @@ const server = http.createServer(async (req, res) => {
             const fetched = orgEnrollRefresh();
             if (fetched) await Promise.race([fetched, new Promise((done) => setTimeout(done, 5000).unref())]);
           }
-          // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"):
-          // the same consent may be accepted again.
-          if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world') && !r.declined && Date.now() - spent.at <= ORG_TICKET_MS
+          // Not joined for a passing reason (no public code: unreachable, busy; or org_bad_world, which says "Try again"; or
+          // audit_unavailable, kosmos#5537: the company could not record it and nothing changed): the same consent may be
+          // accepted again. The same two codes keep the words up in web/index.html (plusOrgFamilyAccept, plusOrgReviewSay).
+          if (spent && r && r.ok === false && (!r.code || r.code === 'org_bad_world' || r.code === 'audit_unavailable') && !r.declined && Date.now() - spent.at <= ORG_TICKET_MS
             && ORG_TICKET === null) ORG_TICKET = spent;   // never over a newer screen's ticket issued while this one was out
         } else {
           /* Leave ends the whole membership, so it is sent only from the work Kosmos, or from one whose leave is still

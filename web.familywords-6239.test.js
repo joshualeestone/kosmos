@@ -87,10 +87,13 @@ test('#6239: Accept and join sends the code, the ticket and wordsShown; a refusa
     await spent.api.plusOrgFamilyAccept();
     assert.equal(spent.el('plus-org-family').hidden, true, code + ' left words up that can no longer be accepted');
   }
-  const kept = harness({ ok: false, code: 'org_bad_world', because: 'Try again.' });
-  kept.api.plusOrgFamilyShow('RIVE-JOIN-1234', PREVIEW);
-  await kept.api.plusOrgFamilyAccept();
-  assert.equal(kept.el('plus-org-family').hidden, false, 'CONTROL: org_bad_world keeps the ticket, and the words');
+  // kosmos#5537: audit_unavailable (the company could not record it, nothing changed) keeps them too.
+  for (const code of ['org_bad_world', 'audit_unavailable']) {
+    const kept = harness({ ok: false, code, because: 'Try again.' });
+    kept.api.plusOrgFamilyShow('RIVE-JOIN-1234', PREVIEW);
+    await kept.api.plusOrgFamilyAccept();
+    assert.equal(kept.el('plus-org-family').hidden, false, 'CONTROL: ' + code + ' keeps the ticket, and the words');
+  }
   const late = harness({ ok: false, code: 'org_ticket', because: 'Nothing was joined. Press Connect Account again.' });
   late.api.plusOrgFamilyShow('RIVE-JOIN-1234', PREVIEW);
   await late.api.plusOrgFamilyAccept();
