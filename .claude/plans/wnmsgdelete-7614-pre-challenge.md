@@ -1,8 +1,8 @@
 ---
 method: challenge-loop
 branch: wnmsgdelete-7614
-diff_hash: ad74345305c225b13e432ddf5a94e6956ef349e1b6af2c7a9fa7fde9a14c7435
-timestamp: 2026-10-30T18:12:05Z
+diff_hash: 2da018efe9464c805f7926f581c052ee4ac9fc5c7afca2afb4fdd5b5389a717c
+timestamp: 2026-10-30T20:54:21Z
 iterations: 1
 converged: true
 ---
@@ -38,3 +38,9 @@ What the reviewer checked, in full:
 What's New tests 66/66 (engine/whatsnew, tools.whats-new-check-3955, tools.whats-new-pool-5711,
 tools.whats-new-pool-sync-5713, web.whatsnew-3955), reviewer and author both; test-whats-new-early-7349.sh all pass.
 The full suites run in CI.
+
+#### After the review: rebased, and the list rebuilt for 0.7.77
+The 0.7.76 cut froze before this merged (main's version is now 0.7.76), so the list is rebuilt for 0.7.77 on main
+6f3057d6ba: the same five items in the same order. whats-new-check 0.7.77 rc 0 (mac 5, windows 3); What's New tests
+66/66; test-whats-new-early-7349.sh all pass. Only the list's version line changed; the reviewed pool item is
+unchanged.
