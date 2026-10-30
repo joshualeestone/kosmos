@@ -14793,7 +14793,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="dhint" style="margin:8px 0 0;">A Grok subscription signs in through xAI, with nothing to paste. An API key is a string you create on xAI's site.</p>
       </div>
       <div id="acct-grok-sub-step" hidden>
-        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your Grok subscription.</b> xAI's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own subscription, on this computer.</p>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your Grok subscription.</b> xAI's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own subscription, on <span data-cloud-copy="thisMachine">this computer</span>.</p>
         <div class="frow" style="margin-top:12px;">
           <button class="btn uprime" id="acct-grok-sub-go" type="button">Sign in with Grok</button>
         </div>
@@ -14839,7 +14839,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="dhint" style="margin:8px 0 0;">A Google subscription signs in through Google, with nothing to paste. An API key is a string you create on Google's site.</p>
       </div>
       <div id="acct-gemini-sub-step" hidden>
-        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your Google subscription.</b> Gemini on a subscription runs on Google's Antigravity, which signs in with Google in your browser; Kosmos never sees your password. Your agents then run on your own subscription, on this computer.</p>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your Google subscription.</b> Gemini on a subscription runs on Google's Antigravity, which signs in with Google in your browser; Kosmos never sees your password. Your agents then run on your own subscription, on <span data-cloud-copy="thisMachine">this computer</span>.</p>
         <div class="frow" style="margin-top:12px;">
           <button class="btn uprime" id="acct-gemini-sub-go" type="button">Sign in with Google</button>
         </div>
@@ -15095,7 +15095,7 @@ window.kosmosMeasureScrollbarWidth();
            types on OpenAI's OWN page. So the shape is start -> open the page ->
            wait, with no code field in Kosmos. Kosmos never sees the password. -->
       <div id="acct-openai-sub-step" hidden>
-        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your ChatGPT subscription.</b> <span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</span></p>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your ChatGPT subscription.</b> <span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on <span data-cloud-copy="thisMachine">this computer</span>.</span></p>
         <!-- #2913: no name field here. The subscription sign-in pulls in the account's
              email automatically, and that is what tells one subscription account apart
              from another -- so asking for a name is extra work for nothing. (The API-key
@@ -15807,7 +15807,7 @@ window.kosmosMeasureScrollbarWidth();
                      unknown one enters a drive whose REPL detection says "we could
                      not confirm" rather than forcing credential entry (the painter
                      comment states the guarantee precisely). -->
-                <p>Your agents run on your own subscription, on this computer.</p>
+                <p>Your agents run on your own subscription, on <span data-cloud-copy="thisMachine">this computer</span>.</p>
                 <!-- #5856 (Josh set the Play audience to 13+, 2026-10-11): Claude's consumer terms are 18+, so a teen who
                      picks it hits a wall that is not ours to lift. Say so here, and name who a teen can pick. No age
                      question (ruled on the card). The list names Meta Muse only where Muse is live (frPaintMeta).
@@ -21149,7 +21149,7 @@ function windowsCopyTable() {
        below is the way back to it if the browser window lands behind; and the line above
        the code names the address, so the screen still makes sense if the person has to
        go and find the browser. %ADDR% is filled in by openaiSubDeviceMarkup. */
-    openaiSubHow: 'Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code to type there. Kosmos never sees your password. Your agents then run on your own subscription, on this computer.',
+    openaiSubHow: 'Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code to type there. Kosmos never sees your password. Your agents then run on your own subscription, on <span data-cloud-copy="thisMachine">this computer</span>.',
     /* #6521: the first-run Model step already leads with the subscription sentence, so its sign-in panel does not repeat it. */
     frOpenaiSubHow: 'Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code to type there. Kosmos never sees your password.',
     openaiSubOpen: 'Open the sign-in page again',
@@ -53738,7 +53738,7 @@ async function pollAsk() {
    This computer never shows the code: typing what the browser in your hand shows is what binds it. The list comes
    from /api/remote/waiting, which answers only this board on this computer; it is empty (v2 false) until the board-v2
    marker exists, so nothing here shows before then. */
-const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, busy: '', ctAlarm: false, ctFinding: null, cw: null, paintedSig: '' };
+const WAIT = { v2: false, rows: [], error: '', note: '', noteAt: 0, said: {}, typed: {}, wrong: {}, busy: '', ctAlarm: false, ctFinding: null, cw: null, paintedSig: '', refused: false };
 function waitShown() { return WAIT.v2 && (WAIT.rows.length > 0 || !!WAIT.error || !!WAIT.note || WAIT.ctAlarm); }
 /* What was typed, said or marked wrong for a row the tunnel no longer lists is forgotten, so a row that comes back starts clean. */
 function waitForgetRows() {
@@ -53758,13 +53758,17 @@ function waitSig() {
     WAIT.rows.map((w) => [w.knockId, w.firstSeen, w.uaClass, w.net, w.vouched])]);
 }
 async function pollWaiting() {
+  /* kosmos#7640: a page opened through Kosmos+ is a remote session for its whole life, and a remote session is refused
+     this list by design, so after the first refusal it asks no more (on a cloud machine every session is remote: an open
+     tab asked 720 times an hour, every answer a 403). A reload starts asking again. */
+  if (WAIT.refused) return;
   // Against what was last DRAWN (paintWaiting records it), so a change learned between polls is drawn too.
   const repaint = () => { if (waitSig() !== WAIT.paintedSig) paintAsk(); };
   let res = null;
   try { res = await fetch('/api/remote/waiting', { cache: 'no-store' }); } catch { res = null; }
   if (!res) return;   // a blip keeps the last paint
   // A remote session is refused this list by design: nothing to show there, and nothing to say about it.
-  if (res.status === 403) { WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; waitForgetRows(); repaint(); return; }
+  if (res.status === 403) { WAIT.refused = true; WAIT.v2 = false; WAIT.rows = []; WAIT.error = ''; waitForgetRows(); repaint(); return; }
   const r = await res.json().catch(() => null);
   if (!res.ok) {
     /* Only an error the board says it met under the marker (v2 true) is shown, with Clear, the way out of a damaged list.
@@ -65112,7 +65116,7 @@ async function addImportedInPlace(file, btn, row, viaKey) {
      from the cross-site guard, a 5xx), none of which carry outcome==='refused'. A partial
      is "not made", so it re-enables and shows its reason like any other failure; this
      one-click add has no made-screen to advance a partial to. */
-  if (!res.ok || out.outcome !== 'created') { fail((typeof cloudWords === 'function' ? cloudWords : (x) => x)(out.because || out.error || 'We could not make it, and we cannot tell you why.'), out.field === 'name'); return; }
+  if (!res.ok || out.outcome !== 'created') { fail((typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(out.because || out.error || 'We could not make it, and we cannot tell you why.'), out.field === 'name'); return; }
 
   /* ⚠️ THE BUTTON BECOMES THE RECEIPT rather than vanishing -- the same pattern the
      found/scan Add rows keep, on a screen where a person is about to press several
@@ -66020,7 +66024,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
     if (result.field === 'name') {
       pjFieldBad('create-name', 'create-name-err', result.because || 'that name will not work');
     } else {
-      msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(result.because || 'that name will not work');
+      msg.textContent = (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(result.because || 'that name will not work');   // kosmos#7640: as a sentence (asSentence applies cloudWords too)
     }
     return;
   }
@@ -66041,8 +66045,8 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // beside the field, not on the progress screen we advanced to on click.
     dropMyLoader();
     cstep('name');
-    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((result && (result.error || result.because))
-      || 'we could not make it, and we cannot tell you why');
+    msg.textContent = (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))((result && (result.error || result.because))
+      || 'we could not make it, and we cannot tell you why');   // kosmos#7640: as a sentence (asSentence applies cloudWords too)
     // The own gate's sentence is about the Role label at the top of a
     // scrolled form; put the person where the fix is (the live region has
     // already announced the words).
