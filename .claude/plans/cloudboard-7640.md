@@ -84,3 +84,10 @@ Findings: ~/.cache/monalisa-review/review-7640-round3.md. No blockers; 1 warning
   on a page reached through Kosmos+; the import row's READ refusal is a sentence too (five sinks); comments no longer
   name review rounds.
 - KEPT nit: the guarded expression is matched byte for byte by three test files (the round-1 deferral stands).
+
+## After review round 4 (sonnet, 12:4x CDT): converged
+
+Findings: ~/.cache/monalisa-review/review-7640-round4.md. No blockers, warnings or conventions; 3 nits, none needing a
+change (the kplusRemote guard at both the scheduler and the poll is belt and braces; asSentence answers '' for a missing
+reason where cloudWords answered undefined, which no caller depends on; the plan name follows this repo's practice).
+Rounds: opus, sonnet, opus, sonnet.
