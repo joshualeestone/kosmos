@@ -1155,6 +1155,9 @@ enum Board {
         var reactions: [ChatReaction] = []
         // Who sent it, as the Mac names it (nil: the person, or Kosmos's own line).
         var from: String? = nil
+        // kosmos#7614 (Mona Lisa's routes, review 5): a row from a rolled-over, earlier part of the conversation, which
+        // is kept as it was, so it cannot be deleted (the route answers 409); Delete is not offered on it, as on the board.
+        var earlierPart = false
         // Reply and reactions only on this agent's own messages, not a question (server.js: a reply_to must be the
         // agent's or the person's, never a question; chat.reactDirect: only `from === name`), as the board's hover bar.
         func answerable(by session: String) -> Bool {
@@ -1240,7 +1243,10 @@ enum Board {
     }
 
     // `told` names the agents sent the one-line "withdrawn" note (empty when none had been given the message).
-    enum DeleteResult: Equatable { case deleted(told: [String]), refused(String) }
+    // kosmos#7614 (Mona Lisa's routes): `gone` is a 404 that says `gone: true`, the message already deleted (another
+    // tab, the board): the row goes, as on a delete. Any other 404 (a renamed agent, say) is a refusal like the rest.
+    enum DeleteResult: Equatable { case deleted(told: [String]), gone, refused(String) }
+    static let deleteGoneNote = "That message was already deleted."
 
     // Both routes answer alike: 200 {deleted: true, told}; else the route's `error` (403 not yours, 404 gone, 409 an
     // earlier part of the conversation), as a sentence; no answer at all, the board's own fallback sentence.
@@ -1249,6 +1255,7 @@ enum Board {
         if (200...299).contains(status), isTrue(obj?["deleted"]) {
             return .deleted(told: (obj?["told"] as? [Any])?.compactMap { $0 as? String } ?? [])
         }
+        if status == 404, isTrue(obj?["gone"]) { return .gone }
         if status != 0, let why = (obj?["error"] as? String) ?? (obj?["because"] as? String), !why.isEmpty { return .refused(sentence(why)) }
         return .refused("We could not delete that just now.")
     }
@@ -1263,7 +1270,7 @@ enum Board {
     }
 
     // Only the person's own messages can be deleted (the route refuses the rest with 403): a row of theirs with an `at`.
-    static func canDelete(_ row: ChatRow) -> Bool { row.who == .person && !(row.atRaw ?? "").isEmpty }
+    static func canDelete(_ row: ChatRow) -> Bool { row.who == .person && !(row.atRaw ?? "").isEmpty && !row.earlierPart }
 
     // The deleted message taken out of what the chat shows at once (the next read confirms): only the person's own row
     // with that `at`, never an agent's that happens to share the time.
@@ -2033,7 +2040,7 @@ enum Board {
                            because: because, resendable: resendable, retryable: retryable, retrying: retrying,
                            permission: permission, reported: isTrue(row["reported"]), attachments: parseAttachments(row),
                            replyTo: (row["replyTo"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                           reactions: parseReactions(row["reactions"]), from: from)
+                           reactions: parseReactions(row["reactions"]), from: from, earlierPart: isTrue(row["earlierPart"]))
         }
     }
 

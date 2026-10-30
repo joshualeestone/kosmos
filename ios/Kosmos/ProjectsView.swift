@@ -548,11 +548,14 @@ final class RoomStore: ObservableObject {
         let result = Board.deleteResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
         // The room's own line under the composer says what happened: a refusal, or that an agent had already read it.
         switch result {
-        case .deleted(let told):
+        case .deleted, .gone:
+            // Mona Lisa's routes: `gone` (already deleted elsewhere) takes the post out the same way, and says so.
+            var told: [String] = []
+            if case .deleted(let t) = result { told = t }
             deletedPosts[project, default: []].insert(row.id)
             rows[project]?.removeAll { $0.id == row.id }
             // Review 1: only when there is something to say, so the room's "not confirmed" line is kept otherwise.
-            if let note = Board.deletedNote(told: told, names: names) {
+            if let note = result == .gone ? Board.deleteGoneNote : Board.deletedNote(told: told, names: names) {
                 notes[project] = note; deleteNotes[project] = note
             } else {
                 // Review 4: the earlier delete's line goes if it still shows; either way it is no longer this delete's.
