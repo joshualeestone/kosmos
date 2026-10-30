@@ -101,6 +101,7 @@ struct ChatView: View {
     // and when the empty list was last put back (every time now, not once per chat; at most once in 2 s).
     @State private var diagScroll = ScrollRef()
     @State private var diagRecoveredAt: Date?
+    @State private var diagRecoveries = 0   // review 6: put back after the report, at most diagRecoveryCap times a chat
     @State private var diagWideDone = false   // review 2: a width finding has its own once, so it cannot use up the blank one
     @State private var diagShownOnce = false   // review 2: the record starts at the chat's first showing, not each return
     // Review 4: when this conversation's messages arrived, and whether any row has drawn since, for the never-drawn case.
@@ -358,7 +359,7 @@ struct ChatView: View {
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: client.chatEpoch) { now in
-            diagDone = false; diagWideDone = false; diagReport = nil; diagRecoveredAt = nil   // kosmos#7420 review 1: another account or computer is a new chat
+            diagDone = false; diagWideDone = false; diagReport = nil; diagRecoveredAt = nil; diagRecoveries = 0   // kosmos#7420 review 1: another account or computer is a new chat
             diagThreadAt = nil; diagEverDrew = false   // review 4
             // kosmos#7575 review 1: what one computer saw is dropped, never sent to another's board (deliberately lost).
             shifts.reset(); shifts.attach(send: shiftSender())
@@ -781,14 +782,19 @@ struct ChatView: View {
         return visible && scenePhase == .active && !searchMode && (rowsGone || geo.off) && !geo.moving && count > 0 && thread != nil
     }
 
+    static let diagRecoveryCap = 3
     private func diagCheck(_ proxy: ScrollViewProxy, count: Int) {
         guard diagEmpty(count: count) else { return }
-        // After the one report, an empty list is still put back each time, at most once in 2 s (a fault that comes back
-        // every frame cannot hold the list at the newest message).
+        // After the one report, an empty list is still put back, at most once in 2 s and diagRecoveryCap times a chat
+        // (review 6: the row count alone could be wrong for a still reader, who must not be moved without end). The
+        // record says which arm read empty.
         if diagDone {
             if let at = diagRecoveredAt, Date().timeIntervalSince(at) < 2 { return }
+            guard diagRecoveries < Self.diagRecoveryCap else { return }
             let g = diagGeometry()
-            diagRecoveredAt = Date(); Self.trace("empty again (" + g.line + "), trying the newest message"); goNewest(proxy)
+            diagRecoveries += 1; diagRecoveredAt = Date()
+            Self.trace("empty again by " + (g.off ? "the band" : "the rows") + " (" + g.line + "), trying the newest message")
+            goNewest(proxy)
             return
         }
         diagRecoveredAt = Date()
@@ -806,7 +812,8 @@ struct ChatView: View {
         let line = "scroll y \(Int(sv.contentOffset.y)), content \(Int(sv.contentSize.height)), shown \(Int(sv.bounds.height)), "
             + "insets \(Int(inset.top))/\(Int(inset.bottom)), \(band.rawValue)" + (sv.isDragging || sv.isDecelerating ? ", moving" : "")
         let settled = sv.contentSize.height > 0 && (diagThreadAt.map { Date().timeIntervalSince($0) > 2 } ?? false)
-        return (line, settled && band != .content, sv.isDragging || sv.isDecelerating)
+        // Review 6: an unmeasured list is never read as off, and the record says it was not judged rather than on the content.
+        return (settled ? line : line + ", not judged yet", settled && band != .content, sv.isDragging || sv.isDecelerating)
     }
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
