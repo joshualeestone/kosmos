@@ -449,6 +449,21 @@ pointer_freeze_refuse "$SITE" release.sh || exit 1
 # and $1 = quiet keeps prod-check's reason for a 4 to itself too (it would read as an error with no "goes on" beside it).
 _whats_new_check() { node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" --platform=mac; }
 _whats_new_prod_check() { node "$REPO/tools/whats-new-pool.js" prod-check --pool="$REPO/release/whats-new-pool.json"; }
+# kosmos#7617: the committed list must still be what the pool builds for $V. A list built early (#7615: each cut builds
+# its own first) misses a pool item merged after it, and both checks above stay green. Offline is right here: it runs
+# after prod-check, which has just compared prod with the pool. "also" is left out (Windows adds it by hand, #4928).
+_whats_new_fresh_check() {
+  local tmp rc=0
+  tmp="$(mktemp)" || return 1
+  node "$REPO/tools/whats-new-pool.js" build "$V" --offline --pool="$REPO/release/whats-new-pool.json" --out="$tmp" >/dev/null 2>&1 || rc=$?
+  [ "$rc" != 0 ] || node -e 'const fs = require("fs");
+    const s = (v) => Array.isArray(v) ? v.map(s) : (v && typeof v === "object") ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, s(v[k])])) : v;
+    const f = (p) => { const j = JSON.parse(fs.readFileSync(p, "utf8")); delete j.also; return JSON.stringify(s(j)); };
+    process.exit(f(process.argv[1]) === f(process.argv[2]) ? 0 : 1);' "$tmp" "$REPO/web/whats-new.json" || rc=1
+  rm -f "$tmp"
+  [ "$rc" = 0 ] || echo "release: web/whats-new.json is not what release/whats-new-pool.json builds for $V now (kosmos#7617: a pool item changed after the list was built). node tools/whats-new-pool.js build $V on a branch, merged to main, then cut again." >&2
+  return "$rc"
+}
 whats_new_gate() {
   local pc=0 err
   if [ "$1" = quiet ]; then   # the check's stderr only on a refusal: a pass can carry a note 1b-ii prints anyway
@@ -467,6 +482,7 @@ whats_new_gate() {
     4) [ "$1" != note ] || echo "NOTE: could not read what prod serves, so the What's New pool was not checked against it; the cut goes on." ;;
     *) return 1 ;;   # 3: prod is newer than the pool records; anything else: the pool or the tool is broken (#5713 review 2)
   esac
+  _whats_new_fresh_check
 }
 # kosmos#7349: the same checks once more HERE, before the cut marks itself, claims the machine or waits on a pre-push
 # build (up to 100 minutes below). A prod promote leaves the pool behind until someone builds it again, and 1b-ii used
