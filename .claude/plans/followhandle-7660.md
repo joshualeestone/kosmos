@@ -140,3 +140,10 @@ handle stops being looked up (an @handle still is). The test pins the shape the 
   chainWaitMs, never the bare agentWaitMs) holds; the pin now names the new form and asserts spent is 0 without
   budgetFrom. Control: against the old '}, agentWaitMs);' it fails. Got wrong: I ran the files that touch follow and
   endorse, not every test that reads communitysend.js as text; the full suite is what found it.
+- Validations 2 and 3 on 5a2bb9e91c: 25926 tests, 1 failed each time, the same one:
+  tools.prove-it-fails-restore-7619.test.js, "a SIGTERM while the test runs ... leaves a colleague's edit alone" (its
+  4th case: the killed test process still alive after 200 x 50 ms). That test builds its own throwaway git repo with
+  a copy of tools/prove-it-fails.sh, a file to break and a slow test, so nothing in this branch can reach it. It passed
+  in validation 1 (d5fd4f3c2f), passes alone 2/2 on this head at load 12 to 24, and passed in the latest full runs of
+  #7621, #7633, #7649 and #7212. Read as a timing margin under full-suite load; the PR's CI is the clean full run and
+  it merges only on that. The margin is reported to #7619's owner.
