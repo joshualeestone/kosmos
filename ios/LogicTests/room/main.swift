@@ -519,11 +519,19 @@ let strayValues = tracedValues.filter { !allowedInTrace.contains($0) }
 check(traceLines.count >= 10 && !tracedValues.isEmpty && strayValues.isEmpty,
       "kosmos#7420: the diagnostic records only allowed numbers and flags (\(tracedValues.count) values; not allowed: \(strayValues))")
 check(!chatSource.contains("keepAnchor scrollTo \\(id)"), "review 1: no message id in the record")
+// kosmos#7420 (build 19): the scroll view's line joins the record by concatenation, so the trace scan above cannot see it;
+// its own values are checked here: numbers and the band's fixed words only.
+let geoStart = chatSource.range(of: "let line = \"scroll y ")
+let geoText = geoStart.map { String(chatSource[$0.lowerBound...].prefix(260)) } ?? ""
+let geoValues = geoText.components(separatedBy: "\\(").dropFirst().map { $0.components(separatedBy: ")").first ?? "" }
+check(geoValues.count == 6 && geoValues.allSatisfy { $0.hasPrefix("Int(") || $0 == "band.rawValue" },
+      "kosmos#7420: the scroll view's line records numbers and the band only (\(geoValues.count) values: \(geoValues))")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
-check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
+check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, rowsGone || diagGeometry().off") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
       && !chatSource.contains(".onChange(of: onScreen.isEmpty)"), "review 1: the check runs only for the chat on screen, and never makes the chat redraw per row")
-check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("onScreen.isEmpty, !endVisible || neverDrew, !topVisible, count > 0, thread != nil") && chatSource.contains("ShareLink(item: report"),
+check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("let rowsGone = onScreen.isEmpty && (!endVisible || neverDrew) && !topVisible")
+      && chatSource.contains("rowsGone || diagGeometry().off, count > 0, thread != nil else { return }") && chatSource.contains("ShareLink(item: report"),
       "kosmos#7420: a bounded record, the blank check, and a share the person chooses (nothing sent by itself)")
 // kosmos#7420 (Josh 10-28, builds 13 to 15): the chat's list is locked against a sideways offset (every row 16 pt left).
 // kosmos#7575: it also tells the chat of each shift (the trailing closure), for the report sent to the board.
@@ -535,7 +543,7 @@ check(chatSource.contains("if window == nil { wasShifted = shifted }   // kosmos
       && chatSource.contains("if resumed { self.wasShifted = false }")
       && chatSource.contains("if step.event == .grew { self.onShift?(x, sv.isDragging || sv.isDecelerating, false) }"),
       "kosmos#7575 review 4: the lock keeps wasShifted across a window move and marks the first reading after it")
-check(chatSource.contains(".background(SideScrollLock(off: Self.sampleNoLock) { x, scrolling, isNew in") && chatSource.contains("watch = scroll.observe(\\.contentOffset") && chatSource.contains("let x = sv.contentOffset.x + sv.adjustedContentInset.left") && chatSource.contains("if abs(sv.contentOffset.x - rest) > 0.5 { sv.contentOffset.x = rest }") && chatSource.contains("if self.shifts & (self.shifts - 1) == 0 {") && chatSource.contains("if sv.isDragging || sv.isDecelerating { self.putBack(sv); return }") && chatSource.contains("static let sampleNoLock = false"), "kosmos#7420: a sideways scroll of the chat is put back to its rest (minus the left inset) and recorded (the lock is on in Release)")
+check(chatSource.contains(".background(SideScrollLock(off: Self.sampleNoLock, ref: diagScroll) { x, scrolling, isNew in") && chatSource.contains("watch = scroll.observe(\\.contentOffset") && chatSource.contains("let x = sv.contentOffset.x + sv.adjustedContentInset.left") && chatSource.contains("if abs(sv.contentOffset.x - rest) > 0.5 { sv.contentOffset.x = rest }") && chatSource.contains("if self.shifts & (self.shifts - 1) == 0 {") && chatSource.contains("if sv.isDragging || sv.isDecelerating { self.putBack(sv); return }") && chatSource.contains("static let sampleNoLock = false"), "kosmos#7420: a sideways scroll of the chat is put back to its rest (minus the left inset) and recorded (the lock is on in Release)")
 check(chatSource.contains("Button { infoOpen = true } label: { title"), "kosmos#7424: the DM header's name and status open the info page, as the (i) button does")
 let roomSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
 check(roomSource.contains("let low = reduceMotion ? 0.35 : 0.45, half = (reduceMotion ? 1.6 : 1.1) / 2") && roomSource.contains(".delay(Double(i) * 0.16), value: up)") && roomSource.contains(".offset(y: up && !reduceMotion ? -4 : 0)"), "kosmos#7427: WaveDots, build 15's chat dots and now the Debug control (KOSMOS_SAMPLE_SWIFTDOTS), are the board's wave")
