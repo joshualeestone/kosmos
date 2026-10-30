@@ -29668,11 +29668,13 @@ function paintAutobalance(ab, list) {
       : ab.movePaused === 'record'
         ? 'Kosmos would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + ', once it can write its record again.'
       : m.leaving === true
-        ? 'Kosmos would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + ', but it was moved lately, or a move of it was refused, so Kosmos leaves it where it is for now.'
+        ? 'Kosmos would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + ', but Kosmos leaves it where it is for now.'   // kosmos#7621 review 1: moved, refused or not checkable lately, so the reason is not named
         : 'Kosmos will move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ' once it is idle at two checks in a row, because ' + esc(m.why) + '.');
     html = moves.map((m) => line(moveLine(m))).join('')
       /* Review 1: the engine does not say why no account could take them (room, memory, a limit, a login), so this does not either. */
-      + held.map((h) => line(ab.moving === true   // kosmos#7621 item 3: while moving, an account the mover holds counts as one that cannot take them
+      + held.map((h) => line(ab.moving === true && kindOf(h) === 'login'   // kosmos#7621 review 1: the mover moves for usage only
+        ? 'The idle agents on ' + esc(label(h.from)) + ' cannot be used right now. Kosmos moves agents only when an account is running out, so move them yourself if they need to work.'
+        : ab.moving === true   // kosmos#7621 item 3: while moving, an account the mover holds counts as one that cannot take them
         ? 'Kosmos would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no account it can use takes them right now.'
         : 'Would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
       /* Review 5: with the reason, so an account whose list is short still says why it is running out (review 7: unless

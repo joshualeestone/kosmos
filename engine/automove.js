@@ -291,6 +291,8 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
   /* Rules 7 and 8, and the refusal holds: an agent the mover leaves alone now. Also Settings' (review round 7), so a move
      line never says Kosmos will move an agent it is leaving; a person's move made since the last tick is read at the next. */
   const passedOverAt = (nowMs = Date.now()) => (agent) => {
+    /* kosmos#7621 review 1: an agent set aside after a re-check that could not be made (item 8), so Settings says so too. */
+    if (state.recheckFailed.has(agent) && nowMs - state.recheckFailed.get(agent) < RECHECK_HOLD_MS) return true;
     if (state.resting.has(agent) && nowMs - state.resting.get(agent) < REST_MS) return true;   // rules 7 and 8
     if (!state.refused.has(agent)) return false;
     const since = nowMs - state.refused.get(agent);
@@ -336,8 +338,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     const passedOver = passedOverAt(nowMs);
     /* Rule 3: usage only. A move off an account whose login has stopped stays a would-move line in the sweep's record.
        Rule 2: movable on the previous tick too. Held and unproven targets are skipTarget's, inside decide(). */
-    const recheckHeld = (agent) => state.recheckFailed.has(agent) && nowMs - state.recheckFailed.get(agent) < RECHECK_HOLD_MS;   // kosmos#7621 item 8
-    const next = decision.moves.find((x) => kindOf(x.from) === 'usage' && !passedOver(x.agent) && !recheckHeld(x.agent) && before.has(`${x.agent}\n${x.from}`));
+    const next = decision.moves.find((x) => kindOf(x.from) === 'usage' && !passedOver(x.agent) && before.has(`${x.agent}\n${x.from}`));
     if (!next) return { did: 'nothing' };
     const m = { ...next, fromLabel: label(next.from), toLabel: label(next.to) };
     /* Rule 2: idleness read again from a NEW roster and NEW projects just before the move. Rule 12: only a re-check
@@ -345,7 +346,12 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
        check that throws) writes nothing and moves nothing. */
     let stillFree;
     try { stillFree = ab.movableFor(movableArgs(deps.freshRoster(), deps.freshRecords, true))(m.agent); }
-    catch (err) { state.recheckFailed.set(m.agent, nowMs); return { did: 'unreadable', because: `the re-check: ${String((err && err.message) || err)}` }; }
+    catch (err) {
+      /* Review 1: only a re-check that failed for THIS agent (it is not on the fresh roster) sets it aside; a roster or a
+         project that could not be read at all is every agent's, so it holds nobody. */
+      if (err && err.message === 'the agent is not on the roster') state.recheckFailed.set(m.agent, nowMs);
+      return { did: 'unreadable', because: `the re-check: ${String((err && err.message) || err)}` }; }
+    state.recheckFailed.delete(m.agent);   // review 1: a re-check that could be made ends the hold
     if (stillFree !== true) {
       /* Review round 4: seen working, so this tick is not an idle one for rule 2. */
       state.lastMovable.delete(`${m.agent}\n${m.from}`);
@@ -373,7 +379,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
      tick is not shown as one Kosmos will undo. A record that cannot be read answers from what the last tick read. */
   const leftAlone = (nowMs = Date.now()) => {
     try { readPeople(nowMs); } catch { /* the last tick's reading stands */ }
-    for (const l of waitingPeople()) if (l && typeof l.agent === 'string' && Number.isFinite(l.at) && nowMs - l.at < REST_MS) rest(l.agent, l.at);
+    for (const l of waitingPeople()) if (l && typeof l.agent === 'string' && Number.isFinite(l.at) && l.at <= nowMs + sweep.CLOCK_SLACK_MS && nowMs - l.at < REST_MS) rest(l.agent, l.at);
     return passedOverAt(nowMs);
   };
 

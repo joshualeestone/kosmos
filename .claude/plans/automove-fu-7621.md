@@ -28,3 +28,10 @@ while moves are off. Items as numbered on the card.
   Releasing a target sooner loosens rule 6 (no second agent onto a target not yet seen to work), which exists only for
   safety, and moves are off everywhere, so there is no data on how slow it is in practice. What would change it: a
   board with moves on whose record shows at-risk accounts waiting on unproven targets.
+
+## Review rounds
+- Round 1 (Sonnet, whole branch): no BLOCKER. The set-aside is part of passedOver, so Settings says Kosmos leaves
+  that agent alone (the leaving line no longer names a reason, since it can be a move, a refusal or a check that could
+  not be made). Only a re-check that failed for that agent (not on the fresh roster) sets it aside; a roster or project
+  that could not be read at all holds nobody; a re-check that works ends the hold. While moving, a held account whose
+  login stopped is left to the person, not "Kosmos would move". leftAlone ignores a waiting person line from the future.

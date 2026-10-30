@@ -1009,3 +1009,26 @@ test('kosmos#7621 item 7: the sweep and the mover share one tick\'s deps, so the
   assert.match(src, /automoveRun\.tick\(automoveDeps\(sweepDeps\)\)/, 'the mover builds a second walk each tick');
   assert.match(src, /function automoveDeps\(sweepDeps = null\) \{\n\s+const d = sweepDeps \|\| autobalanceSweepDeps\(\);/);
 });
+
+test('kosmos#7621 review 1: the set-aside shows in Settings, holds only the agent the re-check failed for, and ends when one works', async () => {
+  const cards = realCards(['ada'], ['bo']);
+  /* A roster that cannot be read at all is every agent's: nobody is set aside. */
+  const r1 = automove.create({ file: fileFor() });
+  const { d: d1 } = deps({ cards, names: ['ada', 'bo'], freshRoster: () => { throw new Error('tmux did not answer'); } });
+  await twoTicks(r1, d1);
+  assert.equal(r1.state.recheckFailed.size, 0, 'an unreadable roster set an innocent agent aside');
+  /* The agent missing from the fresh roster is set aside, and Settings says Kosmos leaves it alone. */
+  let missing = true;
+  const r2 = automove.create({ file: fileFor() });
+  const { d: d2, calls } = deps({ cards, names: ['ada', 'bo'], freshRoster: () => (missing ? cards.filter((c) => c.name !== 'ada' && c.sessionName !== 'ada') : cards) });
+  await twoTicks(r2, d2);
+  assert.equal(r2.state.recheckFailed.has('ada'), true, 'CONTROL: ada was set aside');
+  assert.equal(r2.leftAlone(NOW + 2000)('ada'), true, 'Settings would say Kosmos will move an agent it set aside');
+  /* The roster has her again: once a re-check of her works, the hold ends. */
+  missing = false;
+  r2.state.recheckFailed.set('ada', NOW - 2 * 60 * 60 * 1000);   // the hour is up
+  await run2(r2, d2);
+  assert.equal(r2.state.recheckFailed.has('ada'), false, 'a re-check that worked did not end the hold');
+  assert.ok(calls.starts.length >= 1, 'CONTROL: a move went ahead');
+  async function run2(r, d) { await r.tick(d, NOW + 3000); await r.tick(d, NOW + 4000); }
+});
