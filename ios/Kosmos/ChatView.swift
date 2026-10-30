@@ -631,7 +631,13 @@ struct ChatView: View {
                     keepNewestInView = atBottom || (searchOpen && openedAtNewest && !searching)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                    if keepNewestInView { goNewest(proxy, animated: true) }
+                    guard keepNewestInView else { return }
+                    // kosmos#7344 (measured 10-30): under the id anchor the anchor is already the end marker, so re-setting it
+                    // moves nothing while the keyboard shrinks the thread, and the newest message sat behind the box. Scroll
+                    // to the end itself, then keep the anchor there so later rows still follow.
+                    Self.trace("keyboard shown, to the newest")
+                    withAnimation { proxy.scrollTo("end", anchor: .bottom) }
+                    if Self.idAnchor { positionId = "end" }
                 }
                 // Only the chat on screen: another tab can keep a chat alive under it.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
