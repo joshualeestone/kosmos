@@ -111,6 +111,12 @@ test('#3955: release.sh runs the check at 1b-ii, after the versions entry and be
   assert.ok(freeze < frozen && frozen < suite, 'the frozen-tree check does not sit between the freeze and the suite');
   assert.match(sh.slice(frozen - 130, frozen), /if \[ "\$\{KOSMOS_CUT_NO_WHATS_NEW:-\}" != "1" \]; then\n\s*$/, 'the frozen-tree check ignores the hotfix opt-out');
   assert.match(sh.slice(freeze, frozen), /step "== 2b-ii\./, 'the frozen-tree check has no step label (a refusal would be filed under 2b)');
+  /* kosmos#7617: the frozen tree's list must still be what the frozen pool builds (no release-gate arm reaches 2b-ii,
+     so the call is pinned here): right after the frozen-tree check, refusing, before the suite. */
+  const fresh = at('_whats_new_fresh_check "$BUILD" note || {');
+  assert.ok(frozen < fresh && fresh < suite, 'the frozen-tree freshness check does not sit between the frozen-tree check and the suite');
+  assert.match(sh.slice(fresh, fresh + 300), /exit 1; \}/, 'the frozen-tree freshness check does not refuse');
+  assert.equal((sh.match(/^[^#\n]*_whats_new_fresh_check "\$(REPO|BUILD)"/gm) || []).length, 2, 'the freshness check runs some other number of times than twice (in whats_new_gate, and at 2b-ii)');
   const doc = fs.readFileSync(path.join(__dirname, 'docs', 'releasing.md'), 'utf8');
   assert.match(doc, /KOSMOS_CUT_NO_WHATS_NEW=1 yarn release/, 'docs/releasing.md does not say how to skip it');
 });
