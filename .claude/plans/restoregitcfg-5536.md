@@ -11,7 +11,7 @@ runs or loads something once the agent's git reaches it. The review screen must 
   temporary folder, env with every GIT_* variable dropped, GIT_CONFIG_NOSYSTEM=1, GIT_CONFIG_GLOBAL=devNull.
 - A key not in GIT_PLAIN_KEYS (an allowlist, subsection as `*`) is a line `<file> sets <key>`, label-cleaned, at
   most 20 per file plus a count line.
-- Not checked, said so: a config git refuses, a link, not a file, over 1 MB, git missing or timing out (5 s), a .git
+- Not checked, said so: a config git refuses, a link, not a file, over 1 MB, git missing or timing out (2 s a read, 20 s a listing), a .git
   that is a file or a link, and a commondir.
 
 ## Decided
@@ -50,3 +50,17 @@ runs or loads something once the agent's git reaches it. The review screen must 
 - Stated limit, not checked by this listing: nested repositories in a project's subfolders, and .gitattributes
   (the filter or textconv it names is defined in config, which is checked).
 - Tests 61/61. Mutations (no time check; no modules/worktrees line) each red; restored green.
+
+## Review round 3 (opus): 3 WARNING, 1 CONVENTION, 4 NIT
+- FIXED: section and name were shown whole and git takes either at any length (measured 50,021-char lines). Each part
+  is now cut on its own: section and name 40, subsection 30.
+- FIXED: core.protectntfs, protecthfs, symlinks, ignorecase and precomposeunicode guard checkout paths (CVE-2019-1353
+  class); they left the allowlist and are named.
+- FIXED: refused agent folders spent the shared read budget before projects. Settings are now read only for projects
+  and the projects top (runsIn's gitSettings flag); an agent folder with git is refused whatever its settings.
+- FIXED: comment wording (GIT_EXEC_PATH kept, no repository looked for above the temp folder), "is not a folder"
+  for a .git that is not a directory, the module header names the git time, the plan's timeout figures.
+- DEFERRED: tests for a .git link, a config that is a directory, and git missing. Each fails toward "not checked";
+  the config-link and oversized arms are tested.
+- Tests 62/62. Mutations (protectntfs back in the allowlist; three-part section uncut; agent folders reading
+  settings) each red; restored green.

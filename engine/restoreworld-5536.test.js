@@ -1044,7 +1044,7 @@ test('a restored project\'s git settings that run or load something are named be
   assert.deepEqual(set('quiet'), [], 'plain settings are not named');
   assert.deepEqual(set('bare'), ['config sets alias.st']);
   assert.ok(runs.broken.includes('.git/config (its git settings could not be checked)'), 'a config git cannot read is not read as empty');
-  assert.ok(runs.pointed.includes('.git is a file naming another folder, so its git settings were not checked'));
+  assert.ok(runs.pointed.includes('.git is not a folder, so its git settings were not checked'));
   assert.ok(runs.shared.includes('.git/commondir moves its git settings elsewhere, so they were not checked'));
   assert.equal(set('many').length, 21);
   assert.equal(set('many')[20], '.git/config sets 5 more git settings');
@@ -1103,4 +1103,26 @@ test('git reads stop at the listing\'s time budget; submodule and worktree confi
   assert.ok(runs.sub.includes('.git/worktrees holds more git settings, which were not checked'));
   const late = runsOf(rw.listRestoredAgents({ base, world: p.world, nameOk, gitMs: 0 }));
   assert.ok(late.sub.includes('.git/config (its git settings were not checked: the listing has checked as many as it may)'), 'no time left reads as not checked');
+});
+
+test('checkout path guards are named; every part of a key is bounded; refused agent folders spend no git reads', (t) => {
+  const base = fresh(t);
+  const p = rw.prepareRestoreWorld(base, { member: 'Ann', now: NOW });
+  const roots = worlds.envOverridesFor(base, p.world);
+  const pr = roots.AGENT_WORKFORCE_PROJECTS, w = roots.AGENT_WORKFORCE_WORKERS;
+  const put = (root, rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
+  put(pr, 'guards/.git/config', '[core]\n\tprotectNTFS = false\n\tprotectHFS = false\n\tsymlinks = true\n\tignorecase = true\n\tprecomposeunicode = true\n');
+  put(pr, 'huge/.git/config', `[${'s'.repeat(5000)} "x"]\n\t${'n'.repeat(5000)} = 1\n[${'t'.repeat(5000)}]\n\t${'m'.repeat(5000)} = 1\n`);
+  put(w, 'gitty/CLAUDE.md', '# Gitty\n');
+  put(w, 'gitty/.git/config', '[core]\n\tpager = x\n');
+  const runsOf = (l) => Object.fromEntries(l.shared.filter((x) => x.where === 'projects').map((x) => [x.label, x.runs]));
+  const l = rw.listRestoredAgents({ base, world: p.world, nameOk, gitReads: 2 });
+  const runs = runsOf(l);
+  assert.deepEqual(runs.guards.filter((r) => / sets /.test(r)), ['.git/config sets core.protectntfs', '.git/config sets core.protecthfs',
+    '.git/config sets core.symlinks', '.git/config sets core.ignorecase', '.git/config sets core.precomposeunicode']);
+  const huge = runs.huge.filter((r) => / sets /.test(r));
+  assert.equal(huge.length, 2);
+  for (const r of huge) assert.ok(r.length <= '.git/config sets '.length + 40 + 1 + 30 + 1 + 40, `bounded: ${r.length}`);
+  assert.ok(!Object.values(runs).flat().some((r) => /checked as many as it may/.test(r)), 'the refused agent folder spent none of the two reads');
+  assert.ok(!l.agents.find((a) => a.folder === 'gitty').runs.some((r) => / sets /.test(r)));
 });

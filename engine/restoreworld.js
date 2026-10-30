@@ -25,9 +25,9 @@
  * ⚠️ NOT REQUIRED BY worlds.js, and create.js only lazily, for the same reason as engine/worldimport.js: create freezes
  * store.ROOT at require.
  *
- * ⚠️ EVERY CALL IS SYNCHRONOUS. A listing can read up to MAX_BRIEF_TOTAL of briefs and thousands of entries, and a
- * finish on Windows can wait seconds per rename. The 4c caller runs these off the board's event loop (a worker thread
- * or a child process), or one large restore stalls every other request.
+ * ⚠️ EVERY CALL IS SYNCHRONOUS. A listing can read up to MAX_BRIEF_TOTAL of briefs and thousands of entries, and run
+ * git on project configs for about 22 s; a finish on Windows can wait seconds per rename. The 4c caller runs these off
+ * the board's event loop (a worker thread or a child process), or one large restore stalls every other request.
  */
 
 const childProcess = require('node:child_process');
@@ -78,11 +78,11 @@ const GIT_WHY = 'git runs its settings here (hooks, fsmonitor) when an agent use
    sshCommand, a credential helper or an include runs or loads something the moment the agent's git reaches it. Listing
    too much is the safe direction: an unknown key is shown, never passed. */
 const GIT_PLAIN_KEYS = new Set([
-  'core.repositoryformatversion', 'core.filemode', 'core.bare', 'core.logallrefupdates', 'core.ignorecase',
-  'core.precomposeunicode', 'core.symlinks', 'core.autocrlf', 'core.eol', 'core.safecrlf', 'core.quotepath',
+  'core.repositoryformatversion', 'core.filemode', 'core.bare', 'core.logallrefupdates',
+  'core.autocrlf', 'core.eol', 'core.safecrlf', 'core.quotepath',
   'core.abbrev', 'core.compression', 'core.checkstat', 'core.trustctime', 'core.untrackedcache', 'core.splitindex',
   'core.commitgraph', 'core.multipackindex', 'core.sparsecheckout', 'core.sparsecheckoutcone', 'core.longpaths',
-  'core.protectntfs', 'core.protecthfs', 'core.whitespace',
+  'core.whitespace',   // not protectNTFS, protectHFS, symlinks, ignoreCase or precomposeUnicode: they guard checkout paths (review 3)
   'remote.*.url', 'remote.*.fetch', 'remote.*.push', 'remote.*.tagopt', 'remote.*.prune', 'remote.*.mirror',
   'branch.*.remote', 'branch.*.merge', 'branch.*.rebase', 'branch.*.pushremote', 'branch.*.vscode-merge-base',
   'user.name', 'user.email', 'pull.rebase', 'pull.ff', 'push.default', 'push.autosetupremote', 'fetch.prune',
@@ -96,7 +96,8 @@ const MAX_GIT_KEYS_SHOWN = 20;   // per config file; past it one line says how m
 const GIT_READ_MS = 2000;
 const MAX_GIT_READ_TOTAL_MS = 20000;   // across one listing (review 2: 400 reads at the timeout each was a 13-minute bound)
 const MAX_GIT_READS = 400;   // git config runs per listing (review 1: four per folder across a thousand rows took 10 s)
-const MAX_SUBSECTION_CHARS = 30;   // shown of a key's subsection; its section and name are always shown whole
+const MAX_SUBSECTION_CHARS = 30;   // shown of a key's subsection
+const MAX_KEY_PART_CHARS = 40;   // shown of its section and of its name (review 3: git takes either at any length)
 /* Characters that draw nothing or only alter the one before, beside the classes cleanText drops: braille blank,
    Hangul and Khmer fillers, Mongolian and other variation selectors, the object replacement character. */
 const BLANKS = new RegExp(`[${[0x2800, 0x3164, 0xffa0, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x180b, 0x180c, 0x180d, 0x034f, 0xfffc, ...Array.from({ length: 16 }, (_, i) => 0xfe00 + i), ...Array.from({ length: 240 }, (_, i) => 0xe0100 + i)].map((c) => String.fromCodePoint(c)).join('')}]`, 'gu');
@@ -600,8 +601,8 @@ const isGit = (runs) => runs.some((r) => r === BARE || r.toLowerCase() === GIT);
 
 /* The keys in one config file that GIT_PLAIN_KEYS does not name, as `<shown> sets <key>` lines, or one line saying it
    could not be checked. Read by git itself, never by a parser here (a partial parser fails open): --file with no
-   --includes follows no include, the environment carries no GIT_* variable and no system or global config, and git runs
-   from the system's temporary folder, never from the restored one. A missing or broken git reads as not checked. */
+   --includes follows no include, none of the caller's GIT_* variables but GIT_EXEC_PATH is passed, no system or global
+   config is read, and git runs from the system's temporary folder, looking for no repository above it. A missing or broken git reads as not checked. */
 function gitSettingsOf(file, shown, budget) {
   let st;
   try { st = fs.lstatSync(file); } catch { return []; }
@@ -621,12 +622,13 @@ function gitSettingsOf(file, shown, budget) {
   if (keys.length > MAX_GIT_KEYS_SHOWN) out.push(`${shown} sets ${keys.length - MAX_GIT_KEYS_SHOWN} more git settings`);
   return out;
 }
-/* A key as shown: its section and name whole (git allows only letters, digits and hyphens in both), its subsection
-   cleaned and cut, so a long subsection cannot push the name off the line (review 1). */
+/* A key as shown: its section, subsection and name each cleaned and cut on its own, so a long subsection cannot push
+   the name off the line (review 1) and no part makes the line unbounded (review 3). */
 function keyLabelOf(key) {
   const first = key.indexOf('.'), last = key.lastIndexOf('.');
-  if (first === last) return labelOf(key);
-  return `${key.slice(0, first)}.${cleanText(key.slice(first + 1, last), MAX_SUBSECTION_CHARS, '(a name that cannot be shown)')}.${key.slice(last + 1)}`;
+  const part = (x, max) => cleanText(x, max, '(a name that cannot be shown)');
+  if (first === last) return `${part(key.slice(0, first), MAX_KEY_PART_CHARS)}.${part(key.slice(last + 1), MAX_KEY_PART_CHARS)}`;
+  return `${part(key.slice(0, first), MAX_KEY_PART_CHARS)}.${part(key.slice(first + 1, last), MAX_SUBSECTION_CHARS)}.${part(key.slice(last + 1), MAX_KEY_PART_CHARS)}`;
 }
 /* git's key `section.sub.name` (section and name lowercased by git, the subsection as written) as `section.*.name`. */
 function plainKeyOf(key) {
@@ -643,7 +645,7 @@ function gitSettingsIn(folder, runs, budget) {
     let st;
     try { st = fs.lstatSync(path.join(folder, GIT)); } catch { st = null; }
     if (st && st.isDirectory()) dirs.push([path.join(folder, GIT), GIT]);
-    else if (st) out.push(`${GIT} is ${st.isSymbolicLink() ? 'a link' : 'a file naming another folder'}, so its git settings were not checked`);
+    else if (st) out.push(`${GIT} is ${st.isSymbolicLink() ? 'a link' : 'not a folder'}, so its git settings were not checked`);
   }
   if (runs.includes(BARE)) dirs.push([folder, '']);
   for (const [dir, shown] of dirs) {
@@ -661,9 +663,9 @@ function gitSettingsIn(folder, runs, budget) {
 /* What in a folder runs or loads something when a provider starts there: its dot-entries and PLAIN_AT_START names (a
    link counts, unopened), a git repository in either form, linked briefs, briefs that are not plain UTF-8 text, and
    `@` imports in any brief. `budget.left` is the brief bytes the whole listing may still read, `budget.gitReads` the git config runs, `budget.gitUntil` when they stop. */
-function runsIn(folder, budget) {
+function runsIn(folder, budget, gitSettings = false) {
   const listed = namesIn(folder, MAX_ENTRIES_READ);
-  if (!listed) { const g = gitIn(folder); return [UNREADABLE, ...g, ...gitSettingsIn(folder, g, budget)]; }   // git still finds what lstat can see
+  if (!listed) { const g = gitIn(folder); return [UNREADABLE, ...g, ...(gitSettings ? gitSettingsIn(folder, g, budget) : [])]; }   // git still finds what lstat can see
   const out = [];
   for (const n of listed.names.filter((x) => x.startsWith('.') && !HARMLESS.has(x))) out.push(labelOf(n));
   // The start-time dot-names asked by exact name, for a spelling the filesystem opens as one of them.
@@ -697,7 +699,7 @@ function runsIn(folder, budget) {
     else if (/(^|[^\p{L}\p{N}_@.])@[^\s@]|@(\.{1,2}\/|~\/|\/)/u.test(head.toString('utf8'))) out.push(`${brief} imports`);
     if (bytes.length > MAX_BRIEF_BYTES) out.push(`${brief} (too large to check in full)`);
   }
-  out.push(...gitSettingsIn(folder, out, budget));
+  if (gitSettings) out.push(...gitSettingsIn(folder, out, budget));
   return out;
 }
 
@@ -803,7 +805,7 @@ function listRestoredAgents(opts = {}) {
     }
   };
   const pr = roots.AGENT_WORKFORCE_PROJECTS;
-  const projectsTop = pr && realDir(pr) ? runsIn(pr, budget) : [];
+  const projectsTop = pr && realDir(pr) ? runsIn(pr, budget, true) : [];
   if (projectsTop.includes(CUT)) more = true;
   if (isGit(projectsTop)) projectsTop.push(GIT_WHY);
   if (projectsTop.length) shared.push({ where: 'projects', label: '(the projects folder itself)', runs: projectsTop });
@@ -815,7 +817,7 @@ function listRestoredAgents(opts = {}) {
   for (const n of entriesOf(pr)) {
     if (full() || n.startsWith('.')) continue;   // dot-entries are named in the "(the projects folder itself)" row
     if (!isTopFolder(pr, n)) { shared.push({ where: 'projects', label: labelOf(n), runs: [] }); continue; }
-    const runs = realDir(path.join(pr, n)) ? runsIn(path.join(pr, n), budget) : ['it is a link'];
+    const runs = realDir(path.join(pr, n)) ? runsIn(path.join(pr, n), budget, true) : ['it is a link'];
     if (runs.includes(CUT)) more = true;
     if (isGit(runs)) runs.push(GIT_WHY);
     if (runs.length) shared.push({ where: 'projects', label: labelOf(n), runs });
