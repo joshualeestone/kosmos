@@ -30,6 +30,8 @@ struct RoomView: View {
     @State private var atBottom = true
     // kosmos#7645: the debug scroll-up (KOSMOS_SAMPLE_ROOM_SCROLLUP) has come to rest; a UI test taps the box only then.
     @State private var sampleScrollRested = false
+    // kosmos#7654: the latest opening jump to the end (goEnd); a newer one, or none, stops an older one's retries.
+    @State private var endJumps = 0
     // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
     // never marked seen.
     @State private var visible = false
@@ -750,7 +752,7 @@ struct RoomView: View {
                 if !settledAtBottom {
                     // The first page: straight to the newest row, then the top may ask for older ones. A page that fits
                     // on one screen moves neither marker, so settle here when the end is already showing.
-                    proxy.scrollTo("bottom", anchor: .bottom)
+                    goEnd(proxy)
                     DispatchQueue.main.async { if atBottom && !rows.isEmpty { settledAtBottom = true } }
                 } else if atBottom && !searching {
                     // Not while searching: a new post may not even be among what matched (the board's convPause).
@@ -850,12 +852,28 @@ struct RoomView: View {
                 }
             }
             .onAppear {
-                proxy.scrollTo("bottom", anchor: .bottom)
+                goEnd(proxy)
                 // A room opened again with its rows already read: the last row will not change, so settle here.
                 // (settled by the end of the room appearing, above)
             }
         }
     }
+
+    // kosmos#7654 (measured on the simulator 10-30): on iOS 26 one jump to the end of a long room falls short, as rows
+    // above are drawn with estimated heights (150 posts: half a post short, 220: four; 50 and 100 land, and iOS 27 lands
+    // on all). So the opening jump is tried again on the next layout passes while the end marker is not on screen, and
+    // stops once it is. Only for the first half second: after that a room not at its end is the person's own scroll.
+    private func goEnd(_ proxy: ScrollViewProxy) {
+        proxy.scrollTo("bottom", anchor: .bottom)
+        endJumps &+= 1
+        let jump = endJumps
+        for at in Self.endRetries {
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) {
+                if jump == endJumps && visible && !atBottom && !searchMode && archiveShown == nil { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+        }
+    }
+    static let endRetries: [Double] = [0.05, 0.15, 0.3, 0.5]
 
     #if DEBUG
     // Once a launch, so coming back to the room in a screenshot run shows it as a person would.
