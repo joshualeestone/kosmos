@@ -608,7 +608,9 @@ struct MessageActionsSheet: View {
                 row(Board.deleteConfirmYes + " message", "trash", destructive: true) { confirmingDelete = true }
             }
         }
-        .confirmationDialog(Board.deleteConfirmTitle, isPresented: $confirmingDelete, titleVisibility: .visible) {
+        // An alert, not a confirmation dialog: on iOS 26 and later a dialog is a popover that drops its cancel button, and
+        // the agreed question shows both answers, Delete and Keep it (seen on the iOS 27 simulator, 10-30).
+        .alert(Board.deleteConfirmTitle, isPresented: $confirmingDelete) {
             Button(Board.deleteConfirmYes, role: .destructive) {
                 if let delete = target.delete { after(delete) }
                 dismiss()
