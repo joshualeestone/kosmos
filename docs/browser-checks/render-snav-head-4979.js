@@ -111,12 +111,14 @@ function chk(ok, label, extra) {
                 const fb = pills[0].getBoundingClientRect();
                 const hit = document.elementFromPoint(fb.left + fb.width / 2, fb.top + fb.height / 2);
                 return { layout: document.documentElement.getAttribute('data-layout') || 'tabs', cons: document.body.classList.contains('consolidated'), headBottom: Math.round(hb.bottom), headShown: hb.height > 0,
-                  navPos: getComputedStyle(document.getElementById('s-nav')).position, y: Math.round(window.scrollY), tops, firstHit: !!(hit && pills[0].contains(hit)) };
+                  navPos: getComputedStyle(document.getElementById('s-nav')).position, y: Math.round(window.scrollY), tops, firstHit: !!(hit && pills[0].contains(hit)),
+                  // #7648: name what took the click, so a miss says what covered the pill.
+                  hitWas: hit ? hit.tagName.toLowerCase() + (hit.id ? '#' + hit.id : '') + (typeof hit.className === 'string' && hit.className ? '.' + hit.className.trim().split(/\s+/).join('.') : '') : null };
               });
               chk(r.layout === layout && !r.cons && r.headShown && r.navPos === 'sticky' && r.y > drawnTop,
                 `${tag}: control: ${layout} saved, the tab view (no body.consolidated), the header shows, the nav is sticky and the page scrolled past it`, JSON.stringify({ drawnTop: Math.round(drawnTop), ...r }));
               chk(r.tops.length > 0 && r.tops.every((t) => t >= r.headBottom), `${tag}: every pill sits below the app header`, JSON.stringify({ headBottom: r.headBottom, tops: r.tops }));
-              chk(r.firstHit, `${tag}: a click at the first pill lands on it, not on the header`);
+              chk(r.firstHit, `${tag}: a click at the first pill lands on it, not on the header`, JSON.stringify({ hitWas: r.hitWas }));
               ran += 1;
             }
             chk(errs.length === 0, `${engineName} ${layout} ${width}px: no page errors`, errs.join(' | '));
@@ -230,8 +232,11 @@ function chk(ok, label, extra) {
             n.textContent = 'a stand-in notice';
             slot.appendChild(n);
             document.getElementById('topnotes').appendChild(slot);
+            // #7648: the 5s pollAsk -> paintAsk re-hides an empty Allow card, so a poll inside this arm failed it.
+            window.paintAsk = () => {};
             const ask = document.getElementById('askcard'); if (ask) ask.hidden = false;   // the Allow card, shown
           });
+          await page.evaluate(() => pollAsk());   // the poll, forced every run, so the stub above is always exercised
           await page.waitForTimeout(400);
           await page.evaluate(() => { const m = document.documentElement.scrollHeight - innerHeight; window.scrollTo(0, Math.round(m / 2)); });
           await page.waitForTimeout(200);
