@@ -17,6 +17,6 @@ the automatic re-accept said "It is not known whether accepting reached your com
 - The review-refusal table gains the code (certain refusal, "Nothing changed").
 - Control: both entries removed, both tests red.
 
-## Not changed
-- web/index.html's ticket rule (`r.code !== 'org_bad_world'` spends the ticket): a first join cannot get
-  audit_unavailable (its binding transaction writes no rows), and a move has no ticket.
+## The ticket (review 1 corrected my plan)
+A family's Accept sends a ticket on a move too, and any coded refusal but org_bad_world spent it. audit_unavailable
+now keeps it at all three sites (server.js restore, plusOrgFamilyAccept, plusOrgReviewSay), as org_bad_world does.
