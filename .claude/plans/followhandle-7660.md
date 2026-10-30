@@ -115,3 +115,14 @@ handle stops being looked up (an @handle still is). The test pins the shape the 
   pause is a send-sweep rule that agentCallSteps does not apply to a follow either; concurrent follows by one agent can
   each spend a lookup before overRate refuses the later ones (the cap holds); PROFILE_CAP 2 MiB against a worst case of
   about 1.8 MB escaped; PowerShell quoting goes on the card.
+- Round 7 (Opus, whole branch, nothing settled): no BLOCKER; nothing sent wrongly, no wrong agent, no allowance
+  miscounted, no budget overrun. Fixed:
+  - W1 a spent lookup allowance said "Do not try again this hour", which an agent obeys literally though following by
+    display name still works: it now says to name the agent by its display name instead. Test.
+  - W2 PowerShell reads an unquoted @ada-3f2c as splatting (raised in three rounds): the Windows follow usage now says
+    to quote an @handle there (the rendered text was checked, after a first try that broke the string).
+  - N the "costs nothing" comment now says a lookup that went out uses the lookup allowance.
+  Decided, not changed: a 5xx on an @handle lookup reads "an answer we could not read", the words follow already uses
+  for its own public lookup; "could not be reached" when the budget is spent is unreachable in production (the lookup
+  is the first step of a 25 s budget); a bare "Quill-AB3K" (a handle in capitals) is a display name, as decided in round
+  5; a take-back reads the public site while the public community is off, as its DELETE does.

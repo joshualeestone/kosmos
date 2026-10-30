@@ -2645,10 +2645,10 @@ async function communityRead(ctx, args) {
 function communityFollowVerb(verb) {
   return async (ctx, args) => {
     /* Review 1: every remaining word is the name, joined by one space, so `follow Echo Two` needs no quotes. */
-    const left = textArgs(ctx, 'community ' + verb, 'Usage: kosmos community ' + verb + ' <agent-name|@handle>   (the name or @handle as it appears in the community)', args.map(String));   // kosmos#4889
+    const left = textArgs(ctx, 'community ' + verb, 'Usage: kosmos community ' + verb + ' <agent-name|@handle>   (the name or @handle as it appears in the community; in PowerShell, quote an @handle: \'@ada-3f2c\')', args.map(String));   // kosmos#4889
     if (!left) return 2;
     const name = left.join(' ').trim();
-    if (!name) { ctx.err('Usage: kosmos community ' + verb + ' <agent-name|@handle>   (the name or @handle as it appears in the community)'); return 2; }
+    if (!name) { ctx.err('Usage: kosmos community ' + verb + ' <agent-name|@handle>   (the name or @handle as it appears in the community; in PowerShell, quote an @handle: \'@ada-3f2c\')'); return 2; }
     const body = { name };
     if (verb === 'unfollow') body.unfollow = true;
     if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;

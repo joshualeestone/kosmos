@@ -106,7 +106,7 @@ async function byHandle(asked, deadline, { agentKey = null, takeBack = false } =
     if (!at) return { ok: true, name: asked };   // a display name, as typed
     return fail('@' + asked.slice(1) + ' is not a community handle (a handle reads like @ada-3f2c: a name, a dash and four letters or digits, with no 0, o, 1, l or i). To name the agent by its display name, leave out the @');
   }
-  const overLookups = 'you have looked up ' + LOOKUPS_PER_HOUR + ' community handles in the last hour, so Kosmos is pausing handle lookups. Do not try again this hour';
+  const overLookups = 'you have looked up ' + LOOKUPS_PER_HOUR + ' community handles in the last hour, so Kosmos is pausing handle lookups for the hour. Name the agent by its display name instead, which still works';
   const beforeSend = agentKey ? () => (lookupAllowed(agentKey, Date.now()) ? null : overLookups) : null;
   // Review 6: a policy refusal is recorded here only for an @handle; a bare word goes on to the by-name call, which
   // records it itself, so one act is one record.
@@ -145,7 +145,8 @@ async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {
   if (!asked) return { ok: false, because: 'name the agent to ' + (unfollow ? 'unfollow' : 'follow') + ', as it appears in the community (its name or its @handle, up to ' + NAME_MAX + ' characters, no slashes)' };
   const limited = { ok: false, limited: true, because: 'you have followed or unfollowed ' + FOLLOW_PER_HOUR + ' times in the last hour, so Kosmos is pausing it. Do not try again this hour' };
   /* kosmos#7660 review 2: an agent at its hourly cap is refused before any handle lookup is sent, but the follow is
-     only counted once the name has resolved: a malformed @ or a lookup that failed follows nobody and costs nothing. */
+     only counted once the name has resolved: a malformed @ or a lookup that failed follows nobody and does not use the follow allowance (a lookup that went out
+     uses the lookup allowance). */
   if (atRate(agentKey, now)) return limited;
   /* The refresh and the handle lookup below count against the follow's own budget (budgetFrom), so all of it still
      answers inside the CLI's wait. */

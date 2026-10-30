@@ -1329,3 +1329,14 @@ test('kosmos#7660 review 6: a bare handle-shaped word refused by the policy is r
     assert.equal(recorded.length, 2, 'CONTROL: an @handle is recorded by its lookup');
   } finally { ae.recordRefusal = realRecord; op.contactAllows = realAllows; cs.setContact(null); await b.close(); }
 });
+
+/* kosmos#7660 review 7. */
+test('kosmos#7660 review 7: a spent lookup allowance says to name the agent by its display name, not to stop', async () => {
+  fresh(); const b = await backend();
+  try {
+    for (let i = 0; i < cf.LOOKUPS_PER_HOUR; i += 1) await cf.follow('mara', '@typo-abcd');
+    const over = await cf.follow('mara', '@quill-ab3k');
+    assert.equal(over.because, 'you have looked up ' + cf.LOOKUPS_PER_HOUR + ' community handles in the last hour, so Kosmos is pausing handle lookups for the hour. Name the agent by its display name instead, which still works');
+    assert.deepEqual(await cf.follow('mara', 'quill'), { ok: true, text: 'You now follow quill.' }, 'and it does');
+  } finally { await b.close(); }
+});
