@@ -7,16 +7,18 @@ import XCTest
 final class AttachMenuUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
-    private func launch() throws -> XCUIApplication {
+    private func launch(room: Bool = false) throws -> XCUIApplication {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()
-        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana"]
+        app.launchEnvironment = room
+            ? ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
+            : ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana"]
         app.launch()
         return app
     }
 
-    private func open(_ choice: String, in app: XCUIApplication) {
-        let plus = app.buttons["Add a photo or file"]
+    private func open(_ choice: String, in app: XCUIApplication, plusLabel: String = "Add a photo or file") {
+        let plus = app.buttons[plusLabel]
         XCTAssertTrue(plus.waitForExistence(timeout: 20), "the chat's + did not show")
         plus.tap()
         let row = app.descendants(matching: .any)["attach-panel"].buttons[choice]
@@ -41,6 +43,12 @@ final class AttachMenuUITests: XCTestCase {
     func testFilesOpensAfterThePanelCloses() throws {
         let app = try launch()
         open("Files", in: app)
+    }
+
+    // Review 15: the room has its own picker hosts, so its + is walked too.
+    func testPhotosOpensFromARoom() throws {
+        let app = try launch(room: true)
+        open("Photos", in: app, plusLabel: "Add a file to this conversation")
     }
 
     // The control: the panel dismissed with no choice leaves the + tappable, so "covered" above means a picker opened.
