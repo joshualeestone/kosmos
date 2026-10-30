@@ -74,3 +74,16 @@ Arms after round 1 (10-30 07:0x to 07:2x CDT, one run each):
 **Observed in arm H, not fixed here:** `xcodebuild` sat for about ten minutes after the tests had finished (its log
 said "Executed 3 tests, with 1 failure" at 07:13); stopping the inner `xcodebuild` let the runner finish and print the
 trace. The runner has no timeout of its own, so a CI job that wraps it should set one.
+
+## After review round 2
+
+- What this branch is, stated for the PR: a diagnostic and a determinism change. It does NOT fix Angel's flake (its
+  cause is still unknown, see above); #7609 stays open until a trace has explained a real failure.
+- The marker means "the hook's 3.6 s step ran", not "the reader is up the thread": if the unmeasured second guess is
+  right, check 3 still fails after the marker, and the trace then shows why. Kept that way on purpose.
+- The marker ignores taps (`allowsHitTesting(false)`), and a failure prints the last 60 trace lines (about 12 are
+  written today), so the "scroll-up rested" line survives more tracing later.
+- Runs after the round-2 changes (10-30 07:3x to 07:5x CDT): the first failed in check 2 (the long chat, which uses
+  no scroll-up hook, so nothing in this branch reaches it) with XCUITest's own "Timed out while evaluating UI query";
+  the second passed 3 of 3 with this Mac's load at 222. Read as load on the test runner, not this change; recorded
+  rather than dropped, because a second such timeout in check 2 would be its own card.

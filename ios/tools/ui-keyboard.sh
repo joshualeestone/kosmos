@@ -61,7 +61,7 @@ if grep -q -E "Test Case .-\[KosmosUITests\.KeyboardSlideUITests testReadHigherU
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
     echo "  the chat's last scroll events (read-higher-up check):"
-    tail -30 "$data/Documents/trace.txt" | sed 's/^/    /'
+    tail -60 "$data/Documents/trace.txt" | sed 's/^/    /'
   else
     echo "  (no scroll trace from the app)"
   fi

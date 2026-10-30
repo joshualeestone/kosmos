@@ -550,6 +550,7 @@ struct ChatView: View {
                 .overlay(alignment: .bottomTrailing) {
                     if sampleScrollRested {
                         Color.clear.frame(width: 1, height: 1)
+                            .allowsHitTesting(false)
                             .accessibilityElement().accessibilityLabel("sample scroll rested").accessibilityIdentifier("sample-scroll-rested")
                     }
                 }
