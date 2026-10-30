@@ -1058,7 +1058,9 @@ function emptyState() {
    its own root's count, so review 40 (every stop counted, whatever the disk says) holds per root. */
 const STOPS = new Map();
 const UNWRITTEN_STOP = new Set();
-const rootKey = (root) => path.resolve(root);
+/* Code review 3, NIT 9: the same folder spelled two ways (a symlink, /var and /private/var) is one key, as server.js
+   matches roots by realpath; a folder not there yet falls back to its resolved spelling. */
+const rootKey = (root) => { try { return fs.realpathSync(root); } catch { return path.resolve(root); } };
 const stopsOf = (root) => STOPS.get(rootKey(root)) || 0;
 let DAMAGE_SAID = false;
 function markWithdrawn(root0) {

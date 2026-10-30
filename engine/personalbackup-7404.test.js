@@ -45,7 +45,7 @@ function coordinator(over = {}) {
     get member() { return member && !left; },
     macRequest: async (m, route, body) => {
       sent.push({ route, body: body == null ? null : JSON.parse(JSON.stringify(body)) });
-      if (route === pb.ROUTE) { if (!over.preview) { member = true; left = false; } return over.preview || { ok: true, data: { org: ORG, role: 'admin', consent: WORDS, consentHash: HASH, computerSalt: SALT } }; }
+      if (route === pb.ROUTE) { if (!over.preview) { member = true; left = false; } return over.preview || { ok: true, data: { org: ORG, role: 'member', consent: WORDS, consentHash: HASH, computerSalt: SALT } }; }
       if (route === oe.ROUTES.enroll) {
         if (over.enrollRefuse) return { ok: false, because: '409 {"code":"' + over.enrollRefuse + '"}', refusal: { status: 409, code: over.enrollRefuse } };
         if (body.consentHash !== HASH || body.wordsShown !== true) return { ok: false, because: '409 {"code":"personal_backup_words_unseen"}', refusal: { status: 409, code: 'personal_backup_words_unseen' } };
@@ -91,7 +91,7 @@ test('#7404: on, followed up and off under its own root; a company policy at sto
   seedCompanyPolicy();
   const before = companyPolicy();
   const c = coordinator();
-  const p = await pb.preview({ remote: c });
+  const p = await pb.preview({ root, remote: c });
   assert.equal(p.ok, true, JSON.stringify(p));
   assert.deepEqual(p.words, WORDS);
   const on = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
@@ -115,7 +115,7 @@ test('#7404 CONTROL: the same leave WITHOUT the inert policy wipes the company p
   seedCompanyPolicy();
   const before = companyPolicy();
   const c = coordinator();
-  const p = await pb.preview({ remote: c });
+  const p = await pb.preview({ root, remote: c });
   await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
   await oe.leave({ root, remote: c });   // orgenroll's default policy: the real orgpolicy at store.ROOT
   assert.notDeepEqual(companyPolicy(), before, 'control: a leave without the inert policy left the company policy, so the main test proves nothing');
@@ -124,7 +124,7 @@ test('#7404 CONTROL: the same leave WITHOUT the inert policy wipes the company p
 test('#7404: the enroll carries the served hash, wordsShown and org; a ticket is used once', async (t) => {
   const root = fresh(t);
   const c = coordinator();
-  const p = await pb.preview({ remote: c });
+  const p = await pb.preview({ root, remote: c });
   const on = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
   assert.equal(on.ok, true, JSON.stringify(on));
   const enroll = c.sent.find((x) => x.route === oe.ROUTES.enroll);
@@ -140,7 +140,7 @@ test('#7404: the enroll carries the served hash, wordsShown and org; a ticket is
 test('#7404: nothing lands where the company readers look', async (t) => {
   const root = fresh(t);
   const c = coordinator();
-  const p = await pb.preview({ remote: c });
+  const p = await pb.preview({ root, remote: c });
   await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
   assert.equal(fs.existsSync(path.join(root, oe.ENROLLMENT_FILE)), true, 'control: the personal record is under its own root');
   assert.equal(fs.existsSync(path.join(store.ROOT, oe.ENROLLMENT_FILE)), false, 'a personal enroll wrote the company record');
@@ -155,7 +155,7 @@ test('#7404: nothing lands where the company readers look', async (t) => {
 
 test('#7404: words that report anything, a non-personal org, or no hash are refused at the preview', async (t) => {
   fresh(t);
-  const base = { org: ORG, role: 'admin', consent: WORDS, consentHash: HASH, computerSalt: SALT };
+  const base = { org: ORG, role: 'member', consent: WORDS, consentHash: HASH, computerSalt: SALT };
   for (const [what, data] of [
     ['reports something', Object.assign({}, base, { consent: Object.assign({}, WORDS, { reports: ['agent names'] }) })],
     ['a company org', Object.assign({}, base, { org: Object.assign({}, ORG, { kind: 'company' }) })],
@@ -174,10 +174,10 @@ test('#7404: words that report anything, a non-personal org, or no hash are refu
 test('#7404: a ticket expires after ten minutes, and survives a try that sent nothing', async (t) => {
   const root = fresh(t);
   const c = coordinator();
-  const p = await pb.preview({ remote: c, now: () => 1000 });
+  const p = await pb.preview({ root, remote: c, now: () => 1000 });
   const late = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK, now: () => 1000 + 10 * 60 * 1000 + 1 });
   assert.equal(late.code, 'ticket');
-  const p2 = await pb.preview({ remote: c });
+  const p2 = await pb.preview({ root, remote: c });
   const unsent = await pb.switchOn(p2.ticket, true, { root, remote: { macRequest: undefined }, personalbackupkey: KEY_OK });
   assert.equal(unsent.ok, false);
   assert.notEqual(unsent.code, 'ticket');
@@ -189,13 +189,13 @@ test('#7404: off then on here needs no new code; another computer is told to res
   const root = fresh(t);
   const c = coordinator();
   const keys = (k) => ({ setUpPersonalKey: async () => k });
-  let p = await pb.preview({ remote: c });
+  let p = await pb.preview({ root, remote: c });
   const here = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: keys({ ok: false, code: 'already_here', because: 'x' }) });
   assert.deepEqual([here.ok, here.code, here.already], [true, null, true]);
   assert.equal(pb.state({ root }), 'on');
   await pb.switchOff({ root, remote: c });
   assert.equal(pb.state({ root }), 'off');
-  p = await pb.preview({ remote: c });
+  p = await pb.preview({ root, remote: c });
   const other = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: keys({ ok: false, code: 'already_set_up', because: 'x' }) });
   assert.deepEqual([other.ok, other.code], [false, 'restore']);
   assert.match(other.because, /Restore it here/);
@@ -208,7 +208,7 @@ test('#7404: off then on here needs no new code; another computer is told to res
 test('#7404: an answer naming another org is not taken as on', async (t) => {
   const root = fresh(t);
   const c = coordinator({ enrollOrg: Object.assign({}, ORG, { id: 'porg_other' }) });
-  const p = await pb.preview({ remote: c });
+  const p = await pb.preview({ root, remote: c });
   const on = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
   assert.equal(on.ok, false);
   assert.equal(pb.state({ root }), 'off');
@@ -220,7 +220,7 @@ test('#7404: the follow-up sends nothing with no personal backup here, and refre
   pb._resetFollowUpForTests();
   await pb.followUp({ root, remote: c, now: () => 5 * 3600e3 });
   assert.equal(c.sent.length, 0, 'a follow-up with no personal backup sent a request');
-  const p = await pb.preview({ remote: c });
+  const p = await pb.preview({ root, remote: c });
   await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
   pb._resetFollowUpForTests();
   const at = Date.now();
@@ -240,7 +240,7 @@ test('#7404: a coded personal refusal on enroll is told as refused, and leaves n
   for (const code of ['personal_backup_words_unseen', 'personal_backup_in_org', 'org_other_org']) {
     const root = fresh(t);
     const c = coordinator({ enrollRefuse: code });
-    const p = await pb.preview({ remote: c });
+    const p = await pb.preview({ root, remote: c });
     const on = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
     assert.equal(on.ok, false, code);
     assert.equal(on.unknown, undefined, code + ' was told as not known yet');
@@ -513,4 +513,99 @@ test('#7404: no status answer before the preview writes no marker', async (t) =>
   const p = await pb.preview({ root, remote: c });
   assert.equal(p.ok, true);
   assert.equal(fs.existsSync(path.join(root, PREVIEW_OPEN)), false);
+});
+
+/* Code review 3, blocker 1: a personal backup another computer of the account runs is never moved here. */
+const ON_B = { ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'B', world: 'b'.repeat(32), thisComputer: false } } };
+test('#7404 review 3 blocker 1: bound on another computer: the preview is refused and nothing is made', async (t) => {
+  const root = fresh(t);
+  const c = coordinator({ preexisting: true, statusAnswer: ON_B });
+  const r = await pb.preview({ root, remote: c });
+  assert.equal(r.code, 'personal_on_elsewhere');
+  assert.equal(c.sent.filter((x) => x.route === pb.ROUTE).length, 0, 'no preview sent');
+  // CONTROL: the same account bound on THIS computer (thisComputer true) is not "elsewhere".
+  const c2 = coordinator({ preexisting: true, statusAnswer: { ok: true, data: Object.assign({}, ON_B.data, { enrolled: Object.assign({}, ON_B.data.enrolled, { thisComputer: true }) }) } });
+  assert.equal((await pb.preview({ root: fresh(t), remote: c2 })).ok, true);
+});
+
+test('#7404 review 3 blocker 1: bound on another computer after the preview: switchOn sends no enroll', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  const real = c.macRequest;
+  c.macRequest = async (m, route, body) => (route === oe.ROUTES.status ? (c.sent.push({ route, body }), ON_B) : real(m, route, body));
+  const r = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  assert.equal(r.code, 'personal_on_elsewhere');
+  assert.equal(c.sent.filter((x) => x.route === oe.ROUTES.enroll).length, 0);
+  assert.equal(pb._TICKETS.has(p.ticket), false);
+});
+
+/* Warning 3: no leave while a switch-on here may be binding. */
+test('#7404 review 3 warning 3: the follow-up ends nothing while a switch-on is in flight', async (t) => {
+  const root = fresh(t);
+  let release;
+  const gate = new Promise((res) => { release = res; });
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  const real = c.macRequest;
+  c.macRequest = async (m, route, body) => { if (route === oe.ROUTES.enroll) await gate; return real(m, route, body); };
+  const on = pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  await new Promise((res) => setImmediate(res));
+  await new Promise((res) => setTimeout(res, 20));
+  pb._resetFollowUpForTests();
+  await pb.followUp({ root, remote: c, now: () => Date.now() + 11 * 60 * 1000 });
+  assert.equal(LEAVE_N(c), 0, 'no leave while the enroll is in flight');
+  release();
+  assert.equal((await on).ok, true);
+  assert.equal(c.member, true);
+});
+
+/* Warning 5: a failed enroll does not erase a good key marker. */
+test('#7404 review 3 warning 5: an enroll that fails leaves the key marker as it was', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true);
+  assert.equal(pb.state({ root }), 'on');
+  const p2 = await pb.preview({ root, remote: c });
+  const real = c.macRequest;
+  c.macRequest = async (m, route, body) => (route === oe.ROUTES.enroll ? { ok: false, because: '409 {"code":"org_consent_changed"}', refusal: { status: 409, code: 'org_consent_changed' } } : real(m, route, body));
+  const r = await pb.switchOn(p2.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  assert.equal(r.ok, false);
+  assert.equal(pb.state({ root }), 'on', 'still on: the key is fine');
+});
+
+/* Warning 2: the membership ended under an open preview: told to open it again. */
+test('#7404 review 3 warning 2: org_not_member on accept says open it again', async (t) => {
+  const root = fresh(t);
+  const c = coordinator({ enrollRefuse: 'org_not_member' });
+  const p = await pb.preview({ root, remote: c });
+  const r = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+  assert.match(r.because, /open it again/);
+  assert.doesNotMatch(r.because, /try again in a minute/);
+});
+
+/* NIT 7: a marker dated in the future (the clock set back) is treated as old, so it is still ended. */
+test('#7404 review 3 nit 7: a preview marker from the future is ended', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  await pb.preview({ root, remote: c });
+  const f = path.join(root, PREVIEW_OPEN);
+  const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+  fs.writeFileSync(f, JSON.stringify(Object.assign(j, { at: Date.now() + 365 * 24 * HOUR_MS })));
+  pb._resetFollowUpForTests();
+  await pb.followUp({ root, remote: c });
+  assert.equal(c.member, false);
+});
+
+/* kosmos#7658: a coordinator that reads the leave's orgId refuses another org's; that settles it, nothing retried. */
+test('#7404: org_not_that_org on the leave settles the marker', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  const real = c.macRequest;
+  c.macRequest = async (m, route, body) => (route === oe.ROUTES.leave ? (c.sent.push({ route, body }), { ok: false, because: '409 {"code":"org_not_that_org"}', refusal: { status: 409, code: 'org_not_that_org' } }) : real(m, route, body));
+  await pb.switchOn(p.ticket, false, { root, remote: c });
+  assert.equal(LEAVE_N(c), 1);
+  assert.equal(fs.existsSync(path.join(root, PREVIEW_OPEN)), false, 'settled: no retry');
 });

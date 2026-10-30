@@ -1432,7 +1432,8 @@ test('#7404: a stop under ANOTHER root mid-tick does not stop this root\'s send;
      not make the company root's in-flight tick write withdrawn and send nothing. The count was process-wide; it is per
      root now. The own-root arm is the control: it shows this test can see a stop at all. Red on the pre-fix file in the
      other-root arm. */
-  for (const own of [false, true]) {
+  // 'link' (code review 3, NIT 9): its own root spelled through a symlink is still its own root.
+  for (const own of [false, true, 'link']) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-7404-a-'));
     const other = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-7404-b-'));
     const tdir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-7404-t-'));
@@ -1448,7 +1449,12 @@ test('#7404: a stop under ANOTHER root mid-tick does not stop this root\'s send;
     let once = true;
     const src = Object.assign({}, base, { transcripts: async (d) => {
       if (!d.endsWith('/scout')) return [];
-      if (once) { once = false; ae.markWithdrawn(own ? root : other); }
+      if (once) {
+        once = false;
+        let at = own ? root : other;
+        if (own === 'link') { at = path.join(tdir, 'root-link'); fs.symlinkSync(root, at); }
+        ae.markWithdrawn(at);
+      }
       return [file];
     } });
     await ae.tick({ platform: 'darwin', root, remote: c, sources: src, now: Date.now() });
