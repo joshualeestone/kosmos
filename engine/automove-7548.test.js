@@ -320,7 +320,7 @@ test('#7548: an agent whose move is refused is passed over for an hour, so the n
   d.agentsOn = (dir) => ({ names: dir === '/u/.claude-work' ? ['ada'] : [], complete: true, moving: [] });   // bo has gone
   await run.tick(d, NOW + 3000);
   assert.deepEqual(calls.starts.map((b) => b.names[0]), ['ada', 'bo'], 'the refused agent was tried again inside its hour');
-  await run.tick(d, NOW + automove.REFUSED_HOLD_MS + 4000);
+  await twoTicks(run, d, NOW + automove.REFUSED_HOLD_MS + 4000);   // two ticks: an hour-old reading is not the previous tick's
   assert.deepEqual(calls.starts.map((b) => b.names[0]), ['ada', 'bo', 'ada'], 'CONTROL: after the hour it is tried again');
 });
 
@@ -739,4 +739,87 @@ test('#7548 review round 3: three refusals hold an agent a day only when all thr
     await twoTicks(run, d);
     assert.equal(calls.starts.length, moves, what);
   }
+});
+
+test('#7548 review round 4: a tick that saw the agent working, or a previous tick too long ago, is not one of the two idle ticks', async () => {
+  /* Idle, then working at the re-check (skipped), then idle: the third tick alone does not move it. */
+  const [idle] = realCards(['ada']);
+  const [busy] = realCards(['ada', 'working']);
+  let fresh = [idle];
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d, calls } = deps({ roster: () => [idle], freshRoster: () => fresh });
+  await run.tick(d, NOW);
+  fresh = [busy];
+  assert.equal((await run.tick(d, NOW + 1000)).did, 'skipped');
+  fresh = [idle];
+  await run.tick(d, NOW + 2000);
+  assert.deepEqual(calls.starts, [], 'an agent seen working one tick ago was moved on one idle tick');
+  await run.tick(d, NOW + 3000);
+  assert.equal(calls.starts.length, 1, 'CONTROL: two idle ticks after it, it moves');
+  assert.equal(lines(file).filter((l) => l.kind === 'skipped').length, 1);
+  /* Two ticks further apart than the sweep's period allow are not consecutive ones. */
+  const r2 = automove.create({ file: fileFor() });
+  const { d: d2, calls: c2 } = deps();
+  await r2.tick(d2, NOW);
+  await r2.tick(d2, NOW + automove.PREVIOUS_TICK_MS + 1000);
+  assert.deepEqual(c2.starts, [], 'a reading from long ago counted as the previous tick');
+  await r2.tick(d2, NOW + automove.PREVIOUS_TICK_MS + 2000);
+  assert.equal(c2.starts.length, 1, 'CONTROL: the next tick in time moves it');
+});
+
+test('#7548 review round 4: "no longer idle" is written at most once an hour per agent', async () => {
+  const [idle] = realCards(['ada']);
+  const [busy] = realCards(['ada', 'working']);
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d } = deps({ roster: () => [idle], freshRoster: () => [busy] });
+  for (let i = 0; i < 6; i += 1) await run.tick(d, NOW + i * 1000);
+  assert.equal(lines(file).filter((l) => l.kind === 'skipped').length, 1, 'a skip was written on every tick');
+  for (let i = 0; i < 2; i += 1) await run.tick(d, NOW + automove.SKIP_SAID_MS + 10000 + i * 1000);
+  assert.equal(lines(file).filter((l) => l.kind === 'skipped').length, 2, 'CONTROL: an hour later it is said again');
+});
+
+test('#7548 review round 4: one tick at a time, so a watch a move adds is never dropped by a tick beside it', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const { d, calls } = deps({ start: (body) => ({ status: 202, body: { id: 'm1', agents: [{ name: body.names[0], outcome: 'pending' }] }, done: gate }) });
+  await run.tick(d, NOW);
+  const first = run.tick(d, NOW + 1000);   // moves, and waits on the move's restarts
+  await new Promise((r) => setImmediate(r));
+  const second = await run.tick(d, NOW + 2000);
+  assert.deepEqual([second.did, second.because], ['nothing', 'busy'], 'a second tick ran beside a move');
+  release();
+  assert.equal((await first).did, 'moved');
+  assert.equal(calls.starts.length, 1);
+  assert.deepEqual(run.state.watching.map((w) => w.agent), ['ada'], 'the move\'s watch was lost');
+});
+
+test('#7548 review round 4: a move whose line the record did not keep stops every move for a day; route names are trimmed', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d, calls } = deps({ start: (body) => { fs.rmSync(file, { force: true }); fs.mkdirSync(file); /* Only the started line fails: the record is writable again before the move ends, so its ending line is kept. */
+    return { status: 202, body: { id: 'm1', agents: [{ name: body.names[0], outcome: 'pending' }] }, done: Promise.resolve().then(() => fs.rmSync(file, { recursive: true, force: true })) }; } });
+  try {
+    await twoTicks(run, d);
+    assert.equal(calls.starts.length, 1, 'CONTROL: the move ran');
+    assert.ok(lines(file).some((l) => l.kind === 'move' && l.outcome === 'changed'), 'CONTROL: the ending line was kept');
+    assert.ok(Number.isFinite(run.state.unrecordedAt), 'a move whose started line the record did not keep was not noticed');
+  } finally { fs.rmSync(file, { recursive: true, force: true }); }
+  const r = await run.tick(d, NOW + 3000);
+  assert.equal(r.did, 'unreadable', 'the mover went on after losing a move\'s lines');
+  /* The mirror: the started line is kept and the record breaks during the move, so only the ending is lost. */
+  const f2 = fileFor();
+  const r2 = automove.create({ file: f2 });
+  const { d: d2 } = deps({ start: (body) => ({ status: 202, body: { id: 'm2', agents: [{ name: body.names[0], outcome: 'pending' }] },
+    done: Promise.resolve().then(() => { fs.rmSync(f2, { force: true }); fs.mkdirSync(f2); }) }) });
+  try {
+    await twoTicks(r2, d2);
+    assert.ok(Number.isFinite(r2.state.unrecordedAt), 'a move whose ending the record did not keep was not noticed');
+  } finally { fs.rmSync(f2, { recursive: true, force: true }); }
+  const named = fileFor();
+  automove.personMoved(named, ['  ada '], '/x', NOW, ON);
+  assert.deepEqual(lines(named).map((l) => l.agent), ['ada'], 'a name with spaces round it was written as sent');
 });

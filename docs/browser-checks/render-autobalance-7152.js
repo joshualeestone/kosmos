@@ -247,7 +247,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         /^At 11:59\sAM, Ada's first request on Spare was refused\. Move it back if it needs to work now; Kosmos will not move agents to Spare for a day\.$/,
         /^At 11:58\sAM, Ada was seen working on Spare\.$/,
         /^At 11:57\sAM, Ada was not seen working on Spare in the day since it moved, so Kosmos waits a day before moving another agent there\.$/,
-        /^At 11:56\sAM, Ada is no longer on Spare \(it was moved or removed\), so Kosmos leaves it where it is for a day\.$/,
+        /^At 11:56\sAM, Ada is not on Spare now \(a person moved it, or the move did not go through\), so Kosmos leaves it where it is for a day\.$/,
         /^At 11:55\sAM, Kosmos did not move <b>Bo<\/b>, because it was no longer idle\.$/,
         /^At 11:54\sAM, Kosmos tried to move Ada to Spare, and the move was refused, so it stays on Work\.$/,
         /^At 11:53\sAM, Kosmos tried to move Ada to Spare and could not tell whether it went through\. Check which account it is on above\.$/,

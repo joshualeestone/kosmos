@@ -72,3 +72,9 @@ tests for 7, 11 and 12, and a page check for the new lines (docs/browser-checks/
   it cannot read; Settings says "moves them itself" while a tick is blocked.
 - Full suite on the round 2 head under load ~200: 14 timeouts in untouched areas, all green alone; one real red
   (engine.reachable: the test-only reset export), fixed by naming it a ForTests seam and excusing it.
+- Round 4 (Opus): a re-check that saw the agent working no longer counts toward the two idle ticks; the previous tick
+  must be within PREVIOUS_TICK_MS (25 min, 2.5 sweep periods); one tick at a time (a tick past the backstop could drop
+  a new watch); a move whose started or ending line was not kept stops moves for a day; route names trimmed; a
+  "no longer idle" line at most once an hour per agent; the released line no longer claims the agent was moved.
+  Left as it is: a Stop cannot land on the mover's own one-agent move (accountmove runs its first pass before
+  returning), so the mover's `stopped` branch is unreachable today; it is kept because accountmove can change.
