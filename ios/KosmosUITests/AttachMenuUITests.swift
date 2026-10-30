@@ -69,7 +69,8 @@ final class AttachMenuUITests: XCTestCase {
     }
 
     // Review 16: every row is as wide as the widest, so no row leaves a strip that closes the panel instead. The
-    // simulator has no camera, so Camera carries its "Not available" note and is the widest row: the case that broke.
+    // simulator has no camera, so Camera carries its "Not available" note and is the widest row. Review 17: an attempt
+    // to force equal widths (fixedSize) pushed the rows off the screen at the largest text, so that is checked too.
     private func rowWidths(_ app: XCUIApplication) -> [CGFloat] {
         let plus = app.buttons["Add a photo or file"]
         XCTAssertTrue(plus.waitForExistence(timeout: 20), "the chat's + did not show")
@@ -80,6 +81,9 @@ final class AttachMenuUITests: XCTestCase {
         let rows = panel.buttons.allElementsBoundByIndex
         XCTAssertEqual(rows.count, 3, "the panel should offer Camera, Photos and Files")
         XCTAssertTrue(rows.contains { $0.label.contains("Not available") }, "Camera's note did not show, so this proves nothing")
+        // And every row fits on the screen: equal widths alone would pass on rows that all overflow it together.
+        let screen = app.windows.firstMatch.frame
+        for row in rows { XCTAssertTrue(screen.contains(row.frame), "\(row.label) runs off the screen: \(row.frame) in \(screen)") }
         return rows.map { $0.frame.width }
     }
 
