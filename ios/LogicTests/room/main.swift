@@ -522,16 +522,17 @@ check(!chatSource.contains("keepAnchor scrollTo \\(id)"), "review 1: no message 
 // kosmos#7420 (build 19): the scroll view's line joins the record by concatenation, so the trace scan above cannot see it;
 // its own values are checked here: numbers and the band's fixed words only.
 let geoStart = chatSource.range(of: "let line = \"scroll y ")
-let geoText = geoStart.map { String(chatSource[$0.lowerBound...].prefix(260)) } ?? ""
+let geoEnd = geoStart.flatMap { chatSource.range(of: "let settled", range: $0.upperBound..<chatSource.endIndex) }
+let geoText = geoStart.flatMap { s in geoEnd.map { String(chatSource[s.lowerBound..<$0.lowerBound]) } } ?? ""
 let geoValues = geoText.components(separatedBy: "\\(").dropFirst().map { $0.components(separatedBy: ")").first ?? "" }
 check(geoValues.count == 6 && geoValues.allSatisfy { $0.hasPrefix("Int(") || $0 == "band.rawValue" },
       "kosmos#7420: the scroll view's line records numbers and the band only (\(geoValues.count) values: \(geoValues))")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
-check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, rowsGone || diagGeometry().off") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
+check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, rowsGone || (geo.off && !geo.moving)") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
       && !chatSource.contains(".onChange(of: onScreen.isEmpty)"), "review 1: the check runs only for the chat on screen, and never makes the chat redraw per row")
 check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("let rowsGone = onScreen.isEmpty && (!endVisible || neverDrew) && !topVisible")
-      && chatSource.contains("rowsGone || diagGeometry().off, count > 0, thread != nil else { return }") && chatSource.contains("ShareLink(item: report"),
+      && chatSource.contains("rowsGone || (geo.off && !geo.moving), count > 0, thread != nil else { return }") && chatSource.contains("ShareLink(item: report"),
       "kosmos#7420: a bounded record, the blank check, and a share the person chooses (nothing sent by itself)")
 // kosmos#7420 (Josh 10-28, builds 13 to 15): the chat's list is locked against a sideways offset (every row 16 pt left).
 // kosmos#7575: it also tells the chat of each shift (the trailing closure), for the report sent to the board.

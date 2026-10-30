@@ -765,7 +765,9 @@ struct ChatView: View {
         // kosmos#7420 (build 19): or the scroll view's band is off the content, whatever the rows say (Josh's screenshot
         // was empty under a record counting rows on screen).
         let rowsGone = onScreen.isEmpty && (!endVisible || neverDrew) && !topVisible
-        guard visible, scenePhase == .active, !searchMode, rowsGone || diagGeometry().off, count > 0, thread != nil else { return }
+        // Review 2: the band counts only with the list still, so a fling or a bounce past the end is not a finding.
+        let geo = diagGeometry()
+        guard visible, scenePhase == .active, !searchMode, rowsGone || (geo.off && !geo.moving), count > 0, thread != nil else { return }
         // After the one report, an empty list is still put back each time, at most once in 2 s (a fault that comes back
         // every frame cannot hold the list at the newest message).
         if diagDone {
@@ -813,14 +815,20 @@ struct ChatView: View {
         guard recover else { diagReport = lines.joined(separator: "\n"); announceDiag(); return }   // review 1: a width finding moves nobody
         Self.trace("diag: \(why), trying the newest message")
         goNewest(proxy)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            // kosmos#7420 (build 19): rows counted are what SwiftUI says appeared, not what was drawn, so the band is the
-            // verdict and the count is written beside it.
+        // kosmos#7420 (build 19): rows counted are what SwiftUI says appeared, not what was drawn, so the band is the verdict
+        // and the count is written beside it; read at 0.6 s and again at 1.5 s (review 2: layout may still be settling).
+        func reading(_ when: String) -> String {
             let g = diagGeometry()
-            lines.append("after one try: " + (g.off || onScreen.isEmpty ? "still nothing on screen" : "the list shows the content again")
-                         + " (rows counted \(onScreen.count), " + g.line + ")")
-            diagReport = lines.joined(separator: "\n")
-            announceDiag()
+            return "after one try, \(when): " + (g.off || onScreen.isEmpty ? "still nothing on screen" : "the list shows the content again")
+                + " (rows counted \(onScreen.count), " + g.line + ")"
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            lines.append(reading("0.6 s"))
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                lines.append(reading("1.5 s"))
+                diagReport = lines.joined(separator: "\n")
+                announceDiag()
+            }
         }
     }
 
@@ -2245,6 +2253,12 @@ struct PositionTargets: ViewModifier {
         if #available(iOS 17.0, *), on { content.scrollTargetLayout() } else { content }
     }
 }
+// kosmos#7420 (build 19): the chat list's scroll view, found by the side lock and read by the diagnostic.
+final class ScrollRef {
+    weak var view: UIScrollView?
+    var resizes = 0   // the list's resizes so far, so a check runs only for the last of a run of them
+}
+
 // kosmos#7420 (Josh 10-28, builds 13 to 15): every row of the chat moved left by its 16 pt side margin, the agent's
 // bubbles against the screen's edge, and back on a later layout. The chat had been scrolled sideways: the list scrolls only
 // up and down, but the scroll view underneath it keeps whatever offset it is given (the hold on the newest message is
@@ -2252,12 +2266,6 @@ struct PositionTargets: ViewModifier {
 // the simulator did not), so the lock does not depend on the cause: it watches the scroll view the chat sits in and puts
 // any sideways offset back to its rest, writing it in the diagnostic's record. KOSMOS_SAMPLE_SIDEWAYS=<seconds> (Debug) gives it
 // one, as the phone did; KOSMOS_SAMPLE_NOLOCK=1 is the control.
-// kosmos#7420 (build 19): the chat list's scroll view, found by the side lock and read by the diagnostic.
-final class ScrollRef {
-    weak var view: UIScrollView?
-    var resizes = 0   // the list's resizes so far, so a check runs only for the last of a run of them
-}
-
 struct SideScrollLock: UIViewRepresentable {
     let off: Bool
     var ref: ScrollRef? = nil
