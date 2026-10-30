@@ -210,3 +210,17 @@ then an abandoned preview blocks a company join until the person turns personal 
 Also: no status answer before a preview or an enroll sends nothing (warning 1); status is read even with a record here
 (stale-record NIT); a recovery code not yet confirmed reads needs-key and setUpKey returns org and member for the
 screen's confirm (warning 2). Warnings 3 and 4 went with the ending code. Mutants: M1 to M4 red.
+
+## Code review 6 (blind, 17:1x 10-30): NO blockers, four warnings, five nits. Addressed (c4f3bf98f2 + tests)
+
+The reviewer judged the "board ends nothing" decision sound for joins and found no safe board-side ending #7658 does
+not already cover. Board fixes, each with a mutant shown red: W3 an account in another org since the preview is refused
+locally (org_other_org, no enroll); W4 the key step reads status and runs only while Kosmos+ names this record's
+personal org bound to this computer; W2 a lost join reads 'pending' and switchOff settles it first or refuses (its test
+first used a throwing stub that could not fail: mutant M4 green, fixed); NIT 1 a decline during an accept in flight is
+'busy'; NIT 3 the ticket sentence is true for expired, used and restarted; NIT 4 the key marker is kept on a re-accept
+of the same binding; NIT 5 ELSEWHERE allows for a leave still settling. NIT 2 (an unreachable second-line sentence)
+left as a second line.
+Relay residuals filed as kosmos#7661: W1 two computers switching on at once (the codeless enroll always moves the
+binding; needs a guard inside org_reenroll), operator org-create and billing standing seeing an unbound membership.
+All three before KOSMOS_PERSONAL_BACKUP goes on, alongside #7658.
