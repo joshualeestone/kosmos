@@ -4937,6 +4937,19 @@ do {
     check(band(-400, top: 300, bottom: 200) == .unjudged && band(-400, top: 300, bottom: 100) == .aboveTop,
           "insets covering the whole view leave nothing to judge (CONTROL: with a sliver left, the same offset reads above the top)")
 
+    // kosmos#7420 review 19: what an empty-list reading does.
+    check(Board.diagStep(reported: false, sinceLastMove: nil, moves: 0, cap: 4) == .capture(moveBack: true), "the first empty reading reports and moves")
+    check(Board.diagStep(reported: false, sinceLastMove: 1.9, moves: 0, cap: 4) == .wait
+          && Board.diagStep(reported: false, sinceLastMove: 2.0, moves: 1, cap: 4) == .capture(moveBack: true),
+          "nothing within 2 s of the last move (CONTROL: at 2 s it acts)")
+    check(Board.diagStep(reported: false, sinceLastMove: nil, moves: 4, cap: 4) == .capture(moveBack: false)
+          && Board.diagStep(reported: false, sinceLastMove: nil, moves: 3, cap: 4) == .capture(moveBack: true),
+          "past the cap the report is still made, without the move (CONTROL: one under, it moves)")
+    check(Board.diagStep(reported: true, sinceLastMove: 5, moves: 3, cap: 4) == .recover
+          && Board.diagStep(reported: true, sinceLastMove: 5, moves: 4, cap: 4) == .wait,
+          "after the report a move only under the cap (CONTROL: at the cap, nothing)")
+    check(Board.diagStep(reported: true, sinceLastMove: 1, moves: 0, cap: 4) == .wait, "after the report, nothing within 2 s either")
+
     // Review 3: the box over a chat's life.
     var sends: [Int] = []
     var box: Board.ShiftBox? = Board.ShiftBox()

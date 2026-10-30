@@ -788,12 +788,18 @@ struct ChatView: View {
     static let diagRecoveryCap = 4   // the one try and 3 after the report
     private func diagCheck(_ proxy: ScrollViewProxy, count: Int) {
         guard diagEmpty(count: count) else { return }
-        // After the one report, an empty list is still put back, at most once in 2 s and diagRecoveryCap times a chat
-        // (review 6: the row count alone could be wrong for a still reader, who must not be moved without end). The
-        // record says which arm read empty.
-        if diagDone {
-            if let at = diagRecoveredAt, Date().timeIntervalSince(at) < 2 { return }
-            guard diagRecoveries < Self.diagRecoveryCap else { return }
+        // What to do is Board.diagStep (tested in LogicTests): at most once in 2 s; the report whenever it has not been
+        // made, moving the list only under the cap; after it, a move under the cap (review 6: the row count alone could
+        // be wrong for a still reader, who must not be moved without end). The record says which arm read empty.
+        let step = Board.diagStep(reported: diagDone, sinceLastMove: diagRecoveredAt.map { Date().timeIntervalSince($0) },
+                                  moves: diagRecoveries, cap: Self.diagRecoveryCap)
+        switch step {
+        case .wait:
+            return
+        case .capture(let moveBack):
+            diagRecoveredAt = Date()
+            diagCapture(proxy, why: "no message on screen", count: count, moveBack: moveBack)
+        case .recover:
             let g = diagGeometry()
             diagRecoveredAt = Date()
             let line = "empty again by " + (g.off ? "the band" : "the rows") + " (rows counted \(onScreen.count), " + g.line
@@ -802,11 +808,7 @@ struct ChatView: View {
             // Review 9: in the report the person shares too, not only the trace (the report is written once, at capture).
             if let report = diagReport { diagReport = report + "\n" + line }
             putBack(proxy)
-            return
         }
-        guard diagRecoveries < Self.diagRecoveryCap else { return }
-        diagRecoveredAt = Date()
-        diagCapture(proxy, why: "no message on screen", count: count)
     }
 
     // Review 11: the newest message, and with the band off the content the scroll view moved to its end directly too: if
@@ -819,6 +821,9 @@ struct ChatView: View {
         let inset = sv.adjustedContentInset
         sv.setContentOffset(CGPoint(x: -inset.left, y: max(-inset.top, sv.contentSize.height - sv.bounds.height + inset.bottom)),
                             animated: false)
+        // Review 19: SwiftUI may answer the write by anchoring on the message now under it, after which the list would stop
+        // following new ones; the next turn anchors it on the end again.
+        if Self.idAnchor { DispatchQueue.main.async { if positionId != "end" { positionId = "end" } } }
         // Review 16: whether the write held, or SwiftUI put its own place back on the next pass.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             // Review 17: and what the list is anchored on, so a report shows a list left on a message, not following.
@@ -826,14 +831,14 @@ struct ChatView: View {
         }
     }
 
-    // kosmos#7420 (build 19): the scroll view's own numbers, and whether the band it shows misses the content (Board.scrollBand).
-    // Review 1: off counts only for this chat's live list with content laid out, messages here more than 2 s (as neverDrew):
-    // a list rebuilt for another account, or not yet measured, has a zero or stale content height.
     // What the list is anchored on, in fixed words only (never a message id).
     private var diagAnchor: String {
         positionId == nil ? "none" : positionId == "end" ? "end" : positionId == "top" ? "top" : "a message"
     }
 
+    // kosmos#7420 (build 19): the scroll view's own numbers, and whether the band it shows misses the content (Board.scrollBand).
+    // Review 1: off counts only for this chat's live list with content laid out, messages here more than 2 s (as neverDrew):
+    // a list rebuilt for another account, or not yet measured, has a zero or stale content height.
     private func diagGeometry() -> (line: String, off: Bool, moving: Bool, judged: Bool) {
         guard let sv = diagScroll.view, sv.window != nil else { return ("scroll view unknown", false, false, false) }
         let inset = sv.adjustedContentInset
@@ -854,7 +859,7 @@ struct ChatView: View {
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
     // and whether that worked. Nothing leaves the phone unless the person shares it.
-    private func diagCapture(_ proxy: ScrollViewProxy, why: String, count: Int, recover: Bool = true) {
+    private func diagCapture(_ proxy: ScrollViewProxy, why: String, count: Int, recover: Bool = true, moveBack: Bool = true) {
         guard visible, scenePhase == .active, recover ? !diagDone : !diagWideDone else { return }
         if recover { diagDone = true } else { diagWideDone = true }
         let info = Bundle.main.infoDictionary
@@ -868,8 +873,10 @@ struct ChatView: View {
                      diagGeometry().line,
                      "recent events:"] + Self.diagRing
         guard recover else { diagReport = lines.joined(separator: "\n"); announceDiag(); return }   // review 1: a width finding moves nobody
-        Self.trace("diag: \(why), trying the newest message")
-        putBack(proxy)
+        // Review 19: the report is made even past the move cap (a capture abandoned when the chat was left still counts a
+        // move); only the move is skipped.
+        if moveBack { Self.trace("diag: \(why), trying the newest message"); putBack(proxy) }
+        else { Self.trace("diag: \(why), not moved (cap reached)") }
         // Review 10: written 1.5 s later, so only if no account or computer change came between (that resets the report).
         let epoch = client.chatEpoch
         // kosmos#7420 (build 19): rows counted are what SwiftUI says appeared, not what was drawn, so a band off the content

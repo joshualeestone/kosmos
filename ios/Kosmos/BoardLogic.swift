@@ -459,6 +459,15 @@ enum Board {
         return .content
     }
 
+    // kosmos#7420 (review 19): what an empty-list reading does. At most one move in 2 s; the report whenever it has not been
+    // made (moving the list only under the cap, so the report is never silenced by moves); after it, a move under the cap.
+    enum DiagAction: Equatable { case wait, capture(moveBack: Bool), recover }
+    static func diagStep(reported: Bool, sinceLastMove: Double?, moves: Int, cap: Int) -> DiagAction {
+        if let since = sinceLastMove, since < 2 { return .wait }
+        if !reported { return .capture(moveBack: moves < cap) }
+        return moves < cap ? .recover : .wait
+    }
+
     // kosmos#7575: the chat's running count and when it goes. The count always runs (a shift before the chat's onAppear
     // is kept, review 3); flush() sends what was counted, if anything, and starts the next count at once. attach() gives
     // the sender (the chat showing on this computer); reset() drops the count (another computer: never sent elsewhere).
