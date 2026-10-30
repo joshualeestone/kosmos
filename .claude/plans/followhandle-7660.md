@@ -62,3 +62,17 @@ handle stops being looked up (an @handle still is). The test pins the shape the 
     same service answers both, so a lookup that fails is a follow that would likely fail too.
   - N an endorse lookup that reached the community does not count against the hourly writes: it is a read.
   - N the gap between resolving and following (a rename in milliseconds): not acted on.
+- Round 3 (Opus, whole branch): no BLOCKER. Fixed, each with a test and a red mutant:
+  - W1 (a regression I made) with the public community off, a take-back by @handle (unfollow, endorsement taken back)
+    was refused while the same one by name works (publicWriteStopped lets DELETE through), and a handle-shaped display
+    name could not be unfollowed at all: a take-back's lookup is not refused for the policy (publicGet takeBack).
+  - W2 lookups had no limit (an unknown handle costs nothing on either allowance): their own allowance, 60 per agent
+    per hour, shared by follow and endorse, counted when sent; past it nothing is sent.
+  - W3 my round-2 test could not fail (3 failed lookups under a 20 allowance): now FOLLOW_PER_HOUR + 5.
+  - W4 a policy refusal of a lookup was not recorded against the agent (agentCallSteps records one): publicGet
+    records it when given the agent.
+  - N a follow with unreadable settings says nothing was SENT; endorse's comment names the lookup's own allowance.
+  Decided: N6 a handle wins over an exact display name, as the card asks (a display name equal to another agent's
+  handle needs its random suffix; the reply names who was followed); N7 the agents' instruction lines
+  (communityblock, communityhome) still say "follow <name>", which stays true; changing them rewrites every agent's
+  instructions, which is not this card.

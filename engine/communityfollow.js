@@ -63,7 +63,7 @@ function overRate(agentKey, now) {
 }
 // Whether the agent is at its hourly cap now, without counting anything (kosmos#7660 review 2).
 function atRate(agentKey, now) { return (recent.get(agentKey) || []).filter((t) => now - t < HOUR_MS).length >= FOLLOW_PER_HOUR; }
-function _resetRate() { recent.clear(); }
+function _resetRate() { recent.clear(); lookups.clear(); }
 
 /* kosmos#7660: an agent can be named by its @handle (#5173), the form the after-action line prints ("@ada-3f2c"), as
    well as by its display name. The service's handle shape (kosmos-community app/handles.py HANDLE_PATTERN): a lowercase
@@ -84,17 +84,35 @@ const HANDLE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*-[abcdefghjkmnpqrstuvwxyz23456789]{4
      service issues is in that shape, app/handles.py make_handle), so '@@x' or '@ x' cannot be read differently by the
      board and the service. */
 const PROFILE_CAP = 2 * 1024 * 1024;
+/* Review 3: lookups have an allowance of their own, per agent per hour, shared by follow and endorse, so an agent in a
+   loop of "follow @typo-abcd" cannot spend the board's share of the community's per-address limit. A lookup counts
+   when it is sent (before the answer), as nothing else limits it. In memory, as the follow allowance. */
+const LOOKUPS_PER_HOUR = 60;
+const lookups = new Map();   // agentKey -> [ms]
+function lookupAllowed(agentKey, now) {
+  const kept = (lookups.get(agentKey) || []).filter((t) => now - t < HOUR_MS);
+  if (kept.length >= LOOKUPS_PER_HOUR) { lookups.set(agentKey, kept); return false; }
+  kept.push(now);
+  lookups.set(agentKey, kept);
+  return true;
+}
 const fail = (because, extra = {}) => ({ ok: false, result: { ok: false, ...extra, because } });
-async function byHandle(asked, deadline) {
+/* `opts.agentKey` is whose allowance a lookup counts against (and whose policy refusal is recorded); `opts.takeBack`
+   marks a lookup for an unfollow or an endorsement taken back, allowed while the public community is off (review 3). */
+async function byHandle(asked, deadline, { agentKey = null, takeBack = false } = {}) {
   const at = asked.startsWith('@');
   const form = (at ? asked.slice(1) : asked).toLowerCase();   // nameOf has trimmed it already
   if (!HANDLE_RE.test(form)) {
     if (!at) return { ok: true, name: asked };   // a display name, as typed
     return fail('@' + asked.slice(1) + ' is not a community handle (a handle reads like @ada-3f2c: a name, a dash and four letters or digits). To name the agent by its display name, leave out the @');
   }
-  const p = await communitysend.publicGet('/agents/by-handle/' + encodeURIComponent(form), { deadline, cap: PROFILE_CAP });
-  // Review 2: a follow or endorse while the public community is off says so in the words a by-name one gets.
-  if (!p.ok) return fail(p.publicOff ? communitysend.PUBLIC_OFF_WORDS : p.because);
+  if (agentKey && !lookupAllowed(agentKey, Date.now())) {
+    return fail('you have looked up ' + LOOKUPS_PER_HOUR + ' community handles in the last hour, so Kosmos is pausing it. Do not try again this hour', { limited: true });
+  }
+  const p = await communitysend.publicGet('/agents/by-handle/' + encodeURIComponent(form), { deadline, cap: PROFILE_CAP, takeBack, agentKey });
+  // Review 2: a follow or endorse while the public community is off says so in the words a by-name one gets; review 3:
+  // settings that cannot be read stop a follow or endorse, so it says nothing was SENT.
+  if (!p.ok) return fail(p.publicOff ? communitysend.PUBLIC_OFF_WORDS : (p.fault ? 'Kosmos cannot read your company’s community settings right now, so nothing was sent' : p.because));
   if (p.status === 404) {
     if (!at) return { ok: true, name: asked };   // no agent holds that handle: the display name, as typed
     return fail('there is no agent with the handle @' + form + ' in the community');
@@ -118,7 +136,7 @@ async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {
   /* The refresh and the handle lookup below count against the follow's own budget (budgetFrom), so all of it still
      answers inside the CLI's wait. */
   const began = Date.now();
-  const resolved = await byHandle(asked, began + communitysend.agentBudget());
+  const resolved = await byHandle(asked, began + communitysend.agentBudget(), { agentKey, takeBack: unfollow });
   if (!resolved.ok) return resolved.result;
   if (overRate(agentKey, now)) return limited;
   const who = resolved.name;
@@ -420,4 +438,4 @@ async function readFollowing(agentKey) {
   return { ok: true, count: shown.length, text: communityread.frame(shown, cutShort ? CUT_SHORT + '\n' + heading : heading) }   // above the heading, which ends in a colon before its list;
 }
 
-module.exports = { follow, byHandle, HANDLE_RE, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, byHandle, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

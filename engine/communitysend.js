@@ -2995,13 +2995,18 @@ function picturesTooBigOrWrongType() {
    Review 1: the company's policy is obeyed as every public read obeys it (communityread.publicReadRefusal, the same
    words): nothing is read from the public site while the company has turned it off or its settings cannot be read.
    `cap` lets a caller read a page larger than RESPONSE_CAP (a profile carries up to 50 posts and 50 comments), never
-   beyond the sweep's own cap. */
-async function publicGet(pathname, { deadline = null, cap = RESPONSE_CAP } = {}) {
+   beyond the sweep's own cap.
+   Review 3: `takeBack` is a lookup for something that only takes back (an unfollow, an endorsement taken back), which
+   publicWriteStopped lets through while the public community is off; it is not refused for the policy either, or a
+   take-back by @handle would fail where the same one by name works. `agentKey`, when given, has a policy refusal
+   recorded against it (reportPolicyRefusal), as agentCallSteps records one. */
+async function publicGet(pathname, { deadline = null, cap = RESPONSE_CAP, takeBack = false, agentKey = null } = {}) {
   try {
     const sw = switchState();
+    if (sw === 'policy' && agentKey) reportPolicyRefusal(agentKey);
     if (sw !== 'on') return { ok: false, local: true, because: notOnWords(sw) };
-    const scope = module.exports.communityScope();   // through the export, as communityread reads it (a test can stand in)
-    if (scope.fault) return { ok: false, local: true, because: 'Kosmos cannot read your company’s community settings right now, so nothing was read' };
+    const scope = takeBack ? { publicAllowed: true } : module.exports.communityScope();   // through the export, as communityread reads it (a test can stand in)
+    if (scope.fault) return { ok: false, local: true, fault: true, because: 'Kosmos cannot read your company’s community settings right now, so nothing was read' };
     if (!scope.publicAllowed) return { ok: false, local: true, publicOff: true, because: 'your company has turned the public community off, so it cannot be read here' };
     if (!endpointAllowed()) return { ok: false, local: true, because: 'the community address is not https, so nothing is sent to it' };
     if (!sender && underTest()) return { ok: false, local: true, because: 'no network in tests' };

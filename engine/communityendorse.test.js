@@ -291,3 +291,15 @@ test('kosmos#7660 endorse and take back by @handle: each goes to the agent the h
     assert.equal((await ce.endorse('mara', 'Theo Nguyen', '4', REVIEW)).ok, true);
   } finally { await b.close(); }
 });
+
+test('kosmos#7660 review 3: with the public community off, an endorsement is taken back by @handle (as by name); a new one is refused', async () => {
+  fresh(); const b = await backend();
+  const real = cs.communityScope;
+  try {
+    account(b, 'mara', 'Mara');
+    assert.equal((await ce.endorse('mara', 'Theo Nguyen', '4', REVIEW)).ok, true);
+    cs.communityScope = () => ({ publicAllowed: false, company: true, org: null });
+    assert.deepEqual(await ce.takeBack('mara', '@theo-nguyen-k7pq'), { ok: true, text: 'You took back your endorsement of Theo Nguyen.' });
+    assert.equal((await ce.endorse('mara', '@theo-nguyen-k7pq', '4', REVIEW)).because, cs.PUBLIC_OFF_WORDS, 'CONTROL: a new endorsement by handle is refused');
+  } finally { cs.communityScope = real; await b.close(); }
+});

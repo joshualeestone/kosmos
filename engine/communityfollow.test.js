@@ -1140,7 +1140,7 @@ test('kosmos#7660 review 1: while the company has the public community off (or i
     assert.deepEqual(off, { ok: false, because: cs.PUBLIC_OFF_WORDS }, 'review 2: the words a follow by name gets');
     cs.communityScope = () => ({ publicAllowed: false, company: false, org: null, fault: true });
     const fault = await cf.follow('mara', '@quill-ab3k');
-    assert.equal(fault.because, 'Kosmos cannot read your company’s community settings right now, so nothing was read');
+    assert.equal(fault.because, 'Kosmos cannot read your company’s community settings right now, so nothing was sent');   // review 3: a follow sends
     assert.equal(b.st.seen.some((s) => s.url.startsWith('/agents/by-handle/')), false, 'no lookup went out');
     cs.communityScope = real;
     assert.equal((await cf.follow('mara', '@quill-ab3k')).ok, true, 'CONTROL: with the public community on, the same handle resolves');
@@ -1175,7 +1175,7 @@ test('kosmos#7660 review 2: a refused @ or a failed lookup follows nobody and do
   try {
     for (let i = 0; i < cf.FOLLOW_PER_HOUR + 5; i += 1) assert.equal((await cf.follow('mara', '@nope')).ok, false);
     b.st.handleMode = 'junk';
-    for (let i = 0; i < 3; i += 1) assert.equal((await cf.follow('mara', '@quill-ab3k')).ok, false);
+    for (let i = 0; i < cf.FOLLOW_PER_HOUR + 5; i += 1) assert.equal((await cf.follow('mara', '@quill-ab3k')).ok, false);   // review 3: more than the allowance, so a counted failure would show
     b.st.handleMode = null;
     assert.deepEqual(await cf.follow('mara', '@quill-ab3k'), { ok: true, text: 'You now follow quill.' }, 'the allowance is untouched');
     // CONTROL: real follows still count; past the allowance the next is refused before any lookup goes out.
@@ -1193,4 +1193,48 @@ test('kosmos#7660 review 2: a display name typed after an @ is told to leave the
     const r = await cf.follow('mara', '@Echo Two');
     assert.match(r.because, /leave out the @$/);
   } finally { await b.close(); }
+});
+
+/* kosmos#7660 review 3. */
+test('kosmos#7660 review 3: with the public community off, an unfollow by @handle still works (as one by name does); a follow is refused', async () => {
+  fresh(); const b = await backend();
+  const real = cs.communityScope;
+  try {
+    assert.equal((await cf.follow('mara', 'Echo Two')).ok, true);
+    cs.communityScope = () => ({ publicAllowed: false, company: true, org: null });
+    assert.deepEqual(await cf.follow('mara', '@quill-ab3k'), { ok: false, because: cs.PUBLIC_OFF_WORDS }, 'CONTROL: a follow by handle is refused');
+    assert.deepEqual(await cf.follow('mara', '@echo-two-x7mn', { unfollow: true }), { ok: true, text: 'You no longer follow Echo Two.' });
+    cs.communityScope = () => ({ publicAllowed: false, company: false, org: null, fault: true });
+    assert.equal((await cf.follow('mara', '@quill-ab3k')).because, 'Kosmos cannot read your company’s community settings right now, so nothing was sent', 'a follow says nothing was sent');
+  } finally { cs.communityScope = real; await b.close(); }
+});
+
+test('kosmos#7660 review 3: handle lookups have their own hourly allowance; past it nothing more is sent', async () => {
+  fresh(); const b = await backend();
+  try {
+    for (let i = 0; i < cf.LOOKUPS_PER_HOUR; i += 1) assert.equal((await cf.follow('mara', '@typo-abcd')).ok, false);
+    const sent = b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length;
+    assert.equal(sent, cf.LOOKUPS_PER_HOUR, 'CONTROL: each of those lookups went out');
+    const over = await cf.follow('mara', '@typo-abcd');
+    assert.equal(over.limited, true);
+    assert.equal(b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length, sent, 'no lookup past the allowance');
+    assert.deepEqual(await cf.follow('mara', 'quill'), { ok: true, text: 'You now follow quill.' }, 'a follow by name is not held by it');
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 3: a handle lookup the policy refuses is recorded against the agent, as an agent call\'s is', async () => {
+  fresh(); const b = await backend();
+  const ae = require('./agentevents');
+  const op = require('./orgpolicy');
+  const realRecord = ae.recordRefusal; const realAllows = op.contactAllows;
+  const recorded = [];
+  try {
+    cs.setContact(() => ({ ok: false, because: 'the policy set for this Kosmos keeps agents out of the Kosmos+ community' }));
+    op.contactAllows = () => ({ ok: false });
+    ae.recordRefusal = (e) => { recorded.push(e); return { queued: true }; };
+    const r = await cf.follow('mara', '@quill-ab3k');
+    assert.equal(r.ok, false);
+    assert.deepEqual(recorded, [{ agent: 'mara', rule: 'outside-contact' }]);
+    assert.equal(b.st.seen.length, 0, 'nothing was sent');
+  } finally { ae.recordRefusal = realRecord; op.contactAllows = realAllows; cs.setContact(null); await b.close(); }
 });

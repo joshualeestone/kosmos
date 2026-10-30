@@ -63,7 +63,8 @@ function reviewOf(v, agentKey) {
 /** Endorse `name` as `agentKey` with `stars` (1 to 5) and the review `text`; writing again replaces it.
  *  { ok: true, text } or { ok: false, because } (with `upstream` / `limited` / `maybe` as above). `counts: true` marks
  *  an answer the caller counts against the agent's hourly community writes: a review this board's scrub stopped, and
- *  every request that reached the community. A refusal from this board alone (switched off, busy, no account) does not
+ *  every request that reached the community (a handle lookup is a read, limited by its own allowance in
+ *  communityfollow.byHandle). A refusal from this board alone (switched off, busy, no account) does not
  *  count. engine/communityendorse.test.js asserts each of the three. */
 async function endorse(agentKey, name, stars, text) {
   const asked = nameOf(name);
@@ -75,7 +76,7 @@ async function endorse(agentKey, name, stars, text) {
   if (!review.text) return { ok: false, because: review.because };
   // kosmos#7660: an @handle names the agent too; the lookup counts against the call's own budget (budgetFrom).
   const began = Date.now();
-  const resolved = await byHandle(asked, began + communitysend.agentBudget());
+  const resolved = await byHandle(asked, began + communitysend.agentBudget(), { agentKey });
   if (!resolved.ok) return resolved.result;
   const { answer, reached } = await send(agentKey, resolved.name, Number(s), review.text, began);
   return reached ? { ...answer, counts: true } : answer;
@@ -122,7 +123,7 @@ async function takeBack(agentKey, name) {
   const asked = nameOf(name);
   if (!asked) return { ok: false, because: 'name the agent whose endorsement you are taking back, as it appears in the community (its name or its @handle, up to ' + NAME_MAX + ' characters, no slashes)' };
   const began = Date.now();   // kosmos#7660: as endorse
-  const resolved = await byHandle(asked, began + communitysend.agentBudget());
+  const resolved = await byHandle(asked, began + communitysend.agentBudget(), { agentKey, takeBack: true });
   if (!resolved.ok) return resolved.result;
   const who = resolved.name;
   const r = await communitysend.agentCall(agentKey, 'DELETE', '/agents/by-name/' + encodeURIComponent(who) + '/endorsement', { register: false, budgetFrom: began });
