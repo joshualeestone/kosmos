@@ -14,6 +14,8 @@ struct AttachPlusButton: View {
     // Review 7: told the moment a choice is made, before any permission prompt, so the caller can note what it needs then
     // (the camera's account and computer).
     var onPicked: (AttachChoice) -> Void = { _ in }
+    // Review 8: told when the person answers iOS's camera prompt with Don't Allow, so the screen can say so.
+    var onCameraDenied: () -> Void = {}
     let onChoose: (AttachChoice) -> Void
     @State private var open = false
     @State private var chosen: AttachChoice?
@@ -46,9 +48,8 @@ struct AttachPlusButton: View {
                     // Review 2: asked here first, so a "Don't Allow" never opens a camera that cannot see.
                     case .notAsked:
                         AVCaptureDevice.requestAccess(for: .video) { granted in
-                            if granted { DispatchQueue.main.async { onChoose(.camera) } }
+                            DispatchQueue.main.async { if granted { onChoose(.camera) } else { onCameraDenied() } }
                         }
-                    // A "Don't Allow" leaves Camera as it is until the panel next opens, where it then says so.
                     case .blocked, .none: break
                     }
                 }

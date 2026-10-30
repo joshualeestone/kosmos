@@ -1438,7 +1438,8 @@ struct ChatView: View {
     private var addButton: some View {
         AttachPlusButton(atLimit: atFileLimit, label: "Add a photo or file",
                          hint: atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "",
-                         onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } }) { choice in
+                         onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } },
+                         onCameraDenied: { client.attachLine[agent.session] = Board.cameraDeniedLine }) { choice in
             switch choice {
             case .camera: showCamera = true
             case .photos: showPhotos = true

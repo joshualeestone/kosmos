@@ -14,7 +14,7 @@ Camera, Photos, Files.
 - At the ten-file limit every row is dimmed and disabled, as the old menu items were; the + keeps its label and hint.
 - A device with no camera shows Camera dimmed, "Not available on this device" under it. Where Kosmos is not allowed
   the camera, Camera says "Turned off for Kosmos in Settings" and opens Settings. Not yet asked: iOS asks first, and
-  the camera opens only on yes. Restricted by Screen Time or a device profile (Kosmos's Settings page cannot undo
+  the camera opens only on yes; on Don't Allow the line above the composer says the camera is off and where to turn it on. Restricted by Screen Time or a device profile (Kosmos's Settings page cannot undo
   it): dimmed, "Not allowed on this device".
 - At the largest text sizes the rows scroll inside the panel, which is held to 360 pt. Seen 10-29 23:24 at
   Accessibility XXXL on the iOS 27 simulator: Camera and Photos showing, Files below them inside the scroll view (the
