@@ -27967,11 +27967,19 @@ function start(port = PORT) {
          the daily maximum, gets one line asking it to post if it has something real (engine/communityturn.js holds the
          gates and is tested there). Same gates as the reply nudge above: live execution, the community switch, the
          Prompter's agent-nudge switch; operator brake AGENT_WORKFORCE_COMMUNITY_TURN_OFF=1. Counted in the shared hour log
-         under Agent Communication's limit, and sent through deliverAutomatic (held on the shared-quota pause and by a working-at-once cap). unref'd;
-         first run one interval after boot. */
+         under Agent Communication's limit, and sent through deliverAutomaticAsync (held on the shared-quota pause and by a working-at-once cap). unref'd;
+         first run one interval after boot.
+         kosmos#7649: the pass awaits each delivery (tickOnceAsync in engine/communityturn.js), so typing into a pane no longer holds
+         the event loop. One pass at a time, as the reply nudge above: a pass still running when the next is due is
+         skipped, not stacked, so two passes cannot both book one agent. The book is written after each booking (saveBook)
+         and once more when the pass has tried anyone. */
       const COMMUNITY_TURN_BOOK = communityturn.readBook();   // review 6: kept on disk, so a restart cannot reset the gaps
       const COMMUNITY_TURN_IDLE_SEEN = new Set();   // review 4: idle at the previous pass too
+      let communityTurnRunning = false;
       const communityTurnTick = setInterval(() => {
+        if (communityTurnRunning) return;
+        communityTurnRunning = true;
+        (async () => {
         const cb = require('./engine/communityblock');
         let postsNow;   // one read of posts.json a pass, and only once the gates pass and an agent is looked at
         const allPosts = () => (postsNow === undefined ? (postsNow = require('./engine/communitystore').postTimesAll()) : postsNow);
@@ -27982,7 +27990,7 @@ function start(port = PORT) {
           const f = projects.findBlock(cur.text || '', cb.START, cb.END);
           return Boolean(f) && f.ambiguous !== true && !cb.isStoppedSection(cur.text || '');   // kosmos#6239: not the stopped lines
         };
-        const done = communityturn.tickOnce({
+        const done = await communityturn.tickOnceAsync({
           allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,
           switchOn: () => communitysend.switchOn(),
           prompterOn: () => heartbeatSetting.read().on === true,
@@ -27995,10 +28003,13 @@ function start(port = PORT) {
           history: (session) => selfreport.history(session),   // #5296: has it worked since its last post
           kosmosLines: (session) => require('./engine/instructionreread').sentTimes(session),   // #5297: turns a re-read line woke
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
+          beforeRecheck: () => { postsNow = undefined; },   // kosmos#7649 review 4: a post made while the agent before was typed into is seen
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
+          saveBook: (b) => communityturn.writeBook(b),   // kosmos#7649 review 1: after each booking, so a stop mid-pass keeps it
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
           stamp: true,   // #5636 F7a: the line says when it was sent, for a runner that rereads one long session
-          deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
+          deliver: (session, text, r) => chat.deliverAutomaticAsync(session, text, r, undefined, undefined),
+          paneBusy: (session, r) => chat.paneBusyVerdict(session, r),   // kosmos#7649 review 3: never typed behind another message
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
         });
@@ -28014,6 +28025,7 @@ function start(port = PORT) {
           // agent that ever commented, small, and dropping one could let an in-flight read through).
           for (const [s, e] of HOME_ROUTE) if (e.done && Date.now() - e.done > HOME_ROUTE_REUSE_MS) HOME_ROUTE.delete(s);
         } catch { /* the generic line stands in */ }
+        })().catch(() => null).finally(() => { communityTurnRunning = false; });
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS)) : communityturn.TURN_INTERVAL_MS); // the env is the test seam only, never under a minute
       if (communityTurnTick && typeof communityTurnTick.unref === 'function') communityTurnTick.unref();
       /* #5154 slice A: a crash loop is said on the card (engine/crashloop.js, /api/status's crashLoop) and, once per loop,
