@@ -125,6 +125,194 @@ test('#3939: runTurn says why in words: a busy session, no sign-in, a turn that 
   } finally { gate.resetForTests(); run.resetForTests(); }
 });
 
+test('kosmos#7615 item 4: quotaLine reads only a sentence that says Meta\'s quota refused the run, and quotes only its words', () => {
+  // Each refusal, and exactly what is quoted from it.
+  for (const [line, words] of [
+    ['429 Subscription quota exhausted. Resets at 2026-11-02T00:00:00Z', 'Subscription quota exhausted (resets 2026-11-02T00:00:00Z)'],
+    ['429 Subscription quota exhausted, resets 2026-11-02 00:00 UTC', 'Subscription quota exhausted (resets 2026-11-02 00:00 UTC)'],
+    ['error: monthly usage quota exceeded; try again later', 'usage quota exceeded'],
+    ['You have exhausted your usage quota', 'exhausted your usage quota'],
+    ['You exceeded your current subscription quota, please check your plan', 'exceeded your current subscription quota'],
+    ['subscription_quota_exceeded', 'subscription_quota_exceeded'], ['insufficient_quota', 'insufficient_quota'],
+    ['Usage quota has been exhausted until 23:00 UTC', 'Usage quota has been exhausted (resets 23:00 UTC)'],
+    ['429 Subscription quota exhausted (100% used). Retry at 2026-11-02 00:00 UTC', 'Subscription quota exhausted (resets 2026-11-02 00:00 UTC)'],
+    ['429 Subscription quota exhausted (retry-after: 21600s)', 'Subscription quota exhausted'],   // six hours: a reset, not a rate
+    ['Subscription quota exhausted: 0% remaining', 'Subscription quota exhausted'],
+    ['usage  quota\texhausted', 'usage quota exhausted'],
+  ]) assert.equal(run.quotaLine(line, true), words, line);
+  // Not a refusal. Each line names the subscription or usage quota and a refusal word, so only the rule in its comment
+  // refuses it (a mutation sweep switches each rule off in turn).
+  for (const no of [
+    '', '429 Too Many Requests', 'Request failed with status code 429', 'HTTP 429: quota', 'your quota has been exhausted',
+    'You exceeded your current quota', 'QuotaExceeded', 'RESOURCE_EXHAUSTED: quota', 'You are out of quota',
+    'Error: max_tokens exceeded: subscription quota of 8k tokens',       // the refusal word must sit beside the quota
+    'You have not exceeded your subscription quota', 'You have not yet exhausted your usage quota',             // negation
+    'usage: 3 sessions. quota exhausted', 'Subscription plan quota exhausted',     // the quota must follow its name at once
+    '{"usage_quota_exceeded": false, "status": 429}', 'usage_quota_exceeded=0',                                   // a false flag
+    'note: 80% of monthly usage quota exceeded', '429 Usage quota exceeded 80 %', 'Subscription quota exceeded 90 percent',
+    '429 usage quota exceeded threshold',                                                                          // a share
+    '429: rate usage quota exceeded', '429 usage quota exceeded (burst)', '429 usage quota exceeded: too many parallel sessions',
+    '429 usage quota exceeded, concurrency 4', 'usage quota exceeded per minute', '429 tokens per minute usage quota exceeded',
+    'usage quota exceeded, requests-per-day', 'usage quota exceeded (rpm)', 'subscription quota exceeded, throttled',  // a rate
+    'warn: subscription quota exhausted for model large, falling back to small', 'usage quota exceeded, switching to small',
+    'usage quota exceeded, continuing', 'subscription quota exhausted; fallback model in use',                        // a fallback
+    'usage quota exceeded for tool web_search',                                                                     // a tool's
+    'write /Users/x/.muse/session.db: disk usage quota exceeded', 'EDQUOT: usage quota exceeded',
+    'IndexedDB storage usage quota exceeded',                                                                       // this computer
+    '429 usage quota exceeded, try again in 2s', '429 usage quota exceeded. Retry-After: 30', 'usage quota exceeded, wait 500ms',
+    'usage quota exceeded, retry in 59 minutes',                                                                    // a short wait
+  ]) assert.equal(run.quotaLine(no, true), null, no);
+  // A URL's "%3A" is not a share, and "100%" is not a notice.
+  assert.equal(run.quotaLine('Usage quota exhausted, details at https://x/q?t=10%3A00', true), 'Usage quota exhausted');
+  // A wait of an hour or more is a reset, whatever its unit.
+  assert.equal(run.quotaLine('Usage quota exhausted, retry in 90 minutes', true), 'Usage quota exhausted');
+  // Only a time after the refusal is its reset.
+  assert.equal(run.quotaLine('Job until 01:00 queued. Usage quota exhausted', true), 'Usage quota exhausted');
+  // "retrying" and "retried" are skipped only when asked (stderr), never in a run failure's own words.
+  const retrying = 'warn: usage quota exceeded, retrying';
+  assert.equal(run.quotaLine(retrying, true), null);
+  assert.equal(run.quotaLine(retrying), 'usage quota exceeded');
+  assert.equal(run.quotaLine('usage quota exhausted, retried twice', true), null, 'review 3: "retried" is a retry too');
+  // Review 6 BLOCKER: nothing else on the line reaches the person, however it is written.
+  for (const line of [
+    '429 usage quota exhausted auth_token=ATOK client_secret=CS refresh_token=RT id_token=IT',
+    'request to https://graph.meta.ai/v1?client_secret=SEKRIT&refresh_token=RTOK: 429 usage quota exhausted',
+    'Error at /Users/josh/proj/secret-plan/x.js:12: 429 usage quota exhausted, Authorization: abc123rawtoken',
+    '429 usage quota exhausted for josh@example.com EAABwbhfSECRET X-Amz-Signature=deadbeef password%3Dhunter2',
+    '429 usage quota exhausted {"api_key": "abc def ghi"} see /Users/agent1/.muse/logs',
+  ]) assert.equal(run.quotaLine(line), 'usage quota exhausted', line);
+  // A reset time is quoted only as digits and its separators.
+  assert.equal(run.quotaLine('usage quota exhausted, resets at sk-live_ABCDEF123456'), 'usage quota exhausted');
+  // Review 8: each of these is something other than a used-up quota, so none is claimed.
+  for (const no of [
+    '429 Subscription quota exhausted. Retry after 30 seconds', '429 Subscription quota exhausted. Try again after 5 seconds',
+    'Subscription quota exhausted, resets in 30 seconds', 'Usage quota exceeded. Try again in a few seconds',
+    'Usage quota exceeded; retry_after=30', 'Subscription quota exhausted, back shortly',                         // a short wait
+    'rate_limit_exceeded: usage quota exceeded', 'RateLimitError: Subscription quota exhausted',
+    'x-ratelimit-remaining: 0; usage quota exceeded', 'usage quota exceeded for the current minute',
+    'usage quota exceeded (10 req/min)',                                                                         // a rate
+    '429 Too Many Requests. If you have exceeded your usage quota, check your plan', 'You haven\'t exceeded your usage quota',
+    'You never exceeded your usage quota', 'Check whether you exceeded your usage quota',                          // not a refusal
+    'subscription_quota_exceeded_count: 0', 'usage_quota_exhausted_at: null',                                      // a field
+  ]) assert.equal(run.quotaLine(no, true), null, no);
+  // An hour or more, in any unit, is a reset.
+  assert.equal(run.quotaLine('Usage quota exhausted, retry in 2 hours', true), 'Usage quota exhausted');
+  // Review 8: the reset time only from the refusal's own clause, and never with a zone it would drop.
+  for (const [line, words] of [
+    ['Usage quota exhausted. Session valid until 2026-12-01', 'Usage quota exhausted'],
+    ['usage quota exhausted until 2026-11-02T00:00:00+05:30', 'usage quota exhausted'],
+    ['Subscription quota exhausted, resets at 00:00 PST', 'Subscription quota exhausted'],
+    ['Subscription quota exhausted (100% used); resets at 00:00 UTC', 'Subscription quota exhausted (resets 00:00 UTC)'],
+  ]) assert.equal(run.quotaLine(line, true), words, line);
+  // The LAST refusal, not the first (review 1).
+  assert.equal(run.quotaLine('usage quota exceeded until 01:00\nusage quota exhausted, resets 02:00'), 'usage quota exhausted (resets 02:00)');
+});
+
+test('kosmos#7615 item 4: failureWords reads only a failure event\'s own words, never JSON or a tool\'s output', () => {
+  const lines = [
+    ev(5, 'run.tool.result', { kind: 'x', message: '429 quota exceeded at /Users/agent1/x TOKEN=sk-abc' }),
+    ev(6, 'run.output.delta', { kind: 'x', text: 'quota exhausted 429' }),
+    ev(7, 'run.terminal.completed', { kind: 'x', terminal: 'completed', text: 'quota exhausted' }),
+    ev(8, 'run.terminal.completed', { kind: 'x', terminal: 'failed', reason: 'provider_error', error: { code: 429, message: 'Subscription quota exhausted' } }),
+    ev(9, 'run.failed', { kind: 'x', message: 'boom' }),
+    // Not a run failure, so its words are never read, even in a field a failure's would be read from (review 2: a
+    // tool's failure is a tool's, and carries a command's output).
+    ev(10, 'run.tool.result', { kind: 'x', message: '429 quota exceeded from a file it read' }),
+    ev(11, 'run.tool.failed', { kind: 'x', error: 'curl: 429 quota exceeded https://x?key=sk-SECRET' }),
+    ev(12, 'run.tool.call.error', { kind: 'x', message: '429 quota exhausted TOKEN=abc' }),
+    // Deeper than error.message is never read (review 2: request headers live there).
+    ev(13, 'run.error', { kind: 'x', error: { details: [{ request: 'Authorization: Bearer sk-x quota exceeded' }] } }),
+    'not json at all: quota exhausted',
+  ].join('\n');
+  assert.equal(run.failureWords(lines), 'Subscription quota exhausted\nprovider_error\nboom');
+  assert.equal(run.quotaRefusal('', lines), 'Subscription quota exhausted', 'a nested error.message was not read (review 1)');
+  // A failure event's words win over stderr (review 1)...
+  assert.equal(run.quotaRefusal('quota exhausted on stderr', lines), 'Subscription quota exhausted');
+  // ...and when a run failure names ANOTHER cause, an earlier stderr quota warning is not read at all (review 2).
+  const panic = ev(9, 'run.terminal.completed', { kind: 'x', terminal: 'failed', error: 'panic: index out of range' });
+  assert.equal(run.quotaRefusal('warn: free-tier quota exceeded, using paid tier', panic), null);
+  assert.equal(run.quotaRefusal('429 Subscription quota exhausted. Resets 00:00', panic), null, 'a sentence of its own is never overridden by stderr');
+  // stderr is the fallback when no run failure has words, retry lines skipped there.
+  assert.equal(run.quotaRefusal('429 usage quota exhausted', ''), 'usage quota exhausted');
+  assert.equal(run.quotaRefusal('warn: usage quota exceeded, retrying', ''), null);
+  // Review 3: a run failure that says only a code names no cause, so stderr is still read...
+  const coded = ev(9, 'run.terminal.completed', { kind: 'x', terminal: 'failed', reason: 'provider_error' });
+  assert.equal(run.quotaRefusal('429 Subscription quota exhausted. Resets 00:00', coded), 'Subscription quota exhausted (resets 00:00)');
+  // ...but a code that names its own cause is that cause (review 8), and a sentence of its own still wins, as above.
+  for (const reason of ['context_length_exceeded', 'rate_limit_exceeded', 'disk_quota_exceeded', 'max_tokens']) {
+    const named = ev(9, 'run.terminal.completed', { kind: 'x', terminal: 'failed', reason });
+    assert.equal(run.quotaRefusal('429 Subscription quota exhausted. Resets 00:00', named), null, reason);
+  }
+  for (const reason of ['error', 'unknown', '500', 'internal_server_error']) {
+    const generic = ev(9, 'run.terminal.completed', { kind: 'x', terminal: 'failed', reason });
+    assert.equal(run.quotaRefusal('429 Subscription quota exhausted', generic), 'Subscription quota exhausted', reason);
+  }
+  // A tool's output alone is never read, however it is worded.
+  assert.equal(run.quotaRefusal('', lines.split('\n')[0]), null);
+});
+
+test('kosmos#7615 item 4: a turn refused for quota says so, with Meta\'s own sentence', { timeout: 20000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
+  gate.allowLiveExecution();
+  run.setForTests({ turnTimeoutMs: 2000, hardCapMs: 4000 });
+  try {
+    const LINE = '429 Subscription quota exhausted, resets 2026-11-02 00:00 UTC';
+    const SAID = 'Subscription quota exhausted (resets 2026-11-02 00:00 UTC)';   // only Meta's words for it, and the time
+    fakeMuse('echo "' + LINE + '" >&2\nexit 1');
+    let r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.ok, false);
+    assert.equal(r.because, run.QUOTA_HEAD + '. Meta said: ' + SAID);
+    // In the event stream: a terminal event that did not complete, exit 0, then the same exiting non-zero.
+    const failed = ev(9, 'run.terminal.completed', { kind: 'run_terminal_completed', terminal: 'failed', error: LINE });
+    fakeMuse("echo '" + failed + "'");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.ok, false);
+    assert.equal(r.because, run.QUOTA_HEAD + '. Meta said: ' + SAID, 'the event\'s own sentence, not its JSON');
+    fakeMuse("echo '" + failed + "'\nexit 1");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.because, run.QUOTA_HEAD + '. Meta said: ' + SAID);
+    // A retry Muse recovered from, then an unrelated crash: not a quota refusal (review 1).
+    fakeMuse('echo "warn: usage quota exceeded, retrying" >&2\necho "panic: index out of range" >&2\nexit 1');
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.because, run.COULD_NOT_RUN);
+    // A tool's output naming a quota, then a crash: never read, never quoted (review 1).
+    const tool = ev(5, 'run.tool.result', { kind: 'x', message: '429 usage quota exceeded TOKEN=sk-abc' });
+    fakeMuse("echo '" + tool + "'\nexit 1");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.because, run.COULD_NOT_RUN);
+    // The model's own words about a quota are not a refusal: a crash after them is still COULD_NOT_RUN, and an early
+    // stop after them still says it stopped.
+    const said = ev(81, 'run.output.delta', { kind: 'run_output_delta', text: 'The 429 usage quota exhausted error means...' });
+    fakeMuse("echo '" + said + "'\nkill -SEGV $$");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.because, run.COULD_NOT_RUN);
+    fakeMuse("echo '" + said + "'");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.match(r.because, /stopped before finishing/);
+    // CONTROL: a completed turn whose text names a quota is ok, and the same followed by a crash is not a quota refusal.
+    const done = ev(90, 'run.terminal.completed', { kind: 'run_terminal_completed', text: 'usage quota exhausted 429 explained', terminal: 'completed' });
+    fakeMuse("echo '" + done + "'");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.ok, true);
+    fakeMuse("echo '" + done + "'\nexit 1");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.because, run.COULD_NOT_RUN);
+    // Review 4: a turn Muse completed is never called a quota stop, even when it then exits non-zero after a refusal line.
+    fakeMuse("echo '" + done + "'\necho '429 Subscription quota exhausted' >&2\nexit 1");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.because, run.COULD_NOT_RUN);
+    // A turn that ran partway: its text stays, and the line says Muse Code stopped (not that the turn "did not run").
+    const part = ev(81, 'run.output.delta', { kind: 'run_output_delta', text: 'Step 1 done.' });
+    fakeMuse("echo '" + part + "'\necho '" + failed + "'\nexit 1");
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.equal(r.text, 'Step 1 done.');
+    assert.match(r.because, /so Muse Code stopped\. Meta said: /);
+    // Order (review 1): a sign-in failure that also mentions a quota still says not signed in.
+    fakeMuse('echo "missing meta credential; usage quota exhausted" >&2\nexit 1');
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    assert.match(r.because, /not signed in/);
+  } finally { gate.resetForTests(); run.resetForTests(); }
+});
+
 test('#3939: a turn that ignores TERM is stopped by SIGKILL at the timeout', { timeout: 8000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
   fakeMuse("trap '' TERM\nexec sleep 7");
   run.setForTests({ turnTimeoutMs: 300, hardCapMs: 20000 });
