@@ -393,6 +393,7 @@ struct RoomView: View {
     private func loadOlder(_ proxy: ScrollViewProxy) {
         // Not while searching: a search shortens the room; its top showing is not a reader asking for older posts.
         guard !searchMode else { return }
+        endJumps &+= 1   // kosmos#7654: cancels goEnd's pending retries
         // A post's id: a folded refusal line's id can change when older refusals join its run, which would leave
         // nothing to scroll back to.
         let anchor = items.first(where: { if case let .row(r, _, _) = $0.kind { return r.kind == .post } else { return false } })?.id
@@ -772,6 +773,7 @@ struct RoomView: View {
             .onChange(of: jumpTo) { id in
                 guard let id else { return }
                 jumpTo = nil
+                endJumps &+= 1   // kosmos#7654: cancels goEnd's pending retries
                 // kosmos#7096: an original the search hides is not gone to; the room says so (the board's
                 // PJ_HIDDEN_BY_SEARCH, said only for a post the room holds: one not loaded keeps the jump's own behaviour).
                 if Board.roomJumpHidden(id, shown: shownRows, all: rows, searching: searching) {
@@ -860,7 +862,8 @@ struct RoomView: View {
     }
 
     // kosmos#7654: on iOS 26 one jump to the end of a long room fell short (rows above have estimated heights), so the
-    // opening jump is repeated at each of endRetries while atBottom is false (RoomOpensAtNewestUITests).
+    // opening jump is repeated at each of endRetries while atBottom is false, the room is on screen, and neither search
+    // nor the archive is showing (RoomOpensAtNewestUITests).
     static let endRetries: [Double] = [0.05, 0.15, 0.3, 0.5]
     private func goEnd(_ proxy: ScrollViewProxy) {
         proxy.scrollTo("bottom", anchor: .bottom)
