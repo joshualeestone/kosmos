@@ -95,3 +95,19 @@ sample for "every time"; ui-keyboard.sh is the way to add more.
   is not hittable. **Measured 10-30 04:2x CDT on a fresh simulator, the checks as committed:** with the change 3 of 3
   pass; with `keepNewestInView` forced true (local edit, reverted), check 3 **fails** ("Message 213 of 260", read
   higher up, left the screen). One run per arm.
+
+## After review rounds 7 and 8 (the cap)
+
+- **Fixed (round 8):** check 3 could tap before the scroll-up hook clears `atBottom` (3.6 s after the chat opens), which
+  would read the reader as at the newest and fail the check for no real reason. It now waits until 4.2 s after the
+  sample rows first appear. Measured 10-30 04:3x CDT, one run per arm: with the change 3 of 3 pass; with
+  `keepNewestInView` forced true, check 3 fails ("Message 213 of 260"). This change came after the eighth review and
+  was not itself reviewed; the two runs are its evidence.
+- **Deferred, for a follow-up, per the 8-round cap (no BLOCKER open):**
+  - iOS 17 and 18, and a real phone: not measured. This Mac has only the iOS 27 runtime, and an older runtime is a
+    multi-GB download on a disk below its floor (kosmos#7606). The card closes on a phone, not on the simulator.
+  - The covered-while-rising, then jump, under the id anchor (above). Judged on a phone.
+  - The `visible` guard on keyboardDidShow has no check of its own; `keyboardWillShow` still sets `keepNewestInView`
+    for a chat that is not on screen, which only that guarded handler reads.
+  - No CI job runs the UI tests target; `ios/tools/ui-keyboard.sh` is how they are run.
+  - A nil step before `positionId = "end"`: not taken. A later re-anchor would set the same "end", which is the target.

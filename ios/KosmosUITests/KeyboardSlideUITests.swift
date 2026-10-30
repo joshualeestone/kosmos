@@ -41,10 +41,14 @@ final class KeyboardSlideUITests: XCTestCase {
         let box = Self.box(app)
         let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15), "no sample rows")
+        let opened = Date()
         // The chat opens at its newest message; the hook's scroll up has happened once that has left the screen.
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false OR isHittable == false"), object: newest)
         XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 15), .completed, "the scroll up never moved the reader off the newest message")
+        // The hook clears atBottom 3.6 s after the chat opens; a tap before that would read the reader as at the newest.
+        let early = 4.2 - Date().timeIntervalSince(opened)
+        if early > 0 { Thread.sleep(forTimeInterval: early) }
         Self.settle(rows.firstMatch)
         // The highest row on screen below the header, by its own label so it can be found again after the keyboard.
         let header = app.navigationBars.firstMatch.frame.maxY   // rows under the top bar are not the reader's place
