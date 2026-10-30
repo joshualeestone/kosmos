@@ -96,9 +96,33 @@ _restore() {
 # Every restore at an ending runs with the signals ignored (review 4): a second Ctrl-C, or a TERM after a HUP, must not
 # kill the restore halfway, and a signal during a normal finish must not re-run it over files it has just restored.
 _final_restore() { trap '' HUP INT TERM; _restore; }
+# Every process under the test, ended without one escaping (kosmos#7629 B1): a server or worker the test file started
+# would otherwise keep running against the restored tree. Each process is STOPPED as it is read, so nothing in the
+# tree can fork between the read and its kill, then every one is sent TERM and CONT. Not caught, stated: a TERM
+# handler that forks a cleanup child once it is continued (that child is born after the tree was read). Exact pids
+# only, never a group or pkill.
+_tree_of() {
+  local p c
+  for p in "$@"; do
+    kill -STOP "$p" 2>/dev/null
+    printf '%s\n' "$p"
+    for c in $(pgrep -P "$p" 2>/dev/null); do _tree_of "$c"; done
+  done
+}
 _restore_on_signal() {   # $1 the signal's number: the exit is 128 + it, as a shell reports a death by that signal
   trap '' HUP INT TERM
-  if [ -n "${_test_pid:-}" ]; then kill "$_test_pid" 2>/dev/null; wait "$_test_pid" 2>/dev/null; fi
+  # Decided window, not guarded (review 2/3): a signal in the few instructions after the test ends, before _test_pid
+  # is cleared, would act on that number. A ppid check cannot close it: with traps set, bash runs the background test
+  # under an extra subshell, so the test's parent is never this script's pid (tried; it skipped every kill).
+  if [ -n "${_test_pid:-}" ]; then
+    local _tree _q
+    _tree="$(_tree_of "$_test_pid")"
+    # TERM then CONT for each pid in one pass (review 2): a stopped process acts on its TERM only once continued, and
+    # if this script is itself killed in this loop (a kill -9 is not ignored), at most one process is left stopped.
+    # A kill -9 while _tree_of is still reading leaves every process read so far stopped: a stated window.
+    for _q in $_tree; do kill "$_q" 2>/dev/null; kill -CONT "$_q" 2>/dev/null; done
+    wait "$_test_pid" 2>/dev/null
+  fi
   rm -f "${_outf:-}"
   # A signal can land after the break is written but before _broken is filled (or while node is mid-write, review
   # 3). The tree was clean at the start, so whatever differs now is the break: restore that whole, unconditionally.

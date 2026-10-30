@@ -276,6 +276,11 @@ const SEAMS_5548 = {
   // themselves (claimedNow / done), never these.
   isTyping: 'engine/limitqueue.js',
   isDone: 'engine/limitqueue.js',
+  // kosmos#7614: whether the sweep keeps a row fix for one row (engine/chat.dm-delete-7614.test.js checks a deleted row's
+  // fix is dropped), and the held-post restore with its deleted-post filter (server.room-delete-7614.test.js drives it
+  // directly). Production reads the fixes through setRow/retryRows and restores through the flush's own failure paths.
+  hasRowFix: 'engine/limitqueue.js',
+  _restoreHeld: 'engine/messages.js',
   // #5532: the hardware reader (ioreg, or reg.exe and its PowerShell fallback) and the clock engine/computerprint-5532.test.js replaces, and the bare print function it
   // pins the formula through (callers use printFor, which reads the id itself).
   _testRunner: 'engine/computerprint.js',

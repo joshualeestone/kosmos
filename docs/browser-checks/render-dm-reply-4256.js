@@ -5,7 +5,7 @@
  * Replying in a Direct Message (#4256, Josh 2026-09-27: "when will we get message replies ... on projects
  * and direct messages"). The room has had Reply since #3745; this is the same on the agent's own page.
  *
- *   R1  an agent's message offers Reply in its bar; the person's own rows have no bar
+ *   R1  an agent's message offers Reply in its bar; the person's own rows offer no Reply (their bar holds "..." alone, kosmos#7614)
  *   R2  Reply puts "Replying to <agent>: <first line>" above the box, focuses the box, and the box is
  *       described by the strip
  *   R3  the send carries reply_to (the message's `at`); CONTROL: an ordinary send carries none
@@ -102,15 +102,15 @@ async function openDm(page, messages, olderCount) {
     const bars = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg')].map((r) => ({
       you: r.classList.contains('you'), reply: !!r.querySelector('.rxn-reply') })));
     chk(bars.length === 3 && bars.filter((b) => !b.you).every((b) => b.reply) && bars.filter((b) => b.you).every((b) => !b.reply),
-      'R1 each agent message offers Reply; the person\'s own rows have no bar', JSON.stringify(bars));
+      'R1 each agent message offers Reply; the person\'s own rows offer no Reply', JSON.stringify(bars));
     // #4358: in the DM bar too, the four emoji sit together and Reply comes last, with its arrow.
     const dmBar = await page.evaluate(() => {
       const q = document.querySelector('#d-dmthread .msg:not(.you) .rxn-quick');
-      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-copy') ? 'copy' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?').join(',') : '';
+      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-dots') ? 'dots' : k.classList.contains('rxn-div') ? 'div' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?').join(',') : '';
       const r = q && q.querySelector('.rxn-reply');
       return { kids, arrow: !!(r && r.firstElementChild && r.firstElementChild.classList.contains('rxn-reply-ico')) };
     });
-    chk(dmBar.kids === 'copy,ref,pick,pick,pick,more,speak,reply' && dmBar.arrow, 'R1b the DM bar reads Copy message and Copy message id (#5312), the three quick emoji, the smiley, read-aloud (#4409), then Reply last with its arrow (#4358)', JSON.stringify(dmBar));
+    chk(dmBar.kids === 'pick,pick,pick,div,more,speak,reply,dots' && dmBar.arrow, 'R1b the DM bar reads the three quick emoji, a divider, the smiley, read-aloud (#4409), Reply with its arrow (#4358), then "..." (kosmos#7614: the copies moved into its menu)', JSON.stringify(dmBar));
 
     // R2
     await page.hover('#d-dmthread .msg:not(.you) >> nth=1');

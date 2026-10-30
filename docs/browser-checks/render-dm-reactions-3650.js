@@ -87,7 +87,7 @@ const FX = {
     return {
       agentRows: agentRows.length,
       agentWithRx: agentRows.filter((r) => r.querySelector('.rxns[data-at]')).length,
-      youWithRx: youRows.filter((r) => r.querySelector('.rxns')).length,
+      youWithRx: youRows.filter((r) => r.querySelector('.rxns .rxn-pick, .rxns .rxn-more, .rxns button.rxn')).length,   // kosmos#7614: its bar holds only "..."
       youRows: youRows.length,
       pill: pill ? { emoji: pill.getAttribute('data-emoji'), pressed: pill.getAttribute('aria-pressed') } : null,
       a2HasRow: !!document.querySelector('#d-dmthread .rxns[data-at="' + A2 + '"]'),
