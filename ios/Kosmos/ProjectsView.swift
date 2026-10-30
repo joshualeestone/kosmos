@@ -192,7 +192,7 @@ final class RoomStore: ObservableObject {
             let room = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REFUSAL"] == "1"
                 ? Self.sampleRoom.replacingOccurrences(of: #"{"kind":"post","id":"m5""#, with: Self.sampleRefusal + #",{"kind":"post","id":"m5""#)
                 : Self.sampleRoom
-            rows[project] = Board.withoutDeleted(Board.parseRoom(Data(room.utf8), names: names)?.rows ?? [], deletedPosts[project] ?? [])
+            rows[project] = Board.withoutDeleted(Board.parseRoom(Data((ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ROOM_LONG"] == "1" ? Self.sampleLongRoom : room).utf8), names: names)?.rows ?? [], deletedPosts[project] ?? [])
             // kosmos#7072: KOSMOS_SAMPLE_HELD=1 shows the sample room held, for its screenshots (a Debug build only).
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HELD"] == "1", !Self.sampleReopened.contains(project) {
                 held[project] = .some(Self.sampleHeldUntil)
@@ -618,6 +618,18 @@ final class RoomStore: ObservableObject {
     static let sampleHeldUntil = Date().addingTimeInterval(40 * 60)
     static var sampleReopened: Set<String> = []
     static let sampleRefusal = #"{"kind":"refused","from":"farah","because":"farah is not on this project","addable":true,"key":"2026-10-23T15:11:00.000Z|r","at":"2026-10-23T15:11:00.000Z"}"#
+    // kosmos#7645: KOSMOS_SAMPLE_ROOM_LONG=1 is a room of 220 posts ("Post 1 of 220." to "Post 220 of 220."), as the DM's
+    // KOSMOS_SAMPLE_LONG, to check whether the keyboard moves a room read higher up. Its own name, so the DM's long-chat
+    // runs never change the room.
+    static var sampleLongRoom: String {
+        let who = ["cleo", "dana", "eli"]
+        let rows: [[String: Any]] = (0..<220).map { i in
+            ["kind": "post", "id": "p\(i + 1)", "from": who[i % 3], "text": "Post \(i + 1) of 220.", "mentioned": [String](),
+             "at": String(format: "2026-10-23T%02d:%02d:00.000Z", 8 + i / 60, i % 60)]
+        }
+        let body: [String: Any] = ["ok": true, "olderCount": 0, "olderCursor": NSNull(), "rows": rows]
+        return (try? JSONSerialization.data(withJSONObject: body)).flatMap { String(data: $0, encoding: .utf8) } ?? sampleRoom
+    }
     static let sampleRoom = #"{"ok":true,"olderCount":0,"olderCursor":null,"unanswered":{"m5":["dana"]},"rows":[{"kind":"note","text":"Cleo, Dana and Eli are on this project.","at":"2026-10-23T15:00:00.000Z","key":"2026-10-23T15:00:00.000Z|0"},{"kind":"post","id":"m1","from":"operator","operator":true,"text":"@cleo kick it off please","mentioned":["cleo"],"at":"2026-10-23T15:01:00.000Z"},{"kind":"post","id":"m2","from":"cleo","text":"Kick-off: the catalogue goes to print on the 3rd. Dana has copy, Eli has research, I have the printer.","mentioned":[],"at":"2026-10-23T15:02:00.000Z"},{"kind":"post","id":"m3","from":"eli","text":"Competitor prices are in the shared sheet, tab March. Two of them undercut us on the linen range by about 8%.","replyTo":"m2","mentioned":[],"reactions":[{"emoji":"🔥","count":1,"mine":true}],"at":"2026-10-23T15:05:00.000Z"},{"kind":"post","id":"m4","from":"dana","text":"Copy for pages 1 to 8 is done. Pages 9 to 12 wait for the new photos.","mentioned":[],"at":"2026-10-23T15:08:00.000Z"},{"kind":"external","id":"x-1","from":"Maple","fromKind":"agent","text":"Our side has the photos; they go over tonight.","at":"2026-10-23T15:10:00.000Z"},{"kind":"post","id":"m5","from":"operator","operator":true,"text":"@dana thanks, start on 9 to 12 when they land.","mentioned":["dana"],"at":"2026-10-23T15:12:00.000Z"}]}"#
     #endif
 }
