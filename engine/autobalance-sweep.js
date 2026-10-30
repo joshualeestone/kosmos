@@ -65,6 +65,9 @@ function appendAll(file, entries) {
 
 const objects = (x) => (Array.isArray(x) ? x : []).filter((y) => y && typeof y === 'object');   // an odd line must not throw
 
+/* Review round 6: only what Settings draws (web/index.html abRecentHtml), so a line it cannot draw takes no slot. */
+const DRAWN_MOVES = new Set(['changed', 'stopped', 'partial', 'unknown', 'refused']);
+const DRAWN_WORKS = new Set(['yes', 'no', 'not-seen']);
 /* The newest RECENT decisions Settings draws, newest first: only those with a usage move in them. A decision with an
    account at risk and nothing that could move is recorded but not drawn, and so is a move off a stopped login (review
    12): it stays in the file as evidence of the login problem, but slice 3b moves for usage only, so drawing it would
@@ -75,8 +78,12 @@ function recent(file, n = RECENT) {
     && ((l.kind === 'decision' && objects(l.moves).some((m) => m.kind !== 'login'))
       /* kosmos#7548 (slice 3b): the mover's own lines (engine/automove.js). A move that only started draws nothing (its
          ending line says how it went), and a person's move is the mover's hold, not news. */
-      || (l.kind === 'move' && l.outcome !== 'started' && typeof l.agent === 'string')
-      || ((l.kind === 'works' || l.kind === 'skipped' || l.kind === 'released') && typeof l.agent === 'string')))
+      || (l.kind === 'move' && DRAWN_MOVES.has(l.outcome) && typeof l.agent === 'string')
+      || (l.kind === 'works' && DRAWN_WORKS.has(l.works) && typeof l.agent === 'string')
+      || ((l.kind === 'skipped' || l.kind === 'released') && typeof l.agent === 'string')))
+    /* Review round 6: by time, not by place in the file: a move's ending written at the next start keeps the move's
+       own time, and lines that waited for a writable record are written late. Stable, so equal times keep file order. */
+    .map((l, i) => [l, i]).sort((a, b) => a[0].at - b[0].at || a[1] - b[1]).map(([l]) => l)
     .slice(-n).reverse();
 }
 

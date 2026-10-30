@@ -84,3 +84,13 @@ tests for 7, 11 and 12, and a page check for the new lines (docs/browser-checks/
   tests for a throwing tick and the period. Left as it is: unrecordedAt, like personMissedAt, is in memory (a restart
   forgets it; the pre-move write check refuses a record that still cannot be written); KEEP_LINES 500 can drop holds
   inside a day only at the one-minute sweep floor, an operator's choice.
+- Round 6 (Opus, whole branch, nothing settled): no BLOCKER. A line the record could not take now waits in memory with
+  every line after it (order kept) and each tick writes them first; moves stop only until they are written, not for a
+  day (person lines the same, per record file). Settings: while moving, the decision uses the mover's held targets
+  (skipTarget), a move line says "Kosmos will move ... once it is idle at two checks in a row", a move off a stopped
+  login is left to the person, a waiting mover says it stopped for now (movePaused), and moves switched off after a
+  run no longer say "not yet" above a move. The record's history is sorted by time and holds only lines the page
+  draws. The board logs each "could not move" reason once. Left as it is: lines still waiting are lost at a board
+  restart (the pre-move write check then refuses a record that still cannot be written); an agent created on a chosen
+  account leaves no person line (placed, not moved; said in personMoved's comment); with the person's switch off the
+  works-again check waits too (said in step()).

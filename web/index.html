@@ -29654,7 +29654,14 @@ function paintAutobalance(ab, list) {
     const moves = Array.isArray(ab.moves) ? ab.moves : [];
     const held = Array.isArray(ab.held) ? ab.held : [];
     const short = Array.isArray(ab.short) ? ab.short : [];
-    html = moves.map((m) => line('Would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '.')).join('')
+    /* kosmos#7548 review round 6: while this board moves, a move line says what the mover will do (it waits for two idle
+       checks), and a move off a stopped login says the mover leaves it, since it moves for usage only. */
+    const moveLine = (m) => (ab.moving !== true
+      ? 'Would move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ', because ' + esc(m.why) + '.'
+      : m.kind === 'login'
+        ? esc(who(m.agent)) + ' is on ' + esc(label(m.from)) + ', which cannot be used right now. Kosmos moves agents only when an account is running out, so move it yourself if it needs to work.'
+        : 'Kosmos will move ' + esc(who(m.agent)) + ' from ' + esc(label(m.from)) + ' to ' + esc(label(m.to)) + ' once it is idle at two checks in a row, because ' + esc(m.why) + '.');
+    html = moves.map((m) => line(moveLine(m))).join('')
       /* Review 1: the engine does not say why no account could take them (room, memory, a limit, a login), so this does not either. */
       + held.map((h) => line('Would move the idle agents off ' + esc(label(h.from)) + ', because ' + esc(h.why) + ', but no other account can take them right now.')).join('')
       /* Review 5: with the reason, so an account whose list is short still says why it is running out (review 7: unless
@@ -29675,8 +29682,16 @@ function paintAutobalance(ab, list) {
       ? line('Kosmos is not keeping a record of what it would move on this computer.')   // review 10: what is known, not why
       /* kosmos#7548: moving is an operator's switch on this computer (AGENT_WORKFORCE_AUTOMOVE=1); said only when the
          board reports it moves (ab.moving), so the page never says it moves where it does not. */
-      : (ab.moving === true ? line('Kosmos moves them itself, one agent at a time, and says each move here.')
-        : line('Kosmos does not move agents on its own yet. It keeps a record of what it would have moved.'))
+      : (ab.moving === true
+        /* Review round 6: a moving board whose record could not take a line moves nobody until it can, and says so. */
+        ? (ab.movePaused === 'record'
+          ? line('Kosmos has stopped moving agents for now, because it could not write its record. It starts again once it can.')
+          : line('Kosmos moves them itself, one agent at a time, and says each move here.'))
+        /* Review round 6: moves switched off after a run leave the mover's lines in the record, so "not yet" would be
+           false above them. */
+        : (Array.isArray(ab.recent) && ab.recent.some((e) => e && e.kind !== 'decision')
+          ? line('Kosmos is not moving agents on this computer now. It keeps a record of what it would have moved.')
+          : line('Kosmos does not move agents on its own yet. It keeps a record of what it would have moved.')))
         /* Review 20: said when the last check could not measure every account, so a quiet record is not read as calm. */
         + (ab.lastTick === 'gap' || ab.lastTick === 'unreadable' || ab.unmeasuredNow === true ? line('Kosmos could not check everything at its last check, so the record may be missing a change.') : '')   // review 21: and while a written gap lasts
         + abRecentHtml(Array.isArray(ab.recent) ? ab.recent : [], label, who, line);

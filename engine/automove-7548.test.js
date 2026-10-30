@@ -650,20 +650,26 @@ test('#7548 review round 2: a person\'s move made while the tick runs is read ag
   assert.deepEqual(calls.starts, [], 'a person\'s move made during the tick was undone');
 });
 
-test('#7548 review round 2: a person\'s move the record could not keep stops every move for a day', async () => {
+test('#7548 review round 6: a person\'s move the record could not keep waits, moves nobody, and is written once it can be', async () => {
   const dir = fs.mkdtempSync(path.join(TMP, 'pm-'));
+  const file = path.join(dir, 'r.jsonl');
+  const run = automove.create({ file });
+  const { d, calls } = deps();
   fs.chmodSync(dir, 0o555);
-  try { assert.equal(automove.personMoved(path.join(dir, 'r.jsonl'), ['zed'], '/x', NOW, ON), false); }
-  finally { fs.chmodSync(dir, 0o755); }
   try {
-    const { d, calls } = deps();
-    const run = automove.create({ file: fileFor() });
+    assert.equal(automove.personMoved(file, ['zed'], '/x', NOW, ON), false);
+    assert.equal(automove.personMoved(file, ['yan'], '/x', NOW + 10, ON), false);
     const r = await twoTicks(run, d);
     assert.equal(r.did, 'unreadable', 'a person\'s move that was not recorded let the mover move');
+    assert.equal(run.paused(), 'record', 'Settings is not told the mover waits');
     assert.deepEqual(calls.starts, []);
-    await twoTicks(run, d, NOW + automove.REST_MS + 1000);
-    assert.equal(calls.starts.length, 1, 'CONTROL: a day later it moves');
-  } finally { automove.resetPersonMissedForTests(); }
+  } finally { fs.chmodSync(dir, 0o755); }
+  try {
+    await twoTicks(run, d, NOW + 2000);
+    assert.deepEqual(lines(file).filter((l) => l.kind === 'person').map((l) => l.agent), ['zed', 'yan'], 'the waiting lines were not written, in order');
+    assert.equal(run.paused(), null);
+    assert.equal(calls.starts.length, 1, 'CONTROL: once the lines are written it moves, without waiting a day');
+  } finally { automove.resetUnwrittenPeopleForTests(); }
 });
 
 test('#7548 review round 2: a restart in the move\'s own second (tmux reads whole seconds) counts as after it', async () => {
@@ -799,27 +805,31 @@ test('#7548 review round 4: one tick at a time, so a watch a move adds is never 
   assert.deepEqual(run.state.watching.map((w) => w.agent), ['ada'], 'the move\'s watch was lost');
 });
 
-test('#7548 review round 4: a move whose line the record did not keep stops every move for a day; route names are trimmed', async () => {
+test('#7548 review rounds 4 and 6: a move\'s lines the record did not take wait, in order, and moves stop until they are written; route names are trimmed', async () => {
   const file = fileFor();
   const run = automove.create({ file });
-  const { d, calls } = deps({ start: (body) => { fs.rmSync(file, { force: true }); fs.mkdirSync(file); /* Only the started line fails: the record is writable again before the move ends, so its ending line is kept. */
+  const { d, calls } = deps({ start: (body) => { fs.rmSync(file, { force: true }); fs.mkdirSync(file); /* Only the started line fails: the record is writable again before the move ends. */
     return { status: 202, body: { id: 'm1', agents: [{ name: body.names[0], outcome: 'pending' }] }, done: Promise.resolve().then(() => fs.rmSync(file, { recursive: true, force: true })) }; } });
-  try {
-    await twoTicks(run, d);
-    assert.equal(calls.starts.length, 1, 'CONTROL: the move ran');
-    assert.ok(lines(file).some((l) => l.kind === 'move' && l.outcome === 'changed'), 'CONTROL: the ending line was kept');
-    assert.ok(Number.isFinite(run.state.unrecordedAt), 'a move whose started line the record did not keep was not noticed');
-  } finally { fs.rmSync(file, { recursive: true, force: true }); }
+  await twoTicks(run, d);
+  assert.equal(calls.starts.length, 1, 'CONTROL: the move ran');
+  /* The ending waits behind the started line, so the record never holds an ending before its start. */
+  assert.deepEqual(run.state.unwritten.map((l) => l.outcome), ['started', 'changed'], 'a move whose started line the record did not keep was not noticed');
+  assert.deepEqual(lines(file), [], 'the ending was written ahead of its start');
+  assert.equal(run.paused(), 'record');
   const r = await run.tick(d, NOW + 3000);
-  assert.equal(r.did, 'unreadable', 'the mover went on after losing a move\'s lines');
-  /* The mirror: the started line is kept and the record breaks during the move, so only the ending is lost. */
+  assert.deepEqual(lines(file).filter((l) => l.kind === 'move').map((l) => l.outcome), ['started', 'changed'], 'the waiting lines were not written, in order');
+  assert.equal(run.paused(), null);
+  assert.notEqual(r.did, 'unreadable', 'CONTROL: once written, moves are not stopped');
+  /* The mirror: the started line is kept and the record breaks during the move, so only the ending waits. */
   const f2 = fileFor();
   const r2 = automove.create({ file: f2 });
   const { d: d2 } = deps({ start: (body) => ({ status: 202, body: { id: 'm2', agents: [{ name: body.names[0], outcome: 'pending' }] },
     done: Promise.resolve().then(() => { fs.rmSync(f2, { force: true }); fs.mkdirSync(f2); }) }) });
   try {
     await twoTicks(r2, d2);
-    assert.ok(Number.isFinite(r2.state.unrecordedAt), 'a move whose ending the record did not keep was not noticed');
+    assert.deepEqual(r2.state.unwritten.map((l) => l.outcome), ['changed'], 'a move whose ending the record did not keep was not noticed');
+    const stopped = await r2.tick(d2, NOW + 3000);
+    assert.equal(stopped.did, 'unreadable', 'the mover went on with a move\'s ending unwritten');
   } finally { fs.rmSync(f2, { recursive: true, force: true }); }
   const named = fileFor();
   automove.personMoved(named, ['  ada '], '/x', NOW, ON);
@@ -852,12 +862,48 @@ test('#7548 review round 5: a tick that throws does not leave the mover busy', a
   assert.equal(calls.starts.length, 1, 'a tick that threw left every later tick answering busy');
 });
 
-test('#7548 review round 5: while moves are stopped for a day, a moved agent\'s refused first request is still told', async () => {
-  const run = automove.create({ file: fileFor() });
+test('#7548 review round 5: while moves wait for the record, a moved agent\'s refused first request is still told', async () => {
+  const dir = fs.mkdtempSync(path.join(TMP, 'told-'));
+  const file = path.join(dir, 'r.jsonl');
+  const run = automove.create({ file });
   const { d, calls } = deps({ lastSeen: () => ({ outcome: '401', at: Date.now() + 5000 }) });
   await twoTicks(run, d);
   assert.equal(calls.starts.length, 1);
-  run.state.unrecordedAt = NOW;
-  await run.tick(d, NOW + 5000);
-  assert.equal(calls.tells.filter(([, t]) => /refused/.test(t)).length, 1, 'the person was not told while moves were stopped');
+  fs.chmodSync(dir, 0o555);   // the sweep writes by rename, so the folder, not the file
+  try {
+    const r = await run.tick(d, NOW + 5000);
+    assert.equal(r.did, 'unreadable', 'CONTROL: moves were not waiting');
+    assert.equal(calls.tells.filter(([, t]) => /refused/.test(t)).length, 1, 'the person was not told while moves waited');
+  } finally { fs.chmodSync(dir, 0o755); }
+});
+
+test('#7548 review round 6: the record\'s history is in time order and holds only lines Settings draws', () => {
+  const file = fileFor();
+  const t = Date.now() - 60 * 60000;
+  sweep.appendAll(file, [
+    { kind: 'move', at: t + 2000, agent: 'bo', from: '/a', to: '/b', outcome: 'changed' },
+    { kind: 'move', at: t + 1000, agent: 'ada', from: '/a', to: '/b', outcome: 'unknown' },   // written late, at the next start
+    { kind: 'move', at: t + 3000, agent: 'cy', from: '/a', to: '/b', outcome: 'started' },
+    { kind: 'move', at: t + 4000, agent: 'cy', from: '/a', to: '/b', outcome: 'something-new' },
+    { kind: 'works', at: t + 5000, agent: 'cy', from: '/a', to: '/b', works: 'maybe' },
+    { kind: 'works', at: t + 6000, agent: 'bo', from: '/a', to: '/b', works: 'yes' },
+  ]);
+  assert.deepEqual(sweep.recent(file).map((l) => l.agent + ' ' + (l.outcome || l.works)), ['bo yes', 'bo changed', 'ada unknown'],
+    'the history is out of time order, or holds a line the page cannot draw');
+});
+
+test('#7548 review round 6: while the mover runs, Settings skips its held targets and says when it waits', async () => {
+  const run = automove.create({ file: fileFor() });
+  const { d } = deps({ lastSeen: () => ({ outcome: '401', at: Date.now() + 5000 }) });
+  await twoTicks(run, d);
+  await run.tick(d, NOW + 5000);   // the first request is refused: the target is held a day
+  const held = [...run.state.failed.keys()];
+  assert.equal(held.length, 1, 'CONTROL: no target was held');
+  assert.equal(run.skipTarget(NOW + 6000)(held[0]), true, 'the mover does not report its held target');
+  assert.equal(run.skipTarget(NOW + automove.FAILED_HOLD_MS + 6000)(held[0]), false, 'CONTROL: a day later it is not held');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /automoveRun && automove\.movesOn\(\) \? automoveRun\.skipTarget\(sentAt\) : null/, 'Settings does not use the mover\'s held targets');
+  assert.match(src, /decision = ab\.decide\(\{ rows: claude, movable, nowMs: sentAt, \.\.\.\(skipTarget \? \{ skipTarget \} : \{\}\) \}\)/);
+  assert.match(src, /autobalance\.movePaused = autobalance\.moving === true \? automoveRun\.paused\(\) : null/, 'Settings is not told the mover waits');
+  assert.match(src, /const said = why !== null && why === automoveSaid;/, 'the board logs the same reason every tick');
 });

@@ -77,6 +77,16 @@ const CASES = {
     { kind: 'move', at: now - 10 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-gone', toLabel: 'Old', outcome: 'changed', why: WHY }] } },
   /* CONTROL: the same record with moving left out says nothing moves on its own. */
   movingOff: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, recent: [] } },
+  /* Review round 6: moves switched off after a run: the mover's lines are still in the record. */
+  movedThenOff: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, recent: [
+    { kind: 'move', at: now - 10 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'changed', why: WHY }] } },
+  /* Review round 6: a moving board waiting for its record, and a moving board's move lines (a usage move, and one off a
+     stopped login, which the mover leaves). */
+  movingPaused: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, moving: true, movePaused: 'record', recent: [] } },
+  movingNow: { accounts: TWO, autobalance: { on: true, eligible: 2, held: [], short: [], recording: true, moving: true, recent: [],
+    moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' },
+      { agent: 's-x', from: '/home/.claude-full', to: '/home/.claude-spare', why: 'its login has stopped working', kind: 'login' }],
+    atRisk: [{ from: '/home/.claude-full', why: WHY, kind: 'usage' }] } },
   /* Review 20: the last check could not measure every account, and a recorded line made during a gap. */
   gapRecent: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, lastTick: 'gap',
     recent: [{ kind: 'decision', at: now - 60e3, unmeasured: ['/home/.claude-spare'], moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }] }] } },
@@ -257,6 +267,15 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(mv && mv.length === wantMv.length && wantMv.every((re, i) => re.test(mv[i])), tag + ' the mover: each line said once, newest first, with moves on', JSON.stringify(mv));
       say(r.moving && !r.moving.recentMarkup, tag + ' a name with markup in a move line is shown as text', '');
       say(r.movingOff && r.movingOff.recent[0] === NONE, tag + ' CONTROL: without moving, it does not say it moves', JSON.stringify(r.movingOff && r.movingOff.recent));
+      /* Review round 6 */
+      say(r.movedThenOff && r.movedThenOff.recent[0] === 'Kosmos is not moving agents on this computer now. It keeps a record of what it would have moved.' && /Kosmos moved Ada/.test(r.movedThenOff.recent[2] || ''),
+        tag + ' moves switched off after a run: the header does not say "not yet" above a move', JSON.stringify(r.movedThenOff && r.movedThenOff.recent));
+      say(r.movingPaused && r.movingPaused.recent[0] === 'Kosmos has stopped moving agents for now, because it could not write its record. It starts again once it can.',
+        tag + ' a moving board waiting for its record says so', JSON.stringify(r.movingPaused && r.movingPaused.recent));
+      const mn = r.movingNow && r.movingNow.lines;
+      say(mn && mn.length === 2 && mn[0] === 'Kosmos will move Ada from Work to Spare once it is idle at two checks in a row, because ' + WHY + '.'
+        && mn[1] === '<b>Bo</b> is on Work, which cannot be used right now. Kosmos moves agents only when an account is running out, so move it yourself if it needs to work.' && !r.movingNow.markup,
+        tag + ' with moves on, a move line says what the mover will do, and a stopped login is left to the person', JSON.stringify(mn));
       say(r.off && r.off.recent.length === 0 && r.one && r.one.recent.length === 0, tag + ' switched off, or one account: no record drawn', JSON.stringify([r.off && r.off.recent, r.one && r.one.recent]));
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
       await page.close();

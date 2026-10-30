@@ -48,22 +48,28 @@ function movesOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOMOVE === '1
  * Never throws (the route's move is not this line); false when it could not be written. Writes nothing while moves are
  * off (review round 1): the mover is inert unless switched on, routes included. So a person's move made while moves are
  * off is not held once they are switched on; switching on is an operator's act and takes a board restart.
+ * Only the two move routes call it (review round 6): an agent created on an account a person chose is placed, not
+ * moved, and leaves no `person` line.
  */
 function personMoved(file, names, to, nowMs = Date.now(), env = process.env) {
   if (!movesOn(env)) return true;
-  let wrote = false;
+  let lines = [];
   try {
     /* Trimmed as engine/create.js cleanName trims the routes' names, so the line names the agent the move did. */
     const agents = (Array.isArray(names) ? names : []).filter((n) => typeof n === 'string').map((n) => n.trim()).filter(Boolean);
     if (!agents.length) return true;
-    wrote = sweep.appendAll(file, agents.map((agent) => ({ kind: 'person', at: nowMs, agent, ...(typeof to === 'string' ? { to } : {}) })));
-  } catch { wrote = false; }
-  /* Review round 2: a person's move the record could not keep is still a person's move. The mover cannot tell whose it
-     was, so it moves nobody for a day (personMissedAt); the routes' own move is not refused for it. */
-  if (!wrote) personMissedAt = nowMs;
+    lines = agents.map((agent) => ({ kind: 'person', at: nowMs, agent, ...(typeof to === 'string' ? { to } : {}) }));
+  } catch { return false; }
+  /* Review round 6: a person's move the record could not keep is still a person's move. Its lines wait here and each
+     tick writes them first (keepPending); until they are written the mover moves nobody, and it holds those agents
+     meanwhile. The routes' own move is not refused for it. A board restart forgets lines still waiting. */
+  const waiting = unwrittenPeople.get(file) || [];
+  let wrote = false;
+  if (!waiting.length) { try { wrote = sweep.appendAll(file, lines); } catch { wrote = false; } }
+  if (!wrote) unwrittenPeople.set(file, [...waiting, ...lines]);
   return wrote;
 }
-let personMissedAt = null;
+const unwrittenPeople = new Map();   // record file -> person lines it could not take yet, oldest first
 
 /**
  * The mover's state, rebuilt from the record (rule 10: a board restarts several times a day): the moves being watched,
@@ -74,7 +80,19 @@ let personMissedAt = null;
 function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
   const PREVIOUS_TICK_MS = previousTickMs(periodMs);
   const state = { lastMovable: new Set(), lastMovableAt: null, watching: [], failed: new Map(), resting: new Map(), refused: new Map(),
-    refusedTimes: new Map(), skippedAt: new Map(), unrecordedAt: null };
+    refusedTimes: new Map(), skippedAt: new Map(), unwritten: [] };
+  /* Review round 6: every line goes through keep(). One the record could not take waits in state.unwritten, and so does
+     every line after it, so the record keeps their order; each tick writes them first. While any wait, the mover moves
+     nobody (a restart would forget the move, its rest and its watch, rules 8 and 10) and Settings says so. A board
+     restart forgets lines still waiting: the pre-move write check below then refuses a record that still cannot be
+     written. */
+  const keep = (l) => { if (state.unwritten.length || !sweep.append(file, l)) state.unwritten.push(l); };
+  const flush = () => {
+    if (state.unwritten.length && sweep.appendAll(file, state.unwritten)) state.unwritten = [];
+    const people = unwrittenPeople.get(file) || [];
+    if (people.length && sweep.appendAll(file, people)) unwrittenPeople.delete(file);
+  };
+  const waitingPeople = () => unwrittenPeople.get(file) || [];
   const watched = new Map();   // agent -> its watch, from its newest move, until a works or released line closes it
   const open = new Map();      // agent -> a 'started' line with no ending yet
   const rest = (agent, at) => { if (!state.resting.has(agent) || state.resting.get(agent) < at) state.resting.set(agent, at); };
@@ -104,7 +122,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     if (l.kind === 'works' || l.kind === 'released') watched.delete(l.agent);
   }
   for (const l of open.values()) {
-    sweep.append(file, { kind: 'move', at: l.at, agent: l.agent, from: l.from, to: l.to, fromLabel: l.fromLabel, toLabel: l.toLabel, why: l.why,
+    keep({ kind: 'move', at: l.at, agent: l.agent, from: l.from, to: l.to, fromLabel: l.fromLabel, toLabel: l.toLabel, why: l.why,
       startedAt: l.startedAt, outcome: 'unknown', because: 'the board stopped before the move finished' });
     if (nowMs - l.at < REST_MS) rest(l.agent, l.at);
   }
@@ -132,7 +150,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       let here = null;
       try { here = deps.agentsOn(w.to, deps.isDefaultDir ? deps.isDefaultDir(w.to) : false); } catch { here = null; }
       if (here && Array.isArray(here.names) && here.complete === true && !here.names.includes(w.agent)) {
-        sweep.append(file, line(w, { kind: 'released', at: nowMs, because: 'it is no longer on the account Kosmos moved it to' }));
+        keep(line(w, { kind: 'released', at: nowMs, because: 'it is no longer on the account Kosmos moved it to' }));
         rest(w.agent, nowMs);
         continue;
       }
@@ -153,7 +171,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       const after = Math.max(w.movedAt, Number.isFinite(w.since) ? w.since : 0);
       if (seen && Number.isFinite(seen.at) && seen.at > after) {
         const works = seen.outcome === 'ok' ? 'yes' : 'no';
-        sweep.append(file, line(w, { kind: 'works', at: nowMs, works }));
+        keep(line(w, { kind: 'works', at: nowMs, works }));
         if (works === 'no') {
           state.failed.set(w.to, nowMs);
           rest(w.agent, nowMs);
@@ -166,7 +184,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       }
       if (nowMs - w.movedAt > WATCH_MS) {
         /* Not seen to work in a day is not proof that it works, so the target waits a day before the next one. */
-        sweep.append(file, line(w, { kind: 'works', at: nowMs, works: 'not-seen' }));
+        keep(line(w, { kind: 'works', at: nowMs, works: 'not-seen' }));
         state.failed.set(w.to, nowMs);
         continue;
       }
@@ -192,11 +210,11 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       if (err && err.wroteAccount === false) {
         refuse(m.agent, nowMs);
         const refused = { ...base, at: nowMs, outcome: 'refused' };
-        sweep.append(file, refused);
+        keep(refused);
         return refused;
       }
       const unknown = { ...base, at: nowMs, outcome: 'unknown' };
-      sweep.append(file, unknown);
+      keep(unknown);
       rest(m.agent, nowMs);
       watch(m, movedAt, true);
       return unknown;
@@ -207,14 +225,12 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     if (!started || started.status !== 202 || !first || first.outcome === 'refused') {
       refuse(m.agent, nowMs);
       const refused = { ...base, at: nowMs, outcome: 'refused' };
-      sweep.append(file, refused);
+      keep(refused);
       return refused;
     }
     /* Said BEFORE the restarts run, so a board that stops mid-move still knows, on its next start, that this agent may
        be on its new account (create() ends it as unknown and watches it). */
-    /* Review round 4: a move whose lines the record did not keep is forgotten at a restart (its rest, its watch), so
-       every move stops for a day, as for a person's move the record could not keep. */
-    if (!sweep.append(file, { ...base, at: Date.now(), outcome: 'started' })) state.unrecordedAt = nowMs;
+    keep({ ...base, at: Date.now(), outcome: 'started' });
     try { await started.done; } catch { /* the move's record says how it went */ }
     let outcome = 'partial';
     try {
@@ -223,7 +239,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       outcome = a && (a.outcome === 'changed' || a.outcome === 'stopped') ? a.outcome : 'partial';   // a stop puts it back
     } catch { outcome = 'partial'; }
     const ended = { ...base, at: Date.now(), outcome };
-    if (!sweep.append(file, ended)) state.unrecordedAt = nowMs;
+    keep(ended);
     /* A partial move is saved on the target and lands there at its next restart, so it is watched (and the target
        unproven) too (rule 9). Rules 7 and 8: every ending rests the agent a day. */
     if (outcome === 'changed' || outcome === 'partial') watch(m, movedAt, outcome === 'partial');
@@ -252,22 +268,27 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     try { return await step(deps, nowMs); } finally { running = false; }
   }
 
+  /* Held and unproven targets (rules 5 and 6), for decide()'s skipTarget: the mover's and, while moves are on, the
+     Settings read's (server.js), so the page never names a target the mover would not use. */
+  const skipTarget = (nowMs = Date.now()) => (dir) => (state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS)
+    || state.watching.some((w) => w.to === dir);
+  /* Review round 6: why the mover moves nobody now, or null. Settings says it. */
+  const paused = () => (state.unwritten.length || waitingPeople().length ? 'record' : null);
+
   async function step(deps, nowMs) {
+    /* Review round 6: the works-again check needs the switch only as moves do. With the person's switch off it waits,
+       and a watch older than a day is closed as not-seen once it is on again. */
     if (deps.movesOn() !== true || deps.settingOn() !== true) { state.lastMovable = new Set(); return { did: 'off' }; }
+    flush();
     try { readPeople(nowMs); } catch (err) { state.lastMovable = new Set(); return { did: 'unreadable', because: `the record: ${String((err && err.message) || err)}` }; }
-    /* The works-again check runs even while moves are stopped below, so a moved agent's refused first request is
-       still told to the person (rule 5). */
+    /* The works-again check runs even while moves wait for the record below, so a moved agent's refused first request
+       is still told to the person (rule 5). */
     await check(deps, nowMs);
-    if (Number.isFinite(state.unrecordedAt) && nowMs - state.unrecordedAt < REST_MS) {
+    if (paused()) {
       state.lastMovable = new Set();
-      return { did: 'unreadable', because: 'a move the record could not keep, so Kosmos moves nobody for a day' };
+      return { did: 'unreadable', because: 'lines the record could not take yet, so Kosmos moves nobody until they are written' };
     }
-    if (Number.isFinite(personMissedAt) && nowMs - personMissedAt < REST_MS) {
-      state.lastMovable = new Set();
-      return { did: 'unreadable', because: 'a person\'s move could not be recorded, so Kosmos moves nobody for a day' };
-    }
-    const heldTarget = (dir) => state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS;
-    const unproven = (dir) => state.watching.some((w) => w.to === dir);   // rule 6
+    const skip = skipTarget(nowMs);
     const movableArgs = (cards, records, strict = false) => ({ cards, records: records || deps.records, readCommitment: deps.readCommitment, strict,
       ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) });
     let decision;
@@ -279,7 +300,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       }
       const rows = ab.rowsFromReadings({ list, readUsage: deps.readUsage, agentsOn: deps.agentsOn, nowMs, ...(deps.sameLogin ? { sameLogin: deps.sameLogin } : {}) });
       const movable = ab.movableOnDemand(() => ab.movableFor(movableArgs(deps.roster())));
-      decision = ab.decide({ rows, movable, nowMs, skipTarget: (dir) => heldTarget(dir) || unproven(dir) });
+      decision = ab.decide({ rows, movable, nowMs, skipTarget: skip });
     } catch (err) { state.lastMovable = new Set(); return { did: 'unreadable', because: String((err && err.message) || err) }; }
     const label = (dir) => { try { return deps.labelOf(dir); } catch { return null; } };
     const kindOf = (dir) => (decision.atRisk.find((x) => x.from === dir) || {}).kind || null;
@@ -312,7 +333,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       /* Said already this hour: 'nothing', so the board's log stays as quiet as the record. */
       if (state.skippedAt.has(m.agent)) return { did: 'nothing', because: 'still not idle' };
       state.skippedAt.set(m.agent, nowMs);
-      sweep.append(file, { kind: 'skipped', at: nowMs, agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, because: 'it was no longer idle' });
+      keep({ kind: 'skipped', at: nowMs, agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, because: 'it was no longer idle' });
       return { did: 'skipped', agent: m.agent };
     }
     /* Review round 2: a person can move the agent while this tick awaits (the session-start reads in check()), and the
@@ -327,7 +348,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     return { did: ended.outcome === 'refused' ? 'refused' : ended.outcome === 'unknown' ? 'unknown' : 'moved', agent: m.agent, outcome: ended.outcome };
   }
 
-  return { tick, check, state };
+  return { tick, check, state, skipTarget, paused };
 }
 
-module.exports = { create, movesOn, personMoved, resetPersonMissedForTests: () => { personMissedAt = null; }, DAY_MS, WATCH_MS, FAILED_HOLD_MS, REST_MS, REFUSED_HOLD_MS, REFUSED_TIMES, previousTickMs, PERIOD_MS, SKIP_SAID_MS };
+module.exports = { create, movesOn, personMoved, resetUnwrittenPeopleForTests: () => { unwrittenPeople.clear(); }, DAY_MS, WATCH_MS, FAILED_HOLD_MS, REST_MS, REFUSED_HOLD_MS, REFUSED_TIMES, previousTickMs, PERIOD_MS, SKIP_SAID_MS };

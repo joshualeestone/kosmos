@@ -13742,7 +13742,11 @@ const server = http.createServer(async (req, res) => {
               const cards = claudeAgents ? claudeAgents.roster : null;   // movableFor refuses one that could not be read
               let records;
               const movable = ab.movableOnDemand(() => ab.movableFor({ cards, records: () => (records || (records = projects.readAll())), readCommitment: (session) => commitments.read(session) }));
-              decision = ab.decide({ rows: claude, movable, nowMs: sentAt });
+              /* kosmos#7548 review round 6: while the mover runs, the targets it holds are skipped here too, so the page never
+                 names a move the mover would not make. */
+              let skipTarget = null;
+              try { skipTarget = automoveRun && automove.movesOn() ? automoveRun.skipTarget(sentAt) : null; } catch { skipTarget = null; }
+              decision = ab.decide({ rows: claude, movable, nowMs: sentAt, ...(skipTarget ? { skipTarget } : {}) });
             }
             autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, ...decision };   // review 5: ok, so a corrupt file is not a confident Off
           } catch { autobalance = { on: setting.on, ok: setting.ok === true, eligible: eligibleCount, moves: [], held: [], short: [], atRisk: [], unreadable: true }; }
@@ -13758,6 +13762,8 @@ const server = http.createServer(async (req, res) => {
           /* kosmos#7548: whether this board MOVES agents, not only records: the mover was made at start and moves are still
              switched on. The page says moves are on only then. */
           try { autobalance.moving = autobalance.recording === true && !!automoveRun && automove.movesOn(); } catch { autobalance.moving = false; }
+          /* Review round 6: why a moving board moves nobody now (lines its record could not take yet), so the page says so. */
+          try { autobalance.movePaused = autobalance.moving === true ? automoveRun.paused() : null; } catch { autobalance.movePaused = null; }
           autobalance.recent = [];
           if (setting.on === true) {   // review 13: the page shows the record only with the switch on, so read it only then
             try { autobalance.recent = autobalanceSweep.recent(AUTOBALANCE_RECORD); } catch { autobalance.recent = []; }
@@ -27271,6 +27277,7 @@ function start(port = PORT) {
       let abSweepWriteSaid = false;
       let abSweepUnreadableSaid = null;   // review 17: the last "could not work out" reason logged, so it is said once
       let abSweepBusy = 0;   // when the running tick started, or 0
+      let automoveSaid = null;   // kosmos#7548 review round 6: the last reason the mover could not move, so it is logged once
       const abSweepTick = () => {
         /* Review 9: nothing here may throw out of a timer into the board, and a throw must not leave the busy flag set. */
         try {
@@ -27296,7 +27303,11 @@ function start(port = PORT) {
             /* kosmos#7548: the move waits for the sweep's record of the same period. A move can take minutes, so the busy
                flag spans it (the 3-period backstop above). Nothing here may throw into the board. */
             .then(() => (automoveRun && automove.movesOn() && autobalanceSweepRuns({ forTick: true }) ? automoveRun.tick(automoveDeps()) : null))
-            .then((r) => { if (r && r.did !== 'off' && r.did !== 'nothing') process.stdout.write(`automove: ${r.did}${r.agent ? ' ' + r.agent : ''}${r.outcome ? ' ' + r.outcome : ''}${r.because ? ' (' + r.because + ')' : ''}\n`); })
+            .then((r) => {
+              const why = r && r.did === 'unreadable' ? String(r.because) : null;
+              const said = why !== null && why === automoveSaid;
+              automoveSaid = why;
+              if (r && !said && r.did !== 'off' && r.did !== 'nothing') process.stdout.write(`automove: ${r.did}${r.agent ? ' ' + r.agent : ''}${r.outcome ? ' ' + r.outcome : ''}${r.because ? ' (' + r.because + ')' : ''}\n`); })
             .catch(() => { /* best-effort */ })
             .finally(() => { if (abSweepBusy === started) abSweepBusy = 0; });
         } catch { abSweepBusy = 0; }
