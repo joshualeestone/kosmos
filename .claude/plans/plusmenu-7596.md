@@ -14,8 +14,14 @@ Camera, Photos, Files.
 - At the ten-file limit every row is dimmed and disabled, as the old menu items were; the + keeps its label and hint.
 - A device with no camera shows Camera dimmed, "Not available on this device" under it. Where Kosmos is not allowed
   the camera, Camera says "Turned off for Kosmos in Settings" and opens Settings. Not yet asked: iOS asks first, and
-  the camera opens only on yes.
-- A choice opens once the panel has gone (its onDisappear), never on a timer.
+  the camera opens only on yes. Restricted by Screen Time or a device profile (Kosmos's Settings page cannot undo
+  it): dimmed, "Not allowed on this device".
+- At the largest text sizes the rows scroll inside the panel.
+- The camera's photo is encoded off the main thread, inside the upload's load, as a picked photo is read.
+- A choice opens once the panel has gone (its onDisappear), never on a timer. A UI test (AttachMenuUITests, opt-in with
+  TEST_RUNNER_KOSMOS_UI_PLUS=1) shows Photos and Files opening after the panel closes, with a control (the panel closed
+  with no choice leaves the + tappable). Measured 10-29 23:00 on an iPhone 17 Pro Max simulator, iOS 27: all three pass.
+  Not measured: the camera (no simulator camera) and the pre-16.4 sheet (no iOS 16 runtime here); both owed on a device.
 - One shared view (AttachMenu.swift) for the chat and the room, so the two cannot drift.
 - The choices and their rules (Board.cameraState, attachRowOff, cameraNote) are in BoardLogic and tested in LogicTests
   with controls; room source checks hold both screens to the one panel and the camera wiring.

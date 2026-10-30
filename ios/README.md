@@ -53,8 +53,8 @@ was not sent. In the simulator each is passed as `SIMCTL_CHILD_<name>` to `xcrun
   Info.plist carries it.
 - No hand-written Info.plist: `GENERATE_INFOPLIST_FILE = YES`.
 - Permission strings (`INFOPLIST_KEY_NS*UsageDescription`) for the camera, the microphone and
-  adding to Photos, as well as Face ID. No Swift code asks for these, but the board's photo pickers
-  offer Take Photo or Video inside the WebView and a long-pressed image offers Add to Photos, and
+  adding to Photos, as well as Face ID. The native chat's and room's + asks for the camera (Camera, kosmos#7596);
+  the board's photo pickers also offer Take Photo or Video inside the WebView and a long-pressed image offers Add to Photos, and
   iOS closes an app that uses one without its sentence. iOS CI checks all four in the built app,
   Debug and Release (`tools/check-usage-strings.sh`).
 - iPhone only (`TARGETED_DEVICE_FAMILY = 1`): iPad layouts are not designed or tested. An iPad

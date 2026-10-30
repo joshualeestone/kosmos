@@ -45,7 +45,8 @@ struct AttachPlusButton: View {
                         AVCaptureDevice.requestAccess(for: .video) { granted in
                             if granted { DispatchQueue.main.async { onChoose(.camera) } }
                         }
-                    case .none: break
+                    // A "Don't Allow" leaves Camera as it is until the panel next opens, where it then says so.
+                    case .blocked, .none: break
                     }
                 }
         }
@@ -80,11 +81,18 @@ struct AttachPanel: View {
     let choose: (AttachChoice, CameraState) -> Void
     @ScaledMetric(relativeTo: .body) private var symbolSize: CGFloat = 18
     @ScaledMetric(relativeTo: .body) private var tileSize: CGFloat = 44
-    @ScaledMetric(relativeTo: .body) private var rowWidth: CGFloat = 220
 
     private func note(_ choice: AttachChoice) -> String? { choice == .camera ? Board.cameraNote(camera) : nil }
 
+    // Review 3: at the largest text sizes the rows can outgrow the panel, so they scroll there.
     var body: some View {
+        ViewThatFits(in: .vertical) {
+            rows
+            ScrollView { rows }
+        }
+    }
+
+    private var rows: some View {
         VStack(alignment: .leading, spacing: 2) {
             ForEach(AttachChoice.allCases, id: \.self) { choice in
                 let off = Board.attachRowOff(choice, atLimit: atLimit, camera: camera)
@@ -103,7 +111,7 @@ struct AttachPanel: View {
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .frame(minWidth: rowWidth, alignment: .leading)
+                    .frame(minWidth: 220, alignment: .leading)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -127,10 +135,10 @@ private struct PopoverOnPhone: ViewModifier {
     }
 }
 
-// The camera, for one photo. Hands back the photo as JPEG, or nothing if the person cancels. Re-encoded from the image,
-// so the photo's location and other metadata are not sent.
+// The camera, for one photo. Hands back the image, or nothing if the person cancels; the caller encodes it off the main
+// thread (a large camera image takes up to a second).
 struct CameraCapture: UIViewControllerRepresentable {
-    let done: (Data?) -> Void
+    let done: (UIImage?) -> Void
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
@@ -143,10 +151,10 @@ struct CameraCapture: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(done: done) }
 
     final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let done: (Data?) -> Void
-        init(done: @escaping (Data?) -> Void) { self.done = done }
+        let done: (UIImage?) -> Void
+        init(done: @escaping (UIImage?) -> Void) { self.done = done }
         func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            done((info[.originalImage] as? UIImage)?.jpegData(compressionQuality: 0.85))
+            done(info[.originalImage] as? UIImage)
         }
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { done(nil) }
     }
