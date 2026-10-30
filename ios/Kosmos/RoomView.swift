@@ -28,6 +28,8 @@ struct RoomView: View {
     // Whether the end of the room is on screen: a new row follows only then, so a reader who scrolled up is never
     // pulled down by the 5-second re-read (the spec, and the board's room).
     @State private var atBottom = true
+    // kosmos#7645: the debug scroll-up (KOSMOS_SAMPLE_ROOM_SCROLLUP) has come to rest; a UI test taps the box only then.
+    @State private var sampleScrollRested = false
     // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
     // never marked seen.
     @State private var visible = false
@@ -724,6 +726,25 @@ struct RoomView: View {
                 .padding(.horizontal, 12).padding(.vertical, 8)
             }
             .kosmosTopFade(ground: Palette.chatGround)   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
+            #if DEBUG
+            // kosmos#7645, KOSMOS_SAMPLE_ROOM_SCROLLUP=<n> (with the room samples): 3 s after opening, the n-th row from the
+            // end goes to the top, as a reader scrolled up would be (nothing in the simulator can drag here), then a marker
+            // shows once the room has read where the reader is (ChatView's KOSMOS_SAMPLE_SCROLLUP).
+            .onAppear {
+                guard RoomStore.sample, let up = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ROOM_SCROLLUP"].flatMap(Int.init), up > 0 else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    if items.count > up { proxy.scrollTo(items[items.count - up].id, anchor: .top) }
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { sampleScrollRested = true }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if sampleScrollRested {
+                    Color.clear.frame(width: 1, height: 1)
+                        .allowsHitTesting(false)
+                        .accessibilityElement().accessibilityLabel("sample scroll rested").accessibilityIdentifier("sample-scroll-rested")
+                }
+            }
+            #endif
             .onChange(of: rows.last?.id) { _ in
                 if rowsPart != (archiveShown != nil) { rowsPart = archiveShown != nil; return }   // the archive's handler places the reader
                 if !settledAtBottom {
@@ -1197,6 +1218,13 @@ struct RoomView: View {
         #if DEBUG
         // KOSMOS_SAMPLE_EMOJI=open (with the room samples): the panel open, for the design shots.
         .onAppear { if RoomStore.sample, ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
+        // kosmos#7645: KOSMOS_SAMPLE_ROOM_FOCUS=<seconds> puts the cursor in the room's box that long after opening (the
+        // keyboard rises), as ChatView's KOSMOS_SAMPLE_FOCUS.
+        .onAppear {
+            if RoomStore.sample, let s = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ROOM_FOCUS"].flatMap(Double.init), s > 0 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + s) { typing = true }
+            }
+        }
         #endif
         // Leaving the room lets go of the microphone and closes the panel (the board's: the panel belongs to the composer
         // being left).
