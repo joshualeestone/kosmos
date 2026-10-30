@@ -20,11 +20,13 @@ web/index.html. If `hitWas` later names a real element covering the pill, that i
 
 ## Results
 
-- Review: three blind rounds so far (opus, sonnet, opus). Round 1 added the call-counting control; round 2 moved the
-  count into the forced poll's own evaluate and stopped the comment claiming more than it checks.
+- Review: five blind rounds so far (opus, sonnet, opus, sonnet, opus). Round 1 added the call-counting control; round
+  2 moved the count into the forced poll's own evaluate; round 3 added this section; round 4 narrowed the count to
+  pollAsk; round 5 found nothing new in the code.
 - Local browser run and the mutation control: **not yet run.** Baron's 0.7.76 staging cut is in progress, and
   tools/browser-checks.sh forbids any browser check on this machine during a cut. They run when it serves on staging,
   and their results are recorded here before the pull request is opened.
 - The control counts only repaints whose stack names pollAsk (round 4: the page's pollWaiting also repaints). Weakest
   premise: that both engines keep the pollAsk frame in the stack after its await. The local run on chromium and webkit
-  measures it; a 0 there is that premise failing, not the race.
+  measures it. A 0 there means that premise failed or /api/remote/pending errored (pollAsk returns before painting);
+  either way it is not the race.
