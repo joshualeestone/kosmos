@@ -446,14 +446,16 @@ enum Board {
     }
     // Review 13: edge is how much of each end of the content is not a message (padding and the end and top markers), so a
     // band showing only that reads as off the content too.
+    // Review 16: topEdge, when given, is the top's own (smaller) margin; edge is used at both ends otherwise.
     static func scrollBand(offsetY: Double, contentHeight: Double, visibleHeight: Double, insetTop: Double, insetBottom: Double,
-                           edge: Double = 0) -> ScrollBand {
+                           edge: Double = 0, topEdge: Double? = nil) -> ScrollBand {
+        let topEdge = topEdge ?? edge
         let top = offsetY + insetTop, bottom = offsetY + visibleHeight - insetBottom
         // Insets covering the whole view, or a band too short to hold more than the edges (review 14: landscape with the
         // keyboard up): nothing shown to judge.
-        guard bottom - top > 2 * edge else { return .unjudged }
+        guard bottom - top > edge + topEdge else { return .unjudged }
         if top >= contentHeight - edge - 0.5 { return .pastEnd }
-        if bottom <= edge + 0.5 { return .aboveTop }
+        if bottom <= topEdge + 0.5 { return .aboveTop }
         return .content
     }
 

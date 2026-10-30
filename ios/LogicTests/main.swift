@@ -4929,6 +4929,10 @@ do {
     check(Board.scrollBand(offsetY: 4990, contentHeight: 5000, visibleHeight: 60, insetTop: 0, insetBottom: 0, edge: 38) == .unjudged
           && Board.scrollBand(offsetY: 4990, contentHeight: 5000, visibleHeight: 80, insetTop: 0, insetBottom: 0, edge: 38) == .pastEnd,
           "review 14: a band too short to hold more than the edges is not judged (CONTROL: just taller, it is)")
+    check(Board.scrollBand(offsetY: -380, contentHeight: 5000, visibleHeight: 412, insetTop: 0, insetBottom: 0, edge: 38, topEdge: 13) == .content
+          && Board.scrollBand(offsetY: -380, contentHeight: 5000, visibleHeight: 412, insetTop: 0, insetBottom: 0, edge: 38) == .aboveTop
+          && Board.scrollBand(offsetY: -405, contentHeight: 5000, visibleHeight: 412, insetTop: 0, insetBottom: 0, edge: 38, topEdge: 13) == .aboveTop,
+          "review 16: the top's own smaller margin keeps a reader at the very top on the content (CONTROL: with the end's margin it read above; past it, still above)")
     check(band(-300, bottom: 120) == .aboveTop && band(-300) == .content, "the bottom inset (the keyboard) moves where it ends")
     check(band(-400, top: 300, bottom: 200) == .unjudged && band(-400, top: 300, bottom: 100) == .aboveTop,
           "insets covering the whole view leave nothing to judge (CONTROL: with a sliver left, the same offset reads above the top)")

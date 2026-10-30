@@ -819,6 +819,10 @@ struct ChatView: View {
         let inset = sv.adjustedContentInset
         sv.setContentOffset(CGPoint(x: -inset.left, y: max(-inset.top, sv.contentSize.height - sv.bounds.height + inset.bottom)),
                             animated: false)
+        // Review 16: whether the write held, or SwiftUI put its own place back on the next pass.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            Self.trace("scroll moved to the end, 0.1 s on: " + diagGeometry().line)
+        }
     }
 
     // kosmos#7420 (build 19): the scroll view's own numbers, and whether the band it shows misses the content (Board.scrollBand).
@@ -827,10 +831,11 @@ struct ChatView: View {
     private func diagGeometry() -> (line: String, off: Bool, moving: Bool, judged: Bool) {
         guard let sv = diagScroll.view, sv.window != nil else { return ("scroll view unknown", false, false, false) }
         let inset = sv.adjustedContentInset
-        // The stack's 12 pt padding plus the end marker (fadeHeight + 8) at the end, which is also more than the top's.
+        // The stack's 12 pt padding plus the end marker (fadeHeight + 8) at the end; at the top, the padding and the 1 pt
+        // top marker (review 16: a reader at the very top is never read as empty).
         let band = Board.scrollBand(offsetY: Double(sv.contentOffset.y), contentHeight: Double(sv.contentSize.height),
                                     visibleHeight: Double(sv.bounds.height), insetTop: Double(inset.top), insetBottom: Double(inset.bottom),
-                                    edge: Double(12 + ChatView.fadeHeight + 8))
+                                    edge: Double(12 + ChatView.fadeHeight + 8), topEdge: 13)
         // Review 10: a diagnostic must never crash the app, and Int() traps on a value that is not finite.
         func n(_ v: CGFloat) -> Int { v.isFinite ? Int(max(min(v, 1e9), -1e9)) : -1 }
         let line = "scroll y \(n(sv.contentOffset.y)), content \(n(sv.contentSize.height)), shown \(n(sv.bounds.height)), "
