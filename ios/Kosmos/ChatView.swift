@@ -98,7 +98,7 @@ struct ChatView: View {
     @State private var diagReport: String?
     @State private var diagDone = false   // once per open chat, even after the line is dismissed
     // kosmos#7420 (build 19): the list's scroll view, read by the diagnostic (a reference, so setting it redraws nothing),
-    // and when the empty list was last put back (every time now, not once per chat; at most once in 2 s).
+    // and when the empty list was last put back (after the report too: at most once in 2 s and 3 times a chat).
     @State private var diagScroll = ScrollRef()
     @State private var diagRecoveredAt: Date?
     @State private var diagRecoveries = 0   // review 6: put back after the report, at most diagRecoveryCap times a chat
@@ -772,10 +772,9 @@ struct ChatView: View {
         // Review 3 and 4: a list never drawn never moved the end marker, so that arm needs no row drawn since the messages
         // arrived more than 2 s ago (never the moment after an account or computer change, before its rows appear).
         let neverDrew = !endSeen && !diagEverDrew && (diagThreadAt.map { Date().timeIntervalSince($0) > 2 } ?? false)
-        // kosmos#7420 (build 19): or the scroll view's band is off the content, whatever the rows say (Josh's screenshot
-        // was empty under a record counting rows on screen).
         let rowsGone = onScreen.isEmpty && (!endVisible || neverDrew) && !topVisible
-        // Review 2: the band counts only with the list still, so a fling or a bounce past the end is not a finding.
+        // kosmos#7420 (build 19): or the scroll view's band is off the content, whatever the rows say (Josh's screenshot
+        // was empty under a record counting rows on screen). Review 2: only with the list still.
         let geo = diagGeometry()
         // Review 5: a moving list is never empty by either arm (rows can read empty mid-fling over long rows), for the first
         // report as for the recoveries after it.
@@ -804,8 +803,8 @@ struct ChatView: View {
     // kosmos#7420 (build 19): the scroll view's own numbers, and whether the band it shows misses the content (Board.scrollBand).
     // Review 1: off counts only for this chat's live list with content laid out, messages here more than 2 s (as neverDrew):
     // a list rebuilt for another account, or not yet measured, has a zero or stale content height.
-    private func diagGeometry() -> (line: String, off: Bool, moving: Bool) {
-        guard let sv = diagScroll.view, sv.window != nil else { return ("scroll view unknown", false, false) }
+    private func diagGeometry() -> (line: String, off: Bool, moving: Bool, judged: Bool) {
+        guard let sv = diagScroll.view, sv.window != nil else { return ("scroll view unknown", false, false, false) }
         let inset = sv.adjustedContentInset
         let band = Board.scrollBand(offsetY: Double(sv.contentOffset.y), contentHeight: Double(sv.contentSize.height),
                                     visibleHeight: Double(sv.bounds.height), insetTop: Double(inset.top), insetBottom: Double(inset.bottom))
@@ -813,7 +812,7 @@ struct ChatView: View {
             + "insets \(Int(inset.top))/\(Int(inset.bottom)), \(band.rawValue)" + (sv.isDragging || sv.isDecelerating ? ", moving" : "")
         let settled = sv.contentSize.height > 0 && (diagThreadAt.map { Date().timeIntervalSince($0) > 2 } ?? false)
         // Review 6: an unmeasured list is never read as off, and the record says it was not judged rather than on the content.
-        return (settled ? line : line + ", not judged yet", settled && band != .content, sv.isDragging || sv.isDecelerating)
+        return (settled ? line : line + ", not judged yet", settled && band != .content, sv.isDragging || sv.isDecelerating, settled)
     }
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
@@ -838,7 +837,9 @@ struct ChatView: View {
         // reads as empty whatever the count; both are written. Read at 0.6 s and again at 1.5 s (layout may still be settling).
         func reading(_ when: String) -> String {
             let g = diagGeometry()
-            return "after one try, \(when): " + (g.off || onScreen.isEmpty ? "still nothing on screen" : "the list shows the content again")
+            // Review 7: an unmeasured band never reads as recovered.
+            let verdict = g.off || onScreen.isEmpty ? "still nothing on screen" : g.judged ? "the list shows the content again" : "not judged yet"
+            return "after one try, \(when): " + verdict
                 + " (rows counted \(onScreen.count), " + g.line + ")"
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {

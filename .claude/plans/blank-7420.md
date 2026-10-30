@@ -1,4 +1,4 @@
-# blank-7420: the empty-chat record reads the scroll view; an empty list is put back every time
+# blank-7420: the empty-chat record reads the scroll view; an empty list is put back after the report too
 
 Card: kosmos#7420 (Josh 10-29 21:22, build 19, iOS 26.7.2: a 114-item DM went empty; the record said "messages on screen
 again" after one try, but his screenshot, taken after that line, was still empty).
@@ -7,9 +7,12 @@ again" after one try, but his screenshot, taken after that line, was still empty
 - The diagnostic record carries the list's scroll view numbers (offset, content height, shown height, insets) and whether
   the shown band misses the content (`Board.scrollBand`), at capture, in the trace once a resize has held for 0.5 s, and
   twice after the one try (0.6 s and 1.5 s).
-- "After one try" is decided by the band, with the onAppear row count written beside it, never by the count alone.
+- "After one try" never reads as recovered on the row count alone: it says "still nothing on screen" when the band is
+  off the content or no row is counted, "not judged yet" when the list was not measured, and "shows the content again"
+  only with the band measured on the content and rows counted. The count is written beside it.
 - A resize that leaves the band off the content triggers the check (no row leaving would bump the tick).
-- After the one report, an empty list is still put back (to the newest message), at most once in 2 s.
+- An empty list must read empty at 0.5 s and again at 1.5 s, with the list still, before anything is done.
+- After the one report, an empty list is still put back (to the newest message), at most once in 2 s and 3 times a chat.
 - `Board.scrollBand` is tested in LogicTests with a control on each side of each boundary.
 - A UI test (`ChatBlankUITests`, skipped unless `TEST_RUNNER_KOSMOS_UI_BLANK=1`) walks Josh's steps on the sample chat.
 
@@ -21,4 +24,5 @@ again" after one try, but his screenshot, taken after that line, was still empty
 ## Decided
 - Recovery goes to the newest message (goNewest), as the existing one try does. Rejected: re-setting the message anchor,
   because the anchor is the thing suspected of holding the bad place. Weakest premise: a reader scrolled far up loses
-  their place on recovery; an empty screen is worse than a lost place, and it is at most once in 2 s.
+  their place on recovery; an empty screen is worse than a lost place, it needs two still, empty readings, and it is at
+  most once in 2 s and 3 times a chat, so a wrong reading cannot keep moving a reader.

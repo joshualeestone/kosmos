@@ -527,6 +527,13 @@ let geoText = geoStart.flatMap { s in geoEnd.map { String(chatSource[s.lowerBoun
 let geoValues = geoText.components(separatedBy: "\\(").dropFirst().map { $0.components(separatedBy: ")").first ?? "" }
 check(geoValues.count == 6 && geoValues.allSatisfy { $0.hasPrefix("Int(") || $0 == "band.rawValue" },
       "kosmos#7420: the scroll view's line records numbers and the band only (\(geoValues.count) values: \(geoValues))")
+// Review 7: the "after one try" lines carry the time (a literal) and the row count, nothing else.
+let readStart = chatSource.range(of: "func reading(_ when: String) -> String {")
+let readEnd = readStart.flatMap { chatSource.range(of: "DispatchQueue.main.asyncAfter", range: $0.upperBound..<chatSource.endIndex) }
+let readText = readStart.flatMap { r in readEnd.map { String(chatSource[r.lowerBound..<$0.lowerBound]) } } ?? ""
+let readValues = readText.components(separatedBy: "\\(").dropFirst().map { $0.components(separatedBy: ")").first ?? "" }
+check(readValues.sorted() == ["onScreen.count", "when"] && chatSource.contains("lines.append(reading(\"0.6 s\"))") && chatSource.contains("lines.append(reading(\"1.5 s\"))"),
+      "kosmos#7420: the after-one-try lines record the reading's time and the row count only (\(readValues))")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
 check(chatSource.contains("return visible && scenePhase == .active && !searchMode && (rowsGone || geo.off) && !geo.moving") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")

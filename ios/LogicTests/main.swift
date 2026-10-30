@@ -4918,7 +4918,7 @@ do {
     check(band(4999) == .content, "CONTROL: one point of content still showing is on the content")
     check(band(-412) == .aboveTop && band(-1000) == .aboveTop, "a band ending at or above the content's top shows nothing")
     check(band(-411) == .content, "CONTROL: one point of the top still showing is on the content")
-    check(band(-100, top: 100) == .content && band(4900, top: 100) == .pastEnd, "the top inset moves where the band starts")
+    check(band(-100, top: 100) == .content && band(4900, top: 100) == .pastEnd && band(4900) == .content, "the top inset moves where the band starts")
     check(band(-300, bottom: 120) == .aboveTop && band(-300) == .content, "the bottom inset (the keyboard) moves where it ends")
 
     // Review 3: the box over a chat's life.
