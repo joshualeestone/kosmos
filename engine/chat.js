@@ -5237,6 +5237,112 @@ function retryDmFinish(agent, at, text, delivery) {
       ...(delivery.state === DELIVERY.COULD_NOT ? { retryable: true } : {}) }));   // nothing typed again: it may be tried again
 }
 
+/* kosmos#7614: the person deletes one of their own messages in a direct conversation. The row leaves the thread file
+   (under the thread lock, the reactDirect pattern), so no reader sees it again. A copy still kept to type later
+   (out of usage, signed out, or held behind the input box) is taken out of the queue under its own claim, so the sweep
+   never types it. If the sweep is typing it at this moment, the claim fails: it is settled anyway, so a typing that
+   then fails leaves nothing to type again, and the note waits until that typing has finished, so the agent never reads
+   "withdrawn" before the message (review 1). It counts as given; if that typing did fail, the agent is told about a
+   message it never saw, which costs one line and misleads nobody. An agent that was
+   given it gets one line, never repeating the words, to treat it as withdrawn. A message in an earlier part of the
+   conversation is refused, as reactDirect refuses it: those files are kept as they were. Answers
+   { ok, code, error?, told }. */
+/* How long a delete waits for a kept copy the sweep is typing this moment, so the note follows it. Changed by tests. */
+const DELETE_WAIT = { pollMs: 100, capMs: 20000 };
+/* Review 3: true only when the thread reads and holds no row at that time (the person deleted it), so a row fix for it
+   has nothing to write to. Unreadable: false, so the fix is kept and retried as before. */
+function dmRowGone(agent, at) {
+  try { return !readThread(DIRECT, String(agent)).messages.some((m) => m && m.at === at); } catch { return false; }
+}
+function dmWithdrawnLine(at) {
+  const when = Number.isFinite(Date.parse(at)) ? new Date(at).toTimeString().slice(0, 5) : 'earlier';
+  return '[from Kosmos] The person deleted the message they sent you at ' + when
+    + '. Treat it as withdrawn. If you had started on it, stop and tell them what you had already done.';
+}
+async function deleteDirectAsync(agent, at, roster) {
+  const name = String(agent == null ? '' : agent).trim();
+  const when = String(at == null ? '' : at).trim();
+  if (!name || !when) return { ok: false, code: 404, error: 'there is no message of yours at that time here', told: [] };
+  let file;
+  try { file = threadFile(DIRECT, name); } catch { return { ok: false, code: 404, error: 'we could not find that conversation', told: [] }; }
+  const own = (m) => m && !m.from && m.kind !== 'kosmos' && m.kind !== 'question';
+  let held;
+  try {
+    held = withThreadLock(file, () => {
+      let thread;
+      try { thread = readThread(DIRECT, name); } catch { return { ok: false, code: 503, error: 'we cannot read this conversation right now' }; }
+      const hits = [];
+      thread.messages.forEach((m, i) => { if (m && m.at === when) hits.push(i); });
+      if (!hits.length) {
+        const earlier = thread.continues ? asideChain(DIRECT, name, true, thread.continues, thread.projectBornAt) : [];
+        if (earlier.some((a) => a.messages.some((m) => m && m.at === when && own(m)))) {
+          return { ok: false, code: 409, error: 'that message is in an earlier part of this conversation, which is kept as it was, so it cannot be deleted' };
+        }
+        return { ok: false, code: 404, gone: true, error: 'there is no message of yours at that time here' };
+      }
+      if (hits.length > 1) return { ok: false, code: 409, error: 'two messages share that time, so we could not tell which one you meant' };
+      const m = thread.messages[hits[0]];
+      if (!own(m)) return { ok: false, code: 403, error: 'you can delete only your own messages' };
+      /* Review 3: Try again (kosmos#6720) is typing it again this moment; deleting now would let those words land after
+         the delete with nothing to record them. The person tries again in a moment, once the send has finished. */
+      if (m.delivery && m.delivery.retrying === true) return { ok: false, code: 409, error: 'that message is being sent again right now, so wait a moment and try deleting it again' };
+      /* Review 5: a row in the carried head (this file's first `carried` rows, copies of the earlier file's end,
+         kosmos#5841) also lives in that earlier file, kept as it was; removing only the copy would let the chain show
+         the original again (or a row twice). It is refused as an earlier part's row is. */
+      if (Number.isInteger(thread.carried) && thread.continues && hits[0] < thread.carried) {
+        return { ok: false, code: 409, error: 'that message is in an earlier part of this conversation, which is kept as it was, so it cannot be deleted' };
+      }
+      const messages = thread.messages.slice();
+      messages.splice(hits[0], 1);
+      try { store.saveFlushed(file, JSON.stringify({ ...thread, messages }, null, 2)); }
+      catch { return { ok: false, code: 503, error: 'we could not change this conversation on this computer' }; }
+      return { ok: true, delivery: m.delivery && typeof m.delivery === 'object' ? m.delivery : null };
+    });
+  } catch { return { ok: false, code: 503, error: 'we could not change this conversation on this computer', told: [] }; }
+  // A busy lock says so (reactDirect's wording), rather than that something is wrong with this computer.
+  if (!held.ok) return { ok: false, code: 503, error: held.because || 'we could not change this conversation on this computer', told: [] };
+  const out = held.value;
+  if (!out.ok) return { ...out, told: [] };
+  const state = out.delivery && out.delivery.state;
+  let given = state === DELIVERY.PLACED || state === DELIVERY.UNCONFIRMED;
+  const limitqueue = require('./limitqueue');
+  // 'held' as a literal: DELIVERY has no HELD member; it is the state the limit queue writes on a kept row.
+  if (state === 'held') {
+    const kept = limitqueue.list(name).filter((e) => e && e.kind === 'dm' && e.at === when);
+    const inFlight = [];
+    for (const e of kept) {
+      if (limitqueue.claim(e.id)) { limitqueue.settle(name, e.id); limitqueue.release(e.id); }
+      // Being typed this moment, or held by a claim gone stale (CLAIM_STALE_MS): counted as given either way; the cost of
+      // the stale case is one "withdrawn" line about a message the agent may never have seen.
+      else { limitqueue.settle(name, e.id); inFlight.push(e.id); given = true; }
+    }
+    const until = Date.now() + DELETE_WAIT.capMs;
+    while (inFlight.some((id) => limitqueue.isTyping(id)) && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, DELETE_WAIT.pollMs));
+    }
+  }
+  /* Review 3: a kept copy the sweep already typed, whose row it could not yet mark (the fix waits for its next minute),
+     still reads "held" above with nothing left in the queue. That fix is the only record it was typed: read it first. */
+  try {
+    const fix = limitqueue.rowFixFor(name, when);
+    const fixed = fix && fix.delivery && fix.delivery.state;
+    if (fixed === DELIVERY.PLACED || fixed === DELIVERY.UNCONFIRMED) given = true;
+  } catch { /* nothing kept for it */ }
+  /* The sweep keeps a row whose new delivery it could not write and retries it every minute; this row is gone, so that
+     retry could never succeed (review 1). A fix the sweep adds after this (its typing outlived the wait) is dropped by
+     setRow itself, which sees the row is gone (dmRowGone, review 3). The note's order behind that typing comes from the
+     pane's delivery queue; the wait above bounds the row bookkeeping. */
+  try { limitqueue.forgetRow(name, when); } catch { /* nothing kept for it */ }
+  const told = [];
+  if (given) {
+    let v = null;
+    // Through the export, so a test records the note rather than typing it.
+    try { v = await module.exports.deliverAutomaticAsync(name, dmWithdrawnLine(when), roster); } catch { v = null; }
+    if (v && typeof v.state === 'string' && v.state !== DELIVERY.COULD_NOT) told.push(name);
+  }
+  return { ok: true, code: 200, told };
+}
+
 module.exports = {
   retryDmBegin, retryDmFinish,   // kosmos#6720
   setEarlierSubmittedHook,   // #6256 item 2
@@ -5245,6 +5351,7 @@ module.exports = {
   setMovedTell,   // #5400
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, acknowledgementOnly, storeText, messageProblem, addressable, resolveCard, paneTarget,
+  deleteDirectAsync, DELETE_WAIT, dmRowGone,   // kosmos#7614
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,

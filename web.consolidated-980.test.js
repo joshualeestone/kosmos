@@ -420,13 +420,14 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
      body's `overflow-y: auto` are one fix: the row stays recognisably itself,
      and if the window is too short for that the page scrolls rather than
      clipping. A 0 floor here silently reopens that hole. */
-  assert.match(PAGE, new RegExp(cons + ' \\{[^}]*grid-template-rows: repeat\\(41, auto\\) auto minmax\\(200px, 1fr\\) auto;', 's'),
+  assert.match(PAGE, new RegExp(cons + ' \\{[^}]*grid-template-rows: repeat\\(42, auto\\) auto minmax\\(200px, 1fr\\) auto;', 's'),
     'the pre-rail rows are not auto tracks -- a visible notice surface can vanish under the rails again');
   for (const id of ['id="askcard"', 'id="conn"', 'id="board-msg"']) {
     assert.ok(PAGE.includes(id), id + ' is gone; re-derive whether the auto-rows invariant still protects the right surfaces');
   }
 
-  // The 41-track headroom is a real number (#6722's picture editor made it 41: #cropmodal is a position:fixed dialog
+  // The 42-track headroom is a real number (kosmos#7614's #msgdel-modal, the Delete message confirm, a position:fixed
+  // dialog for the room and a direct conversation, made it 42; #6722's picture editor made it 41: #cropmodal is a position:fixed dialog
   // opened from the agent page, the new-agent page and Settings, so it cannot sit inside one section; #6616's Sign in
   // again ask is the 41st child, so the headroom is now all used (measured: main 40, with #6616 41); #4812's #oa-wrap made it 40; #4356's #fr-choice made it 39: they are position:fixed and
   // take no row, but the count is headroom, kept honest): the 41st simultaneously
@@ -456,7 +457,7 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
     if (depth === 0) children++;
     if (!voidTags.has(tag.toLowerCase()) && !/\/\s*$/.test(attrs)) depth++;
   }
-  assert.ok(children <= 41, 'the body has ' + children + ' direct children; the consolidated grid reserves 41 pre-rail auto rows, and past it a visible notice can be silently clipped. Widening repeat(41, auto) is a FIVE-site renumbering: the rails\' explicit rows must move with it (#rail-agents 42, #alist 43, #rail-me 44, #panel-projects 42 / span 3), or all four land inside the widened pre-rail range');
+  assert.ok(children <= 42, 'the body has ' + children + ' direct children; the consolidated grid reserves 42 pre-rail auto rows, and past it a visible notice can be silently clipped. Widening repeat(42, auto) is a FIVE-site renumbering: the rails\' explicit rows must move with it (#rail-agents 43, #alist 44, #rail-me 45, #panel-projects 43 / span 3), or all four land inside the widened pre-rail range');
   assert.ok(children >= 20, 'the body child counter read ' + children + ', implausibly low -- the counter itself has likely broken, re-derive before trusting the headroom claim');
   assert.equal(depth, 0, 'the child counter ended at depth ' + depth + ', not 0 -- it is mis-parsing the markup and its count cannot be trusted');
 });

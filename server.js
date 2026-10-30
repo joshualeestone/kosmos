@@ -19205,6 +19205,40 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#7614: the person DELETES one of their own messages in a direct conversation, by its time (`at`, the row's
+     identity). The person's only (not in AGENT_TOKEN_ROUTES), behind the same name gate as the react route above. The
+     engine does the work (gone from the thread, a kept copy never typed, the agent told it was withdrawn if it was given
+     it); this answers 200 { deleted, told }, 403 not the person's, 404 none, 409 an earlier part of the conversation. */
+  const dmDelete = pathname.match(/^\/api\/agent\/([^/]+)\/thread\/delete$/);
+  if (dmDelete && req.method === 'POST') {
+    /* The person's alone, like Send now anyway: an agent's token is refused, in the header now and in the body below. */
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'deleting a message is the person\'s, not an agent\'s' }); return; }
+    const name = decodeSegment(dmDelete[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const refusal = nameRefusal(name);
+    if (refusal) { sendJson(res, 404, nameRefusalBody(refusal)); return; }
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read'); bad.status = 400; throw bad;
+        }
+        if (!body || typeof body !== 'object' || typeof body.at !== 'string') {
+          const bad = new Error('that request is not the shape we expect'); bad.status = 400; throw bad;
+        }
+        if (presentedAgentToken(req, body)) { sendJson(res, 403, { error: 'deleting a message is the person\'s, not an agent\'s' }); return; }
+        const out = await chat.deleteDirectAsync(name, body.at, safeRoster());
+        // `gone` (review 5): the message is not there (deleted already), said apart from any other 404, which the page shows as a sentence.
+        if (!out.ok) { sendJson(res, out.code || 400, { error: out.error, ...(out.gone === true ? { gone: true } : {}) }); return; }
+        sendJson(res, 200, { deleted: true, at: body.at, told: out.told });
+      })
+      /* A thrown failure that is not a request error (a file this computer could not write) answers in a plain sentence:
+         its own message can carry a path on this computer. */
+      .catch((err) => sendJson(res, (err && err.status) || 503,
+        { error: err && err.status ? String(err.message) : 'we could not delete it on this computer just now; try again in a moment' }));
+    return;
+  }
+
   /* kosmos#6717: the person dismisses a draft Kosmos took out of the agent's input box (engine/unsentdrafts.js). The
      person's alone, like Send now anyway below: an agent's token is refused. Nothing is sent either way. */
   const dmDraftDismiss = pathname.match(/^\/api\/agent\/([^/]+)\/unsent-draft\/dismiss$/);
@@ -19289,10 +19323,12 @@ const server = http.createServer(async (req, res) => {
     const before = typeof beforeRaw === 'string' && /^\d{1,9}$/.test(beforeRaw) ? Number(beforeRaw) : NaN;   // digits only
     if (!Number.isInteger(before) || before < 0) { sendJson(res, 400, { error: 'before must be a whole number, 0 or more' }); return; }
     let rows;
+    let ownFrom = 0;   // kosmos#7614 review 5: rows from here on are this file's own (deletable); before it, earlier files'
     // kosmos#5841: the whole chain, oldest first: every rolled-over file this conversation continues, then this one.
     try {
       const rec = chat.readThread(chat.DIRECT, name);
       rows = rec.messages || [];
+      const ownCount = rows.length;
       const earlier = rec.continues ? chat.asideChain(chat.DIRECT, name, true, rec.continues, rec.projectBornAt) : [];
       /* The thread route counts the chain from a cache; this walk reads every file. If a read fails here and not
          there (a passing EMFILE, a permission change), the two disagree and every position on this page would be off
@@ -19303,6 +19339,9 @@ const server = http.createServer(async (req, res) => {
       }
       // Each carried overlap is served once, from the NEWER copy (chainRows): edits after a rollover live only there.
       if (earlier.length) rows = chat.chainRows(earlier, rows, rec.carried);
+      // chainRows appends this file's rows whole, last: everything before them came from a rolled-over file, and this
+      // file's first `carried` rows are copies of that file's end, kept there too.
+      ownFrom = Math.max(0, rows.length - ownCount + (earlier.length ? (rec.carried || 0) : 0));
     } catch (err) {
       // No file can ever exist (BAD_THREAD) reads as nothing older; anything else is a read that failed, said so.
       if (err && err.code === 'BAD_THREAD') { sendJson(res, 200, { messages: [], olderCount: 0 }); return; }
@@ -19312,7 +19351,11 @@ const server = http.createServer(async (req, res) => {
     const end = Math.min(before, rows.length);
     const start = Math.max(0, end - DM_OLDER_PAGE);
     const card = ourCardByName(safeRoster(), name);
-    sendJson(res, 200, { messages: dmServeRows(rows.slice(start, end), name, card), olderCount: start });
+    /* kosmos#7614 review 5: a row from a rolled-over file says so (`earlierPart`), since those files are kept as they
+       were and its Delete would be refused; a row of this file's own, however far back, can still be deleted. */
+    const served = dmServeRows(rows.slice(start, end), name, card);
+    const marked = Array.isArray(served) ? served.map((m, i) => (m && start + i < ownFrom ? { ...m, earlierPart: true } : m)) : served;
+    sendJson(res, 200, { messages: marked, olderCount: start });
     return;
   }
   /**
@@ -19569,6 +19612,12 @@ const server = http.createServer(async (req, res) => {
       ? Math.max(0, asideCount - (asideCount ? (threadRec.carried || 0) : 0) + firstShown) : 0;
     /* The pinned spelling (web.owes-line-4340 finds this line to prove owes is taken before the cut). With the chain,
        olderCount can be > 0 on a file of 200 rows or fewer, where slice(-TAIL) changes nothing; past 200 it is always > 0. */
+    /* kosmos#7614 review 5: this file's carried head (copies of the earlier file's end, kept there as it was) says so,
+       as the older route marks the earlier files' rows, so the page offers no Delete on them. */
+    if (Array.isArray(messages) && threadRec && threadRec.continues && Number(threadRec.carried) > 0) {
+      const head = Number(threadRec.carried);
+      messages = messages.map((m, i) => (m && i < head ? { ...m, earlierPart: true } : m));
+    }
     if (olderCount) messages = messages.slice(-TAIL);
     /**
      * ⚠️ EVERY FIELD HERE HAS A READER ON THE PAGE. The first version also
@@ -23238,6 +23287,41 @@ const server = http.createServer(async (req, res) => {
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
+  /* kosmos#7614: the person DELETES one of their own room posts. The person's only (not in AGENT_TOKEN_ROUTES), board-token
+     gated like the react route above. The engine does the work (gone for every reader, a held copy never delivered, a
+     member that was given it told to treat it as withdrawn); this answers 200 { deleted, told }, 403 for a post that is
+     not the person's, 404 for none (or one already deleted). The page's confirm said so before it called this. */
+  const roomDelete = pathname.match(/^\/api\/project\/([^/]+)\/room\/([^/]+)\/delete$/);
+  if (roomDelete && req.method === 'POST') {
+    /* The person's alone: an agent's token is refused, in the header now and in the body below. */
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'deleting a message is the person\'s, not an agent\'s' }); return; }
+    const id = decodeSegment(roomDelete[1]);
+    const raw = decodeSegment(roomDelete[2]);
+    if (id === null || raw === null) { sendJson(res, 400, { error: 'that is not something we can read' }); return; }
+    const postId = /^[0-9]+$/.test(raw) ? 'm' + raw : raw;   // the page shows the number without its m (msgRefNumber)
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read'); bad.status = 400; throw bad;
+        }
+        if (presentedAgentToken(req, body && typeof body === 'object' ? body : {})) {
+          sendJson(res, 403, { error: 'deleting a message is the person\'s, not an agent\'s' }); return;
+        }
+        const roster = safeRoster();
+        let found = null;
+        try { found = projects.get(id, roster || []); } catch { found = null; }
+        if (!found) { sendJson(res, 404, { error: 'there is no project by that name' }); return; }
+        const out = await messages.deletePostAsync({ projectId: found.id, id: postId, roster });
+        if (!out.ok) { sendJson(res, out.code || 400, { error: out.error, ...(out.gone === true ? { gone: true } : {}) }); return; }   // review 5: `gone`, as the DM route
+        sendJson(res, 200, { deleted: true, of: postId, told: out.told });
+      })
+      /* As the DM route: a failure that is not a request error answers in a plain sentence, never its own message. */
+      .catch((err) => sendJson(res, (err && err.status) || 503,
+        { error: err && err.status ? String(err.message) : 'we could not delete it on this computer just now; try again in a moment' }));
     return;
   }
 

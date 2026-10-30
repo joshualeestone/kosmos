@@ -1,10 +1,10 @@
-// Browser-check-surface: pj-room d-dmthread rxns rxn-quick rxn-ref rxn-copy msg-menu msg-menu-copy msg-menu-text msg-toast pj-one-name
+// Browser-check-surface: pj-room d-dmthread rxns rxn-quick rxn-dots rxn-div msg-menu msg-menu-copy msg-menu-text msg-toast pj-one-name
 'use strict';
 /* #4631 (Josh, 2026-09-29 14:42): "would be even cooler if i could like ctrl + click and get a message ID from any
  * message to then reference it to an agent later on". In the real page (web/index.html from disk, fetch stubbed):
  *
- *   R1  a room post's hover bar has Copy message id (once Copy reference), showing the number faintly; Reply stays last (#4358)
- *   R2  clicking it copies "message 530 in Kosmos Growth" and says so in a toast
+ *   R1  a room post's hover bar has "..." last, which opens the menu with Copy message id (kosmos#7614; it was in the bar)
+ *   R2  Copy message id there copies "message 530 in Kosmos Growth" and says so in a toast
  *   R3  right-clicking the post opens the menu, and its Copy message id (once Copy message reference) copies the same words
  *   R4  ctrl-click (Windows) opens the same menu; on a Mac ctrl-click is the right-click of R3
  *   R5  a right-click on a LINK, or with text selected, keeps the browser's own menu (the page does not take it)
@@ -19,12 +19,12 @@
  * Controls: the number is hidden until hover (the bar's own opacity), and a row with nothing to name offers no menu.
  *
  * #5312 (Josh, 2026-10-05): "two buttons instead for a 'copy message' and 'copy message id'":
- *   C1  the bar starts Copy message, then Copy message id; Copy message copies the whole text as written
+ *   C1  Copy message ("..." menu since kosmos#7614) copies the whole text as written
  *   C2  a long message copies in full (no "[cut]"), line breaks kept; attachments copy as their file names
  *   C3  the menu offers Copy message then Copy message id; the arrow keys move between them; each copies its own
  *   C4  an outside guest's row (no id) offers Copy message alone, from what the row shows
  *   C5  a direct-conversation row copies its own record's words; a failed copy says so without the words
- *   C6  on a touchscreen the bar keeps seven buttons: Copy (named for its menu) opens the menu with both, and the bar fits
+ *   C6  on a touchscreen the bar keeps seven buttons, "..." last (kosmos#7614): it opens the menu with both, and the bar fits
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-msgref-4631.js [shots-dir]
  */
@@ -88,8 +88,9 @@ async function paintRoom(page) {
       });
       chk(touchTaken.touch && touchTaken.taken === false, '[touch] R11 a long-press on a touchscreen keeps the system menu', JSON.stringify(touchTaken));
       /* C6: on a touchscreen the bar keeps #4409's seven buttons (an eighth covered the corner of the message under it, so a
-         tap meant to close the bar hit Reply): Copy opens the menu with both, and a phone has no right-click to reach it
-         otherwise. Opened by a real tap on the message, so the page's own placement runs. */
+         tap meant to close the bar hit Reply). kosmos#7614: "..." is the seventh, in place of #5312's Copy; it opens the
+         menu with both, and a phone has no right-click to reach it otherwise. Opened by a real tap on the message, so the
+         page's own placement runs. */
       await page.evaluate(() => { window.__copied = []; Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); } } }); });
       const tp = await page.evaluate(() => { const bd = document.querySelector('#pj-room .msg[data-mid="m530"] .msg-bd'); const r = bd.getBoundingClientRect(); return { x: r.right - 12, y: r.bottom - 6 }; });
       await page.touchscreen.tap(tp.x, tp.y);
@@ -99,37 +100,31 @@ async function paintRoom(page) {
         const q = row.querySelector('.rxn-quick'); const qr = q.getBoundingClientRect();
         const inL = room.getBoundingClientRect().left + room.clientLeft; const inR = inL + room.clientWidth;
         const shown = [...q.children].filter((k) => k.getClientRects().length).map((k) => k.className.split(' ')[0]);
-        const cp = q.querySelector('.rxn-copy').getBoundingClientRect();
-        const cb = q.querySelector('.rxn-copy');
-        return { name: cb.getAttribute('aria-label'), popup: cb.getAttribute('aria-haspopup'), open: row.classList.contains('rxn-show'), shown: shown.join(','), copy: [Math.round(cp.width), Math.round(cp.height)], barH: Math.round(qr.height),
+        const db = q.querySelector('.rxn-dots'); const dr = db.getBoundingClientRect();
+        return { name: db.getAttribute('aria-label'), popup: db.getAttribute('aria-haspopup'), open: row.classList.contains('rxn-show'), shown: shown.join(','),
+          buttons: [...q.children].filter((k) => k.tagName === 'BUTTON' && k.getClientRects().length).length, dots: [Math.round(dr.width), Math.round(dr.height)], barH: Math.round(qr.height),
           inside: qr.left >= inL - 0.5 && qr.right <= inR + 0.5, bar: [Math.round(qr.left), Math.round(qr.right)], thread: [Math.round(inL), Math.round(inR)] };
       });
-      chk(c6.name === 'Copy message or its id' && c6.popup === 'menu', '[touch] C6 Copy is named for what it opens (a menu with both)', JSON.stringify(c6));
-      // The touch test changing (a pointer attached) renames it for what a press then does, and back.
-      const relabel = await page.evaluate(() => { const real = window.matchMedia; const b = document.querySelector('#pj-room .msg[data-mid="m530"] .rxn-copy');
-        window.matchMedia = (q) => ({ matches: false, media: q }); msgCopyRelabel(); const pointer = [b.getAttribute('aria-label'), b.getAttribute('aria-haspopup')];
-        window.matchMedia = real; msgCopyRelabel(); const touch = [b.getAttribute('aria-label'), b.getAttribute('aria-haspopup')]; return { pointer, touch }; });
-      chk(relabel.pointer[0] === 'Copy message' && relabel.pointer[1] === null && relabel.touch[0] === 'Copy message or its id' && relabel.touch[1] === 'menu',
-        '[touch] C6 a change of the touch test renames Copy for what a press then does', JSON.stringify(relabel));
-      chk(c6.open && c6.shown === 'rxn-copy,rxn-pick,rxn-pick,rxn-pick,rxn-more,rxn-speak,rxn-reply' && c6.copy[0] >= 36 && c6.copy[1] >= 36 && c6.barH < 50 && c6.inside,
-        '[touch] C6 a tapped-open bar keeps seven buttons (Copy, no Copy message id), Copy a room-sized target, on one line inside the thread', JSON.stringify(c6));
-      await page.locator('#pj-room .msg[data-mid="m530"] .rxn-copy').tap();
+      chk(c6.name === 'More actions for this message' && c6.popup === 'menu', '[touch] C6 "..." is named for what it opens (a menu)', JSON.stringify(c6));
+      chk(c6.open && c6.shown === 'rxn-pick,rxn-pick,rxn-pick,rxn-more,rxn-speak,rxn-reply,rxn-dots' && c6.buttons === 7 && c6.dots[0] >= 36 && c6.dots[1] >= 36 && c6.barH < 50 && c6.inside,
+        '[touch] C6 a tapped-open bar keeps seven buttons ("..." last, no copy button, no divider at thumb size), "..." a room-sized target, on one line inside the thread', JSON.stringify(c6));
+      await page.locator('#pj-room .msg[data-mid="m530"] .rxn-dots').tap();
       await page.waitForTimeout(150);
       const c6m = await page.evaluate(() => { const m = document.getElementById('msg-menu'); return m ? { shown: !m.hidden, items: [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.textContent.trim()).join('|'),
-        open: !!document.querySelector('#pj-room .msg.rxn-show'), copied: window.__copied.slice() } : null; });
-      chk(c6m && c6m.shown && c6m.items === 'Copy message|Copy message id' && c6m.copied.length === 0,
-        '[touch] C6 Copy opens the menu with Copy message and Copy message id (and copies nothing yet)', JSON.stringify(c6m));
+        expanded: document.querySelector('#pj-room .msg[data-mid="m530"] .rxn-dots').getAttribute('aria-expanded'), copied: window.__copied.slice() } : null; });
+      chk(c6m && c6m.shown && c6m.items === 'Copy message|Copy message id' && c6m.expanded === 'true' && c6m.copied.length === 0,
+        '[touch] C6 "..." opens the menu with Copy message and Copy message id (no Delete on an agent\'s post), says it is open, and copies nothing yet', JSON.stringify(c6m));
       if (c6m && c6m.shown) {
         await page.locator('#msg-menu-copy').tap(); await page.waitForTimeout(150);
         const idCopied = await page.evaluate(() => window.__copied.slice());
         chk(idCopied[0] === 'message 530 in Kosmos Growth', '[touch] C6 Copy message id in that menu copies the reference', JSON.stringify(idCopied));
       }
-      // A row with nothing to copy: Copy says so instead of doing nothing (the menu does not open empty).
+      // A row with nothing to copy, not the person's own: "..." says so instead of doing nothing (the menu does not open empty).
       const none = await page.evaluate(() => new Promise((res) => { const d = document.createElement('div'); d.className = 'msg'; d.setAttribute('data-mid', 'x-none');
-        document.getElementById('pj-room').appendChild(d); const b = document.createElement('button'); d.appendChild(b);
-        msgCopyPressed(b, d); setTimeout(() => { const m = document.getElementById('msg-menu'); const t = document.getElementById('msg-toast');
+        document.getElementById('pj-room').appendChild(d); const b = document.createElement('button'); b.className = 'rxn-dots'; d.appendChild(b);
+        b.click(); setTimeout(() => { const m = document.getElementById('msg-menu'); const t = document.getElementById('msg-toast');
           const out = { menu: !!m && !m.hidden, toast: t && !t.hidden ? t.textContent || msgToast.words : null }; d.remove(); res(out); }, 120); }));
-      chk(!none.menu && none.toast === 'There is nothing to copy in this message.', '[touch] C6 Copy on a row with nothing to copy says so', JSON.stringify(none));
+      chk(!none.menu && none.toast === 'There is nothing to copy in this message.', '[touch] C6 "..." on a row with nothing to copy says so', JSON.stringify(none));
       await ctx.close();
     }
     for (const platform of ['Win32', 'MacIntel']) {
@@ -160,30 +155,40 @@ async function paintRoom(page) {
         await page.waitForTimeout(250);
         const bar = await post.evaluate((row) => {
           const q = row.querySelector('.rxn-quick');
-          const kids = [...q.children].map((k) => k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-copy') ? 'copy' : k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?');
-          const ref = q.querySelector('.rxn-ref');
-          const r = ref.getBoundingClientRect();
-          const cp = q.querySelector('.rxn-copy');
-          return { kids: kids.join(','), n: (ref.querySelector('.rxn-ref-n') || {}).textContent, label: ref.getAttribute('aria-label'), title: ref.title,
-            copyLabel: cp && cp.getAttribute('aria-label'), copyTitle: cp && cp.title,
-            op: Number(getComputedStyle(q).opacity), h: r.height, w: r.width };
+          const kids = [...q.children].map((k) => k.classList.contains('rxn-dots') ? 'dots' : k.classList.contains('rxn-div') ? 'div' : k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?');
+          const d = q.querySelector('.rxn-dots'); const r = d.getBoundingClientRect();
+          return { kids: kids.join(','), label: d.getAttribute('aria-label'), expanded: d.getAttribute('aria-expanded'), op: Number(getComputedStyle(q).opacity), h: r.height, w: r.width,
+            copyLeft: !!q.querySelector('.rxn-copy, .rxn-ref') };
         });
-        chk(bar.kids === 'copy,ref,pick,pick,pick,more,speak,reply', tag + 'C1 the bar starts Copy message, then Copy message id, and keeps Reply last (an agent\'s post, so read aloud, #4409, sits before it)', bar.kids);
-        chk(bar.n === '530' && bar.label === 'Copy message id 530' && bar.title === 'Copy message id' && bar.op === 1, tag + 'R1 on hover Copy message id shows the number, and says what it copies', JSON.stringify(bar));
-        chk(bar.copyLabel === 'Copy message' && bar.copyTitle === 'Copy message', tag + 'C1 Copy message is labelled in Josh\'s words', JSON.stringify(bar));
-        chk(bar.h >= 24 && bar.w >= 24, tag + 'R1 the button is a 24px target (WCAG 2.5.8)', bar.w + 'x' + bar.h);
+        chk(bar.kids === 'pick,pick,pick,div,more,speak,reply,dots' && !bar.copyLeft, tag + 'R1 the bar is the reactions, a divider, add reaction, read aloud, Reply, then "..." (kosmos#7614: no copy buttons in it)', bar.kids);
+        chk(bar.label === 'More actions for this message' && bar.expanded === 'false' && bar.op === 1, tag + 'R1 on hover "..." shows, named for what it opens, closed', JSON.stringify(bar));
+        chk(bar.h >= 24 && bar.w >= 24, tag + 'R1 "..." is a 24px target (WCAG 2.5.8)', bar.w + 'x' + bar.h);
         if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await post.screenshot({ path: path.join(SHOTS, 'hover-bar.png') }); }
-        await post.locator('.rxn-ref').click();
+        await post.locator('.rxn-dots').click();
+        await page.waitForTimeout(100);
+        const r1m = await page.evaluate(() => { const m = document.getElementById('msg-menu'); const d = document.querySelector('#pj-room .msg[data-mid="m530"] .rxn-dots');
+          const mr = m.getBoundingClientRect(), dr = d.getBoundingClientRect();
+          return { shown: !m.hidden, items: [...m.querySelectorAll('.msg-menu-i:not([hidden])')].map((i) => i.textContent.trim()).join('|'), expanded: d.getAttribute('aria-expanded'), under: mr.top >= dr.bottom - 1 }; });
+        chk(r1m.shown && r1m.items === 'Copy message|Copy message id' && r1m.expanded === 'true' && r1m.under, tag + 'R1 "..." opens the menu under it, Copy message then Copy message id, and says it is open', JSON.stringify(r1m));
+        await post.locator('.rxn-dots').click();
+        await page.waitForTimeout(100);
+        const r1c = await page.evaluate(() => ({ hidden: document.getElementById('msg-menu').hidden, expanded: document.querySelector('#pj-room .msg[data-mid="m530"] .rxn-dots').getAttribute('aria-expanded'),
+          focus: document.activeElement && document.activeElement.className }));
+        chk(r1c.hidden && r1c.expanded === 'false' && r1c.focus === 'rxn-dots', tag + 'R1 a second press on "..." closes the menu, focus back on it', JSON.stringify(r1c));
+        await post.hover();
+        await post.locator('.rxn-dots').click();
+        await page.click('#msg-menu-copy');
         await page.waitForTimeout(100);
         const r2 = await page.evaluate(() => ({ copied: window.__copied.slice(), toast: (document.getElementById('msg-toast') || {}).textContent, shown: !!document.getElementById('msg-toast') && !document.getElementById('msg-toast').hidden }));
-        chk(r2.copied[0] === 'message 530 in Kosmos Growth', tag + 'R2 the button copies the reference', JSON.stringify(r2.copied));
+        chk(r2.copied[0] === 'message 530 in Kosmos Growth', tag + 'R2 Copy message id copies the reference', JSON.stringify(r2.copied));
         chk(r2.shown && /Copied "message 530 in Kosmos Growth"\. Paste it to any agent\./.test(r2.toast || ''), tag + 'R2 a toast says what was copied', r2.toast);
         if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'toast.png') });
 
         // C1: Copy message copies the whole text, as written.
         await page.evaluate(() => { window.__copied.length = 0; });
         await post.hover();
-        await post.locator('.rxn-copy').click();
+        await post.locator('.rxn-dots').click();
+        await page.click('#msg-menu-text');
         await page.waitForTimeout(100);
         const c1 = await page.evaluate(() => ({ copied: window.__copied.slice(), toast: document.getElementById('msg-toast').textContent }));
         chk(c1.copied[0] === 'The AtlasGrid deck is ready for review.' && c1.toast === 'Copied the message.', tag + 'C1 Copy message copies the whole text and says so', JSON.stringify(c1));
@@ -327,19 +332,19 @@ async function paintRoom(page) {
         const texts = await page.evaluate(() => [...document.querySelectorAll('#d-dmthread .msg')].map((r) => msgRefText(r)));
         chk(texts[0] === "April's message to me at 2:33 PM on Sep 29", tag + "R6 an agent's DM row copies whose it was and when", JSON.stringify(texts[0]));
         chk(texts[1] === 'my message to April at 2:34 PM on Sep 29', tag + "R6 the person's own row copies \"my message to April\"", JSON.stringify(texts[1]));
-        // R6b: a DM row that does carry a number names the conversation, and keeps the number after a reaction repaint.
+        // R6b: a DM row that does carry a number names the conversation, and keeps it and its "..." after a reaction repaint.
         const r6b = await page.evaluate((a4) => {
           const t = document.getElementById('d-dmthread');
           t.insertAdjacentHTML('beforeend', dmRow({ id: 'm77', from: 'april', at: a4, text: 'Numbered.' }, 'April', false));
           const row = t.lastElementChild; const box = row.querySelector('.rxns');
-          const before = (row.querySelector('.rxn-ref-n') || {}).textContent || '';
+          const before = msgRefText(row) + '|' + !!row.querySelector('.rxn-dots');
           repaintReactions(box, [{ emoji: '\u{1F44D}', count: 1, who: ['you'], mine: true }]);
-          const after = (row.querySelector('.rxn-ref-n') || {}).textContent || '';
+          const after = msgRefText(row) + '|' + !!row.querySelector('.rxn-dots');
           const text = msgRefText(row); row.remove();
           return { before, after, text };
         }, at(4));
-        chk(r6b.before === '77' && r6b.after === '77' && r6b.text === 'message 77 in my conversation with April',
-          tag + 'R6b a numbered DM row names the conversation and keeps its number after a reaction', JSON.stringify(r6b));
+        chk(r6b.before === 'message 77 in my conversation with April|true' && r6b.after === r6b.before && r6b.text === 'message 77 in my conversation with April',
+          tag + 'R6b a numbered DM row names the conversation and keeps its number and "..." after a reaction', JSON.stringify(r6b));
         // C5: a DM row copies its own record's words (as written, before the screen drops a leading name), found by `at`.
         const c5 = await page.evaluate((a5) => {
           const t = document.getElementById('d-dmthread');

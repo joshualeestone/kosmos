@@ -273,9 +273,15 @@ function setRow(name, at, delivery, chat) {
   const key = String(name) + '\u0000' + String(at);
   let ok = false;
   try { ok = chat.updateDmDelivery(name, at, delivery); } catch { ok = false; }
-  if (ok) rowFixes.delete(key); else rowFixes.set(key, { name: String(name), at: String(at), delivery });
+  /* kosmos#7614 review 3: a row the person deleted has nothing to write to: no fix is kept for it. */
+  if (ok || (typeof chat.dmRowGone === 'function' && chat.dmRowGone(name, at))) rowFixes.delete(key);
+  else rowFixes.set(key, { name: String(name), at: String(at), delivery });
   return ok;
 }
+/* kosmos#7614: a row the person deleted has nothing left to write to: its kept fix is dropped. */
+function forgetRow(name, at) { rowFixes.delete(String(name) + '\u0000' + String(at)); }
+function rowFixFor(name, at) { return rowFixes.get(String(name) + '\u0000' + String(at)) || null; }
+function hasRowFix(name, at) { return rowFixes.has(String(name) + '\u0000' + String(at)); }   // read by the tests
 function retryRows(chat) {
   for (const f of [...rowFixes.values()]) setRow(f.name, f.at, f.delivery, chat);
 }
@@ -318,4 +324,4 @@ function sweepHooks({ chat, messages }) {
 
 function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); flushingSince = 0; }
 
-module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };
+module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };
