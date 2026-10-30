@@ -79,7 +79,7 @@ final class KeyboardSlideUITests: XCTestCase {
     }
 
     // Until the element's frame reads the same twice, 0.5 s apart (at most 8 s): a scroll or the keyboard has finished.
-    private static func settle(_ e: XCUIElement) {
+    static func settle(_ e: XCUIElement) {
         guard e.exists else { return }   // gone already: the caller's own assertion says what that means
         var last = e.frame
         for _ in 0..<16 {
@@ -91,7 +91,7 @@ final class KeyboardSlideUITests: XCTestCase {
         }
     }
 
-    private static func keyboardUp(_ app: XCUIApplication, _ box: XCUIElement, _ watch: XCUIElement, shot: String, test: XCTestCase) throws {
+    static func keyboardUp(_ app: XCUIApplication, _ box: XCUIElement, _ watch: XCUIElement, shot: String, test: XCTestCase) throws {
         box.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "no on-screen keyboard (is a hardware keyboard connected?)")
         settle(app.keyboards.firstMatch)
@@ -99,7 +99,7 @@ final class KeyboardSlideUITests: XCTestCase {
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = shot; a.lifetime = .keepAlways; test.add(a)
     }
 
-    private static func assertAbove(_ message: XCUIElement, _ box: XCUIElement, _ keyboard: XCUIElement) {
+    static func assertAbove(_ message: XCUIElement, _ box: XCUIElement, _ keyboard: XCUIElement) {
         XCTAssertLessThanOrEqual(message.frame.maxY, min(box.frame.minY, keyboard.frame.minY),
                                  "the newest message is hidden: it ends at \(message.frame.maxY), the box starts at \(box.frame.minY), the keyboard at \(keyboard.frame.minY)")
     }
