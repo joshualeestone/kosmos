@@ -245,3 +245,60 @@ test('readBook / writeBook round-trip, prune past retention, unreadable reads em
   fs.writeFileSync(td.bookFile(), 'not json{');
   assert.equal(td.readBook().size, 0);
 });
+
+/* kosmos#7649: the board's sender awaits the delivery. Same decision, same verdict reading, same book. */
+const later = (v, ms = 5) => new Promise((res) => setTimeout(() => res(v), ms));
+
+test('kosmos#7649 promptOnTaskDoneAsync: same result and book as promptOnTaskDone for every verdict and every gate', async () => {
+  const verdicts = {
+    placed: () => ({ state: D.PLACED }), queued: () => ({ state: D.PLACED, queued: true }), unconfirmed: () => ({ state: D.UNCONFIRMED }),
+    couldNot: () => ({ state: D.COULD_NOT }), held: () => ({ state: D.COULD_NOT, held: true }), busy: () => ({ state: D.COULD_NOT, busy: true }),
+    throws: () => { throw new Error('after the paste'); },
+  };
+  const gates = {
+    none: {}, off: { switchOn: () => false }, braked: { brakeOn: () => true }, notMember: { inCommunity: () => false },
+    unreadable: { postTimes: () => null }, deduped: { book: new Map([['proj1\t7', { at: NOW, session: 'ann' }]]) },
+  };
+  for (const [vn, f] of Object.entries(verdicts)) {
+    for (const [gn, g] of Object.entries(gates)) {
+      const a = setup({ ...g, book: new Map(g.book || []), deliver: f });
+      const b = setup({ ...g, book: new Map(g.book || []), deliver: () => later(null).then(f) });   // a throw in the promise is a rejection
+      const ra = td.promptOnTaskDone(a.o);
+      const rb = await td.promptOnTaskDoneAsync(b.o);
+      assert.deepEqual(rb, ra, vn + '/' + gn + ': results differ');
+      assert.deepEqual([...b.o.book], [...a.o.book], vn + '/' + gn + ': book differs');
+    }
+  }
+  // CONTROL: the comparison can fail. A held verdict and a placed one do not book alike.
+  const h = setup({ deliver: verdicts.held }); td.promptOnTaskDone(h.o);
+  const p = setup({ deliver: verdicts.placed }); td.promptOnTaskDone(p.o);
+  assert.notDeepEqual([...h.o.book], [...p.o.book]);
+});
+
+test('kosmos#7649 promptOnTaskDoneAsync: a late answer is booked when it lands, and a second mark after it is deduped', async () => {
+  const sends = [];
+  const { o } = setup({ deliver: (s) => { sends.push(s); return later({ state: D.PLACED }); } });
+  const r = await td.promptOnTaskDoneAsync(o);
+  assert.equal(r.act, 'prompted');
+  assert.deepEqual(o.book.get('proj1\t7'), { at: NOW, session: 'ann' });
+  assert.equal((await td.promptOnTaskDoneAsync({ ...o, trigger: 'closed' })).act, 'deduped');
+  assert.deepEqual(sends, ['ann']);
+});
+
+test('kosmos#7649: two prompts for one task run at once DO both deliver, which is why server.js runs them one after another', async () => {
+  const sends = [];
+  const book = new Map();
+  const { o } = setup({ book, deliver: (s) => { sends.push(s); return later({ state: D.PLACED }); } });
+  await Promise.all([td.promptOnTaskDoneAsync(o), td.promptOnTaskDoneAsync({ ...o, trigger: 'closed' })]);
+  assert.deepEqual(sends, ['ann', 'ann'], 'the overlap the server chain (server.communitytaskdone-5313.test.js) exists for');
+  // CONTROL: one after the other, the second is deduped.
+  const seq = []; const s2 = setup({ deliver: (s) => { seq.push(s); return later({ state: D.PLACED }); } });
+  await td.promptOnTaskDoneAsync(s2.o); await td.promptOnTaskDoneAsync({ ...s2.o, trigger: 'closed' });
+  assert.deepEqual(seq, ['ann']);
+});
+
+test('kosmos#7649 promptOnTaskDoneAsync: never rejects, whatever the input', async () => {
+  assert.equal((await td.promptOnTaskDoneAsync(null)).act, 'bad-input');
+  const bad = setup({ deliver: () => Promise.reject(new Error('x')) });
+  assert.equal((await td.promptOnTaskDoneAsync(bad.o)).act, 'prompted', 'a rejection reads as UNCONFIRMED, which reached');
+});

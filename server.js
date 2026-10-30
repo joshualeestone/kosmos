@@ -1314,15 +1314,25 @@ function agentInCommunity(session) {
 }
 /* #5313: fire ONE community prompt for a just-finished task, reusing the idle sweep's gates
    (engine/communityturn's live-exec + agent-nudge brake, the operator brake, the global community
-   switch, the Prompter's switch, the per-agent community membership) and the same chat.deliverAutomatic
+   switch, the Prompter's switch, the per-agent community membership) and the same chat.deliverAutomaticAsync
    the sweep uses, so a busy pane holds it as Queued (#5216). Reads and writes the per-task dedup book.
-   Synchronous and best-effort: it NEVER throws, and every caller runs it AFTER the mark is already
-   recorded, so a prompt can never fail a task mark. Shared by the built route and the close route. */
-function promptCommunityOnTaskDone({ projectId, taskNumber, session, name, trigger, roster }) {
+   Best-effort: it NEVER rejects, and every caller runs it AFTER the mark is already recorded, so a
+   prompt can never fail a task mark. Shared by the built route and the close route.
+   kosmos#7649: the delivery is awaited, so typing into the pane no longer holds the event loop after the
+   200. Each prompt reads the book, delivers, and writes the book back, so two running at once could both
+   pass the dedup (one task prompted twice) and the later write could drop the earlier one's entry. So
+   every prompt waits for the one before it on TASK_DONE_CHAIN: one at a time, in the order the marks came. */
+let TASK_DONE_CHAIN = Promise.resolve();
+function promptCommunityOnTaskDone(args) {
+  const next = TASK_DONE_CHAIN.then(() => promptCommunityOnTaskDoneNow(args));
+  TASK_DONE_CHAIN = next.catch(() => null);   // a failed prompt never stops the ones after it
+  return TASK_DONE_CHAIN;
+}
+async function promptCommunityOnTaskDoneNow({ projectId, taskNumber, session, name, trigger, roster }) {
   try {
     const communitystore = require('./engine/communitystore');
     const book = communitytaskdone.readBook();
-    const r = communitytaskdone.promptOnTaskDone({
+    const r = await communitytaskdone.promptOnTaskDoneAsync({
       projectId, taskNumber, session, name, trigger,
       now: Date.now(), book,
       liveAllowed: () => agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
@@ -1331,7 +1341,7 @@ function promptCommunityOnTaskDone({ projectId, taskNumber, session, name, trigg
       prompterOn: () => heartbeatSetting.read().on === true,
       inCommunity: agentInCommunity,
       postTimes: (s) => { const all = communitystore.postTimesAll(); return all === null ? null : (all.get(String(s).trim().toLowerCase()) || []); },
-      deliver: (s, text) => chat.deliverAutomatic(s, text, roster),
+      deliver: (s, text) => chat.deliverAutomaticAsync(s, text, roster),
       DELIVERY: chat.DELIVERY,
     });
     // #5313: the prompt has already reached the pane when recorded; if the book write fails (disk full,
