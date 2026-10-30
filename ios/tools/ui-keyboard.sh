@@ -7,20 +7,26 @@
 #
 # Sample agents only (a Debug build): no account, no network, nothing of a person's. The simulator is new for each run
 # and deleted at the end, and so are the build and the results (--keep keeps them, for a failure to be looked at).
-# The checks need the on-screen keyboard, which a simulator hides while it takes a Mac's own keyboard; the Simulator
-# preference that decides it (ConnectHardwareKeyboard, shared by everyone on this Mac) is set off for the run and put
-# back as it was at the end.
+# The checks need the on-screen keyboard, which a simulator can hide while it takes a Mac's own keyboard. The run sets
+# the Simulator preference ConnectHardwareKeyboard off (it is shared by everyone on this Mac) and puts it back as it was
+# at the end; with it off, the keyboard showed in every measured run (10-30). One run at a time: a second run waits for
+# the lock rather than reading the first run's value as the one to put back.
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 keep=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=1; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
     *) echo "ui-keyboard: unknown argument $1" >&2; exit 2 ;;
   esac
 done
 
+lock="$HOME/.cache/kosmos-ui-keyboard.lock"
+mkdir -p "$HOME/.cache"
+for _ in $(seq 1 120); do mkdir "$lock" 2>/dev/null && break; sleep 5; done
+[ -d "$lock" ] && [ "$(cat "$lock/pid" 2>/dev/null)" = "" ] || { echo "FAIL  ui-keyboard: another run holds $lock (10 min waited)" >&2; exit 1; }
+echo $$ > "$lock/pid"
 work="$(mktemp -d)"
 udid=""
 was_kbd="$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" || was_kbd=""
@@ -30,6 +36,7 @@ cleanup() {
   if [ -n "$was_kbd" ]; then defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool "$([ "$was_kbd" = 1 ] && echo true || echo false)"
   else defaults delete com.apple.iphonesimulator ConnectHardwareKeyboard >/dev/null 2>&1; fi
   if [ "$keep" = 1 ]; then echo "kept: $work"; else rm -rf "$work"; fi
+  rm -rf "$lock"
 }
 trap cleanup EXIT
 trap 'exit 143' TERM; trap 'exit 130' INT HUP
@@ -46,8 +53,8 @@ log="$work/xcodebuild.log"
     -only-testing:KosmosUITests/KeyboardSlideUITests \
     -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
 rc=$?
-ran="$(grep -c "Test Case .*KeyboardSlideUITests.* \(passed\|failed\)" "$log")"
-if [ "$rc" -eq 0 ] && [ "$ran" -eq 3 ] && ! grep -q "Test Case .*KeyboardSlideUITests.* failed" "$log"; then
+ran="$(grep -c -E "Test Case .*KeyboardSlideUITests.* (passed|failed)" "$log")"
+if [ "$rc" -eq 0 ] && [ "$ran" -eq 3 ] && ! grep -q -E "Test Case .*KeyboardSlideUITests.* failed" "$log"; then
   echo "PASS  ui-keyboard: 3 of 3 keyboard checks passed on a fresh simulator"
   exit 0
 fi

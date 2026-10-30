@@ -26,8 +26,13 @@ same id it had: nothing scrolls while the keyboard shrinks the viewport, so the 
 
 ## The change
 
-`keyboardDidShow`, when `keepNewestInView`: scroll to the end marker itself (`proxy.scrollTo("end", anchor: .bottom)`,
-animated), then set the anchor to `"end"` so later rows still follow. One handler, nothing else moves.
+`keyboardDidShow`, when `keepNewestInView`: under the id anchor, scroll to the end marker itself
+(`proxy.scrollTo("end", anchor: .bottom)`, not animated) and set the anchor to `"end"`; on iOS 16, `goNewest` as before.
+One handler, nothing else moves.
+
+Not animated on purpose (review round 1): the side lock (#7574) writes the whole content offset at once only under the id
+anchor, because there the move to the newest message is not animated; an animated scroll here could be stopped partway
+by it.
 
 - Rejected: a second `goNewest` after a delay. It re-sets the same id again and moves nothing for the same reason.
 - Rejected: scrolling in `keyboardWillShow`. The viewport has not shrunk yet, so "the end" is still on screen.
@@ -36,8 +41,9 @@ animated), then set the anchor to `"end"` so later rows still follow. One handle
 
 ## #7420's side lock (#7574), as Angel asked
 
-The side lock puts back a sideways shift of the scroll view's content offset. This change moves it vertically only, so
-the two do not touch the same axis. The three checks below run with the side lock in place (it is on main).
+The side lock puts back a sideways shift by writing the whole content offset, y included, at once under the id anchor.
+That is safe only for a scroll that is not animated, so this one is not (see above). The checks below run with the side
+lock in place (it is on main).
 
 ## The regression guard
 
@@ -57,7 +63,10 @@ Each of 1 and 2 carries a control that the newest message was above the box befo
 | with the change | passed 6 of 6 | passed 4 of 4 | 0 of 4 runs |
 | without it | **failed 5 of 6** | **failed 2 of 4** | **4 of 4 runs** |
 
-Check 3 passed in every run on both arms (the change does not pull a reader down). **The defect is intermittent, and so is
+Check 3 passed in every run on both arms (the change does not pull a reader down). Its own control, after review
+round 1: with `keepNewestInView` forced true (a local edit, never committed), check 3 **fails** (the row read higher up
+leaves the screen) while 1 and 2 pass, so it can see a pull-down. Round-1 arms with the reworked checks: with the change
+3 of 3 pass; without it 1 and 2 fail; forced, 3 fails. **The defect is intermittent, and so is
 each check alone**, which fits Josh seeing it sometimes rather than always. Neither check is a certain guard alone. The
 two together caught it every time without the change, and never fired with it. Weakest premise: four runs are a small
 sample for "every time"; ui-keyboard.sh is the way to add more.
