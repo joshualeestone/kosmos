@@ -122,3 +122,32 @@ Decided, not changed (recorded so nobody re-derives it):
 - storecheck's restore guard does not cover a `personal-backup/` folder; recorded for whoever adds it to FOLDERS.
 - A coordinator-side hardening (the codeless enroll for a personal org requiring the hash, so a hashless board cannot
   move a company binding) is worth a relay card; condition 2 closes it board-side meanwhile.
+
+## Code review 2 (blind, 16:2x 10-30): two blockers, five warnings. TO DO, in this order
+
+1. **BLOCKER, preview leaves a membership nothing ends.** The coordinator's personal-backup (org.rs mac_personal_backup)
+   MAKES the membership at preview. Decline, an expired ticket, or switchOff with no record send nothing
+   (orgenroll.js:956-961 clears locally), so the account stays in its personal org and every company or family invite is
+   refused org_other_org. **Decided (board side, now):** on decline, expiry, or an off with no record, read status and
+   send a leave ONLY when status names an org of kind 'personal' (never a company's or a family's), under the personal
+   root. Weakest premise: a race where the account joins a company between that status read and the leave; mac_leave
+   ends whatever membership exists. **Relay follow-up (card it):** a personal membership with no enrolled computer
+   should never block a company or family join (end it at that join), which removes the race and the stranded state.
+2. **BLOCKER, personal refusal codes read as "unknown".** orgenroll.codeOf matches only its own SAY codes
+   (orgenroll.js:447-452), so personal_backup_words_unseen (and the other personal codes) fall into the lost-answer path:
+   a status read, org-join-unknown.json, two-minute follow-ups, "not known yet". Fix: orgenroll's SAY learns the
+   personal codes (neutral words; personalbackup maps them to its own), with a test that a coded personal refusal
+   writes no join-unknown and is told as refused.
+3. WARNING: a pending LEAVE is followed up every two minutes forever: leaveNow rewrites org-leave-pending on each try, so
+   its mtime never ages. Use the join-unknown's own `at` (as server.js:26888 does) and treat a pending leave as hourly
+   after its first day (store the first-seen time in this module).
+4. WARNING: the key-ready marker is stale after an ending that was not a switchOff (a refresh that finds the
+   membership gone). Record org and world in it and compare in state(); clear it at the start of switchOn.
+5. WARNING: switchOn's generic "did not bind ... try again in a minute" is wrong for: bound but the record write failed
+   (orgenroll.js:752), data folder unwritable (620), answered but not confirmed (719); and the ticket is kept there
+   though Kosmos+ was reached. Map each to its own sentence and spend the ticket when Kosmos+ answered.
+6. WARNING: the idle guard is NOT equivalent (my claim was wrong): a refused enroll leaves a world id with no record, and
+   then refresh DOES send a status read (probe P2: member:true). Keep the guard and test it with a world id present.
+7. WARNING: no test of the fast follow-up path (a pending join or leave) or of a coded refusal through switchOn.
+NITs to take: followUp checks liveExecutionAllowed() as orgEnrollRefresh does; an in-flight guard; setUpKey's because
+in plain words; peek-then-delete is not atomic for two concurrent switchOn calls (claim the ticket synchronously).
