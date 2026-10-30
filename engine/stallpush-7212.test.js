@@ -41,14 +41,16 @@ test('told at most once a day per agent, across a restart and a stall that ends 
   const file = fileIn();
   const a = sender();
   ds.tellStalls([card('s-ada'), card('s-bo')], { now: T0, file, send: a.send });
-  assert.deepEqual(a.sent.map((e) => e.session), ['s-ada', 's-bo']);
+  assert.deepEqual(a.sent.map((e) => [e.session, e.agent]), [['s-ada', 'S-ADA and 1 more']], 'two stalls in one sweep were not one push');
+  ds.tellStalls([card('s-bo')], { now: T0 + MIN, file, send: a.send });
+  assert.equal(a.sent.length, 1, 'an agent the combined push covered was told again');
   ds.tellStalls([card('s-ada', { deliveryStall: { since: '2026-10-30T12:40:00.000Z', count: 3, lastWhy: 'input' } })], { now: T0 + 70 * MIN, file, send: a.send });
-  assert.equal(a.sent.length, 2, 'a stall that ended and started again was told again within the day');
+  assert.equal(a.sent.length, 1, 'a stall that ended and started again was told again within the day');
   ds.resetForTests();   // a board restart: nothing in memory, only the file
   ds.tellStalls([card('s-ada')], { now: T0 + 2 * 60 * MIN, file, send: a.send });
-  assert.equal(a.sent.length, 2, 'a board restart told the person again');
+  assert.equal(a.sent.length, 1, 'a board restart told the person again');
   ds.tellStalls([card('s-ada')], { now: T0 + DAY, file, send: a.send });
-  assert.equal(a.sent.length, 3, 'a day later it was not told again');
+  assert.equal(a.sent.length, 2, 'a day later it was not told again');
 });
 
 test('review 2 W1: a push the phone side did not send is not counted, so it goes once it can', () => {
@@ -96,7 +98,7 @@ test('the board tells every card carrying a stall, through phonenotify, each min
   const at = src.indexOf('const sayStalls = () => {');
   assert.ok(at > 0, 'CONTROL: sayStalls is found');
   const body = src.slice(at, src.indexOf('} catch { /* said next minute */ }', at));
-  assert.match(body, /ds\.tellStalls\(shown\.map\(\(n\) => byName\.get\(n\)\), \{ file: STALL_PUSH_FILE, send: \(ev\) => phonenotify\.happened\(ev\) \}\);/);
+  assert.match(body, /ds\.tellStalls\(r, \{ file: STALL_PUSH_FILE, send: \(ev\) => phonenotify\.happened\(ev\) \}\);/, 'the board does not hand its whole roster to tellStalls');
   assert.match(src, /const STALL_PUSH_FILE = path\.join\(store\.ROOT, require\('\.\/engine\/deliverystreak'\)\.PUSH_FILE\);/);
 });
 
@@ -124,4 +126,19 @@ test('review 3: the board tells the stalls after it has settled the cards, insid
   assert.ok(settled > 0 && shown > settled && told > shown, 'tellStalls is not after settleFor and shown: ' + [settled, shown, told]);
   assert.equal(body.slice(0, told).includes('return;\n'), true, 'CONTROL: the early return for an empty roster is above it');
   assert.equal((body.slice(told).match(/return/g) || []).length, 0, 'something can return before the stalls are told');
+});
+
+test('review 4: one cause stalling many agents is one push, and a healthy card on the roster is never told', () => {
+  const file = fileIn();
+  const a = sender();
+  const healthy = { sessionName: 's-ok', name: 'OK', deliveryStall: null };
+  ds.tellStalls([healthy, card('s-a'), card('s-b'), card('s-c'), card('s-a')], { now: T0, file, send: a.send });
+  assert.equal(a.sent.length, 1, 'three stalls in one minute buzzed ' + a.sent.length + ' times');
+  assert.equal(a.sent[0].agent, 'S-A and 2 more', 'the one push does not say how many');
+  assert.equal(a.sent[0].session, 's-a');
+  ds.tellStalls([healthy], { now: T0 + MIN, file, send: a.send });
+  assert.equal(a.sent.length, 1, 'a card with no stall was told');
+  ds.tellStalls([card('s-d')], { now: T0 + 2 * MIN, file, send: a.send });
+  assert.equal(a.sent.length, 2, 'CONTROL: a new stall the next minute is told');
+  assert.equal(a.sent[1].agent, 'S-D', 'a single stall said "and 0 more"');
 });

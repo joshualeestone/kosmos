@@ -48,3 +48,8 @@ show, not for a usage-limit-only streak, again after a day; the turn callback; a
   cards and that nothing can return before it. Kept on purpose: one agent is told at most once a day even if its stall
   ends and a different one starts; that is what keeps a flapping stall from buzzing all day, and the card still shows
   every stall. Not reachable today: a project's mute level (a stall event names no project).
+- Round 4 (Opus, whole branch, the final read): no BLOCKER. One push per sweep, whatever the count, so a cause many
+  agents share (one signed-out account) is one buzz, naming the first "and N more"; every agent it covers counts as
+  told. tellStalls now takes the board's whole roster and picks the cards carrying deliveryStall itself, so a test
+  drives it with a healthy card beside stalled ones. Kept on purpose (W2): one agent is told at most once a day, even
+  for a second stall that day; the card shows every stall.

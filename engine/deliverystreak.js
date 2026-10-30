@@ -286,18 +286,26 @@ function pushTold(session, now, file) {
     require('./store').saveFlushed(file, JSON.stringify(book) + '\n');
   } catch { /* the in-memory copy still holds it */ }
 }
-/* The board's minute sweep: tell the person about each card carrying a stall that is due. `send` is
-   phonenotify.happened (true when it sent). Never throws. */
+/* The board's minute sweep, over its whole roster: tell the person about the cards carrying a stall (deliveryStall, the
+   field the card's "Messages stuck" reads) whose agents are due. Review 4: ONE push per sweep, whatever the count, so a
+   cause many agents share (one signed-out account, say) is one buzz, naming the first and how many more; every agent it
+   covers counts as told. `send` is phonenotify.happened (true when it sent); nothing counts when it did not. Never
+   throws. */
 function tellStalls(cards, { now = Date.now(), file, send }) {
-  let book = null;
-  const bookOf = () => book || (book = typeof file === 'string' && file ? readPushes(file) : Object.create(null));
-  for (const c of cards || []) {
-    try {
-      const ev = stallEvent(c, now);
-      if (!ev || !pushDue(ev.session, now, bookOf)) continue;
-      if (send(ev) === true) pushTold(ev.session, now, file);
-    } catch { /* the next card is still told */ }
-  }
+  try {
+    let book = null;
+    const bookOf = () => book || (book = typeof file === 'string' && file ? readPushes(file) : Object.create(null));
+    const due = [];
+    for (const c of cards || []) {
+      try {
+        const ev = c && c.deliveryStall ? stallEvent(c, now) : null;
+        if (ev && pushDue(ev.session, now, bookOf) && !due.some((d) => d.session === ev.session)) due.push(ev);
+      } catch { /* the next card is still looked at */ }
+    }
+    if (!due.length) return;
+    const ev = due.length === 1 ? due[0] : { ...due[0], agent: due[0].agent + ' and ' + (due.length - 1) + ' more' };
+    if (send(ev) === true) for (const d of due) pushTold(d.session, now, file);
+  } catch { /* told next minute */ }
 }
 
 module.exports = { stallEvent, tellStalls, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };

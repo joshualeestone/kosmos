@@ -26863,10 +26863,10 @@ function start(port = PORT) {
           const isTurn = (n) => byName.get(n).deliveryStall.lastWhy === 'turn';
           for (const line of ds.turnsToSay(r, turnSaid)) process.stdout.write(line);
           for (const st of ds.stallsToSay(shown.filter((n) => !isTurn(n)), stallSaid, { limitShownOf })) process.stdout.write(ds.stallLine(st));
-          /* kosmos#7212 (#7615 item 1: an agent unreachable for ten days, and nobody told): every card carrying a stall is
-             also pushed to the person's phone as needs-you, as a crash loop or a stuck terminal is, at most once a day per
-             agent, counted only when a push went out (deliverystreak.tellStalls). */
-          ds.tellStalls(shown.map((n) => byName.get(n)), { file: STALL_PUSH_FILE, send: (ev) => phonenotify.happened(ev) });
+          /* kosmos#7212 (#7615 item 1: an agent unreachable for ten days, and nobody told): the cards carrying a stall are
+             also pushed to the person's phone as needs-you, as a crash loop or a stuck terminal is: one push per minute at most
+             (naming the first and how many more), each agent once a day, counted only when it went out (deliverystreak.tellStalls). */
+          ds.tellStalls(r, { file: STALL_PUSH_FILE, send: (ev) => phonenotify.happened(ev) });
         } catch { /* said next minute */ }
       };
       const sweep = setInterval(() => {
