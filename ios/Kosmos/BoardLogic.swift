@@ -1246,10 +1246,11 @@ enum Board {
     // kosmos#7614 (Mona Lisa's routes): `gone` is a 404 that says `gone: true`, the message already deleted (another
     // tab, the board): the row goes, as on a delete. Any other 404 (a renamed agent, say) is a refusal like the rest.
     enum DeleteResult: Equatable { case deleted(told: [String]), gone, refused(String) }
-    static let deleteGoneNote = "That message was already deleted."
+    static let deleteGoneNote = "That message was already gone."   // the board's own toast, word for word
 
-    // Both routes answer alike: 200 {deleted: true, told}; else the route's `error` (403 not yours, 404 gone, 409 an
-    // earlier part of the conversation), as a sentence; no answer at all, the board's own fallback sentence.
+    // Both routes answer alike: 200 {deleted: true, told}; a 404 with gone: true is .gone; else the route's `error`
+    // (403 not yours, any other 404, 409 an earlier part of the conversation, two at one time, or being sent again), as
+    // a sentence; no answer at all, the board's own fallback sentence.
     static func deleteResult(status: Int, body: Data?) -> DeleteResult {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if (200...299).contains(status), isTrue(obj?["deleted"]) {

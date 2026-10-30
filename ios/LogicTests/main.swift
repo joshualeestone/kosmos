@@ -1567,6 +1567,10 @@ do {
     let partRows = partThread?.rows ?? []
     check(partRows.count == 2 && partRows[0].earlierPart && !partRows[1].earlierPart, "earlierPart is read from the row")
     check(!Board.canDelete(partRows[0]) && Board.canDelete(partRows[1]), "an earlier-part row offers no Delete; CONTROL: the newer one does")
+    // Review: an earlier page (the older route) marks its rows the same way, read by the same parser.
+    if case .page(let olderRows, _, _) = Board.readOlder(status: 200, data: Data(#"{"olderCount":0,"messages":[{"at":"2026-10-24T08:00:00.000Z","text":"older one","earlierPart":true}]}"#.utf8), before: 1) {
+        check(olderRows.count == 1 && olderRows[0].earlierPart && !Board.canDelete(olderRows[0]), "an earlier page's earlier-part row offers no Delete")
+    } else { check(false, "an earlier page's earlier-part row offers no Delete (the page did not read)") }
     let gone = Board.withoutMessage(rows, at: "2026-10-24T10:01:00.000Z")
     check(gone.count == rows.count - 1 && gone.contains(rows[0]), "the deleted row goes, the agent's stays")
     check(Board.withoutMessage(rows, at: "2026-10-24T10:00:00.000Z").count == rows.count,
