@@ -455,3 +455,19 @@ test('#7404 warning 5: an unwritable data folder before anything is sent: says s
   assert.equal(c.sent.filter((x) => x.route === oe.ROUTES.enroll).length, 0, 'precondition: nothing was sent');
   assert.equal(pb._TICKETS.has(p.ticket), true, 'nothing sent: the ticket is kept');
 });
+
+/* Code review 2, warning 6: a refused enroll leaves a world id with no record, and orgenroll's refresh WOULD then read
+   status (probe P2). The idle guard is what keeps the follow-up silent, so it is tested with a world id present. */
+test('#7404 warning 6: a world id with no record and nothing pending sends nothing; a pending join does', async (t) => {
+  const root = fresh(t);
+  fs.mkdirSync(root, { recursive: true });
+  fs.writeFileSync(path.join(root, oe.WORLD_ID_FILE), 'a'.repeat(32) + '\n');
+  const c = coordinator();
+  pb._resetFollowUpForTests();
+  const r = await pb.followUp({ root, remote: c });
+  assert.equal(r.idle, true);
+  assert.equal(c.sent.length, 0, 'idle: no status read');
+  fs.writeFileSync(path.join(root, oe.JOIN_UNKNOWN_FILE), JSON.stringify({ at: new Date().toISOString(), orgId: ORG.id }));
+  await pb.followUp({ root, remote: c });
+  assert.equal(STATUS_N(c) > 0, true, 'CONTROL: a pending join is followed up, so the test can see a read');
+});
