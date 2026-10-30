@@ -536,8 +536,9 @@ function routeFor(event) {
   }
 }
 
-/* kosmos#7212 review 6: `done(ok)`, when given, is told once whether Kosmos+ took it (a 2xx), so a caller that counts a
-   push can take it back when it never arrived. */
+/* kosmos#7212 review 6: `done(ok)`, when given, is told once whether the push is settled, so a caller that counts a push
+   can take it back when a retry could still land it. Review 7: ok is false only for what a retry can fix (no answer, a
+   network error, a timeout, a 5xx or a 429); a 2xx, or a 4xx that will refuse again (a revoked token), is settled. */
 function defaultSend(url, headers, body, done = null) {
   let said = false;
   const tell = (ok) => { if (said || typeof done !== 'function') return; said = true; try { done(ok); } catch { /* the caller's */ } };
@@ -551,7 +552,7 @@ function defaultSend(url, headers, body, done = null) {
       if (res.statusCode < 200 || res.statusCode >= 300) {
         process.stderr.write('phonenotify: Kosmos+ answered ' + res.statusCode + ' to a notification\n');
       }
-      tell(res.statusCode >= 200 && res.statusCode < 300);
+      tell(res.statusCode < 500 && res.statusCode !== 429);
       res.resume();
     },
   );

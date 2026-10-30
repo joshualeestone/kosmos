@@ -184,7 +184,7 @@ test('review 6 W3: a card in a crash loop is told by the crash-loop push, not ag
 
 test('review 6: phonenotify takes a push back when Kosmos+ does not answer 2xx, and passes onResult through', () => {
   const src = fs.readFileSync(path.join(__dirname, 'phonenotify.js'), 'utf8');
-  assert.match(src, /tell\(res\.statusCode >= 200 && res\.statusCode < 300\);/);
+  assert.match(src, /tell\(res\.statusCode < 500 && res\.statusCode !== 429\);/, 'a permanent refusal is retried forever');
   assert.match(src, /req\.on\('error', \(err\) => \{\n[^\n]*\n    tell\(false\);/, 'a network error is not reported');
   assert.match(src, /body, typeof event\.onResult === 'function' \? event\.onResult : null\);/);
   assert.match(src, /if \(last !== undefined && last <= now && now - last < route\.ms\) return false;/, 'a cooldown stamp from the future still holds');

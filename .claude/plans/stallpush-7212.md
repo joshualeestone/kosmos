@@ -64,3 +64,8 @@ show, not for a usage-limit-only streak, again after a day; the turn callback; a
   the agents it covered, on disk and in memory, so they are told at the next push. The name is cut so " and N more"
   always fits the 80-byte agent field whole. A card in a crash loop is left to the crash-loop push. phonenotify's
   cooldown ignores a stamp from the future, as the stall gate does, so a clock that went back cannot hold every stall.
+- Round 7 (Sonnet, final read): no BLOCKER. A push is taken back only for what a retry can fix (no answer, a network
+  error, a timeout, a 5xx, a 429); a 4xx that will refuse again (a revoked token) settles it, so it is not retried
+  every few minutes for the whole stall. engine.phonenotify-send-4163.test.js now runs the REAL defaultSend against a
+  local coordinator and checks what onResult hears for 204, 401, 503, 429 and an unreachable one. Kept: a push still in
+  flight when the board restarts stays counted (its answer never arrives), a window of seconds.
