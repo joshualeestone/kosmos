@@ -2806,17 +2806,26 @@ function movedToldAfter(sessionName, m, v) {
 /* #7212 slice 2: a delivery is noted under the card's own sessionName (the key its card field reads), not the name the
    sender typed: resolveCard tolerates case, so `kosmos msg Casey` reaches casey's card and must count there. */
 function streakKey(sessionName, card) { return (card && typeof card.sessionName === 'string' && card.sessionName) || sessionName; }
-function deliver(sessionName, raw, roster, envelope, trailer, opts) {
-  const card = resolveCard(roster, sessionName);
-  const target = card && card.isNamedOurs === true ? paneTarget(card) : null;
-  if (target && deliveryQueues.has(target)) {
+/* The verdict deliver gives when another message is still being placed in the agent's window, or null when it is not.
+   kosmos#7649: exported, so an awaited sender that must not queue behind that message (the community turn, which
+   deliverAsync would otherwise type right after it) can ask first and get the same verdict. Never throws. */
+function paneBusyVerdict(sessionName, roster) {
+  try {
+    const card = resolveCard(roster, sessionName);
+    const target = card && card.isNamedOurs === true ? paneTarget(card) : null;
+    if (!target || !deliveryQueues.has(target)) return null;
     return {
       state: DELIVERY.COULD_NOT,
       because: 'another message is still being placed in its window, so this one was not typed',
       at: new Date().toISOString(), paneState: null, paneNote: null,
       busy: true,   // #4951 review 7: the pane was busy, not unreachable; a caller counting tries need not count this one
     };
-  }
+  } catch { return null; }
+}
+function deliver(sessionName, raw, roster, envelope, trailer, opts) {
+  const card = resolveCard(roster, sessionName);
+  const busy = paneBusyVerdict(sessionName, roster);
+  if (busy) return busy;
   const m = movedNoteFor(sessionName, raw, opts, card);   // #5400 (a card that is not ours is refused before any typing)
   // #7212 slice 2: every verdict is noted, so an agent no line reaches for half an hour is said, whatever the cause.
   return deliverystreak.noted(streakKey(sessionName, card), movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, false)));
@@ -5358,7 +5367,7 @@ module.exports = {
   composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS, stuckShrunk,   // kosmos#6717
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, paneBusyVerdict, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,

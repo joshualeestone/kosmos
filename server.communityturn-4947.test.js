@@ -162,3 +162,7 @@ test('kosmos#7649 review 1: the book is saved after each booking (a stop mid-pas
   assert.match(w, /saveBook:\s*\(b\)\s*=>\s*communityturn\.writeBook\(b\),/);
   assert.match(w, /log: \(r\) => process\.stdout\.write\(`community-turn: \$\{r\.name\} \(\$\{r\.session\}\) /, 'the log line lost its space after community-turn:');
 });
+
+test('kosmos#7649 review 3: the turn asks chat whether the pane is still placing another message before it sends', () => {
+  assert.match(w, /paneBusy:\s*\(session, r\)\s*=>\s*chat\.paneBusyVerdict\(session, r\),/);
+});

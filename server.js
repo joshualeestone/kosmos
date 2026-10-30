@@ -28003,6 +28003,7 @@ function start(port = PORT) {
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
           stamp: true,   // #5636 F7a: the line says when it was sent, for a runner that rereads one long session
           deliver: (session, text, r) => chat.deliverAutomaticAsync(session, text, r, undefined, undefined),
+          paneBusy: (session, r) => chat.paneBusyVerdict(session, r),   // kosmos#7649 review 3: never typed behind another message
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
         });

@@ -726,3 +726,40 @@ test('kosmos#7649 review 2: without a fixed clock, each agent is booked when it 
   assert.deepEqual(r.map((x) => x.session), ['ann', 'bea'], 'CONTROL: both were sent to');
   assert.ok(o.book.get('bea')[0] > o.book.get('ann')[0], 'the second booking reads the clock again');
 });
+
+/* kosmos#7649 review 3. */
+test('kosmos#7649 review 3: a pane still placing another message is pane-busy, not typed after it, and not booked (as tickOnce)', async () => {
+  const sends = [];
+  const busyV = { state: D.COULD_NOT, busy: true };
+  const { o } = tickArgs({ roster: () => [card('ann')], paneBusy: () => busyV, deliver: (s) => { sends.push(s); return later({ state: D.PLACED }); } });
+  const r = await ct.tickOnceAsync(o);
+  assert.deepEqual(r.map((x) => [x.session, x.act]), [['ann', 'pane-busy']]);
+  assert.deepEqual(sends, [], 'nothing typed behind the other message');
+  assert.equal(o.book.has('ann'), false);
+  assert.deepEqual(o.sent, [], 'no slot held or leaked');
+  // CONTROL: a free pane is sent to.
+  const free = tickArgs({ roster: () => [card('ann')], paneBusy: () => null, deliver: () => later({ state: D.PLACED }) });
+  assert.equal((await ct.tickOnceAsync(free.o))[0].act, 'prompted');
+});
+
+test('kosmos#7649 review 3: the second agent is judged by the whole due() test again: a post, a fresh idle report or a pause mid-pass skips it', async () => {
+  const cases = {
+    posted: (st) => ({ postTimes: (s) => (s === 'bea' && st.mid ? [ago(0)] : [ago(6 * H)]) }),
+    justIdle: (st) => ({ idleSince: (s) => (s === 'bea' && st.mid ? NOW : NOW - H) }),
+    paused: (st) => ({ readProjects: () => (st.mid ? [{ id: 'p', name: 'P', agents: ['bea'], paused: true }] : []) }),
+  };
+  for (const [name, f] of Object.entries(cases)) {
+    const st = { mid: false };
+    const sends = [];
+    const { o } = tickArgs({ ...f(st), deliver: (s) => { sends.push(s); st.mid = true; return later({ state: D.PLACED }); } });
+    await ct.tickOnceAsync(o);
+    if (name === 'paused') {
+      // CONTROL for the pause shape: the same projects at the start of a pass stand bea down.
+      const pre = tickArgs({ ...f({ mid: true }) });
+      const stood = ct.due({ ...args(), projects: pre.o.readProjects(), roster: [card('bea')], seenIdle: new Set(['bea']) });
+      assert.deepEqual(stood, [], 'CONTROL: this projects shape does stand bea down');
+    }
+    assert.deepEqual(sends, ['ann'], name + ': bea was sent to');
+    assert.equal(o.book.has('bea'), false, name + ': bea was booked');
+  }
+});

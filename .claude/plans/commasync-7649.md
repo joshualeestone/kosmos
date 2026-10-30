@@ -42,3 +42,18 @@ longer, that agent is booked as unconfirmed and its line may still land later: o
   - N a re-check skip keeps the agent's older communityready record (no new act in the results vocabulary); the timer
     is unref'd (the deadline test passes, and M1 of round 1 shows a cancelled test turns the run red); cross-nudge
     spacing between the community turn and the other nudges is the existing design, not this card.
+- Round 3 (Opus, whole branch): no BLOCKER. Fixed, each with a test and a red mutant:
+  - W1 the awaited sender queued behind a message still being placed and then typed (the synchronous one refused, read
+    as pane-busy, unbooked): chat.js's refusal is now one exported helper, paneBusyVerdict, used by deliver and asked
+    by the pass before each delivery; a busy pane is pane-busy, unbooked, with no slot held. The parity test's injected
+    busy verdict is now also what the real path produces.
+  - W2 the re-check before the second agent was weaker than due(): it now runs due() again for that one agent (a new
+    `only` filter, so the whole roster still feeds the quota check and the per-pass cut cannot hide it), on a fresh
+    roster, projects and clock. A post, a fresh idle report or a pause mid-pass skips it.
+  - N capped() now runs after the re-check, on that agent's clock; keep() records at p.now; the module header names
+    the awaited sender.
+  - Got wrong, corrected: the log line's space was lost a SECOND time by my own edit (a match ending in a space); the
+    round-1 pin caught it. And my first paused-project fixture used fields that do not exist; its control caught that
+    it stood nobody down, so the case tested nothing until fixed.
+  Decided, not changed: a deadline books UNCONFIRMED even if the late delivery is refused later (errs safe, accepted in
+  round 1); the one-pass flag is pinned by source, not run (the timer body needs the whole board).
