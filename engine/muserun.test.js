@@ -183,6 +183,27 @@ test('kosmos#7615 item 4: quotaLine reads only a sentence that says Meta\'s quot
   ]) assert.equal(run.quotaLine(line), 'usage quota exhausted', line);
   // A reset time is quoted only as digits and its separators.
   assert.equal(run.quotaLine('usage quota exhausted, resets at sk-live_ABCDEF123456'), 'usage quota exhausted');
+  // Review 8: each of these is something other than a used-up quota, so none is claimed.
+  for (const no of [
+    '429 Subscription quota exhausted. Retry after 30 seconds', '429 Subscription quota exhausted. Try again after 5 seconds',
+    'Subscription quota exhausted, resets in 30 seconds', 'Usage quota exceeded. Try again in a few seconds',
+    'Usage quota exceeded; retry_after=30', 'Subscription quota exhausted, back shortly',                         // a short wait
+    'rate_limit_exceeded: usage quota exceeded', 'RateLimitError: Subscription quota exhausted',
+    'x-ratelimit-remaining: 0; usage quota exceeded', 'usage quota exceeded for the current minute',
+    'usage quota exceeded (10 req/min)',                                                                         // a rate
+    '429 Too Many Requests. If you have exceeded your usage quota, check your plan', 'You haven\'t exceeded your usage quota',
+    'You never exceeded your usage quota', 'Check whether you exceeded your usage quota',                          // not a refusal
+    'subscription_quota_exceeded_count: 0', 'usage_quota_exhausted_at: null',                                      // a field
+  ]) assert.equal(run.quotaLine(no, true), null, no);
+  // An hour or more, in any unit, is a reset.
+  assert.equal(run.quotaLine('Usage quota exhausted, retry in 2 hours', true), 'Usage quota exhausted');
+  // Review 8: the reset time only from the refusal's own clause, and never with a zone it would drop.
+  for (const [line, words] of [
+    ['Usage quota exhausted. Session valid until 2026-12-01', 'Usage quota exhausted'],
+    ['usage quota exhausted until 2026-11-02T00:00:00+05:30', 'usage quota exhausted'],
+    ['Subscription quota exhausted, resets at 00:00 PST', 'Subscription quota exhausted'],
+    ['Subscription quota exhausted (100% used); resets at 00:00 UTC', 'Subscription quota exhausted (resets 00:00 UTC)'],
+  ]) assert.equal(run.quotaLine(line, true), words, line);
   // The LAST refusal, not the first (review 1).
   assert.equal(run.quotaLine('usage quota exceeded until 01:00\nusage quota exhausted, resets 02:00'), 'usage quota exhausted (resets 02:00)');
 });
@@ -217,7 +238,15 @@ test('kosmos#7615 item 4: failureWords reads only a failure event\'s own words, 
   // Review 3: a run failure that says only a code names no cause, so stderr is still read...
   const coded = ev(9, 'run.terminal.completed', { kind: 'x', terminal: 'failed', reason: 'provider_error' });
   assert.equal(run.quotaRefusal('429 Subscription quota exhausted. Resets 00:00', coded), 'Subscription quota exhausted (resets 00:00)');
-  // ...but a sentence of its own still wins, as the panic case above shows.
+  // ...but a code that names its own cause is that cause (review 8), and a sentence of its own still wins, as above.
+  for (const reason of ['context_length_exceeded', 'rate_limit_exceeded', 'disk_quota_exceeded', 'max_tokens']) {
+    const named = ev(9, 'run.terminal.completed', { kind: 'x', terminal: 'failed', reason });
+    assert.equal(run.quotaRefusal('429 Subscription quota exhausted. Resets 00:00', named), null, reason);
+  }
+  for (const reason of ['error', 'unknown', '500', 'internal_server_error']) {
+    const generic = ev(9, 'run.terminal.completed', { kind: 'x', terminal: 'failed', reason });
+    assert.equal(run.quotaRefusal('429 Subscription quota exhausted', generic), 'Subscription quota exhausted', reason);
+  }
   // A tool's output alone is never read, however it is worded.
   assert.equal(run.quotaRefusal('', lines.split('\n')[0]), null);
 });
