@@ -534,7 +534,7 @@ struct ChatView: View {
                     })
                     // kosmos#7609: a reader higher up stays where they were when the keyboard comes up (iOS 26 moved them).
                     // Exactly when the keyboard handler below does not keep the newest message in view.
-                    .background(KeyboardHold(hold: visible && !(atBottom || (searchOpen && openedAtNewest && !searching))))
+                    .background(KeyboardHold(hold: visible && !(atBottom || (searchOpen && openedAtNewest && !searching)), above: earlier.rows.count))
                     .modifier(PositionTargets(on: Self.idAnchor))
                 }
                 .modifier(PositionById(on: Self.idAnchor, id: $positionId))
@@ -2239,18 +2239,48 @@ struct PersonScroll: ViewModifier {
 // KOSMOS_SAMPLE_NOKBHOLD=1 (Debug) is the control.
 struct KeyboardHold: UIViewRepresentable {
     let hold: Bool
-    func makeUIView(context: Context) -> Probe { let p = Probe(); p.hold = hold; return p }
-    func updateUIView(_ view: Probe, context: Context) { view.hold = hold }
+    // Review 1: how many rows of earlier pages the chat holds. Those land ABOVE the reader, so a change between will-show
+    // and the put-back means the saved offset belongs to other content. (The content's height cannot tell: iOS 26 changes
+    // it itself while the keyboard rises, measured 10-30.)
+    let above: Int
+    func makeUIView(context: Context) -> Probe { let p = Probe(); p.hold = hold; p.above = above; return p }
+    func updateUIView(_ view: Probe, context: Context) { view.hold = hold; view.above = above }
 
     final class Probe: UIView {
-        var hold = false
-        private var saved: CGFloat?
+        // Review 1: a reading taken while `hold` was true is dropped the moment it turns false (the reader reached the newest).
+        var hold = false { didSet { if !hold { saved = nil } } }
+        var above = 0
+        // The offset and the content's height when the keyboard started to show, and when (review 1: a will-show with no
+        // did-show, an iPad's floating keyboard say, must not leave a reading for a later keyboard).
+        private var saved: (y: CGFloat, above: Int, at: Date)?
         private var observers: [NSObjectProtocol] = []
         private weak var scroll: UIScrollView?
+        // The reading being held after did-show, and until when; the scroll view's offset is watched only meanwhile.
+        private var guarding: (kept: (y: CGFloat, above: Int, at: Date), until: Date)?
+        private var offsetWatch: NSKeyValueObservation?
+        private var writing = false
+        static let window: TimeInterval = 0.8
+        private func endGuard() { guarding = nil; offsetWatch = nil }
+        // Review 1: not under a finger (down, or dragging, or flinging), and not when a page of earlier messages landed above
+        // meanwhile (the saved y then belongs to other content): either ends the hold for this keyboard.
+        private func putBack(_ sv: UIScrollView) {
+            guard !writing, let g = guarding else { return }
+            guard Date() < g.until else { endGuard(); return }
+            if sv.isTracking || sv.isDragging || sv.isDecelerating { ChatView.trace("keyboard hold: skipped, a finger"); endGuard(); return }
+            if above != g.kept.above { ChatView.trace("keyboard hold: skipped, earlier messages landed"); endGuard(); return }
+            guard abs(sv.contentOffset.y - g.kept.y) > 1 else { return }
+            let moved = sv.contentOffset.y - g.kept.y   // how far iOS moved it, the one number the record keeps
+            ChatView.trace("keyboard hold: put back \(Int(moved))")
+            writing = true
+            sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: g.kept.y)
+            writing = false
+        }
+        // Review 1: only where it was measured (iOS 26, which moves the list; 27 does not, so it is a no-op there). On 16 to
+        // 18 the system's own keyboard moves were never measured, and undoing them blind could be the bug.
         #if DEBUG
-        static let off = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOKBHOLD"] == "1"
+        static let off: Bool = { if #available(iOS 26.0, *) { return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOKBHOLD"] == "1" } else { return true } }()
         #else
-        static let off = false
+        static let off: Bool = { if #available(iOS 26.0, *) { return false } else { return true } }()
         #endif
         override init(frame: CGRect) { super.init(frame: frame); isUserInteractionEnabled = false; isHidden = true }
         required init?(coder: NSCoder) { nil }
@@ -2258,7 +2288,7 @@ struct KeyboardHold: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            observers.forEach(NotificationCenter.default.removeObserver); observers = []; saved = nil
+            observers.forEach(NotificationCenter.default.removeObserver); observers = []; saved = nil; endGuard()
             guard window != nil, !Self.off else { return }
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
@@ -2267,24 +2297,26 @@ struct KeyboardHold: UIViewRepresentable {
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self, let sv = self.scroll else { return }
                 // A keyboard already up (a second will-show, say for the emoji panel) keeps the first reading.
-                if self.saved == nil, self.hold, !sv.isDragging, !sv.isDecelerating { self.saved = sv.contentOffset.y }
+                if self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating {
+                    self.saved = (sv.contentOffset.y, self.above, Date())
+                }
             })
             observers.append(nc.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
-                guard let self, let y = self.saved, let sv = self.scroll else { return }
+                guard let self, let kept = self.saved, let sv = self.scroll else { return }
                 self.saved = nil
-                // Once now, and once after the frame's layout settles: iOS 26 moves it again in the pass after did-show.
-                for delay in [0.0, 0.15] {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak sv] in
-                        guard let sv, !sv.isDragging, !sv.isDecelerating, abs(sv.contentOffset.y - y) > 1 else { return }
-                        let moved = sv.contentOffset.y - y   // how far iOS moved it, the one number the record keeps
-                        ChatView.trace("keyboard hold: put back \(Int(moved))")
-                        sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: y)
-                    }
+                guard Date().timeIntervalSince(kept.at) < 1.5 else { ChatView.trace("keyboard hold: skipped, stale"); return }   // a stale reading is not this keyboard's
+                // 10-30 measured: iOS 26 moves it more than once after did-show (two put-backs, then a third move), so for a
+                // short window every move it makes is put back, as long as nothing else is moving the list.
+                self.guarding = (kept, Date().addingTimeInterval(Self.window))
+                self.putBack(sv)
+                self.offsetWatch = sv.observe(\.contentOffset, options: [.new]) { [weak self] sv, _ in
+                    DispatchQueue.main.async { self?.putBack(sv) }
                 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.window + 0.05) { [weak self] in self?.endGuard() }
             })
             // A keyboard that hides before it finished showing leaves nothing held.
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.saved = nil
+                self?.saved = nil; self?.endGuard()
             })
         }
     }
