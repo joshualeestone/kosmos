@@ -101,7 +101,7 @@ struct ChatView: View {
     // and when the empty list was last put back (after the report too: at most once in 2 s and 3 times a chat).
     @State private var diagScroll = ScrollRef()
     @State private var diagRecoveredAt: Date?
-    @State private var diagRecoveries = 0   // review 6: put back after the report, at most diagRecoveryCap times a chat
+    @State private var diagRecoveries = 0   // review 6 and 14: every put-back a chat, the one try included, up to diagRecoveryCap
     @State private var diagWideDone = false   // review 2: a width finding has its own once, so it cannot use up the blank one
     @State private var diagShownOnce = false   // review 2: the record starts at the chat's first showing, not each return
     // Review 4: when this conversation's messages arrived, and whether any row has drawn since, for the never-drawn case.
@@ -785,7 +785,7 @@ struct ChatView: View {
         return visible && scenePhase == .active && !searchMode && (rowsGone || geo.off) && !geo.moving && count > 0 && thread != nil
     }
 
-    static let diagRecoveryCap = 3
+    static let diagRecoveryCap = 4   // the one try and 3 after the report
     private func diagCheck(_ proxy: ScrollViewProxy, count: Int) {
         guard diagEmpty(count: count) else { return }
         // After the one report, an empty list is still put back, at most once in 2 s and diagRecoveryCap times a chat
@@ -795,7 +795,7 @@ struct ChatView: View {
             if let at = diagRecoveredAt, Date().timeIntervalSince(at) < 2 { return }
             guard diagRecoveries < Self.diagRecoveryCap else { return }
             let g = diagGeometry()
-            diagRecoveries += 1; diagRecoveredAt = Date()
+            diagRecoveredAt = Date()
             let line = "empty again by " + (g.off ? "the band" : "the rows") + " (rows counted \(onScreen.count), " + g.line
                 + "), trying the newest message"
             Self.trace(line)
@@ -804,6 +804,7 @@ struct ChatView: View {
             putBack(proxy)
             return
         }
+        guard diagRecoveries < Self.diagRecoveryCap else { return }
         diagRecoveredAt = Date()
         diagCapture(proxy, why: "no message on screen", count: count)
     }
@@ -811,6 +812,8 @@ struct ChatView: View {
     // Review 11: the newest message, and with the band off the content the scroll view moved to its end directly too: if
     // SwiftUI already holds the list at "end", re-setting the anchor alone may move nothing, as build 19's record suggests.
     private func putBack(_ proxy: ScrollViewProxy) {
+        // Review 14: counted here, so a capture tried again after the chat was left meanwhile counts as well.
+        diagRecoveries += 1
         goNewest(proxy)
         guard diagGeometry().off, let sv = diagScroll.view else { return }
         let inset = sv.adjustedContentInset

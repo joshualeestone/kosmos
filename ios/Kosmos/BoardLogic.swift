@@ -446,7 +446,9 @@ enum Board {
     static func scrollBand(offsetY: Double, contentHeight: Double, visibleHeight: Double, insetTop: Double, insetBottom: Double,
                            edge: Double = 0) -> ScrollBand {
         let top = offsetY + insetTop, bottom = offsetY + visibleHeight - insetBottom
-        guard bottom > top else { return .content }   // insets covering the whole view: nothing shown to judge
+        // Insets covering the whole view, or a band too short to hold more than the edges (review 14: landscape with the
+        // keyboard up): nothing shown to judge.
+        guard bottom - top > 2 * edge else { return .content }
         if top >= contentHeight - edge - 0.5 { return .pastEnd }
         if bottom <= edge + 0.5 { return .aboveTop }
         return .content
