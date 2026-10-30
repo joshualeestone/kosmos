@@ -19,7 +19,7 @@ struct AttachPlusButton: View {
     let onChoose: (AttachChoice) -> Void
     @State private var open = false
     @State private var chosen: AttachChoice?
-    @State private var cameraAtChoice = CameraState.none   // review 2: the camera state the person saw when choosing
+    @State private var cameraAtChoice = CameraState.unavailable   // review 2: the camera state the person saw when choosing
     @Environment(\.openURL) private var openURL
 
     var body: some View {
@@ -50,7 +50,7 @@ struct AttachPlusButton: View {
                         AVCaptureDevice.requestAccess(for: .video) { granted in
                             DispatchQueue.main.async { if granted { onChoose(.camera) } else { onCameraDenied() } }
                         }
-                    case .blocked, .none: break
+                    case .blocked, .unavailable: break
                     }
                 }
         }

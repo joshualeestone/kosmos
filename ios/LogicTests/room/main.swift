@@ -1616,7 +1616,7 @@ check(attachSrc.contains(".disabled(off)") && attachSrc.contains("let off = Boar
       "kosmos#7596: each row is disabled by Board.attachRowOff (tested in LogicTests)")
 // Review 1: the camera is wired in both screens, opened on its own host, and its photo carries the epoch it opened under.
 for (name, src) in [("chat", chatSource), ("room", roomViewSrc)] {
-    check(src.contains("onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } }") && src.contains("case .camera: showCamera = true")
+    check(src.contains("onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } }") && src.contains("case .camera: if cameraEpoch == client.chatEpoch { showCamera = true }")
           && src.contains(".background(Color.clear.fullScreenCover(isPresented: $showCamera) {")
           && src.contains("let epoch = cameraEpoch") && src.contains("Task { await addTaken(image, epoch: epoch) }")
           && src.contains("private func addTaken(_ image: UIImage, epoch: Int) async {")

@@ -1059,7 +1059,8 @@ struct RoomView: View {
                          onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } },
                          onCameraDenied: { if cameraEpoch == client.chatEpoch { client.attachLine[attachKey] = Board.cameraDeniedLine } }) { choice in
             switch choice {
-            case .camera: showCamera = true
+            // Review 11: not after an account or computer switch during iOS's camera prompt (the photo could not be sent).
+            case .camera: if cameraEpoch == client.chatEpoch { showCamera = true }
             case .photos: showPhotos = true
             case .files: showFiles = true
             }
