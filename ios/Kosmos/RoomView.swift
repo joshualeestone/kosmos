@@ -177,6 +177,7 @@ struct RoomView: View {
                     Text(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents").font(.footnote).foregroundColor(Palette.secondary)
                 }
                 .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("room-title")   // kosmos#7489: the UI tests find the open room by this, never the back button
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button {
