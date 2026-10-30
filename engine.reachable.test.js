@@ -259,6 +259,9 @@ const EXCUSED = {
    read the module). Keyed by FILE, like TRIAGED_5548, because several names are generic (setClock, setBin, _lock):
    a by-name excuse would also hide a real orphan of the same name in another module (#5548 review 2). */
 const SEAMS_5548 = {
+  // kosmos#7404 personalswitch-7404: forgets when the personal follow-up last refreshed, so each test in
+  // engine/personalbackup-7404.test.js can count the hourly refresh from a clean start. Production never calls it.
+  _resetFollowUpForTests: 'engine/personalbackup.js',
   // #7116 slice 1: the verifying key a test checks escrowd's device-key history with. It counts only while
   // NODE_TEST_CONTEXT is set and VERIFYING_KEY is null (engine/devkeyhist-7116.test.js shows both); production never sets it.
   setVerifyingKeyForTests: 'engine/devkeyhist.js',

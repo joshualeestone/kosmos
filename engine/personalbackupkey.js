@@ -158,9 +158,9 @@ async function setUpNow(opts) {
     // registration: Kosmos+ lost it while this computer still holds the key and the code.)
     const healing = own && own.registered && pending && pending.pk.equals(own.pk) && epochs.length === 1 && !rows.length;
     if (!healing && (epochs.length > 1 || (epochs.length === 1 && (epochs[0] !== '1' || own.registered)))) {
-      return refused('this computer already holds backup keys for this account; restore them instead of setting up again');
+      return refused('this computer already holds backup keys for this account; restore them instead of setting up again', 'already_here');
     }
-    if (rows.length) return refused('this backup already has a recovery code; restore it with that code');
+    if (rows.length) return refused('this backup already has a recovery code; restore it with that code', 'already_set_up');
     const epoch = 1;
     const key = own ? { sk: own.sk, pk: own.pk } : backupkeys.newMemberKey();
     // The same code for the same pending key, so a retry re-sends the same key, recovery key and tag.
