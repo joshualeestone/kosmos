@@ -1602,6 +1602,20 @@ do {
     check(boardPage.contains("...(provider ? { provider } : {}), ...(account ? { account } : {}), ...(model ? { model } : {})"), "the desktop's tcModel still sends the three this way")
 }
 
+// kosmos#7596 (Josh 10-29 21:28): the + panel offers Camera, Photos and Files, in that order, and nothing else, in a
+// chat and in a project room alike (one shared view).
+let attachSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AttachMenu.swift"), encoding: .utf8)) ?? ""
+let roomViewSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
+check(attachSrc.contains("case camera, photos, files\n") && attachSrc.contains("case .camera: return \"Camera\"")
+      && attachSrc.contains("case .photos: return \"Photos\"") && attachSrc.contains("case .files: return \"Files\""),
+      "kosmos#7596: the panel's choices are Camera, Photos and Files")
+check(!attachSrc.contains("Plugins") && !attachSrc.contains("Think harder"), "kosmos#7596: no Plugins and no Think harder (Josh 21:28)")
+check(chatSource.contains("AttachPlusButton(atLimit: atFileLimit") && roomViewSrc.contains("AttachPlusButton(atLimit: atFileLimit")
+      && !chatSource.contains("Label(\"Photo Library\"") && !roomViewSrc.contains("Label(\"Photo Library\""),
+      "kosmos#7596: the chat and the room both use the one panel, and the old menu is gone")
+check(attachSrc.contains(".disabled(off)") && attachSrc.contains("let off = atLimit || (choice == .camera && !camera)"),
+      "kosmos#7596: at the file limit every row is disabled, and Camera too where the phone has none")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
