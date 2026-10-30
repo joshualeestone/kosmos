@@ -399,7 +399,7 @@ struct RoomView: View {
         Task {
             let before = store.older[project.id]?.cursor
             await store.loadOlder(project.id)
-            if store.older[project.id]?.cursor != before { endJumps &+= 1 }   // kosmos#7654: a page landed; cancels goEnd's pending retries
+            endJumps &+= 1   // kosmos#7654: cancels goEnd's pending retries before the anchor scroll below
             // kosmos#7101 review 1: a post a reply's header just went to stays centred while it flashes.
             if let jumped = flashed, rows.contains(where: { $0.id == jumped }) { proxy.scrollTo(jumped, anchor: .center) }
             else if let anchor { proxy.scrollTo(anchor, anchor: .top) }
@@ -862,8 +862,8 @@ struct RoomView: View {
     }
 
     // kosmos#7654: on iOS 26 one jump to the end of a long room fell short (rows above have estimated heights), so the
-    // opening jump is repeated at each of endRetries while atBottom is false, the room is on screen, and neither search
-    // nor the archive is showing (RoomOpensAtNewestUITests).
+    // opening jump is repeated at each of endRetries while the room is on screen and neither search nor the archive is
+    // showing (RoomOpensAtNewestUITests). Not gated on atBottom: it starts true before the end marker is ever drawn.
     static let endRetries: [Double] = [0.05, 0.15, 0.3, 0.5]
     private func goEnd(_ proxy: ScrollViewProxy) {
         proxy.scrollTo("bottom", anchor: .bottom)
@@ -871,7 +871,7 @@ struct RoomView: View {
         let jump = endJumps
         for at in Self.endRetries {
             DispatchQueue.main.asyncAfter(deadline: .now() + at) {
-                if jump == endJumps && visible && !atBottom && !searchMode && archiveShown == nil { proxy.scrollTo("bottom", anchor: .bottom) }
+                if jump == endJumps && visible && !searchMode && archiveShown == nil { proxy.scrollTo("bottom", anchor: .bottom) }
             }
         }
     }

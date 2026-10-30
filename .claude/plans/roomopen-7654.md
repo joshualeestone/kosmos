@@ -13,17 +13,15 @@ test covers them, because the change only repeats a jump that already landed for
   212 to 216, four short, and it stays there. iOS 27.0, same build, 220: Post 220.
 - So a real first open (50 posts) is fine. Measured short: posts arriving while the room opens, more than ~100 of them.
   Reasoned real case (not measured): reopening a long room read back through while new posts arrived, which sends the
-  jump through the first-page path. Review 5: on a reopened room atBottom can still hold its starting true (the end
-  marker never drawn), and then goEnd's retries do not run there either. Not fixed here: setting atBottom false before
-  each jump would stop the room following new posts whenever the end is already on screen. Part 2 (an id anchor) is
-  where a reopen that lands short gets settled.
+  jump through the first-page path. (Reviews 5 to 7: the retries used to be gated on atBottom, which can still hold its
+  starting true there; review 7 removed the gate, see Change.)
 - Cause: RoomView jumps once (proxy.scrollTo("bottom")) in a LazyVStack whose rows above are estimated; the DM's #7265.
 
 ## Change
 - ios/Kosmos/RoomView.swift: goEnd(proxy) replaces the single jump on the two opening paths (the first page in
   onChange(of: rows.last?.id), and the thread's onAppear for a room opened again). It jumps, then retries at 0.05, 0.15,
-  0.3 and 0.5 s only while the end marker is not on screen (atBottom false), the room is visible, not searching and not
-  in the archive. endJumps: a newer goEnd cancels an older one's retries. The other jumps (new post, pending post,
+  0.3 and 0.5 s while the room is visible, not searching and not in the archive (review 7: not gated on atBottom, which
+  starts true before the end marker is drawn; a jump to the end already there does nothing). endJumps: a newer goEnd cancels an older one's retries. The other jumps (new post, pending post,
   search cleared, archive) are untouched.
 - ios/KosmosUITests/RoomOpensAtNewestUITests.swift: 150 and 220 posts open on the newest, above the box, and 220 opened
   AGAIN (Back, then the row). Presence first (some post of the room is drawn), then the newest. The reopen check is a
@@ -38,7 +36,9 @@ test covers them, because the change only repeats a jump that already landed for
 - Screenshots: 150 and 220 open on their newest with the change.
 
 ## Known trade-off
-A person who flicks up within half a second of opening a long room is pulled back to the end once.
+A person who flicks up within half a second of opening a long room is pulled back to the end. The thread's onAppear also
+runs on coming back from a member's chat or another tab: it jumped to the end before this branch, and now repeats that
+jump for half a second.
 
 ## Not this branch (part 2 of #7654)
 A person's own scroll to the end of a long room stops short on iOS 26 (six swipes: 212 to 218 of 220, with and
@@ -48,9 +48,6 @@ XCTExpectFailure (strict: false), so it reads green while it still fails: its lo
 xcodebuild's "0 failures" summary does not count that. Part 2 removes the XCTExpectFailure to use it as the test.
 
 ## Known limits (review round 1)
-- atBottom is set by the end marker's onAppear/onDisappear, and a LazyVStack makes a row slightly before it is on
-  screen, so a room a fraction of a post short can read atBottom true and skip the retries. The 150-post check (half a
-  post short before the change) passes, but a future "lands a little short" report should be checked against this first.
 - CI is evidence only on iOS 26: iOS 27 lands without the change. #7632's CI ui run resolved to iOS 26.5; confirm this
   PR's run prints "on iOS-26-5" (ui-sample's device line) before reading its green as proof.
 - ChatOpensAtNewestUITests is out of this CI run because its 260-message chat timed out XCTest's UI query on CI. The
