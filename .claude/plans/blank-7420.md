@@ -10,7 +10,9 @@ again" after one try, but his screenshot, taken after that line, was still empty
 - "After one try" never reads as recovered on the row count alone: it says "still nothing on screen" when the band is
   off the content or no row is counted, "not judged yet" when the list was not measured, and "shows the content again"
   only with the band measured on the content and rows counted. The count is written beside it.
-- A resize that leaves the band off the content triggers the check (no row leaving would bump the tick).
+- A resize that has held for 0.5 s, or the person's scroll coming to rest, with the band off the content triggers the
+  check (no row leaving would bump the tick). A band moved off the content by anything else, with rows still counted,
+  is not checked until one of those or a row leaving happens.
 - An empty list must read empty at 0.5 s and again at 1.5 s, with the list still, before anything is done.
 - After the one report, an empty list is still put back (to the newest message), at most once in 2 s and 3 times a chat.
 - `Board.scrollBand` is tested in LogicTests with a control on each side of each boundary.

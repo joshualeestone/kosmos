@@ -538,6 +538,9 @@ struct ChatView: View {
                     atBottom = endVisible
                     if endVisible { unseenNew = false }
                     Self.trace("person scroll rested, atBottom \(endVisible)")
+                    // kosmos#7420 review 8: a scroll can come to rest past the content with rows still counted, so no row
+                    // leaving bumps the tick; checked here too.
+                    if diagGeometry().off { diagTick &+= 1 }
                 })
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
@@ -564,9 +567,10 @@ struct ChatView: View {
                         }
                 })
                 // Review 1: driven by a tick bumped when the last row leaves (row()), when the list first exists, and when a
-                // resize leaves the band off the content (above), never by reading onScreen here, which would redraw the
-                // whole chat on every row that scrolls in or out. Read at 0.5 s and acted on at 1.5 s only if both read empty
-                // (build 19 review 3: one reading of an estimated content height is not enough to move the reader).
+                // resize or the person's scroll comes to rest with the band off the content; never by reading onScreen
+                // here, which would redraw the whole chat on every row that scrolls in or out. Read at 0.5 s and acted on
+                // at 1.5 s only if both read empty (build 19 review 3: one reading of an estimated content height is not
+                // enough to move the reader).
                 .onChange(of: diagTick) { _ in
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         let first = diagEmpty(count: items.count)

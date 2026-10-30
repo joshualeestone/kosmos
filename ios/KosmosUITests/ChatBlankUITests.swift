@@ -62,6 +62,8 @@ final class ChatBlankUITests: XCTestCase {
         box.tap()
         Thread.sleep(forTimeInterval: 3)
         shot(app, "5 keyboard up again")
+        Thread.sleep(forTimeInterval: 3)   // a check takes 1.5 s from its tick, the banner a moment more
+        shot(app, "6 left alone")
         XCTAssertFalse(app.staticTexts[Self.banner].exists, "the chat reported itself empty (the #7420 banner)")
     }
 
