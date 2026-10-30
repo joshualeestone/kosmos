@@ -6,7 +6,7 @@
 #
 #   ios/tools/ui-sample.sh [--keep]
 #
-# The newest installed iOS runtime and the smallest iPhone it offers (the least room above the keyboard). The simulator is
+# The newest iOS runtime the selected Xcode's simulator SDK can run, and the smallest iPhone it offers (the least room above the keyboard). The simulator is
 # new for each run and deleted at the end, and so are the build and the results (--keep keeps them). SignInUITests is left
 # out: it needs a real account (ios/tools/ui-signin.sh). The keyboard checks need the on-screen keyboard, so a run stops if
 # the Simulator's hardware keyboard preference is on (a setting others on a shared Mac use; it is never changed here).
@@ -37,12 +37,13 @@ trap 'exit 143' TERM; trap 'exit 130' INT HUP
 # Review 1: the newest runtime the SELECTED Xcode can run (its simulator SDK), not merely the newest installed: a CI image
 # carries several Xcodes, and a runtime newer than the selected one's SDK is refused as a destination.
 sdk="$(xcrun --sdk iphonesimulator --show-sdk-version 2>/dev/null)"
+[ -n "$sdk" ] || echo "ui-sample: no iOS simulator SDK found; the runtime is not capped" >&2
 cap="$(printf '%s' "${sdk:-999}" | tr . -)"
 runtime="$(xcrun simctl list runtimes available | sed -n 's/.*\(com\.apple\.CoreSimulator\.SimRuntime\.iOS-[0-9-]*\).*/\1/p' \
   | sort -V | awk -v cap="$cap" '{ v = $0; sub(/.*iOS-/, "", v); if (cmp(v, cap) <= 0) last = $0 }
       function cmp(a, b,   x, y, i, n) { n = split(a, x, "-"); split(b, y, "-"); for (i = 1; i <= 3; i++) { if (x[i] + 0 < y[i] + 0) return -1; if (x[i] + 0 > y[i] + 0) return 1 } return 0 }
       END { print last }')"
-[ -n "$runtime" ] || { echo "FAIL  ui-sample: no iOS simulator runtime installed" >&2; exit 1; }
+[ -n "$runtime" ] || { echo "FAIL  ui-sample: no iOS simulator runtime at or below the iphonesimulator SDK ${sdk:-?}" >&2; exit 1; }
 # The smallest current phone this Xcode knows: the "e" model if there is one, else the newest plain iPhone.
 types="$(xcrun simctl list devicetypes | sed -n 's/.*(\(com\.apple\.CoreSimulator\.SimDeviceType\.iPhone-[0-9]*e\{0,1\}\))$/\1/p' | sort -V)"
 dtype="$(printf '%s\n' "$types" | grep -E 'iPhone-[0-9]+e$' | tail -1)"
@@ -70,7 +71,7 @@ if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ] && [ -z "$sh
   echo "PASS  ui-sample: $ran of $want UI checks passed on a fresh simulator"
   exit 0
 fi
-why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z]*\) \([A-Za-z]*\)\] : /\1.\2: /p' "$log" | head -3)"
+why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\] : /\1.\2: /p' "$log" | head -3)"
 echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)${short:+; per class:$short}"
 [ -n "$why" ] && printf '%s\n' "$why"
 [ "$keep" = 1 ] || echo "  (run again with --keep to keep the log and result)"
