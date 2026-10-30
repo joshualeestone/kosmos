@@ -19,9 +19,11 @@ fails without the change; 50- and 100-post rooms and iOS 27 still open there.
   0.3 and 0.5 s only while the end marker is not on screen (atBottom false), the room is visible, not searching and not
   in the archive. endJumps: a newer goEnd cancels an older one's retries. The other jumps (new post, pending post,
   search cleared, archive) are untouched.
-- ios/KosmosUITests/RoomOpensAtNewestUITests.swift: 150 and 220 posts open on the newest, above the box. Presence first
-  (some post of the room is drawn), then the newest.
-- ios/tools/ui-sample.sh: the new class, 2 tests, in the CI run's class list and header.
+- ios/KosmosUITests/RoomOpensAtNewestUITests.swift: 150 and 220 posts open on the newest, above the box, and 220 opened
+  AGAIN (Back, then the row: the onAppear path, the real-world case). Presence first (some post of the room is drawn),
+  then the newest. The box is pinned by app.textFields and its placeholder.
+- ios/tools/ui-sample.sh: the new class, 3 tests, in the CI run's class list and header (--help range bumped to 2,13
+  for the extra header line). .github/workflows/ios.yml: the ui job's comment names what it now guards.
 
 ## Verified
 - iOS 26.5: RoomOpensAtNewest 150 and 220 PASS with the change; CONTROL (same tree, RoomView from HEAD~1) both FAIL.
@@ -35,6 +37,15 @@ A person's own scroll to the end of a long room stops short on iOS 26 (six swipe
 without this change). Approach to measure: eager newest rows (the DM's iOS 16 path) or an id anchor (iOS 17+).
 #7645's testRoomNewestStaysAboveTheBox is its failing test and is NOT in ui-sample's list until then.
 
+## Known limits (review round 1)
+- atBottom is set by the end marker's onAppear/onDisappear, and a LazyVStack makes a row slightly before it is on
+  screen, so a room a fraction of a post short can read atBottom true and skip the retries. The 150-post check (half a
+  post short before the change) passes, but a future "lands a little short" report should be checked against this first.
+- CI is evidence only on iOS 26: iOS 27 lands without the change. #7632's CI ui run resolved to iOS 26.5; confirm this
+  PR's run prints "on iOS-26-5" (ui-sample's device line) before reading its green as proof.
+- ChatOpensAtNewestUITests is out of this CI run because its 260-message chat timed out XCTest's UI query on CI. The
+  220-post room uses the same kind of query; only a CI run shows whether it holds there.
+
 ## Weakest premise
-That 0.5 s of retries is enough on a slower runner. CI's ui job runs the two checks on iOS 26.5; if they flake there,
-the window (endRetries) is the first thing to widen.
+That 0.5 s of retries and the 220-post query both hold on a slower CI runner. If either flakes, widen endRetries, or drop
+the room to 150 posts in CI.

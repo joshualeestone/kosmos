@@ -859,10 +859,9 @@ struct RoomView: View {
         }
     }
 
-    // kosmos#7654 (measured on the simulator 10-30): on iOS 26 one jump to the end of a long room falls short, as rows
-    // above are drawn with estimated heights (150 posts: half a post short, 220: four; 50 and 100 land, and iOS 27 lands
-    // on all). So the opening jump is tried again on the next layout passes while the end marker is not on screen, and
-    // stops once it is. Only for the first half second: after that a room not at its end is the person's own scroll.
+    // kosmos#7654: on iOS 26 one jump to the end of a long room fell short (rows above have estimated heights), so the
+    // opening jump is repeated at each of endRetries while atBottom is false (RoomOpensAtNewestUITests).
+    static let endRetries: [Double] = [0.05, 0.15, 0.3, 0.5]
     private func goEnd(_ proxy: ScrollViewProxy) {
         proxy.scrollTo("bottom", anchor: .bottom)
         endJumps &+= 1
@@ -873,7 +872,6 @@ struct RoomView: View {
             }
         }
     }
-    static let endRetries: [Double] = [0.05, 0.15, 0.3, 0.5]
 
     #if DEBUG
     // Once a launch, so coming back to the room in a screenshot run shows it as a person would.
