@@ -116,3 +116,12 @@ Design call: #5536 comment 6513912365.
 - DEFERRED: a case-insensitive key on darwin/win32 (two children, both answers right); git reads outliving a kill (about
   2 s each); the root check covers the data root only (the listing reads workers and projects from base and world).
 - Tests 86/86.
+
+## Review round 8 (sonnet): 0 BLOCKER, 0 WARNING, 0 CONVENTION, 6 NIT. CONVERGED.
+- Probe by the reviewer: a real child stopped at once resolves to the refusal shape, and startListings then lists fine.
+- NOT APPLIED (applying them would put unreviewed code after the converged round): an empty-string because from a
+  misbehaving child passes through (more stays true); a relative restoreDir is keyed resolved but passed as given (a
+  refusal, never a wrong answer); a killed child may still be exiting when a restarted board asks again (both only
+  read); no real-child timeout or overflow arm (the options are pinned); the child inherits the board's whole env, as
+  orgrollup's does; a Windows drive-letter case difference in the root compare would refuse a good listing (fails safe).
+- Next: when #7599 (part 1) merges, rebase onto main, full validation through queued-heavy, proof, PR.
