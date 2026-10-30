@@ -76,6 +76,7 @@ function deps(o = {}) {
   };
   return { d, calls, where };
 }
+const ON = { AGENT_WORKFORCE_AUTOMOVE: '1' };
 /* Rule 2: an agent moves only when it was movable on the previous tick too, so a move takes two ticks. */
 async function twoTicks(run, d, at = NOW) { await run.tick(d, at); return run.tick(d, at + 1000); }
 
@@ -141,7 +142,7 @@ test('#7548 rule 2: an agent that took a turn since the decision is not moved (i
   assert.equal(r.did, 'skipped');
   assert.equal(fresh, 1, 'the roster was not read again before the move');
   assert.deepEqual(calls.starts, [], 'an agent that was no longer idle was moved');
-  assert.equal(lines(file).pop().because, 'it was no longer idle');
+  assert.deepEqual([lines(file).pop().kind, lines(file).pop().because], ['skipped', 'it was no longer idle']);
 });
 
 test('#7548 rule 2: the re-check just before a move reads the projects again', async () => {
@@ -279,8 +280,11 @@ test('#7548 rule 10: the holds are rebuilt from the record when the board starts
   const file = fileFor();
   sweep.append(file, { kind: 'works', at: NOW - H, agent: 'zed', to: '/u/.claude-spare', works: 'no' });
   sweep.append(file, { kind: 'move', at: NOW - 60000, agent: 'bo', to: '/u/.claude-spare', outcome: 'refused' });
+  sweep.append(file, { kind: 'released', at: NOW - 50000, agent: 'cy', to: '/u/.claude-third' });
   const run = automove.create({ file, nowMs: NOW });
   assert.ok(run.state.failed.has('/u/.claude-spare'), 'a target where a move did not work was forgotten by a restart');
+  assert.ok(run.state.resting.has('zed'), 'an agent whose move did not work was not rested after a restart');
+  assert.ok(run.state.resting.has('cy'), 'an agent a person took back was not rested after a restart');
   assert.ok(run.state.refused.has('bo'), 'a refused agent was forgotten by a restart');
   const { d, calls } = deps();
   await twoTicks(run, d);
@@ -313,9 +317,10 @@ test('#7548 rule 10: the watch is rebuilt from the record, a move that only star
   sweep.append(file, { kind: 'move', at: NOW - 40000, startedAt: NOW - 45000, agent: 'bo', from: '/u/.claude-work', to: '/u/.claude-spare', outcome: 'started' });
   sweep.append(file, { kind: 'move', at: NOW - 30000, startedAt: NOW - 45000, agent: 'bo', from: '/u/.claude-work', to: '/u/.claude-spare', outcome: 'partial' });
   sweep.append(file, { kind: 'works', at: NOW + 10 * sweep.CLOCK_SLACK_MS, agent: 'zed', to: '/u/.claude-third', works: 'no' });
+  sweep.append(file, { kind: 'move', at: NOW - automove.WATCH_MS - 1000, startedAt: NOW - automove.WATCH_MS - 2000, agent: 'dee', from: '/u/.claude-work', to: '/u/.claude-third', outcome: 'changed' });
   const run = automove.create({ file, nowMs: NOW });
   assert.deepEqual(run.state.watching.map((w) => [w.agent, w.movedAt]).sort(), [['ada', NOW - 70000], ['bo', NOW - 45000], ['cy', NOW - 50000]],
-    'the watch was lost by a restart (a partial move is watched too)');
+    'the watch was lost by a restart (a partial move is watched too), or a move older than the watch was watched again');
   const ended = lines(file).find((l) => l.agent === 'cy' && l.outcome === 'unknown');
   assert.ok(ended, 'a move the board stopped in the middle of was left with no ending, so Settings never shows it');
   assert.equal(ended.at, NOW - 50000, 'an unfinished move was stamped with the restart time, so it shows as new');
@@ -365,7 +370,7 @@ test('#7548 rule 7 (new): a person\'s move through the routes, with no move of K
   const { d, calls } = deps();
   await run.tick(d, NOW);   // the first idle tick
   /* Between ticks, a person moves ada through Settings (the route writes its person line), then back. */
-  assert.equal(automove.personMoved(file, ['ada'], '/u/.claude-third', NOW + 500), true);
+  assert.equal(automove.personMoved(file, ['ada'], '/u/.claude-third', NOW + 500, ON), true);
   await run.tick(d, NOW + 1000);
   await run.tick(d, NOW + 2000);
   assert.deepEqual(calls.starts, [], 'a person\'s move through the routes was undone by the next tick');
@@ -378,9 +383,17 @@ test('#7548 rule 7 (new): a person\'s move through the routes, with no move of K
   assert.equal(sweep.recent(file).some((l) => l.kind === 'person'), false, 'Settings drew a person\'s move as the mover\'s news');
   /* Many agents in one write; none is no write; a record that cannot be read refuses the mover's tick. */
   const many = fileFor();
-  assert.equal(automove.personMoved(many, ['a', 'b', '', 7, 'c'], '/x', NOW), true);
+  assert.equal(automove.personMoved(many, ['a', 'b', '', 7, 'c'], '/x', NOW, ON), true);
   assert.deepEqual(lines(many).map((l) => l.agent), ['a', 'b', 'c']);
-  assert.equal(automove.personMoved(fileFor(), [], '/x', NOW), true);
+  const none = fileFor();
+  assert.equal(automove.personMoved(none, [], '/x', NOW, ON), true);
+  assert.equal(fs.existsSync(none), false, 'no agent still wrote a record');
+  /* Review round 1: with moves off the routes write nothing, so the mover is inert, routes included. */
+  for (const env of [{}, { AGENT_WORKFORCE_AUTOMOVE: '1', AGENT_WORKFORCE_AUTOMOVE_OFF: '1' }]) {
+    const off = fileFor();
+    assert.equal(automove.personMoved(off, ['ada'], '/x', NOW, env), true);
+    assert.equal(fs.existsSync(off), false, 'a person\'s move wrote the record with moves off');
+  }
   /* A record that cannot be read: at start the mover is not made; while it runs, a tick moves nothing. */
   const dirFile = fileFor();
   fs.mkdirSync(dirFile);   // a "record" that is a folder cannot be read
@@ -583,4 +596,30 @@ test('#7548: the board wires the mover through the bulk move\'s own deps, and on
   assert.equal((src.match(/setAccount: \(n, dir\) => \{ fromDirs\.set/g) || []).length, 1, 'a second copy of the move\'s deps came back');
   /* Rule 7: both routes write the person line. */
   assert.equal((src.match(/automove\.personMoved\(AUTOBALANCE_RECORD,/g) || []).length, 2, 'a route does not write the person line');
+});
+
+test('#7548 review round 1: after a changed move, a call from the session that ran before the restart is no proof', async () => {
+  const file = fileFor();
+  const run = automove.create({ file });
+  let started = null;
+  let seen = null;
+  const { d } = deps({ lastSeen: () => seen, sessionStart: async () => started });
+  await twoTicks(run, d);
+  assert.deepEqual(run.state.watching.map((w) => w.agent), ['ada'], 'CONTROL: the changed move is watched');
+  started = NOW - 10 * 60000;   // the old session is still the one tmux reads
+  seen = { outcome: 'refused', at: Date.now() + 5000 };   // its last call, made after the account write
+  await run.tick(d, NOW + 2000);
+  assert.equal(lines(file).some((l) => l.kind === 'works'), false, 'the old session\'s call was taken as the new account\'s first');
+  assert.equal(run.state.failed.has('/u/.claude-spare'), false, 'the target was held for a call made on the old account');
+  started = Date.now() + 1000;   // restarted onto the target
+  seen = { outcome: 'ok', at: Date.now() + 6000 };
+  await run.tick(d, NOW + 3000);
+  assert.equal(lines(file).filter((l) => l.kind === 'works').pop()?.works, 'yes', 'CONTROL: a call after the restart is taken');
+  /* With no session start to read, a changed move takes sightings as before. */
+  const f2 = fileFor();
+  const r2 = automove.create({ file: f2 });
+  const { d: d2 } = deps({ lastSeen: () => ({ outcome: 'ok', at: Date.now() + 5000 }) });
+  await twoTicks(r2, d2);
+  await r2.tick(d2, NOW + 2000);
+  assert.equal(lines(f2).filter((l) => l.kind === 'works').pop()?.works, 'yes', 'a changed move with no session start never took a sighting');
 });

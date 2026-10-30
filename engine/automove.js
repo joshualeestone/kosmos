@@ -38,9 +38,12 @@ function movesOn(env = process.env) { return env.AGENT_WORKFORCE_AUTOMOVE === '1
 /**
  * Rule 7: a person's move wins for a day. The account-move routes call this for every agent whose account they wrote,
  * so the mover holds it: without it, a person's move left no trace the mover reads, and the next tick could undo it.
- * Never throws (the route's move is not this line); false when it could not be written.
+ * Never throws (the route's move is not this line); false when it could not be written. Writes nothing while moves are
+ * off (review round 1): the mover is inert unless switched on, routes included. So a person's move made while moves are
+ * off is not held once they are switched on; switching on is an operator's act and takes a board restart.
  */
-function personMoved(file, names, to, nowMs = Date.now()) {
+function personMoved(file, names, to, nowMs = Date.now(), env = process.env) {
+  if (!movesOn(env)) return true;
   try {
     const agents = (Array.isArray(names) ? names : []).filter((n) => typeof n === 'string' && n);
     if (!agents.length) return true;
@@ -119,13 +122,16 @@ function create({ file, nowMs = Date.now() }) {
       /* Rule 9: after a partial or unknown move the agent may still run on its OLD account (it lands at its next
          restart), and a sighting is keyed by agent alone, so it says nothing about the target until its session has
          restarted since the move. tmux reads whole seconds, so a start read at or after the move's own time is after it. */
-      if (w.uncertain && typeof deps.sessionStart === 'function') {
+      /* Review round 1: a CHANGED move waits for the restart too, when the board can read a session's start. The account
+         is written before the restart, so the OLD session's last call could otherwise read as the new account's first. */
+      const restarts = typeof deps.sessionStart === 'function';
+      if (restarts && !Number.isFinite(w.since)) {
         let s = null;
         try { s = await deps.sessionStart(w.agent); } catch { s = null; }
         if (Number.isFinite(s) && s >= w.movedAt) { w.uncertain = false; w.since = s; }
       }
       let seen = null;
-      if (!w.uncertain) { try { seen = deps.lastSeen(w.agent); } catch { seen = null; } }
+      if (restarts ? Number.isFinite(w.since) : !w.uncertain) { try { seen = deps.lastSeen(w.agent); } catch { seen = null; } }
       const after = Math.max(w.movedAt, Number.isFinite(w.since) ? w.since : 0);
       if (seen && Number.isFinite(seen.at) && seen.at > after) {
         const works = seen.outcome === 'ok' ? 'yes' : 'no';
@@ -248,8 +254,8 @@ function create({ file, nowMs = Date.now() }) {
       return (state.refusedCount.get(agent) || 0) >= REFUSED_TIMES ? since < DAY_MS : since < REFUSED_HOLD_MS;
     };
     /* Rule 3: usage only. A move off an account whose login has stopped stays a would-move line in the sweep's record.
-       Rule 2: movable on the previous tick too. The target checks repeat skipTarget's, as the last word. */
-    const next = decision.moves.find((x) => kindOf(x.from) === 'usage' && !heldTarget(x.to) && !unproven(x.to) && !passedOver(x.agent) && before.has(`${x.agent}\n${x.from}`));
+       Rule 2: movable on the previous tick too. Held and unproven targets are skipTarget's, inside decide(). */
+    const next = decision.moves.find((x) => kindOf(x.from) === 'usage' && !passedOver(x.agent) && before.has(`${x.agent}\n${x.from}`));
     if (!next) return { did: 'nothing' };
     const m = { ...next, fromLabel: label(next.from), toLabel: label(next.to) };
     /* Rule 2: idleness read again from a NEW roster and NEW projects just before the move. Rule 12: only a re-check
