@@ -235,7 +235,7 @@ final class RoomStore: ObservableObject {
                                           fresh: fresh.rows, unread: page.unread, at: Date())
         spokeAt[project] = stamped.spokeAt
         if stamped.baselined { spokeBaseline.insert(project) }
-        rows[project] = fresh.rows
+        rows[project] = Board.withoutDeleted(fresh.rows, deletedPosts[project] ?? [])
         older[project] = fresh.older
         if newest { archivedCount[project] = page.archivedCount }
         // Review 1: an archive set or undone elsewhere while this one shows: read it again, as the board's poll does
@@ -341,7 +341,7 @@ final class RoomStore: ObservableObject {
             else if retried { olderFailed.insert(project) }
             return
         }
-        rows[project] = Board.mergeRoom(page.rows, with: rows[project] ?? [])
+        rows[project] = Board.withoutDeleted(Board.mergeRoom(page.rows, with: rows[project] ?? []), deletedPosts[project] ?? [])
         older[project] = (page.olderCount, page.olderCursor)
         archivedCount[project] = page.archivedCount
     }
@@ -529,8 +529,15 @@ final class RoomStore: ObservableObject {
     // answer belongs to another account or computer (switched meanwhile).
     // Review 2: the line a delete put under the room's composer, so a later delete that works can take it away.
     private var deleteNotes: [String: String] = [:]
+    // Review 3: the posts deleted here, kept out of every later read (Board.withoutDeleted).
+    private var deletedPosts: [String: Set<String>] = [:]
     func delete(_ row: Board.RoomRow, in project: String) async -> Board.DeleteResult? {
-        guard row.kind == .post, row.byPerson else { return .refused("Only your own messages can be deleted.") }
+        // Review 3: said under the composer too, as every other refusal is (the sheet offers Delete only on the person's own).
+        guard row.kind == .post, row.byPerson else {
+            let why = "Only your own messages can be deleted."
+            notes[project] = why; deleteNotes[project] = why
+            return .refused(why)
+        }
         #if DEBUG
         if Self.sample { rows[project]?.removeAll { $0.id == row.id }; return .deleted(told: []) }
         #endif
@@ -541,6 +548,7 @@ final class RoomStore: ObservableObject {
         // The room's own line under the composer says what happened: a refusal, or that an agent had already read it.
         switch result {
         case .deleted(let told):
+            deletedPosts[project, default: []].insert(row.id)
             rows[project]?.removeAll { $0.id == row.id }
             // Review 1: only when there is something to say, so the room's "not confirmed" line is kept otherwise.
             if let note = Board.deletedNote(told: told, names: names) {

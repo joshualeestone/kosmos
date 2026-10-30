@@ -138,6 +138,13 @@ check(roomDel?.httpMethod == "POST" && roomDel?.url?.absoluteString == "https://
 check(Board.roomDeleteRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", post: "../x") == nil
       && Board.roomDeleteRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "../p", post: "m1") == nil,
       "a post id or project id the app would not put in a path: no request")
+// Review 3: a read in the air when the delete landed still carries the post; the merge only adds, so it is filtered out.
+let delMine = Board.RoomRow(id: "m1357", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "gone")
+let delKept = Board.RoomRow(id: "m1358", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "kept")
+let lateMerge = Board.mergeRoom([delKept], with: [delMine, delKept])
+check(lateMerge.contains { $0.id == "m1357" }, "CONTROL: a late read merged in puts the deleted post back")
+check(Board.withoutDeleted(lateMerge, ["m1357"]).map(\.id) == ["m1358"], "the posts deleted here stay out of a late read; the rest stay")
+check(Board.withoutDeleted(lateMerge, []).count == lateMerge.count, "nothing deleted: every row kept")
 
 section("a post in the air settles only on a NEW row")
 let ok1 = Board.RoomRow(id: "m50", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "ok")

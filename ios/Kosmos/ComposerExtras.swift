@@ -628,8 +628,8 @@ struct MessageActionsSheet: View {
     private func row(_ title: String, _ symbol: String, destructive: Bool = false, _ run: @escaping () -> Void) -> some View {
         Button(action: run) {
             HStack(spacing: 12) {
-                Image(systemName: symbol).font(.body).foregroundColor(destructive ? Color.red : Palette.primary).accessibilityHidden(true)
-                Text(title).font(.body).foregroundColor(destructive ? Color.red : Palette.primary)
+                Image(systemName: symbol).font(.body).foregroundColor(destructive ? Palette.dangerWord : Palette.primary).accessibilityHidden(true)
+                Text(title).font(.body).foregroundColor(destructive ? Palette.dangerWord : Palette.primary)
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 16).frame(minHeight: 50)

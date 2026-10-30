@@ -1734,6 +1734,8 @@ struct ChatView: View {
             guard startedIn == client.chatEpoch else { return }
             switch result {
             case .deleted(let told):
+                // Review 3: a read already in the air still holds the message; it is dropped, as an older read is.
+                readShown = readsStarted
                 if let t = thread { thread = Board.withoutMessage(t, at: at) }
                 // Review 1: with earlier messages open, the newest window shifts by one after a delete, so a row the
                 // earlier pages already hold would come back as a second copy. Start them again, as on a moved chat.

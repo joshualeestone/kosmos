@@ -460,6 +460,12 @@ extension Board {
         }
     }
 
+    // kosmos#7614 review 3: rows shown without the posts this phone deleted. A read already in the air when a delete
+    // landed still carries the post, and a merge only ever adds rows, so without this it would come back and stay.
+    static func withoutDeleted(_ rows: [RoomRow], _ deleted: Set<String>) -> [RoomRow] {
+        deleted.isEmpty ? rows : rows.filter { !($0.kind == .post && deleted.contains($0.id)) }
+    }
+
     // kosmos#7614: POST /api/project/<id>/room/<post id>/delete, an empty body: the person's own post, gone for everyone.
     // Post ids are the room's m<digits>; anything else is never put into a path. Its answer is Board.deleteResult.
     static func roomDeleteRequest(mac: URL, project: String, post: String) -> URLRequest? {
