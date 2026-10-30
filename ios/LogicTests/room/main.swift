@@ -1605,16 +1605,15 @@ do {
 // kosmos#7596 (Josh 10-29 21:28): the + panel offers Camera, Photos and Files, in that order, and nothing else, in a
 // chat and in a project room alike (one shared view).
 let attachSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AttachMenu.swift"), encoding: .utf8)) ?? ""
+let boardLogicSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardLogic.swift"), encoding: .utf8)) ?? ""
 let roomViewSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
-check(attachSrc.contains("case camera, photos, files\n") && attachSrc.contains("case .camera: return \"Camera\"")
-      && attachSrc.contains("case .photos: return \"Photos\"") && attachSrc.contains("case .files: return \"Files\""),
-      "kosmos#7596: the panel's choices are Camera, Photos and Files")
-check(!attachSrc.contains("Plugins") && !attachSrc.contains("Think harder"), "kosmos#7596: no Plugins and no Think harder (Josh 21:28)")
+check(attachSrc.contains("ForEach(AttachChoice.allCases, id: \\.self)"), "kosmos#7596: the panel draws every AttachChoice (the choices are tested in LogicTests)")
+check(!attachSrc.contains("Plugins") && !attachSrc.contains("Think harder") && !boardLogicSrc.contains("Think harder"), "kosmos#7596: no Plugins and no Think harder (Josh 21:28)")
 check(chatSource.contains("AttachPlusButton(atLimit: atFileLimit") && roomViewSrc.contains("AttachPlusButton(atLimit: atFileLimit")
       && !chatSource.contains("Label(\"Photo Library\"") && !roomViewSrc.contains("Label(\"Photo Library\""),
       "kosmos#7596: the chat and the room both use the one panel, and the old menu is gone")
-check(attachSrc.contains(".disabled(off)") && attachSrc.contains("let off = atLimit || (choice == .camera && camera == .none)"),
-      "kosmos#7596: at the file limit every row is disabled, and Camera too where the device has none")
+check(attachSrc.contains(".disabled(off)") && attachSrc.contains("let off = Board.attachRowOff(choice, atLimit: atLimit, camera: camera)"),
+      "kosmos#7596: each row is disabled by Board.attachRowOff (tested in LogicTests)")
 // Review 1: the camera is wired in both screens, opened on its own host, and its photo carries the epoch it opened under.
 for (name, src) in [("chat", chatSource), ("room", roomViewSrc)] {
     check(src.contains("case .camera: cameraEpoch = client.chatEpoch; showCamera = true")
@@ -1625,8 +1624,9 @@ for (name, src) in [("chat", chatSource), ("room", roomViewSrc)] {
 }
 check(attachSrc.contains(".onDisappear {\n                    guard let choice = chosen else { return }") && !attachSrc.contains("asyncAfter(deadline: .now() + 0.35)"),
       "kosmos#7596 review 1: a choice is acted on once the panel has gone, never on a timer")
-check(attachSrc.contains("case .denied, .restricted: return .notAllowed") && attachSrc.contains("UIApplication.openSettingsURLString"),
-      "kosmos#7596 review 1: a camera Kosmos may not use opens Settings instead of a blank camera")
+check(attachSrc.contains("case .notAllowed: if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }")
+      && attachSrc.contains("AVCaptureDevice.requestAccess(for: .video) { granted in"),
+      "kosmos#7596 review 1 and 2: a camera Kosmos may not use opens Settings, and one not yet asked about asks before it opens")
 check(attachSrc.contains(".accessibilityHidden(true)   // the name beside it says it once"), "kosmos#7596 review 1: VoiceOver reads each choice once")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }

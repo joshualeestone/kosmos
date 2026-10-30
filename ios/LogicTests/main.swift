@@ -4909,6 +4909,21 @@ do {
     check(step(10, resumed: true, was: true) == .none && st.peak == 16, "review 4: one that shrank is the same shift, not a new one")
     check(Board.sideShiftStep(x: 0.4, shifted: true, wasShifted: false, resumed: false, peak: 16) == (false, 0, .none), "back at rest clears the shift and its peak")
 
+    // kosmos#7596: the + panel's rules.
+    check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
+    check(Board.cameraState(available: true, auth: .authorized) == .ready && Board.cameraState(available: true, auth: .notDetermined) == .notAsked,
+          "a camera allowed is ready; one not yet asked about asks first")
+    check(Board.cameraState(available: true, auth: .denied) == .notAllowed && Board.cameraState(available: true, auth: .restricted) == .notAllowed,
+          "a camera turned off or restricted for Kosmos is not allowed")
+    check(Board.cameraState(available: false, auth: .authorized) == .none, "CONTROL: no camera on the device wins over any permission")
+    check(!Board.attachRowOff(.camera, atLimit: false, camera: .ready) && !Board.attachRowOff(.camera, atLimit: false, camera: .notAllowed),
+          "Camera stays on when ready, and when not allowed (it opens Settings)")
+    check(Board.attachRowOff(.camera, atLimit: false, camera: .none) && !Board.attachRowOff(.photos, atLimit: false, camera: .none),
+          "no camera dims only Camera")
+    check(AttachChoice.allCases.allSatisfy { Board.attachRowOff($0, atLimit: true, camera: .ready) }, "at the file limit every row is off")
+    check(Board.cameraNote(.ready) == nil && Board.cameraNote(.notAsked) == nil && Board.cameraNote(.notAllowed) != nil && Board.cameraNote(.none) != nil,
+          "Camera says why only when it will not open the camera")
+
     // Review 3: the box over a chat's life.
     var sends: [Int] = []
     var box: Board.ShiftBox? = Board.ShiftBox()
