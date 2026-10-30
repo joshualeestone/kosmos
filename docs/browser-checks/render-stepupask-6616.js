@@ -119,6 +119,29 @@ const WORDS = 'From a remote session this needs a fresh sign-in. (check 6616)';
     await page.locator('#stepup-close').click({ timeout: 5000 });
     const gone = await page.evaluate(() => { const e = document.getElementById('stepup-ask'); return e.hidden && getComputedStyle(e).display === 'none'; });
     say(gone, 'close: Not now hides the ask and it takes no space');
+    // LOG OUT (kosmos#7625): through a connector that does not serve /_kosmos/signin?fresh=1 (none does yet), the refusal
+    // says via "logout", and Sign in again logs out of the gate (POST /_kosmos/logout, the board's one log out) instead of
+    // submitting the form. The log out is answered 404 here, so the page stays and says so (a real 200 would reload it).
+    const hits = { logout: [], signin: [] };
+    await page.route('**/_kosmos/logout', (route) => { hits.logout.push(route.request().method()); return route.fulfill({ status: 404, body: '' }); });
+    await page.route('**/_kosmos/signin**', (route) => { hits.signin.push(route.request().method()); return route.fulfill({ status: 204, body: '' }); });
+    await page.route('**/api/check-7625/**', (route) => route.fulfill({ status: 403, contentType: 'application/json',
+      body: JSON.stringify(route.request().url().endsWith('/fresh') ? { code: 'remote_step_up', error: WORDS, signInAgain: true }
+        : { code: 'remote_step_up', error: WORDS, signInAgain: true, via: 'logout' }) }));
+    await page.evaluate(() => window.fetch('/api/check-7625/logout', { method: 'POST' }));
+    await ask.waitFor({ state: 'visible', timeout: 3000 }).catch(() => {});
+    say(await ask.isVisible(), 'log out: the via-logout refusal shows the ask');
+    await go.click({ timeout: 5000 });
+    await page.waitForTimeout(800);
+    say(hits.logout.length === 1 && hits.logout[0] === 'POST', 'log out: Sign in again POSTs /_kosmos/logout once', JSON.stringify(hits.logout));
+    say(hits.signin.length === 0, 'log out: and never submits to /_kosmos/signin (no connector serves it)', JSON.stringify(hits.signin));
+    say(/not available on this Kosmos/.test(await page.locator('#stepup-words').textContent()), 'log out: a log out the gate refuses is said in the ask itself');
+    // CONTROL (last: the submit navigates the page): the fresh-signin kind still submits its form to /_kosmos/signin.
+    await page.evaluate(() => window.fetch('/api/check-7625/fresh', { method: 'POST' }));
+    await page.waitForFunction(() => document.getElementById('stepup-go').disabled === false, null, { timeout: 3000 }).catch(() => {});
+    await go.click({ timeout: 5000, noWaitAfter: true });
+    await page.waitForTimeout(800);
+    say(hits.signin.length === 1 && hits.signin[0] === 'POST' && hits.logout.length === 1, 'control: the fresh kind submits its form (POST /_kosmos/signin), and no second log out', JSON.stringify(hits));
   } catch (e) {
     say(false, 'the check ran to the end', (e && e.message) || String(e));
   } finally {
