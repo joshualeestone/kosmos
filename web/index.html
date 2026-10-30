@@ -5137,7 +5137,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
    a nothingness space" (the page-level body padding was most of it). The
    body becomes a viewport-height grid with explicit rows for the three
    that need one (the rail heads, the lists, the person -- the header is
-   auto-placed among the pre-rail tracks, which is what `repeat(41, auto)`
+   auto-placed among the pre-rail tracks, which is what `repeat(42, auto)`
    protects), the lists' row is the one that flexes, and every region
    scrolls inside itself.
    ⚠️ "EVER" IS THE GOAL, NOT THE MECHANISM, and the distinction is the
@@ -5192,7 +5192,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
        rail head plus about four rows: enough that the row is recognisably
        itself and can be scrolled inside, rather than a sliver. Below that the
        grid exceeds the viewport and the body scroll above carries it. */
-    grid-template-rows: repeat(41, auto) auto minmax(200px, 1fr) auto; }
+    grid-template-rows: repeat(42, auto) auto minmax(200px, 1fr) auto; }
   /* #4872 (Josh, 0.7.15): "the page lets me scroll down just ever so slightly ... Can we disable it". Nothing here
      overflows at normal window heights (render-shell-noscroll-4872 measures the root and body exactly the window tall,
      down to 1024x640); what moved was the Mac's elastic overscroll, which drags a page that cannot scroll and shows a
@@ -5209,7 +5209,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      from this rule and the two cards agree about where the edge is. */
   html[data-layout="consolidated"] body.consolidated > #conn,
   html[data-layout="consolidated"] body.consolidated > #askcard { margin-left: var(--space-8); margin-right: var(--space-8); }
-  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 42; }
+  html[data-layout="consolidated"] body.consolidated > #rail-agents { grid-column: 1; grid-row: 43; }
   /* #867 (Josh, 2026-08-25 11:02): "hide that scrollbar inside of
      agents." Still scrolls -- scrollbar-width/-ms-overflow-style hide
      the track, not the ability to scroll it; content wheels and
@@ -5225,7 +5225,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      agents as well", and his own bound on it: "within reason... not crazy
      tight but a bit tighter". MEASURED at 6px between consecutive rows before
      this change, on a three-agent fixture. */
-  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 43; margin: 0; display: flex; flex-direction: column; gap: 4px;
+  html[data-layout="consolidated"] body.consolidated > #alist { grid-column: 1; grid-row: 44; margin: 0; display: flex; flex-direction: column; gap: 4px;
     min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated > #alist::-webkit-scrollbar { display: none; }
   /* The person, pinned under the list on a deeper ground so the row is not
@@ -5256,7 +5256,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      passed over here, only a trade being stated: below the floor,
      reachability beats the visual pin, which is the same call the overflow
      change makes. In every window a person actually uses, it is pinned. */
-  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 44; display: flex; align-items: center; gap: 6px;
+  html[data-layout="consolidated"] body.consolidated > #rail-me { grid-column: 1; grid-row: 45; display: flex; align-items: center; gap: 6px;
     margin: 0; padding: 8px 8px; border-top: 1px solid var(--k-rule); border-radius: 0; background: var(--k-side-2, #ebe8e2); }
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
@@ -5634,7 +5634,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the discussion and the right column all run to the viewport's bottom
      edge (the person's strip lives only in column 1). min-height: 0 lets
      the panel shrink to its row instead of forcing the page taller. */
-  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 42 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
+  html[data-layout="consolidated"] body.consolidated > #panel-projects { grid-column: 2; grid-row: 43 / span 3; max-width: none; margin: 0; padding-top: 0 !important; min-height: 0; }
   /* #774: the empty-centre sentence sits where the open project would. */
   /* #3597 (Josh, 0.6.91 QA): centred in the empty display column, both ways, not pinned top-left. */
   html[data-layout="consolidated"] body.consolidated #pj-none { grid-column: 2; grid-row: 1; align-self: center; justify-self: center; text-align: center; margin: 0; max-width: 34rem; }
@@ -7543,15 +7543,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    about 1.95:1, under SC 1.4.11's 3:1; accepted because hover is not the only state indicator (keyboard
    focus keeps the bar's 2px ink ring below) and it is the owner's call, as with #4051's gold edge. */
 .rxn-reply:hover, .rxn-reply:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
-/* #4631: Copy message reference, drawn like Reply. The number is faint: it is there so a person sees what they copy,
-   not to be read as part of the message. #5312: it is now "Copy message id", after Copy message (the whole text),
-   which is drawn the same. */
-.rxn-ref, .rxn-copy { font: inherit; font-size: .75rem; border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink-2); border-radius: 999px; padding: 1px 8px; margin-right: 4px; cursor: pointer; min-height: 24px; min-width: 24px;
-           display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
-.rxn-ref-ico { flex: none; display: block; }
-.rxn-ref-n { opacity: .7; font-variant-numeric: tabular-nums; }
-.rxn-ref:hover, .rxn-ref:focus-visible, .rxn-copy:hover, .rxn-copy:focus-visible { color: var(--k-ink); border-color: var(--gold-bright); }
-.rxn-ref:focus-visible, .rxn-copy:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* #4631 and #5312: Copy message and Copy message id left the bar for the "..." menu (kosmos#7614). */
 #d-linklost { color: var(--label-2); }   /* #5333: a state that means "your messages will not be answered", not helper text */
 #d-replychan { color: var(--label-2); }   /* #5820: the agent's declared reply channel, with Clear */
 #d-replychan-clear { margin-left: .4em; }
@@ -7722,19 +7714,16 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   /* The room's touch target, said once (#3811): 36px, under the 44px guidance, for these small
      controls repeated on every post; the Allow card's primary buttons are 44. */
   #pj-room { --room-tap: 36px; }
-  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply, #pj-room .rxn-speak, #pj-room .rxn-ref, #pj-room .rxn-copy { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar; #4409: read-aloud; #4631: Copy reference too; #5312 Copy message */
+  #pj-room .rxn-pick, #pj-room .rxn-more, #pj-room .rxn-reply, #pj-room .rxn-speak, #pj-room .rxn-dots { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #3745: Reply is a target in the same bar; #4409: read-aloud; #4631: Copy reference too; #5312 Copy message */
   /* #4409 after #4631: Reply is its arrow alone on a touchscreen too (its label still says "Reply to this message").
      Seven buttons with the word were 331px, and the open bar, which sits over the message above its own, then
      covered that message's whole width: a tap meant to close the bar on the visible corner of a person's message
      hit Reply. With the arrow alone, and without the pointer bar's extra 4px beside Copy reference and Reply (the
      touch bar's 4px gap already spaces every button), it is 290px, about the six-button bar's 287 on either parent. */
-  /* #5312: on a touchscreen the bar keeps that width: its one copy button opens the menu (Copy message, Copy message id),
-     and Copy message id is not in the bar. An eighth button made the DM's bar cover the visible corner of the person's own
-     message under it again, so a tap meant to close the bar hit Reply (render-dm-tapreact-718). A phone has no right-click,
-     so this is also how it reaches the menu. */
-  #pj-room .rxn-quick .rxn-ref, #d-dmthread .rxn-quick .rxn-ref { display: none; }
+  /* kosmos#7614: the bar keeps #4409's seven buttons on an agent's message: three reactions, add reaction, read aloud,
+     Reply and "...", which replaced #5312's one copy button and is how a phone, with no right-click, reaches the menu. */
   #pj-room .rxn-reply-t, #d-dmthread .rxn-reply-t { display: none; }
-  #pj-room .rxn-quick .rxn-ref, #pj-room .rxn-quick .rxn-copy, #pj-room .rxn-quick .rxn-reply, #d-dmthread .rxn-quick .rxn-ref, #d-dmthread .rxn-quick .rxn-copy, #d-dmthread .rxn-quick .rxn-reply { margin: 0; }
+  #pj-room .rxn-quick .rxn-reply, #pj-room .rxn-quick .rxn-dots, #d-dmthread .rxn-quick .rxn-reply, #d-dmthread .rxn-quick .rxn-dots { margin: 0; }
   /* A reaction already on a post is a target too, on any touchscreen (a phone turned
      sideways is wider than the phone block but still a thumb). */
   #pj-room .rxn { min-height: var(--room-tap); padding: 2px 10px; }
@@ -7756,7 +7745,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
     border-radius: 100px; padding: 2px 4px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
   #d-dmthread { -webkit-tap-highlight-color: transparent; touch-action: manipulation; --room-tap: 36px; }
   #d-dmthread a, #d-dmthread button { -webkit-tap-highlight-color: rgba(120, 120, 128, .2); }
-  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply, #d-dmthread .rxn-speak, #d-dmthread .rxn-ref, #d-dmthread .rxn-copy { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too; #4409 read-aloud, #4631 Copy reference and #5312 Copy message also */
+  #d-dmthread .rxn-pick, #d-dmthread .rxn-more, #d-dmthread .rxn-reply, #d-dmthread .rxn-speak, #d-dmthread .rxn-dots { min-width: var(--room-tap); min-height: var(--room-tap); }   /* #4256: Reply is a target in the DM's bar too; #4409 read-aloud, #4631 Copy reference and #5312 Copy message also */
   #d-dmthread .rxn { min-height: var(--room-tap); padding: 2px 10px; }
 }
 .rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
@@ -75268,8 +75257,6 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
     pjReplyStart(box.getAttribute('data-post'));
     return;
   }
-  if (e.target.closest('.rxn-ref')) { rxnCloseAllPickers(); msgRefCopy(box.closest('.msg')); return; }   // #4631
-  if (e.target.closest('.rxn-copy')) { rxnCloseAllPickers(); msgCopyPressed(e.target.closest('.rxn-copy'), box.closest('.msg')); return; }   // #5312
   const free = e.target.closest('.rxn-free');   // #6949: before the pill test, so freeing never toggles a reaction
   if (free) { rxnCloseAllPickers(); if (PJ_CURRENT && !free.disabled) await rxnFreeClaim(PJ_CURRENT, box, free); return; }
   const btn = e.target.closest('.rxn, .rxn-pick');
@@ -75378,8 +75365,6 @@ document.getElementById('d-dmthread').addEventListener('click', async (e) => {
     return;
   }
   if (e.target.closest('.rxn-reply')) { rxnCloseAllPickers(); dmReplyStart(box.getAttribute('data-at')); return; }   // #4256, closing a picker open on another row as the room does
-  if (e.target.closest('.rxn-ref')) { rxnCloseAllPickers(); msgRefCopy(box.closest('.msg')); return; }   // #4631
-  if (e.target.closest('.rxn-copy')) { rxnCloseAllPickers(); msgCopyPressed(e.target.closest('.rxn-copy'), box.closest('.msg')); return; }   // #5312
   const btn = e.target.closest('.rxn, .rxn-pick');
   if (!btn) return;
   await dmRxnToggle(CURRENT.sessionName, box, btn.getAttribute('data-emoji'));
@@ -75453,17 +75438,6 @@ const PJ_TOUCH_MQ = '(hover: none)';         // the room's touchscreen CSS block
 const PJ_TABLET_MQ = '(hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (orientation: portrait)';
 // var, not let: placeLook reads it, and it may run before this line; a var reads undefined there instead of throwing.
 var PJ_ORDER_READY = true;
-/* #5312: when the touch test changes (a tablet turned, a pointer attached), every Copy in a hover bar is renamed for
-   what a press now does (msgCopyButton, msgCopyPressed). */
-function msgCopyRelabel() {
-  const touch = msgCopyTouch();
-  document.querySelectorAll('.rxn-copy').forEach((b) => {
-    b.setAttribute('aria-label', touch ? 'Copy message or its id' : 'Copy message'); b.title = b.getAttribute('aria-label');
-    if (touch) b.setAttribute('aria-haspopup', 'menu'); else b.removeAttribute('aria-haspopup');
-  });
-}
-try { const mq = window.matchMedia && window.matchMedia(PJ_TOUCH_MQ); if (mq && mq.addEventListener) mq.addEventListener('change', msgCopyRelabel); } catch { /* no media queries: the paint's names stand */ }
-try { msgCopyRelabel(); } catch { /* once now too: a bar painted before PJ_TOUCH_MQ existed was named for a pointer */ }
 function pjPhoneOrder() {
   const grid = document.querySelector('.pj3');
   const mid = grid && grid.querySelector(':scope > .pjmid');
@@ -75651,7 +75625,7 @@ function pjRxnTap(e) {
   if (!(window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches)) return;
   if (!e.target || !e.target.closest) return;
   const room = e.currentTarget;
-  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-ref, .rxn-copy, .rxn-free')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
+  if (e.target.closest('.rxn-pick, .rxn, .rxn-reply, .rxn-free')) { pjRxnClose(); return; }   // any reaction taken, or Reply (#3745), closes it
   if (e.target.closest('a, button, .rxns, [data-open-agent]')) {
     // Left to its own handler, but one bar at a time: a tap on another row's link closes an open bar
     // (in the other thread too: pjRxnClose closes both, as the outside-tap closer already would).
@@ -77054,30 +77028,6 @@ function msgRefNumber(mid) {
   const hit = /^m(\d+)$/.exec(String(mid || ''));
   return hit ? hit[1] : '';
 }
-/* #5312 (Josh, 2026-10-05 11:02): "two buttons instead for a 'copy message' and 'copy message id' so you could copy
-   the whole message text". The id keeps #4631's words and its faint number, under a # mark; the copy mark is now the
-   whole message's. */
-function msgRefButton(mid) {
-  const n = msgRefNumber(mid);
-  return '<button class="rxn-ref" type="button" title="Copy message id" aria-label="'
-    + (n ? 'Copy message id ' + n : 'Copy message id') + '">'
-    + '<svg class="rxn-ref-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/></svg>'
-    + (n ? '<span class="rxn-ref-n">' + n + '</span>' : '')
-    + '</button>';
-}
-/* On a touchscreen Copy opens the menu with both (msgCopyPressed), and its name says so; with a pointer it copies. The
-   same test msgCopyPressed reads at the press, and a change of it (a tablet turned, a pointer attached) relabels every
-   Copy on the page, so the name never disagrees with what a press does. */
-function msgCopyTouch() {
-  // try: typeof does not protect a const still in its temporal dead zone (a paint during the page's own start).
-  try { return !!window.matchMedia && window.matchMedia(PJ_TOUCH_MQ).matches; } catch { return false; }
-}
-function msgCopyButton() {
-  return '<button class="rxn-copy" type="button" '
-    + (msgCopyTouch() ? 'title="Copy message or its id" aria-label="Copy message or its id" aria-haspopup="menu">' : 'title="Copy message" aria-label="Copy message">')
-    + '<svg class="rxn-ref-ico" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>'
-    + '</button>';
-}
 function msgRefWhen(at) {
   const d = new Date(at);
   if (!at || isNaN(d.getTime())) return '';
@@ -77191,24 +77141,6 @@ async function msgRefCopy(row) {
   if (!text) return;
   const ok = await msgClipboard(text);
   msgToast(ok ? 'Copied "' + text + '". Paste it to any agent.' : 'Could not copy. The reference is: ' + text);
-}
-/* #5312: the bar's copy button. With a pointer it copies the message (Copy message id is the button beside it); on a
-   touchscreen it opens the menu with both, at the button, since the bar there has no Copy message id and a phone has no
-   right-click. Opened after this tap's own click has finished, or the page's click-outside rule would close it at once. */
-function msgCopyPressed(btn, row) {
-  if (msgCopyTouch()) {
-    if (!msgCopyText(row) && !msgRefText(row)) { msgToast('There is nothing to copy in this message.'); return; }   // the menu would not open: say so
-    const r = btn.getBoundingClientRect();
-    const ref = { row, host: row && row.closest && row.closest('#pj-room') ? 'pj-room' : 'd-dmthread', mid: (row && row.getAttribute && row.getAttribute('data-mid')) || '' };
-    setTimeout(() => {   // a repaint in between replaced the row: find it again by its id, as the menu does
-      const now = msgMenuRow(ref);
-      if (!now || !now.isConnected) msgToast('That message changed just now. Try again.');
-      else if (!msgCopyText(now) && !msgRefText(now)) msgToast('There is nothing to copy in this message.');   // never a silent press
-      else msgMenuOpen(now, r.left, r.bottom + 4);
-    }, 0);
-    return;
-  }
-  msgTextCopy(row);
 }
 async function msgTextCopy(row) {
   const text = msgCopyText(row);
@@ -77367,6 +77299,8 @@ document.addEventListener('click', (e) => {
   const m = document.getElementById('msg-menu');
   if (m && !m.hidden && m.msgDots === dots) { msgMenuClose(true); return; }
   if (typeof rxnCloseAllPickers === 'function') rxnCloseAllPickers();
+  // Never a silent press: a row with nothing to copy and not the person's own opens no menu (as #5312's Copy said).
+  if (!msgCopyText(row) && !msgRefText(row) && row.getAttribute('data-own') !== '1') { msgToast('There is nothing to copy in this message.'); return; }
   const r = dots.getBoundingClientRect();
   msgMenuOpen(row, r.left, r.bottom + 4, dots);
 });
@@ -77375,7 +77309,9 @@ document.addEventListener('click', (e) => {
 let MSG_DEL = null;
 function msgDelAsk(ref, row) {
   if (!ref || !row) return;
-  MSG_DEL = { host: ref.host, mid: ref.mid, back: row.querySelector('.rxn-dots') || null, project: (typeof PJS_HOOKS !== 'undefined' && PJS_HOOKS) ? PJS_HOOKS.projectId : null,
+  /* A direct message is named by its row's `at` (the bar's data-at), never data-mid, which is the row's id when it has one. */
+  const bar = row.querySelector('.rxns[data-at]');
+  MSG_DEL = { host: ref.host, mid: ref.mid, at: bar ? bar.getAttribute('data-at') : '', back: row.querySelector('.rxn-dots') || null, project: (typeof PJS_HOOKS !== 'undefined' && PJS_HOOKS) ? PJS_HOOKS.projectId : null,
     agent: typeof CURRENT !== 'undefined' && CURRENT ? CURRENT.sessionName : null };
   document.getElementById('msgdel-msg').textContent = '';
   document.getElementById('msgdel-go').disabled = false;
@@ -77394,8 +77330,8 @@ document.getElementById('msgdel-go').addEventListener('click', async () => {
   const d = MSG_DEL;
   const btn = document.getElementById('msgdel-go');
   const say = document.getElementById('msgdel-msg');
-  if (!d || !d.mid) return;
-  const room = d.host === 'pj-room';
+  const room = !!d && d.host === 'pj-room';
+  if (!d || !(room ? d.mid : d.at)) return;
   if (room ? !d.project : !d.agent) { say.textContent = 'We could not tell which conversation this is. Open it again and try once more.'; return; }
   btn.disabled = true;
   say.textContent = 'Deleting\u2026';
@@ -77404,11 +77340,10 @@ document.getElementById('msgdel-go').addEventListener('click', async () => {
       ? await fetch('/api/project/' + encodeURIComponent(d.project) + '/room/' + encodeURIComponent(d.mid) + '/delete',
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
       : await fetch('/api/agent/' + encodeURIComponent(d.agent) + '/thread/delete',
-        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: d.mid }) });
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ at: d.at }) });
     const out = await res.json().catch(() => null);
     if (!res.ok) {
-      const why = (out && out.error) || 'we could not delete it';
-      say.textContent = why.charAt(0).toUpperCase() + why.slice(1) + '.';
+      say.textContent = asSentence((out && out.error) || 'we could not delete it');
       btn.disabled = false;
       return;
     }
