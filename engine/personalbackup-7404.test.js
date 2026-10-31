@@ -783,3 +783,49 @@ test('#7404 restore: refused while a recovery code made here waits to be saved (
   pending = false;   // CONTROL: confirmed, so state reads on and the restore is refused as not needed instead
   assert.equal((await pb.restore('CODE', { root, remote: c, personalbackupkey: keys })).code, 'not_needed');
 });
+
+/* #7681 item 3: restore() reads the record before its awaits. Turning personal backup off in either window must stop the
+   restore there: after Kosmos+'s check (it answered "bound" before the turn-off), no keys are restored; after the restore
+   itself, no key-ready marker is written for a binding that is gone. */
+test('#7681 restore: a turn-off while Kosmos+ is asked stops the restore before any key is touched', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  let restored = 0;
+  const taken = { setUpPersonalKey: async () => ({ ok: false, code: 'already_set_up', because: 'set up elsewhere' }), hasPendingCode: () => false,
+    restorePersonalKey: async () => { restored++; return { ok: true, epochs: [1] }; } };
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: taken })).code, 'restore');
+  // Kosmos+ answers "bound here" (true when asked), then the turn-off lands before restore() goes on.
+  let flipped = false;
+  const racing = { macRequest: async (m, route, b) => {
+    const r = await c.macRequest(m, route, b);
+    if (route === oe.ROUTES.status && !flipped) { flipped = true; await pb.switchOff({ root, remote: c }); }
+    return r;
+  } };
+  const res = await pb.restore('CODE', { root, remote: racing, personalbackupkey: taken });
+  assert.equal(flipped, true, 'premise: the turn-off ran inside the status read');
+  assert.equal(res.ok, false, JSON.stringify(res));
+  assert.match(res.because, /changed on this computer while restoring/);
+  assert.equal(restored, 0, 'keys were restored for a binding turned off meanwhile');
+  assert.equal(fs.existsSync(path.join(root, 'personal-key-ready')), false, 'a key-ready marker was written');
+});
+
+test('#7681 restore: a turn-off during the restore itself writes no key-ready marker', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  const taken = { setUpPersonalKey: async () => ({ ok: false, code: 'already_set_up', because: 'set up elsewhere' }), hasPendingCode: () => false,
+    restorePersonalKey: async () => ({ ok: true, epochs: [1] }) };
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: taken })).code, 'restore');
+  const racing = Object.assign({}, taken, { restorePersonalKey: async () => { await pb.switchOff({ root, remote: c }); return { ok: true, epochs: [1] }; } });
+  const res = await pb.restore('CODE', { root, remote: c, personalbackupkey: racing });
+  assert.equal(res.ok, false, JSON.stringify(res));
+  assert.match(res.because, /changed on this computer while restoring/);
+  assert.equal(fs.existsSync(path.join(root, 'personal-key-ready')), false, 'a key-ready marker was written for a binding turned off');
+  // CONTROL: the same restore with no turn-off writes the marker and reads on.
+  const root2 = fresh(t);
+  const p2 = await pb.preview({ root: root2, remote: c });
+  assert.equal((await pb.switchOn(p2.ticket, true, { root: root2, remote: c, personalbackupkey: taken })).code, 'restore');
+  assert.equal((await pb.restore('CODE', { root: root2, remote: c, personalbackupkey: taken })).ok, true);
+  assert.equal(pb.state({ root: root2, personalbackupkey: taken }), 'on');
+});
