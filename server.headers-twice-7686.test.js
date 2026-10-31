@@ -309,10 +309,13 @@ test('#7686: a download the client cancels while the file is opened ends quietly
   /* Hold fstat's answer until the client has gone, so the callback runs with a destroyed response: the race of a
      cancelled download, made certain. Before review 6, pipeline() then threw, uncaught, in this callback. */
   const realFstat = fs.fstat;
+  const target = fs.statSync(file);
+  // Only a descriptor on THIS file (same device and inode), so board background work cannot take the hold (review 7).
+  const isTarget = (fd) => { try { const st = fs.fstatSync(fd); return st.dev === target.dev && st.ino === target.ino; } catch { return false; } };
   let held = 0;
   fs.fstat = function (fd, ...rest) {
     const cb = rest[rest.length - 1];
-    if (held === 0 && typeof cb === 'function' && typeof fd === 'number') {
+    if (held === 0 && typeof cb === 'function' && typeof fd === 'number' && isTarget(fd)) {
       held += 1;
       return realFstat.call(fs, fd, ...rest.slice(0, -1), (e, st) => setTimeout(() => cb(e, st), 200));
     }
