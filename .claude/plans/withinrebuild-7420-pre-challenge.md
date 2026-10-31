@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: withinrebuild-7420
-diff_hash: 15d9ce4b57d58c594cb30daeeed2fc9c1688502914ecfb2aced37ee2ee49d577
+diff_hash: ad446d02403167edb000bc40dd745a895792b2c1df0f92b766b66e1764f3fa56
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-31T19:00:04Z
+timestamp: 2026-10-31T19:27:30Z
 iterations: 4
 converged: false
 ---
@@ -27,6 +27,9 @@ Notes, stated plainly:
   iOS 26.5; the control (KOSMOS_SAMPLE_NOREBUILD=1) failed all 3 rebuild checks, so the checks can fail.
 - The phone cause of the empty list is NOT reproduced on the simulator; the UI checks call the real recovery through a
   debug hook. The card stays open for Josh's next report (Addresses, not Fixes).
+- CI on PR #7692 (first push): the "ui tests (sample board)" job ran all 19 UI checks with 0 failed, and failed only on
+  ui-sample.sh's per-class count (KeyboardSlideUITests ran 7, the script expected 3). The count is now 7. Then rebased
+  again onto main 026c2de6b1 (14 more commits, no conflicts): iOS LogicTests 1770/1770 and all 8 run-*.sh green.
 - A hyphen is used where the template shows an em dash (house rule).
 
 ### Per-Iteration Breakdown
