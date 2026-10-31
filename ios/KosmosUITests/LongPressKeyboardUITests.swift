@@ -69,6 +69,27 @@ final class LongPressKeyboardUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.exists, "Copy text lowered the keyboard")
     }
 
+    // Measures (does not judge) whether the Delete question, a system alert, lowers the keyboard: printed as MEASURE for the
+    // run log. Keep it closes the question; the message stays.
+    func testDeleteQuestionWithTheKeyboardUp() throws {
+        let app = try launch()
+        let mine = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ": Great. What is left?")).firstMatch
+        XCTAssertTrue(mine.waitForExistence(timeout: 20), "the person's message is not in the chat")
+        try KeyboardSlideUITests.keyboardUp(app, box(app), mine, shot: "keyboard up", test: self)
+        mine.press(forDuration: 0.8)
+        let delete = app.buttons["Delete message"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "no Delete on the person's own message")
+        delete.tap()
+        XCTAssertTrue(app.buttons["Keep it"].waitForExistence(timeout: 5), "Delete did not ask first")
+        shot(app, "delete question, keyboard up")
+        print("MEASURE delete-question keyboard-up-while-asking=\(app.keyboards.firstMatch.exists)")
+        app.buttons["Keep it"].tap()
+        XCTAssertTrue(app.buttons["Keep it"].waitForNonExistence(timeout: 5), "the question did not close")
+        Thread.sleep(forTimeInterval: 1)
+        print("MEASURE delete-question keyboard-up-after-keep-it=\(app.keyboards.firstMatch.exists)")
+        XCTAssertTrue(mine.exists, "Keep it removed the message")
+    }
+
     // The control: with the keyboard down, the long press opens the sheet as before (#7419), not the panel.
     func testKeyboardDownStillOpensTheSheet() throws {
         let app = try launch()
