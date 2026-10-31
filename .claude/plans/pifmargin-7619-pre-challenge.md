@@ -17,16 +17,40 @@ converged: true
 **Mutant:** the tool's kill replaced by a bare CONT (tools/prove-it-fails.sh:123), run on a copy of the final test: 7 red, 2 green
 (the ordinary run and the colleague-edit arm, which do not depend on the kill), 0 sleep 300 or test processes left before or after.
 
-### Rounds (the fix commit for each is in the branch log)
-- 1 to 5: bounds for load, the 50 cap, a failed arm ends the tool's whole tree, real pids only, the runner recorded.
-- 3: a real regression (an uncancelled race timer held the file 66 s), fixed at c198fed65f.
-- 6: cleanups only on a failing arm (a passing arm could otherwise hit a reused pid); wait on 'close'; the runner checked
-  gone; the pause cut from 20 s to 8 s.
-- 7: a failing arm ends the tree as the signal landed; cleanup signals only sleep, node or bash; the ordinary arm has a timeout.
-- 8: the forker checked gone and the list read again; the tree read in one ps (one pgrep per process let the signal
-  land on a finished forker under load). Not re-reviewed.
+### Per-Iteration Breakdown (the fix commit for each round is in the branch log)
+
+#### Iteration 1 to 2
+- [WARNING] bounds too short for a loaded machine (10 s death wait) --> FIXED (60 s, raced)
+- [WARNING] an arm awaiting the tool's exit hung up to 300 s on a missed kill --> FIXED (raced against END_WITHIN_MS)
+
+#### Iteration 3
+- [BLOCKER] the uncancelled race timer held the file open 60 s after every arm (66 s file) --> FIXED (c198fed65f)
+- [WARNING] start-up waits not bounded for load --> FIXED (shared 60 s start bound)
+
+#### Iteration 4
+- [WARNING] pid files read before written (0 read as a pid) --> FIXED (pidIn)
+- [WARNING] the runner not recorded --> FIXED
+- [WARNING] the colleague-edit arm did not check its test was gone --> FIXED
+
+#### Iteration 5
+- [WARNING] a failed arm ended only the pids it recorded --> FIXED (the tool's whole tree)
+
+#### Iteration 6
+- [WARNING] cleanup on a passing arm could signal a reused pid --> FIXED (pid cleanups only when the arm failed)
+- [WARNING] output matched at 'exit', before stdio drained --> FIXED (wait on 'close')
+- [NIT] the 20 s pause arm always waits it out --> FIXED (8 s)
+- [NIT] the runner never asserted gone --> FIXED
+
+#### Iteration 7
+- [WARNING] a tool that exits without ending its test skipped the tree hook --> FIXED (tree snapshotted at the signal)
+- [WARNING] a failing arm's cleanup could signal a reused pid --> FIXED (only sleep, node or bash)
+- [NIT] the ordinary arm had no timeout --> FIXED
+
+#### Iteration 8 (the cap)
+- [WARNING] a surviving forker could let the forker arm pass and leak --> FIXED (forker checked, list read again), NOT re-reviewed
+- [WARNING] one pgrep per process let the signal land on a finished forker under load --> FIXED (one ps read), NOT re-reviewed
 
 ### Left as NITs (not carded: none changes what the test can catch)
-- A pid reused within seconds and still a sleep, node or bash could take a failing arm's TERM (start time not compared).
-- A sleep forked between the forker's fork and its echo is not in the list (the tool's tree walk still ends it).
-- The tool leaves its output temp file when a failing arm SIGKILLs it.
+- [NIT] A pid reused within seconds and still a sleep, node or bash could take a failing arm's TERM (start time not compared).
+- [NIT] A sleep forked between the forker's fork and its echo is not in the list (the tool's tree walk still ends it).
+- [NIT] The tool leaves its output temp file when a failing arm SIGKILLs it.
