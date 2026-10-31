@@ -2352,6 +2352,10 @@ struct KeyboardHold: UIViewRepresentable {
         private var shown = false   // a keyboard is up (did-show until will-hide): no reading is kept then
         private var fullWatch: NSKeyValueObservation?
         private static func showing(_ sv: UIScrollView) -> CGFloat { sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom }
+        // kosmos#7645 round 4: the scroll's numbers for the record (points only), to tell a moved reading from rows re-laid under it.
+        static func numbers(_ sv: UIScrollView) -> String {
+            "y \(Int(sv.contentOffset.y)), content \(Int(sv.contentSize.height)), showing \(Int(showing(sv)))"
+        }
         private func noteOffset(_ sv: UIScrollView) {
             let h = Self.showing(sv)
             let finger = sv.isTracking || sv.isDragging || sv.isDecelerating
@@ -2378,6 +2382,7 @@ struct KeyboardHold: UIViewRepresentable {
             let moved = sv.contentOffset.y - g.kept.y   // how far iOS moved it, the one number the record keeps
             ChatView.trace("keyboard hold: put back \(Int(moved))")
             sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: g.kept.y)
+            ChatView.trace("keyboard hold: now \(Self.numbers(sv))")
             onPutBack()
         }
         // Review 1: only where it was measured (iOS 26, which moves the list; 27 does not, so it is a no-op there). On 16 to
@@ -2407,6 +2412,7 @@ struct KeyboardHold: UIViewRepresentable {
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self, let sv = self.scroll else { return }
                 // A keyboard already up (a second will-show, say for the emoji panel) keeps the first reading.
+                ChatView.trace("keyboard hold: will-show \(Self.numbers(sv))" + (self.beforeShrink.map { "; last reading y \(Int($0.y))" } ?? ""))
                 if self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating {
                     var y = sv.contentOffset.y, above = self.above
                     let b = self.beforeShrink
@@ -2440,7 +2446,10 @@ struct KeyboardHold: UIViewRepresentable {
                     DispatchQueue.main.async { self?.putBack(sv) }
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.window + 0.05) { [weak self] in
-                    if let self, self.generation == mine { self.endGuard() }
+                    if let self, self.generation == mine {
+                        if let sv = self.scroll { ChatView.trace("keyboard hold: window ended \(Self.numbers(sv))") }
+                        self.endGuard()
+                    }
                 }
             })
             // A keyboard that hides before it finished showing leaves nothing held.
