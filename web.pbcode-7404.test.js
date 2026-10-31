@@ -94,7 +94,7 @@ test('Print puts the code on this page for the print only, and takes it off afte
   doc.getElementById = ((get) => (id) => (id === 'pb-printout' ? out : get(id)))(doc.getElementById.bind(doc));
   const listeners = {};
   let atPrint = null;
-  ctx.window = { addEventListener: (t, fn) => { listeners[t] = fn; }, print: () => { atPrint = { text: out.textContent, printing: doc.body.classList.contains('pb-printing') }; } };
+  ctx.window = { addEventListener: (t, fn) => { listeners[t] = fn; }, removeEventListener: (t) => { delete listeners[t]; }, print: () => { atPrint = { text: out.textContent, printing: doc.body.classList.contains('pb-printing') }; } };
   ctx.setTimeout = () => 0;
   vm.runInContext(liftAll(SCRIPT, ['pbPrint']), ctx);
   ctx.pbShowCode({ recoveryCode: CODE, org: 'o', member: 'm' });
@@ -131,7 +131,7 @@ function printSetup(ctx) {
 }
 test('a print that throws empties the printout at once and says so', () => {
   const { ctx, el } = load({ ok: true });
-  ctx.window = { addEventListener: () => {}, print: () => { throw new Error('blocked'); } };
+  ctx.window = { addEventListener: () => {}, removeEventListener: () => {}, print: () => { throw new Error('blocked'); } };
   const out = printSetup(ctx);
   ctx.pbShowCode({ recoveryCode: CODE, org: 'o', member: 'm' });
   ctx.pbPrint();
@@ -141,7 +141,7 @@ test('a print that throws empties the printout at once and says so', () => {
 });
 test('hiding the panel empties a printout still waiting for afterprint', () => {
   const { ctx } = load({ ok: true });
-  ctx.window = { addEventListener: () => {}, print: () => {} };   // no afterprint ever comes
+  ctx.window = { addEventListener: () => {}, removeEventListener: () => {}, print: () => {} };   // no afterprint ever comes
   const out = printSetup(ctx);
   ctx.pbShowCode({ recoveryCode: CODE, org: 'o', member: 'm' });
   ctx.pbPrint();
