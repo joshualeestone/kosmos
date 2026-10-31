@@ -28,6 +28,15 @@ Every `res.writeHead(` in server.js was read in context (40 on main; 39 on this 
 - `sendFileStream` and `sendFileDownload` close the descriptor and end the response if opening the stream throws
   after the head (review 5 found the second; in an fs callback that throw is an uncaught exception, so the board died
   there too).
+- A cancelled download (review 6): when the client leaves while `sendFileDownload` opens and checks the file, its fs
+  callback met a destroyed response, and `pipeline` throws at once on one (measured, Node 26), uncaught in that
+  callback. It now closes the descriptor and returns before any head; its `pipeline` is also wrapped. The two cover
+  each other, so the test goes red only with both removed.
+- `sendFileStream`'s `pipeline` is wrapped the same way, as a DEFENSIVE guard no test pins: on the preview path its
+  `'data'` listener makes the stream flow and close its own descriptor, and the throw reaches the route's catch, so
+  the guard changes nothing observable there (mutation measured: green). It matters for a synchronous caller (the
+  attachment download route), where the throw would be unhandled; a synchronous route cannot be delayed
+  deterministically in a test, so it is stated here rather than claimed tested.
 - `sendJson` serialises before its head (review 4). That is also what keeps the `try { sendJson(200, x) } catch {
   ... 500 }` pattern working, the agents route's own catch-500 included: do not move the serialise back after the
   head.
@@ -38,7 +47,7 @@ Every `res.writeHead(` in server.js was read in context (40 on main; 39 on this 
   guard that rests on one runtime's behaviour is the wrong kind of guard.
 
 ## Test
-`server.headers-twice-7686.test.js`, ten tests. Unhandled rejections are recorded (each test reads only its own) rather
+`server.headers-twice-7686.test.js`, twelve tests. Unhandled rejections are recorded (each test reads only its own) rather
 than left to end the test process.
 - **The 10-31 crash path, end to end:** a throw after the preview's head, from outside sendFileStream's own catch,
   reaches the route's `.catch(() => sendJson(...))`. Asserted: the guard's log line, no rejection, a cut response, and
@@ -53,6 +62,9 @@ than left to end the test process.
   checks the log names the route with no query); a response that already ENDED is not destroyed; a value sendJson
   cannot serialise throws before any head.
 - A source test: every `as=text` `fail` closure answers through sendText and writes no head of its own.
+- A download the client cancels while the file is opened (fstat held until the client has gone): nothing escapes, no
+  descriptor stays open, and the board answers after. And a preview cancelled while it is drawn: the same.
+- A file-level check that nothing escaped anywhere in the file, including outside any one test's window.
 - Controls: each injection is asserted to have fired, and the preview answers 200 before each failure.
 - Each guard (answeredAlready, refuseDownload's use of it, sendText's, sendFileStream's open catch) turns its own test
   red under mutation.

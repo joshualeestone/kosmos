@@ -44,10 +44,20 @@ const attachments = require('./engine/attachments');
 const projects = require('./engine/projects');
 
 test.before(async () => { await start(0); });
-test.after(() => { try { server.closeAllConnections(); server.close(); } catch { /* best effort */ } });
+test.after(() => {
+  try { server.closeAllConnections(); server.close(); } catch { /* best effort */ }
+  // Review 6: nothing escaped anywhere in the file, including late, outside any one test's window.
+  assert.deepEqual(unhandled.map((e) => String(e && (e.code || e.message))), [], 'an exception or rejection escaped during this file');
+});
 
 const port = () => server.address().port;
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+/** fn() true within ms (descriptors close asynchronously after a stream ends). */
+async function until(fn, ms = 2000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { if (fn()) return true; await wait(20); }
+  return fn();
+}
 /** How many of this process's open descriptors are on `file` (as server.attachment-stream-6734.test.js counts). */
 function fdsOn(file) {
   const st = fs.statSync(file);
@@ -107,7 +117,7 @@ test('#7686: a preview whose stream cannot open after its head closes the descri
   // The broken response is ended (cut), never left open and never answered with a second head.
   assert.equal(first, 'cut', 'the response after the failure was ' + first + ', not ended');
   // And the descriptor the stream never took is closed (review 1: surviving the failure must not leak one).
-  assert.equal(fdsOn(rec.file), 0, 'the failed preview left ' + fdsOn(rec.file) + ' descriptor(s) open on the file');
+  assert.ok(await until(() => fdsOn(rec.file) === 0), 'the failed preview left ' + fdsOn(rec.file) + ' descriptor(s) open on the file');
   // And the board still answers.
   assert.equal(await get(`/api/attachment/${rec.id}/preview`), 200, 'the board stopped answering after the failure');
 });
@@ -262,7 +272,7 @@ test('#7686: a project download whose stream cannot open after its head closes t
   assert.equal(thrown, 1, 'CONTROL: the failure was never injected, so this test proves nothing');
   assert.deepEqual(unhandled.slice(before).map((e) => String(e && (e.code || e.message))), [], 'an exception escaped the download (it ends the board)');
   assert.equal(first, 'cut', 'the download after the failure was ' + first + ', not ended');
-  assert.equal(fdsOn(file), 0, 'the failed download left ' + fdsOn(file) + ' descriptor(s) open on the file');
+  assert.ok(await until(() => fdsOn(file) === 0), 'the failed download left ' + fdsOn(file) + ' descriptor(s) open on the file');
   assert.equal(await get(url), 200, 'the board stopped answering');
 });
 
@@ -277,4 +287,55 @@ test('#7686: every as=text `fail` closure answers through sendText and writes no
     assert.match(body, /sendText\(res, status/, 'a fail closure does not answer through sendText:\n' + body);
     assert.doesNotMatch(body, /res\.writeHead\(/, 'a fail closure writes a head itself:\n' + body);
   }
+});
+
+/** Send a GET on a fresh connection and abort it 50 ms later, so the server meets a destroyed response later. A timer,
+ *  not the socket's 'connect' event: a reused keep-alive socket never emits one. */
+function getAndAbort(p) {
+  return new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port: port(), path: p, agent: false });
+    req.on('error', () => {});
+    setTimeout(() => { req.destroy(); resolve(); }, 50);
+  });
+}
+
+test('#7686: a download the client cancels while the file is opened ends quietly, and the board keeps answering', async () => {
+  const folder = fs.mkdtempSync(path.join(process.env.AGENT_WORKFORCE_PROJECTS, 'dlabort-'));
+  const file = path.join(folder, 'big.bin');
+  fs.writeFileSync(file, crypto.randomBytes(256 * 1024));
+  const p = projects.create({ name: 'Abort 7686', folder, agents: [], roster: [] });
+  const url = '/api/project/' + encodeURIComponent(p.id) + '/file-download?name=big.bin';
+  const before = unhandled.length;
+  /* Hold fstat's answer until the client has gone, so the callback runs with a destroyed response: the race of a
+     cancelled download, made certain. Before review 6, pipeline() then threw, uncaught, in this callback. */
+  const realFstat = fs.fstat;
+  let held = 0;
+  fs.fstat = function (fd, ...rest) {
+    const cb = rest[rest.length - 1];
+    if (held === 0 && typeof cb === 'function' && typeof fd === 'number') {
+      held += 1;
+      return realFstat.call(fs, fd, ...rest.slice(0, -1), (e, st) => setTimeout(() => cb(e, st), 200));
+    }
+    return realFstat.call(fs, fd, ...rest);
+  };
+  try { await getAndAbort(url); await wait(400); } finally { fs.fstat = realFstat; }
+  assert.equal(held, 1, 'CONTROL: the download never reached fstat, so this test proves nothing');
+  assert.deepEqual(unhandled.slice(before).map((e) => String(e && (e.code || e.message))), [], 'an exception escaped the cancelled download (it ends the board)');
+  assert.ok(await until(() => fdsOn(file) === 0), 'the cancelled download left ' + fdsOn(file) + ' descriptor(s) open');
+  assert.equal(await get(url), 200, 'the board stopped answering');
+});
+
+test('#7686: a preview the client cancels while it is drawn closes its descriptor', async () => {
+  const bytes = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), crypto.randomBytes(256 * 1024)]);
+  const rec = attachments.save('agent', 'ava', { name: 'gone.png', type: 'image/png', bytes });
+  const before = unhandled.length;
+  const realPreview = attachments.previewFile;
+  let held = 0;
+  // The preview is drawn asynchronously; hold its answer until the client has gone.
+  attachments.previewFile = async (...a) => { held += 1; const pv = await realPreview(...a); await wait(200); return pv; };
+  try { await getAndAbort(`/api/attachment/${rec.id}/preview`); await wait(400); } finally { attachments.previewFile = realPreview; }
+  assert.equal(held, 1, 'CONTROL: the preview was never drawn, so this test proves nothing');
+  assert.deepEqual(unhandled.slice(before).map((e) => String(e && (e.code || e.message))), [], 'a rejection escaped the cancelled preview');
+  assert.ok(await until(() => fdsOn(rec.file) === 0), 'the cancelled preview left ' + fdsOn(rec.file) + ' descriptor(s) open');
+  assert.equal(await get(`/api/attachment/${rec.id}/preview`), 200, 'the board stopped answering');
 });
