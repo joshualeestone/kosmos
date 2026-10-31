@@ -63,3 +63,13 @@ the agent's pane and a later prompt to that agent is then read as pane-busy and 
   - W1 and W3 as rounds 1 and 2 (one chain, delayed never lost; a deadline books the task), stated in the code. A
     restart also drops prompts still waiting on the chain (in memory, never double-sent).
   - N the built route still passes its own roster (a fallback it already has); the close route passes none.
+- Round 4 (Sonnet, the branch on top of #7611): no BLOCKER. Fixed:
+  - W3 (raised in three rounds) the chain was pinned only by source text: server.taskdone-chain-7649.test.js runs it
+    through a test hook (_promptCommunityOnTaskDoneForTest) with the engine's sender stood in for: a second mark starts
+    only after the first finished, and a failing prompt does not stop the next. Mutant (no chain, the prompt called
+    directly): the ordering test is red. A "control" test that only showed the stand-in can overlap was dropped: it
+    never touched the server.
+  - W2 the chain's comment now says a restart drops the prompts still waiting on it (in memory; none sent twice).
+  Decided: W1 as before (one chain, delayed never lost); the task-done prompt does not re-check idleness at its turn,
+  by design: it exists to reach agents busy between tasks (#5216 queues it); a deadline logs as an ordinary
+  unconfirmed delivery.

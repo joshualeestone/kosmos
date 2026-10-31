@@ -1322,7 +1322,9 @@ function agentInCommunity(session) {
    kosmos#7649: the delivery is awaited, so typing into the pane no longer holds the event loop after the
    200. Each prompt reads the book, delivers, and writes the book back, so two running at once could both
    pass the dedup (one task prompted twice) and the later write could drop the earlier one's entry. So
-   every prompt waits for the one before it on TASK_DONE_CHAIN: one at a time, in the order the marks came. */
+   every prompt waits for the one before it on TASK_DONE_CHAIN: one at a time, in the order the marks came. The chain
+   is in memory: a board restart drops the prompts still waiting on it (none is sent twice; a dropped one is not sent).
+   server.taskdone-chain-7649.test.js runs it. */
 let TASK_DONE_CHAIN = Promise.resolve();
 function promptCommunityOnTaskDone(args) {
   const next = TASK_DONE_CHAIN.then(() => promptCommunityOnTaskDoneNow(args));
@@ -28804,6 +28806,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
   _autobalanceSweepDepsForTest: autobalanceSweepDeps, // kosmos#7152 slice 3: the sweep's wiring, for its test
+  _promptCommunityOnTaskDoneForTest: promptCommunityOnTaskDone,   // kosmos#7649: the task-done chain, for its test
   _tellOwnBoundForTest: tellOwnBound, _ownBoundToldForTest: ownBoundTold, _ownboundsPushedForTest: ownboundsPushed, _ownboundsPushKeyForTest: ownboundsPushKey, // kosmos#7633: the stall push's own-bounds question, for its test
   _automoveDepsForTest: automoveDeps, _accountMoveDepsForTest: accountMoveDeps, // kosmos#7548: the mover's wiring, for its test
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
