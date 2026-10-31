@@ -20,9 +20,8 @@ const undo = require('./undo');
 const taskchat = require('./taskchat');
 const store = require('./store');
 
-// Yesterday's date (UTC), not a fixed day: undo.plan() reads the real clock by default and flags a first copy older than
-// KEEP_DAYS (30) as incomplete, so a fixed 2026-10-01 began failing at 2026-10-31T10:10Z, edit by edit through the day.
-// Yesterday keeps every time below in the past and inside the window, whatever day the suite runs.
+// Yesterday's date (UTC), not a fixed day: undo.plan() reads the real clock by default, and a hold older than KEEP_DAYS
+// is incomplete. Yesterday keeps every time below in the past and inside the window, whatever day the suite runs.
 const DAY = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 const T = (hhmm) => `${DAY}T${hhmm}:00.000Z`;
 const ms = (hhmm) => Date.parse(T(hhmm));
