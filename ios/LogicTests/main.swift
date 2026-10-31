@@ -4969,7 +4969,7 @@ do {
     check([nil, "end", "top", "m1"].map(Board.anchorKind) == ["none", "end", "top", "a message"], "the record names the anchor's kind, never a message's id")
     // kosmos#7645 round 5: the reader's row is the highest one wholly below the bar, by its own top on the screen.
     check(Board.readerRow(["a": 80, "b": 140, "c": 30, "d": 300], below: 100)! == ("b", 140), "the highest row whose top is below the bar")
-    check(Board.readerRow(["a": 100, "b": 99.7, "c": 99], below: 100)! == ("b", 99.7), "a row at the bar's edge counts; one a point under the bar does not")
+    check(Board.readerRow(["a": 100, "b": 99.7, "c": 99], below: 100)! == ("b", 99.7), "a row at the bar's edge counts; one a point behind the bar does not")
     check(Board.readerRow(["a": 50, "b": -400], below: 100)! == ("a", 50), "no row top below the bar (one long message): the row the reader is inside")
     check(Board.readerRow([:], below: 100) == nil, "none drawn: nothing to hold")
     check(Board.readerRow(["m2": 140, "m1": 140], below: 100)! == ("m1", 140), "a tie is broken the same way every time")
