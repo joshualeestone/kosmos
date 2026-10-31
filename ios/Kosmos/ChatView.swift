@@ -2304,12 +2304,13 @@ struct PersonScroll: ViewModifier {
 // up moved the conversation (the reader's row 149 to 186..225, or off the screen), with the side lock and with the id
 // anchor each switched off, so it is iOS 26's own keyboard handling; iOS 27 keeps the row where it was. Not caused here,
 // so not prevented here: undone. When the keyboard starts to show while the reader is not at the newest message (`hold`),
-// the reader's row (the highest one wholly below the top inset) and where it is on the screen are kept, and once the
-// keyboard is up that row is put back where it was if it moved and nobody is scrolling. At the newest message the chat's
+// the reader's row (the highest one whose top is at or below the top inset), its place in the content and the scroll
+// offset are kept; once the keyboard is up the offset is put at that offset plus how far the row moved in the content, so
+// the row is where it was on the screen, if nobody is scrolling. At the newest message the chat's
 // own keep (keepNewestInView) moves it on purpose, so nothing is held then. KOSMOS_SAMPLE_NOKBHOLD=1 (Debug) is the control.
 // kosmos#7645 (CI round 4, 10-30): the hold used to keep the scroll OFFSET, and on CI's runner the rows above were measured
 // again as the keyboard rose (content 14008 to 15249 pt): the same offset was then another place, and putting it back moved
-// the row off the screen. A row's own position on the screen does not change meaning when heights above are re-measured.
+// the row off the screen. A row's place in the content moves with the heights above it, so following it does not.
 struct KeyboardHold: UIViewRepresentable {
     let hold: Bool
     // Review 1: how many rows of earlier pages the chat holds. A change between will-show and the put-back ends the hold.
@@ -2438,7 +2439,14 @@ struct KeyboardHold: UIViewRepresentable {
                 })
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.window + 0.05) { [weak self] in
                     if let self, self.generation == mine {
-                        if let sv = self.scroll { ChatView.trace("keyboard hold: window ended \(Self.numbers(sv))") }
+                        if let sv = self.scroll {
+                            ChatView.trace("keyboard hold: window ended \(Self.numbers(sv))")
+                            // A move the row's readings never reported would leave it off its place: the record says by how much.
+                            if let r = rows.y[kept.row] {
+                                let moved = sv.contentOffset.y - (kept.offset + (CGFloat(r.content) - kept.content))
+                                if abs(moved) > 1 { ChatView.trace("keyboard hold: window ended off the row's place by \(Int(moved))") }
+                            }
+                        }
                         self.endGuard()
                     }
                 }
