@@ -701,6 +701,16 @@ enum Board {
     static func sortButtonLabel(_ order: String) -> String { "Sort: \(order)" }
     // A saved choice: one of the eight, or the phone's older "board" (its Needs you first), else the default.
     static func agentSort(saved: String) -> AgentSort { saved == "board" ? .needs : AgentSort(rawValue: saved) ?? agentSortDefault }
+    // kosmos#7684 (Josh 10-31: open on Last talked to, starred on top): a phone that saved a sort before this build (its
+    // older "board", Needs you first, or any other) never saw the new default, so once, the first launch of a build with
+    // this, the saved sort is forgotten and the Agents list opens on agentSortDefault. A choice made after that is kept.
+    static let agentSortKey = "kosmos.agentSort"
+    static let agentSortResetKey = "kosmos.agentSortReset7684"
+    static func resetOldAgentSort(_ d: UserDefaults) {
+        guard !d.bool(forKey: agentSortResetKey) else { return }
+        d.removeObject(forKey: agentSortKey)
+        d.set(true, forKey: agentSortResetKey)
+    }
 
     // The model line the desktop's order reads (web/index.html sortAgents: tileModelLine over modelLine), ported branch
     // for branch so an agent groups with the same model on both: a stopped agent names the model its job will start on;

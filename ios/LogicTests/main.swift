@@ -4986,6 +4986,20 @@ do {
           "a top exactly at the bottom of what shows is below the screen; one just above it counts")
     check(Board.readerRow(["next": 700], below: 100, above: 600) == nil && Board.readerRow([:], below: 100, above: 600) == nil, "only rows below the screen, or none drawn: nothing to hold")
     check(Board.readerRow(["m2": 140, "m1": 140], below: 100, above: 600)! == ("m1", 140), "a tie is broken the same way every time")
+    // kosmos#7684: a sort saved before this build is forgotten once; a choice made after that is kept.
+    do {
+        let d = UserDefaults(suiteName: "kosmos-logic-7684-\(UUID().uuidString)")!
+        d.set("board", forKey: Board.agentSortKey)
+        Board.resetOldAgentSort(d)
+        check(d.string(forKey: Board.agentSortKey) == nil && Board.agentSort(saved: d.string(forKey: Board.agentSortKey) ?? Board.agentSortDefault.rawValue) == .talked,
+              "an old saved \"board\" is forgotten: the list opens on Last talked to")
+        d.set("name", forKey: Board.agentSortKey)
+        Board.resetOldAgentSort(d)
+        check(d.string(forKey: Board.agentSortKey) == "name", "a choice made after the reset is kept (the reset runs once)")
+        let fresh = UserDefaults(suiteName: "kosmos-logic-7684b-\(UUID().uuidString)")!
+        Board.resetOldAgentSort(fresh)
+        check(fresh.string(forKey: Board.agentSortKey) == nil && fresh.bool(forKey: Board.agentSortResetKey), "a phone with nothing saved is only marked")
+    }
     // kosmos#7420: where an empty chat's scroll sits against its content.
     check(Board.scrollPlace(offset: 400, content: 2000, view: 700, insetTop: 0, insetBottom: 80) == ("within", 0, 1380), "a scroll inside the content is within; its end counts the bottom inset")
     check(Board.scrollPlace(offset: 1380, content: 2000, view: 700, insetTop: 0, insetBottom: 80).place == "within", "at the end exactly is within")

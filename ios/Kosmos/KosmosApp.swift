@@ -13,6 +13,9 @@ struct KosmosApp: App {
     // UIApplicationDelegate, not SwiftUI) reach the app.
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+    // kosmos#7684: once, before any view reads it, a sort saved before this build is forgotten (Board.resetOldAgentSort).
+    init() { Board.resetOldAgentSort(UserDefaults.standard) }
+
     var body: some Scene {
         WindowGroup {
             ContentView(pushManager: appDelegate.pushManager)
