@@ -92,3 +92,5 @@ the agent's pane and a later prompt to that agent is then read as pane-busy and 
   communitytaskdone.promptOnTaskDone as exported, tested and reachable from nowhere (the board now calls only the async
   sender). Excused as a TEST_SEAM with its reason, and its source comment says the same: it is the reference the
   parity test compares the async path against. The full suite runs again once this branch is on main.
+- Rebased onto main after #7611 merged (a31068a301): the patch is identical to the reviewed one (patch-id 492546de14 on
+  both bases). Full suite on df0a9a0a1a PASSED: 26002 node tests, 0 fail; shell 4/4.
