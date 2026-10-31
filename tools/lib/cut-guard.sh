@@ -1387,7 +1387,7 @@ _kosmos_prepush_turn_fresh() {
   f="$(_kosmos_prepush_turn_file)"
   [ -s "$f" ] || return 1   # no turn, or an empty one: no build holds it
   # macOS stat (where the hook runs); GNU stat's -f means something else, so it is asked only off macOS.
-  if [ "$(uname -s 2>/dev/null)" = Darwin ]; then m="$(stat -f %m "$f" 2>/dev/null)"; else m="$(stat -c %Y "$f" 2>/dev/null)"; fi
+  if [ "$(uname -s 2>/dev/null)" = Darwin ]; then m="$(stat -f %m "$f" 2>/dev/null)"; else m="$(stat -c %Y "$f" 2>/dev/null)"; fi   # gnu-ok: stat -c runs only off macOS (the Darwin branch uses stat -f)
   case "$m" in ''|*[!0-9]*) return 1 ;; esac
   now="$(date +%s)"; age=$(( now - m ))
   [ "$age" -lt "$lim" ] || return 1
