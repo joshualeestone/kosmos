@@ -27,9 +27,9 @@ offset or the content height, so this has not been checkable.
   end unless the person is scrolling. A later empty list in the same chat (and the 1.5 s check after the first) is put
   right ONLY when its scroll is past the content's end and nobody is scrolling: before the top may be a bounce, and a false
   empty reading (onScreen counts onAppear) must never pull a resting reader to the newest message. "Scrolling" is
-  personScrolling (iOS 18+) or ScrollBox.underFinger (UIKit's tracking, dragging or decelerating, every iOS). After going
-  to the newest message, "end" is named again on the next turn (queued after goNewest's own put-back) in case the direct
-  offset write made SwiftUI write a row into the binding, unless the person is scrolling by then. A repeat's trace line goes to the
+  personScrolling (iOS 18+) or ScrollBox.underFinger (UIKit's tracking, dragging or decelerating, every iOS). After a direct
+  offset write only, "end" is named again on the next turn (after goNewest's own put-back) in case that write made
+  SwiftUI write a row into the binding, unless the person is scrolling by then. A repeat's trace line goes to the
   in-memory record too, so a later report in the same app run (a width report, or a new chat after a computer change) can
   show it under recent events; it carries no text or ids. The room suite checks the wiring by its source text.
 
@@ -39,8 +39,8 @@ offset or the content height, so this has not been checkable.
 - More rows on screen by eager drawing: undoes #7265 (the reason the id anchor exists).
 
 ## Weakest premise
-MEASURED AGAINST (see the end): on the simulator a scroll put past the end is put right before the list empties.
-That the empty list is an offset outside the content. If the next report says "within" while empty, the cause is drawing,
+The premise is that the empty list is an offset outside the content. The simulator measurement at the end weakens it:
+there, a scroll put past the end was put right before the list emptied. If the next report says "within" while empty, the cause is drawing,
 not position, and the clamp does nothing (harmlessly). Either way the report now answers it.
 A caveat on reading "within": UIScrollView may itself pull an offset back inside when the content or view size changes while
 nobody drags, so an at-rest "within" while empty does not by itself prove the cause is drawing; it shows the offset was
