@@ -520,7 +520,12 @@ let allowedInTrace: Set<String> = ["atBottom", "earlier.filling", "earlier.loadi
     "endVisible", "fresh.olderCount", "fresh.rows.count", "Int(diagKeyboard)", "Int(now.height)", "Int(now.width)", "mine",
     "personScrolling", "phase == .active ? \"active\" : phase == .background ? \"background\" : \"inactive\"", "pinned", "settledAtEnd", "why",
     "Int(x.rounded())", "self.shifts",   // build 16: the stack's width and a sideways offset, both numbers
-    "Int(moved)"]   // kosmos#7609: how far iOS 26 moved the list when the keyboard came up (a number of points)
+    "Int(moved)",   // kosmos#7609: how far iOS 26 moved the list when the keyboard came up (a number of points)
+    "Board.anchorKind(positionId)",   // kosmos#7645: the anchor's kind (none, end, top, a message), never its id
+    "Self.numbers(sv)"]   // kosmos#7645 round 4: the scroll's offset, content height and showing height, in points
+// kosmos#7645: Self.numbers(sv) is admitted by name, so its body is pinned here: three Int(...) point values and fixed words. Change
+// this line with that function.
+check(chatSource.contains("\"y \\(Int(sv.contentOffset.y)), content \\(Int(sv.contentSize.height)), showing \\(Int(sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom))\""), "kosmos#7645: the hold's numbers in the record are three point values and nothing else")
 var tracedValues: [String] = []
 for l in traceLines {
     var rest = Substring(l)
