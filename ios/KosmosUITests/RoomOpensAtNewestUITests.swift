@@ -40,8 +40,11 @@ final class RoomOpensAtNewestUITests: XCTestCase {
         XCTAssertTrue(Self.box(app).waitForExistence(timeout: 30), "no message box")
         let any = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'")).firstMatch
         XCTAssertTrue(any.waitForExistence(timeout: 15), "no posts of the 220-post room")
-        any.swipeDown(velocity: .fast)
-        any.swipeDown(velocity: .fast)
+        // The room's own list (the one holding its posts), not a post: the first post found can be laid out off the screen.
+        let list = app.scrollViews.containing(NSPredicate(format: "label CONTAINS ' of 220.'")).firstMatch
+        XCTAssertTrue(list.exists && list.isHittable, "the room's list is not on screen")
+        list.swipeDown(velocity: .fast)
+        list.swipeDown(velocity: .fast)
         Thread.sleep(forTimeInterval: 3.5)   // past the last retry (2.3 s after the opening jump)
         let newest = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Post 220 of 220.'")).firstMatch
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = "room-220-scrolled-up-at-once"; a.lifetime = .keepAlways; add(a)
