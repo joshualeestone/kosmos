@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: dmsettle-7609
-diff_hash: 7228622d795e4fd8a4d29c6f8591728bfc6ec726c04736d35412fe600b751a99
+diff_hash: a5faec1e3771ec705e7a65b1062ee4c8f3969d0337cd6c9483882772c6c09744
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-31T13:09:39Z
@@ -29,6 +29,12 @@ converged: true
   of the DM keyboard checks across seven batches, 55 passed; the one failure was the sample's debug scroll under load 41,
   before the hold ran (recorded in the plan).
 - The rounds' reviewers ran while some of those simulator batches ran; no edit was made during a batch after round 5.
+
+### After the review: rebased onto main with #7669 (stated so the hash is not read as covering a reviewed diff)
+10-31 08:2x CDT. PR #7675 showed CONFLICTING: #7669 (merged after this branch's last rebase) added its scrollPlace and
+emptyRecovery checks in ios/LogicTests/main.swift where this branch added bandFraction and settleOffset's. Resolved by keeping
+both blocks; no app code conflicted. After the rebase: LogicTests 1766/1766 (1750 plus #7669's 16) and room 743/743. The
+hash above is on the new base (it was 7228622d79... before, the one full validation passed on).
 
 ### Per-Iteration Breakdown
 
