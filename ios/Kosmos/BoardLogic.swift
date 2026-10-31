@@ -960,6 +960,21 @@ enum Board {
         return r
     }
 
+    // kosmos#7677 (Josh 10-31): an agent's picture kept on the iPhone is fetched again only when the board's avatarVer for it
+    // changed, when none is kept, or when the kept one is a day old (the backstop for a picture changed without a new version).
+    static let avatarRefresh: TimeInterval = 24 * 3600
+    static func avatarNeedsFetch(keptVer: String?, fetchedAt: Date?, ver: String, now: Date) -> Bool {
+        guard let kept = keptVer, kept == ver, let at = fetchedAt else { return true }
+        return now.timeIntervalSince(at) >= avatarRefresh || now < at
+    }
+    // kosmos#7677: the folder name for one computer's kept pictures: its address in lower case, every character other than
+    // a letter, digit, dot or hyphen written as an underscore, so no address can name a path outside the folder.
+    static func avatarFolder(address: String) -> String {
+        let name = String(address.lowercased().unicodeScalars.map { c -> Character in
+            ("a"..."z").contains(c) || ("0"..."9").contains(c) || c == "." || c == "-" ? Character(c) : "_" })
+        return name.isEmpty || name.allSatisfy({ $0 == "." }) ? "_" : name
+    }
+
     // kosmos#7266 slice B: the person on this Mac, for the Settings tab's picture and the profile page. GET /api/you
     // answers { state, you: { name, ... } } (engine/you.js read); GET /api/you/avatar answers 200 with the picture, or
     // 204 when there is none.

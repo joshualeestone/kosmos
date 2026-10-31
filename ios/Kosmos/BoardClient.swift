@@ -57,6 +57,10 @@ final class BoardClient: ObservableObject {
         // kosmos#7337: this iPhone's device key (#7042's, from the sign-in), proved at each computer's gate. nil: none,
         // and the session is sent as before.
         var deviceKey: () -> SignIn.DeviceKey? = { nil }
+        // kosmos#7677: where agents' pictures are kept between launches, one folder per computer: the app's caches folder
+        // (iOS may empty it; the pictures are then fetched again), and a folder of their own in ios/LogicTests.
+        var avatars: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("agent-avatars", isDirectory: true)
     }
 
     @Published private(set) var phase: Phase = .starting
@@ -83,6 +87,9 @@ final class BoardClient: ObservableObject {
     // Agent pictures by session name, fetched through this client's own session (the board's route needs it).
     @Published private(set) var pictures: [String: Data] = [:]
     private var pictureVersions: [String: String] = [:]
+    // kosmos#7677: when each shown picture was fetched, and the computer whose kept pictures are loaded (nil: none yet).
+    private var pictureFetchedAt: [String: Date] = [:]
+    private var picturesLoadedFor: String?
     // The list is re-sorted when it appears and on pull to refresh; live updates keep the order (Mona's spec).
     private var resortNext = true
     // The first read that may apply the re-sort asked for: an older one, still in the air, may not.
@@ -373,7 +380,8 @@ final class BoardClient: ObservableObject {
             chosenMac = nil
             forgetYou()
             pictures = [:]
-            pictureVersions = [:]
+            pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil
+            try? FileManager.default.removeItem(at: env.avatars)   // kosmos#7677: no kept pictures once signed out
             forgetToday()   // kosmos#7030: no count or tasks while signed out
             cookies.removeCookies(since: .distantPast)
         }
@@ -452,7 +460,7 @@ final class BoardClient: ObservableObject {
         stars = nil
         pictureTask?.cancel()
         pictures = [:]
-        pictureVersions = [:]
+        pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil
         forgetYou()
         forgetChats()
         forgetToday()
@@ -1262,7 +1270,9 @@ final class BoardClient: ObservableObject {
     private var pictureTask: Task<Void, Never>?
     private var pictureFailures: [String: Int] = [:]
     private func fetchPictures(url: URL, _ gen: Int) async {
-        for agent in agents where agent.hasAvatar && pictureVersions[agent.session] != agent.avatarVer {
+        for agent in agents where agent.hasAvatar && Board.avatarNeedsFetch(keptVer: pictureVersions[agent.session],
+                                                                            fetchedAt: pictureFetchedAt[agent.session],
+                                                                            ver: agent.avatarVer, now: env.now()) {
             guard let request = Board.avatarRequest(mac: url, session: agent.session) else { continue }
             let result = await env.send(request)
             guard gen == generation, !Task.isCancelled else { return }
@@ -1271,17 +1281,66 @@ final class BoardClient: ObservableObject {
             if (200...299).contains(answer.statusCode) && isImage && !data.isEmpty {
                 pictures[agent.session] = data
                 pictureVersions[agent.session] = agent.avatarVer
+                pictureFetchedAt[agent.session] = env.now()
+                keepPicture(agent.session, data: data, ver: agent.avatarVer, at: env.now())
             } else if answer.statusCode == 404 {
-                // The Mac has no picture for it: not asked again until the version changes.
+                // The Mac has no picture for it: not asked again until the version changes (or a day passes).
+                pictures[agent.session] = nil
                 pictureVersions[agent.session] = agent.avatarVer
+                pictureFetchedAt[agent.session] = env.now()
+                dropKeptPicture(agent.session)
             } else {
                 // Anything else (the gate's sign-in page, a 5xx) is tried again on the next read, three times per
                 // version, then left until the version changes, so a failing route is not asked every 5 s.
                 let key = agent.session + "#" + agent.avatarVer
                 pictureFailures[key, default: 0] += 1
-                if pictureFailures[key, default: 0] >= 3 { pictureVersions[agent.session] = agent.avatarVer }
+                if pictureFailures[key, default: 0] >= 3 {
+                    // A kept picture of an earlier version stays shown; the next try is a newer version or tomorrow.
+                    pictureVersions[agent.session] = agent.avatarVer
+                    pictureFetchedAt[agent.session] = env.now()
+                }
             }
         }
+    }
+
+    // kosmos#7677: the kept pictures, one folder per computer (Board.avatarFolder), each agent's picture as <session>.img
+    // beside <session>.json ({"ver": avatarVer, "at": seconds since 1970}). A file that cannot be read is skipped, never
+    // shown: the picture is then fetched as before.
+    private func keptFolder(_ address: String) -> URL {
+        env.avatars.appendingPathComponent(Board.avatarFolder(address: address), isDirectory: true)
+    }
+    private func loadKeptPictures(_ address: String) {
+        picturesLoadedFor = address.lowercased()
+        let dir = keptFolder(address)
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return }
+        for name in names where name.hasSuffix(".json") {
+            let session = String(name.dropLast(5))
+            guard Board.isAgentSession(session),
+                  let meta = try? JSONSerialization.jsonObject(with: Data(contentsOf: dir.appendingPathComponent(name))) as? [String: Any],
+                  let ver = meta["ver"] as? String, let at = (meta["at"] as? NSNumber)?.doubleValue,
+                  let data = try? Data(contentsOf: dir.appendingPathComponent(session + ".img")), !data.isEmpty
+            else { continue }
+            // A picture already fetched in this run is newer than the kept one.
+            if pictures[session] == nil {
+                pictures[session] = data
+                pictureVersions[session] = ver
+                pictureFetchedAt[session] = Date(timeIntervalSince1970: at)
+            }
+        }
+    }
+    private func keepPicture(_ session: String, data: Data, ver: String, at: Date) {
+        guard let address = picturesLoadedFor, Board.isAgentSession(session) else { return }
+        let dir = keptFolder(address)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        guard (try? data.write(to: dir.appendingPathComponent(session + ".img"), options: .atomic)) != nil,
+              let meta = try? JSONSerialization.data(withJSONObject: ["ver": ver, "at": at.timeIntervalSince1970]) else { return }
+        try? meta.write(to: dir.appendingPathComponent(session + ".json"), options: .atomic)
+    }
+    private func dropKeptPicture(_ session: String) {
+        guard let address = picturesLoadedFor, Board.isAgentSession(session) else { return }
+        let dir = keptFolder(address)
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(session + ".json"))
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(session + ".img"))
     }
 
     // kosmos#7266 slice B. A read that fails keeps what was shown (review 4: and is tried again after youRetry).
@@ -1342,7 +1401,7 @@ final class BoardClient: ObservableObject {
         shownOwner = nil
         pictureTask?.cancel()
         pictures = [:]
-        pictureVersions = [:]
+        pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil
         agents = []
         stars = nil
         updatedAt = nil
@@ -1408,7 +1467,7 @@ final class BoardClient: ObservableObject {
         }
         // Another Mac: its agents' pictures are its own, even for an agent of the same name.
         // Another Mac: its pictures and the chats (opened on the one before) go now, before any chat call reaches it.
-        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; forgetYou(); forgetChats(); forgetToday() }
+        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil; forgetYou(); forgetChats(); forgetToday() }
         failedRefreshes = 0
         while !Task.isCancelled && gen == generation {
             guard await refresh(url: url, mac: mac, gen) else { return }
@@ -1637,6 +1696,8 @@ final class BoardClient: ObservableObject {
             // Stars are taken only with the re-sort they were read for, so Today never orders by stars the list is not.
             if sorting, let names, starsReadStillGood(since: starEventsAtStart) { stars = (mac.address, names) }   // kosmos#7034 review 1: never undo a press
             let known = stars?.mac == mac.address ? stars?.names : nil
+            // kosmos#7677: this computer's kept pictures, in place before its first list in a run is shown.
+            if picturesLoadedFor != mac.address.lowercased() { loadKeptPictures(mac.address) }
             agents = sorting ? Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known) : Board.keepingOrder(agents, with: rows, stars: known, sort: agentSort, projects: sortProjects)
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
             tasksTab = AppTabs.tasksTab(fromStatus: data)   // kosmos#7032: Tasks earned, with no board page loaded
