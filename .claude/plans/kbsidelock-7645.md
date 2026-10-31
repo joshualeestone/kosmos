@@ -62,3 +62,6 @@ record can tell a missed shrink from no shrink. A shrink is seen only at an offs
 are not reliably observable).
 Results, round 2: ios/tools/ui-keyboard.sh 3 of 3 on b7d556fca8 (22:08 CDT); every ios/LogicTests suite PASS on b7d556fca8.
 Results, iteration 9 code: ios/tools/ui-keyboard.sh 3 of 3 on 19817a21f5 (22:17 CDT).
+Iteration 11: the "anchor after let go" trace now interpolates Board.anchorKind, which the room suite's allow-list names
+(negative control: without the entry the room suite fails 1 of 741). A shrink is dated by the first offset change after it,
+so a later no-finger move in that half second can be undone (stated in the code, accepted as narrow).
