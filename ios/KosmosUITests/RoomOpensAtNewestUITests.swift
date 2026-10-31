@@ -33,19 +33,23 @@ final class RoomOpensAtNewestUITests: XCTestCase {
         Self.assertOnNewest(app, 220, shot: "room-220-opened-again", test: self)
     }
 
-    // kosmos#7654 part 2: on iOS 17 and later the room is anchored on a post id and the opening jump sets the anchor without
-    // retries, so this now checks that the anchor does not pull an early scroller back to the newest post. The round-3 cancel it
-    // was written for (retries to 2.3 s, iOS 18 and later) no longer runs there; the "control" below is from that round.
+    // kosmos#7654 part 2: from iOS 26 the room is anchored on a post id and the opening jump sets the anchor without retries, so
+    // the first check is that the anchor does not pull an early scroller back to the newest post. The round-3 cancel has nothing
+    // to cancel there, so the second check runs with the anchor off (KOSMOS_SAMPLE_NOPOSID), the path iOS 18 to 25 take, and that
+    // is the one that guards the cancel on a runner on iOS 26 or later. The "control" below is from round 3 and is that path.
     // kosmos#7654 round 3: a person's scroll during the opening ends its retries (iOS 18 and later, where they run to 2.3 s).
     // The room is dragged toward older posts as soon as a post shows, then left alone past the last retry: it must not be
     // pulled back to its newest post. The control (the cancel removed from RoomView) fails here. The retries are stretched ten
     // times (KOSMOS_SAMPLE_ROOM_RETRYSCALE, last at 23 s): unstretched, they end before XCUITest has found the list. A swipe that
     // starts more than 18 s after launch could miss them, so the check skips then (it would test nothing) and says so.
-    func testRoomOf220ScrolledUpAtOnceIsNotPulledBack() throws {
+    func testRoomOf220ScrolledUpAtOnceIsNotPulledBack() throws { try scrolledUpAtOnce([:]) }
+    func testRoomOf220ScrolledUpAtOnceIsNotPulledBackByItsRetries() throws { try scrolledUpAtOnce(["KOSMOS_SAMPLE_NOPOSID": "1"]) }
+
+    private func scrolledUpAtOnce(_ more: [String: String]) throws {
         // The person's cancel exists only where the scroll phase is reported (iOS 18 and later); below it the retries stop at 0.5 s.
         guard #available(iOS 18.0, *) else { throw XCTSkip("the scroll phase is not reported below iOS 18") }
         let launched = Date()
-        let app = Self.launch(220, ["KOSMOS_SAMPLE_ROOM_RETRYSCALE": "10"])
+        let app = Self.launch(220, more.merging(["KOSMOS_SAMPLE_ROOM_RETRYSCALE": "10"]) { _, new in new })
         XCTAssertTrue(Self.box(app).waitForExistence(timeout: 30), "no message box")
         let any = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'")).firstMatch
         XCTAssertTrue(any.waitForExistence(timeout: 15), "no posts of the 220-post room")

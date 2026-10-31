@@ -869,7 +869,7 @@ struct RoomView: View {
                 guard keepNewestOnKeyboard, visible else { return }
                 keepNewestOnKeyboard = false
                 ChatView.trace("room: keyboard shown, to the newest")
-                if RoomView.idAnchor { proxy.scrollTo("bottom", anchor: .bottom); roomPosition = "bottom" } else { toEnd(proxy) }
+                if RoomView.idAnchor { appMoves &+= 1; proxy.scrollTo("bottom", anchor: .bottom); roomPosition = "bottom" } else { toEnd(proxy) }
             }
             // The magnifier opened the row over a reader at the newest post: back there once the keyboard is up too (the
             // chat's keepNewestInView does this there).
