@@ -70,7 +70,8 @@ final class KeyboardSlideUITests: XCTestCase {
     // down at the newest message, then the recovery runs (KOSMOS_SAMPLE_REBUILD=14, once the keyboard is down): one rebuild,
     // and the newest message on screen above the box.
     func testRebuiltAfterTheKeyboardWentDown() throws {
-        let app = Self.launch(["KOSMOS_SAMPLE_REBUILD": "14", "KOSMOS_SAMPLE_TRACE": "1"])
+        // kosmos#7688 (4): the rebuild runs 1 s after the keyboard is down (keyboardDidHide), not on a 14 s clock.
+        let app = Self.launch(["KOSMOS_SAMPLE_REBUILD": "afterhide", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Pages 9 to 12 need the new photos'")).firstMatch
         XCTAssertTrue(newest.waitForExistence(timeout: 10), "Dana's newest message did not show")
@@ -95,6 +96,9 @@ final class KeyboardSlideUITests: XCTestCase {
     // newest message of the long chat, and a message must still be drawn, whether it never went empty or the chat's own
     // recovery (the empty check and its rebuild) brought it back. (Measured 10-31: the newest message itself can end up
     // behind the grown box; that is the box's growth not followed, noted on #7420, not this check's empty list.)
+    // kosmos#7688 (5): a REGRESSION GUARD ONLY. It passes with or without the rebuild (the simulator does not reproduce the
+    // empty list), and it counts message rows the accessibility tree holds, so the newest can be behind the box and it
+    // still passes. Never cite it as evidence that the composer-growth report is fixed.
     func testComposerGrowingKeepsMessagesDrawn() throws {
         let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
