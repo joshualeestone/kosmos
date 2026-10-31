@@ -28,6 +28,9 @@ struct AgentInfoView: View {
     @State private var asking: Board.FreshStart?
     @State private var freshLine: (text: String, ok: Bool)?
     @State private var freshBusy = false
+    // kosmos#7679: the Files section's read and its opener, owned here so they attach once, to the List (review 1).
+    @State private var filesRead: Board.FilesRead?
+    @StateObject private var filesOpener = FileOpener()
 
     @ScaledMetric(relativeTo: .body) private var markSize: CGFloat = 22
     private var live: Board.Agent { client.agents.first { $0.session == agent.session } ?? agent }
@@ -61,6 +64,7 @@ struct AgentInfoView: View {
         .toolbar(.hidden, for: .tabBar)
         .task { await load() }
         .refreshable { await load() }
+        .filesQuickLook(filesOpener, client: client)   // kosmos#7679: once, here, never on a Section's rows
         .confirmationDialog(asking.map { Board.freshConfirm($0, name: live.name).title } ?? "",
                             isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
                             titleVisibility: .visible, presenting: asking) { which in
@@ -168,7 +172,7 @@ struct AgentInfoView: View {
             }
         } header: { label("Skills") }
         // kosmos#7679: the agent's Files, the newest few and All files (FilesView.swift).
-        FilesSection(client: client, session: agent.session, openOnBoard: openOnBoard)
+        FilesSection(client: client, session: agent.session, read: filesRead, opener: filesOpener, openOnBoard: openOnBoard)
     }
 
     private var changed: Bool {
@@ -281,8 +285,9 @@ struct AgentInfoView: View {
         let session = agent.session
         guard Board.isAgentSession(session) else { return }   // the page says where to change it instead
         #if DEBUG
-        if AgentInfoView.sample { applySample(); return }
+        if AgentInfoView.sample { applySample(); filesRead = await FilesSection.read(client: client, session: session); return }
         #endif
+        async let files = FilesSection.read(client: client, session: session)   // kosmos#7679
         async let status = client.throughMac { Board.statusRequest(mac: $0) }
         async let instr = client.throughMac { Board.instructionsRequest(mac: $0, session: session) }
         async let sk = client.throughMac { Board.skillsRequest(mac: $0, session: session) }
@@ -298,6 +303,7 @@ struct AgentInfoView: View {
         instructions = i.flatMap { $0.1.statusCode == 200 ? Board.parseInstructions($0.0) : nil } ?? instructions
         skills = k.flatMap { $0.1.statusCode == 200 ? Board.parseSkills($0.0) : nil } ?? skills
         readFailed = d == nil || instructions == nil || skills == nil
+        filesRead = await files
     }
 
     private func save() async {

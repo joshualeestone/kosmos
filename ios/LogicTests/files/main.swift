@@ -18,7 +18,9 @@ let top = Board.filesRequest(mac: mac, owner: .agent("cleo"))
 check(top?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/cleo/files?limit=10", "the section: the newest ten, as the board's agent panel")
 check(top?.value(forHTTPHeaderField: "Accept") == "application/json", "asks for JSON, so a signed-out gate does not answer with its page")
 check(Board.filesRequest(mac: mac, owner: .agent("cleo"), dir: "")?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/cleo/files/browse?dir=", "the browser's top folder")
-check(Board.filesRequest(mac: mac, owner: .agent("cleo"), dir: "Covers/Spring")?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/cleo/files/browse?dir=Covers/Spring", "a folder inside")
+check(Board.filesRequest(mac: mac, owner: .agent("cleo"), dir: "Covers/Spring")?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/cleo/files/browse?dir=Covers%2FSpring", "a folder inside (the slash encoded; the route decodes it)")
+// Review 1: a + reaches the server's URLSearchParams as a space unless encoded, so "C++ notes" was asked for as "C   notes".
+check(Board.filesRequest(mac: mac, owner: .agent("cleo"), dir: "C++ notes/a&b=c#d")?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/cleo/files/browse?dir=C%2B%2B%20notes%2Fa%26b%3Dc%23d", "a folder name with + & = # stays one name")
 check(Board.filesRequest(mac: mac, owner: .agent("cleo"), dir: "../x") == nil && Board.filesRequest(mac: mac, owner: .agent("cleo"), dir: "/etc") == nil
       && Board.filesRequest(mac: mac, owner: .agent("cleo"), dir: "a//b") == nil, "never a folder outside the agent's Files")
 check(Board.filesRequest(mac: mac, owner: .agent("../x")) == nil, "never a session that is not one")
@@ -66,6 +68,10 @@ check(Board.filesEmpty(owner: .agent("c"), dir: "x") == "This folder is empty." 
 check(boardPage.contains("(dir ? 'This folder is empty.' : 'This agent has no files yet.')"), "the board's agent empty lines still")
 check(boardPage.contains("'Nothing here yet. Files you or your agents put in this project\\u2019s folder show up here.'"), "the board's project empty line still")
 check(boardPage.contains("'That file did not open.'"), "the board's could-not-open line still")
+let full = Board.FilesPage(dir: "", dirs: [], files: [dots], missing: false, truncated: false, total: 1)
+check(Board.filesMore(full) == nil, "a whole list says nothing more")
+let cut = Board.FilesPage(dir: "", dirs: [], files: [dots, inSub], missing: false, truncated: true, total: 900)
+check(Board.filesMore(cut) == "Showing the first 2. The rest are in Files on your computer.", "a list the route cut short says so (review 1)")
 let crumbs = Board.filesCrumbs("Covers/Spring")
 check(crumbs.map(\.name) == ["Files", "Covers", "Spring"] && crumbs.map(\.path) == ["", "Covers", "Covers/Spring"], "breadcrumbs from Files down")
 

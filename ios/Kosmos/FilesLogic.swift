@@ -46,7 +46,8 @@ extension Board {
     // The project list reads up to the route's own bound, as the board's Documents view does (limit=500).
     static let projectFilesCap = 500
 
-    // The board's words.
+    // The board's words (checked against web/index.html), except filesCannotRead, the agent page's own unread line, and
+    // filesOnBoard and filesMore, which the board has no need of.
     static let filesAgentEmpty = "This agent has no files yet."
     static let filesFolderEmpty = "This folder is empty."
     static let filesProjectEmpty = "Nothing here yet. Files you or your agents put in this project\u{2019}s folder show up here."
@@ -55,6 +56,14 @@ extension Board {
     static let filesTitle = "Files"
     static let filesAll = "All files"
     static let filesOnBoard = "This file opens on your computer\u{2019}s board."
+
+    // Review 1: a list cut short says so (the route stops at 500 project files, or 1000 entries in one agent folder), so
+    // a missing file is never read as not there.
+    static func filesMore(_ page: FilesPage) -> String? {
+        guard page.truncated || page.total > page.files.count + page.dirs.count else { return nil }
+        let shown = page.files.count + page.dirs.count
+        return "Showing the first \(shown). The rest are in Files on your computer."
+    }
 
     // The read for a list. Agent: with no `dir`, the newest `limit` (the section); with one ("" is the top), that folder
     // (the browser). Project: its whole list, flat (the route recurses and has no browse); `dir` is not used.
@@ -79,7 +88,12 @@ extension Board {
             items = [URLQueryItem(name: "limit", value: String(projectFilesCap))]
         }
         var parts = URLComponents(url: URL(string: path, relativeTo: mac)!.absoluteURL, resolvingAgainstBaseURL: true)
-        parts?.queryItems = items
+        // Review 1: encoded as the download path is, never through queryItems, which leaves a + as it is, and the
+        // server's URLSearchParams reads + as a space (a folder "C++ notes" was asked for as "C   notes").
+        parts?.percentEncodedQuery = items.compactMap { item -> String? in
+            guard let v = item.value?.addingPercentEncoding(withAllowedCharacters: queryValueAllowed) else { return nil }
+            return item.name + "=" + v
+        }.joined(separator: "&")
         guard let url = parts?.url else { return nil }
         var r = URLRequest(url: url)
         // Without it a signed-out gate answers 200 with its sign-in page (BoardLogic's statusRequest note).
