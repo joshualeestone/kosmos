@@ -14,7 +14,8 @@ const { makeDom } = require('./test-support/fake-dom');
 
 const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
 const IDS = ['pb', 'pb-off', 'pb-words', 'pb-code', 'pb-onview', 'pb-restore', 'pb-price', 'pb-on-row', 'pb-restore-hint',
-  'pb-words-price', 'pb-on-say', 'pb-off-ask', 'pb-off-row', 'pb-finish', 'pb-code-text', 'pb-restore-code', 'pb-msg', 'pb-code-lead'];
+  'pb-words-price', 'pb-on-say', 'pb-off-ask', 'pb-off-row', 'pb-finish', 'pb-code-text', 'pb-restore-code', 'pb-msg', 'pb-code-lead',
+  'pb-backsup', 'pb-backsup-head', 'pb-readers', 'pb-never'];
 const CODE = 'K7QD-3MXA-9VPE-H2NW-4TBR-6YC8-JF';
 
 function load(answer) {
@@ -28,7 +29,7 @@ function load(answer) {
     // The network is the test's: pbPost answers what the test says, pbMaybe reads nothing.
     'async function pbPost(kind, body) { posted.push({ kind, body }); return answer; }',
     'function pbMaybe() {}',
-    liftAll(SCRIPT, ['asSentence', 'pbMsg', 'pbPrice', 'pbPaint', 'pbCodeText', 'pbShowCode', 'pbSaved', 'pbFinish'])].join('\n'), ctx);
+    liftAll(SCRIPT, ['asSentence', 'pbMsg', 'pbPrice', 'pbPaint', 'pbCodeText', 'pbShowCode', 'pbSaved', 'pbFinish', 'pbPrintClear'])].join('\n'), ctx);
   ctx.PB.st = { shown: true, price: null, state: 'needs-key' };
   return { ctx, el: (id) => dom.document.getElementById(id) };
 }
@@ -105,4 +106,54 @@ test('Print puts the code on this page for the print only, and takes it off afte
   listeners.afterprint();
   assert.equal(out.textContent, '', 'the code stayed on the printout after printing');
   assert.equal(doc.body.classList.contains('pb-printing'), false, 'the page stayed in print mode after printing');
+});
+
+/* #7681 review: the words screen states the price Kosmos+ confirmed for THIS ticket (the preview answer's price), not an
+   earlier read of the board's setting: a tab open across a restart that changed it showed the old figure. */
+test('the words screen shows the price the preview confirmed, not the earlier read', async () => {
+  const { ctx, el } = load({ ok: true, ticket: 't1', words: { backsUp: ['your agents'], readers: [], never: [] }, price: '$6/month' });
+  vm.runInContext(liftAll(SCRIPT, ['pbList', 'pbOpen', 'plusSiAddPrice']), ctx);   // the page's own price wording
+  ctx.PB.st = { shown: true, price: '$5/month', state: 'off' };
+  await ctx.pbOpen();
+  assert.equal(ctx.PB.view, 'words', 'premise: the words screen opened');
+  assert.match(el('pb-words-price').textContent, /\$6 a month/, 'the words screen showed the earlier read, not the confirmed price');
+  assert.doesNotMatch(el('pb-words-price').textContent, /\$5/);
+});
+
+/* #7681 review: what happens to a printout on the paths that are not a clean print. */
+function printSetup(ctx) {
+  const doc = ctx.document;
+  const out = doc.createElement('div'); out.id = 'pb-printout'; doc.body.appendChild(out);
+  doc.getElementById = ((get) => (id) => (id === 'pb-printout' ? out : get(id)))(doc.getElementById.bind(doc));
+  ctx.setTimeout = () => 1; ctx.clearTimeout = () => {};
+  vm.runInContext(liftAll(SCRIPT, ['pbPrint']), ctx);
+  return out;
+}
+test('a print that throws empties the printout at once and says so', () => {
+  const { ctx, el } = load({ ok: true });
+  ctx.window = { addEventListener: () => {}, print: () => { throw new Error('blocked'); } };
+  const out = printSetup(ctx);
+  ctx.pbShowCode({ recoveryCode: CODE, org: 'o', member: 'm' });
+  ctx.pbPrint();
+  assert.equal(out.textContent, '', 'the code stayed on the printout after a failed print');
+  assert.equal(ctx.document.body.classList.contains('pb-printing'), false);
+  assert.match(el('pb-msg').textContent, /could not be printed/);
+});
+test('hiding the panel empties a printout still waiting for afterprint', () => {
+  const { ctx } = load({ ok: true });
+  ctx.window = { addEventListener: () => {}, print: () => {} };   // no afterprint ever comes
+  const out = printSetup(ctx);
+  ctx.pbShowCode({ recoveryCode: CODE, org: 'o', member: 'm' });
+  ctx.pbPrint();
+  assert.ok(out.textContent.length > 0, 'premise: the printout holds the code');
+  ctx.PB.st = { shown: false };
+  ctx.pbPaint();
+  assert.equal(out.textContent, '', 'the printout kept the code after the panel hid');
+  assert.equal(ctx.document.body.classList.contains('pb-printing'), false);
+});
+test('#pb-printout is a direct child of body (the print rule hides only body\'s other children)', () => {
+  const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const tail = html.slice(html.lastIndexOf('</body>') - 400, html.lastIndexOf('</body>'));
+  assert.match(tail, /<\/script>\s*<div id="pb-printout"><\/div>[^<]*<!--[^>]*-->\s*$/, 'the printout moved inside another element');
+  assert.match(html, /body\.pb-printing > \*:not\(#pb-printout\) \{ display: none !important; \}/, 'the print rule changed');
 });

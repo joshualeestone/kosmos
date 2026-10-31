@@ -412,3 +412,23 @@ test('#7404 (review 3): Kosmos+ lost the rows while this computer holds the key 
   assert.equal(c.rows.get(1).member_public, sent.member_public);
   assert.equal(c.rows.get(1).recovery_tag, sent.recovery_tag);
 });
+
+/* #7681 review: restorePersonalKey reads the account's CURRENT membership. A caller that knows its backup passes
+   expectOrg (another org restores nothing) and stillOurs (asked with no await before the write). */
+test('#7681: a restore for another org, or one whose backup changed just before the write, writes no keys', async () => {
+  forget();
+  const c = fakeCoordinator();
+  const set = await pk.setUpPersonalKey({ macRequest: c.macRequest });
+  forget();   // the new computer has no key file
+  const other = await pk.restorePersonalKey(set.code, { macRequest: c.macRequest, expectOrg: 'porg-other' });
+  assert.deepEqual([other.ok, other.code], [false, 'not_on'], JSON.stringify(other));
+  assert.deepEqual(mk.readKeys(ORG, MEMBER).keys, {}, 'keys were written for a backup the caller did not mean');
+  let asked = 0;
+  const gone = await pk.restorePersonalKey(set.code, { macRequest: c.macRequest, expectOrg: ORG, stillOurs: () => { asked++; return false; } });
+  assert.deepEqual([gone.ok, gone.code, asked], [false, 'not_on', 1], JSON.stringify(gone));
+  assert.deepEqual(mk.readKeys(ORG, MEMBER).keys, {}, 'keys were written after the backup changed');
+  // CONTROL: the right org, still ours: restored.
+  const ok = await pk.restorePersonalKey(set.code, { macRequest: c.macRequest, expectOrg: ORG, stillOurs: () => true });
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  assert.ok(mk.readKeys(ORG, MEMBER).keys['1']);
+});

@@ -55617,7 +55617,7 @@ document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgL
 /* ---- kosmos#7404: personal backup (Settings, Kosmos+). The views follow the engine's state (engine/personalbackup.js
    state(): off, pending, needs-key, on); the words, the code and restore are steps the person opens here. The recovery
    code is held only in PB.code while it is on screen, and dropped once "I saved it" is confirmed or the view changes. */
-var PB = { at: 0, busy: false, st: null, view: null, ticket: null, words: null, code: null, who: null, seq: 0 };
+var PB = { at: 0, busy: false, st: null, view: null, ticket: null, words: null, wordsPrice: null, code: null, who: null, seq: 0, printTimer: null };
 function pbMsg(t) { const m = document.getElementById('pb-msg'); if (m) m.textContent = t ? asSentence(t) : ''; }   // engine refusals are fragments
 function pbMaybe() {
   if (PB.busy) return;
@@ -55646,7 +55646,7 @@ function pbPaint() {
   const box = document.getElementById('pb');
   if (!box) return;
   box.hidden = st.shown !== true;
-  if (box.hidden) { PB.code = null; PB.who = null; PB.view = null; document.getElementById('pb-code-text').textContent = ''; document.getElementById('pb-restore-code').value = ''; return; }
+  if (box.hidden) { PB.code = null; PB.who = null; PB.view = null; document.getElementById('pb-code-text').textContent = ''; document.getElementById('pb-restore-code').value = ''; pbPrintClear(); return; }
   // The step the person opened wins over the engine's state, except that 'on' closes the words and restore.
   let v = PB.view;
   if (!v || (st.state === 'on' && (v === 'words' || v === 'restore'))) v = st.state === 'on' ? 'on' : st.state === 'needs-key' ? 'needs-key' : st.state === 'pending' ? 'pending' : 'off';
@@ -55659,7 +55659,7 @@ function pbPaint() {
   document.getElementById('pb-price').textContent = price; document.getElementById('pb-price').hidden = !price;
   document.getElementById('pb-on-row').hidden = !price;   // no price, nothing to agree to (the server refuses preview too)
   document.getElementById('pb-restore-hint').hidden = !price;   // Mona Lisa 1: the hint points at Turn on, so it goes with it
-  document.getElementById('pb-words-price').textContent = price;
+  document.getElementById('pb-words-price').textContent = PB.view === 'words' ? pbPrice({ price: PB.wordsPrice }) : price;
   const say = document.getElementById('pb-on-say');
   say.textContent = v === 'pending' ? 'Kosmos is checking with Kosmos+ whether personal backup is on for this computer. This takes a few minutes.'
     : v === 'needs-key' ? 'Personal backup is on for this computer, but its backup key is not set up here yet, so nothing is being backed up.'
@@ -55671,7 +55671,7 @@ function pbPaint() {
   document.getElementById('pb-finish').hidden = v !== 'needs-key';
   if (v !== 'code') {
     if (PB.code) pbMsg('');   // a "Copied" line belongs to the code view and leaves with it
-    PB.code = null; document.getElementById('pb-code-text').textContent = '';
+    PB.code = null; document.getElementById('pb-code-text').textContent = ''; pbPrintClear();
   }
 }
 /* One literal fetch per step, as plusOrgPost does, so web.api-routes-3957 reads each path and checks it has a route. */
@@ -55713,6 +55713,8 @@ async function pbOpen() {
     const r = await pbPost('preview');
     if (!r || !r.ok) { pbMsg((r && r.because) || 'Kosmos+ could not be reached just now. Try again in a minute.'); return; }
     PB.ticket = r.ticket; PB.words = r.words || {}; PB.view = 'words';
+    // #7681 review: the words screen states the price Kosmos+ confirmed for THIS ticket, not the earlier read.
+    PB.wordsPrice = typeof r.price === 'string' ? r.price : null;
     pbList('pb-backsup', PB.words.backsUp);
     const rd = Array.isArray(PB.words.readers) ? PB.words.readers.map(String).filter(Boolean) : [];
     document.getElementById('pb-readers').textContent = rd.length ? 'Who can read it: ' + rd.join('; ') + '.' : '';
@@ -55776,11 +55778,21 @@ function pbPrint() {
   const p = document.createElement('p'); p.className = 'pb-printcode'; p.textContent = PB.code;
   const n = document.createElement('p'); n.textContent = 'Kosmos+ never sees this code, so it cannot get it back for you. Keep it somewhere safe.';
   out.textContent = ''; out.append(h, p, n);
-  const done = () => { document.body.classList.remove('pb-printing'); out.textContent = ''; };
+  // Review: one timer at a time (an earlier press's must not empty this one mid-dialog), and a print that throws empties
+  // at once and says so instead of leaving the code in the page for a minute.
+  if (PB.printTimer) clearTimeout(PB.printTimer);
+  const done = () => { if (PB.printTimer) { clearTimeout(PB.printTimer); PB.printTimer = null; } pbPrintClear(); };
   window.addEventListener('afterprint', done, { once: true });
-  setTimeout(done, 60000);   // a browser that sends no afterprint still empties it
+  PB.printTimer = setTimeout(done, 60000);   // a browser that sends no afterprint still empties it
   document.body.classList.add('pb-printing');
-  window.print();
+  try { window.print(); } catch { done(); pbMsg('It could not be printed. Write the code down instead.'); }
+}
+/* Empties the printout and leaves print mode: after a print, and whenever the code leaves the page (review: hiding the
+   panel dropped PB.code but left the printout filled until afterprint). */
+function pbPrintClear() {
+  const out = document.getElementById('pb-printout');
+  if (out) out.textContent = '';
+  document.body.classList.remove('pb-printing');
 }
 function pbOffArm(on) {
   document.getElementById('pb-off-ask').hidden = !on;

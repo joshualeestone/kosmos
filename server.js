@@ -12743,7 +12743,7 @@ const server = http.createServer(async (req, res) => {
         /* What the page may see, by name. `code` is the recovery code on on/key, and a refusal's code elsewhere; org and
            member are the opaque ids confirmRecoveryCodeSaved needs back, nothing more. */
         // Named fields only, per step (challenge round 4): each step can send the page only what that step answers.
-        const KEEP = { preview: ['ticket', 'words'], on: ['declined', 'unknown', 'org', 'member'], key: ['org', 'member'],
+        const KEEP = { preview: ['ticket', 'words', 'price'], on: ['declined', 'unknown', 'org', 'member'], key: ['org', 'member'],
           saved: ['deleted'], restore: ['epochs'], off: ['pending'] };
         const keep = ['ok', 'because', 'code'].concat(KEEP[kind] || []);
         const out = {};

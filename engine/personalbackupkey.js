@@ -230,6 +230,10 @@ async function restoreNow(code, opts) {
     const read = await readContext(macRequestOf(opts));
     if (!read.ok) return read;
     const { org, member, rows } = read.ctx;
+    /* #7681 review: readContext reads the account's CURRENT membership, whatever org that is. A caller that knows which
+       backup it means (personalbackup.restore) passes it, so a turn-off and a turn-on to another org during the read
+       restores nothing rather than that org's keys. */
+    if (typeof opts.expectOrg === 'string' && org !== opts.expectOrg) return refused('personal backup changed on this computer while restoring, so nothing was restored', 'not_on');
     if (!rows.length) return refused('this backup has no keys yet: there is nothing to restore', 'no_keys');
     const opened = {};
     for (const row of rows) {
@@ -251,6 +255,9 @@ async function restoreNow(code, opts) {
       if (opened[e] && !opened[e].pk.equals(k.pk)) return refused('this computer holds a different backup key for that epoch; nothing was restored', 'key_conflict');
       merged[e] = k;
     }
+    // #7681 review: the last moment before anything is written, with no await between this and the write, so a
+    // turn-off cannot land in between. A caller that passes stillOurs is asked once more.
+    if (typeof opts.stillOurs === 'function' && !opts.stillOurs()) return refused('personal backup changed on this computer while restoring, so nothing was restored', 'not_on');
     memberkeys.writeKeys(org, member, { ...merged, ...opened });
     // Review 3: ANY pending code goes once a restore succeeds: every epoch is wrapped to the code that just restored,
     // so another pending code restores nothing and could never be registered.
