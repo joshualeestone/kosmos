@@ -28,6 +28,5 @@ a stand-in recorded before it showed as itself.
 3. PR open, CI green by name.
 
 ## Not changed
-The other timed stand-ins (30 to 300 s lives) were not measured; the two above are the ones whose span holds
-several arms. The `wp` for the #4498 "a clear box still waits behind an older waiting suite" arm keeps its 60 s life:
+The other timed stand-ins (30 to 300 s lives) were not measured. The `wp` for the #4498 "a clear box still waits behind an older waiting suite" arm keeps its 60 s life:
 it serves one assertion, with KOSMOS_NO_WAIT=1, so its span is one call.
