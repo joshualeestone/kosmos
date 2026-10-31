@@ -40,22 +40,65 @@ test('#7693: no text outlives its snapshot: the next plain snapshot does not see
   });
 });
 
-test('#7693: text whose capture was asked for too long ago is not used', async () => {
+test('#7693: old text is used and marked remembered: it is never re-read, so a slow gather costs no blocking round', async () => {
   const real = Date.now;
   await withSeams(() => { Date.now = () => real() + 3001; return Promise.resolve(ASKING); }, async () => {
     try {
       const board = await st.snapshotUnheld();
-      assert.notEqual(stateOf(board, 'one'), 'needs_you');
+      const one = board.agents.find((a) => a.sessionName === 'one');
+      assert.equal(one.state, 'needs_you', 'the gathered text, not a live read of a pane that does not exist');
+      assert.equal(one.screenRead, 'remembered');
     } finally { Date.now = real; }
   });
 });
 
-test('#7693: a capture that fails or throws falls back, and the snapshot still answers', async () => {
-  let n = 0;
-  await withSeams(() => { n += 1; if (n === 1) throw new Error('no tmux'); return Promise.resolve(null); }, async () => {
+test('CONTROL: young text is not marked remembered', async () => {
+  await withSeams(() => Promise.resolve(ASKING), async () => {
     const board = await st.snapshotUnheld();
-    assert.equal(board.agents.length, 2);
+    assert.equal(board.agents.find((a) => a.sessionName === 'one').screenRead, undefined);
   });
+});
+
+test('#7693: live reads are capped: past the cap a pane with no text is marked remembered, and the snapshot answers', async () => {
+  const many = Array.from({ length: 6 }, (_, i) => `p${i}-discord\t0.0\t2.1.212\t0\t\t\t`).join('\n');
+  st.setPaneSource(() => many);
+  st.setCaptureAsync(() => Promise.resolve(null));
+  try {
+    const board = await st.snapshotUnheld();
+    assert.equal(board.agents.length, 6);
+    assert.equal(board.agents.filter((a) => a.screenRead === 'remembered').length, 3, 'three live reads, then none');
+  } finally { st.setPaneSource(null); st.setCaptureAsync(undefined); }
+});
+
+test('#7693: a hung pane cannot hold the answer past the wait', async () => {
+  await withSeams((target) => (target.startsWith('one') ? new Promise(() => {}) : Promise.resolve(ASKING)), async () => {
+    const t0 = Date.now();
+    const board = await st.snapshotUnheld();
+    assert.ok(Date.now() - t0 < 2700 + 1500, 'answered near the 2.5 s wait');
+    assert.equal(stateOf(board, 'two'), 'needs_you');
+  });
+});
+
+test('#7693: a pane mid-restart is read live, not from the gather', async () => {
+  const disruption = require('./disruption');
+  disruption.begin('one', 'restart');
+  try {
+    await withSeams(() => Promise.resolve(ASKING), async () => {
+      const board = await st.snapshotUnheld();
+      assert.notEqual(stateOf(board, 'one'), 'needs_you');
+      assert.equal(stateOf(board, 'two'), 'needs_you', 'CONTROL: the other pane used the gather');
+    });
+  } finally { disruption.clear('one'); }
+});
+
+test('#7693: the gather lists the panes: no second, blocking list', async () => {
+  let lists = 0;
+  st.setPaneSource(() => { lists += 1; return PANES; });
+  st.setCaptureAsync(() => Promise.resolve(ASKING));
+  try {
+    await st.snapshotUnheld();
+    assert.equal(lists, 1);
+  } finally { st.setPaneSource(null); st.setCaptureAsync(undefined); }
 });
 
 test('#7693: requests during a gather share it', async () => {
