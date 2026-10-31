@@ -77,7 +77,7 @@ if (require.main === module) require('./engine/sandbox').dropInheritedTmux(proce
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.
 const {
-  snapshot, paneRoster, countAgents, needsPerson, projectsUnreadTotal, waitingTotal, waitingBadgeOn, STATE, modelDisplayName,
+  snapshot, snapshotUnheld, paneRoster, countAgents, needsPerson, projectsUnreadTotal, waitingTotal, waitingBadgeOn, STATE, modelDisplayName,
   /* #1304: the tier vocabulary, imported rather than hand-written. A literal
      'structured' beside a value read off a process command line is exactly the
      two-copies-of-one-fact habit this file criticises elsewhere. */
@@ -7462,7 +7462,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/status' && (req.method === 'GET' || req.method === 'HEAD')) {
     let body;
     try {
-      const snap = snapshot();
+      const snap = await snapshotUnheld();   // #7693: this route's captures do not hold the board
       // Attach what each agent says it is holding. Read here rather than in the
       // status engine, which derives state from tmux and transcripts; this is a
       // separate record that the agent wrote about itself.
