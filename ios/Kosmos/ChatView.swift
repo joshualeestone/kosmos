@@ -544,7 +544,7 @@ struct ChatView: View {
                                               moves: "\(appMoves)|\(query)") {
                         // kosmos#7645: on CI's runner the list was moved again after each put-back while the id anchor still
                         // held its id, so a reader's place is let go here (Board.letGoAfterPutBack). Until a row is named again
-                        // the list is held by its offset, and a page landing above by keepAnchor. Why: the branch's plan.
+                        // the list is held by its offset, and a page landing above by keepAnchor. Why: .claude/plans/kbsidelock-7645.md.
                         if Self.idAnchor, Board.letGoAfterPutBack(positionId) {
                             positionId = nil; anchorLetGo = true; Self.trace("keyboard hold: anchor let go")
                             // Whether SwiftUI names a row again by itself (not measured yet): the record says.

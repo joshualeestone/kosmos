@@ -4965,7 +4965,7 @@ do {
     check(Board.keepPageByScroll(idAnchor: true, letGo: true, anchor: nil), "after a let-go, a page landing above is kept by scrolling to its row")
     check(!Board.keepPageByScroll(idAnchor: true, letGo: true, anchor: "m2") && !Board.keepPageByScroll(idAnchor: true, letGo: false, anchor: nil),
           "with a row named again, or no let-go, the id anchor keeps the page (no scroll)")
-    check(Board.keepPageByScroll(idAnchor: false, letGo: false, anchor: nil), "CONTROL: without the id anchor (iOS 16) the page is always kept by scrolling")
+    check(Board.keepPageByScroll(idAnchor: false, letGo: false, anchor: nil), "without the id anchor (iOS 16) the page is always kept by scrolling")
     check([nil, "end", "top", "m1"].map(Board.anchorKind) == ["none", "end", "top", "a message"], "the record names the anchor's kind, never a message's id")
 
     // kosmos#7596: the + panel's rules.

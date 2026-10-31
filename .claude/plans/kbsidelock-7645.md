@@ -6,8 +6,8 @@ and the three keyboard checks still pass locally on an iPhone 17e iOS 26.5 simul
 
 ## Finding
 CI trace (PR #7665 run 41156064258): after KeyboardHold's first put-back the list is moved again by 499 pt every ~0.12 s, and each
-re-move comes with a new 16 pt sideways shift (side lock shift 2, 4, 8). A 16 pt sideways shift is the id anchor's .bottom scroll
-(SideScrollLock's own comment), so the re-mover is SwiftUI re-applying scrollPosition(id:anchor: .bottom) to its id at the bottom of the
+re-move comes with a new 16 pt sideways shift (side lock shift 2, 4, 8). My inference (not established by SideScrollLock's comment, which notes the end hold is anchored .bottom and centred across but
+never caught what gave the shift): the paired 16 pt sideways shift is the id anchor's .bottom scroll, so the re-mover is SwiftUI re-applying scrollPosition(id:anchor: .bottom) to its id at the bottom of the
 keyboard-shrunk view (the check itself sets that id, KOSMOS_SAMPLE_SCROLLUP; a reader's own scroll sets it the same way), not the side lock writing a stale y (candidate a: its write reads y in the same change). Whether the anchor or iOS 26 makes the FIRST move is not settled by this; only the repeats are claimed.
 
 ## Change
@@ -30,3 +30,8 @@ A CI trace on this branch still showing put back 499 after "anchor let go".
 
 ## Results
 - Local, iPhone 17e iOS 26.5, fresh simulator (ios/tools/ui-keyboard.sh): 3 of 3 keyboard checks passed on 7392b97 (21:03 CDT). Again 3 of 3 on 89a07f9 (21:12 CDT). The decisions moved into Board (letGoAfterPutBack, keepPageByScroll, anchorKind) with LogicTests checks; ios/LogicTests/run.sh PASS 1729/1729. The final HEAD's results go in the PR.
+
+## Not tested
+- The wiring in ChatView (the idAnchor guard, setting anchorLetGo, clearing it on a named row) is covered only by the CI UI check,
+  which drives the put-back itself; the LogicTests checks cover the three decisions alone.
+- A page landing above while the anchor is let go (the keepAnchor scroll on iOS 17+) has no check at all.
