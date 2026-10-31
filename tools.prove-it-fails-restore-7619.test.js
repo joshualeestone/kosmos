@@ -18,6 +18,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // this on its own (a 120 s test hold, a 300 s sleep), so one that was NOT killed is still alive when the wait ends
 // and the arm goes red: the margin never lets a missed kill pass.
 const DIE_WAIT_MS = 60000;
+// How long the tool may take to END after the signal (it waits on its own test's exit, so it slows under load just as
+// the test's death does: 20 s would flake where 60 s holds). A tool that does not kill waits out its 120 s test, so
+// this still goes red on a missed kill.
+const END_WITHIN_MS = 60000;
 async function waitGone(pids) { for (const end = Date.now() + DIE_WAIT_MS; Date.now() < end && pids.some(alive);) await sleep(50); return pids.filter(alive); }
 
 function sandbox(t) {
@@ -46,6 +50,8 @@ for (const [sig, want, colleague] of [['SIGTERM', 143, false], ['SIGHUP', 129, f
     // /bin/bash: macOS's own bash 3.2, the one the script's shebang names (an empty array under set -u differs there).
     const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'slow.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
       { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
+  // Review: a failed arm stops the tool it started (and with it the test it is waiting on), not after 120 s.
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { out += d; });
@@ -65,7 +71,7 @@ for (const [sig, want, colleague] of [['SIGTERM', 143, false], ['SIGHUP', 129, f
     if (colleague) assert.equal(fs.readFileSync(path.join(dir, 'b.js'), 'utf8'), 'const y = 2;   // edited by someone else mid-run\n', 'a colleague\'s edit was wiped');
     assert.equal(code, want, 'exit status: ' + out);
     assert.match(out, /interrupted: restored \(clean\)/);
-    assert.ok(Date.now() - started < 20000, 'it waited for the 30 s test instead of restoring at once');
+    assert.ok(Date.now() - started < END_WITHIN_MS, 'it waited for the 120 s test instead of restoring at once');
     // Up to DIE_WAIT_MS: on a loaded machine the per-file test process can take a while to go (2 s and then 10 s flaked).
     assert.deepEqual(await waitGone([testPid]), [], 'the test it was running was left going');
   });
@@ -99,6 +105,8 @@ test('#7619 review 3: a TERM after the break is written but before it is recorde
   const env = { ...process.env, PIF_TEST_PAUSE_AFTER_BREAK: '3' }; delete env.NODE_TEST_CONTEXT;
   const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'slow.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
+  // Review: a failed arm stops the tool it started (and with it the test it is waiting on), not after 120 s.
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
   const exited = new Promise((r) => child.on('exit', (code) => r(code)));
@@ -116,6 +124,8 @@ test('#7619 review 3: a broken file someone edits again mid-run is left alone an
   const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
   const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'slow.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
+  // Review: a failed arm stops the tool it started (and with it the test it is waiting on), not after 120 s.
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
   const exited = new Promise((r) => child.on('exit', (code) => r(code)));
@@ -142,6 +152,8 @@ test('#7629 B1: a signal also ends what the test itself started (a child it spaw
   const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
   const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'kids.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
+  // Review: a failed arm stops the tool it started (and with it the test it is waiting on), not after 120 s.
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   const exited = new Promise((r) => child.on('exit', (code) => r(code)));
   const kidFile = path.join(dir, 'kid.pid');
   for (let i = 0; i < 200 && !fs.existsSync(kidFile); i++) await sleep(50);
@@ -154,7 +166,7 @@ test('#7629 B1: a signal also ends what the test itself started (a child it spaw
   assert.equal(await exited, 143);
   // Review (10-31 mutant): the tool must end at once, not after its test does. Without this a broken kill passed:
   // the tool waited out the test, its children had ended by themselves, and the left-running check read clean.
-  assert.ok(Date.now() - signalled < 20000, "the tool waited for its test instead of ending it at once");
+  assert.ok(Date.now() - signalled < END_WITHIN_MS, "the tool waited for its test instead of ending it at once");
   assert.deepEqual(await waitGone([kid]), [], 'the child the test started was left running');
   assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 1;\n');
 });
@@ -165,7 +177,7 @@ test('#7629 B1 review 2: a child that keeps forking leaves nothing behind (the t
   // between the handler's read and its kill would escape. 🛑 CAPPED at 50, then it waits holding them (exiting would
   // orphan them out of the tree the tool kills). Uncapped, a tool whose kill is broken lets this fork until the test
   // ends: on 10-31 a mutant did exactly that, about 3,300 sleeps, and the shared Mac hit its per-user process limit
-  // and other agents' runs failed to fork. The signal lands at 20, so the cap still leaves it forking mid-read.
+  // and other agents' runs failed to fork. The signal lands at 10 or more, and the arm checks fewer than 50 are out before it fires.
   fs.writeFileSync(path.join(dir, 'forker.sh'),
     '#!/bin/bash\nn=0; while [ $n -lt 50 ]; do /bin/sleep 300 & echo $! >> "$1"; n=$((n + 1)); /bin/sleep 0.01; done; wait\n');
   fs.chmodSync(path.join(dir, 'forker.sh'), 0o755);
@@ -178,18 +190,22 @@ test('#7629 B1 review 2: a child that keeps forking leaves nothing behind (the t
   const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
   const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'fork.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
+  // Review: a failed arm stops the tool it started (and with it the test it is waiting on), not after 120 s.
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   const exited = new Promise((r) => child.on('exit', (code) => r(code)));
   const pidsFile = path.join(dir, 'forked.pids');
   const read = () => (fs.existsSync(pidsFile) ? fs.readFileSync(pidsFile, 'utf8').split('\n').filter(Boolean).map(Number) : []);
   t.after(() => { for (const p of read()) { if (alive(p)) process.kill(p); } });   // never leave sleepers behind
-  for (let i = 0; i < 200 && read().length < 20; i++) await sleep(50);
-  assert.ok(read().length >= 20, 'premise: the forker is forking');
+  for (let i = 0; i < 200 && read().length < 10; i++) await sleep(50);
+  assert.ok(read().length >= 10, 'premise: the forker is forking');
+  // Review: and still forking when the signal lands (under 50, its cap), or the arm proves only a static tree.
+  assert.ok(read().length < 50, 'premise: the forker had already finished before the signal (' + read().length + ' pids)');
   const signalled = Date.now();
   child.kill('SIGTERM');
   assert.equal(await exited, 143);
   // Review (10-31 mutant): the tool must end at once, not after its test does. Without this a broken kill passed:
   // the tool waited out the test, its children had ended by themselves, and the left-running check read clean.
-  assert.ok(Date.now() - signalled < 20000, "the tool waited for its test instead of ending it at once");
+  assert.ok(Date.now() - signalled < END_WITHIN_MS, "the tool waited for its test instead of ending it at once");
   // Anything that escaped sleeps 300 s, so it is still alive when the wait ends; a slow death under load is not an escape.
   const left = await waitGone(read());
   assert.deepEqual(left, [], 'forked processes left running: ' + left.length);
