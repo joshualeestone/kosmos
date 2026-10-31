@@ -39,6 +39,7 @@ offset or the content height, so this has not been checkable.
 - More rows on screen by eager drawing: undoes #7265 (the reason the id anchor exists).
 
 ## Weakest premise
+MEASURED AGAINST (see the end): on the simulator a scroll put past the end is put right before the list empties.
 That the empty list is an offset outside the content. If the next report says "within" while empty, the cause is drawing,
 not position, and the clamp does nothing (harmlessly). Either way the report now answers it.
 A caveat on reading "within": UIScrollView may itself pull an offset back inside when the content or view size changes while
@@ -58,3 +59,12 @@ not outside at that moment.
 - ios/tools/ui-keyboard.sh on a fresh iPhone 17e (iOS 26.5): 3 of 3 passed on 7e92b81 (21:48 CDT); the app built.
 - iOS logic suites: run.sh and every run-*.sh; room failed 1 on 7e92b81 (a source check naming the old SideScrollLock call),
   fixed in the next commit.
+
+## Measured 22:5x CDT: a scroll past the end does not empty the chat on the simulator
+Experiment (not shipped; patch kept at ~/.cache/angel-scratch/roomkb/pastend-experiment): a Debug hook put the long sample
+chat's scroll 2000 pt past its content's end 6 s after opening, and a UI check waited for the empty-list line. Both arms
+(fix, and NOCLAMP control) failed the same way: the empty list was never detected. The full trace shows why: after "debug:
+scroll put past the end" no row and no end marker ever left the screen, so the list was put right (by SwiftUI's anchor on
+"end" or by UIKit) before anything saw it empty. So on the simulator an offset past the end does NOT reproduce Josh's empty
+chat, which weakens this branch's leading reading; the new report line is what will say where his scroll actually was. The
+clamp stays (harmless when within), the UI check was dropped because it could not exercise the recovery.
