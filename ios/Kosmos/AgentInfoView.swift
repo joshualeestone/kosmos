@@ -167,6 +167,8 @@ struct AgentInfoView: View {
                 unread
             }
         } header: { label("Skills") }
+        // kosmos#7679: the agent's Files, the newest few and All files (FilesView.swift).
+        FilesSection(client: client, session: agent.session, openOnBoard: openOnBoard)
     }
 
     private var changed: Bool {
