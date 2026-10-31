@@ -62,3 +62,7 @@ fetches each picture one at a time after the first agents read. The board alread
 - Left: the round-2 in-flight check is still untested (it needs a fake that holds a picture answer); pictures written
   without file protection (low sensitivity, a locked read costs one fetch); after three failures of one version, the next
   day's retry of that same version gives up after one failure.
+
+## Review round 4 (10-31, final of 4): no BLOCKER, no WARNING. Converged.
+- One NIT, not reachable today: keepPicture picks its folder from the computer loaded now, not the one the request went
+  to. Safe because every computer switch bumps generation, which fetchPictures checks after each request. Left as is.
