@@ -90,3 +90,19 @@ at will-show (with the last reading's y), right after each put-back, and when th
 now / window ended y N, content N, showing N"). If will-show's y differs from the last reading's y by about the move, the
 reading was late; if the y matches and the content height changed, the rows were re-laid.
 Results: ui-keyboard 3 of 3 on 6ed2de8046 (22:52 CDT); every LogicTests suite PASS.
+
+## Round 5 (23:1x CDT): CI round 4 (run 41166571312) measured it; the hold now keeps the reader's ROW, not the offset
+Measured: will-show y 10534 with the last reading also 10534 (the reading was NOT late), showing already 346. Then the
+content grew 14008 -> 15249 pt as the rows above were measured again, iOS moved the list 1113 pt (keeping the same rows in
+view), and the hold put the OFFSET back to 10534, which in the re-measured content is a different place: the hold itself
+pushed the row off. So round 2's pre-shrink reading answered a problem that did not exist (removed, with its Board functions
+and checks), and keeping an offset is wrong whenever heights above change.
+Change: RowTops records each drawn row's top on the screen (onGeometryChange in window points, iOS 26 only, a class so
+nothing redraws). At will-show the hold keeps the reader's row (Board.readerRow: the highest drawn row wholly below the bar)
+and its y; once the keyboard is up, each fresh reading of THAT row's y that differs by more than a point moves the offset by
+the difference. If iOS's own move kept the row in place, nothing is done. A put-back is answered only by the row's next
+reading, so it is never corrected twice on a stale value.
+Rejected: switching the id anchor to the top row with a .top anchor (it would need the row's fraction of the view, and
+changes the anchor for every reader on iOS 17+, not only iOS 26 with a keyboard).
+Weakest premise: that the row's window y from onGeometryChange is current when the hold reads it. If CI shows the put-back
+undershooting or oscillating, it is not.
