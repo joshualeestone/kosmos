@@ -27098,8 +27098,6 @@ function start(port = PORT) {
      while company backup is off, and the tick then asks again a day later (engine/backuptick.js). Best effort: never a
      reason not to start. */
   try { require('./engine/backuptick').startHere(); } catch { /* best effort */ }
-  /* kosmos#7404: a personal backup's own tick, the same hour, idle unless personalbackup.mayBackUp says yes. */
-  try { require('./engine/backuptick').startPersonal(); } catch { /* best effort */ }
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
   try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }
@@ -27121,6 +27119,8 @@ function start(port = PORT) {
   // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the hourly pass.
   // Each of these asks also restarts the hourly clock (orgEnrollRefresh records when it asked).
   setInterval(() => { try { const oe = require('./engine/orgenroll'); const age = oe.joinUnknownAge(); if (oe.joinUnknown() && age !== null && age < 24 * 60 * 60 * 1000) orgEnrollRefresh();   /* an unreadable time: the hourly pass */ } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
+  /* kosmos#7404: a personal backup's own tick, the same hour, idle unless personalbackup.mayBackUp says yes. */
+  try { require('./engine/backuptick').startPersonal(); } catch { /* best effort */ }
   /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
   setTimeout(orgRollupTick, 60 * 1000).unref();
   setInterval(orgRollupTick, ORG_ROLLUP_TICK_MS).unref();
