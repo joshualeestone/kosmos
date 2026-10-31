@@ -72,3 +72,11 @@ clamp stays (harmless when within), the UI check was dropped because it could no
   a second, silent recovery (past the end only) that the shared report does not show.
 - KeyboardHold is being reworked in #7645 (it will hold the reader's row, not the offset); this branch's note about a
   recovery inside the hold's window should be re-read once that merges.
+
+## Final results (the code that ships, b05c9ab4de)
+- ios/tools/ui-keyboard.sh on a fresh iPhone 17e (iOS 26.5): 3 of 3 passed (started 23:20:49 CDT, after b05c9ab4de was
+  committed at 23:19); the app built.
+- ios/LogicTests: run.sh PASS 1739/1739, run-room.sh PASS 742/742.
+- Full validation (tools/run-tests.sh): first run red in one shell test (tools/test-queued-heavy-4977.sh, a queue tool's
+  test, killed under a 1-minute load of 165 on 12 cores); alone it passed 142/142, and the re-run passed (25964 node tests,
+  0 failed; hash 5c24d3942457).
