@@ -33,6 +33,9 @@ final class RoomOpensAtNewestUITests: XCTestCase {
         Self.assertOnNewest(app, 220, shot: "room-220-opened-again", test: self)
     }
 
+    // kosmos#7654 part 2: on iOS 17 and later the room is anchored on a post id and the opening jump sets the anchor without
+    // retries, so this now checks that the anchor does not pull an early scroller back to the newest post. The round-3 cancel it
+    // was written for (retries to 2.3 s, iOS 18 and later) no longer runs there; the "control" below is from that round.
     // kosmos#7654 round 3: a person's scroll during the opening ends its retries (iOS 18 and later, where they run to 2.3 s).
     // The room is dragged toward older posts as soon as a post shows, then left alone past the last retry: it must not be
     // pulled back to its newest post. The control (the cancel removed from RoomView) fails here. The retries are stretched ten
