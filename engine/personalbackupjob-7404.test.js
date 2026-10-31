@@ -205,6 +205,7 @@ test('words accepted during a run stay: the hash withdrawn is the one the run st
 test('a key step refusal a person must act on reaches the tick\'s one said line, through the real run', async () => {
   const pair = newPair();
   keyed(pair);
+  fs.rmSync(path.join(require('./store').ROOT, 'backupstate', 'current-personal.json'), { force: true });   // an earlier test's pair
   const k = kosmosPlus({ ...pair, keys: [] });
   const dk = backupkeys.newMemberKey();
   const runBackup = (input, deps) => backuprun.runBackup(input, Object.assign({}, deps, { deviceKey: () => ({ ok: true, privateKey: dk.sk }) }));
