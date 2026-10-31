@@ -70,14 +70,15 @@ function get(p) {
   });
 }
 
-test('#7686: a preview that fails after its headers went out ends that response, and the board keeps answering', async () => {
+test('#7686: a preview whose stream cannot open after its head closes the descriptor and ends the response', async () => {
   const bytes = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), crypto.randomBytes(64 * 1024)]);
   const rec = attachments.save('agent', 'ava', { name: 'shot.png', type: 'image/png', bytes });
   // CONTROL: the preview answers normally, so the failure below is the only thing that differs.
   assert.equal(await get(`/api/attachment/${rec.id}/preview`), 200, 'CONTROL: the preview did not answer 200');
 
-  /* The failure, AFTER writeHead: sendFileStream writes the head, then opens the stream outside its own try, so a
-     throw here reaches the route's `.catch`, which answers with sendJson on a response whose head is already out. */
+  /* The failure, AFTER writeHead: sendFileStream writes the head, then opens the stream. Since review 1 that open has
+     its own catch, which closes the descriptor and ends the response; this test pins that, and the fd count below. */
+  const before = unhandled.length;
   const realCreate = fs.createReadStream;
   let thrown = 0;
   /* Only the call that opens a stream on an already-open descriptor (sendFileStream's), so background work the board
@@ -96,7 +97,7 @@ test('#7686: a preview that fails after its headers went out ends that response,
   assert.equal(thrown, 1, 'CONTROL: the failure was never injected, so this test proves nothing');
   await wait(50);   // let any rejection from the route's catch surface before reading the record
   assert.deepEqual(
-    unhandled.map((e) => String(e && (e.code || e.message))),
+    unhandled.slice(before).map((e) => String(e && (e.code || e.message))),
     [],
     'a rejection escaped the route (before #7686 this is ERR_HTTP_HEADERS_SENT, which ends the board)'
   );
@@ -160,6 +161,7 @@ test('#7686: the diagnostics download that fails after its head ends that respon
     }
     return realStringify.call(this, v, r, indent);
   };
+  const before = unhandled.length;
   let first;
   try {
     first = await new Promise((resolve) => {
@@ -178,8 +180,44 @@ test('#7686: the diagnostics download that fails after its head ends that respon
     // CONTROL: the route did not reach its serialise step here (no diagnostics on this board), so say so loudly.
     assert.fail('CONTROL: the diagnostics route never serialised, so this test proves nothing (answered ' + first + ')');
   }
-  assert.deepEqual(unhandled.map((e) => String(e && (e.code || e.message))), [], 'a rejection escaped the diagnostics route');
+  assert.deepEqual(unhandled.slice(before).map((e) => String(e && (e.code || e.message))), [], 'a rejection escaped the diagnostics route');
   assert.equal(first, 'cut', 'the diagnostics response after the failure was ' + first + ', not ended');
-  const again = await fetch(`http://127.0.0.1:${port()}/api/attachment/none/preview`);
-  assert.ok(again.status >= 200, 'the board stopped answering after the diagnostics failure');
+  const rec = attachments.save('agent', 'ava', { name: 'alive.png', type: 'image/png', bytes: Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), crypto.randomBytes(1024)]) });
+  assert.equal(await get(`/api/attachment/${rec.id}/preview`), 200, 'the board stopped answering after the diagnostics failure');
+});
+
+test('#7686: the 10-31 crash path itself: a throw after the preview head reaches the route catch, and sendJson ends the response', async () => {
+  const bytes = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), crypto.randomBytes(64 * 1024)]);
+  const rec = attachments.save('agent', 'ava', { name: 'crash.png', type: 'image/png', bytes });
+  const before = unhandled.length;
+  /* sendFileStream's own catch covers OPENING the stream; this throw comes after it, from the first listener call on
+     the stream (outside that try), so it leaves sendFileStream, rejects the route's `.then`, and the route's
+     `.catch(() => sendJson(...))` runs with the head already out: exactly the board's crash on 10-31 (review 3). The
+     stream is destroyed first, so its descriptor closes (autoClose) and only the response is left to the guard. */
+  const realCreate = fs.createReadStream;
+  let thrown = 0;
+  fs.createReadStream = function (...args) {
+    const s = realCreate.apply(this, args);
+    if (thrown === 0 && args[0] === null && args[1] && typeof args[1].fd === 'number') {
+      const realOnce = s.once;
+      s.once = function (...a) {
+        if (thrown === 0) { thrown += 1; s.destroy(); throw Object.assign(new Error('simulated failure after the stream opened'), { code: 'EIO' }); }
+        return realOnce.apply(this, a);
+      };
+    }
+    return s;
+  };
+  const logged = [];
+  const realErr = console.error;
+  console.error = (m) => { logged.push(String(m)); };
+  let first;
+  try {
+    first = await get(`/api/attachment/${rec.id}/preview`);
+    await wait(50);
+  } finally { fs.createReadStream = realCreate; console.error = realErr; }
+  assert.equal(thrown, 1, 'CONTROL: the failure was never injected, so this test proves nothing');
+  assert.ok(logged.some((m) => /^sendJson 404 after the head was sent/.test(m)), 'CONTROL: the route catch never reached sendJson after the head: ' + JSON.stringify(logged));
+  assert.deepEqual(unhandled.slice(before).map((e) => String(e && (e.code || e.message))), [], 'a rejection escaped the route catch (the 10-31 crash)');
+  assert.equal(first, 'cut', 'the response after the failure was ' + first + ', not ended');
+  assert.equal(await get(`/api/attachment/${rec.id}/preview`), 200, 'the board stopped answering');
 });
