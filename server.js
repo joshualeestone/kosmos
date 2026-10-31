@@ -4330,7 +4330,7 @@ function answeredAlready(res, what) {
   if (!res.headersSent) return false;
   const req = res.req;
   // The path only, cut at ? and #, as the slow-request line logs it: a query can carry a person's own words.
-  const where = req ? req.method + ' ' + safeLogUrl(req.url).split(/[?#]/)[0] : 'no request';
+  const where = req ? req.method + ' ' + safeLogUrl(req.url).split(/[?#]/)[0].replace(/[\r\n\t]+/g, ' ') : 'no request';
   console.error(what + ' after the head was sent, not written (' + where + '); the response is ended');
   if (!res.writableEnded) res.destroy();
   return true;
@@ -5892,7 +5892,15 @@ function sendFileDownload(req, res, found, recheck) {
       if (checkOnly) { fs.close(fd, () => {}); res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
       res.writeHead(200, headersFor(st.size));
       if (req.method === 'HEAD' || st.size === 0) { fs.close(fd, () => {}); res.end(); return; }
-      const stream = fs.createReadStream(null, { fd, start: 0, end: st.size - 1 });   // autoClose closes fd
+      let stream;
+      try {
+        stream = fs.createReadStream(null, { fd, start: 0, end: st.size - 1 });   // autoClose closes fd
+      } catch {
+        // #7686 review 5: as sendFileStream: the head is out, so close the descriptor no stream took and end the response.
+        fs.close(fd, () => {});
+        res.destroy();
+        return;
+      }
       // A read that ends short of the declared length is a reset, never a response ended short. This listener must be
       // registered BEFORE pipeline() below, so it runs before the pipe's own end handler ends the response.
       stream.once('end', () => { if (stream.bytesRead < st.size) res.destroy(); });
