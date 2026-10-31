@@ -80,3 +80,29 @@ test('Finish setting up on a computer that already holds the keys says the key i
   assert.equal(shown.el('pb-code-text').textContent, CODE);
   assert.doesNotMatch(shown.el('pb-msg').textContent, /already|is set up on this computer/);
 });
+
+/* #7681 item 2: Print prints THIS page with only the code (#pb-printout under body.pb-printing), never a hidden frame,
+   which some browsers print as the parent page (Settings, no code). The fake window records what was there at print. */
+test('Print puts the code on this page for the print only, and takes it off after', async () => {
+  const { ctx, el } = load({ ok: true });
+  const doc = ctx.document;
+  const out = doc.createElement('div'); out.id = 'pb-printout'; doc.body.appendChild(out);
+  const made = [];
+  const create = doc.createElement.bind(doc);
+  doc.createElement = (tag) => { made.push(String(tag).toLowerCase()); return create(tag); };
+  doc.getElementById = ((get) => (id) => (id === 'pb-printout' ? out : get(id)))(doc.getElementById.bind(doc));
+  const listeners = {};
+  let atPrint = null;
+  ctx.window = { addEventListener: (t, fn) => { listeners[t] = fn; }, print: () => { atPrint = { text: out.textContent, printing: doc.body.classList.contains('pb-printing') }; } };
+  ctx.setTimeout = () => 0;
+  vm.runInContext(liftAll(SCRIPT, ['pbPrint']), ctx);
+  ctx.pbShowCode({ recoveryCode: CODE, org: 'o', member: 'm' });
+  ctx.pbPrint();
+  assert.ok(atPrint, 'premise: print was called');
+  assert.ok(atPrint.printing, 'the page printed without body.pb-printing, so the print rule showed the whole page');
+  assert.match(atPrint.text, new RegExp(CODE.replace(/-/g, '\\-')), 'the printout did not hold the code at print time');
+  assert.equal(made.includes('iframe'), false, 'it printed from a frame again');
+  listeners.afterprint();
+  assert.equal(out.textContent, '', 'the code stayed on the printout after printing');
+  assert.equal(doc.body.classList.contains('pb-printing'), false, 'the page stayed in print mode after printing');
+});
