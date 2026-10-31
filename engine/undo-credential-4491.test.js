@@ -98,7 +98,9 @@ test('#4491: the undo copier never keeps a copy of the board token or a sender t
    never restored or moved: plan flags it and apply refuses it again at the write. Its target is named board.token, so
    the name check refuses it first; the place and identity checks are pinned by the other tests in this file. */
 const taskchat = require('./taskchat');
-const T = (hhmm) => `2026-10-01T${hhmm}:00.000Z`;
+// Yesterday's date (UTC), as engine/undo-5153.test.js: plan() reads the real clock, and a fixed day ages past KEEP_DAYS.
+const DAY = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+const T = (hhmm) => `${DAY}T${hhmm}:00.000Z`;
 const ms = (hhmm) => Date.parse(T(hhmm));
 test('#4491: a forged undo record naming board.token is never restored, moved or copied', () => {
   undo.setOn(true, ms('08:00'));
