@@ -559,6 +559,7 @@ struct ChatView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { if atBottom && !endVisible { atBottom = false; Self.trace("keyboard hold: not at the newest after all") } }
                     })
                     .modifier(PositionTargets(on: Self.idAnchor))
+                    .modifier(ContentSpace())   // kosmos#7645: rows read their place in the content by this (iOS 26)
                 }
                 .modifier(PositionById(on: Self.idAnchor, id: $positionId))
                 .scrollDismissesKeyboard(.interactively)
@@ -2337,9 +2338,10 @@ struct KeyboardHold: UIViewRepresentable {
         var rows: RowTops?
         var onPutBack: () -> Void = {}
         func standDown() { saved = nil; endGuard() }
-        // The reader's row and its y on the screen when the keyboard started to show, the rows above and the width, and when
-        // (review 1: a will-show with no did-show, an iPad's floating keyboard say, must not leave a reading for a later one).
-        typealias Reading = (row: String, y: CGFloat, above: Int, width: CGFloat, at: Date)
+        // The reader's row, its place in the content and the scroll offset when the keyboard started to show, the rows above
+        // and the width, and when (review 1: a will-show with no did-show, an iPad's floating keyboard say, must not leave a
+        // reading for a later one).
+        typealias Reading = (row: String, content: CGFloat, offset: CGFloat, above: Int, width: CGFloat, at: Date)
         private var saved: Reading?
         private var observers: [NSObjectProtocol] = []
         private weak var scroll: UIScrollView?
@@ -2355,17 +2357,19 @@ struct KeyboardHold: UIViewRepresentable {
             "y \(Int(sv.contentOffset.y)), content \(Int(sv.contentSize.height)), showing \(Int(sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom))"
         }
         // Review 1: not under a finger (down, or dragging, or flinging), and not when a page of earlier messages landed above
-        // meanwhile, nor after a rotation: each ends the hold for this keyboard. `offset` is the scroll offset when the row was
-        // read, so the write (that offset plus how far the row moved) is the same however many times one move is answered.
-        private func putBack(_ y: CGFloat, at offset: CGFloat) {
+        // meanwhile, nor after a rotation: each ends the hold for this keyboard. The reader's row stays where it was on the
+        // screen when the offset is the one at will-show plus how far the row moved in the content (rows above measured again):
+        // one SwiftUI number, so answering the same reading twice writes the same value, and if iOS's own move already did
+        // that, nothing is written.
+        private func putBack(_ content: CGFloat) {
             guard let g = guarding, let sv = scroll else { return }
             guard Date() < g.until else { endGuard(); return }
             if sv.isTracking || sv.isDragging || sv.isDecelerating { ChatView.trace("keyboard hold: skipped, a finger"); endGuard(); return }
             if above != g.kept.above { ChatView.trace("keyboard hold: skipped, earlier messages landed"); endGuard(); return }
             if abs(sv.bounds.width - g.kept.width) > 0.5 { ChatView.trace("keyboard hold: skipped, the width changed"); endGuard(); return }
-            let moved = y - g.kept.y   // how far the reader's row moved on the screen, the one number the record keeps
-            let target = offset + moved
-            guard abs(moved) > 1, abs(sv.contentOffset.y - target) > 1 else { return }
+            let target = g.kept.offset + (content - g.kept.content)
+            let moved = sv.contentOffset.y - target   // how far the row is from its place on the screen, the number the record keeps
+            guard abs(moved) > 1 else { return }
             ChatView.trace("keyboard hold: put back \(Int(moved))")
             sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: target)
             ChatView.trace("keyboard hold: now \(Self.numbers(sv))")
@@ -2389,20 +2393,19 @@ struct KeyboardHold: UIViewRepresentable {
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
             scroll = up as? UIScrollView
-            rows?.scroll = scroll
             let nc = NotificationCenter.default
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self, let sv = self.scroll else { return }
-                ChatView.trace("keyboard hold: will-show \(Self.numbers(sv))")
                 // A keyboard already up (a second will-show, say for the emoji panel) keeps the first reading.
                 guard self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating else { return }
+                ChatView.trace("keyboard hold: will-show \(Self.numbers(sv))")
                 // The top of what shows, below the top inset (the bar), in window points: the same space as RowTop's .global for
                 // a full-screen window (an iPhone); elsewhere only which row is chosen could differ, not the put-back.
                 let top = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.adjustedContentInset.top), to: nil).y
-                guard let r = self.rows.flatMap({ Board.readerRow($0.tops(), below: Double(top)) }) else {
+                guard let rows = self.rows, let r = Board.readerRow(rows.tops(), below: Double(top)), let reading = rows.y[r.id] else {
                     ChatView.trace("keyboard hold: no row on the screen to hold"); return
                 }
-                self.saved = (r.id, CGFloat(r.y), self.above, sv.bounds.width, Date())
+                self.saved = (r.id, CGFloat(reading.content), sv.contentOffset.y, self.above, sv.bounds.width, Date())
             })
             observers.append(nc.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self, let kept = self.saved, let rows = self.rows else { return }
@@ -2415,11 +2418,11 @@ struct KeyboardHold: UIViewRepresentable {
                 let mine = self.generation
                 self.guarding = (kept, Date().addingTimeInterval(Self.window))
                 guard let r = rows.y[kept.row] else { ChatView.trace("keyboard hold: the row was not drawn at did-show"); self.endGuard(); return }
-                self.putBack(CGFloat(r.top), at: CGFloat(r.offset))
+                self.putBack(CGFloat(r.content))
                 // Deferred to the next turn of the main queue, so a move made inside a layout pass is answered after it.
                 rows.watch = (kept.row, { [weak self] r in
                     guard let r else { ChatView.trace("keyboard hold: the row left the drawn rows while held"); self?.endGuard(); return }
-                    DispatchQueue.main.async { self?.putBack(CGFloat(r.top), at: CGFloat(r.offset)) }
+                    DispatchQueue.main.async { self?.putBack(CGFloat(r.content)) }
                 })
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.window + 0.05) { [weak self] in
                     if let self, self.generation == mine {
@@ -2436,14 +2439,13 @@ struct KeyboardHold: UIViewRepresentable {
     }
 }
 
-// kosmos#7645: where each drawn row of the chat is on the screen (its top, in window points), kept by RowTop on iOS 26
-// only (where KeyboardHold runs), with the scroll offset read in the same layout pass, so a correction made from it is
-// absolute (that offset plus how far the row moved) and doing it twice changes nothing. A class, so a reading redraws
-// nothing. `watch` hands one row's fresh readings to the hold, and says when that row stops being drawn (nil).
-struct RowReading: Equatable { let top: Double, offset: Double }
+// kosmos#7645: where each drawn row of the chat is, kept by RowTop on iOS 26 only (where KeyboardHold runs): its top on the
+// screen (window points, to choose the reader's row) and in the content (ContentSpace), which moves only when rows above it
+// are measured again. A class, so a reading redraws nothing. `watch` hands one row's fresh readings to the hold, and says
+// when that row stops being drawn (nil).
+struct RowReading: Equatable { let top: Double, content: Double }
 final class RowTops {
     var y: [String: RowReading] = [:]
-    weak var scroll: UIScrollView?
     var watch: (id: String, seen: (RowReading?) -> Void)?
     func set(_ id: String, _ r: RowReading?) {
         if KeyboardHold.Probe.off { return }   // the hold is off (below iOS 26, or the Debug control): nothing reads these
@@ -2453,13 +2455,20 @@ final class RowTops {
     func tops() -> [String: Double] { y.mapValues(\.top) }
 }
 
+struct ContentSpace: ViewModifier {
+    static let name = "kosmosChatContent"
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) { content.coordinateSpace(.named(Self.name)) } else { content }
+    }
+}
+
 struct RowTop: ViewModifier {
     let id: String
     let rows: RowTops
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             content.onGeometryChange(for: RowReading.self) {
-                RowReading(top: Double($0.frame(in: .global).minY), offset: Double(rows.scroll?.contentOffset.y ?? 0))
+                RowReading(top: Double($0.frame(in: .global).minY), content: Double($0.frame(in: .named(ContentSpace.name)).minY))
             } action: { rows.set(id, $0) }
                 .onDisappear { rows.set(id, nil) }
         } else { content }
