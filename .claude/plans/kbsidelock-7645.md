@@ -140,7 +140,7 @@ read on every scroll frame on iOS 26, because the readings must already exist at
 redrawn. (2) The let-go stays: round 1 measured the id anchor re-applying itself after each offset write, and this hold still
 writes the offset.
 Results on the shipping design: ios/LogicTests run.sh PASS 1734/1734, run-room.sh PASS 741/741 (beb6612fe8 and after);
-the local keyboard checks and CI's UI job on the final head are recorded in the PR.
+(superseded: LogicTests are now 1742/1742 and room 742/742; see the latest iteration lines)
 Iteration 17: a row's last place in the content is kept after it stops being drawn (RowTops.last), and the not-drawn-at-
 did-show fallback writes only a reading newer than will-show's (writing the will-show offset unchanged was round 4's
 failure). The written offset is kept between the two ends of what can be scrolled to. The record's numbers are pinned by a
@@ -171,3 +171,5 @@ Iteration 23: not tested, and now traced: whether the reader's own scroll names 
 let-go); if it does not, the let-go would last until something names "end", and the record shows "anchor after a scroll
 while let go <kind>" at each scroll rest meanwhile. Assumed, not measured: no row reading arrives after that row's onDisappear (a
 stray one could only offer a row outside what shows, which readerRow never picks).
+Iteration 24: the watch closure holds the row store weakly (no cycle while a hold is armed); the not-drawn-at-did-show line
+says whether it put back by the row's last reading or by will-show's.

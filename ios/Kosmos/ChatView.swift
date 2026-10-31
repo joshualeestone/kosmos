@@ -2431,15 +2431,15 @@ struct KeyboardHold: UIViewRepresentable {
                 // stops being read when it leaves, so rows above measured again after that are not seen), then the hold ends. The same
                 // rule when it leaves while held, below.
                 guard let r = rows.y[kept.row] else {
-                    ChatView.trace("keyboard hold: the row was not drawn at did-show")
+                    ChatView.trace("keyboard hold: the row was not drawn at did-show" + (rows.last[kept.row] == nil ? ", put back by will-show" : ", put back by its last reading"))
                     self.putBack(CGFloat(rows.last[kept.row] ?? Double(kept.content))); self.endGuard(); return
                 }
                 self.putBack(CGFloat(r.content))
                 // Deferred to the next turn of the main queue, so a move made inside a layout pass is answered after it.
-                rows.watch = (kept.row, { [weak self] r in
+                rows.watch = (kept.row, { [weak self, weak rows] r in
                     guard let r else {
                         ChatView.trace("keyboard hold: the row left the drawn rows while held")
-                        let at = CGFloat(rows.last[kept.row] ?? Double(kept.content))
+                        let at = CGFloat(rows?.last[kept.row] ?? Double(kept.content))
                         DispatchQueue.main.async { self?.putBack(at); self?.endGuard() }; return
                     }
                     DispatchQueue.main.async { self?.putBack(CGFloat(r.content)) }
