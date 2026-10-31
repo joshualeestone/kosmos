@@ -11,7 +11,7 @@ re-move comes with a new 16 pt sideways shift (side lock shift 2, 4, 8). A 16 pt
 keyboard-shrunk view (the check itself sets that id, KOSMOS_SAMPLE_SCROLLUP; a reader's own scroll sets it the same way), not the side lock writing a stale y (candidate a: its write reads y in the same change). Whether the anchor or iOS 26 makes the FIRST move is not settled by this; only the repeats are claimed.
 
 ## Change
-ChatView: in KeyboardHold's onPutBack, when the id anchor holds a reader's place (a message or "top"; not nil, not "end"), set positionId = nil, so the anchor
+The decisions live in Board (BoardLogic.swift: letGoAfterPutBack, keepPageByScroll, anchorKind), tested in ios/LogicTests. ChatView: in KeyboardHold's onPutBack, when the id anchor holds a reader's place (a message or "top"; not nil, not "end"), set positionId = nil, so the anchor
 no longer pulls the list back to that message. Trace lines "keyboard hold: anchor let go" and, 0.2 s later, "keyboard hold: anchor after let go <none|top|end|a message>".
 
 ## Trade-off, accepted
@@ -29,4 +29,4 @@ on main confirms it; red with the same trace refutes it.
 A CI trace on this branch still showing put back 499 after "anchor let go".
 
 ## Results
-- Local, iPhone 17e iOS 26.5, fresh simulator (ios/tools/ui-keyboard.sh): 3 of 3 keyboard checks passed on 7392b97 (21:03 CDT). Re-run on the final HEAD: pending at the time of writing; result goes in the PR.
+- Local, iPhone 17e iOS 26.5, fresh simulator (ios/tools/ui-keyboard.sh): 3 of 3 keyboard checks passed on 7392b97 (21:03 CDT). Again 3 of 3 on 89a07f9 (21:12 CDT). The decisions moved into Board (letGoAfterPutBack, keepPageByScroll, anchorKind) with LogicTests checks; ios/LogicTests/run.sh PASS 1729/1729. The final HEAD's results go in the PR.
