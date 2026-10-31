@@ -37,6 +37,8 @@ final class RoomOpensAtNewestUITests: XCTestCase {
     // pulled back to its newest post. The control (the cancel removed from RoomView) fails here. The retries are stretched five
     // times (KOSMOS_SAMPLE_ROOM_RETRYSCALE, last at 11.5 s): unstretched, they end before XCUITest has found the list.
     func testRoomOf220ScrolledUpAtOnceIsNotPulledBack() throws {
+        // The person's cancel exists only where the scroll phase is reported (iOS 18 and later); below it the retries stop at 0.5 s.
+        guard #available(iOS 18.0, *) else { throw XCTSkip("the scroll phase is not reported below iOS 18") }
         let app = Self.launch(220, ["KOSMOS_SAMPLE_ROOM_RETRYSCALE": "5"])
         XCTAssertTrue(Self.box(app).waitForExistence(timeout: 30), "no message box")
         let any = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'")).firstMatch
