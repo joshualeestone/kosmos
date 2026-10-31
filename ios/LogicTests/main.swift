@@ -4993,6 +4993,7 @@ do {
     check(Board.scrollPlace(offset: -150, content: 2000, view: 700, insetTop: 100, insetBottom: 0).place == "before the top", "above the top inset is before the top")
     check(Board.scrollPlace(offset: 0, content: 300, view: 700, insetTop: 0, insetBottom: 0) == ("within", 0, 0), "content shorter than the view: its end is its top")
     check(Board.scrollPlace(offset: 1380.8, content: 2000, view: 700, insetTop: 0, insetBottom: 80).place == "within", "under a point over is not outside (rounding)")
+    check(Board.scrollPlace(offset: -101, content: 2000, view: 700, insetTop: 100, insetBottom: 0).place == "within" && Board.scrollPlace(offset: -101.5, content: 2000, view: 700, insetTop: 100, insetBottom: 0).place == "before the top", "the same point of tolerance at the top")
 
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
