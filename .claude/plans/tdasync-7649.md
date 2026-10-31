@@ -82,3 +82,9 @@ the agent's pane and a later prompt to that agent is then read as pane-busy and 
     to say so (the chain's .catch is pinned by source); its stand-in now returns a session and name.
   Decided: W2 as before; the booking's timestamp is the prompt's start (at most the deadline early, against a 24 h
   window).
+- Round 6 (Sonnet, nothing settled): no BLOCKER and nothing new; converged. It confirmed no double prompt, no lost
+  entry, no lasting stop, the lazy roster (a mark that sends nothing reads none), and the busy check and send in one
+  turn. Its warnings are decided above: a pane-busy prompt is not retried (the built route's own delivery is awaited
+  before its 200, so it is not in flight when the prompt runs; the sync sender refused a busy pane too), and a
+  deadline then a late refusal leaves the task booked. Nits left: a pane both busy and held logs pane-busy; the
+  chain's .catch is pinned by source; the built route's roster is a fallback its comment does not name.
