@@ -55627,7 +55627,7 @@ function pbPaint() {
   const box = document.getElementById('pb');
   if (!box) return;
   box.hidden = st.shown !== true;
-  if (box.hidden) { PB.code = null; PB.who = null; PB.view = null; document.getElementById('pb-code-text').textContent = ''; return; }
+  if (box.hidden) { PB.code = null; PB.who = null; PB.view = null; document.getElementById('pb-code-text').textContent = ''; document.getElementById('pb-restore-code').value = ''; return; }
   // The step the person opened wins over the engine's state, except that 'on' closes the words and restore.
   let v = PB.view;
   if (!v || (st.state === 'on' && (v === 'words' || v === 'restore'))) v = st.state === 'on' ? 'on' : st.state === 'needs-key' ? 'needs-key' : st.state === 'pending' ? 'pending' : 'off';
@@ -55673,7 +55673,13 @@ async function pbPost(kind, body) {
       : kind === 'off' ? await fetch('/api/personal-backup/off', init) : null;
   } catch { res = null; }
   if (!res) return { ok: false, because: 'This Kosmos could not be reached. Try again.' };
-  try { return await res.json(); } catch { return { ok: false, because: 'This Kosmos could not read the answer. Try again.' }; }
+  let b = null;
+  try { b = await res.json(); } catch { return { ok: false, because: 'This Kosmos could not read the answer. Try again.' }; }
+  /* Challenge round 3: from a remote session a gated step answers 403 { code: 'remote_step_up...', error } with no
+     `because`; the board's own sentence says what to do, as the other panels show it (stepUpSays). */
+  if (!res.ok && b && /^remote_step_up/.test(String(b.code || '')) && typeof b.error === 'string') return { ok: false, stepUp: true, code: b.code, because: b.error };
+  if (!res.ok && b && typeof b.because !== 'string') return { ok: false, because: typeof b.error === 'string' ? asSentence(b.error) : 'This Kosmos refused that. Nothing changed.' };
+  return b;
 }
 /* Review 1: one span per group, the hyphen inside the group before it, so a line breaks only between groups. */
 function pbCodeText(code) {
@@ -55704,9 +55710,11 @@ async function pbOpen() {
 async function pbAccept(yes) {
   if (PB.busy) return; PB.busy = true; pbMsg('');
   const ticket = PB.ticket; PB.ticket = null;
+  /* Not now is decided here: nothing is sent (challenge round 3: the decline went to a step-up-gated, price-gated route).
+     The ticket is dropped on this page and expires on the board in ten minutes. */
+  if (yes !== true) { PB.busy = false; PB.view = null; pbPaint(); return; }
   try {
-    const r = await pbPost('on', { ticket, accepted: yes === true });
-    if (yes !== true) { PB.view = null; pbPaint(); return; }
+    const r = await pbPost('on', { ticket, accepted: true });
     if (r && r.ok && r.recoveryCode) { PB.at = 0; pbShowCode(r); return; }
     PB.view = null; PB.at = 0;
     if (!(r && r.ok)) pbMsg((r && r.because) || 'Nothing was turned on. Try again in a minute.');
@@ -55728,10 +55736,13 @@ async function pbSaved() {
     const r = await pbPost('saved', PB.who);
     if (!(r && r.ok)) { pbMsg((r && r.because) || 'That could not be recorded. Try again.'); return; }
     PB.view = null; PB.who = null; PB.at = 0;
+    if (PB.st) PB.st.state = 'on';   // the code is gone from the screen now, not when the next read lands
+    pbPaint();
   } finally { PB.busy = false; pbMaybe(); }
 }
 function pbCopy() {
-  if (!PB.code || !navigator.clipboard) return;
+  if (!PB.code) return;
+  if (!navigator.clipboard) { pbMsg('It could not be copied. Write it down instead.'); return; }
   navigator.clipboard.writeText(PB.code).then(() => pbMsg('Copied. Keep it somewhere other than this computer.'), () => pbMsg('It could not be copied. Write it down instead.'));
 }
 function pbPrint() {
@@ -55791,6 +55802,7 @@ async function pbRestore() {
     const r = await pbPost('restore', { code });
     // Restore review: a wrong code keeps what was typed, so one group can be fixed rather than all of it retyped; the
     // sentence goes under the field and the field is marked (review 3).
+    if (r && r.stepUp) { pbMsg(r.because); return; }   // not the code's fault: the field is not marked
     if (!(r && r.ok)) { pbRestoreBad(pbRestoreSay(r)); return; }
     pbRestoreBad('');
     document.getElementById('pb-restore-code').value = '';

@@ -107,6 +107,13 @@ test('#7404: from the screen, a decline turns nothing on; a bad code restores no
   const pv = await call('/api/personal-backup/preview', { body: {}, headers: SCREEN });
   assert.equal(pv.json.ok, false); assert.match(pv.json.because, /Kosmos\+/, JSON.stringify(pv.json));
   assert.equal((await call('/api/personal-backup/whatever', { body: {}, headers: SCREEN })).status, 404);
+  // Challenge round 3: the bare path is GET only; a POST there once fell through to turning backup off.
+  const pbm = require('./engine/personalbackup'); const realOff = pbm.switchOff; let offCalls = 0;
+  pbm.switchOff = async () => { offCalls++; return { ok: true }; };
+  try {
+    for (const m of ['POST', 'PUT', 'DELETE']) assert.equal((await call('/api/personal-backup', { method: m, body: {}, headers: SCREEN })).status, 404, m);
+  } finally { pbm.switchOff = realOff; }
+  assert.equal(offCalls, 0, 'a request to the bare path reached switchOff');
   assert.equal((await call('/api/personal-backup/on', { method: 'GET', headers: SCREEN })).status, 404);
   assert.equal(fs.existsSync(path.join(store.ROOT, 'personal-backup', 'enrollment.json')), false);
 });

@@ -12716,8 +12716,10 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, out);
       return;
     }
+    /* Only the six named steps exist. The bare path is GET only: a POST there has no step (challenge round 3: it fell
+       through to switchOff, past the step-up gate, which is keyed on /off). */
     const kind = pathname.slice('/api/personal-backup/'.length);
-    if (req.method !== 'POST') { sendJson(res, 404, { error: 'not found' }); return; }
+    if (req.method !== 'POST' || !['preview', 'on', 'key', 'saved', 'restore', 'off'].includes(kind)) { sendJson(res, 404, { error: 'not found' }); return; }
     readBody(req, 4096)
       .then(async (buf) => {
         let body = {};
@@ -12737,7 +12739,8 @@ const server = http.createServer(async (req, res) => {
         else if (kind === 'key') r = await pb.setUpKey();
         else if (kind === 'saved') r = await pk.confirmRecoveryCodeSaved({ org: body.org, member: body.member });
         else if (kind === 'restore') r = typeof body.code === 'string' && body.code.length <= 64 ? await pk.restorePersonalKey(body.code) : { ok: false, code: 'not_a_code', because: 'That is not a recovery code (26 letters and digits).' };
-        else r = await pb.switchOff();
+        else if (kind === 'off') r = await pb.switchOff();
+        else r = null;   // unreachable: kind was checked above; answers the generic refusal below
         /* What the page may see, by name. `code` is the recovery code on on/key, and a refusal's code elsewhere; org and
            member are the opaque ids confirmRecoveryCodeSaved needs back, nothing more. */
         const keep = ['ok', 'because', 'code', 'declined', 'pending', 'unknown', 'already', 'ticket', 'words', 'org', 'member', 'deleted', 'epochs'];
