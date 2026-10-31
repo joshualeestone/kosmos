@@ -155,3 +155,6 @@ Iteration 19: one rule for a lost row, at did-show and while held: put back once
 the reading with the same content, and skipping it left the plain iOS jump undone.) Board.readerRow takes the visible bottom
 too, so a row laid out below the screen is never the reader's; the long-message fallback is checked with that shape.
 RowTops.reset() for a fresh chat. LogicTests run.sh PASS 1735/1735, run-room.sh 742/742.
+Iteration 20: the hold's arithmetic is Board.holdTarget (will-show offset plus the row's move in the content, clamped to
+the scrollable range), with LogicTests checks for both directions of the row's move, an offset-only move, both clamps, and
+short content; the CI run 4 numbers are the fixture. LogicTests run.sh PASS 1741/1741, run-room.sh 742/742.

@@ -4967,6 +4967,16 @@ do {
           "with a row named again, or no let-go, the id anchor keeps the page (no scroll)")
     check(Board.keepPageByScroll(idAnchor: false, letGo: false, anchor: nil), "without the id anchor (iOS 16) the page is always kept by scrolling")
     check([nil, "end", "top", "m1"].map(Board.anchorKind) == ["none", "end", "top", "a message"], "the record names the anchor's kind, never a message's id")
+    // kosmos#7645: where the hold puts the offset (will-show offset 10534 in a 14008 pt content, as CI's runner measured).
+    func target(_ content: Double, kept: Double = 5000, offset: Double = 10534, height: Double = 15249) -> Double {
+        Board.holdTarget(offset: offset, content: content, keptContent: kept, insetTop: 100, insetBottom: 80, contentHeight: height, viewHeight: 346)
+    }
+    check(target(5000) == 10534, "the row not moved in the content (iOS moved only the offset): back to the will-show offset")
+    check(target(6113) == 11647, "rows above measured again, the row 1113 pt lower in the content: the offset follows it, as iOS had")
+    check(target(4000) == 9534, "a row that moved up in the content: the offset follows it up")
+    check(target(5000, offset: -300) == -100, "never above the top (minus the top inset)")
+    check(target(9000, offset: 14800) == 14983, "never past the end (content plus the bottom inset, less the view)")
+    check(target(5000, offset: 50, height: 100) == -100, "content (with its bottom inset) shorter than the view: its end is its top")
     // kosmos#7645 round 5: the reader's row is the highest one whose top is in what shows, by its own top on the screen.
     check(Board.readerRow(["a": 80, "b": 140, "c": 30, "d": 300], below: 100, above: 600)! == ("b", 140), "the highest row whose top is below the bar")
     check(Board.readerRow(["a": 100, "b": 99.7, "c": 99], below: 100, above: 600)! == ("b", 99.7), "a row at the bar's edge counts; one a point behind the bar does not")

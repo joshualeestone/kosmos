@@ -2368,8 +2368,10 @@ struct KeyboardHold: UIViewRepresentable {
             if sv.isTracking || sv.isDragging || sv.isDecelerating { ChatView.trace("keyboard hold: skipped, a finger"); endGuard(); return }
             if above != g.kept.above { ChatView.trace("keyboard hold: skipped, earlier messages landed"); endGuard(); return }
             if abs(sv.bounds.width - g.kept.width) > 0.5 { ChatView.trace("keyboard hold: skipped, the width changed"); endGuard(); return }
-            let i = sv.adjustedContentInset   // never past either end of what can be scrolled to
-            let target = min(max(g.kept.offset + (content - g.kept.content), -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
+            let i = sv.adjustedContentInset
+            let target = CGFloat(Board.holdTarget(offset: Double(g.kept.offset), content: Double(content), keptContent: Double(g.kept.content),
+                                                  insetTop: Double(i.top), insetBottom: Double(i.bottom),
+                                                  contentHeight: Double(sv.contentSize.height), viewHeight: Double(sv.bounds.height)))
             let moved = sv.contentOffset.y - target   // how far the row is from its place on the screen, the number the record keeps
             guard abs(moved) > 1 else { return }
             ChatView.trace("keyboard hold: put back \(Int(moved))")
