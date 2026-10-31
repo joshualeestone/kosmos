@@ -67,7 +67,7 @@ final class KeyboardSlideUITests: XCTestCase {
     }
 
     // kosmos#7420 (build 24, Josh's third report): empty right after the keyboard came DOWN. The keyboard goes up and then
-    // down at the newest message, then the recovery runs (KOSMOS_SAMPLE_REBUILD=14, once the keyboard is down): one rebuild,
+    // down at the newest message, then the recovery runs (KOSMOS_SAMPLE_REBUILD=afterhide, once the keyboard is down): one rebuild,
     // and the newest message on screen above the box.
     func testRebuiltAfterTheKeyboardWentDown() throws {
         // kosmos#7688 (4): the rebuild runs 1 s after the keyboard is down (keyboardDidHide), not on a 14 s clock.
@@ -84,7 +84,7 @@ final class KeyboardSlideUITests: XCTestCase {
         let down = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
         XCTAssertEqual(XCTWaiter().wait(for: [down], timeout: 5), .completed, "the keyboard did not go down")
         let rebuilt = app.descendants(matching: .any).matching(identifier: "sample-rebuilt").firstMatch
-        XCTAssertFalse(rebuilt.exists, "the rebuild marker showed before the keyboard was down (the order this check is about was not kept)")
+        XCTAssertFalse(rebuilt.exists, "the rebuild marker showed before the keyboard was down (a keyboard-did-hide came early, before this drag)")
         Self.assertRebuiltOnce(rebuilt, "the chat after the keyboard went down")
         XCTAssertTrue(newest.waitForExistence(timeout: 10) && newest.isHittable, "the rebuilt chat did not show its newest message")
         Self.settle(newest)
