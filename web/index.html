@@ -55733,7 +55733,9 @@ async function pbFinish() {
   try {
     const r = await pbPost('key');
     if (r && r.ok && r.recoveryCode) { pbShowCode(r); return; }
-    if (r && r.ok) { PB.at = 0; return; }
+    // #7681 item 4: ok with no code to show is this computer already holding the keys (a restore whose key-ready write
+    // failed, settled here as already_here). Say so, or the press looks like it did nothing.
+    if (r && r.ok) { PB.at = 0; pbMsg('Your backup key is set up on this computer.'); return; }
     pbMsg((r && r.because) || 'The recovery code could not be shown just now. Try again in a minute.');
     if (r && r.code === 'restore') pbOpenRestore();
   } finally { PB.busy = false; if (PB.view !== 'code') pbMaybe(); }
