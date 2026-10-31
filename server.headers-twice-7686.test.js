@@ -129,7 +129,31 @@ test('#7686: sendJson after the head ends the response and never writes a second
   assert.equal(destroyed(), 1, 'the broken response was not ended');
   assert.equal(logged.length, 1);
   assert.match(logged[0], /GET \/api\/x/, 'the log line does not name the route');
-  assert.doesNotMatch(logged[0], /secret/, 'the log line leaked a token');
+  assert.doesNotMatch(logged[0], /secret|token/, 'the log line carried the query');
+});
+
+test('#7686: sendJson after a response that already ENDED logs and leaves it alone (no destroy of a finished reply)', () => {
+  const { res, destroyed } = sentResponse();
+  Object.defineProperty(res, 'writableEnded', { value: true });
+  const realErr = console.error;
+  console.error = () => {};
+  try { sendJson(res, 500, { error: 'late' }); } finally { console.error = realErr; }
+  assert.equal(destroyed(), 0, 'a finished response was destroyed (a keep-alive socket would lose its next request)');
+});
+
+test('#7686: a value sendJson cannot serialise throws BEFORE any head, so the caller can still answer 500', () => {
+  const res = new http.ServerResponse({ method: 'GET', url: '/api/x' });
+  const heads = [];
+  res.writeHead = (code) => { heads.push(code); Object.defineProperty(res, 'headersSent', { value: true, configurable: true }); return res; };
+  res.end = () => res;
+  const circular = {};
+  circular.self = circular;
+  const realErr = console.error;
+  console.error = () => {};
+  try {
+    try { sendJson(res, 200, circular); } catch { sendJson(res, 500, { error: 'we could not answer' }); }
+  } finally { console.error = realErr; }
+  assert.deepEqual(heads, [500], 'the heads written were ' + JSON.stringify(heads) + ' (a 200 head before the failure leaves the 500 unwritable)');
 });
 
 test('#7686: sendText (the as=text routes\' failures) after the head ends the response too', () => {
