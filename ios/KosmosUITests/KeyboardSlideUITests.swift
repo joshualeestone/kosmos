@@ -39,7 +39,7 @@ final class KeyboardSlideUITests: XCTestCase {
     // (rows not drawn within the content, on a phone) is not reproduced here. After it, the chat still opens at its newest
     // message above the box, and keeps it there when the keyboard comes up.
     func testRebuiltListShowsTheNewestMessage() throws {
-        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_REBUILD": "1"])
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_REBUILD": "1", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         let rebuilt = app.descendants(matching: .any).matching(identifier: "sample-rebuilt").firstMatch
         XCTAssertTrue(rebuilt.waitForExistence(timeout: 30), "the list was never rebuilt (the recovery did not decide .rebuild)")
