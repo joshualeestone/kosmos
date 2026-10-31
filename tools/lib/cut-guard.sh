@@ -1338,8 +1338,14 @@ kosmos_refuse_if_machine_claimed() {
 # file's own seams. The gate lock and the turn are found beside KOSMOS_PREPUSH_MACHINE_LOCK, so one seam moves all three
 # (run-tests.sh's /dev/null path makes all three unreadable).
 _kosmos_prepush_lock_file() { printf '%s' "${KOSMOS_PREPUSH_MACHINE_LOCK:-${HOME:-/tmp}/.cache/prepush/machine.lock}"; }
-# A lock seam with no folder in it falls back to the hook's own folder, never to the caller's working directory.
-_kosmos_prepush_dir() { local l; l="$(_kosmos_prepush_lock_file)"; case "$l" in */*) printf '%s' "${l%/*}" ;; *) printf '%s' "${HOME:-/tmp}/.cache/prepush" ;; esac; }
+# A lock seam with no folder in it gives the gate lock and the turn a folder that can never exist (as run-tests.sh's
+# /dev/null seam does), so they read as no build: never the real box's folder, and never the caller's working directory.
+_kosmos_prepush_dir() { local l; l="$(_kosmos_prepush_lock_file)"; case "$l" in */*) printf '%s' "${l%/*}" ;; *) printf '%s' /dev/null/kosmos-no-prepush-dir ;; esac; }
+# The hook's longest step: KOSMOS_PREPUSH_MAX_STEP when it is set here (the name the hook reads on Mortals) and a whole
+# number above 0 of at most seven digits, else the hook's default 2400 s. Bounds the gate lock below.
+_kosmos_prepush_max_step() {
+  case "${KOSMOS_PREPUSH_MAX_STEP:-}" in ''|*[!0-9]*|0*|????????*) printf '2400' ;; *) printf '%s' "$KOSMOS_PREPUSH_MAX_STEP" ;; esac
+}
 _kosmos_prepush_gate_lock_file() { printf '%s/prepush.gate.lock' "$(_kosmos_prepush_dir)"; }
 _kosmos_prepush_turn_file() { printf '%s/prepush.gate.turn' "$(_kosmos_prepush_dir)"; }
 # _kosmos_prepush_held <lock file>: 0 while a lockf holder holds it (asked twice, a moment apart).
@@ -1384,9 +1390,6 @@ _kosmos_prepush_holders() {
 # next to it are no build either. The step limit is KOSMOS_PREPUSH_MAX_STEP when it is set here (the name the hook reads
 # on Mortals), else the hook's default 2400 s; as for the grace, a limit raised only in the hook's own environment is
 # not seen here.
-_kosmos_prepush_max_step() {
-  case "${KOSMOS_PREPUSH_MAX_STEP:-}" in ''|*[!0-9]*|0*|????????*) printf '2400' ;; *) printf '%s' "$KOSMOS_PREPUSH_MAX_STEP" ;; esac
-}
 _kosmos_prepush_gate_held() {
   _kosmos_prepush_turn_fresh $(( $(_kosmos_prepush_max_step) + $(_kosmos_prepush_turn_window) )) >/dev/null && _kosmos_prepush_held "$(_kosmos_prepush_gate_lock_file)"
 }
@@ -1429,7 +1432,9 @@ kosmos_refuse_if_prepush_build_live() {
     return 1
   fi
   age="$(_kosmos_prepush_turn_fresh)" || return 0
-  echo "a relay pre-push build is between two of its steps on this machine (its gate turn, $(_kosmos_prepush_turn_file), was used ${age}s ago); $what would start in that gap. Its next step starts soon, or stops at once if the machine is claimed; if the build went away, its turn lapses in $(( $(_kosmos_prepush_turn_window) - age ))s at most (window $(_kosmos_prepush_turn_window)s).${override:+ $override.}" >&2
+  local win; win="$(_kosmos_prepush_turn_window)"
+  [ "$age" -ge 0 ] || age=0   # a turn dated a little ahead (within the 60 s tolerance) was just used
+  echo "a relay pre-push build is between two of its steps on this machine (its gate turn, $(_kosmos_prepush_turn_file), was used ${age}s ago); $what would start in that gap. Its next step starts soon, or stops at once if the machine is claimed; if the build went away, its turn lapses in $(( win - age ))s at most (window ${win}s).${override:+ $override.}" >&2
   return 1
 }
 

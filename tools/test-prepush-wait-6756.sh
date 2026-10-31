@@ -216,7 +216,14 @@ KOSMOS_PREPUSH_TURN_LIVE_S=600 kosmos_prepush_build_live && pass "10 CONTROL: th
 kosmos_prepush_build_live && fail "10 an empty turn reads as a build" || pass "10 an empty turn is not a build"
 printf 'abc\n' > "$TURNF"; touch -t 203001010000 "$TURNF"
 kosmos_prepush_build_live && fail "10 a turn dated years ahead reads as live for ever" || pass "10 a turn dated years ahead is not trusted as live"
+# The tolerance's other side: a turn dated 30 s ahead (a clock a little off) is live, and the message says 0 s ago.
+printf 'abc\n' > "$TURNF"; touch -A 30 "$TURNF"   # BSD touch -A: 30 s later
+out="$(kosmos_refuse_if_prepush_build_live "a heavy run" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "was used 0s ago" && pass "10 a turn dated 30 s ahead is live, and its age is shown as 0 s, not negative" || fail "10 a turn 30 s ahead: rc=$rc $out"
 rm -f "$TURNF"
+# A lock seam with no folder: the gate lock and the turn are read from a folder that cannot exist, never the real box's.
+[ "$(KOSMOS_PREPUSH_MACHINE_LOCK=machine.lock _kosmos_prepush_turn_file)" = /dev/null/kosmos-no-prepush-dir/prepush.gate.turn ] \
+  && pass "10 a lock seam with no folder sends the turn nowhere (not the real ~/.cache/prepush)" || fail "10 slashless seam turn: $(KOSMOS_PREPUSH_MACHINE_LOCK=machine.lock _kosmos_prepush_turn_file)"
 KOSMOS_PREPUSH_MACHINE_LOCK=/dev/null/kosmos-tests-no-prepush-lock kosmos_prepush_build_live && fail "10 run-tests.sh's /dev/null lock seam reads a turn" || pass "10 run-tests.sh's /dev/null lock seam reads no turn either"
 
 echo

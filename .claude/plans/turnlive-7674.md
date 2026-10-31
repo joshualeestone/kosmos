@@ -29,11 +29,14 @@ and the build stopped at its next step ("Mortals is now claimed ... stopping", 9
 
 ## Weakest premises
 - A turn left by a build that died reads as live for up to 180 s, so a heavy run or a cut waits that long.
-- A heavy run can now get in only BETWEEN two gates, not between two steps. If pushes hand the turn straight to each
-  other (the next queued push takes it within one 10 s lock slice), a heavy waiter behind a long stream of pushes can
-  reach its queue bound. Before this change it got in between steps, by stopping the push (the bug). Accepted because
-  the room's Mortals line hands over by message, with minutes between gates, and a heavy run that hits its bound says so
-  and can be queued again. If that stops being true, the next step is giving a waiting heavy run the turn between gates.
+- A heavy run can now get in only BETWEEN two gates, not between two steps, and that opening is small. With a push
+  queued, the next checkout takes a freed turn within about 3 to 13 s (its lock slices of up to 10 s, then `sleep 3`),
+  while a heavy waiter asks every 30 s (KOSMOS_WAIT_EVERY_S), so it usually gets in only when NO push is queued. The
+  suites queued behind it (first-come) wait with it. Before this change it got in between steps by stopping the push
+  (the bug). Accepted for Agent1s's room line, where a push is queued only by message and gates are usually minutes
+  apart; a heavy run that reaches its bound says so and can be queued again. This is a queue-order trade in Sonya's
+  lib, so the PR is held for her agreement (#6756). If pushes start queueing back to back, the next step is giving a
+  waiting heavy run the turn between gates.
 - The gate lock is also held for an instant by a queued push answering "wait" in its turn loop. It counts only while a
   turn is on file (a real checkout writes its turn first), so a queue of waiting pushes with no turn reads as no build.
   With a lapsed turn left on file, a waiter's instant holds 0.3 s apart can still read as one, until a waiter takes the
