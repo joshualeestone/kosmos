@@ -9,7 +9,7 @@ catch, the rejection went unhandled, and the board has no process-level handler,
 
 ## The call
 Fix it at the chokepoint, not per route. About 200 routes answer a failure with `sendJson` from a catch (counted on
-main 9cf6c3d426: 200 `.catch(() => sendJson(` shapes), and about a dozen already guard it by hand with
+main 9cf6c3d426: 200 lines with `.catch(() => sendJson(`, `.catch((e) => sendJson(` or `.catch((err) => sendJson(`), and about a dozen already guard it by hand with
 `if (!res.headersSent)`. So `sendJson` itself checks `res.headersSent`: it logs one line, destroys the response
 unless it has already ended, and returns. The client sees a cut, never a 200 head with a 404 body.
 
