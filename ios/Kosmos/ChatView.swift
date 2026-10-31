@@ -815,7 +815,7 @@ struct ChatView: View {
         // kosmos#7420 (build 22, 10-30): reported once per chat. A later empty list (or the same one at the 1.5 s check) is
         // put right only as Board.emptyRecovery says (past the content's end, nobody scrolling), so a false empty reading
         // (onScreen counts onAppear) never pulls a resting reader to the newest message.
-        if recover, diagDone { recoverEmpty(proxy, reported: true); return }
+        if recover, diagDone { recoverEmpty(proxy, later: true); return }
         guard recover || !diagWideDone else { return }
         if recover { diagDone = true } else { diagWideDone = true }
         let info = Bundle.main.infoDictionary
@@ -840,16 +840,16 @@ struct ChatView: View {
     }
 
     // kosmos#7420: an empty list put right as Board.emptyRecovery decides.
-    private func recoverEmpty(_ proxy: ScrollViewProxy, reported: Bool = false) {
+    private func recoverEmpty(_ proxy: ScrollViewProxy, later: Bool = false) {
         let scrolling = personScrolling || scrollBox.underFinger
-        switch Board.emptyRecovery(reported: reported, place: scrollBox.reading()?.place, scrolling: scrolling) {
+        switch Board.emptyRecovery(later: later, place: scrollBox.reading()?.place, scrolling: scrolling) {
         case .none: return
         case .backInsideThenNewest: if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") }
         case .newest: break
         }
         goNewest(proxy)
         // The move above may have made SwiftUI name a row in the binding, which goNewest's own put-back leaves alone. Queued
-        // after goNewest's own async put-back (main-queue order), so it sees what that left.
+        // after goNewest's own async put-back (main-queue order); it helps only if SwiftUI wrote the binding by then.
         if Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
     }
 

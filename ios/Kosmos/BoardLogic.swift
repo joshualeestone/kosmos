@@ -469,12 +469,13 @@ enum Board {
         if offset < top - 1 { return ("before the top", top, end) }
         return ("within", top, end)
     }
-    // kosmos#7420: what an empty list's recovery does. The first (reported) one goes to the newest message as before, after
-    // putting a scroll outside its content back at its end unless a finger is on it. A later one acts only on a scroll past
-    // the content's end (the case the evidence points at; before the top may be a bounce), and never while the person scrolls.
+    // kosmos#7420: what an empty list's recovery does. The first in a chat (the one reported) goes to the newest message as
+    // before, after putting a scroll outside its content back at its end unless a finger is on it. A later one (later: true)
+    // acts only on a scroll past the content's end (the case the evidence points at; before the top may be a bounce), and
+    // never while the person scrolls.
     enum EmptyRecovery: Equatable { case none, newest, backInsideThenNewest }
-    static func emptyRecovery(reported: Bool, place: String?, scrolling: Bool) -> EmptyRecovery {
-        if reported { return !scrolling && place == "past the end" ? .backInsideThenNewest : .none }
+    static func emptyRecovery(later: Bool, place: String?, scrolling: Bool) -> EmptyRecovery {
+        if later { return !scrolling && place == "past the end" ? .backInsideThenNewest : .none }
         return !scrolling && (place == "past the end" || place == "before the top") ? .backInsideThenNewest : .newest
     }
 
