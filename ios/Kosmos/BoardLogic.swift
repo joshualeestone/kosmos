@@ -445,9 +445,12 @@ enum Board {
     // without the id anchor (iOS 16), and with it only while a put-back has let it go and no row is named yet.
     static func keepPageByScroll(idAnchor: Bool, letGo: Bool, anchor: String?) -> Bool { !idAnchor || (letGo && anchor == nil) }
     // kosmos#7645: the reader's row when the keyboard starts to show: the highest drawn row whose top is at or below the top
-    // of what shows (window points, with half a point of rounding). A row already under the bar is not the reader's place.
+    // of what shows (window points, with half a point of rounding). With none (one long message fills the screen), the row
+    // the reader is inside: the lowest whose top is above it. Only how far the row moves is used, so either keeps the place.
     static func readerRow(_ tops: [String: Double], below top: Double) -> (id: String, y: Double)? {
-        tops.filter { $0.value >= top - 0.5 }.min { $0.value < $1.value || ($0.value == $1.value && $0.key < $1.key) }.map { ($0.key, $0.value) }
+        let order: ((key: String, value: Double), (key: String, value: Double)) -> Bool = { $0.value < $1.value || ($0.value == $1.value && $0.key < $1.key) }
+        if let r = tops.filter({ $0.value >= top - 0.5 }).min(by: order) { return (r.key, r.value) }
+        return tops.max(by: order).map { ($0.key, $0.value) }
     }
 
     // kosmos#7575: the chat's running count and when it goes. The count always runs (a shift before the chat's onAppear

@@ -121,3 +121,10 @@ onGeometryChange's transform), not later in its action. The stale cutoff is 3 s 
 If the reader's row is not drawn at did-show, or stops being drawn while held, the hold ends for that keyboard, with a line
 saying which. Readings are not kept when the hold is off (below iOS 26, or the Debug control). A move of the offset and the
 content together that leaves the row's y unchanged writes nothing (moved is 0): accepted, the row is where it was.
+Iteration 15: the hold keeps the reader's row's place in the CONTENT (ContentSpace, a named coordinate space on the stack)
+and the offset at will-show, and puts the offset at (offset at will-show) + (how far the row moved in the content). One
+SwiftUI number per reading, no pairing with UIKit's live offset; an iOS move of the offset alone puts the offset back, rows
+above measured again move the offset with the row, and if iOS's own move already kept the row in place nothing is written.
+The window-point top is still read, only to choose the reader's row. With no row top below the bar (one long message fills
+the screen) the reader's row is the one they are inside (Board.readerRow, checked). The will-show trace now prints only when
+the hold applies.
