@@ -1322,7 +1322,8 @@ kosmos_refuse_if_machine_claimed() {
 #   - prepush.gate.lock, the gate lock, for EVERY step, its checkout included (pruning, the target cap, git checkout);
 #   - prepush.gate.turn, its gate turn, between two steps: touched at each step boundary, removed when the gate ends or
 #     on any red (#7674: before this, a heavy turn could claim the box between two steps and stop the build at its next).
-# A build is live while either lock is held, or while its turn was touched within KOSMOS_PREPUSH_TURN_LIVE_S seconds.
+# A build is live while the build lock is held, or the gate lock is held while a turn is on file, or while its turn was
+# touched within the window (_kosmos_prepush_turn_window).
 # The locks are judged by the kernel, never by anything read from a file: a lock file left by a finished or killed
 # build is simply not held. The turn IS read from a file (its mtime), so it fails toward "no build": an empty or
 # unreadable turn, one dated more than 60 s ahead, or one older than the window is no build, and a turn left by a build
@@ -1351,12 +1352,28 @@ _kosmos_prepush_held() {
   "${KOSMOS_CUT_LOCKF_BIN:-/usr/bin/lockf}" -k -s -t 0 "$f" true 2>/dev/null || rc=$?
   [ "$rc" = 75 ]
 }
-# The turn's window in seconds: KOSMOS_PREPUSH_TURN_LIVE_S, or 180 for anything that is not a whole number above 0.
-# 180 is the hook's default turn grace (KOSMOS_PREPUSH_TURN_GRACE, 120 s, read on Mortals) plus a margin. Nothing ties
-# the two together: if that grace is raised on Mortals, raise this with it.
+# The turn's window in seconds: KOSMOS_PREPUSH_TURN_LIVE_S when it is a whole number above 0; else the hook's own turn
+# grace plus 60 when KOSMOS_PREPUSH_TURN_GRACE is set here (the hook reads that name on Mortals, so a grace raised in the
+# environment both share moves this with it); else 180, the hook's default grace (120 s) plus 60. A grace raised only
+# where the hook alone reads it still leaves this at 180: then a build idle between steps for longer reads as none.
 _kosmos_prepush_turn_window() {
-  case "${KOSMOS_PREPUSH_TURN_LIVE_S:-}" in ''|*[!0-9]*|0*) printf '180' ;; *) printf '%s' "$KOSMOS_PREPUSH_TURN_LIVE_S" ;; esac
+  case "${KOSMOS_PREPUSH_TURN_LIVE_S:-}" in ''|*[!0-9]*|0*) ;; *) printf '%s' "$KOSMOS_PREPUSH_TURN_LIVE_S"; return 0 ;; esac
+  case "${KOSMOS_PREPUSH_TURN_GRACE:-}" in ''|*[!0-9]*|0*) printf '180' ;; *) printf '%s' "$(( KOSMOS_PREPUSH_TURN_GRACE + 60 ))" ;; esac
 }
+# _kosmos_prepush_holders <file>: "pid N: program" for up to three processes holding it open (lsof), for messages only
+# (liveness is the lock). The program name only, never the command line (this goes to logs).
+_kosmos_prepush_holders() {
+  local holder="" p
+  for p in $(/usr/sbin/lsof -n -P -t -- "$1" 2>/dev/null | head -3); do   # -n -P: no name lookups, on every poll
+    holder="${holder:+$holder; }pid $p: $(basename "$(ps -o comm= -p "$p" 2>/dev/null)" 2>/dev/null || true)"
+    case "$holder" in *": ") holder="${holder}gone" ;; esac   # it exited between lsof and ps
+  done
+  printf '%s' "$holder"
+}
+# The gate lock counts only while a turn exists (any age). A checkout writes its turn FIRST, before touching anything,
+# so a real step under the gate lock always has one; a queued push answering "wait" in its turn loop takes the gate lock
+# for an instant too, and with a busy queue two such instants can fall 0.3 s apart. With no turn on file, that is no build.
+_kosmos_prepush_gate_held() { [ -s "$(_kosmos_prepush_turn_file)" ] && _kosmos_prepush_held "$(_kosmos_prepush_gate_lock_file)"; }
 # _kosmos_prepush_turn_fresh: 0, printing the turn's age in seconds, while the turn was touched within the window.
 _kosmos_prepush_turn_fresh() {
   local f m now age lim
@@ -1374,27 +1391,22 @@ _kosmos_prepush_turn_fresh() {
 _kosmos_prepush_lock_held() { _kosmos_prepush_held "$(_kosmos_prepush_lock_file)"; }
 kosmos_prepush_build_live() {
   _kosmos_prepush_lock_held && return 0
-  _kosmos_prepush_held "$(_kosmos_prepush_gate_lock_file)" && return 0
+  _kosmos_prepush_gate_held && return 0
   _kosmos_prepush_turn_fresh >/dev/null
 }
 # kosmos_refuse_if_prepush_build_live <what> [override]: refuses (prints why on stderr, returns 1) while a relay pre-push
 # build is live (a step under either lock, or between two steps), naming the holder for the person; callers wait on it
 # with kosmos_wait_until_clear.
 kosmos_refuse_if_prepush_build_live() {
-  local what="${1:-this run}" override="${2:-}" f holder="" p age
+  local what="${1:-this run}" override="${2:-}" f holder age
   if _kosmos_prepush_lock_held; then
-    f="$(_kosmos_prepush_lock_file)"
-    # The holder, for the message only (liveness is the lock above): lsof names who has the file open. The pid and the
-    # program name only, never the command line (this goes to logs, and a command line does not belong there).
-    for p in $(/usr/sbin/lsof -n -P -t -- "$f" 2>/dev/null | head -3); do   # -n -P: no name lookups, on every poll
-      holder="${holder:+$holder; }pid $p: $(basename "$(ps -o comm= -p "$p" 2>/dev/null)" 2>/dev/null || true)"
-      case "$holder" in *": ") holder="${holder}gone" ;; esac   # it exited between lsof and ps
-    done
+    f="$(_kosmos_prepush_lock_file)"; holder="$(_kosmos_prepush_holders "$f")"
     echo "a relay pre-push build is running on this machine (${holder:-holder not readable}), holding $f for one long cargo step; $what would share the box with it. It ends on its own, and once the machine is claimed the hook starts no further step.${override:+ $override.}" >&2
     return 1
   fi
-  if _kosmos_prepush_held "$(_kosmos_prepush_gate_lock_file)"; then
-    echo "a relay pre-push build is running a step on this machine (it holds $(_kosmos_prepush_gate_lock_file): its checkout, or a step about to take the build lock); $what would share the box with it. It ends on its own, and once the machine is claimed the hook starts no further step.${override:+ $override.}" >&2
+  if _kosmos_prepush_gate_held; then
+    f="$(_kosmos_prepush_gate_lock_file)"; holder="$(_kosmos_prepush_holders "$f")"
+    echo "a relay pre-push build is running a step on this machine (${holder:-holder not readable}), holding $f (its checkout, or a step about to take the build lock); $what would share the box with it. It ends on its own, and once the machine is claimed the hook starts no further step.${override:+ $override.}" >&2
     return 1
   fi
   age="$(_kosmos_prepush_turn_fresh)" || return 0

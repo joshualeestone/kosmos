@@ -8,6 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 . "$HERE/lib/cut-guard.sh"
 unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_CUT_LOCKF_BIN KOSMOS_PREPUSH_RECHECK_S KOSMOS_CUT_IGNORE_PREPUSH KOSMOS_CUT_PREPUSH_WAIT_S
+unset KOSMOS_PREPUSH_TURN_LIVE_S KOSMOS_PREPUSH_TURN_GRACE   # #7674: the turn window's two inputs
 unset KOSMOS_MACHINE_CLAIM_COOKIE KOSMOS_MACHINE_CLAIM_MINUTES KOSMOS_CLAIM_LABEL KOSMOS_CLAIM_KEEP_LABEL
 T="$(mktemp -d "${TMPDIR:-/tmp}/test-prepush-wait-6756.XXXXXXXXXX")"
 HOLDERS=""
@@ -179,7 +180,11 @@ GL="$(dirname "$KOSMOS_PREPUSH_MACHINE_LOCK")/prepush.gate.lock"; : >> "$GL"
 for j in $(seq 1 100); do rc=0; "$LOCKF" -k -s -t 0 "$GL" true 2>/dev/null || rc=$?; [ "$rc" = 75 ] && break; sleep 0.1; done
 kosmos_prepush_build_live && pass "10 a held gate lock (a long checkout, its turn old) is a build" || fail "10 a held gate lock reads as no build"
 out="$(kosmos_refuse_if_prepush_build_live "a heavy run" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && has "$out" "running a step" && has "$out" "prepush.gate.lock" && pass "10 the gate-lock refusal names the step and its lock" || fail "10 gate-lock refusal: rc=$rc $out"
+[ "$rc" = 1 ] && has "$out" "running a step" && has "$out" "prepush.gate.lock" && has "$out" "pid " && pass "10 the gate-lock refusal names the step, its lock and its holder" || fail "10 gate-lock refusal: rc=$rc $out"
+# The same held gate lock with NO turn on file: a queued push answering "wait" holds it like this, and that is no build.
+mv "$TURNF" "$TURNF.aside"
+kosmos_prepush_build_live && fail "10 a gate lock held with no turn (a queued push's wait) reads as a build" || pass "10 a gate lock held with no turn on file is not a build (a queued push answering wait)"
+mv "$TURNF.aside" "$TURNF"
 for c in $(pgrep -P "$G" 2>/dev/null); do kill "$c" 2>/dev/null; done; wait "$G" 2>/dev/null
 kosmos_prepush_build_live && fail "10 CONTROL: the gate lock let go and the turn old still reads as a build" || pass "10 CONTROL: gate lock let go and the turn old: no build"
 printf 'abc123.4567.1793450000\n' > "$TURNF"
@@ -187,6 +192,8 @@ out="$(WHAT="a heavy run" KOSMOS_QUEUE_CLASS=heavy _qh_clear 2>&1)"; rc=$?
 [ "$rc" != 0 ] && pass "10 queued-heavy's own check waits between a build's steps" || fail "10 _qh_clear let a heavy run in between steps: rc=$rc $out"
 touch -A -0400 "$TURNF"   # used 4 minutes ago: past the 180 s window
 kosmos_prepush_build_live && fail "10 a turn unused past the window still reads as a build" || pass "10 a turn unused past the window is not a build (a build that went away)"
+KOSMOS_PREPUSH_TURN_GRACE=300 kosmos_prepush_build_live && pass "10 a raised hook grace (300 s) widens the window with it (360 s)" || fail "10 KOSMOS_PREPUSH_TURN_GRACE=300 did not widen the window"
+KOSMOS_PREPUSH_TURN_GRACE=300 KOSMOS_PREPUSH_TURN_LIVE_S=100 kosmos_prepush_build_live && fail "10 an explicit window lost to the grace" || pass "10 an explicit KOSMOS_PREPUSH_TURN_LIVE_S wins over the grace"
 KOSMOS_PREPUSH_TURN_LIVE_S=600 kosmos_prepush_build_live && pass "10 CONTROL: the same turn within a wider window is a build (the age, not the file, decides)" || fail "10 CONTROL: a wider window did not count it"
 : > "$TURNF"
 kosmos_prepush_build_live && fail "10 an empty turn reads as a build" || pass "10 an empty turn is not a build"

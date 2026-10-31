@@ -25,10 +25,16 @@ and the build stopped at its next step ("Mortals is now claimed ... stopping", 9
   reach its queue bound. Before this change it got in between steps, by stopping the push (the bug). Accepted because
   the room's Mortals line hands over by message, with minutes between gates, and a heavy run that hits its bound says so
   and can be queued again. If that stops being true, the next step is giving a waiting heavy run the turn between gates.
-- The gate lock is also held for an instant by a queued push answering "wait" in its turn loop. The two-look check
-  filters a single instant hold; two such holds 0.3 s apart read as a build, costing a waiter one more 30 s poll.
+- The gate lock is also held for an instant by a queued push answering "wait" in its turn loop. It counts only while a
+  turn is on file (a real checkout writes its turn first), so a queue of waiting pushes with no turn reads as no build.
+  With a lapsed turn left on file, a waiter's instant holds 0.3 s apart can still read as one, until a waiter takes the
+  turn over (within its next pass).
+- The window follows KOSMOS_PREPUSH_TURN_GRACE + 60 only where that variable is set in the environment cut-guard reads.
+  A grace raised only in the hook's own environment on Mortals leaves the window at 180 s, and a build idle between
+  steps for longer reads as none.
 
 ## Verification
 - tools/test-prepush-wait-6756.sh arm 10 (fresh, old, empty, future-dated and missing turns; the refusal wording;
-  `_qh_clear`; the /dev/null seam), with a mutant that drops the turn check failing it.
+  `_qh_clear`; the /dev/null seam; the gate lock with and without a turn; the window and the grace). A mutant that
+  drops the turn check was run by hand on a copy (not part of the suite) and failed arm 10.
 - tools/test-cut-guard.sh, test-queued-heavy-4977.sh, test-light-side-4911.sh.
