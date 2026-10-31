@@ -844,6 +844,8 @@ test('#7681 price: no price from Kosmos+, or a different one, stops at the previ
   const ok = await pb.preview({ root: fresh(t), remote: coordinator({ preview: answer('$5/month') }), shownPrice: '$5/month' });
   assert.equal(ok.ok, true, JSON.stringify(ok));
   assert.equal(typeof ok.ticket, 'string');
+  // Review 2: the confirmed price goes back to the screen with the words (the words screen shows it).
+  assert.equal(ok.price, '$5/month', 'the preview answer lost the confirmed price');
 });
 
 test('#7681 price: the screen\'s price changed after the preview, so switchOn binds nothing', async (t) => {

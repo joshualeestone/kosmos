@@ -55781,7 +55781,8 @@ function pbPrint() {
   // Review: one timer at a time (an earlier press's must not empty this one mid-dialog), and a print that throws empties
   // at once and says so instead of leaving the code in the page for a minute.
   if (PB.printTimer) clearTimeout(PB.printTimer);
-  const done = () => { if (PB.printTimer) { clearTimeout(PB.printTimer); PB.printTimer = null; } pbPrintClear(); };
+  // Review 2: the listener goes with the rest, so a print that threw leaves nothing waiting for an afterprint.
+  const done = () => { window.removeEventListener('afterprint', done); pbPrintClear(); };
   window.addEventListener('afterprint', done, { once: true });
   PB.printTimer = setTimeout(done, 60000);   // a browser that sends no afterprint still empties it
   document.body.classList.add('pb-printing');
@@ -55793,6 +55794,7 @@ function pbPrintClear() {
   const out = document.getElementById('pb-printout');
   if (out) out.textContent = '';
   document.body.classList.remove('pb-printing');
+  if (PB.printTimer) { clearTimeout(PB.printTimer); PB.printTimer = null; }
 }
 function pbOffArm(on) {
   document.getElementById('pb-off-ask').hidden = !on;
