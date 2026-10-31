@@ -59,13 +59,14 @@ test.after(() => {
 });
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-/** GET; the status and body, or 'cut' when the connection ended without a full answer. */
+/** GET; the status and body, 'cut' when the connection ended without a full answer, or 'hung' when nothing ended it
+ *  within 10 s (before #7689 the records render threw inside res.end with its head out, so that answer never ended). */
 async function get(p, headers = {}) {
   try {
-    const res = await fetch(base + p, { method: 'GET', headers, redirect: 'manual' });
+    const res = await fetch(base + p, { method: 'GET', headers, redirect: 'manual', signal: AbortSignal.timeout(10000) });
     const text = await res.text();
     return { code: res.status, text, type: res.headers.get('content-type') || '' };
-  } catch { return { code: 'cut', text: '', type: '' }; }
+  } catch (e) { return { code: e && e.name === 'TimeoutError' ? 'hung' : 'cut', text: '', type: '' }; }
 }
 const escaped = (before) => unhandled.slice(before).map((e) => String(e && (e.code || e.message)));
 
