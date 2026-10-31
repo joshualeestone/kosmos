@@ -2229,12 +2229,15 @@ function agentCall(agentKey, method, pathname, opts = {}) {
   return new Promise((resolve) => {
     let started = false;
     let gaveUp = false;
+    /* kosmos#7660 review 1: with `budgetFrom`, the wait for the chain counts from it too (as the deadline above does),
+       so time the caller already spent (a name refresh, a handle lookup) cannot push the answer past the CLI's wait. */
+    const spent = Number.isFinite(opts.budgetFrom) ? Math.max(0, Date.now() - opts.budgetFrom) : 0;
     const timer = setTimeout(() => {
       if (started) return;
       gaveUp = true;
       agentsInCall.delete(agentKey);
       resolve(busy());
-    }, chainWaitMs(opts));
+    }, Math.max(0, chainWaitMs(opts) - spent));
     const done = (r) => { if (gaveUp) return; agentsInCall.delete(agentKey); resolve(r); };
     exclusive(async () => {
       if (gaveUp) return null;                        // answered busy already: it never runs later
@@ -2984,6 +2987,41 @@ function picturesTooBigOrWrongType() {
   });
 }
 
+/* kosmos#7660: one public page read with NO bearer, outside an agent call, under the same gates agentCallSteps applies
+   before any request (the community switch, an https address, no network in tests). For a lookup that decides WHICH
+   path an agent call then takes (communityfollow resolving an @handle to the name its routes use), since an agent
+   call's own publicGet runs only after its path is fixed. { ok, status, json } or { ok: false, local, because };
+   status 0 when no answer came. Never throws.
+   Review 1: the company's policy is obeyed as every public read obeys it (communityread.publicReadRefusal, the same
+   words): nothing is read from the public site while the company has turned it off or its settings cannot be read.
+   `cap` lets a caller read a page larger than RESPONSE_CAP (a profile carries up to 50 posts and 50 comments), never
+   beyond the sweep's own cap.
+   Review 3: `takeBack` is a lookup for something that only takes back (an unfollow, an endorsement taken back), which
+   publicWriteStopped lets through while the public community is off; it is not refused for the policy either, or a
+   take-back by @handle would fail where the same one by name works. `agentKey`, when given, has a policy refusal
+   recorded against it (reportPolicyRefusal), as agentCallSteps records one. */
+async function publicGet(pathname, { deadline = null, cap = RESPONSE_CAP, takeBack = false, agentKey = null, beforeSend = null } = {}) {
+  try {
+    const sw = switchState();
+    if (sw === 'policy' && agentKey) reportPolicyRefusal(agentKey);
+    if (sw !== 'on') return { ok: false, local: true, because: notOnWords(sw) };
+    // A take-back skips the policy, the settings fault included, as publicWriteStopped lets a DELETE through without
+    // reading it. Otherwise through the export, as communityread reads it (a test can stand in).
+    const scope = takeBack ? { publicAllowed: true } : module.exports.communityScope();
+    if (scope.fault) return { ok: false, local: true, fault: true, because: 'Kosmos cannot read your company’s community settings right now, so nothing was read' };
+    if (!scope.publicAllowed) return { ok: false, local: true, publicOff: true, because: 'your company has turned the public community off, so it cannot be read here' };
+    if (!endpointAllowed()) return { ok: false, local: true, because: 'the community address is not https, so nothing is sent to it' };
+    if (!sender && underTest()) return { ok: false, local: true, because: 'no network in tests' };
+    // Review 5: too little budget left for the request (request() would refuse it unsent) is no answer, and uncounted.
+    if (deadline != null && deadline - Date.now() < timeoutMs) return { ok: true, status: 0, json: null };
+    // kosmos#7660 review 4: the caller's last word (its own allowance), only once every gate above has passed.
+    if (typeof beforeSend === 'function') { const no = beforeSend(); if (no) return { ok: false, local: true, limited: true, because: no }; }
+    const c = Number.isFinite(cap) && cap > 0 ? Math.min(cap, SWEEP_RESPONSE_CAP) : RESPONSE_CAP;
+    const r = await request('GET', pathname, { cap: c, deadline });
+    return { ok: true, status: r.status, json: r.json };
+  } catch { return { ok: true, status: 0, json: null }; }   // over the budget, or the request itself failed: no answer
+}
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); spaceMembers.clear(); spacePauseUntil.clear(); companyIdsMemo = { at: null, ids: null }; appliedAt = null; waitSaid.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
@@ -2997,7 +3035,7 @@ const agentBudget = () => agentBudgetMs;   // #6705: the live budget (a test may
 module.exports = {
   commentInFlight,   // kosmos#7230 review 3: communitynudge counts a comment whose send is out as waiting
   communityScope: communityNow, PUBLIC_OFF_WORDS,   // kosmos#7543: which community a read goes to (the company's, the public one, or none)
-  switchOn, switchState, notOnWords, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
+  switchOn, switchState, notOnWords, communityNames, willSend, NOT_SENDING, notSendingWords, withPolicyStops, policyStops, POLICY_STOPS, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, publicGet, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest, refreshSelf,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
   setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, reportPolicyRefusal, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, agentBudget, readCapped,

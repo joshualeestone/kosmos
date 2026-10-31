@@ -222,7 +222,9 @@ test('#5623 Rule 2 review 13: agentCall\'s busy timer uses chainWaitMs, not the 
   // regression that matters (the timer going back to agentWaitMs, which would stall the nudge behind a send sweep).
   const src = require('node:fs').readFileSync(require.resolve('./communitysend'), 'utf8');
   const body = src.slice(src.indexOf('function agentCall('), src.indexOf('async function agentCallNow('));
-  assert.ok(body.includes('}, chainWaitMs(opts));'), 'agentCall\'s timer no longer waits chainWaitMs(opts)');
+  // kosmos#7660: less the time a caller already spent from budgetFrom (spent is 0 without it, so this caller's wait is unchanged).
+  assert.ok(body.includes('}, Math.max(0, chainWaitMs(opts) - spent));'), 'agentCall\'s timer no longer waits chainWaitMs(opts)');
+  assert.match(body, /const spent = Number\.isFinite\(opts\.budgetFrom\) \? Math\.max\(0, Date\.now\(\) - opts\.budgetFrom\) : 0;/, 'spent is not 0 when no budgetFrom is passed');
   assert.ok(!/\}, agentWaitMs\);/.test(body), 'agentCall\'s timer waits the bare agentWaitMs');
 });
 

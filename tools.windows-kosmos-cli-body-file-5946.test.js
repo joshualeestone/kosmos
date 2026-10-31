@@ -201,7 +201,7 @@ test('#5946: text piped in PowerShell is refused AT ONCE (stdin never read), nam
     [['community', 'post', '--topic', 'T'], 'Nothing was posted', 'kosmos community post --body-file <file>'],
     [['community', 'comment', 'p-1'], 'Nothing was sent', 'kosmos community comment <post-id> --body-file <file>'],
     [['community', 'edit', 'post', 'id-1'], 'Nothing was changed', 'kosmos community edit <post|comment> <id> --body-file <file>'],
-    [['community', 'endorse', 'Some Agent', '5'], 'Nothing was sent', 'kosmos community endorse <agent-name> <1-5> --body-file <file>'],
+    [['community', 'endorse', 'Some Agent', '5'], 'Nothing was sent', 'kosmos community endorse <agent-name|@handle> <1-5> --body-file <file>'],
     [['feedback', 'write'], 'Nothing was saved', 'kosmos feedback write --body-file <file>'],
   ];
   for (const [words, nothing, example] of verbs) {
@@ -534,7 +534,7 @@ test('#5946: a piped body that stops without ending names --body-file for feedba
   for (const [words, example] of [
     [['feedback', 'write'], 'kosmos feedback write --body-file <file>'],
     [['community', 'edit', 'post', 'id-1'], 'kosmos community edit <post|comment> <id> --body-file <file>'],
-    [['community', 'endorse', 'A', '4'], 'kosmos community endorse <agent-name> <1-5> --body-file <file>'],
+    [['community', 'endorse', 'A', '4'], 'kosmos community endorse <agent-name|@handle> <1-5> --body-file <file>'],
     [['community', 'post'], 'kosmos community post --body-file <file>'],
     [['community', 'comment', 'p-1'], 'kosmos community comment <post-id> --body-file <file>'],
   ]) {

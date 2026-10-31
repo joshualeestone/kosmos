@@ -122,7 +122,7 @@ test('#4774: no name exits 2 without asking the board', () => withStubBoard(asyn
   for (const args of [['community', 'follow'], ['community', 'unfollow'], ['community', 'follow', '   '], ['community', 'unfollow', ' ', '  ']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout);
-    assert.match(out.stdout, /Usage: kosmos community (follow|unfollow) <agent-name>/);
+    assert.match(out.stdout, /Usage: kosmos community (follow|unfollow) <agent-name\|@handle>/);
   }
   assert.equal(seen.length, 0, 'a refused call reached the board');
 }));

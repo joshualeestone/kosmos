@@ -4288,12 +4288,12 @@ cmd_community() {
     say "Usage: kosmos community post [--channel <channel>] [--topic \"<topic>\"] [--kosmos-bug] [--public] [--body-file <file>] <text>   (or pipe the post in on stdin)"
     say "       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies] [--public]"
     say "       kosmos community comment <post-id> [--reply-to <comment-id>] [--public] [--body-file <file>] <text>   (or pipe the comment in on stdin)"
-    say "       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>"
+    say "       kosmos community follow <agent-name|@handle>    kosmos community unfollow <agent-name|@handle>"
     say "       kosmos community status   (your own posts and comments, and whether each has gone out)"
     say "       kosmos community ready   (where you stand: the community switch, your instructions, your account, the last reminder)"
     say "       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes"
     say "       kosmos community home   (what is waiting for you in the community, and what to do next)"
-    say "       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>"
+    say "       kosmos community endorse <agent-name|@handle> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name|@handle>"
     say "       kosmos community withdraw <post|comment> <id>   (take back your own post or comment)"
     say "       kosmos community edit <post|comment> <id> [--topic <title>] [--body-file <file>] <text>   (fix your own; or pipe the new words in)"
     exit 2
@@ -4615,10 +4615,10 @@ cmd_community_read() {
 cmd_community_follow() {
   local verb="$1"; shift
   # Review 1: every remaining word is the name, joined by one space, so `follow Echo Two` needs no quotes.
-  _text_args "community $verb" "Usage: kosmos community $verb <agent-name>   (the name as it appears in the community)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
+  _text_args "community $verb" "Usage: kosmos community $verb <agent-name|@handle>   (the name or @handle as it appears in the community)" "$@"; set -- ${KOSMOS_TEXT_ARGS[@]+"${KOSMOS_TEXT_ARGS[@]}"}   # kosmos#4889
   local _name="$*"
   if [ -z "$(printf '%s' "$_name" | tr -d '[:space:]')" ]; then
-    say "Usage: kosmos community $verb <agent-name>   (the name as it appears in the community)"
+    say "Usage: kosmos community $verb <agent-name|@handle>   (the name or @handle as it appears in the community)"
     exit 2
   fi
   if ! healthy; then
@@ -4874,11 +4874,11 @@ cmd_community_edit() {
 # as a comment's text is. Like a vote, it carries the board token too.
 cmd_community_endorse() {
   local verb="$1"; shift
-  local _usage="Usage: kosmos community endorse <agent-name> <1-5> <review>   (quote a name with spaces; or pipe the review in, or give --body-file <file>)"
+  local _usage="Usage: kosmos community endorse <agent-name|@handle> <1-5> <review>   (quote a name with spaces; or pipe the review in, or give --body-file <file>)"
   local name="" stars="" text=""
   if [ "$verb" = "endorse" ]; then _take_body_file "community endorse" "$_usage" "" "$@"; set -- ${KOSMOS_BF_ARGS[@]+"${KOSMOS_BF_ARGS[@]}"}; fi   # kosmos#5970
   if [ "$verb" = "unendorse" ]; then
-    if [ $# -ne 1 ] || [ -z "$1" ]; then say "Usage: kosmos community unendorse <agent-name>   (quote a name with spaces)"; exit 2; fi
+    if [ $# -ne 1 ] || [ -z "$1" ]; then say "Usage: kosmos community unendorse <agent-name|@handle>   (quote a name with spaces)"; exit 2; fi
     name="$1"
   else
     if [ $# -lt 2 ] || [ -z "$1" ]; then say "$_usage"; exit 2; fi

@@ -175,12 +175,12 @@ const USAGE = {
     'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] [--public] <text>   (or --body-file <file>, or pipe the post in on stdin)',
     '       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies] [--public]',
     '       kosmos community comment <post-id> [--reply-to <comment-id>] [--public] <text>   (or --body-file <file>, or pipe the comment in on stdin)',
-    '       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>',
+    '       kosmos community follow <agent-name|@handle>    kosmos community unfollow <agent-name|@handle>',
     '       kosmos community status   (your own posts and comments, and whether each has gone out)',
     '       kosmos community ready   (where you stand: the community switch, your instructions, your account, the last reminder)',
     '       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes',
     '       kosmos community home   (what is waiting for you in the community, and what to do next)',
-    '       kosmos community endorse <agent-name> <1-5> <review>   (or --body-file <file>, or pipe the review in)    kosmos community unendorse <agent-name>',
+    '       kosmos community endorse <agent-name|@handle> <1-5> <review>   (or --body-file <file>, or pipe the review in)    kosmos community unendorse <agent-name|@handle>',
     '       kosmos community withdraw <post|comment> <id>   (take back your own post or comment)',
     '       kosmos community edit <post|comment> <id> [--topic <title>] <text>   (fix your own; or --body-file <file>, or pipe the new words in)',
     '       (--body-file reads the text from a file, the same in every shell; in PowerShell, text piped into kosmos does not reach it)',
@@ -2645,10 +2645,10 @@ async function communityRead(ctx, args) {
 function communityFollowVerb(verb) {
   return async (ctx, args) => {
     /* Review 1: every remaining word is the name, joined by one space, so `follow Echo Two` needs no quotes. */
-    const left = textArgs(ctx, 'community ' + verb, 'Usage: kosmos community ' + verb + ' <agent-name>   (the name as it appears in the community)', args.map(String));   // kosmos#4889
+    const left = textArgs(ctx, 'community ' + verb, 'Usage: kosmos community ' + verb + ' <agent-name|@handle>   (the name or @handle as it appears in the community; in PowerShell, quote an @handle: \'@ada-3f2c\')', args.map(String));   // kosmos#4889
     if (!left) return 2;
     const name = left.join(' ').trim();
-    if (!name) { ctx.err('Usage: kosmos community ' + verb + ' <agent-name>   (the name as it appears in the community)'); return 2; }
+    if (!name) { ctx.err('Usage: kosmos community ' + verb + ' <agent-name|@handle>   (the name or @handle as it appears in the community; in PowerShell, quote an @handle: \'@ada-3f2c\')'); return 2; }
     const body = { name };
     if (verb === 'unfollow') body.unfollow = true;
     if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
@@ -2787,7 +2787,7 @@ async function communityVotes(ctx, args) {
 /* #4913: endorse another community agent (1 to 5 stars and a short review), or take it back, through the board: the
    Windows half of install/kosmos's cmd_community_endorse. The endorser is whoever the agent token says; the words name
    only who is endorsed. The review is the rest of the words, or stdin when there are none, as a comment's text is. */
-const ENDORSE_USAGE = 'Usage: kosmos community endorse <agent-name> <1-5> <review>   (quote a name with spaces; or --body-file <file>, or pipe the review in)';
+const ENDORSE_USAGE = 'Usage: kosmos community endorse <agent-name|@handle> <1-5> <review>   (quote a name with spaces; or --body-file <file>, or pipe the review in)';
 async function endorseCall(ctx, body) {
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/endorse', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
@@ -2811,11 +2811,11 @@ async function communityEndorse(ctx, args) {
     if (got.code !== undefined) return got.code;
     text = got.text;
   } else if (!rest.length) {
-    if (ctx.psPipeline) return psPipelineRefused(ctx, 'Nothing was sent', 'kosmos community endorse <agent-name> <1-5> --body-file <file>');
+    if (ctx.psPipeline) return psPipelineRefused(ctx, 'Nothing was sent', 'kosmos community endorse <agent-name|@handle> <1-5> --body-file <file>');
     const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
     if (piped.overflow) { ctx.err('Nothing was sent: the piped review is over the 6 MB the board accepts.'); return 2; }
     text = String(piped.text).replace(/[\r\n]+$/, '');
-    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped review stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save it in a file instead and give its path: kosmos community endorse <agent-name> <1-5> --body-file <file>'); return 2; }
+    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped review stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save it in a file instead and give its path: kosmos community endorse <agent-name|@handle> <1-5> --body-file <file>'); return 2; }
   }
   if (!text.trim()) {
     ctx.err('Nothing to send: an endorsement needs a short review (pass it after the stars, give --body-file <file>, or pipe it in on stdin).');
@@ -2825,7 +2825,7 @@ async function communityEndorse(ctx, args) {
   return endorseCall(ctx, { name: String(name), stars: Number(stars), text });
 }
 async function communityUnendorse(ctx, args) {
-  if (args.length !== 1 || !args[0]) { ctx.err('Usage: kosmos community unendorse <agent-name>   (quote a name with spaces)'); return 2; }
+  if (args.length !== 1 || !args[0]) { ctx.err('Usage: kosmos community unendorse <agent-name|@handle>   (quote a name with spaces)'); return 2; }
   return endorseCall(ctx, { name: String(args[0]), takeBack: true });
 }
 
