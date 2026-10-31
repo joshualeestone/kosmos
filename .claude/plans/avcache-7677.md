@@ -28,3 +28,14 @@ fetches each picture one at a time after the first agents read. The board alread
 - Keyed by the computer's address, as the in-memory pictures are cleared on a computer switch (an agent of the same name
   on another computer is another picture).
 - Weakest premise: that avatarVer changes whenever the picture does. The daily refresh is the backstop if it does not.
+
+## Review round 1 (10-31, general-purpose reviewer): no BLOCKER, four warnings, all fixed in 0481e9a34d
+- W1: a picture of an agent not listed, or listed with hasAvatar false, now goes from memory and the kept folder after each
+  list read (skipped when the list is unchanged). Before, it came back from disk on every launch.
+- W2: forget() (another account, and a sign-out through accountChanged) deletes the kept folder.
+- W3: the no-session branch no longer deletes it: that branch also means "Keychain not readable yet".
+- W4: tests that can fail. Control run: the code before this fix fails exactly the 4 new behaviour checks (drop, gone from
+  disk, Keychain miss keeps, sign-out deletes); after it, 1778/1778.
+- NITs left: disk work on the main thread (about 20 small files, once per computer per run); a non-image file is kept
+  for a day (skipped only when empty); folder names can collide for host:8080 vs host_8080 (not real addresses); test
+  folders now removed by the tests that make them.
