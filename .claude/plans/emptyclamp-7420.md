@@ -52,8 +52,8 @@ not outside at that moment.
 - The empty state itself has never been reproduced off Josh's phone; the clamp is unexercised by any check.
 - Recovery runs only from the existing empty-list check (diagTick: when the last row leaves, 2 s after the chat shows or
   comes back, and the never-drew timer).
-- A recovery inside KeyboardHold's 0.8 s window right after the keyboard shows could be put back by the hold (a narrow race;
-  an empty list and a keyboard raised while reading higher up at once).
+- A recovery inside KeyboardHold's window right after the keyboard shows: goNewest bumps appMoves, which stands the hold
+  down at its next update; the race is that update against the hold's deferred put-back (narrow).
 
 ## Results
 - ios/tools/ui-keyboard.sh on a fresh iPhone 17e (iOS 26.5): 3 of 3 passed on 7e92b81 (21:48 CDT); the app built.

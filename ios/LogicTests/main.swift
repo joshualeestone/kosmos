@@ -5005,6 +5005,9 @@ do {
     check(Board.emptyRecovery(later: true, place: "past the end", scrolling: true) == .none, "and never while the person scrolls")
     check(Board.emptyRecovery(later: true, place: Board.scrollPlace(offset: 3000, content: 2000, view: 700, insetTop: 0, insetBottom: 80).place, scrolling: false) == .backInsideThenNewest,
           "the place word scrollPlace gives for past the end is the one emptyRecovery acts on")
+    check(Board.emptyRecovery(later: false, place: Board.scrollPlace(offset: -150, content: 2000, view: 700, insetTop: 100, insetBottom: 0).place, scrolling: false) == .backInsideThenNewest
+          && Board.emptyRecovery(later: false, place: "before the top", scrolling: true) == .newest,
+          "and the word for before the top too; under a finger the first one only goes to the newest")
 
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
