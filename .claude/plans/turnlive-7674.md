@@ -18,8 +18,15 @@ and the build stopped at its next step ("Mortals is now claimed ... stopping", 9
 - (a) Every push holds a suite-queue place for its gate: every later `yarn test` would wait out every push gate.
 - (b) The push's steps wait on a claim between steps: more relay complexity, and it has to tell which run queued behind.
 
-## Weakest premise
-A turn left by a build that died reads as live for up to 180 s, so a heavy run or a cut waits that long.
+## Weakest premises
+- A turn left by a build that died reads as live for up to 180 s, so a heavy run or a cut waits that long.
+- A heavy run can now get in only BETWEEN two gates, not between two steps. If pushes hand the turn straight to each
+  other (the next queued push takes it within one 10 s lock slice), a heavy waiter behind a long stream of pushes can
+  reach its queue bound. Before this change it got in between steps, by stopping the push (the bug). Accepted because
+  the room's Mortals line hands over by message, with minutes between gates, and a heavy run that hits its bound says so
+  and can be queued again. If that stops being true, the next step is giving a waiting heavy run the turn between gates.
+- The gate lock is also held for an instant by a queued push answering "wait" in its turn loop. The two-look check
+  filters a single instant hold; two such holds 0.3 s apart read as a build, costing a waiter one more 30 s poll.
 
 ## Verification
 - tools/test-prepush-wait-6756.sh arm 10 (fresh, old, empty, future-dated and missing turns; the refusal wording;
