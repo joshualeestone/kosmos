@@ -1941,6 +1941,7 @@ final class FakeBoardWorld {
     var admitKeyedApart = false
     // Pictures: an image, or (pictureAsPage) the gate's sign-in page at 200, as an ended session would answer.
     var pictureAsPage = false
+    var pictureBytes = Data([0x89, 0x50, 0x4e, 0x47])   // kosmos#7677 review 1: a test can tell one version's picture from another's
     // kosmos#7008: one agent's conversation (GET) and the answers to sends (POST, each takes the first queued; nil is no
     // answer at all), with the texts posted.
     var threadAnswer: (Int, String)? = (200, #"{"messages":[],"olderCount":0}"#)
@@ -2078,7 +2079,7 @@ final class FakeBoardWorld {
                 if pictureAsPage {
                     return (Data("<html>sign in</html>".utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/html"])!)
                 }
-                return (Data([0x89, 0x50, 0x4e, 0x47]), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"])!)
+                return (pictureBytes, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"])!)
             }
             return nil
         }
@@ -3829,25 +3830,80 @@ section("native board loop: connecting")
         _ = await settle { w2.count("/api/status") >= polls + 3 }
         check(w2.count("/api/agent/dana/avatar") == 0, "and asks for none while the version is the same and the picture is under a day old")
         c2.stop()
-        // A day later: asked once again.
+        // A day later: asked once again. Review 1: the Mac's picture route fails here, so a picture shown can only have come
+        // from the phone's kept copy (a fresh fetch would also have made it non-nil).
         let (c3, w3, _, _) = make("kst1", avatars: kept)
         w3.statusDefault = (200, status)
+        w3.pictureAsPage = true
         w3.clock = w1.clock.addingTimeInterval(Board.avatarRefresh + 60)
         c3.start()
-        let shown3 = await settle { c3.pictures["dana"] != nil }
         _ = await settle { w3.count("/api/agent/dana/avatar") >= 1 }
-        let p3 = w3.count("/api/status")
-        _ = await settle { w3.count("/api/status") >= p3 + 3 }
-        check(shown3 && w3.count("/api/agent/dana/avatar") == 1, "a day later the kept picture shows and is fetched once again")
+        check(c3.pictures["dana"] == w1.pictureBytes && w3.count("/api/agent/dana/avatar") >= 1,
+              "a day later the kept picture shows and is asked for again")
         c3.stop()
-        // A new version: asked at once.
+        // A new version: asked at once, and the new picture replaces the kept one, in memory and on disk.
+        let v2 = #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working","hasAvatar":true,"avatarVer":2}]}"#
         let (c4, w4, _, _) = make("kst1", avatars: kept)
-        w4.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working","hasAvatar":true,"avatarVer":2}]}"#)
+        w4.statusDefault = (200, v2)
+        w4.pictureBytes = Data([0x89, 0x50, 0x4e, 0x47, 0x02])
         w4.clock = w3.clock
         c4.start()
-        _ = await settle { w4.count("/api/agent/dana/avatar") >= 1 }
-        check(w4.count("/api/agent/dana/avatar") == 1, "a new avatar version is fetched at once")
+        let replaced = await settle { c4.pictures["dana"] == w4.pictureBytes }
+        check(replaced && w4.count("/api/agent/dana/avatar") == 1, "a new avatar version is fetched at once and replaces the picture")
         c4.stop()
+        let (c5, w5, _, _) = make("kst1", avatars: kept)
+        w5.statusDefault = (200, v2)
+        w5.clock = w4.clock
+        c5.start()
+        let shown5 = await settle { c5.pictures["dana"] != nil }
+        check(shown5 && c5.pictures["dana"] == w4.pictureBytes && w5.count("/api/agent/dana/avatar") == 0,
+              "the next launch shows the new version's picture from the phone, with no picture request")
+        c5.stop()
+        // Review 1 (W1): the Mac drops the picture (hasAvatar false): it goes from memory and from the phone, and the
+        // launch after that shows none.
+        let none = #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working","hasAvatar":false,"avatarVer":3}]}"#
+        let (c6, w6, _, _) = make("kst1", avatars: kept)
+        w6.statusDefault = (200, none)
+        w6.clock = w4.clock
+        c6.start()
+        _ = await settle { isLive(c6) }
+        check(isLive(c6) && c6.pictures["dana"] == nil, "a picture the Mac no longer has is not shown")
+        c6.stop()
+        let (c7, w7, _, _) = make("kst1", avatars: kept)
+        w7.statusDefault = (200, status)   // listed with a picture again, so a kept file would be loaded and shown
+        w7.pictureAsPage = true            // and the Mac cannot send it, so anything shown came from the phone
+        w7.clock = w4.clock
+        c7.start()
+        _ = await settle { isLive(c7) }
+        check(isLive(c7) && c7.pictures["dana"] == nil, "the dropped picture is gone from the phone too (no kept copy comes back)")
+        c7.stop()
+        try? FileManager.default.removeItem(at: kept)
+    }
+    // kosmos#7677 review 1 (W2, W3): a sign-out or another account deletes the kept pictures; a moment with no readable
+    // session (the Keychain before the first unlock) does not.
+    do {
+        let kept = testAvatars.appendingPathComponent("account-\(UUID().uuidString)", isDirectory: true)
+        let status = #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working","hasAvatar":true,"avatarVer":1}]}"#
+        let (c1, w1, _, _) = make("kst1", avatars: kept)
+        w1.statusDefault = (200, status)
+        c1.start()
+        let fetched = await settle { c1.pictures["dana"] != nil }
+        c1.stop()
+        func keptFiles() -> Int { (FileManager.default.enumerator(atPath: kept.path)?.allObjects as? [String])?.filter { $0.hasSuffix(".img") }.count ?? 0 }
+        check(fetched && keptFiles() == 1, "the picture is kept on the phone (the control for the two checks below)")
+        let (c2, _, _, _) = make(nil, avatars: kept)
+        c2.start()
+        _ = await settle { false }   // a while with no session
+        c2.stop()
+        check(keptFiles() == 1, "no readable session (the Keychain not yet open) leaves the kept pictures")
+        let (c3, w3, _, _) = make("kst1", avatars: kept)
+        w3.statusDefault = (200, status)
+        c3.start()
+        _ = await settle { c3.pictures["dana"] != nil }
+        c3.stop()            // stopped first: accountChanged restarts a running client, which could keep a picture again
+        c3.accountChanged()
+        check(!FileManager.default.fileExists(atPath: kept.path), "a sign-out or another account deletes the kept pictures")
+        try? FileManager.default.removeItem(at: kept)
     }
     do {
         let (c, w, _, _) = make("kst1")
