@@ -536,6 +536,43 @@ private struct LitDim: View {
     }
 }
 
+// kosmos#7678: the actions beside the pressed message, inside the area messages are seen in (above the composer, so above
+// the keyboard): above the bubble where it fits, else below it, else at the bottom of that area. Resolved in this reader,
+// as LitDim's hole is (review 3 of #7419). An overlay takes no layout, so nothing in the chat moves.
+struct ActionsPanel<Rows: View>: View {
+    let anchor: PressedBubble
+    let height: CGFloat
+    @ViewBuilder let rows: () -> Rows
+    var body: some View {
+        GeometryReader { g in
+            let area = anchor.visible.map { g[$0] } ?? CGRect(origin: .zero, size: g.size)
+            let bubble = anchor.bubble.map { g[$0] }
+            let width = min(area.width - 24, 400)
+            let gap: CGFloat = 8
+            let y: CGFloat = Self.top(bubble: bubble, area: area, height: height, gap: gap)
+            rows()
+                .frame(width: width, height: height, alignment: .top)
+                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Palette.ground))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
+                .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .onTapGesture {}   // a tap between the rows stays in the panel, not on the dim under it
+                .position(x: area.midX, y: y + height / 2)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("messageActionsPanel")
+        }
+        .ignoresSafeArea()
+        .transition(.opacity)
+    }
+    // Above the bubble, else below, else the bottom of the area (and never above its top).
+    static func top(bubble: CGRect?, area: CGRect, height: CGFloat, gap: CGFloat) -> CGFloat {
+        guard let b = bubble else { return max(area.minY + gap, area.maxY - height - gap) }
+        if b.minY - gap - height >= area.minY { return b.minY - gap - height }
+        if b.maxY + gap + height <= area.maxY { return b.maxY + gap }
+        return max(area.minY + gap, area.maxY - height - gap)
+    }
+}
+
 // The marking half, shared by the long press and the VoiceOver action: remembers which sheet this message opened, tells
 // what is inside it while that sheet is up, and hands what is inside (a file card's own "Message actions") an opener
 // that marks it too. The mark goes when that sheet goes (the host's id changes), and with the row if it is redrawn.
@@ -557,7 +594,11 @@ struct MessageActionsSheet: View {
     let small: PresentationDetent
     // What to run once the sheet has gone (Reply): run from the host's onDismiss, never on a guessed delay (review 1).
     let after: (@escaping () -> Void) -> Void
-    @Environment(\.dismiss) private var dismiss
+    // kosmos#7678: set when these rows are the in-chat panel (keyboard up) rather than the sheet: closing it and More.
+    var panelClose: (() -> Void)? = nil
+    var panelMore: (() -> Void)? = nil
+    @Environment(\.dismiss) private var dismissSheet
+    private func dismiss() { if let panelClose { panelClose() } else { dismissSheet() } }
     @State private var confirmingDelete = false   // kosmos#7614: Delete asks first, in the board's own words
 
     private var more: Bool { detent == .large }
@@ -611,7 +652,7 @@ struct MessageActionsSheet: View {
                     let size = min(40, g.size.width / 8 - 4)
                     HStack(spacing: 0) {
                         ForEach(Board.quickReactions, id: \.self) { e in quick(e, size: size) }
-                        Button { detent = .large } label: {
+                        Button { if let panelMore { panelMore() } else { detent = .large } } label: {
                             Image(systemName: "face.smiling").font(.system(size: size * 0.5)).foregroundColor(Palette.secondary)
                                 .overlay(Image(systemName: "plus").font(.system(size: size * 0.22, weight: .bold)).foregroundColor(Palette.secondary)
                                     .offset(x: size * 0.22, y: -size * 0.22))
@@ -650,7 +691,7 @@ struct MessageActionsSheet: View {
         } message: {
             Text(Board.deleteConfirmBody)
         }
-        .padding(.horizontal, 16).padding(.top, 20).padding(.bottom, 12)
+        .padding(.horizontal, 16).padding(.top, panelClose == nil ? 20 : 12).padding(.bottom, 12)
         // kosmos#7419 build 11 (Mona Lisa): fill the sheet to its bottom edge, so the sheet's own background (ground)
         // reaches it and no strip of the system's sheet grey shows under Copy text.
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -709,6 +750,11 @@ private struct SheetGround: ViewModifier {
 // The one sheet of a chat or a room: rows ask for it with .messageActions; Reply runs once it has gone.
 struct MessageActionsHost: ViewModifier {
     @State private var target: MessageActionTarget?
+    // kosmos#7678 (Josh 10-31): with the keyboard up the actions open in the chat, beside the message, and the keyboard
+    // stays: lowering it grew the shown height and the chat (anchored at its end) jumped. The sheet cannot stay with the
+    // keyboard up: it rises behind it (#7530). More, which needs the room, still lowers it and opens the sheet.
+    @State private var panel: MessageActionTarget?
+    @State private var keyboardUp = false
     @State private var detent: PresentationDetent = .large
     @State private var afterClose: (() -> Void)?
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -716,14 +762,18 @@ struct MessageActionsHost: ViewModifier {
     static var sampleOpened = false
     // kosmos#7530: KOSMOS_SAMPLE_KEEPKBD=1 leaves the keyboard up as the sheet opens, the control.
     static let sampleKeepKeyboard = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_KEEPKBD"] == "1"
+    // kosmos#7678: KOSMOS_SAMPLE_NOPANEL=1 opens the sheet with the keyboard up as before (lowering it), the control.
+    static let sampleNoPanel = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOPANEL"] == "1"
     #else
     static let sampleKeepKeyboard = false
+    static let sampleNoPanel = false
     #endif
 
     // The sheet's height before More: the reaction row, Reply, Copy text and Delete (kosmos#7614), at the person's text size.
-    private func small(_ t: MessageActionTarget) -> PresentationDetent {
+    private func small(_ t: MessageActionTarget) -> PresentationDetent { .height(smallHeight(t)) }
+    private func smallHeight(_ t: MessageActionTarget) -> CGFloat {
         let rowH: CGFloat = typeSize.isAccessibilitySize ? 76 : 50
-        return .height(32 + (t.react != nil ? 56 : 0) + (t.reply != nil ? rowH + 12 : 0) + (t.text.isEmpty ? 0 : rowH)
+        return (32 + (t.react != nil ? 56 : 0) + (t.reply != nil ? rowH + 12 : 0) + (t.text.isEmpty ? 0 : rowH)
                        // Review 2: the reaction row's 56 and Reply's +12 carry the gap after them; Copy text's row does not.
                        + (t.delete != nil ? rowH + (t.text.isEmpty ? 0 : 12) : 0) + 24)
     }
@@ -731,20 +781,47 @@ struct MessageActionsHost: ViewModifier {
     // kosmos#7419 build 11: our dim stands in for the system's only where the system's is off (16.4+, small height).
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     private var litDim: Bool {
+        if panel != nil { return true }
         guard target != nil, detent != .large, !voiceOver else { return false }
         if #available(iOS 16.4, *) { return true } else { return false }
+    }
+
+    // kosmos#7678: the sheet's own rows (one source, so the panel and the sheet cannot drift). Reply and Delete run at
+    // once (no sheet to wait for); More closes the panel, lowers the keyboard and opens the sheet at full height.
+    private func panelRows(_ t: MessageActionTarget) -> some View {
+        MessageActionsSheet(target: t, detent: $detent, small: small(t), after: { $0() },
+                            panelClose: { panel = nil },
+                            panelMore: {
+                                panel = nil
+                                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                                detent = .large
+                                target = t
+                            })
     }
 
     func body(content: Content) -> some View {
         content
             .overlayPreferenceValue(PressedBubbleKey.self) { anchor in
                 // Review 3: only the dim fades; the chat's own changes in the same update are not animated.
-                ZStack { if litDim { LitDim(anchor: anchor, close: { target = nil }) } }
+                ZStack {
+                    if litDim { LitDim(anchor: anchor, close: { panel = nil; target = nil }) }
+                    if let p = panel { ActionsPanel(anchor: anchor, height: smallHeight(p) - 28) { panelRows(p) } }
+                }
                     .animation(.easeOut(duration: 0.2), value: litDim)
             }
-            .environment(\.shownMessageActions, target?.id)
+            .environment(\.shownMessageActions, (panel ?? target)?.id)
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                keyboardUp = false
+                panel = nil   // the panel is for a raised keyboard; whatever lowered it closes it
+            }
             .environment(\.openMessageActions) { t in
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                if keyboardUp && !voiceOver && !Self.sampleNoPanel {
+                    target = nil
+                    panel = t
+                    return
+                }
                 // kosmos#7530 (Josh 10-28): the keyboard goes first. A sheet opened with it up sat behind it, only the dim
                 // showing. Reply puts the cursor back in the box.
                 if !Self.sampleKeepKeyboard {
