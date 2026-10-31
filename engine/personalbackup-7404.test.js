@@ -82,6 +82,23 @@ test('pbjob-7404: words accepted through the real enroll open the job only when 
   }
 });
 
+test('pbjob-7404: Kosmos+ refusing the words stops the job through the real orgenroll, and off then on starts it', async (t) => {
+  const root = fresh(t);
+  const consent = { ...WORDS, backsUp: ['your project folders'] };
+  const c = coordinator({ preexisting: true, preview: { ok: true, data: { org: ORG, role: 'member', consent, consentHash: HASH, computerSalt: SALT } } });
+  const ask = { root, remote: c, offer: () => ({ shown: true }), personalbackupkey: { ...KEY_OK, hasPendingCode: () => false } };
+  const on = async () => { const p = await pb.preview({ root, remote: c }); return pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK }); };
+  assert.equal((await on()).ok, true);
+  assert.equal(pb.mayBackUp(ask), true);
+  const r = await pb.runJob({ roots: [] }, { root, remote: c, runBackup: async () => ({ ok: false, because: 'x (HTTP 409 on /v1/org/backup/grant, code org_consent_changed)' }) });
+  assert.equal(r.personActs, true);
+  assert.equal(pb.mayBackUp(ask), false, 'no later run walks every file to be refused');
+  assert.equal(pb.state(ask), 'on', 'slice C: the panel cannot see this yet');
+  assert.equal((await pb.switchOff({ root, remote: c })).ok, true);
+  assert.equal((await on()).ok, true, 'the sentence the person is told works');
+  assert.equal(pb.mayBackUp(ask), true);
+});
+
 function fresh(t) {
   pb._TICKETS.clear();   // each test starts as a board just started: no ticket from an earlier test is live
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-personalswitch-7404-root-'));

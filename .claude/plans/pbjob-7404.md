@@ -27,7 +27,8 @@ B. ENGINE (this branch), in personalbackup.js, personalbackupkey.js and backupti
      upload.
    - a second startTick with its own say prefix and stage folder; backuprun's chain keeps runs one at a time.
 C. Panel: "last backed up" and a failure a person can see; the on-view words; and a state for "the words changed" and for
-   "the key is gone", each with its own way forward. state() still reads 'on' for both, and today's only way out is off then
+   "the key is gone", and for on-but-mayBackUp-false (words kept with no backsUp, or not kept at all, where no run happens
+   and nothing is said, not even in the log), each with its own way forward. state() still reads 'on' for all three, and today's only way out is off then
    on, which the log says and the panel does not. Design review. The tick's say reaches only the log, so a paying person
    cannot see a backup that stopped. Must land before the switch.
 D. Restore of files: a personal route for manifests and chunks, then the restore screen. Must land before the switch. The
@@ -37,9 +38,11 @@ D. Restore of files: a personal route for manifests and chunks, then the restore
 - Second tick instance, not one tick choosing per run. Rejected: one tick, because its pause state (a day on backup_off)
   would carry across a company join. Weakest premise: company and personal are never both true. The gate refuses while a
   company file is here; the relay already refuses a personal org to an account in a company.
-- Reuse store.ROOT/backupstate and backupkeys, per (org, member). Rejected: a separate root, because backupstate and
-  backupmemberkey read store.ROOT and the files are keyed by pair. The company readers named in personalbackup.js do not
-  read them. Weakest premise: the shared current.json pointer; it moves on otherPair, which costs one extra key read.
+- Reuse store.ROOT/backupstate and backupkeys, per (org, member), with its own pointer (current-personal.json). Rejected:
+  a separate root, because backupstate and backupmemberkey read store.ROOT and the files are keyed by pair. Rejected: the
+  shared current.json (challenge round 3 measured a company's left-over lostEpoch or bad state file stopping every personal
+  run for good). Weakest premise: a personal pair's own bad state file is said once and stays until someone sets it aside.
+- Off and on needs a price: server.js refuses preview and on with no_price but not off. #7685 moves the price to Kosmos+.
 - Words (Josh may swap them, the carve-out parks the sentence, not the slice):
   backsUp: your agents' folders and the files in them / your project folders / your conversations with your agents /
            each backup stays stored for at least 30 days, even after you turn this off, and cannot be deleted sooner

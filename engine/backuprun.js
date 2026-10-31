@@ -38,7 +38,7 @@
  *   flags stand beside them (a snapshot taken is still taken; its chunks are uploaded again next run).
  * A first run (no pointer) whose key step refuses keeps that answer's job state in the named pair's file (when the file
  * holds none of its own) and stops; one whose key step names no pair keeps nothing (there is no file to keep it in).
- * deps (tests): ensureMemberKey, takeSnapshot, deviceKey, macRequest, now, snapshotId.
+ * deps: ensureMemberKey and pointerName (a personal backup's); for tests, takeSnapshot, deviceKey, macRequest, now, snapshotId.
  */
 const fs = require('fs');
 const path = require('path');
@@ -50,11 +50,12 @@ const job = require('./backupjob');
 
 const ID = backupkeys.ID_RE;
 
-function pointerFile() { return path.join(store.ROOT, 'backupstate', 'current.json'); }
+/* deps.pointerName: a personal backup's own pointer, so a company's left-over pair is never read for it. */
+function pointerFile(deps) { return path.join(store.ROOT, 'backupstate', (deps && deps.pointerName) || 'current.json'); }
 
 /* The pair the last answer named, or null (missing, a link, or not this module's): a null pointer is learned again. */
-function readPointer() {
-  const f = pointerFile();
+function readPointer(deps) {
+  const f = pointerFile(deps);
   try {
     if (fs.lstatSync(f).isSymbolicLink()) return null;
     const got = JSON.parse(fs.readFileSync(f, 'utf8'));
@@ -64,9 +65,9 @@ function readPointer() {
   } catch { /* missing or malformed: learned again */ }
   return null;
 }
-function writePointer(pair) {
-  fs.mkdirSync(path.dirname(pointerFile()), { recursive: true, mode: 0o700 });
-  require('./securewrite').writeSecret(pointerFile(), JSON.stringify({ v: 1, org: pair.org, member: pair.member }), 0o600, { atomicOnly: true });
+function writePointer(pair, deps) {
+  fs.mkdirSync(path.dirname(pointerFile(deps)), { recursive: true, mode: 0o700 });
+  require('./securewrite').writeSecret(pointerFile(deps), JSON.stringify({ v: 1, org: pair.org, member: pair.member }), 0o600, { atomicOnly: true });
 }
 
 /* A snapshot id: the UTC time (sortable) and 4 random bytes, inside the manifest context's alphabet. */
@@ -100,7 +101,7 @@ async function runPaired(input, deps, seen) {
     // acts. It is read again before each snapshot, so a key replaced meanwhile is the one that signs.
     const dk0 = (deps.deviceKey || require('./backupdevicekey').deviceKey)();
     if (!dk0 || !dk0.ok) return deviceKeyRefusal(dk0);
-    let pair = readPointer();
+    let pair = readPointer(deps);
     seen.pair = pair;
     for (let attempt = 0; attempt < 2; attempt++) {
       let state;
@@ -121,12 +122,12 @@ async function runPaired(input, deps, seen) {
         snapshot: (k) => (known ? snapshotStep(known, k, ref, input, deps, now) : { ok: false, learnPair: true, because: 'this computer learned its company and member; it starts again' }),
       });
       if (r.result && r.result.otherPair) {
-        if (!keepPointer(r.result.otherPair)) return { ...POINTER_FAILED };
+        if (!keepPointer(r.result.otherPair, deps)) return { ...POINTER_FAILED };
         pair = seen.pair = r.result.otherPair;
         continue;
       }
       if (!known && r.pair) {
-        if (!keepPointer(r.pair)) return { ...POINTER_FAILED };
+        if (!keepPointer(r.pair, deps)) return { ...POINTER_FAILED };
         seen.pair = r.pair;
         // An ok key: start again under the pair, reading its state first (it may have one: a lost pointer).
         if (r.result && r.result.learnPair) { pair = r.pair; continue; }
@@ -177,8 +178,8 @@ const deviceKeyRefusal = (dk) => Object.assign({ ok: false, because: (dk && dk.b
 /* The key step's flag that rides on runOnce's `key` rather than its result (review 2). */
 const keyFlags = (r) => (r.key && r.key.lostEpochIgnored ? { lostEpochIgnored: true } : {});
 const POINTER_FAILED = Object.freeze({ ok: false, because: 'this computer could not note which company and member it backs up for; it tries again next time' });
-function keepPointer(pair) {
-  try { writePointer(pair); return true; } catch { return false; }
+function keepPointer(pair, deps) {
+  try { writePointer(pair, deps); return true; } catch { return false; }
 }
 
 /* The snapshot under an ok key for `pair`: this clock's week, and once more in a granted week. ref.state is kept
