@@ -2354,9 +2354,9 @@ struct KeyboardHold: UIViewRepresentable {
             let want = keptScreenTop
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self, let sv = self.scroll, let r = self.rows?.y[id] else { ChatView.trace("keyboard hold: settle, row not drawn"); return }
-                let d = CGFloat(r.top) - want
-                ChatView.trace("keyboard hold: settle, row off by \(Int(d))")
-                if abs(d) > 1, !sv.isTracking, !sv.isDragging, !sv.isDecelerating { sv.contentOffset.y += d }
+                let moved = CGFloat(r.top) - want
+                ChatView.trace("keyboard hold: settle, row off by \(Int(moved))")
+                if abs(moved) > 1, !sv.isTracking, !sv.isDragging, !sv.isDecelerating { sv.contentOffset.y += moved }
             }
         }
         func standDown() { saved = nil; endGuard() }
@@ -2452,7 +2452,7 @@ struct KeyboardHold: UIViewRepresentable {
                         let top = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.adjustedContentInset.top), to: nil).y
                         let bottom = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.bounds.height - sv.adjustedContentInset.bottom), to: nil).y
                         let f = bottom > top ? min(1, max(0, (self.keptScreenTop - top) / (bottom - top))) : 0
-                        ChatView.trace("keyboard hold: row not drawn at did-show, placed by id at \(String(format: "%.2f", f))")
+                        ChatView.trace("keyboard hold: row not drawn at did-show, placed by id at \(Int(f * 100))% of the screen")
                         lost(kept.row, f); self.endGuard()
                         // scrollTo(id, anchor: f) lines up the row's own point f with the band's point f, not its top: once the row is
                         // drawn again, its fresh reading says how far its top is from where it was, and the offset takes that up.
