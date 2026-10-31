@@ -118,6 +118,9 @@ do {
     check(extras.contains(".keyboardShortcut(.return, modifiers: .command)") && extras.contains("if ComposerExtras.sendTakes(now: Date(), dictationEnded: dictationEnded) { action() }"),
           "Cmd-Return sends, and a tap in the button's first moment is not taken")
     check(extras.contains("scheme == .dark ? .black : .white"), "a dark glyph on the light dark-mode fill")
+    // Review 3: stop() stamps when dictation ended, before it clears finishing (finish()'s path), so the guard has a time.
+    let stamp = extras.range(of: "if finishing || active { endedAt = Date() }"), cleared = extras.range(of: "        finishing = false\n        live = false")
+    check(stamp != nil && cleared != nil && stamp!.lowerBound < cleared!.lowerBound, "stop() records when dictation ended, before clearing finishing")
     // Review 2: the guard is keyed on dictation ending, never on the button appearing.
     let t0 = Date(timeIntervalSince1970: 1000)
     check(ComposerExtras.sendTakes(now: t0, dictationEnded: nil), "no dictation: a send right after the first character goes through")
