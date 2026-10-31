@@ -234,7 +234,7 @@ struct RoomView: View {
             #endif
         }
         .onDisappear {
-            visible = false; loop?.cancel(); loop = nil
+            visible = false; roomScrolling = false; loop?.cancel(); loop = nil   // kosmos#7654: no idle phase may come once off screen
             // A reading posture, not the room's state: coming back (from another tab, or a member's chat opened from here)
             // shows the whole room, as the chat's search goes when it leaves the screen. A search that filtered settles the
             // scroll again, as putting it away does.

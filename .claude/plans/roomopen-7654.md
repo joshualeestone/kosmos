@@ -79,7 +79,7 @@ Round 3 review 1: the Debug scroll-up hook (KOSMOS_SAMPLE_ROOM_SCROLLUP, 3 s aft
 person's scroll would (a programmatic scroll reports no scroll phase), and no retry lands while the person is already
 scrolling (`!roomScrolling`, for a goEnd that began mid-scroll). New check: testRoomOf220ScrolledUpAtOnceIsNotPulledBack
 (drag toward older posts as soon as a post shows, wait 3.5 s, the newest must not be on screen); ui-sample's class count is
-4. Results: pending (ui-sample picks the newest runtime, iOS 27, where the opening jump already lands; the room checks are
+4. Results: below (ui-sample picks the newest runtime, iOS 27, where the opening jump already lands; the room checks are
 run on the iOS 26.5 simulator by hand, both arms).
 Round 3 results (iOS 26.5 simulator kbexp17e, by hand; iOS 27 by ui-sample):
 - ios/tools/ui-sample.sh (iOS 27.0, fresh iPhone 17e): 14 of 14 on 579589a691.
@@ -89,3 +89,5 @@ Round 3 results (iOS 26.5 simulator kbexp17e, by hand; iOS 27 by ui-sample):
   first swiped a post laid out off the screen, the second swiped after the real 2.3 s retries had ended (XCUITest finds the
   list too late). It now stretches the retries five times (KOSMOS_SAMPLE_ROOM_RETRYSCALE, Debug only).
 - LogicTests run.sh 1723/1723, run-room.sh 741/741.
+Round 3 review 2: `roomScrolling` is cleared when the room goes off screen (its idle phase may never come across a push);
+the cancel check skips below iOS 18 (no scroll phase there). A full ui-sample run on the final commit is recorded in the PR.
