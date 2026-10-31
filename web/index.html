@@ -12157,6 +12157,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* #5791: Join Corporate Account (kosmos#6380: Join Company or Family Account), an outlined button with a tiny building icon; X Cancel at the top right of the entry
    pane; Lost your phone? under the devices list. */
 #s-sec-plus .plus-org-open { display: inline-flex; align-items: center; gap: 6px; }
+#s-sec-plus .pb-codebox { font: 600 20px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; padding: 12px 14px; border: 1px solid var(--border-strong); background: var(--bg-sunken); border-radius: 8px; overflow-wrap: anywhere; user-select: all; margin: 8px 0; }   /* kosmos#7404 */
 #s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
 #s-sec-plus .plus-org-outhead { display: flex; justify-content: flex-end; }
 #s-sec-plus #plus-devices #plus-lost-open { display: block; margin-top: 8px; }
@@ -20413,6 +20414,62 @@ window.kosmosMeasureScrollbarWidth();
           </div>
         </div>
         <p class="fmsg" id="plus-org-msg" role="alert" aria-live="assertive"></p>
+      </div>
+      <!-- kosmos#7404: personal backup, an account's own backup on Kosmos+ (an org of one). Shown only when this board's
+           switch is on (GET /api/personal-backup answers shown). The recovery code is made on this computer and shown
+           ONCE, in the answer that made it; Kosmos+ never holds it, so nobody can recover it for the person. -->
+      <div id="pb" hidden style="margin-top:16px;">
+        <p class="setname">Personal backup</p>
+        <div id="pb-off" hidden>
+          <p class="fhint">Back up this computer's Kosmos files to Kosmos+, locked with a recovery code only you hold.</p>
+          <p class="fhint" id="pb-price"></p>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="pb-on">Turn on personal backup</button>
+            <button class="btn" type="button" id="pb-restore-open">I have a recovery code</button>
+          </div>
+        </div>
+        <div id="pb-words" role="group" aria-label="What personal backup does" hidden>
+          <p class="fhint" id="pb-words-lead" tabindex="-1">Before you turn it on:</p>
+          <p class="fhint" id="pb-backsup-head">Backed up from this computer:</p>
+          <ul class="fhint" id="pb-backsup"></ul>
+          <p class="fhint" id="pb-readers-head">Who can read it:</p>
+          <ul class="fhint" id="pb-readers"></ul>
+          <p class="fhint" id="pb-never"></p>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="pb-accept">Accept and turn on</button>
+            <button class="btn" type="button" id="pb-no">Not now</button>
+          </div>
+        </div>
+        <div id="pb-code" role="group" aria-label="Your recovery code" hidden>
+          <p class="fhint" id="pb-code-lead" tabindex="-1">This is your recovery code. It is shown once.</p>
+          <p class="pb-codebox" id="pb-code-text"></p>
+          <p class="fhint">Kosmos+ cannot read this code and cannot recover it for you. Without it, a new computer cannot open this backup.</p>
+          <div class="frow">
+            <button class="btn" type="button" id="pb-copy">Copy</button>
+            <button class="btn" type="button" id="pb-print">Print</button>
+          </div>
+          <div class="frow"><button class="btn uprime" type="button" id="pb-saved">I saved it</button></div>
+        </div>
+        <div id="pb-onview" hidden>
+          <p class="fhint" id="pb-on-say">Personal backup is on for this computer.</p>
+          <div class="frow" id="pb-off-row"><button class="btn" type="button" id="pb-off-btn">Turn off personal backup</button></div>
+          <div id="pb-off-ask" hidden>
+            <p class="fhint">Turn off personal backup on this computer? What is already backed up stays on Kosmos+, locked with your recovery code.</p>
+            <div class="frow">
+              <button class="btn danger-btn" type="button" id="pb-off-yes">Turn off</button>
+              <button class="btn" type="button" id="pb-off-no">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <div id="pb-restore" hidden>
+          <p class="fhint">Enter the recovery code you saved when you turned personal backup on.</p>
+          <div class="frow">
+            <input type="text" class="tk-inp" id="pb-restore-code" autocomplete="off" spellcheck="false" maxlength="64" aria-label="Your recovery code" placeholder="Recovery code">
+            <button class="btn uprime" type="button" id="pb-restore-go">Restore</button>
+            <button class="btn" type="button" id="pb-restore-no">Cancel</button>
+          </div>
+        </div>
+        <p class="fmsg" id="pb-msg" role="alert" aria-live="assertive"></p>
       </div>
       <!-- #4079, named "Remove this computer" by Josh's design (#4080, 22:22). (Josh, 22:03: "Is there a way to disconnect my computer running Kosmos from this Kosmos Plus
            account somehow?"): the engine's Forget (#793, /api/remote/forget) finally has a button. The switch
@@ -55015,6 +55072,7 @@ async function paintPlus() {
       for (const id of ['plus-forget-ask', 'plus-forget-kept']) { const e = document.getElementById(id); if (e) e.hidden = true; }   // review 1
     } }
   { const og = document.getElementById('plus-org'); if (og) { og.hidden = r.enrolled !== true; if (!og.hidden) plusOrgMaybe(); } }   // #5531
+  { const pb = document.getElementById('pb'); if (pb) { if (r.enrolled === true) pbMaybe(); else pb.hidden = true; } }   // kosmos#7404
   paintDevices();
 }
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
@@ -55511,6 +55569,158 @@ document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if
 document.getElementById('plus-org-leave').addEventListener('click', () => plusOrgLeaveArm(true));
 document.getElementById('plus-org-leave-no').addEventListener('click', () => plusOrgLeaveArm(false));
 document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgLeave);
+/* ---- kosmos#7404: personal backup (Settings, Kosmos+). The views follow the engine's state (engine/personalbackup.js
+   state(): off, pending, needs-key, on); the words, the code and restore are steps the person opens here. The recovery
+   code is held only in PB.code while it is on screen, and dropped once "I saved it" is confirmed or the view changes. */
+var PB = { at: 0, busy: false, st: null, view: null, ticket: null, words: null, code: null, who: null };
+function pbMsg(t) { const m = document.getElementById('pb-msg'); if (m) m.textContent = t || ''; }
+function pbMaybe() {
+  if (PB.busy) return;
+  if (Date.now() - PB.at < 60000) { if (PB.st) pbPaint(); return; }
+  PB.at = Date.now();
+  fetch('/api/personal-backup').then((res) => res.ok ? res.json() : null).then((j) => { PB.st = j; pbPaint(); }).catch(() => { /* the next minute tries again */ });
+}
+function pbPrice(st) {
+  const said = typeof plusSiAddPrice === 'function' && st && st.price ? plusSiAddPrice(st.price) : '';
+  return said ? 'Personal backup is ' + said + ', billed to your Kosmos+ account.' : 'Price to be set.';
+}
+function pbList(id, items) {
+  const ul = document.getElementById(id); ul.textContent = '';
+  for (const t of Array.isArray(items) ? items : []) { const li = document.createElement('li'); li.textContent = String(t); ul.appendChild(li); }
+  ul.hidden = !ul.firstChild;
+  const head = document.getElementById(id + '-head'); if (head) head.hidden = ul.hidden;
+}
+function pbPaint() {
+  const st = PB.st || {};
+  const box = document.getElementById('pb');
+  if (!box) return;
+  box.hidden = st.shown !== true;
+  if (box.hidden) return;
+  // The step the person opened wins over the engine's state, except that 'on' closes the words and restore.
+  let v = PB.view;
+  if (!v || (st.state === 'on' && (v === 'words' || v === 'restore'))) v = st.state === 'on' ? 'on' : st.state === 'needs-key' ? 'needs-key' : st.state === 'pending' ? 'pending' : 'off';
+  document.getElementById('pb-off').hidden = !(v === 'off');
+  document.getElementById('pb-words').hidden = v !== 'words';
+  document.getElementById('pb-code').hidden = v !== 'code';
+  document.getElementById('pb-onview').hidden = !(v === 'on' || v === 'pending' || v === 'needs-key');
+  document.getElementById('pb-restore').hidden = v !== 'restore';
+  document.getElementById('pb-price').textContent = pbPrice(st);
+  const say = document.getElementById('pb-on-say');
+  say.textContent = v === 'pending' ? 'Kosmos is checking with Kosmos+ whether personal backup is on for this computer. This takes a few minutes.'
+    : v === 'needs-key' ? 'Personal backup is on for this computer, but its recovery code is not saved yet. Press Show my recovery code to finish.'
+    : 'Personal backup is on for this computer.';
+  document.getElementById('pb-off-row').hidden = v === 'pending';
+  let fin = document.getElementById('pb-finish');
+  if (v === 'needs-key' && !fin) {
+    fin = document.createElement('button'); fin.className = 'btn uprime'; fin.type = 'button'; fin.id = 'pb-finish'; fin.textContent = 'Show my recovery code';
+    fin.addEventListener('click', pbFinish);
+    document.getElementById('pb-off-row').prepend(fin);
+  }
+  if (fin) fin.hidden = v !== 'needs-key';
+  if (v !== 'code') { PB.code = null; document.getElementById('pb-code-text').textContent = ''; }
+}
+async function pbPost(kind, body) {
+  const res = await fetch('/api/personal-backup/' + kind, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  try { return await res.json(); } catch { return { ok: false, because: 'This Kosmos could not read the answer. Try again.' }; }
+}
+function pbShowCode(r) {
+  PB.code = r.code; PB.who = { org: r.org, member: r.member }; PB.view = 'code';
+  document.getElementById('pb-code-text').textContent = r.code;
+  pbPaint();
+  const lead = document.getElementById('pb-code-lead'); if (lead) lead.focus();
+}
+async function pbOpen() {
+  if (PB.busy) return; PB.busy = true; pbMsg('');
+  try {
+    const r = await pbPost('preview');
+    if (!r || !r.ok) { pbMsg((r && r.because) || 'Kosmos+ could not be reached just now. Try again in a minute.'); return; }
+    PB.ticket = r.ticket; PB.words = r.words || {}; PB.view = 'words';
+    pbList('pb-backsup', PB.words.backsUp); pbList('pb-readers', PB.words.readers);
+    document.getElementById('pb-never').textContent = Array.isArray(PB.words.never) && PB.words.never.length ? 'Never backed up: ' + PB.words.never.join('; ') + '.' : '';
+    pbPaint();
+    const lead = document.getElementById('pb-words-lead'); if (lead) lead.focus();
+  } finally { PB.busy = false; }
+}
+async function pbAccept(yes) {
+  if (PB.busy) return; PB.busy = true; pbMsg('');
+  const ticket = PB.ticket; PB.ticket = null;
+  try {
+    const r = await pbPost('on', { ticket, accepted: yes === true });
+    if (yes !== true) { PB.view = null; pbPaint(); return; }
+    if (r && r.ok && r.code) { PB.at = 0; pbShowCode(r); return; }
+    PB.view = null; PB.at = 0;
+    if (!(r && r.ok)) pbMsg((r && r.because) || 'Nothing was turned on. Try again in a minute.');
+  } finally { PB.busy = false; if (PB.view !== 'code') pbMaybe(); }
+}
+async function pbFinish() {
+  if (PB.busy) return; PB.busy = true; pbMsg('');
+  try {
+    const r = await pbPost('key');
+    if (r && r.ok && r.code) { pbShowCode(r); return; }
+    if (r && r.ok) { PB.at = 0; return; }
+    pbMsg((r && r.because) || 'The recovery code could not be shown just now. Try again in a minute.');
+    if (r && r.code === 'restore') { PB.view = 'restore'; pbPaint(); }
+  } finally { PB.busy = false; if (PB.view !== 'code') pbMaybe(); }
+}
+async function pbSaved() {
+  if (PB.busy || !PB.who) return; PB.busy = true; pbMsg('');
+  try {
+    const r = await pbPost('saved', PB.who);
+    if (!(r && r.ok)) { pbMsg((r && r.because) || 'That could not be recorded. Try again.'); return; }
+    PB.view = null; PB.who = null; PB.at = 0;
+  } finally { PB.busy = false; pbMaybe(); }
+}
+function pbCopy() {
+  if (!PB.code || !navigator.clipboard) return;
+  navigator.clipboard.writeText(PB.code).then(() => pbMsg('Copied. Keep it somewhere other than this computer.'), () => pbMsg('It could not be copied. Write it down instead.'));
+}
+function pbPrint() {
+  if (!PB.code) return;
+  const w = window.open('', '_blank', 'noopener=no,width=480,height=360');
+  if (!w) { pbMsg('The print window was blocked. Write the code down instead.'); return; }
+  const d = w.document; d.title = 'Kosmos recovery code';
+  const h = d.createElement('h1'); h.textContent = 'Kosmos personal backup recovery code';
+  const p = d.createElement('p'); p.style.cssText = 'font: 600 22px ui-monospace, monospace; letter-spacing: .08em;'; p.textContent = PB.code;
+  const n = d.createElement('p'); n.textContent = 'Kosmos+ cannot read this code and cannot recover it. Keep it safe.';
+  d.body.append(h, p, n); w.focus(); w.print();
+}
+function pbOffArm(on) {
+  document.getElementById('pb-off-ask').hidden = !on;
+  document.getElementById('pb-off-row').hidden = on || (PB.st && PB.st.state === 'pending');
+}
+async function pbOff() {
+  if (PB.busy) return; PB.busy = true; pbMsg('');
+  try {
+    const r = await pbPost('off');
+    pbOffArm(false);
+    if (!(r && r.ok)) pbMsg((r && r.because) || 'Kosmos+ could not be reached just now. Personal backup is still on; try again in a minute.');
+    PB.view = null; PB.at = 0;
+  } finally { PB.busy = false; pbMaybe(); }
+}
+async function pbRestore() {
+  if (PB.busy) return;
+  const code = document.getElementById('pb-restore-code').value.trim();
+  if (!code) { pbMsg('Enter your recovery code.'); return; }
+  PB.busy = true; pbMsg('');
+  try {
+    const r = await pbPost('restore', { code });
+    if (!(r && r.ok)) { pbMsg((r && r.because) || 'Nothing was restored. Try again.'); return; }
+    document.getElementById('pb-restore-code').value = '';
+    PB.view = null; PB.at = 0; pbMsg('Your backup key is restored on this computer.');
+  } finally { PB.busy = false; pbMaybe(); }
+}
+document.getElementById('pb-on').addEventListener('click', pbOpen);
+document.getElementById('pb-accept').addEventListener('click', () => pbAccept(true));
+document.getElementById('pb-no').addEventListener('click', () => pbAccept(false));
+document.getElementById('pb-copy').addEventListener('click', pbCopy);
+document.getElementById('pb-print').addEventListener('click', pbPrint);
+document.getElementById('pb-saved').addEventListener('click', pbSaved);
+document.getElementById('pb-off-btn').addEventListener('click', () => pbOffArm(true));
+document.getElementById('pb-off-no').addEventListener('click', () => pbOffArm(false));
+document.getElementById('pb-off-yes').addEventListener('click', pbOff);
+document.getElementById('pb-restore-open').addEventListener('click', () => { pbMsg(''); PB.view = 'restore'; pbPaint(); document.getElementById('pb-restore-code').focus(); });
+document.getElementById('pb-restore-no').addEventListener('click', () => { pbMsg(''); PB.view = null; pbPaint(); });
+document.getElementById('pb-restore-go').addEventListener('click', pbRestore);
 /* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
    code; the person checks they match, presses Allow on the other computer and "The codes match" here. The pill above
    still says "Waiting to be allowed"; this block replaces the coordinator's sentence under it while held. */

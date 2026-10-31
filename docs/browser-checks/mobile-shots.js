@@ -422,6 +422,20 @@ async function orgConnected(page, enrolled, extra) {
     readers: ['you', "your company's recovery role, only by restoring it, and every restore is logged and shown to you"],
     never: ['your chats are never shown in the console', 'keys and passwords'] } }) }));
 }
+/* kosmos#7404: a connected computer whose board offers personal backup, in `state`; preview and on answer samples. */
+async function pbShot(page, state) {
+  await orgConnected(page, false);
+  const json = (body) => (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  await page.route('**/api/personal-backup', json({ shown: true, price: null, state }));
+  await page.route('**/api/personal-backup/preview', json({ ok: true, ticket: 't_sample', words: {
+    reports: [], backsUp: ['agent folders and their files', 'transcripts', 'projects and what agents make'],
+    readers: ['you, with your recovery code'], never: ['keys and passwords'] } }));
+  await page.route('**/api/personal-backup/on', json({ ok: true, code: 'K7QD-3MXA-9VPE-H2NW-4TBR-6YC8-JF', org: 'org_sample', member: 'm_sample' }));
+  await at(page, '?tab=settings&sec=plus');
+  await page.waitForSelector(state === 'on' ? '#pb-onview' : '#pb-off', { state: 'visible', timeout: 10000 });
+  await pbTop(page);
+}
+async function pbTop(page) { await page.evaluate(() => document.getElementById('pb').scrollIntoView({ block: 'start' })); }
 /* #5359: a restart note made seven minutes ago, on this page's own route (engine/restartnote.js makes the real one). */
 async function stubRebootNote(page) {
   const now = Date.now();
@@ -1712,6 +1726,15 @@ const SCREENS = [
     await page.waitForSelector('#plus-org-in', { state: 'visible', timeout: 10000 });
     await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
   } },
+  /* kosmos#7404: personal backup in Settings, Kosmos+, one shot per view. The routes are stubbed (the price is a sample
+     in Stripe's shape; the code is a sample in the engine's shape, never a real one). */
+  { name: 'pb-off', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off'); } },
+  { name: 'pb-words', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off');
+    await page.click('#pb-on'); await page.waitForSelector('#pb-words', { state: 'visible', timeout: 10000 }); await pbTop(page); } },
+  { name: 'pb-code', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off');
+    await page.click('#pb-on'); await page.waitForSelector('#pb-words', { state: 'visible', timeout: 10000 });
+    await page.click('#pb-accept'); await page.waitForSelector('#pb-code', { state: 'visible', timeout: 10000 }); await pbTop(page); } },
+  { name: 'pb-on', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on'); } },
   /* kosmos#6752: the joined view listing reviewer grants of the last 30 days, one of each kind: pending (made an hour
      ago), in effect (made three days ago) and removed. Times are made from now; the names are samples. */
   { name: 'plus-org-reviewers', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
