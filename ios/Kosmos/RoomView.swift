@@ -34,6 +34,8 @@ struct RoomView: View {
     @State private var endJumps = 0
     // kosmos#7654 round 3: the person is scrolling (iOS 18 and later); their first touch cancels goEnd's pending retries.
     @State private var roomScrolling = false
+    @State private var roomPosition: String?   // EXPERIMENT #7654 part 2: the id anchor, as the DM's
+    @State private var rowTops = RowTops()   // EXPERIMENT #7654 part 2: the DM's keyboard hold reads the reader's row by this
     // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
     // never marked seen.
     @State private var visible = false
@@ -713,7 +715,7 @@ struct RoomView: View {
                                 .onAppear { sayOnce(Board.roomPartialLine) }   // spoken, as the room speaks its no-match sentence
                         } else { noMatch }
                     }
-                    ForEach(items) { item in itemView(item).id(item.id).accessibilityFocused($focusedPost, equals: item.id) }
+                    ForEach(items) { item in itemView(item).id(item.id).accessibilityFocused($focusedPost, equals: item.id).modifier(RowTop(id: item.id, rows: rowTops)) }
                     if archiveShown == nil { ForEach(store.pending[project.id] ?? []) { p in pendingView(p) } }   // review 1: the live room's only
                     if archiveShown == nil && store.roomFailed.contains(project.id) {
                         Text("We cannot read this room right now. What is shown may be behind.")
@@ -729,8 +731,16 @@ struct RoomView: View {
                         .onDisappear { atBottom = false }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
+                // EXPERIMENT #7654 part 2: the DM's keyboard hold (kosmos#7609/#7645): with the anchor holding the bottom edge, a reader
+                // higher up lost their row off the top when the keyboard came up. Put back, then the anchor lets go of a row id.
+                .background(KeyboardHold(hold: visible && !atBottom && !searchMode, above: rows.count, moves: "\(endJumps)|\(searchMode)", rows: rowTops) {
+                    if ChatView.idAnchor, Board.letGoAfterPutBack(roomPosition), roomPosition != "bottom" { roomPosition = nil; ChatView.trace("room keyboard hold: anchor let go") }
+                })
+                .modifier(PositionTargets(on: ChatView.idAnchor))   // EXPERIMENT #7654 part 2
+                .modifier(ContentSpace())   // EXPERIMENT #7654 part 2
             }
             .kosmosTopFade(ground: Palette.chatGround)   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
+            .modifier(PositionById(on: ChatView.idAnchor, id: $roomPosition))   // EXPERIMENT #7654 part 2
             #if DEBUG
             // kosmos#7645, KOSMOS_SAMPLE_ROOM_SCROLLUP=<n> (with the room samples): 3 s after opening, the n-th row from the
             // end goes to the top, as a reader scrolled up would be (nothing in the simulator can drag here), then a marker
@@ -739,7 +749,7 @@ struct RoomView: View {
                 guard RoomStore.sample, let up = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ROOM_SCROLLUP"].flatMap(Int.init), up > 0 else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     // kosmos#7654: as a person's scroll would, it ends goEnd's retries (a programmatic scroll reports no scroll phase).
-                    if items.count > up { endJumps &+= 1; proxy.scrollTo(items[items.count - up].id, anchor: .top) }
+                    if items.count > up { endJumps &+= 1; if ChatView.idAnchor { roomPosition = items[items.count - up].id } else { proxy.scrollTo(items[items.count - up].id, anchor: .top) } }   // EXPERIMENT #7654 part 2: with the id anchor a scrollTo alone would not move it (as the DM sample)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { sampleScrollRested = true }
             }
@@ -877,8 +887,14 @@ struct RoomView: View {
     // goEnd, a reply jump, loadOlder, the archive showing or the person's scroll (endJumps).
     static let endRetries: [Double] = ChatView.followsScrollPhase ? [0.05, 0.15, 0.3, 0.5, 0.8, 1.2, 1.7, 2.3] : [0.05, 0.15, 0.3, 0.5]
     private func goEnd(_ proxy: ScrollViewProxy) {
-        proxy.scrollTo("bottom", anchor: .bottom)
         endJumps &+= 1
+        // EXPERIMENT #7654 part 2: under the id anchor, go to the end the DM's way (goNewest): set the anchor to the end
+        // marker, through nil so a repeat is seen, and no position retries to fight it.
+        if ChatView.idAnchor {
+            if roomPosition == "bottom" { roomPosition = nil; DispatchQueue.main.async { if roomPosition == nil { roomPosition = "bottom" } } } else { roomPosition = "bottom" }
+            return
+        }
+        proxy.scrollTo("bottom", anchor: .bottom)
         // A person already scrolling gets the one jump, as before this change, and no retries (no new touch would cancel them).
         if roomScrolling { return }
         let jump = endJumps
