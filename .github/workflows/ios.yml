@@ -133,6 +133,13 @@ jobs:
           ios/LogicTests/run-composer.sh | tee "$RUNNER_TEMP/composer.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/composer.log"
 
+      # kosmos#7679: an agent's and a project's Files, its own suite like the others.
+      - name: Files logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-files.sh | tee "$RUNNER_TEMP/files.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/files.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

@@ -90,6 +90,8 @@ struct RoomView: View {
     // not again while it stays empty, whatever is typed or whichever sentence a read shows. Forgotten when results
     // come back or the search goes.
     @State private var spokeEmpty = false
+    // kosmos#7679: the project's Files screen is open.
+    @State private var filesOpen = false
     private var searching: Bool { Board.chatSearching(query) }
     // The row open or words in it: no older pages (the chat's rule, #7089, from the board's earlierNearTop).
     private var searchMode: Bool { searchOpen || searching }
@@ -200,6 +202,14 @@ struct RoomView: View {
                 }
                 .accessibilityLabel("Search this conversation")
             }
+            // kosmos#7679: the project's Files (FilesView.swift), as the board's Documents view lists them.
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button { filesOpen = true } label: {
+                    Image(systemName: "folder").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                .accessibilityLabel(Board.filesTitle)
+                .accessibilityIdentifier("room-files")
+            }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button { openBoardPage() } label: { Image(systemName: "info.circle") }
                     .accessibilityLabel("Members, files and tasks, on your computer's board")
@@ -212,6 +222,11 @@ struct RoomView: View {
                         if let url = store.clientForChat.chatURL(for: a) { openPage(url) }
                     })
                 }
+            } label: { EmptyView() }.hidden()
+        )
+        .background(
+            NavigationLink(isActive: $filesOpen) {
+                FilesView(client: client, owner: .project(project.id), openOnBoard: { openBoardPage() })
             } label: { EmptyView() }.hidden()
         )
         .onAppear {
