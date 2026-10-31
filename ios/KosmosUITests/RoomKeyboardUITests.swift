@@ -13,7 +13,10 @@ final class RoomKeyboardUITests: XCTestCase {
         // Only the known part-2 failures are expected; any other failure in this test still shows.
         let known = XCTExpectedFailure.Options()
         known.isStrict = false
-        known.issueMatcher = { $0.compactDescription.contains("did not reach the newest post") || $0.compactDescription.contains("was not above the box") }
+        // The swipes stopping short shows as either assertion, or as a failed lookup of Post 220 inside a helper (measured 10-31).
+        known.issueMatcher = { i in
+            ["did not reach the newest post", "was not above the box", "Post 220 of 220."].contains { i.compactDescription.contains($0) }
+        }
         XCTExpectFailure("kosmos#7654 part 2: on iOS 26 a person's scroll stops short of a long room's end", options: known)
         let app = Self.launch([:])
         let box = Self.box(app)
