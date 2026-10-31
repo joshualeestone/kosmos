@@ -1337,9 +1337,14 @@ async function promptCommunityOnTaskDoneNow({ projectId, taskNumber, session, na
     const book = communitytaskdone.readBook();
     /* kosmos#7649 review 1: the roster as it is when this prompt's turn on the chain comes (the one before it can have
        waited minutes), so the pane, its question menu and its quota hold are read off the agent's current card. The
-       route's own roster stands in only if the board's cannot be read. */
-    let roster = atMark;
-    try { const r = safeRoster(); if (Array.isArray(r)) roster = r; } catch { /* the route's roster */ }
+       route's own roster stands in only if the board's cannot be read. Review 5: read only when the prompt will send
+       (paneBusy and deliver run after every gate has passed), and once: a full roster read captures every pane, which
+       a mark that is deduped or gated off must not pay. */
+    let fresh;
+    const roster = () => {
+      if (fresh === undefined) { fresh = atMark; try { const r = safeRoster(); if (Array.isArray(r)) fresh = r; } catch { /* the route's roster */ } }
+      return fresh;
+    };
     const r = await communitytaskdone.promptOnTaskDoneAsync({
       projectId, taskNumber, session, name, trigger,
       now: Date.now(), book,
@@ -1349,8 +1354,8 @@ async function promptCommunityOnTaskDoneNow({ projectId, taskNumber, session, na
       prompterOn: () => heartbeatSetting.read().on === true,
       inCommunity: agentInCommunity,
       postTimes: (s) => { const all = communitystore.postTimesAll(); return all === null ? null : (all.get(String(s).trim().toLowerCase()) || []); },
-      deliver: (s, text) => chat.deliverAutomaticAsync(s, text, roster),
-      paneBusy: (s) => chat.paneBusyVerdict(s, roster),   // kosmos#7649: never typed behind another message
+      deliver: (s, text) => chat.deliverAutomaticAsync(s, text, roster()),
+      paneBusy: (s) => chat.paneBusyVerdict(s, roster()),   // kosmos#7649: never typed behind another message
       DELIVERY: chat.DELIVERY,
     });
     // #5313: the prompt has already reached the pane when recorded; if the book write fails (disk full,

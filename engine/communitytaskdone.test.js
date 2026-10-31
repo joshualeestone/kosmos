@@ -332,3 +332,17 @@ test('kosmos#7649 review 3: a sender that throws at once reads as unconfirmed (a
   assert.equal((await td.promptOnTaskDoneAsync(bad.o)).act, 'prompted');
   assert.deepEqual(sends, ['ann']);
 });
+
+test('kosmos#7649 review 5: a prompt the gates refuse asks neither paneBusy nor deliver (so the board reads no roster for it)', async () => {
+  for (const [name, over] of Object.entries({ deduped: { book: new Map([['proj1\t7', { at: NOW, session: 'ann' }]]) }, off: { prompterOn: () => false }, notMember: { inCommunity: () => false } })) {
+    const asked = [];
+    const { o } = setup({ ...over, paneBusy: () => { asked.push('paneBusy'); return null; }, deliver: () => { asked.push('deliver'); return later({ state: D.PLACED }); } });
+    await td.promptOnTaskDoneAsync(o);
+    assert.deepEqual(asked, [], name);
+  }
+  // CONTROL: a prompt that sends asks paneBusy, then delivers.
+  const asked = [];
+  const { o } = setup({ paneBusy: () => { asked.push('paneBusy'); return null; }, deliver: () => { asked.push('deliver'); return later({ state: D.PLACED }); } });
+  await td.promptOnTaskDoneAsync(o);
+  assert.deepEqual(asked, ['paneBusy', 'deliver']);
+});

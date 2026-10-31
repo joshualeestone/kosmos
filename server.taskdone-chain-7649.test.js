@@ -43,11 +43,11 @@ test('kosmos#7649: two marks in a row: the second prompt starts only once the fi
   } finally { td.promptOnTaskDoneAsync = real; }
 });
 
-test('kosmos#7649: a prompt that fails does not stop the next one', async () => {
+test('kosmos#7649: a prompt whose sender throws does not stop the next one (the board\'s own catch; the chain\'s .catch is pinned in server.communitytaskdone-5313.test.js)', async () => {
   const real = td.promptOnTaskDoneAsync;
   const ran = [];
   try {
-    td.promptOnTaskDoneAsync = async (o) => { ran.push(o.taskNumber); if (o.taskNumber === 1) throw new Error('first fails'); return { act: 'prompted', recorded: false }; };
+    td.promptOnTaskDoneAsync = async (o) => { ran.push(o.taskNumber); if (o.taskNumber === 1) throw new Error('first fails'); return { act: 'prompted', recorded: false, session: o.session, name: o.name }; };
     prompt(mark(1));
     await prompt(mark(2));
     assert.deepEqual(ran, [1, 2]);

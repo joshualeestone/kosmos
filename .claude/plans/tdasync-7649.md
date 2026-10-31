@@ -73,3 +73,12 @@ the agent's pane and a later prompt to that agent is then read as pane-busy and 
   Decided: W1 as before (one chain, delayed never lost); the task-done prompt does not re-check idleness at its turn,
   by design: it exists to reach agents busy between tasks (#5216 queues it); a deadline logs as an ordinary
   unconfirmed delivery.
+- Round 5 (Opus, nothing settled): no BLOCKER. Fixed:
+  - W1 (my own round-1 fix) reading a fresh roster at each prompt's turn ran a full roster read (every pane captured,
+    synchronously) for every mark, even one deduped or gated off: the event-loop hold this card removes. The roster
+    is now a getter read once, only by paneBusy and deliver, which run after every gate has passed. Engine test: a
+    refused prompt asks neither (control: one that sends asks both, in order). Mutant (eager read): the pins are red.
+  - N the chain test named for "a prompt that fails" passes through the board's own catch, not the chain's: renamed
+    to say so (the chain's .catch is pinned by source); its stand-in now returns a session and name.
+  Decided: W2 as before; the booking's timestamp is the prompt's start (at most the deadline early, against a 24 h
+  window).

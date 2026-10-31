@@ -31,7 +31,7 @@ test('the server helper is wrapped so a prompt never fails a mark, uses the swee
   assert.match(fn, /switchOn:\s*\(\)\s*=>\s*communitysend\.switchOn\(\)/, 'global community switch gate missing');
   assert.match(fn, /prompterOn:\s*\(\)\s*=>\s*heartbeatSetting\.read\(\)\.on === true/, 'Prompter switch gate missing');
   assert.match(fn, /inCommunity:\s*agentInCommunity/, 'the helper is not wired to the shared membership check');
-  assert.match(fn, /deliver:\s*\(s, text\)\s*=>\s*chat\.deliverAutomaticAsync\(s, text, roster\)/, 'not delivered through the gated automatic sender');
+  assert.match(fn, /deliver:\s*\(s, text\)\s*=>\s*chat\.deliverAutomaticAsync\(s, text, roster\(\)\)/, 'not delivered through the gated automatic sender');
   // kosmos#7649: the synchronous sender holds the event loop after the 200
   assert.doesNotMatch(fn, /chat\.deliverAutomatic\(/, 'kosmos#7649: the synchronous sender is back');
   assert.match(fn, /await communitytaskdone\.promptOnTaskDoneAsync\(\{/, 'kosmos#7649: the delivery is not awaited');
@@ -86,12 +86,15 @@ test('kosmos#7649: every task-done prompt waits for the one before it (one chain
 test('kosmos#7649: the task-done prompt asks chat whether the pane is still placing another message before it sends', () => {
   const start = SRC.indexOf('async function promptCommunityOnTaskDoneNow(');
   const fn = SRC.slice(start, SRC.indexOf('catch { return null; }', start));
-  assert.match(fn, /paneBusy:\s*\(s\)\s*=>\s*chat\.paneBusyVerdict\(s, roster\),/);
+  assert.match(fn, /paneBusy:\s*\(s\)\s*=>\s*chat\.paneBusyVerdict\(s, roster\(\)\),/);
 });
 
-test('kosmos#7649 review 1: a queued task-done prompt reads the roster when its turn comes, not when the mark arrived', () => {
+test('kosmos#7649 reviews 1 and 5: a queued task-done prompt reads the roster at its own turn, and only when it will send', () => {
   const start = SRC.indexOf('async function promptCommunityOnTaskDoneNow(');
   const fn = SRC.slice(start, SRC.indexOf('catch { return null; }', start));
-  assert.match(fn, /let roster = atMark;\s*try \{ const r = safeRoster\(\); if \(Array\.isArray\(r\)\) roster = r; \}/);
-  assert.ok(fn.indexOf('safeRoster()') > fn.indexOf('const book = communitytaskdone.readBook();'), 'read at the prompt\'s turn, beside the book');
+  // Review 5: a getter, read once on first use, so a mark the gates refuse never pays for a full roster read.
+  assert.match(fn, /const roster = \(\) => \{\s*if \(fresh === undefined\) \{ fresh = atMark; try \{ const r = safeRoster\(\); if \(Array\.isArray\(r\)\) fresh = r; \}/);
+  assert.match(fn, /deliver:\s*\(s, text\)\s*=>\s*chat\.deliverAutomaticAsync\(s, text, roster\(\)\),/);
+  assert.match(fn, /paneBusy:\s*\(s\)\s*=>\s*chat\.paneBusyVerdict\(s, roster\(\)\),/);
+  assert.equal(fn.split('safeRoster()').length - 1, 1, 'the roster is read somewhere other than the getter');
 });
