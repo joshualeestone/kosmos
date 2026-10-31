@@ -12697,7 +12697,10 @@ const server = http.createServer(async (req, res) => {
      as /api/org/*), and none exists unless this board offers it (engine/personalbackupoffer.js: 404, so a board with the
      switch off has no surface). Answers carry named fields only. The recovery code leaves this process in ONE answer,
      the one that made it (on, or key while it is still unconfirmed), and is never logged. */
-  if (pathname === '/api/personal-backup' || pathname.startsWith('/api/personal-backup/')) {
+  /* Exact paths, never a startsWith prefix: a prefix would serve every path under it, a handler or not (web.api-routes-3957). */
+  if (pathname === '/api/personal-backup' || pathname === '/api/personal-backup/preview' || pathname === '/api/personal-backup/on'
+    || pathname === '/api/personal-backup/key' || pathname === '/api/personal-backup/saved' || pathname === '/api/personal-backup/restore'
+    || pathname === '/api/personal-backup/off') {
     let off = true;
     try { off = !require('./engine/personalbackupoffer').offer().shown; } catch { off = true; }
     if (off) { sendJson(res, 404, { error: 'not found' }); return; }
@@ -12711,9 +12714,8 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, out);
       return;
     }
-    const PB_KINDS = new Set(['preview', 'on', 'key', 'saved', 'restore', 'off']);
     const kind = pathname.slice('/api/personal-backup/'.length);
-    if (req.method !== 'POST' || !PB_KINDS.has(kind)) { sendJson(res, 404, { error: 'not found' }); return; }
+    if (req.method !== 'POST') { sendJson(res, 404, { error: 'not found' }); return; }
     readBody(req, 4096)
       .then(async (buf) => {
         let body = {};

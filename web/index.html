@@ -55653,8 +55653,19 @@ function pbPaint() {
   if (fin) fin.hidden = v !== 'needs-key';
   if (v !== 'code') { PB.code = null; document.getElementById('pb-code-text').textContent = ''; }
 }
+/* One literal fetch per step, as plusOrgPost does, so web.api-routes-3957 reads each path and checks it has a route. */
 async function pbPost(kind, body) {
-  const res = await fetch('/api/personal-backup/' + kind, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const init = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) };
+  let res;
+  try {
+    res = kind === 'preview' ? await fetch('/api/personal-backup/preview', init)
+      : kind === 'on' ? await fetch('/api/personal-backup/on', init)
+      : kind === 'key' ? await fetch('/api/personal-backup/key', init)
+      : kind === 'saved' ? await fetch('/api/personal-backup/saved', init)
+      : kind === 'restore' ? await fetch('/api/personal-backup/restore', init)
+      : kind === 'off' ? await fetch('/api/personal-backup/off', init) : null;
+  } catch { res = null; }
+  if (!res) return { ok: false, because: 'This Kosmos could not be reached. Try again.' };
   try { return await res.json(); } catch { return { ok: false, because: 'This Kosmos could not read the answer. Try again.' }; }
 }
 /* Review 1: one span per group, the hyphen inside the group before it, so a line breaks only between groups. */
@@ -55745,9 +55756,7 @@ function pbRestoreSay(r) {
   if (c === 'wrong_code') return 'That is not the recovery code for this backup. Check it group by group and try again.';
   if (c === 'not_a_code') return 'That is not a recovery code. It has 26 letters and digits, in groups of four.';
   if (c === 'no_keys') return 'This backup has no key yet, so there is nothing to restore.';
-  const b = r && typeof r.because === 'string' ? r.because.trim() : '';
-  if (!b) return 'Nothing was restored. Try again.';
-  return b.charAt(0).toUpperCase() + b.slice(1) + (/[.!?]$/.test(b) ? '' : '.');
+  return asSentence(r && r.because) || 'Nothing was restored. Try again.';
 }
 function pbRestoreBad(text) {
   document.getElementById('pb-restore-msg').textContent = text || '';
