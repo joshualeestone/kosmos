@@ -26,6 +26,11 @@ message landed off the screen. Locally the same path runs, but the content grows
   at-the-newest re-check, Board.bandFraction and Board.settleOffset with LogicTests): read-higher-up 5/5 traced (four placed
   by id and settled by 7 pt, one drawn row put back -36 and settled by 0), KeyboardSlideUITests 3/3; LogicTests 1750/1750,
   room 742/742.
+- After review 3 (the settle one main-queue turn later, the guard re-armed after a placing, the lost path letting any anchor
+  go): read-higher-up 4 of 5 traced (three placed by id, settled by 7 pt and guarding again; one drawn row put back -43 and
+  settled by 0), KeyboardSlideUITests 3/3. The fifth failed in the sample, not the hold: with the Mac at load 41 the debug
+  scroll-up's "rested" marker read atBottom true 0.11 s before the end left the screen, so the chat rightly kept a reader
+  it believed was at the newest; the hold never ran (no will-show reading). That sample timing is the same on main.
 - The same mechanism in the room (#7654 part 2, branch roomhold-7654): read-higher-up 5/5 traced, the nine room and DM
   checks 9/9 on iOS 26.5 and 27. That is the room's evidence, not this branch's.
 
