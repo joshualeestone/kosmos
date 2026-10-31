@@ -45,3 +45,19 @@ takes #7675's and keeps only the room's changes (RoomView.swift, the two room UI
 - Weakest premise: a single full run on each iOS since moving onto #7675's hold. The room's content readings go stale as
   the keyboard rises (500 to 3,000 pt, measured), and #7675 removed the settle that corrected a drawn post's put-back; the
   room passed without it, but on one run per iOS. Review round count bounded at 8 (fleet cap).
+
+## Review round 1 (10-31, opus): what changed and what was left
+- W1 fixed: toEnd and toRow bump a new appMoves (as the DM's), and it is part of the hold's moves key, so a Post, a new
+  post, the working line or a reply jump inside the 1.5 s hold window is not put back by the hold. Kept apart from
+  endJumps on purpose, so these jumps do not cancel goEnd's opening retries (iOS 16 only).
+- W2 fixed: the dead XCTExpectFailure options removed from RoomKeyboardUITests; header says both pass now. Decided: NOT
+  added to ios/tools/ui-sample.sh yet (CI's slower runner stopped this room short once, round 3; one run per iOS here is not
+  evidence it holds there). Reversible in one line; a follow-up after a CI run of it by hand.
+- W3, named not measured: eight jump paths moved onto toEnd/toRow (Post, new post, working line, search clear, archive
+  close to archiveBoundary or the end, reply jump, older page keeping its top row, page load). Only the keyboard checks
+  and the opening/read-higher checks drive them. The reply jump, the archive close and the older page are unmeasured under
+  the id anchor; the second weakest premise after the one above.
+- NITs: toRow leaves the anchor nil until the next toEnd (by design: holding the anchor would pull the list back to its old
+  row; the next toEnd sets it). Comments for "animated", endRetries and the debug scroll-up now say which iOS they describe.
+  Left: the room's hold traces land in the DM's diagRing under the DM's label, and the room read-higher test runs without
+  KOSMOS_SAMPLE_TRACE. Both diagnostic-only; go on #7688's sibling card if a later round raises them again.
