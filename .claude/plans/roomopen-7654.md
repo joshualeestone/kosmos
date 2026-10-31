@@ -71,8 +71,7 @@ passes all three. #7645 showed the cause on the same runner: rows above are meas
 there (will-show to did-show took 1.3 s), so goEnd's last retry at 0.5 s landed before the room's height settled.
 Change: PersonScroll (the DM's iOS 18+ scroll-phase reader) on the room's list; the person's first touch bumps endJumps,
 cancelling every pending retry. Where that cancel exists (iOS 18 and later, ChatView.followsScrollPhase) the retries run to
-2.3 s (0.05, 0.15, 0.3, 0.5, 0.8, 1.2, 1.7, 2.3); below it they stop at 0.5 s as before, so a flick on iOS 16 or 17 is never
-pulled back for longer than today.
+2.3 s (0.05, 0.15, 0.3, 0.5, 0.8, 1.2, 1.7, 2.3); below it they stop at 0.5 s (main made one jump: on iOS 16 and 17 this adds a half-second window with no cancel).
 Rejected: retrying until the end marker shows (it can show while rows above are still being measured, then move away).
 Weakest premise: that 2.3 s covers CI's runner. If the 220 checks still fail, the record of when the end marker last moved
 is the next thing to add.
@@ -100,3 +99,9 @@ tested less shows it; the cancel check is best-effort on a slow runner (it skips
 Reasoned, not measured: loadOlder (which cancels the opening retries) runs from the settled-at-bottom path only while the
 top's older-posts line shows, i.e. the whole loaded page is on screen, where no retry is needed; a long real room (older
 pages, its top off screen) keeps its retries. The sample room has no older pages, so no check covers that interaction.
+Round 3 review 5: goEnd schedules no retries when the person is already scrolling (only the one jump, as on main); the
+archive showing ends the retries (endJumps); the expected-failure marker in RoomKeyboardUITests matches only its two known
+part-2 messages, so any other failure there shows; the claim that iOS 16 and 17 behave "as before" was against round 1, not
+main (main made one jump; this adds a half-second window there), corrected in the code and here.
+Both arms on the current cancel check (ten-times stretch, 18 s guard, 24 s wait), commit 5190cba0fd, iOS 26.5: with the
+change PASS; CONTROL (cancel removed) FAILS "the room pulled the reader back to its newest post after their own scroll".

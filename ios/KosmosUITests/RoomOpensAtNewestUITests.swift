@@ -1,8 +1,9 @@
 import XCTest
 
 // kosmos#7654: a long room opens on its newest post, the first time and when it is opened again. Sample room (a Debug
-// build), Spring catalogue made long (KOSMOS_SAMPLE_ROOM_LONG). Nothing in the room is touched: the room's own opening is
-// what is checked. Run in CI by the ios workflow's "ui tests (sample board)" job (ios/tools/ui-sample.sh).
+// build), Spring catalogue made long (KOSMOS_SAMPLE_ROOM_LONG). The first three touch nothing: the room's own opening is
+// what is checked. The fourth scrolls, to check that a person's scroll ends the opening's retries. Run in CI by the ios
+// workflow's "ui tests (sample board)" job (ios/tools/ui-sample.sh).
 final class RoomOpensAtNewestUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 

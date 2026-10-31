@@ -10,7 +10,11 @@ final class RoomKeyboardUITests: XCTestCase {
 
     // The swipes past the end are a person's scroll coming to rest at the newest post (KeyboardSlideUITests' long check).
     func testRoomNewestStaysAboveTheBox() throws {
-        XCTExpectFailure("kosmos#7654 part 2: on iOS 26 a person's scroll stops short of a long room's end", strict: false)
+        // Only the known part-2 failures are expected; any other failure in this test still shows.
+        let known = XCTExpectedFailure.Options()
+        known.isStrict = false
+        known.issueMatcher = { $0.compactDescription.contains("did not reach the newest post") || $0.compactDescription.contains("was not above the box") }
+        XCTExpectFailure("kosmos#7654 part 2: on iOS 26 a person's scroll stops short of a long room's end", options: known)
         let app = Self.launch([:])
         let box = Self.box(app)
         for _ in 0..<6 { app.swipeUp(velocity: .fast) }
