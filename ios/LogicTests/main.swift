@@ -4967,6 +4967,21 @@ do {
           "with a row named again, or no let-go, the id anchor keeps the page (no scroll)")
     check(Board.keepPageByScroll(idAnchor: false, letGo: false, anchor: nil), "without the id anchor (iOS 16) the page is always kept by scrolling")
     check([nil, "end", "top", "m1"].map(Board.anchorKind) == ["none", "end", "top", "a message"], "the record names the anchor's kind, never a message's id")
+    // kosmos#7645 round 2: the reading from before the list shrank (CI's runner shrank the list before will-show).
+    check(Board.keepPreShrinkReading(keyboardUp: false, shrankAgo: nil) && Board.keepPreShrinkReading(keyboardUp: false, shrankAgo: 0.6),
+          "the reading is kept fresh with no recent shrink")
+    check(!Board.keepPreShrinkReading(keyboardUp: false, shrankAgo: 0.2) && !Board.keepPreShrinkReading(keyboardUp: true, shrankAgo: nil),
+          "but not in the half second after a shrink, nor with a keyboard up")
+    check(Board.usePreShrinkReading(keyboardUp: false, shrankAgo: 0.07, haveReading: true, sameWidth: true, scrolledSince: false),
+          "will-show 70 ms after a shrink uses the reading from before it (the CI order)")
+    check(!Board.usePreShrinkReading(keyboardUp: false, shrankAgo: nil, haveReading: true, sameWidth: true, scrolledSince: false)
+          && !Board.usePreShrinkReading(keyboardUp: false, shrankAgo: 0.6, haveReading: true, sameWidth: true, scrolledSince: false),
+          "no shrink, or one more than half a second ago: the offset as it is")
+    check(!Board.usePreShrinkReading(keyboardUp: true, shrankAgo: 0.07, haveReading: true, sameWidth: true, scrolledSince: false)
+          && !Board.usePreShrinkReading(keyboardUp: false, shrankAgo: 0.07, haveReading: false, sameWidth: true, scrolledSince: false)
+          && !Board.usePreShrinkReading(keyboardUp: false, shrankAgo: 0.07, haveReading: true, sameWidth: false, scrolledSince: false)
+          && !Board.usePreShrinkReading(keyboardUp: false, shrankAgo: 0.07, haveReading: true, sameWidth: true, scrolledSince: true),
+          "never with a keyboard already up, no reading, a rotation, or a scroll since the shrink")
 
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")

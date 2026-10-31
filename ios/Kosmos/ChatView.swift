@@ -2327,12 +2327,13 @@ struct KeyboardHold: UIViewRepresentable {
         var moves = ""
         var onPutBack: () -> Void = {}
         func standDown() { saved = nil; endGuard() }
-        // The offset and the content's height when the keyboard started to show, and when (review 1: a will-show with no
-        // did-show, an iPad's floating keyboard say, must not leave a reading for a later keyboard).
+        // The reader's place when the keyboard started to show (the offset then, or from before the list shrank, kosmos#7645),
+        // the rows above it and the width, and when (review 1: a will-show with no did-show, an iPad's floating keyboard say,
+        // must not leave a reading for a later keyboard).
         private var saved: (y: CGFloat, above: Int, width: CGFloat, at: Date)?
         private var observers: [NSObjectProtocol] = []
         private weak var scroll: UIScrollView?
-        // The reading being held after did-show, and until when; the scroll view's offset is watched only meanwhile.
+        // The reading being held after did-show, and until when; the put-back watch (offsetWatch) runs only meanwhile.
         private var guarding: (kept: (y: CGFloat, above: Int, width: CGFloat, at: Date), until: Date)?
         private var generation = 0   // review 2: a timer from an earlier keyboard never ends a later guard
         private var offsetWatch: NSKeyValueObservation?
@@ -2340,17 +2341,21 @@ struct KeyboardHold: UIViewRepresentable {
         private func endGuard() { guarding = nil; offsetWatch = nil }
         // kosmos#7645 (CI's runner, 10-30): the list shrank to the keyboard (viewport 390x346) 70 ms BEFORE will-show reached
         // here, so the offset read then had already moved, and the put-back restored the moved place. So each offset change
-        // notes whether the list just got shorter (bounds less insets), and the last reading from before a shrink is kept;
-        // will-show uses it when the list shrank in the last half second, after that reading.
-        private var lastShowing: CGFloat = 0, shrankAt: Date?
+        // notes whether the list just got shorter (bounds less insets) and keeps a reading from before a shrink; will-show
+        // uses it as Board.usePreShrinkReading says. A shrink is seen only at an offset change.
+        private var lastShowing: CGFloat = 0, shrankAt: Date?, scrolledSinceShrink = false
         private var beforeShrink: (y: CGFloat, above: Int, width: CGFloat, at: Date)?
         private var shown = false   // a keyboard is up (did-show until will-hide): no reading is kept then
         private var fullWatch: NSKeyValueObservation?
+        private static func showing(_ sv: UIScrollView) -> CGFloat { sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom }
         private func noteOffset(_ sv: UIScrollView) {
-            let h = sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom
-            if h < lastShowing - 1 { shrankAt = Date() }
+            let h = Self.showing(sv)
+            if h < lastShowing - 1 { shrankAt = Date(); scrolledSinceShrink = false }
+            else if sv.isTracking || sv.isDragging || sv.isDecelerating { scrolledSinceShrink = true }
             lastShowing = h
-            if !shown, shrankAt.map({ Date().timeIntervalSince($0) > 0.5 }) ?? true { beforeShrink = (sv.contentOffset.y, above, sv.bounds.width, Date()) }
+            if Board.keepPreShrinkReading(keyboardUp: shown, shrankAgo: shrankAt.map { Date().timeIntervalSince($0) }) {
+                beforeShrink = (sv.contentOffset.y, above, sv.bounds.width, Date())
+            }
         }
         // Review 1: not under a finger (down, or dragging, or flinging), and not when a page of earlier messages landed above
         // meanwhile (the saved y then belongs to other content): either ends the hold for this keyboard.
@@ -2396,18 +2401,22 @@ struct KeyboardHold: UIViewRepresentable {
                 // A keyboard already up (a second will-show, say for the emoji panel) keeps the first reading.
                 if self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating {
                     var y = sv.contentOffset.y, above = self.above
-                    if !self.shown, let s = self.shrankAt, Date().timeIntervalSince(s) < 0.5, let b = self.beforeShrink, b.at <= s,
-                       abs(b.width - sv.bounds.width) < 0.5 {
+                    if let b = self.beforeShrink, Board.usePreShrinkReading(keyboardUp: self.shown, shrankAgo: self.shrankAt.map { Date().timeIntervalSince($0) },
+                                                                      haveReading: true, sameWidth: abs(b.width - sv.bounds.width) < 0.5,
+                                                                      scrolledSince: self.scrolledSinceShrink) {
                         let moved = sv.contentOffset.y - b.y
-                        ChatView.trace("keyboard hold: read from before the list shrank, moved \(Int(moved))")
+                        if abs(moved) > 1 { ChatView.trace("keyboard hold: read from before the list shrank, moved \(Int(moved))") }
                         (y, above) = (b.y, b.above)
+                    } else if Self.showing(sv) < self.lastShowing - 1 {
+                        ChatView.trace("keyboard hold: shorter at will-show with no shrink seen, offset as it is")
                     }
                     self.saved = (y, above, sv.bounds.width, Date())
                 }
             })
             observers.append(nc.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.shown = true
-                guard let self, let kept = self.saved, let sv = self.scroll else { return }
+                guard let self else { return }
+                self.shown = true
+                guard let kept = self.saved, let sv = self.scroll else { return }
                 self.saved = nil
                 guard Date().timeIntervalSince(kept.at) < 1.5 else { ChatView.trace("keyboard hold: skipped, stale"); return }   // a stale reading is not this keyboard's
                 // 10-30 measured: iOS 26 moves it more than once after did-show (two put-backs, then a third move), so for a
