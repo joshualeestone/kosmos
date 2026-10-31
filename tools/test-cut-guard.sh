@@ -654,7 +654,13 @@ out="$(KOSMOS_WAIT_SLEEP=false kosmos_wait_until_clear "a test run" wcheck 2>&1)
   || fail "#4498 a clear box did not start quietly (rc=$rc, $out)"
 
 # A waiting suite is not a live suite. The stand-in waiter is a real process of ours, stopped by pid.
-perl -e 'select(undef, undef, undef, 60)' & wp=$!
+# #5914: it is the waiter for every queue-order arm from here to its kill below (#4498, #4609, #4911, #5272), about 23 s
+# on an idle box. With a 60 s life it exited mid-section on a loaded one: the lib then dropped its marker as stale and
+# eight order arms went red at once (measured: the same eight, with a 2 s life). It lives 600 s and is checked alive
+# before its kill, so a box that slow again fails by name as a fixture, not as the queue. It is not added to the EXIT
+# trap: $wp outlives its kill below, and a reused pid would then be someone else's process. A run that dies mid-way
+# leaves it idle until it ends on its own.
+perl -e 'select(undef, undef, undef, 600)' & wp=$!
 q_ready "$wp"
 printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$wp" > "$T/sprobe-waiter"; chmod +x "$T/sprobe-waiter"
@@ -994,6 +1000,8 @@ KOSMOS_QUEUE_CLASS=bogus kosmos_mark_suite_waiting $((NOW - 30))
   || fail "#4609 an unknown class was recorded as $(sed -n '5p' "$W/markers/suitewait.$$")"
 kosmos_unmark_suite_waiting
 lwait 100
+kill -0 "$wp" 2>/dev/null && pass "#5914 FIXTURE: the queue arms' stand-in waiter was alive for all of them" \
+  || fail "#5914 FIXTURE: the stand-in waiter $wp exited before the queue arms finished, so their reds above say nothing about the queue"
 kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && [ ! -e "$W/markers/suitewait.$wp" ]; } && pass "#4498 a dead waiter holds no place and its marker is removed" \
