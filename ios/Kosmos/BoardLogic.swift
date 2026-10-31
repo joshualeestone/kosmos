@@ -459,6 +459,16 @@ enum Board {
         if let r = tops.filter({ $0.value >= top - 0.5 && $0.value < bottom }).min(by: order) { return (r.key, r.value) }
         return tops.filter({ $0.value < top - 0.5 }).max(by: order).map { ($0.key, $0.value) }
     }
+    // kosmos#7420: where a chat's scroll sits against its content, in UIKit's points. top: the offset at the top (minus the
+    // top inset); end: the offset with the content's end at the bottom of the view (never above top). More than a point
+    // outside either is "past the end" or "before the top"; otherwise "within".
+    static func scrollPlace(offset: Double, content: Double, view: Double, insetTop: Double, insetBottom: Double)
+        -> (place: String, top: Double, end: Double) {
+        let top = -insetTop, end = max(top, content + insetBottom - view)
+        if offset > end + 1 { return ("past the end", top, end) }
+        if offset < top - 1 { return ("before the top", top, end) }
+        return ("within", top, end)
+    }
 
     // kosmos#7575: the chat's running count and when it goes. The count always runs (a shift before the chat's onAppear
     // is kept, review 3); flush() sends what was counted, if anything, and starts the next count at once. attach() gives

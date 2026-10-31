@@ -4986,6 +4986,13 @@ do {
           "a top exactly at the bottom of what shows is below the screen; one just above it counts")
     check(Board.readerRow(["next": 700], below: 100, above: 600) == nil && Board.readerRow([:], below: 100, above: 600) == nil, "only rows below the screen, or none drawn: nothing to hold")
     check(Board.readerRow(["m2": 140, "m1": 140], below: 100, above: 600)! == ("m1", 140), "a tie is broken the same way every time")
+    // kosmos#7420: where an empty chat's scroll sits against its content.
+    check(Board.scrollPlace(offset: 400, content: 2000, view: 700, insetTop: 0, insetBottom: 80) == ("within", 0, 1380), "a scroll inside the content is within; its end counts the bottom inset")
+    check(Board.scrollPlace(offset: 1380, content: 2000, view: 700, insetTop: 0, insetBottom: 80).place == "within", "at the end exactly is within")
+    check(Board.scrollPlace(offset: 3000, content: 2000, view: 700, insetTop: 0, insetBottom: 80).place == "past the end", "a scroll beyond the content's end is past the end (the empty list's suspect)")
+    check(Board.scrollPlace(offset: -150, content: 2000, view: 700, insetTop: 100, insetBottom: 0).place == "before the top", "above the top inset is before the top")
+    check(Board.scrollPlace(offset: 0, content: 300, view: 700, insetTop: 0, insetBottom: 0) == ("within", 0, 0), "content shorter than the view: its end is its top")
+    check(Board.scrollPlace(offset: 1380.8, content: 2000, view: 700, insetTop: 0, insetBottom: 80).place == "within", "under a point over is not outside (rounding)")
 
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")

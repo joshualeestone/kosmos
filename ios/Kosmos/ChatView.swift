@@ -105,6 +105,8 @@ struct ChatView: View {
     // kosmos#7575: this chat open's sideways shifts, sent to the board once when it closes. A reference held in state:
     // a shift is counted in the middle of a layout, possibly every frame, and changing it must never redraw the chat.
     @State private var shifts = Board.ShiftBox()
+    // kosmos#7420: the scroll view the chat sits in (found by SideScrollLock), read only by the empty-list diagnostic.
+    @State private var scrollBox = ScrollBox()
     @State private var diagContentWidth: CGFloat = 0
     @State private var diagReport: String?
     @State private var diagDone = false   // once per open chat, even after the line is dismissed
@@ -533,7 +535,7 @@ struct ChatView: View {
                     })
                     // kosmos#7420 (Josh 10-28, builds 13 to 15): the list only scrolls up and down, so a sideways offset is put
                     // back to its rest and written in the diagnostic's record (see SideScrollLock).
-                    .background(SideScrollLock(off: Self.sampleNoLock) { x, scrolling, isNew in
+                    .background(SideScrollLock(off: Self.sampleNoLock, box: scrollBox) { x, scrolling, isNew in
                         // kosmos#7575: counted for the report sent when this chat closes (sendShiftReport). The rows are
                         // walked only for a new largest offset, not on every shift (review 1: a cause that fires every frame).
                         shifts.add(offset: Double(x), isNew: isNew, dragging: scrolling) {
@@ -806,9 +808,13 @@ struct ChatView: View {
     }
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
-    // and whether that worked. Nothing leaves the phone unless the person shares it.
+    // and where the scroll was after it. Later empty lists in the same chat are put right without a report.
+    // Nothing leaves the phone unless the person shares it.
     private func diagCapture(_ proxy: ScrollViewProxy, why: String, count: Int, recover: Bool = true) {
-        guard visible, scenePhase == .active, recover ? !diagDone : !diagWideDone else { return }
+        guard visible, scenePhase == .active else { return }
+        // kosmos#7420 (build 22, 10-30): reported once per chat, but an empty list is put right every time it is found.
+        if recover, diagDone { recoverEmpty(proxy); return }
+        guard recover || !diagWideDone else { return }
         if recover { diagDone = true } else { diagWideDone = true }
         let info = Bundle.main.infoDictionary
         let anchor = Board.anchorKind(positionId)
@@ -818,15 +824,23 @@ struct ChatView: View {
                      "list \(Int(diagViewport.width))x\(Int(diagViewport.height)), stack width \(Int(diagContentWidth)), keyboard \(Int(diagKeyboard))",
                      "messages \(count), on screen \(onScreen.count), end showing \(endVisible), top showing \(topVisible), at newest \(atBottom)",
                      "anchor \(anchor), id anchor \(Self.idAnchor), searching \(searchMode), keyboard focus \(composerFocused)",
+                     scrollBox.reading()?.line ?? "scroll: no scroll view found",
                      "recent events:"] + Self.diagRing
         guard recover else { diagReport = lines.joined(separator: "\n"); announceDiag(); return }   // review 1: a width finding moves nobody
         Self.trace("diag: \(why), trying the newest message")
-        goNewest(proxy)
+        recoverEmpty(proxy)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-            lines.append("after one try: " + (onScreen.isEmpty ? "still nothing on screen" : "messages on screen again"))
+            // kosmos#7420 (10-29): onScreen counts rows SwiftUI said appeared, not rows drawn; the scroll's place is measured.
+            lines.append("after one try: " + (scrollBox.reading()?.line ?? "no scroll view") + "; rows said to appear \(onScreen.count)")
             diagReport = lines.joined(separator: "\n")
             announceDiag()
         }
+    }
+
+    // kosmos#7420: an empty list's scroll put back inside its content when it is outside, then the newest message.
+    private func recoverEmpty(_ proxy: ScrollViewProxy) {
+        if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") }
+        goNewest(proxy)
     }
 
     // kosmos#7575: when this chat open had a sideways shift, one report to the person's board (numbers and kind words,
@@ -2529,17 +2543,39 @@ struct PositionTargets: ViewModifier {
 // the simulator did not), so the lock does not depend on the cause: it watches the scroll view the chat sits in and puts
 // any sideways offset back to its rest, writing it in the diagnostic's record. KOSMOS_SAMPLE_SIDEWAYS=<seconds> (Debug) gives it
 // one, as the phone did; KOSMOS_SAMPLE_NOLOCK=1 is the control.
+// kosmos#7420: the chat's scroll view, for the empty-list diagnostic: its place against the content (Board.scrollPlace),
+// and putting an offset outside the content back at its end.
+final class ScrollBox {
+    weak var view: UIScrollView?
+    func reading() -> (line: String, place: String, end: Double)? {
+        guard let sv = view else { return nil }
+        let i = sv.adjustedContentInset
+        let p = Board.scrollPlace(offset: Double(sv.contentOffset.y), content: Double(sv.contentSize.height),
+                                  view: Double(sv.bounds.height), insetTop: Double(i.top), insetBottom: Double(i.bottom))
+        return ("scroll y \(Int(sv.contentOffset.y)), content \(Int(sv.contentSize.height)), view \(Int(sv.bounds.height)), insets \(Int(i.top))/\(Int(i.bottom)): \(p.place)",
+                p.place, p.end)
+    }
+    // True when it moved it.
+    func backInside() -> Bool {
+        guard let sv = view, let r = reading(), r.place != "within" else { return false }
+        sv.contentOffset = CGPoint(x: -sv.adjustedContentInset.left, y: CGFloat(r.end))
+        return true
+    }
+}
+
 struct SideScrollLock: UIViewRepresentable {
     let off: Bool
+    var box: ScrollBox? = nil   // kosmos#7420: told which scroll view it found
     // kosmos#7575: told of each new shift, and of a shift growing past its largest so far (the offset, whether the person
     // was scrolling, whether it is a new shift), for the chat's report.
     var onShift: ((CGFloat, Bool, Bool) -> Void)? = nil
-    func makeUIView(context: Context) -> Probe { let p = Probe(off: off); p.onShift = onShift; return p }
-    func updateUIView(_ view: Probe, context: Context) { view.onShift = onShift }
+    func makeUIView(context: Context) -> Probe { let p = Probe(off: off); p.onShift = onShift; p.box = box; return p }
+    func updateUIView(_ view: Probe, context: Context) { view.onShift = onShift; view.box = box }
 
     final class Probe: UIView {
         let off: Bool
         var onShift: ((CGFloat, Bool, Bool) -> Void)?
+        var box: ScrollBox?
         private var peak: CGFloat = 0   // kosmos#7575 review 1: this shift's largest offset so far
         private var resumed = false     // kosmos#7575 review 2: the first reading after moving window
         private var wasShifted = false  // review 3: a shift was in place when it left its window
@@ -2579,6 +2615,7 @@ struct SideScrollLock: UIViewRepresentable {
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
             guard let scroll = up as? UIScrollView else { ChatView.trace("side lock: no scroll view"); return }
+            box?.view = scroll
             #if DEBUG
             if let at = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIDEWAYS"].flatMap(Double.init), !Self.sampleShifted {
                 Self.sampleShifted = true
