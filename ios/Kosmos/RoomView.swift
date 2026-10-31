@@ -740,6 +740,10 @@ struct RoomView: View {
                 // higher up lost their row off the top when the keyboard came up. Put back, then the anchor lets go of a row id.
                 .background(KeyboardHold(hold: visible && !holdAtEnd && !searchMode, above: store.older[project.id]?.count ?? 0, moves: "\(endJumps)|\(searchMode)", rows: rowTops) {
                     if ChatView.idAnchor, Board.letGoAfterPutBack(roomPosition), roomPosition != "bottom" { roomPosition = nil; ChatView.trace("room keyboard hold: anchor let go") }
+                } onRowLost: { id, f in
+                    // EXPERIMENT #7654 part 2: the anchor let go first, so the scroll position does not pull it elsewhere.
+                    if ChatView.idAnchor { roomPosition = nil }
+                    DispatchQueue.main.async { proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: f)); ChatView.trace("room keyboard hold: placed by id") }
                 })
                 .modifier(PositionTargets(on: ChatView.idAnchor))   // EXPERIMENT #7654 part 2
                 .modifier(ContentSpace())   // EXPERIMENT #7654 part 2
