@@ -1682,6 +1682,7 @@ async function forgetNow(anyway) {
   let unlinking = false;   // some agent was linked through this computer, so the answer says when that ends
   if (unlinkMac) {
     try {
+      // Loaded here, not at the top: communitysend.js requires ./remote itself.
       const n = require('./communitysend').requestOwnerUnlink(unlinkMac);
       if (!n.ok) process.stderr.write(`remote: the community owner links of this computer could not be noted for clearing: ${n.because}\n`);
       unlinking = n.ok && n.linked > 0;
