@@ -88,3 +88,7 @@ the agent's pane and a later prompt to that agent is then read as pane-busy and 
   before its 200, so it is not in flight when the prompt runs; the sync sender refused a busy pane too), and a
   deadline then a late refusal leaves the task booked. Nits left: a pane both busy and held logs pane-busy; the
   chain's .catch is pinned by source; the built route's roster is a fallback its comment does not name.
+- Early full suite on 68731b93d2 (stacked on #7611): 26002 tests, 1 failed: engine.reachable.test.js flagged
+  communitytaskdone.promptOnTaskDone as exported, tested and reachable from nowhere (the board now calls only the async
+  sender). Excused as a TEST_SEAM with its reason, and its source comment says the same: it is the reference the
+  parity test compares the async path against. The full suite runs again once this branch is on main.

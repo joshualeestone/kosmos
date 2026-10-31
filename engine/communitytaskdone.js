@@ -167,6 +167,8 @@ function settle(p, v) {
  *   postTimes,                                        // (session) => [ISO string] | null  (null = unreadable)
  *   deliver, DELIVERY,                                // (session, text) => verdict ; chat.DELIVERY
  * }
+ * kosmos#7649: a test seam now. The board calls promptOnTaskDoneAsync; this synchronous sender is kept as the
+ * reference engine/communitytaskdone.test.js compares the async path against (both go through decide and settle).
  */
 function promptOnTaskDone(o) {
   const d = decide(o);
