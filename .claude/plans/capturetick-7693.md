@@ -13,8 +13,8 @@ thread was in blocking child processes under Array.map; 120 of 132 sampled child
 - Every other snapshot() is unchanged: a live blocking read, because those callers act on what they read.
 - Nothing is kept: gathered text lives only for the one synchronous snapshot built from it (see "After review round 2").
 - A second status request during a gather shares it.
-- Tests: built from the gathered text; plain snapshot() untouched (control); no text outlives its snapshot; too-old text not used;
-  failure falls back; requests share; a capture seam bypasses it; the route uses it.
+- Tests: built from the gathered text; plain snapshot() untouched (control); no text outlives its snapshot; old text used and marked;
+  live reads capped across requests; a failed list is the honest error; the event loop turns while a fake tmux is slow.
 
 ## Decided
 - Round 1's design is REJECTED and removed: an adaptive keep of pane text up to 4 s old, for every snapshot(). Review found a
@@ -29,6 +29,12 @@ It found that a gather over 3 s re-read every pane blocking, worse than main on 
 never falls back to that: the gather waits 2.5 s at most; old text is used and marked remembered (#5949, so it can end no report);
 at most 3 live reads per snapshot, then no text, marked remembered. The pane list comes from the gather too. A pane mid-restart is
 read live so its card cannot go idle off the dead session's screen. Requests sharing a gather each take their own loop turn.
+
+## After review round 3
+It measured a failed gather falling into the full blocking round, live reads for restarting panes uncapped, the budget going to the
+slowest panes and multiplying per request, and a held null wiping the unsent records. All fixed: see the comment above snapshotCapture.
+Worst blocking on this route is now 3 live reads per gather (one list wait is up to 5 s async), plus a colour capture for a box whose
+text changed, plus the 5-minute CCD read. A failed list answers "could not see" for that poll, as a failed list already does.
 
 ## Weakest premise
 1. This relieves only this route: safeRoster() callers still hold the thread, and the unsent-input colour capture is still blocking
