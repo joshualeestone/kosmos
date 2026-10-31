@@ -65,3 +65,17 @@ Results, iteration 9 code: ios/tools/ui-keyboard.sh 3 of 3 on 19817a21f5 (22:17 
 Iteration 11: the "anchor after let go" trace now interpolates Board.anchorKind, which the room suite's allow-list names
 (negative control: without the entry the room suite fails 1 of 741). A shrink is dated by the first offset change after it,
 so a later no-finger move in that half second can be undone (stated in the code, accepted as narrow).
+
+## Round 3 (22:3x CDT): CI on 19817a21f5 (run 41163492942)
+Measured: no "read from before the list shrank" and no "shorter at will-show with no shrink seen" line, one put-back (713),
+the anchor let go and stayed none. So the will-show reading was not taken after a move this time (the shrink did not show
+in the scroll view's bounds less insets by will-show), and the row was still gone when the check looked. did-show came
+1.3 s after will-show on that runner, so a move after the 0.8 s window would be put back by nothing and traced by nothing.
+Change: the window is 1.5 s. Round 1 rejected widening it because it would prolong the anchor's fight; with the anchor let
+go there is no fight, and a finger or the app's own move still ends the window. And a move over 40 pt in the 3 s after
+did-show, outside the window and with no finger, is traced ("keyboard hold: moved after the window N"), so the next CI
+record shows whether a late move is what remains.
+Weakest premise: that a late move is the cause. If the next run fails with no "moved after the window" line, the row is
+lost some other way (the scroll view's frame, not its offset).
+The logic job's one failure on that run ("the read in the air landed while the pull waited", a stars re-sort timing check
+in LogicTests/main.swift) is not this change's code; it passed on this branch's earlier CI run and locally.
