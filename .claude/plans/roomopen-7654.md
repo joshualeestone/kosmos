@@ -81,3 +81,11 @@ scrolling (`!roomScrolling`, for a goEnd that began mid-scroll). New check: test
 (drag toward older posts as soon as a post shows, wait 3.5 s, the newest must not be on screen); ui-sample's class count is
 4. Results: pending (ui-sample picks the newest runtime, iOS 27, where the opening jump already lands; the room checks are
 run on the iOS 26.5 simulator by hand, both arms).
+Round 3 results (iOS 26.5 simulator kbexp17e, by hand; iOS 27 by ui-sample):
+- ios/tools/ui-sample.sh (iOS 27.0, fresh iPhone 17e): 14 of 14 on 579589a691.
+- RoomOpensAtNewestUITests on iOS 26.5: 150, 220 and 220-again PASS (987ae2ea89).
+- The cancel check, both arms, on 2639670142: with the change PASS; CONTROL (the person's cancel removed) FAILS ("the room
+  pulled the reader back to its newest post after their own scroll"). Two earlier versions of the check could not fail: the
+  first swiped a post laid out off the screen, the second swiped after the real 2.3 s retries had ended (XCUITest finds the
+  list too late). It now stretches the retries five times (KOSMOS_SAMPLE_ROOM_RETRYSCALE, Debug only).
+- LogicTests run.sh 1723/1723, run-room.sh 741/741.
