@@ -78,6 +78,8 @@ for c in $classes; do
 done
 if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ] && [ -z "$short" ]; then
   note=""; [ "$skipped" -gt 0 ] && note=" ($skipped of them SKIPPED: a skip tested nothing, see the log)"
+  # #7654: on GitHub Actions a skip is also an annotation on the run, so a green job that tested less is visible.
+  [ "$skipped" -gt 0 ] && [ -n "${GITHUB_ACTIONS:-}" ] && echo "::warning title=ui-sample::$skipped UI check(s) SKIPPED (they tested nothing); see the log"
   echo "PASS  ui-sample: $ran of $want UI checks passed on a fresh simulator$note"
   exit 0
 fi
