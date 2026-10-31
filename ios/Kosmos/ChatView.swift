@@ -36,6 +36,8 @@ struct ChatView: View {
     @State private var endVisible = true
     // kosmos#7265 (iOS 17+, idAnchor): the message the list is anchored on; "end" keeps the newest in view.
     @State private var positionId: String?
+    // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
+    @State private var anchorLetGo = false
     // kosmos#7609 review 2: the moves the chat makes on purpose (to the newest message: a send, New messages, an arrival),
     // so the keyboard hold stands down for them.
     @State private var appMoves = 0
@@ -373,7 +375,7 @@ struct ChatView: View {
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
-            positionId = nil; personScrolling = false; endVisible = true   // kosmos#7265 review: a fresh chat's anchor
+            positionId = nil; anchorLetGo = false; personScrolling = false; endVisible = true   // kosmos#7265 review: a fresh chat's anchor
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             replying = nil
@@ -548,9 +550,9 @@ struct ChatView: View {
                         // scrolls again, which sets a new one, the list is held by its offset alone, as on iOS 16 (and a page
                         // landing above is kept by keepAnchor).
                         if Self.idAnchor, positionId != nil, positionId != "end" {
-                            positionId = nil; Self.trace("keyboard hold: anchor let go")
+                            positionId = nil; anchorLetGo = true; Self.trace("keyboard hold: anchor let go")
                             // Whether SwiftUI names a row again by itself (not measured yet): the record says.
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { Self.trace("keyboard hold: anchor after let go " + (positionId == nil ? "none" : "a message")) }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { Self.trace("keyboard hold: anchor after let go " + (positionId == nil ? "none" : positionId == "top" ? "top" : positionId == "end" ? "end" : "a message")) }
                         }
                         // Review 3: iOS 26's jump may have shown the end (atBottom true) before it was put back; the end's
                         // disappearance clears atBottom only under a person's scroll, so the reader's place is read again.
@@ -633,12 +635,12 @@ struct ChatView: View {
                     #endif
                 }
                 // The place kept after a page lands above: the row that was first stays at the top.
+                .onChange(of: positionId) { id in if id != nil { anchorLetGo = false } }   // kosmos#7645: a row named again ends the let-go
                 .onChange(of: keepAnchor) { id in
                     guard let id else { return }
                     // The id anchor already keeps the reader's message in place as a page lands above (kosmos#7265). Once a
-                    // keyboard put-back has let it go (kosmos#7645) there is none, so the row is kept as on iOS 16 (any nil
-                    // anchor gets this, not only a let-go one).
-                    if Self.idAnchor, positionId != nil { keepAnchor = nil; return }
+                    // keyboard put-back has let it go (kosmos#7645) there is none, so the row is kept as on iOS 16.
+                    if Self.idAnchor, !(anchorLetGo && positionId == nil) { keepAnchor = nil; return }
                     Self.trace("keepAnchor scrollTo a message")   // kosmos#7420 review 1: no message id in the record
                     proxy.scrollTo(id, anchor: .top)
                     keepAnchor = nil
