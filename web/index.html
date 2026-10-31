@@ -55773,9 +55773,9 @@ function pbPrint() {
      page: Settings with no code and no error. Still no other browsing context holds the code (challenge round 2), and
      the printout is emptied again the moment printing ends. */
   if (typeof window.print !== 'function') { pbMsg('It could not be printed. Write the code down instead.'); return; }
-  /* #7681 suite: made only while printing and removed after (pbPrintClear). A static child of <body> would be a 43rd
-     pre-rail row in the consolidated grid, which reserves 42 (web.consolidated-980.test.js), and the print rule needs it
-     to be a direct child of <body>. */
+  /* #7681 suite: made only while printing and removed after (pbPrintClear). A static child of <body> would be one more
+     top-level row than the page's layout reserves (kosmos#980's test counts them), and the print rule needs it to be a
+     direct child of <body>. */
   if (!PB.printOut) { PB.printOut = document.createElement('div'); PB.printOut.id = 'pb-printout'; document.body.appendChild(PB.printOut); }
   const out = PB.printOut;
   const h = document.createElement('h1'); h.textContent = 'Kosmos personal backup recovery code';
