@@ -2364,9 +2364,9 @@ struct KeyboardHold: UIViewRepresentable {
     let rows: RowTops
     // Review 3: told after each put-back, so the chat can read again whether the newest message is on screen.
     var onPutBack: () -> Void = {}
-    // kosmos#7609, #7654: given, the reader's row not drawn at did-show is placed by its id (a list whose estimated heights
-    // move by thousands of points cannot use the last reading), and the did-show put-back is then settled by the row's place
-    // on the screen. Without it the hold puts back by the row's place in the content only.
+    // kosmos#7609: given, the reader's row not drawn at did-show is placed by its id (a list whose estimated heights move by
+    // thousands of points cannot use the last reading) and settled by its place on the screen. Without it, such a row is put
+    // back by its last reading. A drawn row is put back by its place in the content either way.
     var onRowLost: ((String, CGFloat) -> Void)? = nil
     func makeUIView(context: Context) -> Probe {
         let p = Probe(); p.hold = hold; p.above = above; p.moves = moves; p.rows = rows; p.onPutBack = onPutBack; p.onRowLost = onRowLost; return p
@@ -2389,33 +2389,27 @@ struct KeyboardHold: UIViewRepresentable {
         // own move, the reader at the newest), the keyboard going, the chat leaving the window, or the next keyboard starting
         // to show.
         private var settleToken = 0
-        // Between did-show and will-hide: a will-show then is the same keyboard changing, and leaves a waiting settle alone.
-        // Only that: a will-hide that never comes leaves a settle to its own token, never the hold off.
+        // Between did-show and will-hide: a will-show then is the same keyboard changing, and does not drop a waiting settle
+        // (the did-show that follows does, starting its own hold). A will-hide that never comes changes only that.
         private var keyboardUp = false
-        // kosmos#7654: 0.1 s later, the row's fresh place on the screen against where it was at will-show; the offset takes up
-        // the difference, inside what can be scrolled to (Board.settleOffset). Not under a finger, and not once earlier messages
-        // landed or the width changed since the reading (putBack's own stand-downs). While the hold still guards the row, its
-        // kept offset moves by the same amount, so the row watch's next put-back keeps the settled place. Then the chat reads
-        // again whether the reader is at the newest (onPutBack).
-        // `rearm`: after a placing by id the hold had ended; it guards the settled row again until then, and ends at that time
-        // (iOS 26 moves the list more than once after did-show). A row placed by id but not drawn yet is tried again every 0.1 s
-        // until then. One more turn of the main queue first, so a put-back the row watch queued lands before the settle reads the
-        // row, never between. The chat reads its newest again (onPutBack) after a settle that moved the list, and after the
-        // first settle of a placing by id however it ends, dropped included (the placing itself may have shown the end); on the
-        // drawn path a skip that moved nothing does not. There the settle acts only while the hold still stands when it fires.
-        // `want` is the will-show top, taken once for the placing and kept through its retry.
-        private func settleOnScreen(_ id: String, above: Int, width: CGFloat, want: CGFloat, rearm: Date? = nil, retried: Bool = false) {
+        // kosmos#7609: after a row is placed by id, 0.1 s later (and one more main-queue turn), its fresh place on the screen
+        // against its will-show top `want`; the offset takes up the difference, inside what can be scrolled to
+        // (Board.settleOffset). Not under a finger, and not once earlier messages landed or the width changed since the reading
+        // (putBack's own stand-downs). A row not drawn yet is tried again every 0.1 s until `until`, the end of the hold's
+        // window; once settled the hold guards the row again until then (iOS 26 moves the list more than once after did-show),
+        // with its own end timer. The chat reads its newest again (onPutBack) after the first try however it ends, dropped
+        // included, since the placing itself may have shown the end, and after any try that moved the list.
+        private func settleOnScreen(_ id: String, above: Int, width: CGFloat, want: CGFloat, until: Date, retried: Bool = false) {
             let token = settleToken
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                let placing = rearm != nil && !retried
-                guard token == self.settleToken, let sv = self.scroll else { if placing { self.onPutBack() }; return }
-                var acted = placing
+                guard token == self.settleToken, let sv = self.scroll else { if !retried { self.onPutBack() }; return }
+                var acted = !retried
                 defer { if acted { self.onPutBack() } }
-                if rearm == nil, self.guarding == nil { ChatView.trace("keyboard hold: settle skipped, the hold stood down"); return }
                 guard let r = self.rows?.y[id] else {
                     ChatView.trace(retried ? "keyboard hold: settle retry, row still not drawn" : "keyboard hold: settle, row not drawn")
-                    if let until = rearm, Date() < until { self.settleOnScreen(id, above: above, width: width, want: want, rearm: rearm, retried: true) }
+                    // A row with no last reading belongs to readings that were cleared (another chat): nothing to settle.
+                    if Date() < until, self.rows?.last[id] != nil { self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true) }
                     return
                 }
                 if sv.isTracking || sv.isDragging || sv.isDecelerating { ChatView.trace("keyboard hold: settle skipped, a finger"); return }
@@ -2425,13 +2419,12 @@ struct KeyboardHold: UIViewRepresentable {
                 if abs(moved) > 1 {
                     acted = true
                     let i = sv.adjustedContentInset
-                    let target = CGFloat(Board.settleOffset(offset: Double(sv.contentOffset.y), moved: Double(moved), insetTop: Double(i.top),
-                                                            insetBottom: Double(i.bottom), contentHeight: Double(sv.contentSize.height),
-                                                            viewHeight: Double(sv.bounds.height)))
-                    self.guarding?.kept.offset += target - sv.contentOffset.y
-                    sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: target)
+                    let target = Board.settleOffset(offset: Double(sv.contentOffset.y), moved: Double(moved), insetTop: Double(i.top),
+                                                    insetBottom: Double(i.bottom), contentHeight: Double(sv.contentSize.height),
+                                                    viewHeight: Double(sv.bounds.height))
+                    sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: CGFloat(target))
                 }
-                if let until = rearm, Date() < until, self.guarding == nil {
+                if Date() < until, self.guarding == nil {
                     // The row's place in the content and the offset as they are now, settled: what the watch keeps from here.
                     self.guarding = ((id, CGFloat(r.content), sv.contentOffset.y, above, width, Date()), until)
                     self.watchRow(id, last: CGFloat(r.content))
@@ -2522,7 +2515,7 @@ struct KeyboardHold: UIViewRepresentable {
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self, let sv = self.scroll else { return }
                 if !self.keyboardUp { self.settleToken &+= 1 }   // a new keyboard: a settle still waiting belongs to the one before
-                // A keyboard already up (a second will-show, say for the emoji panel) keeps the first reading.
+                // A will-show while a reading waits for its did-show keeps that reading.
                 guard self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating else { return }
                 ChatView.trace("keyboard hold: will-show \(Self.numbers(sv))")
                 // The top of what shows, below the top inset (the bar), in window points: the same space as RowTop's .global for
@@ -2563,9 +2556,11 @@ struct KeyboardHold: UIViewRepresentable {
                         ChatView.trace("keyboard hold: row not drawn at did-show, placed by id at \(Int(f * 100))% of the screen")
                         // f is the row's will-show top against the band as it is now (keyboard up), and scrollTo lines up the row's
                         // point f, not its top: an approximate place, which the settle then corrects to the will-show top.
-                        let until = self.guarding?.until
+                        // A will-show top now under the keyboard is held to the band's bottom (f = 1); the settle then aims at the
+                        // will-show top all the same, its own place on the screen before the keyboard.
+                        let until = self.guarding?.until ?? Date().addingTimeInterval(Self.window)
                         lost(kept.row, f); self.endGuard()
-                        self.settleOnScreen(kept.row, above: kept.above, width: kept.width, want: self.keptScreenTop, rearm: until)
+                        self.settleOnScreen(kept.row, above: kept.above, width: kept.width, want: self.keptScreenTop, until: until)
                         return
                     }
                     // No last reading at all means the readings were cleared (a fresh chat opened): nothing of this chat to put back.
@@ -2574,10 +2569,6 @@ struct KeyboardHold: UIViewRepresentable {
                     self.endGuard(); return
                 }
                 self.putBack(CGFloat(r.content))
-                // kosmos#7654: a row's reading of its place in the content can be stale while iOS measures rows above again (the
-                // room: put back to the will-show offset while the content grew 492 pt): checked by where it is on the screen, only
-                // while the hold still stands (putBack ends it on a finger, earlier messages or a new width).
-                if self.onRowLost != nil, self.guarding != nil { self.settleOnScreen(kept.row, above: kept.above, width: kept.width, want: self.keptScreenTop) }
                 self.watchRow(kept.row, last: kept.content)
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.window + 0.05) { [weak self] in
                     if let self, self.generation == mine {
@@ -2585,9 +2576,9 @@ struct KeyboardHold: UIViewRepresentable {
                             ChatView.trace("keyboard hold: window ended \(Self.numbers(sv))")
                             // A move the row's readings never reported would leave it off its place: the record says by how much. Only
                             // while still held: a hold that stood down (a finger, the app's own move) left the place on purpose.
-                            if let held = self.guarding?.kept, let r = rows.y[kept.row] {   // a settle may have moved its offset
+                            if self.guarding != nil, let r = rows.y[kept.row] {
                                 let i = sv.adjustedContentInset
-                                let place = Board.holdTarget(offset: Double(held.offset), content: r.content, keptContent: Double(held.content),
+                                let place = Board.holdTarget(offset: Double(kept.offset), content: r.content, keptContent: Double(kept.content),
                                                              insetTop: Double(i.top), insetBottom: Double(i.bottom),
                                                              contentHeight: Double(sv.contentSize.height), viewHeight: Double(sv.bounds.height))
                                 let moved = sv.contentOffset.y - CGFloat(place)
