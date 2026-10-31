@@ -1769,7 +1769,7 @@ struct ChatView: View {
                 if emojiOpen { emojiOpen = false; composerFocused = true } else { emojiOpen = true; composerFocused = false }
             }
             // kosmos#7687: the send button in the microphone's place once there is something to send (not while dictating).
-            if ComposerExtras.showsSend(text: draftText, files: attachedHere.count, dictating: dictation.busy || dictation.finishing) {
+            if ComposerExtras.showsSend(text: draftText, files: attachedHere.count, dictating: dictation.busy) {
                 ComposerSendButton(label: "Send") { sendOrSayWhy() }
                     .padding(.trailing, 4)
             } else {

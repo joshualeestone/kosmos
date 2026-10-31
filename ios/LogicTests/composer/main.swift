@@ -36,6 +36,8 @@ check(ComposerExtras.showsSend(text: "ok", files: 0, dictating: false) && Compos
       "words, one line or several: the send button")
 check(ComposerExtras.showsSend(text: "", files: 1, dictating: false), "files with no words: the send button")
 check(!ComposerExtras.showsSend(text: "ok", files: 1, dictating: true), "while dictating the microphone stays (it is the stop button)")
+check(!ComposerExtras.showsSend(text: "ok", files: 0, dictating: true) && !ComposerExtras.showsSend(text: "", files: 0, dictating: true),
+      "review 1: dictating alone keeps the microphone, with words or without")
 
 section("dictation adds to the box")
 check(ComposerExtras.dictated(base: "", heard: " send it today ") == "send it today", "an empty box: the words")
@@ -106,5 +108,16 @@ check(pbx.components(separatedBy: "INFOPLIST_KEY_NSSpeechRecognitionUsageDescrip
 check(pbx.components(separatedBy: "you dictate a message or record a video").count - 1 == 2, "the microphone's reason names dictation, in both builds")
 
 print("")
+section("the send button's wiring (kosmos#7687 review 1)")
+do {
+    let chat = code("ChatView"), room = code("RoomView"), extras = code("ComposerExtras")
+    check(chat.contains("showsSend(text: draftText, files: attachedHere.count, dictating: dictation.busy)") && chat.contains("ComposerSendButton(label: \"Send\") { sendOrSayWhy() }"),
+          "the chat shows the send button from its own words, files and dictation, and it sends through sendOrSayWhy")
+    check(room.contains("showsSend(text: Board.isOnlyMention(draft, mention: replyMention) ? \"\" : draft") && room.contains("ComposerSendButton(label: \"Post\") { postOrSayWhy() }"),
+          "the room does too, with a reply's @name alone counted as no words, and it posts through postOrSayWhy")
+    check(extras.contains(".keyboardShortcut(.return, modifiers: .command)") && extras.contains("Date().timeIntervalSince(shownAt) >= Self.settle"),
+          "Cmd-Return sends, and a tap in the button's first moment is not taken")
+    check(extras.contains("scheme == .dark ? .black : .white"), "a dark glyph on the light dark-mode fill")
+}
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

@@ -52,18 +52,26 @@ struct ComposerMicButton: View {
 struct ComposerSendButton: View {
     let label: String   // "Send" in a chat, "Post" in a project room
     let action: () -> Void
+    @Environment(\.colorScheme) private var scheme
+    // Review 1: a tap in the first moment after the button appears is not taken. It appears where the microphone was, so a
+    // quick second tap on Stop (dictation finishing) would otherwise send words nobody has read.
+    @State private var shownAt = Date()
+    static let settle: TimeInterval = 0.4
     var body: some View {
-        Button(action: action) {
+        Button { if Date().timeIntervalSince(shownAt) >= Self.settle { action() } } label: {
             Image(systemName: "paperplane.fill")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(.white)
+                // Review 1: Palette.link is light blue in dark mode, where white on it is about 2:1; black there is about 11:1.
+                .foregroundColor(scheme == .dark ? .black : .white)
                 .frame(width: 34, height: 34)
                 .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Palette.link))
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .keyboardShortcut(.return, modifiers: .command)   // review 1: a hardware keyboard sends with Cmd-Return
         .accessibilityLabel(label)
+        .onAppear { shownAt = Date() }
     }
 }
 
