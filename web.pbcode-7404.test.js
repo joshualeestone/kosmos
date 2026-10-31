@@ -157,6 +157,19 @@ test('hiding the panel empties a printout still waiting for afterprint', () => {
   assert.equal(printout().parent, null, 'the printout (with the code) stayed in the page after the panel hid');
   assert.equal(ctx.document.body.classList.contains('pb-printing'), false);
 });
+test('the "I saved it" exit takes a printout still waiting for afterprint off the page (review 3)', async () => {
+  const { ctx } = load({ ok: true });
+  ctx.window = { addEventListener: () => {}, removeEventListener: () => {}, print: () => {} };   // no afterprint ever comes
+  const printout = printSetup(ctx);
+  vm.runInContext(liftAll(SCRIPT, ['pbSaved']), ctx);
+  ctx.pbShowCode({ recoveryCode: CODE, org: 'o', member: 'm' });
+  ctx.pbPrint();
+  assert.ok(printout() && printout().parent === ctx.document.body, 'premise: the printout is in the page');
+  await ctx.pbSaved();
+  assert.equal(ctx.PB.view, null, 'premise: the saved press went through');
+  assert.equal(printout().parent, null, 'the printout (with the code) stayed in the page after "I saved it"');
+  assert.equal(ctx.document.body.classList.contains('pb-printing'), false);
+});
 test('#pb-printout is never in the page\'s own markup (made only to print), and the print rule still hides the rest', () => {
   const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   // #7681 suite: a static child of body is a 43rd pre-rail row in the consolidated grid (web.consolidated-980.test.js).
