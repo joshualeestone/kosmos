@@ -18,6 +18,16 @@ const path = require('node:path');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-pbjob-7404-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+// The board ticks below read real folders: every one is this sandbox's, never the machine's.
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_HOME = path.join(SANDBOX, 'home');
+process.env.AGENT_WORKFORCE_AGY_HOME = path.join(SANDBOX, 'home', '.gemini-agy');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SANDBOX, 'claude');
+process.env.AGENT_WORKFORCE_GEMINI_HOME = path.join(SANDBOX, 'gemini');
+process.env.AGENT_WORKFORCE_CODEX_HOME = path.join(SANDBOX, 'codex');
+delete process.env.AGENT_WORKFORCE_GROK_HOME;
+for (const k of ['WORKERS', 'HOME', 'PROJECTS', 'CONFIG_ROOT', 'GEMINI_HOME', 'CODEX_HOME']) fs.mkdirSync(process.env['AGENT_WORKFORCE_' + k], { recursive: true });
 delete process.env.KOSMOS_PERSONAL_BACKUP;
 const backupkeys = require('./backupkeys');
 const mk = require('./backupmemberkey');
@@ -216,18 +226,49 @@ test('a real snapshot refused by Kosmos+ for the words comes back as that refusa
   assert.deepEqual(a.withdrawn, ['cd'.repeat(32)]);
 });
 
-test('no keys here and a key on Kosmos+: the person is told off then on, and setUp then asks for the code', async () => {
-  const none = newPair();
-  const { row } = keyed(newPair());
-  const r = await pk.setUpPersonalKey({ macRequest: kosmosPlus({ ...none, keys: [row] }).macRequest });
-  assert.equal(r.code, 'already_set_up', JSON.stringify(r));
+/* The board's side of off then on, real key module and real personalbackup: only Kosmos+ and the enrollment record are fakes. */
+function chain(pair, rows) {
+  const root = fs.mkdtempSync(path.join(SANDBOX, 'chain-'));
+  const rec = { org: { id: pair.org }, world: 'w', consentHash: 'cd'.repeat(32) };
+  const macRequest = async (m, route) => {
+    if (route === pk.MINE_ROUTE) return { ok: true, data: { ...pair, keys: rows } };
+    return { ok: true, data: { member: true, org: { id: pair.org, kind: 'personal' }, enrolled: { thisComputer: true, world: 'w' } } };
+  };
+  const orgenroll = {
+    JOIN_UNKNOWN_FILE: 'join', LEAVE_PENDING_FILE: 'leave', readEnrollment: () => rec, mayReport: () => true,
+    acceptedConsent: () => ({ backsUp: ['your project folders'] }), holdsEnrollment: () => false,
+  };
+  return { root, orgenroll, macRequest, remote: { macRequest }, offer: () => ({ shown: true }) };
+}
+test('key gone: off then on asks for the code, the code restores it, and the job can run', async () => {
+  const pair = newPair();
+  const key = backupkeys.newMemberKey();
+  const code = backupkeys.newRecoveryCode();
+  const rk = backupkeys.recoveryKeysFromCode(code);
+  const ctx = { org: pair.org, member: pair.member, epoch: '1' };
+  const row = { epoch: 1, member_public: b64(key.pk), wrap: b64(backupkeys.wrapMemberKeyToRecovery(key.sk, rk.pk, ctx)), recovery_public: b64(rk.pk), recovery_tag: backupkeys.recoveryBindingTag(rk.authKey, ctx, key.pk) };
+  const o = chain(pair, [row]);
+  assert.match((await pk.personalKeyForJob(pair.org, o)).because, /off here, then on again, and enter your recovery code/);
+  const set = await pb.setUpKey(o);
+  assert.equal(set.code, 'restore', JSON.stringify(set));
+  assert.equal(pb.mayBackUp(o), false, 'no key yet');
+  const back = await pb.restore(code, o);
+  assert.equal(back.ok, true, JSON.stringify(back));
+  assert.equal(pb.state(o), 'on');
+  assert.equal(pb.mayBackUp(o), true);
+  assert.equal((await pk.personalKeyForJob(pair.org, o)).ok, true);
 });
 
-test('off then on with the key still here: the real setUp answers already_here, which setUpKey takes as on', async () => {
+test('words changed, key still here: on again asks for no code, and the job can run', async () => {
   const pair = newPair();
   const { row } = keyed(pair);
-  const r = await pk.setUpPersonalKey({ macRequest: kosmosPlus({ ...pair, keys: [row] }).macRequest });
-  assert.equal(r.code, 'already_here', JSON.stringify(r));
+  const o = chain(pair, [row]);
+  assert.equal(pb.state(o), 'needs-key', 'off removed the marker');
+  const set = await pb.setUpKey(o);
+  assert.deepEqual([set.ok, set.code, set.already], [true, null, true], JSON.stringify(set));
+  assert.equal(pb.state(o), 'on');
+  assert.equal(pb.mayBackUp(o), true);
+  assert.equal((await pk.personalKeyForJob(pair.org, o)).ok, true);
 });
 
 test('a different reason is said, even with the last one unresolved', async () => {
@@ -295,7 +336,7 @@ test('the board\'s personal tick runs nothing while personal backup is not on he
 test('startPersonal reaches runJob with the roots, under its own stage folder, cleared after', async () => {
   const store = require('./store');
   const create = require('./create');
-  fs.mkdirSync(create.WORKERS_DIR, { recursive: true });
+  assert.ok(create.WORKERS_DIR.startsWith(SANDBOX), 'never the real workers folder');
   const stage = path.join(store.ROOT, 'backupstage', 'agy-personal');
   fs.mkdirSync(stage, { recursive: true });
   fs.writeFileSync(path.join(stage, 'left-by-a-dead-run'), 'x');
@@ -313,7 +354,7 @@ test('startPersonal reaches runJob with the roots, under its own stage folder, c
 test('startHere still runs the company path, with no personal key step', async () => {
   const create = require('./create');
   const oe = require('./orgenroll');
-  fs.mkdirSync(create.WORKERS_DIR, { recursive: true });
+  assert.ok(create.WORKERS_DIR.startsWith(SANDBOX), 'never the real workers folder');
   const seen = [];
   const real = { may: oe.mayReport, run: backuprun.runBackup };
   oe.mayReport = () => true;

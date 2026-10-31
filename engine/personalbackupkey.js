@@ -4,7 +4,8 @@
  * kosmos#7404 step 3, END TO END: a personal backup's member key, on this computer.
  *
  * A personal account's backup is an org of one (step 2). Its member key is kept by Kosmos+ only wrapped to a RECOVERY
- * key made from a code the person keeps (KBR1, engine/backupkeys.js), so Kosmos+ cannot read the backup. Three calls:
+ * key made from a code the person keeps (KBR1, engine/backupkeys.js), so Kosmos+ cannot read the backup. Three calls
+ * set it up and bring it back (the job's own key step, personalKeyForJob, only reads):
  *
  *   setUpPersonalKey():   read this account's context (org, member) from POST /v1/org/backup/member-key/mine (the
  *       company backup-key read is refused for a personal org by design), make a recovery code, a member key and the

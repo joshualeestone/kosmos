@@ -30,7 +30,7 @@ C. Panel: "last backed up" and a failure a person can see; the on-view words; an
    "the key is gone", and for on-but-mayBackUp-false (words kept with no backsUp, or not kept at all, where no run happens
    and nothing is said, not even in the log), each with its own way forward. Also every other reason a run stops for good:
    refusedState (nothing calls discardState, and off then on does not clear the file), unreadableKeyFile, a different key
-   here, missing, and a lostEpoch at the newest epoch. state() still reads 'on' for all of them, and today's only way out is off then
+   here, no key on Kosmos+ with one held here, missing, and a lostEpoch at the newest epoch. state() still reads 'on' for all of them, and today's only way out is off then
    on, which the log says and the panel does not. Design review. The tick's say reaches only the log, so a paying person
    cannot see a backup that stopped. Must land before the switch.
 D. Restore of files: a personal route for manifests and chunks, then the restore screen. Must land before the switch. The
