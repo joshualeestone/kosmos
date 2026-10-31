@@ -282,9 +282,11 @@ async function jobKeyNow(orgId, opts) {
     const row = rows.reduce((a, b) => (!a || b.epoch > a.epoch ? b : a), null);
     if (!row) return actOn('this backup has no key on Kosmos+ yet, so nothing was backed up');
     const kept = memberkeys.readKeys(org, member);
-    if (!kept.ok) return { ok: false, unreadableKeyFile: true, because: 'the backup key file on this computer could not be read; it was left as it is' };
+    if (!kept.ok) return { ok: false, unreadableKeyFile: true, personActs: true, because: 'the backup key file on this computer could not be read; it was left as it is' };
     const k = kept.keys[String(row.epoch)];
-    if (!k || !k.registered || !k.pk.equals(row.memberPk)) return actOn('this computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Turn personal backup off here, then on again, and enter your recovery code');
+    if (!Object.keys(kept.keys).length) return actOn('this computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Turn personal backup off here, then on again, and enter your recovery code');
+    // Off then on would answer already_here for keys held here, and restore key_conflict, so no way forward is offered.
+    if (!k || !k.registered || !k.pk.equals(row.memberPk)) return actOn('this computer holds a different key from the one Kosmos+ lists for this backup, so nothing was backed up; its key file was left as it is');
     if (Number.isSafeInteger(opts.lostEpoch) && opts.lostEpoch >= row.epoch) return actOn('Kosmos+ asked for a newer key than this backup lists, so nothing was backed up');
     return { ok: true, epoch: row.epoch, publicKey: row.memberPk, org, member };
   } catch { return refused('the backup key could not be read on this computer'); }
