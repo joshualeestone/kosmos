@@ -87,6 +87,30 @@ final class KeyboardSlideUITests: XCTestCase {
         XCTAssertLessThanOrEqual(newest.frame.maxY, box.frame.minY, "the newest message was not above the box after the rebuild")
     }
 
+    // kosmos#7420 (build 24, Josh's fourth report): empty after the message box grew a line at a time as he typed (the
+    // shown height 412 -> 390 -> 368 -> 346, no keyboard event). No debug hook: the box grows to about four lines at the
+    // newest message of the long chat, and a message must still be drawn above it, whether it never went empty or the
+    // chat's own recovery (the empty check and its rebuild) brought it back.
+    func testComposerGrowingKeepsMessagesDrawn() throws {
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_TRACE": "1"])
+        let box = Self.box(app)
+        let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
+        XCTAssertTrue(newest.waitForExistence(timeout: 15), "the long chat did not open at its newest message")
+        Self.settle(newest)
+        try Self.keyboardUp(app, box, newest, shot: "composer-grow-keyboard-up", test: self)
+        let h0 = box.frame.height
+        // Typed in pieces, so the box grows one line at a time as it did for Josh.
+        for _ in 0..<4 {
+            box.typeText("the catalogue pages need the new photos before Monday and the captions checked again ")
+            Thread.sleep(forTimeInterval: 0.8)
+        }
+        XCTAssertGreaterThan(box.frame.height, h0 + 40, "the message box did not grow by at least two lines")
+        let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
+        let drawn = XCTNSPredicateExpectation(predicate: NSPredicate(format: "count > 0"), object: rows)
+        XCTAssertEqual(XCTWaiter().wait(for: [drawn], timeout: 6), .completed, "no message drawn after the message box grew")
+        XCTAssertTrue(newest.exists && newest.isHittable, "the newest message was not on screen after the box grew")
+    }
+
     // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP moves
     // the reader up the thread 3 s after opening, as a reader's own scroll does.
     func testReadHigherUpStaysWhereItWas() throws {
