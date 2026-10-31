@@ -4,10 +4,10 @@ Decided end to end on the card (comment 6543796792): the recovery code is made o
 Kosmos+ cannot read it. Price is Josh's: read from config, a placeholder until he sets it.
 
 ## Status
-- [ ] 1. Plan (this file)
-- [ ] 2. Sketch + /design-shots, design review BEFORE building past the sketch
-- [ ] 3. Board-side switch and price reader (engine/personalbackupoffer.js)
-- [ ] 4. Server routes
+- [x] 1. Plan (this file)
+- [x] 2. Sketch + /design-shots, design review BEFORE building past the sketch
+- [x] 3. Board-side switch and price reader (engine/personalbackupoffer.js)
+- [x] 4. Server routes
 - [ ] 5. Settings panel, full
 - [ ] 6. Tests (engine, routes), the five full-suite-only guards, browser checks
 - [ ] 7. challenge-loop, PR
