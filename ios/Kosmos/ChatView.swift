@@ -2338,6 +2338,20 @@ struct KeyboardHold: UIViewRepresentable {
         private var offsetWatch: NSKeyValueObservation?
         static let window: TimeInterval = 0.8
         private func endGuard() { guarding = nil; offsetWatch = nil }
+        // kosmos#7645 (CI's runner, 10-30): the list shrank to the keyboard (viewport 390x346) 70 ms BEFORE will-show reached
+        // here, so the offset read then had already moved, and the put-back restored the moved place. So each offset change
+        // notes whether the list just got shorter (bounds less insets), and the last reading from before a shrink is kept;
+        // will-show uses it when the list shrank in the last half second, after that reading.
+        private var lastShowing: CGFloat = 0, shrankAt: Date?
+        private var beforeShrink: (y: CGFloat, above: Int, width: CGFloat, at: Date)?
+        private var shown = false   // a keyboard is up (did-show until will-hide): no reading is kept then
+        private var fullWatch: NSKeyValueObservation?
+        private func noteOffset(_ sv: UIScrollView) {
+            let h = sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom
+            if h < lastShowing - 1 { shrankAt = Date() }
+            lastShowing = h
+            if !shown, shrankAt.map({ Date().timeIntervalSince($0) > 0.5 }) ?? true { beforeShrink = (sv.contentOffset.y, above, sv.bounds.width, Date()) }
+        }
         // Review 1: not under a finger (down, or dragging, or flinging), and not when a page of earlier messages landed above
         // meanwhile (the saved y then belongs to other content): either ends the hold for this keyboard.
         private func putBack(_ sv: UIScrollView) {
@@ -2367,19 +2381,32 @@ struct KeyboardHold: UIViewRepresentable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             observers.forEach(NotificationCenter.default.removeObserver); observers = []; saved = nil; endGuard()
+            lastShowing = 0; shrankAt = nil; beforeShrink = nil; shown = false; fullWatch = nil
             guard window != nil, !Self.off else { return }
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
             scroll = up as? UIScrollView
+            if let sv = scroll {
+                noteOffset(sv)
+                fullWatch = sv.observe(\.contentOffset, options: [.new]) { [weak self] sv, _ in self?.noteOffset(sv) }
+            }
             let nc = NotificationCenter.default
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self, let sv = self.scroll else { return }
                 // A keyboard already up (a second will-show, say for the emoji panel) keeps the first reading.
                 if self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating {
-                    self.saved = (sv.contentOffset.y, self.above, sv.bounds.width, Date())
+                    var y = sv.contentOffset.y, above = self.above
+                    if !self.shown, let s = self.shrankAt, Date().timeIntervalSince(s) < 0.5, let b = self.beforeShrink, b.at <= s,
+                       abs(b.width - sv.bounds.width) < 0.5 {
+                        let moved = sv.contentOffset.y - b.y
+                        ChatView.trace("keyboard hold: read from before the list shrank, moved \(Int(moved))")
+                        (y, above) = (b.y, b.above)
+                    }
+                    self.saved = (y, above, sv.bounds.width, Date())
                 }
             })
             observers.append(nc.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.shown = true
                 guard let self, let kept = self.saved, let sv = self.scroll else { return }
                 self.saved = nil
                 guard Date().timeIntervalSince(kept.at) < 1.5 else { ChatView.trace("keyboard hold: skipped, stale"); return }   // a stale reading is not this keyboard's
@@ -2400,7 +2427,7 @@ struct KeyboardHold: UIViewRepresentable {
             })
             // A keyboard that hides before it finished showing leaves nothing held.
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.saved = nil; self?.endGuard()
+                self?.saved = nil; self?.endGuard(); self?.shown = false
             })
         }
     }

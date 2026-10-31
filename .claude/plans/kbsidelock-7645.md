@@ -35,3 +35,21 @@ A CI trace on this branch still showing put back 499 after "anchor let go".
 - The wiring in ChatView (the idAnchor guard, setting anchorLetGo, clearing it on a named row) is covered only by the CI UI check,
   which drives the put-back itself; the LogicTests checks cover the three decisions alone.
 - A page landing above while the anchor is let go (the keepAnchor scroll on iOS 17+) has no check at all.
+
+## Round 2 (21:59 CDT): CI on PR #7666 (run 41161105224)
+Measured: the let-go worked. The trace shows ONE put-back (797), "anchor let go", and 0.2 s later "anchor after let go
+none": no 499 pt re-moves, and SwiftUI did not name a row again. The check still failed, for a different reason: the
+viewport shrank to the keyboard (390x346, 345.85) BEFORE "keyboard up" (345.92), so KeyboardHold's will-show reading was
+taken after the list had already moved, and the put-back restored that moved place.
+
+Change: KeyboardHold watches the scroll offset all the time, notes when the list's showing height (bounds less insets) gets
+shorter, and keeps the last reading from before a shrink. At will-show, if the list shrank in the last 0.5 s after that
+reading (same width, no keyboard already up), the hold uses it instead of the current offset. Trace: "keyboard hold: read
+from before the list shrank, moved N".
+
+Rejected: reading at the composer's focus change (SwiftUI state lands after UIKit's first-responder change, so it is no
+earlier); a running "tallest height" (it goes stale when a long draft grows the box).
+
+Weakest premise: that the shrink is visible as a smaller bounds-less-insets at the first offset change after it. If SwiftUI
+moves the offset in the same pass before the height changes, the reading is taken after the move and this does nothing.
+Change my mind: a CI trace with "keyboard up" after the viewport line and no "read from before the list shrank".
