@@ -998,7 +998,7 @@ KOSMOS_QUEUE_CLASS=bogus kosmos_mark_suite_waiting $((NOW - 30))
   || fail "#4609 an unknown class was recorded as $(sed -n '5p' "$W/markers/suitewait.$$")"
 kosmos_unmark_suite_waiting
 lwait 100
-kill -0 "$wp" 2>/dev/null && pass "#5914 FIXTURE: the stand-in waiter was alive for every arm that read it" \
+case "$(ps -ww -o command= -p "$wp" 2>/dev/null)" in perl*) true ;; *) false ;; esac && pass "#5914 FIXTURE: the stand-in waiter was alive for every arm that read it" \
   || fail "#5914 FIXTURE: the stand-in waiter $wp exited before the arms that read it finished, so their reds above may be the fixture, not the queue"
 kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; WP_LIVE=""
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
@@ -1329,7 +1329,7 @@ out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all")"
 { has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
   && pass "#4498 a run-tests.sh inside a test does not queue behind a waiting suite" \
   || fail "#4498 a run-tests.sh fixture queued ($(printf '%s' "$out" | tail -2))"
-kill -0 "$wp" 2>/dev/null && pass "#5914 FIXTURE: the run-tests.sh arms' stand-in waiter was alive for all of them" \
+case "$(ps -ww -o command= -p "$wp" 2>/dev/null)" in perl*) true ;; *) false ;; esac && pass "#5914 FIXTURE: the run-tests.sh arms' stand-in waiter was alive for all of them" \
   || fail "#5914 FIXTURE: the stand-in waiter $wp exited before the run-tests.sh arms finished, so a green above may mean there was nothing to queue behind"
 kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; WP_LIVE=""; rm -f "$W/markers/suitewait.$wp"
 
