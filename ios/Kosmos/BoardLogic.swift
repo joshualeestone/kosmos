@@ -444,6 +444,13 @@ enum Board {
     // kosmos#7645: a page landing above is kept by scrolling to the row that was topmost, where no id anchor keeps it: always
     // without the id anchor (iOS 16), and with it only while a put-back has let it go and no row is named yet.
     static func keepPageByScroll(idAnchor: Bool, letGo: Bool, anchor: String?) -> Bool { !idAnchor || (letGo && anchor == nil) }
+    // kosmos#7645: where the keyboard hold puts the offset: the offset at will-show plus how far the reader's row moved in the
+    // content, never past either end of what can be scrolled to (from minus the top inset to the content's end at the bottom).
+    static func holdTarget(offset: Double, content: Double, keptContent: Double, insetTop: Double, insetBottom: Double,
+                           contentHeight: Double, viewHeight: Double) -> Double {
+        let top = -insetTop, end = max(top, contentHeight + insetBottom - viewHeight)
+        return min(max(offset + (content - keptContent), top), end)
+    }
     // kosmos#7645: the reader's row when the keyboard starts to show: the highest drawn row whose top is between the top of what
     // shows and its bottom (window points, with half a point of rounding at the top). With none (one long message fills the
     // screen), the row the reader is inside: the lowest whose top is above what shows. Rows laid out below the screen never count.
