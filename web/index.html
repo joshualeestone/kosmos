@@ -12164,6 +12164,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .pb-codebox { color: var(--k-ink); font: 600 20px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; padding: 12px 14px; border: 1px solid var(--border-strong); background: var(--bg-sunken); border-radius: 8px; user-select: all; margin: 8px 0; }   /* kosmos#7404 */
 #s-sec-plus .pb-codebox span { display: inline-block; white-space: nowrap; }   /* review 1: breaks only between groups, the hyphen kept with the group before it */
 #s-sec-plus .pb-saved-row { margin-top: 24px; }
+#s-sec-plus .pb-codein { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
 #s-sec-plus #pb-restore-open { display: block; margin-top: 8px; text-align: left; }
 #s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
 #s-sec-plus .plus-org-outhead { display: flex; justify-content: flex-end; }
@@ -20477,8 +20478,12 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <div id="pb-restore" hidden>
           <p class="fhint">Enter the recovery code you saved when you turned personal backup on.</p>
+          <!-- Restore review 4: said before Restore, and only what is true today: restoring puts the backup key here (engine
+               restorePersonalKey); no files come back until the backup job exists, and nothing here is changed. -->
+          <p class="fhint">This puts your backup key on this computer. Nothing already on this computer is changed or removed.</p>
           <div class="frow">
-            <input type="text" class="tk-inp" id="pb-restore-code" autocomplete="off" spellcheck="false" maxlength="64" aria-label="Your recovery code" placeholder="Recovery code">
+            <!-- Restore review 1-2: no autocorrect or half-capitalising on a phone; the code's own face and shape. -->
+            <input type="text" class="tk-inp pb-codein" id="pb-restore-code" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="64" aria-label="Your recovery code" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX">
             <button class="btn uprime" type="button" id="pb-restore-go">Restore</button>
             <button class="btn" type="button" id="pb-restore-no">Cancel</button>
           </div>
@@ -55722,6 +55727,16 @@ async function pbOff() {
     PB.view = null; PB.at = 0;
   } finally { PB.busy = false; pbMaybe(); }
 }
+/* The engine's refusals are fragments ("that recovery code is not the one for this backup"); the page says them whole. */
+function pbRestoreSay(r) {
+  const c = r && r.code;
+  if (c === 'wrong_code') return 'That is not the recovery code for this backup. Check it group by group and try again.';
+  if (c === 'not_a_code') return 'That is not a recovery code. It has 26 letters and digits, in groups of four.';
+  if (c === 'no_keys') return 'This backup has no key yet, so there is nothing to restore.';
+  const b = r && typeof r.because === 'string' ? r.because.trim() : '';
+  if (!b) return 'Nothing was restored. Try again.';
+  return b.charAt(0).toUpperCase() + b.slice(1) + (/[.!?]$/.test(b) ? '' : '.');
+}
 async function pbRestore() {
   if (PB.busy) return;
   const code = document.getElementById('pb-restore-code').value.trim();
@@ -55729,7 +55744,8 @@ async function pbRestore() {
   PB.busy = true; pbMsg('');
   try {
     const r = await pbPost('restore', { code });
-    if (!(r && r.ok)) { pbMsg((r && r.because) || 'Nothing was restored. Try again.'); return; }
+    // Restore review: a wrong code keeps what was typed, so one group can be fixed rather than all of it retyped.
+    if (!(r && r.ok)) { pbMsg(pbRestoreSay(r)); return; }
     document.getElementById('pb-restore-code').value = '';
     PB.view = null; PB.at = 0; pbMsg('Your backup key is restored on this computer.');
   } finally { PB.busy = false; pbMaybe(); }
