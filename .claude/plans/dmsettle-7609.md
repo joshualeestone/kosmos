@@ -47,7 +47,8 @@ message landed off the screen. Locally the same path runs, but the content grows
   ended; one drawn row put back -43, settled by 0), KeyboardSlideUITests 3/3; LogicTests 1750/1750, room 742/742.
 - After review 8 (4ce7a60c73: keyboardUp only gates dropping a settle; retries until the window ends): read-higher-up 5/5,
   KeyboardSlideUITests 3/3.
-- After review 9 (the drawn-path settle removed): see the next commit's runs.
+- After review 9 (65fd82ea07, the drawn-path settle removed): read-higher-up 5/5 traced (three placed by id, settled by 7 pt,
+  guarding again, window ended; two drawn rows put back -43 and -36 with no settle), KeyboardSlideUITests 3/3.
 - The same mechanism in the room (#7654 part 2, branch roomhold-7654): read-higher-up 5/5 traced, the nine room and DM
   checks 9/9 on iOS 26.5 and 27. That is the room's evidence, not this branch's.
 
