@@ -53,7 +53,7 @@ struct ChatView: View {
     #if DEBUG
     // kosmos#7609: set only by the DEBUG sample scroll-up once it has told the chat where the reader is; checks wait on it.
     @State private var sampleScrollRested = false
-    @State private var sampleRebuilt = false   // kosmos#7420: KOSMOS_SAMPLE_REBUILD's marker, shown once the rebuild has settled
+    @State private var sampleRebuilds: Int?   // kosmos#7420: KOSMOS_SAMPLE_REBUILD's marker: the rebuilds counted once they have settled
     static var sampleRebuildDone = false       // once a launch, so the hook never runs twice whatever the list's appear does
     #endif
     // kosmos#7420: KOSMOS_SAMPLE_NOREBUILD=1 (Debug) is the control: the recovery never rebuilds. Release reads false.
@@ -617,10 +617,10 @@ struct ChatView: View {
                             .allowsHitTesting(false)
                             .accessibilityElement().accessibilityLabel("sample scroll rested").accessibilityIdentifier("sample-scroll-rested")
                     }
-                    if sampleRebuilt {
+                    if let sampleRebuilds {
                         Color.clear.frame(width: 1, height: 1)
                             .allowsHitTesting(false)
-                            .accessibilityElement().accessibilityLabel("sample rebuilt").accessibilityIdentifier("sample-rebuilt")
+                            .accessibilityElement().accessibilityLabel("sample rebuilt \(sampleRebuilds)").accessibilityIdentifier("sample-rebuilt")
                     }
                 }
                 #endif
@@ -667,18 +667,13 @@ struct ChatView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { atBottom = endVisible; sampleScrollRested = true; Self.trace("debug scroll-up rested, atBottom \(endVisible)") }
                     }
                     // kosmos#7420: KOSMOS_SAMPLE_REBUILD=1 runs the empty-list recovery 3 s after opening, the reader at the newest
-                    // (so the real decision gives .rebuild), then shows a marker 3 s later if it rebuilt exactly once. The cause (rows not drawn within
+                    // (so the real decision gives .rebuild), then shows a marker with the rebuilds counted. The cause (rows not drawn within
                     // the content) is not reproduced here; this checks the chat after a rebuild.
                     // =<seconds> sets the delay ("1" is 3 s), so a check can bring the keyboard up and down first (Josh's third
                     // build-24 report went empty right after the keyboard came down).
                     if let v = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REBUILD"], let n = Double(v), n > 0, !Self.sampleRebuildDone {
                         Self.sampleRebuildDone = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + (n == 1 ? 3 : n)) {
-                            Self.trace("debug rebuild: atBottom \(atBottom)")
-                            recoverEmpty(proxy, later: true)
-                            // rebuilt, and only once: read after the checks the rebuild schedules (2.3 s and 3.3 s after it)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 4.2) { sampleRebuilt = rebuilds.count == 1 }
-                        }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + (n == 1 ? 3 : n)) { sampleRebuild(proxy) }
                     }
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {
                         // Twice: the first reaches the top and loads a page; the second shows what landed above.
@@ -894,6 +889,21 @@ struct ChatView: View {
             announceDiag()
         }
     }
+
+    #if DEBUG
+    // kosmos#7420: KOSMOS_SAMPLE_REBUILD's recovery, once the reader is at the newest: on CI's loaded runner a long chat can
+    // still be settling at the delay, and the real decision then rightly gives no rebuild, which is not what this checks.
+    private func sampleRebuild(_ proxy: ScrollViewProxy, waited: Double = 0) {
+        if !atBottom, waited < 15 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { sampleRebuild(proxy, waited: waited + 0.5) }
+            return
+        }
+        Self.trace("debug rebuild: atBottom \(atBottom)")
+        recoverEmpty(proxy, later: true)
+        // Counted after the checks the rebuild schedules (2.3 s and 3.3 s after it).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.2) { sampleRebuilds = rebuilds.count }
+    }
+    #endif
 
     // kosmos#7420: an empty list put right as Board.emptyRecovery decides.
     private func recoverEmpty(_ proxy: ScrollViewProxy, later: Bool = false) {
