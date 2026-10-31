@@ -5,6 +5,7 @@ CI's ui tests (sample board) job passes testReadHigherUpStaysWhereItWas on this 
 and the three keyboard checks still pass locally on an iPhone 17e iOS 26.5 simulator.
 
 ## Finding
+(History: this Finding, its Weakest premise and Change my mind are round 1's. What ships is described from iteration 15 on.)
 CI trace (PR #7665 run 41156064258): after KeyboardHold's first put-back the list is moved again by 499 pt every ~0.12 s, and each
 re-move comes with a new 16 pt sideways shift (side lock shift 2, 4, 8). My inference (not established by SideScrollLock's comment, which notes the end hold is anchored .bottom and centred across but
 never caught what gave the shift): the paired 16 pt sideways shift is the id anchor's .bottom scroll, so the re-mover is SwiftUI re-applying scrollPosition(id:anchor: .bottom) to its id at the bottom of the
@@ -103,7 +104,7 @@ view), and the hold put the OFFSET back to 10534, which in the re-measured conte
 pushed the row off. So round 2's pre-shrink reading answered a problem that did not exist (removed, with its Board functions
 and checks), and keeping an offset is wrong whenever heights above change.
 Change: RowTops records each drawn row's top on the screen (onGeometryChange in window points, iOS 26 only, a class so
-nothing redraws). At will-show the hold keeps the reader's row (Board.readerRow: the highest drawn row wholly below the bar)
+nothing redraws). At will-show the hold keeps the reader's row (Board.readerRow: the highest drawn row whose top is at or below the bar)
 and its y; once the keyboard is up, each fresh reading of THAT row's y that differs by more than a point moves the offset by
 the difference. If iOS's own move kept the row in place, nothing is done. A put-back is answered only by the row's next
 reading, so it is never corrected twice on a stale value.
@@ -143,3 +144,9 @@ Iteration 17: a row's last place in the content is kept after it stops being dra
 did-show fallback writes only a reading newer than will-show's (writing the will-show offset unchanged was round 4's
 failure). The written offset is kept between the two ends of what can be scrolled to. The record's numbers are pinned by a
 room source check. Comments say iOS 26 and later (the hold runs on 27 too, as a no-op there).
+Iteration 18: when the window ends with the reader's row off its place by more than a point (a move its readings never
+reported), the record says by how much ("window ended off the row's place by N").
+Current, for the shipping design: LogicTests run.sh PASS 1734/1734 and run-room.sh PASS 742/742 on ed85b71d9a and after.
+Not tested, current: the ChatView wiring (RowTop, RowTops.watch and .last, ContentSpace, the write's size, sign and clamp,
+the let-go) is covered only by CI's UI check; LogicTests cover readerRow and the anchor decisions; nothing covers a page
+landing above while the anchor is let go.
