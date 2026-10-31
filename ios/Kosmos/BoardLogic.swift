@@ -444,13 +444,13 @@ enum Board {
     // kosmos#7645: a page landing above is kept by scrolling to the row that was topmost, where no id anchor keeps it: always
     // without the id anchor (iOS 16), and with it only while a put-back has let it go and no row is named yet.
     static func keepPageByScroll(idAnchor: Bool, letGo: Bool, anchor: String?) -> Bool { !idAnchor || (letGo && anchor == nil) }
-    // kosmos#7645: the reader's row when the keyboard starts to show: the highest drawn row whose top is at or below the top
-    // of what shows (window points, with half a point of rounding). With none (one long message fills the screen), the row
-    // the reader is inside: the lowest whose top is above it. Only how far the row moves is used, so either keeps the place.
-    static func readerRow(_ tops: [String: Double], below top: Double) -> (id: String, y: Double)? {
+    // kosmos#7645: the reader's row when the keyboard starts to show: the highest drawn row whose top is between the top of what
+    // shows and its bottom (window points, with half a point of rounding at the top). With none (one long message fills the
+    // screen), the row the reader is inside: the lowest whose top is above what shows. Rows laid out below the screen never count.
+    static func readerRow(_ tops: [String: Double], below top: Double, above bottom: Double) -> (id: String, top: Double)? {
         let order: ((key: String, value: Double), (key: String, value: Double)) -> Bool = { $0.value < $1.value || ($0.value == $1.value && $0.key < $1.key) }
-        if let r = tops.filter({ $0.value >= top - 0.5 }).min(by: order) { return (r.key, r.value) }
-        return tops.max(by: order).map { ($0.key, $0.value) }
+        if let r = tops.filter({ $0.value >= top - 0.5 && $0.value < bottom }).min(by: order) { return (r.key, r.value) }
+        return tops.filter({ $0.value < top - 0.5 }).max(by: order).map { ($0.key, $0.value) }
     }
 
     // kosmos#7575: the chat's running count and when it goes. The count always runs (a shift before the chat's onAppear

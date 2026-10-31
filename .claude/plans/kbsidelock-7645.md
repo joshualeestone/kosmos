@@ -150,3 +150,8 @@ Current, for the shipping design: LogicTests run.sh PASS 1734/1734 and run-room.
 Not tested, current: the ChatView wiring (RowTop, RowTops.watch and .last, ContentSpace, the write's size, sign and clamp,
 the let-go) is covered only by CI's UI check; LogicTests cover readerRow and the anchor decisions; nothing covers a page
 landing above while the anchor is let go.
+Iteration 19: one rule for a lost row, at did-show and while held: put back once by its last known place in the content
+(RowTops.last, kept after it leaves), then end. (Iteration 17's "only if newer" test was wrong: an offset-only move refreshes
+the reading with the same content, and skipping it left the plain iOS jump undone.) Board.readerRow takes the visible bottom
+too, so a row laid out below the screen is never the reader's; the long-message fallback is checked with that shape.
+RowTops.reset() for a fresh chat. LogicTests run.sh PASS 1735/1735, run-room.sh 742/742.
