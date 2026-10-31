@@ -26,8 +26,8 @@
  * slice 4; an agent that changed PROVIDER keeps its old provider's sessions unread.)
  * `left` names what was not added and why (an id or slug a root name cannot carry), never a path.
  *
- * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (the board passes mayBackUp:
- * enrolled with a company AND its words accepted here), and never while a run is still going (a tick then is skipped, not queued). Pauses:
+ * startTick(deps) -> stop(). Every `everyMs` (an hour): only while deps.enrolled() is true (the company's tick passes
+ * mayBackUp: enrolled with a company AND its words accepted here; a personal backup's, personalbackup.mayBackUp), and never while a run is still going (a tick then is skipped, not queued). Pauses:
  *   backup_off (Kosmos+ answers 404 backup_off while company backup is off) -> no request for a day;
  *   overAllowance -> none until the next week starts (the allowance is per week).
  * A reason a person must act on (refusedState, missing, unreadableKeyFile, orgKeyRefused, overAllowance, personActs) is said once (deps.say) until
@@ -188,7 +188,8 @@ function startTick(deps) {
       // Refused before Kosmos+ named the company (no pair): Kosmos+ is unreachable, refuses, or an older connector will
       // not sign and so gives no refusal code (review 1). Backed off, doubling to a day, so an enrolled Mac does not
       // send a request every hour for as long as it lasts. backup_off and overAllowance have their own pauses.
-      if (!r.ok && !r.pair && !(r.refusal && r.refusal.code === 'backup_off') && !r.missing) {
+      // personActs is not backed off: what the person does to fix it is seen on the next hour.
+      if (!r.ok && !r.pair && !(r.refusal && r.refusal.code === 'backup_off') && !r.missing && !r.personActs) {
         state.blind += 1;
         state.pausedUntil = now() + Math.min(HOUR * 2 ** Math.min(state.blind - 1, 5), DAY);
       } else state.blind = 0;
@@ -334,8 +335,7 @@ function mayBackUp() {
    rollup re-asks per batch). A run is bounded by the week's allowance and is one an hour at most. */
 function startHere() { return startWorld({ stage: 'agy', run: (input) => require('./backuprun').runBackup(input), enrolled: mayBackUp }); }
 /* kosmos#7404 (pbjob-7404): a personal backup's own tick, the same run under its own key step. Its own instance, so a pause
-   the company's took never carries over, and its own stage folder, since each tick clears its folder. It covers what the
-   company's covers: the words the person accepted say so. */
+   the company's took never carries over, and its own stage folder, since each tick clears its folder. */
 function startPersonal() {
   const pb = () => require('./personalbackup');
   return startWorld({ stage: 'agy-personal', label: 'personal backup', run: (input) => pb().runJob(input), enrolled: () => pb().mayBackUp() });

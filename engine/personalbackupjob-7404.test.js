@@ -63,8 +63,12 @@ test('the key step refuses another org, no key, a key this computer does not hol
   assert.match((await ask('another-org', [row])).because, /no longer in the personal backup/);
   assert.match((await ask(pair.org, [])).because, /no key on Kosmos\+/);
   const other = { ...row, member_public: b64(Buffer.alloc(32, 9)) };
-  assert.match((await ask(pair.org, [other])).because, /off here, then on again, and enter your recovery code/);
-  assert.match((await ask(pair.org, [{ ...row, epoch: 2 }, row].reverse())).because, /off here, then on again, and enter your recovery code/, 'the newest epoch decides');
+  assert.match((await ask(pair.org, [other])).because, /holds a different key/);
+  assert.match((await ask(pair.org, [{ ...row, epoch: 2 }, row].reverse())).because, /holds a different key/, 'the newest epoch decides');
+  const none = newPair();
+  const empty = await ask(none.org, [row], {}, none);
+  assert.match(empty.because, /off here, then on again, and enter your recovery code/, 'no keys here: setUp answers already_set_up, so the code is asked for');
+  assert.equal(empty.personActs, true);
   assert.equal((await ask(pair.org, [row], { lostEpoch: 1 })).ok, false);
   const pending = newPair();
   const made = backupkeys.newMemberKey();
@@ -172,11 +176,13 @@ test('a key step refusal a person must act on reaches the tick\'s one said line,
   const said = [];
   const stop = tick.startTick({
     label: 'personal backup', enrolled: () => true, roots: () => [{ name: 'workers', path: SANDBOX }],
-    runBackup: (input) => pb.runJob(input, opts), say: (t) => said.push(t), setInterval: () => 1, clearInterval: () => {}, now: (() => { let n = 0; return () => { n += 3 * 24 * 3600 * 1000; return n; }; })(),
+    runBackup: (input) => pb.runJob(input, opts), say: (t) => said.push(t), setInterval: () => 1, clearInterval: () => {}, now: () => 1000,
   });
   await stop.tick();
+  assert.equal(stop.state.pausedUntil, 0, 'not backed off: a fix is seen on the next hour');
   await stop.tick();
-  assert.deepEqual(said, ['personal backup: this backup has no key on Kosmos+ yet, so nothing was backed up']);
+  assert.deepEqual(said, ['personal backup: this backup has no key on Kosmos+ yet, so nothing was backed up'], 'said once');
+  assert.equal(k.calls.filter((c) => c.route === pk.MINE_ROUTE).length, 2, 'the second tick did run');
 });
 
 test('the tick names itself, and the company wording stays the default', async () => {

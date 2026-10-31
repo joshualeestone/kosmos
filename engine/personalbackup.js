@@ -11,8 +11,8 @@
  *   3. the backup job: mayBackUp and runJob below, driven hourly by engine/backuptick.js startPersonal. Its keys and its
  *      state sit with the company path's, per (org, member), so nothing here reads another org's.
  *
- * Kept apart from the company enrollment ON PURPOSE (the plan's option C): every orgenroll call here runs under this
- * module's own data root (but mayBackUp's one read of whether a company is enrolled), so the company readers (rollups, agent events, company policy, the hourly refresh), which read
+ * Kept apart from the company enrollment ON PURPOSE (the plan's option C): every orgenroll call here but one runs under
+ * this module's own data root (the one: mayBackUp asks whether a company is enrolled), so the company readers (rollups, agent events, company policy, the hourly refresh), which read
  * store.ROOT, never see a personal backup. The conditions that make that hold (design review 1):
  *   - orgenroll's policy calls do not follow `root`, so every call passes INERT_POLICY (a personal backup applies no
  *     policy, and must never clear or replace a company's);
