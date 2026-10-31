@@ -112,7 +112,8 @@ const SAY = {
   // The membership the preview made was ended meanwhile (turned off elsewhere, or ended at a company or family join).
   org_not_member: 'Personal backup was closed on Kosmos+ while it was open here. Nothing was turned on; open it again.',
   personal_on_elsewhere: ELSEWHERE,
-  // kosmos#7661: Kosmos+ refused the bind itself (onlyIfFree), so no status read before it could race another computer.
+  // kosmos#7661: Kosmos+ refused the bind itself (onlyIfFree): the status read before it cannot see a bind made after it,
+  // and Kosmos+ refuses that one in the move's own transaction.
   org_bound_elsewhere: ELSEWHERE,
   org_bound_other_world: 'Personal backup is on for another Kosmos on this computer. Turn it off there first; nothing changed here.',
 };
@@ -147,6 +148,13 @@ function elsewhere(st, opts) {
   const d = st && st.ok && st.data;
   return !!(d && d.member === true && d.org && d.org.kind === 'personal' && d.enrolled && !boundHere(d, opts));
 }
+/* kosmos#7661 review NIT 3: the refusal for a binding held elsewhere, said as Kosmos+ says it after the move (another
+   Kosmos on this computer has its own sentence), so the read before and the refusal at the move never disagree. */
+function elsewhereRefusal(st) {
+  const sameMac = !!(st && st.data && st.data.enrolled && st.data.enrolled.thisComputer === true);
+  return sameMac ? { ok: false, code: 'org_bound_other_world', because: SAY.org_bound_other_world }
+    : { ok: false, code: 'personal_on_elsewhere', because: ELSEWHERE };
+}
 const STATUS = '/v1/mac/org/status';
 async function readStatus(remote) {
   let st = null;
@@ -160,7 +168,7 @@ async function preview(opts = {}) {
   if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: UNREACHED };
   const st = await readStatus(remote);
   if (!st) return { ok: false, because: UNREACHED };
-  if (elsewhere(st, opts)) return { ok: false, code: 'personal_on_elsewhere', because: ELSEWHERE };
+  if (elsewhere(st, opts)) return elsewhereRefusal(st);
   let r;
   try { r = await remote.macRequest('POST', ROUTE, {}); } catch { return { ok: false, because: UNREACHED }; }
   if (!r || !r.ok) {
@@ -204,7 +212,7 @@ async function bindAndKey(ticket, t, opts) {
   const remote = remoteOf(opts);
   const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
   if (!st) return { ok: false, because: UNREACHED };
-  if (elsewhere(st, opts)) { TICKETS.delete(ticket); return { ok: false, code: 'personal_on_elsewhere', because: ELSEWHERE }; }
+  if (elsewhere(st, opts)) { TICKETS.delete(ticket); return elsewhereRefusal(st); }
   /* Code review 6, warning 3: the account is in another org now (a company or family joined since the preview). An
      enroll would be refused as org_consent_changed against that org's words, a false sentence; nothing is sent. */
   if (st.data.member === true && st.data.org && st.data.org.id !== t.org.id) { TICKETS.delete(ticket); return { ok: false, code: 'org_other_org', because: SAY.org_other_org }; }
@@ -218,7 +226,8 @@ async function bindAndKey(ticket, t, opts) {
   try {
     r = await oe.enroll(null, true, enrollOpts(opts, {
       orgId: t.org.id, consentHash: t.consentHash, wordsShown: true, consent: t.words, computerSalt: t.computerSalt,
-      // kosmos#7661: Kosmos+ moves nothing another computer holds; the status read above cannot close that race alone.
+      // kosmos#7661: a coordinator that reads onlyIfFree moves nothing another computer holds (an older one ignores it
+      // and moves, as before); the status read above cannot close that race alone.
       onlyIfFree: true,
     }));
   } catch { r = null; }
