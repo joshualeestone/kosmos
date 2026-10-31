@@ -389,7 +389,7 @@ struct RoomView: View {
         Task {
             let before = store.archive[project.id]?.older.cursor
             await store.loadArchiveOlder(project.id)
-            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            if let anchor { toRow(proxy, anchor, anchor: .top, animated: false) }
             let after = store.archive[project.id]?.older.cursor
             if olderShowing, after != nil, after != before, store.archive[project.id]?.olderFailed == false {
                 DispatchQueue.main.async { if olderShowing { loadArchiveOlder(proxy) } }
@@ -409,8 +409,8 @@ struct RoomView: View {
             let before = store.older[project.id]?.cursor
             await store.loadOlder(project.id)
             // kosmos#7101 review 1: a post a reply's header just went to stays centred while it flashes.
-            if let jumped = flashed, rows.contains(where: { $0.id == jumped }) { proxy.scrollTo(jumped, anchor: .center) }
-            else if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            if let jumped = flashed, rows.contains(where: { $0.id == jumped }) { toRow(proxy, jumped, anchor: .center, animated: false) }
+            else if let anchor { toRow(proxy, anchor, anchor: .top, animated: false) }
             // Still at the top with more to read (the page did not fill the screen): the next one, once per new cursor.
             let after = store.older[project.id]?.cursor
             if olderShowing, after != nil, after != before, !store.olderFailed.contains(project.id) {
@@ -781,7 +781,7 @@ struct RoomView: View {
                     DispatchQueue.main.async { if atBottom && !rows.isEmpty { settledAtBottom = true } }
                 } else if atBottom && !searching {
                     // Not while searching: a new post may not even be among what matched (the board's convPause).
-                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                    toEnd(proxy)
                 }
             }
             // kosmos#7080 review 4: the working line sits below the thread, so its coming, going or growing changes the
@@ -789,7 +789,7 @@ struct RoomView: View {
             // the layout moves the end marker, scrolled once it has. Animated, as the new-row scroll above is: a reply
             // usually lands in the same update that takes its writer off the line (review 5: a plain scroll cut it short).
             .onChange(of: Board.workingLine(workingNow)) { _ in
-                if atBottom && settledAtBottom && !searching { DispatchQueue.main.async { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+                if atBottom && settledAtBottom && !searching { DispatchQueue.main.async { toEnd(proxy) } }
             }
             // kosmos#7101: a reply's header goes to the post it answers, centred, flashing for the board's 1.8 s, with
             // VoiceOver's focus on it (the board's #3745: row.focus()). Still, with Reduce Motion (the board's
@@ -806,7 +806,7 @@ struct RoomView: View {
                     Self.say(Board.roomHiddenBySearch)
                     return
                 }
-                if reduceMotion { proxy.scrollTo(id, anchor: .center) } else { withAnimation { proxy.scrollTo(id, anchor: .center) } }
+                toRow(proxy, id, anchor: .center, animated: !reduceMotion)
                 // A repeat jump to the post still flashing starts the flash over, as the board's class removed and added
                 // again (review 4): only the latest jump's timer clears it.
                 flashToken += 1
@@ -820,7 +820,7 @@ struct RoomView: View {
             }
             // The person's own post always shows: pressing Post is asking to see it.
             .onChange(of: store.pending[project.id]?.count ?? 0) { n in
-                if n > pendingCount { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }   // a new post only
+                if n > pendingCount { toEnd(proxy) }   // a new post only
                 pendingCount = n
             }
             // The first scroll has happened and the top is already showing (a room shorter than the screen).
@@ -834,13 +834,13 @@ struct RoomView: View {
                 // Once, for the open: a reader who scrolls up afterwards is not pulled back by a later keyboard.
                 if visible && searchFocused && openedAtNewest && !searching {
                     openedAtNewest = false
-                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                    toEnd(proxy)
                 }
             }
             // The magnifier opened the row over a reader at the newest post: back there once the row is in.
             .onReceive(NotificationCenter.default.publisher(for: .roomScrollToEnd)) { note in
                 guard visible, note.object as? String == project.id else { return }
-                withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                toEnd(proxy)
             }
             // Putting away a search that filtered is reading at the newest post again. Until that scroll settles, the top
             // the short room left on screen is not a reader asking for older posts (as on opening): the end marker or the
@@ -852,8 +852,8 @@ struct RoomView: View {
                 clears += 1
                 let clear = clears
                 settledAtBottom = false
-                proxy.scrollTo("bottom", anchor: .bottom)
-                DispatchQueue.main.async { if !searchMode && visible && clears == clear { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+                toEnd(proxy, animated: false)
+                DispatchQueue.main.async { if !searchMode && visible && clears == clear { toEnd(proxy) } }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     if !searchMode && visible && clears == clear && !settledAtBottom && !rows.isEmpty { settledAtBottom = true }
                 }
@@ -866,8 +866,8 @@ struct RoomView: View {
                     endJumps &+= 1   // kosmos#7654: the opening retries end when the archive shows
                     archiveWasShown = true
                     settledAtBottom = false
-                    proxy.scrollTo("bottom", anchor: .bottom)
-                    DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+                    toEnd(proxy, animated: false)
+                    DispatchQueue.main.async { toEnd(proxy, animated: false) }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { if archiveShown != nil && !settledAtBottom { settledAtBottom = true } }
                     archiveBackFocused = true
                 } else if archiveWasShown {
@@ -875,7 +875,7 @@ struct RoomView: View {
                     // The boundary row, when it is still drawn; else the newest post (an Undo on the computer took it).
                     let back = Board.Archive.boundaryShown(olderCursor: store.older[project.id]?.cursor,
                                                            archivedCount: store.archivedCount[project.id] ?? 0, searching: searchMode)
-                    DispatchQueue.main.async { if back { proxy.scrollTo("archiveBoundary", anchor: .top) } else { proxy.scrollTo("bottom", anchor: .bottom) } }
+                    DispatchQueue.main.async { if back { toRow(proxy, "archiveBoundary", anchor: .top, animated: false) } else { toEnd(proxy, animated: false) } }
                 }
             }
             .onAppear {
@@ -912,6 +912,20 @@ struct RoomView: View {
                 if jump == endJumps && visible && !searchMode && archiveShown == nil && !roomScrolling { proxy.scrollTo("bottom", anchor: .bottom) }
             }
         }
+    }
+    // EXPERIMENT kosmos#7654 part 2: under the id anchor the room moves the anchor, as the DM's goNewest does; a jump by
+    // position alone is undone by the anchor (measured with the debug scroll-up). iOS 16 scrolls as before.
+    private func toEnd(_ proxy: ScrollViewProxy, animated: Bool = true) {
+        if ChatView.idAnchor {
+            if roomPosition == "bottom" { roomPosition = nil; DispatchQueue.main.async { if roomPosition == nil { roomPosition = "bottom" } } } else { roomPosition = "bottom" }
+            return
+        }
+        if animated { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } else { proxy.scrollTo("bottom", anchor: .bottom) }
+    }
+    // To one row: the anchor let go first, so the scroll position does not pull the list back to the row it held.
+    private func toRow(_ proxy: ScrollViewProxy, _ id: String, anchor: UnitPoint, animated: Bool) {
+        let go = { if animated { withAnimation { proxy.scrollTo(id, anchor: anchor) } } else { proxy.scrollTo(id, anchor: anchor) } }
+        if ChatView.idAnchor { roomPosition = nil; DispatchQueue.main.async { go() } } else { go() }
     }
 
     #if DEBUG
