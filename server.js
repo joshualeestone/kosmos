@@ -12743,7 +12743,10 @@ const server = http.createServer(async (req, res) => {
         else r = null;   // unreachable: kind was checked above; answers the generic refusal below
         /* What the page may see, by name. `code` is the recovery code on on/key, and a refusal's code elsewhere; org and
            member are the opaque ids confirmRecoveryCodeSaved needs back, nothing more. */
-        const keep = ['ok', 'because', 'code', 'declined', 'pending', 'unknown', 'already', 'ticket', 'words', 'org', 'member', 'deleted', 'epochs'];
+        // Named fields only, per step (challenge round 4): each step can send the page only what that step answers.
+        const KEEP = { preview: ['ticket', 'words'], on: ['declined', 'unknown', 'already', 'org', 'member'], key: ['already', 'org', 'member'],
+          saved: ['deleted'], restore: ['epochs'], off: ['pending'] };
+        const keep = ['ok', 'because', 'code'].concat(KEEP[kind] || []);
         const out = {};
         if (r && typeof r === 'object') for (const k of keep) if (k in r) out[k] = r[k];
         /* Challenge round 2: the engine's `code` is the recovery code on a successful on/key and a refusal code everywhere

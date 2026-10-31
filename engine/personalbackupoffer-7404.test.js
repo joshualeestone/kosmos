@@ -10,7 +10,7 @@ test('off unless KOSMOS_PERSONAL_BACKUP is exactly 1', () => {
   assert.strictEqual(offer({ KOSMOS_PERSONAL_BACKUP: ' 1 ' }).shown, true);
 });
 
-test('a price in Stripe shape is passed through; anything else is null (Price to be set)', () => {
+test('a price in Stripe shape is passed through; anything else is null', () => {
   const on = (p) => offer({ KOSMOS_PERSONAL_BACKUP: '1', KOSMOS_PERSONAL_BACKUP_PRICE: p }).price;
   assert.strictEqual(on('$5/month'), '$5/month');
   assert.strictEqual(on('€4.99/month'), '€4.99/month');

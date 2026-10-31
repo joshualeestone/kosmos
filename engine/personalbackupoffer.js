@@ -5,7 +5,7 @@
  *   shown: KOSMOS_PERSONAL_BACKUP=1 in the board's environment, the same word that turns it on at the coordinator, so
  *          one switch names both. Off by default: no panel and no routes (server.js answers them 404).
  *   price: KOSMOS_PERSONAL_BACKUP_PRICE when it is in the shape Stripe prices come in ("$5/month", engine/remote.js
- *          PRICE_SHAPE); anything else, or unset, is null and the page says "Price to be set". Never a made-up figure.
+ *          PRICE_SHAPE); anything else, or unset, is null. Never a made-up figure.
  *
  * The price is Josh's decision (#7404). This reader is a placeholder until it is set; when it is, the price should come
  * from the coordinator's own answer, as address prices do, and this is what gets replaced.
