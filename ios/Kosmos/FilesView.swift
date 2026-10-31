@@ -91,7 +91,16 @@ struct FilesView: View {
 
     private func load() async {
         #if DEBUG
-        if let sample = FilesView.sample(owner: owner, dir: dir) { read = sample; return }
+        if let sample = FilesView.sample(owner: owner, dir: dir) {
+            read = sample
+            // KOSMOS_SAMPLE_FILES_OPEN=...quicklook: the first file opens by itself, once (the shots' "a file opened").
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILES_OPEN"]?.hasSuffix("quicklook") == true, !FilesView.sampleOpened,
+               case .page(let p) = sample, let first = p.files.first {
+                FilesView.sampleOpened = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { opener.open(first, owner: owner, client: client, openOnBoard: openOnBoard) }
+            }
+            return
+        }
         #endif
         let epoch = client.chatEpoch
         let res = await client.throughMac { mac in
@@ -109,6 +118,7 @@ struct FilesView: View {
 
     #if DEBUG
     // KOSMOS_SAMPLE_FILES=1 (a Debug build): sample Files without a Mac, for the design shots; =empty shows the empty state.
+    static var sampleOpened = false
     static func sample(owner: Board.FilesOwner, dir: String) -> Board.FilesRead? {
         guard let v = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILES"] else { return nil }
         if v == "empty" { return .page(Board.FilesPage(dir: dir, dirs: [], files: [], missing: false, truncated: false, total: 0)) }

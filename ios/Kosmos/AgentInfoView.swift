@@ -30,6 +30,8 @@ struct AgentInfoView: View {
     @State private var freshBusy = false
     // kosmos#7679: the Files section's read and its opener, owned here so they attach once, to the List (review 1).
     @State private var filesRead: Board.FilesSectionState = .hidden
+    // kosmos#7679 (Debug shots): KOSMOS_SAMPLE_FILES_OPEN=all opens View All by itself.
+    @State private var sampleAllFiles = false
     @StateObject private var filesOpener = FileOpener()
 
     @ScaledMetric(relativeTo: .body) private var markSize: CGFloat = 22
@@ -65,6 +67,11 @@ struct AgentInfoView: View {
         .task { await load() }
         .refreshable { await load() }
         .filesQuickLook(filesOpener, client: client)   // kosmos#7679: once, here, never on a Section's rows
+        .background(
+            NavigationLink(isActive: $sampleAllFiles) {
+                FilesView(client: client, owner: .agent(agent.session), openOnBoard: openOnBoard)
+            } label: { EmptyView() }.hidden()
+        )
         .confirmationDialog(asking.map { Board.freshConfirm($0, name: live.name).title } ?? "",
                             isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
                             titleVisibility: .visible, presenting: asking) { which in
@@ -356,6 +363,9 @@ struct AgentInfoView: View {
         instructions = "You look after the spring catalogue: the cover, the order of the pages, and getting proofs to the printer on time.\n\nAsk before you spend money or send anything outside the team."
         skills = [Board.Skill(key: "meeting-minutes", name: "Meeting minutes"), Board.Skill(key: "proof-checklist", name: "Proof checklist")]
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_INFO"] == "ai" { part = .ai }
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILES_OPEN"]?.hasPrefix("all") == true {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { sampleAllFiles = true }
+        }
     }
     #endif
 }

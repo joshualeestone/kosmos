@@ -1160,7 +1160,10 @@ final class BoardClient: ObservableObject {
     }
     #endif
     private func sampleFile(_ a: Board.Attachment) -> URL? {
-        guard sampleThreads.values.contains(where: { $0.rows.contains { $0.attachments.contains(a) } }) else { return nil }
+        // kosmos#7679 (Debug shots): with KOSMOS_SAMPLE_FILES set, a Files download stands in too, so Quick Look opens.
+        let filesSample = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILES"] != nil
+            && (a.url.contains("/files/download?") || a.url.contains("/file-download?"))
+        guard filesSample || sampleThreads.values.contains(where: { $0.rows.contains { $0.attachments.contains(a) } }) else { return nil }
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILE"] == "fail" { return nil }
         let folder = env.files.appendingPathComponent(a.id, isDirectory: true)
         let file = folder.appendingPathComponent("sample-" + Board.savedName(a.name) + ".txt")

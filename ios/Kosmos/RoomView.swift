@@ -92,6 +92,9 @@ struct RoomView: View {
     @State private var spokeEmpty = false
     // kosmos#7679: the project's Files screen is open.
     @State private var filesOpen = false
+    #if DEBUG
+    static var sampleFilesOpened = false
+    #endif
     private var searching: Bool { Board.chatSearching(query) }
     // The row open or words in it: no older pages (the chat's rule, #7089, from the board's earlierNearTop).
     private var searchMode: Bool { searchOpen || searching }
@@ -232,6 +235,13 @@ struct RoomView: View {
         .onAppear {
             visible = true
             store.enterOwnCompare(project.id)   // kosmos#7137: this visit's own-compare read draws the line, never the last one's
+            #if DEBUG
+            // kosmos#7679 (Debug shots): KOSMOS_SAMPLE_FILES_OPEN=project opens the room's Files by itself, once.
+            if RoomStore.sample, ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FILES_OPEN"]?.hasPrefix("project") == true, !Self.sampleFilesOpened {
+                Self.sampleFilesOpened = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { filesOpen = true }
+            }
+            #endif
             // kosmos#7072: coming back to a room that is held says so, as the board does when it shows a held room.
             if store.held[project.id] != nil { Self.say(Board.heldAnnouncement) }
             // The box as the person left it (RoomStore.drafts), then anything handed back while they were away, and a
