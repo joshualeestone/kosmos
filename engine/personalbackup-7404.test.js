@@ -767,3 +767,19 @@ test('#7404 restore: refused once the key is set up here (it would drop a code s
   const r = await pb.restore('CODE', { root, remote: c, personalbackupkey: keys });
   assert.equal(r.code, 'not_needed', JSON.stringify(r)); assert.equal(called, 0);
 });
+
+test('#7404 restore: refused while a recovery code made here waits to be saved (needs-key from a pending code)', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  let called = 0; let pending = true;
+  const keys = { setUpPersonalKey: async () => ({ ok: true, code: 'MADE-HERE', epoch: 1, org: 'korg', member: 'kmem' }),
+    hasPendingCode: (o, m) => pending && o === 'korg' && m === 'kmem',
+    restorePersonalKey: async () => { called++; return { ok: true, epochs: [1] }; } };
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: keys })).ok, true);
+  assert.equal(pb.state({ root, personalbackupkey: keys }), 'needs-key', 'the code made here is not confirmed yet');
+  const r = await pb.restore('CODE', { root, remote: c, personalbackupkey: keys });
+  assert.equal(r.code, 'code_waiting', JSON.stringify(r)); assert.equal(called, 0, 'a restore would have dropped the code');
+  pending = false;   // CONTROL: confirmed, so state reads on and the restore is refused as not needed instead
+  assert.equal((await pb.restore('CODE', { root, remote: c, personalbackupkey: keys })).code, 'not_needed');
+});

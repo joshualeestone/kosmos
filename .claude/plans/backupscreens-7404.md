@@ -29,27 +29,30 @@ All person-only: `isViaScreen` refused with 403, as /api/org/*. Each answers onl
 - `POST /api/personal-backup/preview`: preview() -> `{ ok, ticket, words }`.
 - `POST /api/personal-backup/on` `{ ticket, accepted }`: switchOn() -> `{ ok, recoveryCode, org, member }` once; the code
   goes to the screen in this one answer and nowhere else (never logged). A refusal's `code` is a refusal code only.
-- `POST /api/personal-backup/key`: setUpKey() for state needs-key (shows the same code again while unconfirmed).
+- `POST /api/personal-backup/key`: setUpKey() for state needs-key (the same code again while unconfirmed, or code
+  'restore' when another computer set the backup up).
 - `POST /api/personal-backup/saved` `{ org, member }`: confirmRecoveryCodeSaved().
-- `POST /api/personal-backup/restore` `{ code }`: restorePersonalKey().
+- `POST /api/personal-backup/restore` `{ code }`: engine restore(): only in needs-key, while Kosmos+ names this binding
+  and no code made here is waiting; writes the key-ready marker.
 - `POST /api/personal-backup/off`: switchOff().
-- Step-up from a remote session: on, key, restore, off and saved (saved deletes this computer's copy of the code, until
-  written down the only copy). preview is not gated (it only reads).
+- Step-up from a remote session: every step, preview included (preview makes the personal membership on Kosmos+).
 - Every route answers 404 when not shown, so a board with the switch off has no surface.
 
 ## Panel (Settings, Kosmos+ section, under the company block), as built after Mona Lisa's reviews
 States: off -> words -> code shown -> on; needs-key; pending; restore.
-- Off: one line of what it is, the price line and Turn on (both absent with no price), and a quiet line "Moving from
-  another computer? Restore with your recovery code."
+- Off: one line of what it is, the price line, Turn on, and the hint "Moving from another computer? Turn it on here,
+  then enter your recovery code when asked." (all three absent with no price).
 - Words: the coordinator's words as served (their hash is what is accepted, so never reworded here): who can read it as
   one sentence, what is never backed up, the price, then Accept and turn on / Not now.
 - Code: the recovery code in full ink, broken only between groups; "Kosmos+ never sees this code, so it cannot get it
   back for you..."; Copy and Print (a hidden frame, removed after printing); then, on its own row, "I saved my recovery
   code", the only way out.
 - On: "Personal backup is on for this computer." Turn off, confirmed in place ("Nothing more from it is backed up").
-- Needs-key: Show my recovery code. Pending: says Kosmos is checking, no Turn off.
-- Restore: what it does today (puts the key here, changes nothing else), the code as a 16px text area that wraps on a
-  phone, Enter submits; a refusal under the field in the Kosmos+ error colour, the typed code kept.
+- Needs-key: "its backup key is not set up here yet, so nothing is being backed up", Finish setting up (shows the code
+  made here, or opens restore when another computer set the backup up). Pending: says Kosmos is checking, no Turn off.
+- Restore (opened by the key step's code 'restore'): why it appeared first, what it does today (puts the key here, none
+  of your files changed), the code as a 16px text area that wraps on a phone, Enter submits; a refusal under the field
+  in the Kosmos+ error colour, the typed code kept; Not now, with what it leaves behind.
 - Must NOT say: that "personal" means not gathered into a company rollup on a work computer.
 
 ## Not in this branch

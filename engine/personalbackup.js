@@ -310,15 +310,21 @@ async function setUpKey(opts = {}) {
    only while Kosmos+ still names that binding, so a restore never acts on another org's keys. A restore that worked
    writes the key-ready marker, so state() reads 'on' rather than asking for a code it will never show.
    { ok: true, epochs } or { ok: false, code, because }. */
+/* Whether this computer made the key for `rec` and its recovery code is still pending here (a restore would drop it). */
+function codeWaitingHere(rec, pk, opts) {
+  try {
+    const k = JSON.parse(fs.readFileSync(path.join(root(opts), KEY_READY), 'utf8'));
+    return !!(k && k.org === rec.org.id && k.world === rec.world && k.keyOrg && k.member && pk.hasPendingCode(k.keyOrg, k.member));
+  } catch { return false; }
+}
 async function restore(code, opts = {}) {
   const rec = record(opts);
   if (!rec) return { ok: false, code: 'not_on', because: 'Turn on personal backup on this computer first, then restore with your recovery code.' };
-  /* Challenge round 6: only while the key is not set up here. With it set up a restore has nothing to do, and it would
-     delete a recovery code still waiting to be shown here (restorePersonalKey drops any pending code). */
   if (state(opts) !== 'needs-key') return { ok: false, code: 'not_needed', because: 'This computer already has its backup key, so there is nothing to restore.' };
+  const pk = opts.personalbackupkey || require('./personalbackupkey');
+  if (codeWaitingHere(rec, pk, opts)) return { ok: false, code: 'code_waiting', because: 'A recovery code made on this computer is still waiting to be saved. Press Finish setting up to see it.' };
   const held = await boundHereNow(rec, opts, 'nothing was restored');
   if (held) return held;
-  const pk = opts.personalbackupkey || require('./personalbackupkey');
   let r;
   try { r = await pk.restorePersonalKey(code, { macRequest: opts.macRequest || ((m, rt, b) => remoteOf(opts).macRequest(m, rt, b)) }); } catch { r = null; }
   if (!(r && r.ok)) return r && typeof r === 'object' ? r : { ok: false, because: 'restoring the backup keys failed on this computer' };

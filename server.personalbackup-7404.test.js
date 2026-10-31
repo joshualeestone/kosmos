@@ -120,9 +120,8 @@ test('#7404: from the screen, a decline turns nothing on; a bad code restores no
   assert.equal(fs.existsSync(path.join(store.ROOT, 'personal-backup', 'enrollment.json')), false);
 });
 
-test('#7404: every step but preview needs a step-up (saved deletes what may be the only copy of the code)', () => {
-  for (const k of ['on', 'key', 'restore', 'off', 'saved']) assert.equal(needsRemoteStepUp('/api/personal-backup/' + k, 'POST'), true, k);
-  assert.equal(needsRemoteStepUp('/api/personal-backup/preview', 'POST'), false);
+test('#7404: every step needs a step-up (preview makes a membership; saved deletes what may be the only copy of the code)', () => {
+  for (const k of ['preview', 'on', 'key', 'restore', 'off', 'saved']) assert.equal(needsRemoteStepUp('/api/personal-backup/' + k, 'POST'), true, k);
   assert.equal(needsRemoteStepUp('/api/personal-backup', 'GET'), false);
 });
 

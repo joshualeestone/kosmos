@@ -20477,7 +20477,7 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <div id="pb-onview" hidden>
           <p class="fhint" id="pb-on-say">Personal backup is on for this computer.</p>
-          <div class="frow" id="pb-off-row"><button class="btn" type="button" id="pb-off-btn">Turn off personal backup</button></div>
+          <div class="frow" id="pb-off-row"><button class="btn uprime" type="button" id="pb-finish" hidden>Finish setting up</button><button class="btn" type="button" id="pb-off-btn">Turn off personal backup</button></div>
           <div id="pb-off-ask" hidden>
             <!-- Only what is true: the coordinator ends the membership (org.rs mac_leave). What it then keeps of a personal
                  backup is not settled anywhere yet, so this promises nothing about it. -->
@@ -55660,13 +55660,7 @@ function pbPaint() {
   const ask = document.getElementById('pb-off-ask');
   if (!(v === 'on' || v === 'needs-key')) ask.hidden = true;
   document.getElementById('pb-off-row').hidden = v === 'pending' || !ask.hidden;
-  let fin = document.getElementById('pb-finish');
-  if (v === 'needs-key' && !fin) {
-    fin = document.createElement('button'); fin.className = 'btn uprime'; fin.type = 'button'; fin.id = 'pb-finish'; fin.textContent = 'Finish setting up';
-    fin.addEventListener('click', pbFinish);
-    document.getElementById('pb-off-row').prepend(fin);
-  }
-  if (fin) fin.hidden = v !== 'needs-key';
+  document.getElementById('pb-finish').hidden = v !== 'needs-key';
   if (v !== 'code') {
     if (PB.code) pbMsg('');   // a "Copied" line belongs to the code view and leaves with it
     PB.code = null; document.getElementById('pb-code-text').textContent = '';
@@ -55831,6 +55825,7 @@ async function pbRestore() {
   } finally { PB.busy = false; pbMaybe(); }
 }
 document.getElementById('pb-on').addEventListener('click', pbOpen);
+document.getElementById('pb-finish').addEventListener('click', pbFinish);
 document.getElementById('pb-accept').addEventListener('click', () => pbAccept(true));
 document.getElementById('pb-no').addEventListener('click', () => pbAccept(false));
 document.getElementById('pb-copy').addEventListener('click', pbCopy);
