@@ -813,7 +813,10 @@ struct ChatView: View {
     private func diagCapture(_ proxy: ScrollViewProxy, why: String, count: Int, recover: Bool = true) {
         guard visible, scenePhase == .active else { return }
         // kosmos#7420 (build 22, 10-30): reported once per chat, but an empty list is put right every time it is found.
-        if recover, diagDone { recoverEmpty(proxy); return }
+        if recover, diagDone {
+            if !personScrolling { Self.trace("diag: empty again, put right"); recoverEmpty(proxy) }
+            return
+        }
         guard recover || !diagWideDone else { return }
         if recover { diagDone = true } else { diagWideDone = true }
         let info = Bundle.main.infoDictionary
@@ -841,6 +844,8 @@ struct ChatView: View {
     private func recoverEmpty(_ proxy: ScrollViewProxy) {
         if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") }
         goNewest(proxy)
+        // The move above may have made SwiftUI name a row in the binding, which goNewest's own put-back leaves alone.
+        if Self.idAnchor { DispatchQueue.main.async { if positionId != "end" { positionId = "end" } } }
     }
 
     // kosmos#7575: when this chat open had a sideways shift, one report to the person's board (numbers and kind words,
@@ -2536,13 +2541,7 @@ struct PositionTargets: ViewModifier {
         if #available(iOS 17.0, *), on { content.scrollTargetLayout() } else { content }
     }
 }
-// kosmos#7420 (Josh 10-28, builds 13 to 15): every row of the chat moved left by its 16 pt side margin, the agent's
-// bubbles against the screen's edge, and back on a later layout. The chat had been scrolled sideways: the list scrolls only
-// up and down, but the scroll view underneath it keeps whatever offset it is given (the hold on the newest message is
-// centred across as well, anchor .bottom). Which layout gave it one was never caught (a row made wider than the screen in
-// the simulator did not), so the lock does not depend on the cause: it watches the scroll view the chat sits in and puts
-// any sideways offset back to its rest, writing it in the diagnostic's record. KOSMOS_SAMPLE_SIDEWAYS=<seconds> (Debug) gives it
-// one, as the phone did; KOSMOS_SAMPLE_NOLOCK=1 is the control.
+
 // kosmos#7420: the chat's scroll view, for the empty-list diagnostic: its place against the content (Board.scrollPlace),
 // and putting an offset outside the content back at its end.
 final class ScrollBox {
@@ -2555,14 +2554,21 @@ final class ScrollBox {
         return ("scroll y \(Int(sv.contentOffset.y)), content \(Int(sv.contentSize.height)), view \(Int(sv.bounds.height)), insets \(Int(i.top))/\(Int(i.bottom)): \(p.place)",
                 p.place, p.end)
     }
-    // True when it moved it.
+    // Outside either way it goes to the end, since the newest message follows. Never under a finger. True when it moved it.
     func backInside() -> Bool {
-        guard let sv = view, let r = reading(), r.place != "within" else { return false }
+        guard let sv = view, !sv.isTracking, !sv.isDragging, !sv.isDecelerating, let r = reading(), r.place != "within" else { return false }
         sv.contentOffset = CGPoint(x: -sv.adjustedContentInset.left, y: CGFloat(r.end))
         return true
     }
 }
 
+// kosmos#7420 (Josh 10-28, builds 13 to 15): every row of the chat moved left by its 16 pt side margin, the agent's
+// bubbles against the screen's edge, and back on a later layout. The chat had been scrolled sideways: the list scrolls only
+// up and down, but the scroll view underneath it keeps whatever offset it is given (the hold on the newest message is
+// centred across as well, anchor .bottom). Which layout gave it one was never caught (a row made wider than the screen in
+// the simulator did not), so the lock does not depend on the cause: it watches the scroll view the chat sits in and puts
+// any sideways offset back to its rest, writing it in the diagnostic's record. KOSMOS_SAMPLE_SIDEWAYS=<seconds> (Debug) gives it
+// one, as the phone did; KOSMOS_SAMPLE_NOLOCK=1 is the control.
 struct SideScrollLock: UIViewRepresentable {
     let off: Bool
     var box: ScrollBox? = nil   // kosmos#7420: told which scroll view it found

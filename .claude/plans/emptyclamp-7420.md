@@ -23,7 +23,10 @@ offset or the content height, so this has not been checkable.
 - The report gains a line "scroll y, content, view, insets: <place>", and its after-the-try line reports the same measured
   place (plus "rows said to appear N", named as what it is) instead of "messages on screen again".
 - Recovery (recoverEmpty): if the scroll is outside its content, put it at the content's end, then go to the newest message
-  as before. Reported once per chat as before, but recovered every time the list is found empty.
+  as before. Reported once per chat as before, but recovered every time the list is found empty, except while the person scrolls
+  (and backInside never acts under a finger). After going to the newest message, "end" is named again on the next turn in
+  case the direct offset write made SwiftUI write a row into the binding. A repeat recovery leaves the trace line
+  "diag: empty again, put right", so the record counts them.
 
 ## Rejected
 - Changing the side lock's write now: the record shows it firing, but #7575's report found it was not the cause on 10-29,
@@ -33,7 +36,15 @@ offset or the content height, so this has not been checkable.
 ## Weakest premise
 That the empty list is an offset outside the content. If the next report says "within" while empty, the cause is drawing,
 not position, and the clamp does nothing (harmlessly). Either way the report now answers it.
+A caveat on reading "within": UIScrollView may itself pull an offset back inside when the content or view size changes while
+nobody drags, so an at-rest "within" while empty does not by itself prove the cause is drawing; it shows the offset was
+not outside at that moment.
 
 ## Not tested
 - The empty state itself has never been reproduced off Josh's phone; the clamp is unexercised by any check.
 - Recovery runs only from the existing empty-list check (diagTick when the last row leaves, and the never-drew timer).
+
+## Results
+- ios/tools/ui-keyboard.sh on a fresh iPhone 17e (iOS 26.5): 3 of 3 passed on 7e92b81 (21:48 CDT); the app built.
+- iOS logic suites: run.sh and every run-*.sh; room failed 1 on 7e92b81 (a source check naming the old SideScrollLock call),
+  fixed in the next commit.
