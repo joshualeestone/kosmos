@@ -72,9 +72,11 @@ check(boardPage.contains("(dir ? 'This folder is empty.' : 'This agent has no fi
 check(boardPage.contains("'Nothing here yet. Files you or your agents put in this project\\u2019s folder show up here.'"), "the board's project empty line still")
 check(boardPage.contains("'That file did not open.'"), "the board's could-not-open line still")
 let full = Board.FilesPage(dir: "", dirs: [], files: [dots], missing: false, truncated: false, total: 1)
-check(Board.filesMore(full) == nil, "a whole list says nothing more")
+check(Board.filesMore(full, owner: .agent("c")) == nil, "a whole list says nothing more")
 let cut = Board.FilesPage(dir: "", dirs: [], files: [dots, inSub], missing: false, truncated: true, total: 900)
-check(Board.filesMore(cut) == "Showing the first 2. The rest are in Files on your computer.", "a list the route cut short says so (review 1)")
+check(Board.filesMore(cut, owner: .agent("c")) == "Showing the first 2. The rest are in Files on your computer.", "a list the route cut short says so (review 1)")
+check(Board.filesMore(cut, owner: .project("p")) == "Showing the first 2. The rest are in the project\u{2019}s folder on your computer.", "a project's says the project's folder (review 3)")
+check(Board.filesTooBig(.project("p")) == "This file is too big to open on the phone. It is in the project\u{2019}s folder on your computer.", "too big, by owner")
 let crumbs = Board.filesCrumbs("Covers/Spring")
 check(crumbs.map(\.name) == ["Files", "Covers", "Spring"] && crumbs.map(\.path) == ["", "Covers", "Covers/Spring"], "breadcrumbs from Files down")
 

@@ -15,6 +15,8 @@ struct FilesView: View {
 
     @State private var read: Board.FilesRead?
     @StateObject private var opener = FileOpener()
+    // Review 3: the account this list was read for, so coming Back to it keeps the page and only another account clears it.
+    @State private var readFor: Int?
 
     var body: some View {
         List {
@@ -46,7 +48,7 @@ struct FilesView: View {
                             if case .project = owner {
                                 Text(page.total == 1 ? "1 file" : "\(page.total) files").foregroundColor(Palette.secondary)
                             }
-                            if let more = Board.filesMore(page) { Text(more).foregroundColor(Palette.secondary) }
+                            if let more = Board.filesMore(page, owner: owner) { Text(more).foregroundColor(Palette.secondary) }
                         }
                     }
                 }
@@ -64,7 +66,10 @@ struct FilesView: View {
         .refreshable { await load() }
         // Review 2: keyed on the account, so a sign-out, another account or another Mac cancels the old read and starts
         // a new one; load() also drops an answer that lands for the account before.
-        .task(id: client.chatEpoch) { read = nil; opener.failed = nil; await load() }
+        .task(id: client.chatEpoch) {
+            if readFor != client.chatEpoch { read = nil; opener.failed = nil; readFor = client.chatEpoch }
+            await load()
+        }
         .filesQuickLook(opener, client: client)
     }
 
@@ -93,7 +98,10 @@ struct FilesView: View {
             }
         }
         guard epoch == client.chatEpoch else { return }   // the answer belongs to the account before
-        read = Board.filesResult(status: res?.1.statusCode ?? 0, body: res?.0)
+        // Review 3: no answer (a cancelled read, a dropped connection) keeps a list already shown, as the agent page does.
+        let got = Board.filesResult(status: res?.1.statusCode ?? 0, body: res?.0)
+        if case .noAnswer = got, case .page = read { return }
+        read = got
     }
 
     #if DEBUG
@@ -212,7 +220,7 @@ final class FileOpener: ObservableObject {
     func open(_ f: Board.ListedFile, owner: Board.FilesOwner, client: BoardClient, openOnBoard: () -> Void) {
         guard opening == nil, previewURL == nil else { return }
         if Board.isWebDocument(name: f.name, type: "") { openOnBoard(); return }
-        if Board.filesTooBigToOpen(f) { say(Board.filesTooBig); return }   // review 2: never read whole into memory
+        if Board.filesTooBigToOpen(f) { say(Board.filesTooBig(owner)); return }   // review 2: never read whole into memory
         guard let a = Board.filesAttachment(owner: owner, file: f, id: UUID().uuidString) else { say(Board.filesDidNotOpen); return }
         failed = nil
         opening = f.name
@@ -226,6 +234,11 @@ final class FileOpener: ObservableObject {
             // Left the screen while it came: nothing will show it, so it goes now.
             if visible { openedFile = file; previewURL = file } else { client.closed(file) }
         }
+    }
+
+    func reset(client: BoardClient) {
+        if let f = openedFile { client.closed(f) }
+        openedFile = nil; previewURL = nil; opening = nil; failed = nil
     }
 
     // Quick Look closed (or moved on): the file it showed is removed from the phone, as the chat does.
@@ -254,5 +267,7 @@ private struct FilesQuickLook: ViewModifier {
             .onDisappear { opener.visible = false }
             .quickLookPreview($opener.previewURL)
             .onChange(of: opener.previewURL) { opener.shown($0, client: client) }
+            // Review 3: another account's file is never left showing, whether or not the screen is popped (the chat's reset).
+            .onChange(of: client.chatEpoch) { _ in opener.reset(client: client) }
     }
 }
