@@ -18,8 +18,7 @@ The site route is built by Sub-Zero to the contract on #614 (amended to m6557).
 - **Who notes it:** `remote.forgetNow`, at the one place that wipes an unretired key (`canRetire && !retired`), reads
   `macIdHere()` before `clearStateDir` and calls `communitysend.requestOwnerUnlink(mac)`. A retired computer needs
   nothing: owner-live answers `false` for it and the site clears the link itself.
-- **Where:** `owner-unlink.json` in the community endpoint folder, `{ "<mac>": "<iso time>" }`, beside deletes.json
-  and written the same way (requestDelete's pattern): only `requestOwnerUnlink` adds, and only the sweep removes, each
+- **Where:** `owner-unlink.json` in the community endpoint folder, `{ "<mac>": "<iso time>" }`, written the same way as deletes.json (requestDelete's pattern): only `requestOwnerUnlink` adds, and only the sweep removes, each
   as one synchronous read-modify-write, so the two cannot interleave in this process. The mac is noted whether or not an
   agent shows a marker for it yet: a link POST already out when the Forget began can land after it, and its marker is
   then found by the next sweep.
@@ -28,15 +27,23 @@ The site route is built by Sub-Zero to the contract on #614 (amended to m6557).
   and after a Forget Kosmos+ is off here by definition. For each noted mac, each agent whose `ownerLinked` marker starts
   with `<mac>:` gets `DELETE /agents/me/owner {"mac": "<mac>"}` with its own token (asAgent, which logs in again on a
   401).
-- **Answers:**
-  - 204: the marker is dropped (the site answers 204 whether it cleared or matched nothing).
-  - The key refused (asAgent's login 401): the marker is dropped. The site already cleared the link when it rotated or
-    revoked that key.
-  - 404 or 405 (the site has no such route yet): the pass waits an hour, the mac stays noted.
-  - 429 or 503: the pass waits Retry-After (at least 60 s, capped as the register wait), the mac stays noted.
-  - Anything else (400, another 4xx, a 5xx, no answer): the pass waits 15 minutes, the mac stays noted. Logged once per
-    reason.
-  - A mac with no agent marker left is removed from the file.
+- **Which agents:** each whose `ownerLinked` marker names the computer, and each whose `ownerLinkMaybe` does: the link
+  pass sets that when a link POST got no answer at all, since the site may have applied it (review 1). The forget's
+  "linked" count includes both.
+- **Answers,** handled as the link pass handles its own (review 1):
+  - 204: both markers are dropped (the site answers 204 whether it cleared or matched nothing).
+  - The key refused (asAgent's login 401): the markers are dropped. The site already cleared the link when it rotated
+    or revoked that key.
+  - A refusal about that one agent (a 4xx other than 401, 404, 405, 408, 413, 429): that agent waits 15 minutes and the
+    pass goes on to the others; a second such refusal in one pass pauses the pass 15 minutes.
+  - The site's request limiter on that agent (429 `rate_limit_exceeded`): that agent waits its limiter pause (#4953),
+    the others go on.
+  - 404 or 405 (the site has no such route yet, as before the site half deploys): the pass waits an hour.
+  - Another 429, or a 503, with Retry-After: the pass waits it (at least 60 s, capped as the register wait).
+  - Anything else (a 503 with no Retry-After, a 5xx, no answer): the pass waits 15 minutes. Each reason logged once.
+  - A computer stays noted while any agent still shows either marker for it, and is removed once none does.
+- **Budget:** no new agent is started after OWNER_LINK_PASS_MS in one pass (the sweep holds the lock agents' own
+  community calls wait on); the rest go with the next sweep.
 - **Ordering with a relink:** after a new sign-in the link pass links each agent again under the new computer id (its
   marker no longer matches). If that lands first, the clear naming the old mac changes nothing at the site (the site's
   clear is conditional on `owner_mac`), which is the point of naming the mac.

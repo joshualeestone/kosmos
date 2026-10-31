@@ -71,7 +71,8 @@ function backend() {
         // The site's own check: the pass must name the agent whose key presents it.
         if (!body || body.pass !== 'pass-for:' + a.name) return send(400, { detail: 'pass refused' });
         a.owner = body.pass;
-        a.ownerMac = R.mac;   // kosmos-relay#614: the real site takes it from the pass; here, the computer that linked
+        a.ownerMac = R.mac;
+        if (st.mode.applyThenDrop) return req.socket.destroy();   // kosmos-relay#614: linked, but no answer reaches the board   // kosmos-relay#614: the real site takes it from the pass; here, the computer that linked
         res.writeHead(204); return res.end();
       }
       // kosmos-relay#614: the site's clear, as its contract: the agent's own token, exactly {mac}, cleared only when the
@@ -79,7 +80,8 @@ function backend() {
       if (req.method === 'DELETE' && req.url === '/agents/me/owner') {
         if (st.mode.unlinkNoRoute) return send(404, { detail: 'Not Found' });
         if (!a) return send(401, { detail: 'invalid or expired token' });
-        if (st.mode.unlinkStatus) return send(st.mode.unlinkStatus, { detail: 'no' }, st.mode.unlinkHeaders);
+        if (st.mode.unlinkStatusFor && a.name === st.mode.unlinkStatusFor.name) return send(st.mode.unlinkStatusFor.status, st.mode.unlinkStatusFor.body || { detail: 'no' }, st.mode.unlinkStatusFor.headers);
+        if (st.mode.unlinkStatus) return send(st.mode.unlinkStatus, st.mode.unlinkBody || { detail: 'no' }, st.mode.unlinkHeaders);
         if (!body || Object.keys(body).join() !== 'mac' || !/^[0-9a-f]{32}$/.test(body.mac)) return send(400, { detail: 'bad request' });
         if (a.ownerMac === body.mac) { a.owner = null; a.ownerMac = null; }
         res.writeHead(204); return res.end();
@@ -801,21 +803,25 @@ test('kosmos-relay#614: a site with no clear route yet waits an hour and keeps t
   assert.deepEqual(notedMacs(), []);
 });
 
-test('kosmos-relay#614: a 503 or 429 waits its Retry-After; another answer waits 15 minutes; the computer stays noted', async () => {
+test('kosmos-relay#614: each answer waits as long as it should, and the computer stays noted', async () => {
   const mac = hex32();
   await linkedThenForgotten(['ava'], mac);
   cs.requestOwnerUnlink(mac);
-  for (const [status, headers] of [[503, { 'retry-after': '30' }], [429, { 'retry-after': '90' }], [500, undefined], [400, undefined]]) {
+  // [status, headers, the pass's pause in s]: Retry-After honoured (at least 60 s), a 503 without one is not a short
+  // wait, and anything else is 15 minutes.
+  for (const [status, headers, pauseS] of [[503, { 'retry-after': '30' }, 60], [429, { 'retry-after': '90' }, 90], [503, undefined, 900], [500, undefined, 900]]) {
     cs._ownerLinkReset(15 * 60 * 1000);
     be.st.mode.unlinkStatus = status; be.st.mode.unlinkHeaders = headers;
     const before = unlinkCalls().length;
     await cs.sweep();
+    const paused = cs._ownerUnlinkPausedMs() / 1000;
+    assert.ok(paused > pauseS - 5 && paused <= pauseS, `${status} ${JSON.stringify(headers || {})}: paused ${paused} s, not ${pauseS}`);
     await cs.sweep();
     assert.equal(unlinkCalls().length, before + 1, status + ': asked again before the wait was over');
     assert.deepEqual(notedMacs(), [mac], status + ': the computer was dropped');
     assert.equal(agentNamed('ava').ownerMac, mac, status + ': fixture: still linked');
   }
-  be.st.mode.unlinkStatus = 0;
+  be.st.mode.unlinkStatus = 0; be.st.mode.unlinkHeaders = undefined;
   cs._ownerLinkReset(15 * 60 * 1000);
   await cs.sweep();
   assert.equal(agentNamed('ava').owner, null, 'not cleared once the site answers');
@@ -833,4 +839,74 @@ test('kosmos-relay#614: an agent whose key the site refuses is dropped, not aske
   const n = unlinkCalls().length;
   await cs.sweep();
   assert.equal(unlinkCalls().length, n, 'asked again for a refused key');
+});
+
+test('kosmos-relay#614: one agent the site refuses does not hold the others; a second refusal in a pass pauses it', async () => {
+  const mac = hex32();
+  await linkedThenForgotten(['ava', 'roo', 'pixel'], mac);
+  be.st.mode.unlinkStatusFor = { name: keyName('ava'), status: 403 };
+  cs.requestOwnerUnlink(mac);
+  await cs.sweep();
+  assert.equal(agentNamed('roo').owner, null, 'roo waited behind ava');
+  assert.equal(agentNamed('pixel').owner, null, 'pixel waited behind ava');
+  assert.equal(agentNamed('ava').ownerMac, mac, 'fixture: ava still linked');
+  assert.equal(cs._ownerUnlinkPausedMs(), 0, 'one agent\'s refusal paused the whole pass');
+  assert.deepEqual(notedMacs(), [mac], 'the computer was dropped while ava still shows a link');
+  const n = unlinkCalls().length;
+  await cs.sweep();
+  assert.equal(unlinkCalls().length, n, 'the refused agent was asked again before its 15 minutes');
+  // CONTROL: two agents refused in one pass pause the pass.
+  const mac2 = hex32();
+  SW = { on: true, ok: true }; R.on = true;   // registering needs Community and Kosmos+ on again,
+  await cs.sweep();   // and a new on-period, as beforeEach starts one: a post from before it is never sent
+  await linkedThenForgotten(['ivy', 'oak'], mac2);
+  be.st.mode.unlinkStatusFor = null; be.st.mode.unlinkStatus = 403;
+  cs._ownerLinkReset(15 * 60 * 1000);
+  cs.requestOwnerUnlink(mac2);
+  await cs.sweep();
+  assert.ok(cs._ownerUnlinkPausedMs() > 14 * 60 * 1000, 'two refusals in a pass did not pause it');
+});
+
+test('kosmos-relay#614: a link whose answer never arrived is cleared too', async () => {
+  const mac = hex32();
+  R.mac = mac;
+  await registered('ava');
+  be.st.mode.applyThenDrop = true;
+  await cs.sweep();
+  be.st.mode.applyThenDrop = false;
+  assert.equal(agentNamed('ava').ownerMac, mac, 'fixture: the site linked it');
+  assert.equal(marker('ava'), undefined, 'fixture: no answer, so no linked marker');
+  R.on = false; R.mac = null; SW = { on: false, ok: true };
+  assert.equal(cs.requestOwnerUnlink(mac).linked, 1, 'the maybe-linked agent is not counted');
+  await cs.sweep();
+  assert.equal(agentNamed('ava').owner, null, 'a link whose answer was lost stayed at the site');
+  assert.deepEqual(notedMacs(), []);
+});
+
+test('kosmos-relay#614: the site limiter on one agent holds only that agent', async () => {
+  const mac = hex32();
+  await linkedThenForgotten(['ava', 'roo'], mac);
+  be.st.mode.unlinkStatusFor = { name: keyName('ava'), status: 429, body: { error: 'rate_limit_exceeded' }, headers: { 'retry-after': '60' } };
+  cs.requestOwnerUnlink(mac);
+  await cs.sweep();
+  assert.equal(agentNamed('roo').owner, null, 'roo waited behind ava\'s limiter');
+  assert.equal(cs._ownerUnlinkPausedMs(), 0, 'one agent\'s limiter paused the whole pass');
+  assert.deepEqual(notedMacs(), [mac]);
+  const n = unlinkCalls().length;
+  await cs.sweep();
+  assert.equal(unlinkCalls().length, n, 'ava was asked again inside its limiter pause');
+});
+
+test('kosmos-relay#614: the clear pass keeps to the sweep budget; what is left goes with the next sweep', async () => {
+  const mac = hex32();
+  await linkedThenForgotten(['ava'], mac);
+  cs.requestOwnerUnlink(mac);
+  cs._ownerLinkBudget(-1);   // the budget is already spent when the pass starts
+  try {
+    await cs.sweep();
+    assert.equal(unlinkCalls().length, 0, 'a clear was started past the budget');
+    assert.deepEqual(notedMacs(), [mac], 'the computer was dropped unasked');
+  } finally { cs._ownerLinkBudget(30 * 1000); }
+  await cs.sweep();
+  assert.equal(agentNamed('ava').owner, null, 'not cleared by the next sweep');
 });
