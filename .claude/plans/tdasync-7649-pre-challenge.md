@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: tdasync-7649
-diff_hash: 46620d21ac83704292f6a56838411a669bd0a74cb4c1513048e7e364acab2852
+diff_hash: 41e0673435de4e579545dda514345f7e63036ab1e6d964891626f158fd533155
 validation: full suite on df0a9a0a1a (this branch rebased onto main after #7611 merged as a31068a301; the patch is identical to the reviewed one, patch-id 492546de14), PASSED attempt 1: node 26002 tests, 25595 pass, 0 fail, 0 cancelled, 407 skipped; shell 4/4 shards all green (304 commands).
 subdir_audit: not run (no subdir CLAUDE.md in the diff)
 timestamp: 2026-10-31T04:20:47Z
