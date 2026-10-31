@@ -18,7 +18,7 @@ Rejected: guarding each catch by hand (200 sites, and the next new route reopens
 deliberate choice not to have one).
 
 ## Sweep of the other head writers
-Every `res.writeHead(` in server.js was read in context (40 on this branch), not only the top-level functions
+Every `res.writeHead(` in server.js was read in context (40 on main; 39 on this branch, which moves the two `as=text` heads into one `sendText`), not only the top-level functions
 (review 2: the first sweep listed functions and missed inline closures).
 - Guarded now, because a head can already be out when they run:
   - `sendJson` and `refuseDownload`, both through `answeredAlready`;
@@ -32,13 +32,25 @@ Every `res.writeHead(` in server.js was read in context (40 on this branch), not
   guard that rests on one runtime's behaviour is the wrong kind of guard.
 
 ## Test
-`server.headers-twice-7686.test.js` makes `fs.createReadStream` throw once, which is after the preview route's head is
-written (sendFileStream opens the stream outside its own try). It records unhandled rejections instead of letting
-them end the test process.
-- Red before the fix: `ERR_HTTP_HEADERS_SENT` escapes the route (and the response hangs, so the request helper has a
-  5 s cut-off).
-- Green after: no rejection, the response is cut, and the board answers 200 again.
-- Controls: the preview answers 200 before the failure, and the injection is asserted to have fired.
+`server.headers-twice-7686.test.js`, six tests. Unhandled rejections are recorded (each test reads only its own) rather
+than left to end the test process.
+- **The 10-31 crash path, end to end:** a throw after the preview's head, from outside sendFileStream's own catch,
+  reaches the route's `.catch(() => sendJson(...))`. Asserted: the guard's log line, no rejection, a cut response, and
+  the board answering 200 after. Without the sendJson guard, `ERR_HTTP_HEADERS_SENT` escapes the route.
+- A preview whose stream cannot open after its head: the descriptor is closed (counted on the file) and the response
+  is cut.
+- The diagnostics download failing after its head, with the injection only when sendDiagnostics is the caller:
+  `refuseDownload`'s guard, end to end.
+- Unit tests: sendJson, sendText and refuseDownload after a head end the response, never throw, and log the route
+  without a token.
+- Controls: each injection is asserted to have fired, and the preview answers 200 before each failure.
+- Each guard (answeredAlready, refuseDownload's use of it, sendText's, sendFileStream's open catch) turns its own test
+  red under mutation.
+
+## Not in this card (found in review round 3)
+The records `as=text` route writes its 200 head, then renders with no try, so a throw in the render is an unhandled
+rejection with no second head involved. It is a different shape (a throw after a head with no catch at all), so it
+has its own card.
 
 ## Weakest premise
 That the thrower on Josh's board was inside the preview's `.then` after the head. The log records neither the
