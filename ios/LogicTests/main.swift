@@ -2089,10 +2089,14 @@ final class FakeBoardWorld {
 let testFiles = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-logic-tests-files-\(getpid())", isDirectory: true)
 // And for copies of picked files (#7071), a folder apart from it, as in the app (so neither's clearing hides the other's).
 let testUploads = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-logic-tests-uploads-\(getpid())", isDirectory: true)
+// And for kept agent pictures (#7677), one folder per client under it.
+let testAvatars = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-logic-tests-avatars-\(getpid())", isDirectory: true)
 
 @MainActor
 func boardLoopTests() async {
-    func make(_ session: String?, kept: String? = nil) -> (BoardClient, FakeBoardWorld, MemoryStore, MemoryStore) {
+    // kosmos#7677: every client keeps pictures in a folder of its own (a fresh one unless `avatars` names one, as a relaunch
+    // of the same phone would), never in this Mac's caches folder.
+    func make(_ session: String?, kept: String? = nil, avatars: URL? = nil) -> (BoardClient, FakeBoardWorld, MemoryStore, MemoryStore) {
         let world = FakeBoardWorld()
         let sessions = MemoryStore(session)
         let macs = MemoryStore(kept)
@@ -2125,7 +2129,8 @@ func boardLoopTests() async {
                                                 return world.upload(r, file)
                                             },
                                             uploads: testUploads,
-                                            deviceKey: { world.deviceKey }))
+                                            deviceKey: { world.deviceKey },
+                                            avatars: avatars ?? testAvatars.appendingPathComponent(UUID().uuidString, isDirectory: true)))
         return (client, world, sessions, macs)
     }
     func settle(_ cond: () -> Bool) async -> Bool {
@@ -2170,6 +2175,19 @@ do {
     let mac = URL(string: "https://studio.kosmosplus.com/")!
     check(Board.avatarRequest(mac: mac, session: "dana")?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/dana/avatar", "an agent's picture comes from its Mac")
     check(Board.avatarRequest(mac: mac, session: "../x") == nil && Board.avatarRequest(mac: mac, session: "a/b") == nil, "never for a name outside the agent-name characters")
+    // kosmos#7677: when a kept picture is fetched again, and the folder a computer's pictures are kept in.
+    do {
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        check(Board.avatarNeedsFetch(keptVer: nil, fetchedAt: nil, ver: "1", now: t0), "nothing kept: fetched")
+        check(!Board.avatarNeedsFetch(keptVer: "1", fetchedAt: t0, ver: "1", now: t0.addingTimeInterval(Board.avatarRefresh - 1)), "same version, under a day: not fetched")
+        check(Board.avatarNeedsFetch(keptVer: "1", fetchedAt: t0, ver: "1", now: t0.addingTimeInterval(Board.avatarRefresh)), "a day old: fetched")
+        check(Board.avatarNeedsFetch(keptVer: "1", fetchedAt: t0, ver: "2", now: t0), "a new version: fetched at once")
+        check(Board.avatarNeedsFetch(keptVer: "1", fetchedAt: nil, ver: "1", now: t0), "a version with no fetch time: fetched")
+        check(Board.avatarNeedsFetch(keptVer: "1", fetchedAt: t0, ver: "1", now: t0.addingTimeInterval(-60)), "a clock set back before the fetch: fetched")
+        check(Board.avatarFolder(address: "Studio.KosmosPlus.com") == "studio.kosmosplus.com", "a computer's folder is its address in lower case")
+        check(Board.avatarFolder(address: "../../etc") == ".._.._etc" && Board.avatarFolder(address: "a/b") == "a_b", "no address names a path outside the folder")
+        check(Board.avatarFolder(address: "") == "_" && Board.avatarFolder(address: "..") == "_", "an empty or dots-only address gets a folder of its own")
+    }
     let pic = Board.parseAgents(Data(#"{"agents":[{"sessionName":"d","name":"D","state":"idle","hasAvatar":true,"avatarVer":3}]}"#.utf8))?.first
     check(pic?.hasAvatar == true && pic?.avatarVer == "3", "the picture flag and version are read from the snapshot")
 }
@@ -3789,6 +3807,47 @@ section("native board loop: connecting")
         _ = await settle { w.count("/api/status") >= polls + 4 }
         check(w.count("/api/agent/dana/avatar") == 3, "a picture that keeps failing is asked for three times per version, then left")
         c.stop()
+    }
+    // kosmos#7677: pictures kept on the phone between launches.
+    do {
+        let kept = testAvatars.appendingPathComponent("relaunch-\(UUID().uuidString)", isDirectory: true)
+        let status = #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working","hasAvatar":true,"avatarVer":1}]}"#
+        let (c1, w1, _, _) = make("kst1", avatars: kept)
+        w1.statusDefault = (200, status)
+        c1.start()
+        let fetched = await settle { c1.pictures["dana"] != nil }
+        c1.stop()
+        check(fetched && w1.count("/api/agent/dana/avatar") == 1, "the first launch fetches the picture")
+        // A relaunch: a new client on the same folder, the same version, the same day.
+        let (c2, w2, _, _) = make("kst1", avatars: kept)
+        w2.statusDefault = (200, status)
+        w2.clock = w1.clock
+        c2.start()
+        let shown = await settle { c2.pictures["dana"] != nil }
+        check(shown && w2.count("/api/agent/dana/avatar") == 0, "a relaunch shows the kept picture with no picture request")
+        let polls = w2.count("/api/status")
+        _ = await settle { w2.count("/api/status") >= polls + 3 }
+        check(w2.count("/api/agent/dana/avatar") == 0, "and asks for none while the version is the same and the picture is under a day old")
+        c2.stop()
+        // A day later: asked once again.
+        let (c3, w3, _, _) = make("kst1", avatars: kept)
+        w3.statusDefault = (200, status)
+        w3.clock = w1.clock.addingTimeInterval(Board.avatarRefresh + 60)
+        c3.start()
+        let shown3 = await settle { c3.pictures["dana"] != nil }
+        _ = await settle { w3.count("/api/agent/dana/avatar") >= 1 }
+        let p3 = w3.count("/api/status")
+        _ = await settle { w3.count("/api/status") >= p3 + 3 }
+        check(shown3 && w3.count("/api/agent/dana/avatar") == 1, "a day later the kept picture shows and is fetched once again")
+        c3.stop()
+        // A new version: asked at once.
+        let (c4, w4, _, _) = make("kst1", avatars: kept)
+        w4.statusDefault = (200, #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working","hasAvatar":true,"avatarVer":2}]}"#)
+        w4.clock = w3.clock
+        c4.start()
+        _ = await settle { w4.count("/api/agent/dana/avatar") >= 1 }
+        check(w4.count("/api/agent/dana/avatar") == 1, "a new avatar version is fetched at once")
+        c4.stop()
     }
     do {
         let (c, w, _, _) = make("kst1")
