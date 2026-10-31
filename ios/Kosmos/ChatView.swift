@@ -1609,13 +1609,6 @@ struct ChatView: View {
         // composer being left).
         .onDisappear { dictation.reset(); emojiOpen = false }
         .onChange(of: draftText) { [was = draftText] now in
-            // kosmos#7346: the keyboard's Send key arrives as a lone new line: take it out, and send if there is something
-            // to send (as the arrow did: not while dictation is finishing, not with a file still on its way).
-            if let without = ComposerExtras.typedReturn(was: was, now: now) {
-                draftText = without
-                sendOrSayWhy()
-                return
-            }
             // The person changed what Send was refused for: the reason no longer applies to it.
             if let b = blocked, now != b.text {
                 if composerNote == b.note { composerNote = nil }
@@ -1768,19 +1761,23 @@ struct ChatView: View {
                 .font(.body)
                 .foregroundColor(Palette.primary)
                 .lineLimit(1...6)
-                // kosmos#7346: the return key reads Send, and a lone new line typed into the box sends (typedReturn).
-                .submitLabel(.send)
-                // With no arrow on screen, VoiceOver gets Send as an action on the box itself.
+                // kosmos#7687: the return key puts in a new line; the send button sends. VoiceOver keeps Send on the box too.
                 .accessibilityAction(named: "Send") { sendOrSayWhy() }
                 .padding(.vertical, 13)
                 .padding(.leading, 2)
             ComposerEmojiButton(open: emojiOpen) {
                 if emojiOpen { emojiOpen = false; composerFocused = true } else { emojiOpen = true; composerFocused = false }
             }
-            ComposerMicButton(dictation: dictation) {
-                dictation.toggle(base: draftText, current: { draftText }) { draftText = $0 }
+            // kosmos#7687: the send button in the microphone's place once there is something to send (not while dictating).
+            if ComposerExtras.showsSend(text: draftText, files: attachedHere.count, dictating: dictation.busy || dictation.finishing) {
+                ComposerSendButton(label: "Send") { sendOrSayWhy() }
+                    .padding(.trailing, 4)
+            } else {
+                ComposerMicButton(dictation: dictation) {
+                    dictation.toggle(base: draftText, current: { draftText }) { draftText = $0 }
+                }
+                .padding(.trailing, 4)
             }
-            .padding(.trailing, 4)
         }
     }
 

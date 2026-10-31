@@ -1306,8 +1306,9 @@ struct RoomView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 4)
             }
             if !attachedHere.isEmpty || uploadingHere > 0 { chips }
-            // kosmos#7346 (Josh 10-27, Mona Lisa's design): one floating box, + then the text then emoji and mic, and no
-            // Post arrow: the keyboard's Send key posts (typedReturn). The chat's box, in the room's own column.
+            // kosmos#7346 (Josh 10-27, Mona Lisa's design): one floating box, + then the text then emoji and mic; kosmos#7687
+            // (Josh 10-31): return puts in a new line and the Post button takes the mic's place once there is something to
+            // post. The chat's box, in the room's own column.
             HStack(alignment: .bottom, spacing: 0) {
                 addButton
                 // kosmos#7268: the emoji face and the microphone inside the box, at its trailing end (the board's
@@ -1315,19 +1316,23 @@ struct RoomView: View {
                 HStack(alignment: .bottom, spacing: 0) {
                     CursorField(placeholder: "Message \(project.name)", text: $draft, focus: $typing, insert: $emojiInsert)
                         .lineLimit(1...6)
-                        .submitLabel(.send)
                         .accessibilityFocused($composerFocused)
                         .accessibilityLabel("Post to everyone on this project")
-                        // With no Post arrow on screen, VoiceOver gets Post as an action on the box itself.
+                        // VoiceOver keeps Post as an action on the box itself, beside the button.
                         .accessibilityAction(named: "Post") { postOrSayWhy() }
                         .padding(.vertical, 13).padding(.leading, 2)
                     ComposerEmojiButton(open: emojiOpen) {
                         if emojiOpen { emojiOpen = false; typing = true } else { emojiOpen = true; typing = false }
                     }
-                    ComposerMicButton(dictation: dictation) {
-                        dictation.toggle(base: draft, current: { draft }) { draft = $0 }
+                    if ComposerExtras.showsSend(text: draft, files: attachedHere.count, dictating: dictation.busy || dictation.finishing) {
+                        ComposerSendButton(label: "Post") { postOrSayWhy() }
+                            .padding(.trailing, 4)
+                    } else {
+                        ComposerMicButton(dictation: dictation) {
+                            dictation.toggle(base: draft, current: { draft }) { draft = $0 }
+                        }
+                        .padding(.trailing, 4)
                     }
-                    .padding(.trailing, 4)
                 }
                     .overlay(alignment: .top) { mentionList.alignmentGuide(.top) { $0[.bottom] + 6 } }
                     // VoiceOver hears the list open, once, not on every letter (the board's aria-activedescendant has
@@ -1373,16 +1378,6 @@ struct RoomView: View {
         // being left).
         .onDisappear { dictation.reset(); emojiOpen = false }
         .onChange(of: draft) { [was = draft] now in
-            // kosmos#7346: the keyboard's Send key arrives as a lone new line: take it out, and post if there is something
-            // to post (canPost: as the arrow was, not while dictation finishes or a file is on its way).
-            if let without = ComposerExtras.typedReturn(was: was, now: now) {
-                draft = without
-                // With the @name list open, Send picks its first name, as Enter does on the board, rather than posting a
-                // half-typed name.
-                if let first = mentionOptions?.first, let text = Board.mentionPick(draft, key: first.session) { draft = text; return }
-                postOrSayWhy()
-                return
-            }
             // The person changed what Send was refused for: the reason no longer applies to it.
             if let b = blocked, now != b.text {
                 if client.attachLine[attachKey] == b.note { client.attachLine[attachKey] = nil }
