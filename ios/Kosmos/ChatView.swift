@@ -845,12 +845,12 @@ struct ChatView: View {
         switch Board.emptyRecovery(later: later, place: scrollBox.reading()?.place, scrolling: scrolling) {
         case .none: return
         case .backInsideThenNewest:
-            if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") } else if later { return }   // it came back inside meanwhile
+            if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") }
         case .newest: break
         }
         goNewest(proxy)
-        // The move above may have made SwiftUI name a row in the binding, which goNewest's own put-back leaves alone. Queued
-        // after goNewest's own async put-back (main-queue order); it helps only if SwiftUI wrote the binding by then.
+        // The move above may have made SwiftUI name a row in the binding, which goNewest's own put-back (when it had one to
+        // make) leaves alone; this runs after it, in main-queue order, and helps only if SwiftUI wrote the binding by then.
         if Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
     }
 
@@ -2559,7 +2559,8 @@ final class ScrollBox {
         let i = sv.adjustedContentInset
         let p = Board.scrollPlace(offset: Double(sv.contentOffset.y), content: Double(sv.contentSize.height),
                                   view: Double(sv.bounds.height), insetTop: Double(i.top), insetBottom: Double(i.bottom))
-        return ("scroll y \(Int(sv.contentOffset.y)), content \(Int(sv.contentSize.height)), view \(Int(sv.bounds.height)), insets \(Int(i.top))/\(Int(i.bottom)): \(p.place)",
+        func n(_ x: CGFloat) -> Int { x.isFinite ? Int(x) : -1 }   // never a trap on a broken number in the report about it
+        return ("scroll y \(n(sv.contentOffset.y)), content \(n(sv.contentSize.height)), view \(n(sv.bounds.height)), insets \(n(i.top))/\(n(i.bottom)): \(p.place)",
                 p.place, p.end)
     }
     // Outside either way it goes to the end, since the newest message follows. The end is read from the content's size now,
@@ -2591,6 +2592,7 @@ struct SideScrollLock: UIViewRepresentable {
         let off: Bool
         var onShift: ((CGFloat, Bool, Bool) -> Void)?
         var box: ScrollBox?
+        private weak var found: UIScrollView?   // kosmos#7420: the scroll view this probe gave the box
         private var peak: CGFloat = 0   // kosmos#7575 review 1: this shift's largest offset so far
         private var resumed = false     // kosmos#7575 review 2: the first reading after moving window
         private var wasShifted = false  // review 3: a shift was in place when it left its window
@@ -2623,7 +2625,7 @@ struct SideScrollLock: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            if window == nil { box?.view = nil }   // kosmos#7420: no stale scroll view for the diagnostic
+            if window == nil, let mine = found, box?.view === mine { box?.view = nil }   // kosmos#7420: never a stale scroll view
             if window == nil { wasShifted = shifted }   // kosmos#7575 review 3: remembered across the move
             watch = nil; shifted = false; fixing = false; quick = 0; generation &+= 1
             guard window != nil else { return }
@@ -2631,7 +2633,7 @@ struct SideScrollLock: UIViewRepresentable {
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
             guard let scroll = up as? UIScrollView else { ChatView.trace("side lock: no scroll view"); return }
-            box?.view = scroll
+            box?.view = scroll; found = scroll
             #if DEBUG
             if let at = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SIDEWAYS"].flatMap(Double.init), !Self.sampleShifted {
                 Self.sampleShifted = true
