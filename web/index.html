@@ -12171,7 +12171,6 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* Review 3: the Kosmos+ field error colour (#E8705E, the --danger the dark field sets, #plus-org .tk-inp), not a new red. */
 #s-sec-plus #pb-restore-msg { color: #E8705E; margin-top: var(--space-3); }
 #s-sec-plus #pb-restore-msg:empty { min-height: 0; margin-top: 0; }
-#s-sec-plus #pb-restore-open { display: block; margin-top: 8px; text-align: left; }
 #s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
 #s-sec-plus .plus-org-outhead { display: flex; justify-content: flex-end; }
 #s-sec-plus #plus-devices #plus-lost-open { display: block; margin-top: 8px; }
@@ -20446,7 +20445,10 @@ window.kosmosMeasureScrollbarWidth();
           <p class="fhint" id="pb-price"></p>
           <!-- Mona Lisa's review 1: no price, nothing to agree to, so no Turn on and no "price to be set" line (pbPaint). -->
           <div class="frow" id="pb-on-row"><button class="btn uprime" type="button" id="pb-on">Turn on personal backup</button></div>
-          <button type="button" class="plus-lost-link" id="pb-restore-open">Moving from another computer? Restore with your recovery code.</button>
+          <!-- Challenge round 5: a restore needs personal backup on here first (the engine checks Kosmos+ names this
+               computer's own personal backup), so this says how, and the restore field opens when turning on finds the
+               backup set up on another computer. -->
+          <p class="fhint" id="pb-restore-hint">Moving from another computer? Turn it on here, then enter your recovery code when asked.</p>
         </div>
         <div id="pb-words" role="group" aria-label="What personal backup does" hidden>
           <p class="fhint" id="pb-words-lead" tabindex="-1">Before you turn it on:</p>
@@ -20489,7 +20491,7 @@ window.kosmosMeasureScrollbarWidth();
           <p class="fhint">Enter the recovery code you saved when you turned personal backup on.</p>
           <!-- Restore review 4: said before Restore, and only what is true today: restoring puts the backup key here (engine
                restorePersonalKey); no files come back until the backup job exists, and nothing here is changed. -->
-          <p class="fhint">This puts your backup key on this computer. Nothing already on this computer is changed or removed.</p>
+          <p class="fhint">This puts your backup key on this computer. None of your files here are changed.</p>
           <!-- Restore review 1-2: no autocorrect or half-capitalising on a phone; the code's own face and shape. Review 3: a
                text area, so at the 16px a phone needs the code wraps after a hyphen and is seen whole; Enter submits
                (pbRestoreKey) and a newline is dropped with the spaces and hyphens (engine recoveryCodeBytes). -->
@@ -55604,13 +55606,14 @@ document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgL
 /* ---- kosmos#7404: personal backup (Settings, Kosmos+). The views follow the engine's state (engine/personalbackup.js
    state(): off, pending, needs-key, on); the words, the code and restore are steps the person opens here. The recovery
    code is held only in PB.code while it is on screen, and dropped once "I saved it" is confirmed or the view changes. */
-var PB = { at: 0, busy: false, st: null, view: null, ticket: null, words: null, code: null, who: null };
-function pbMsg(t) { const m = document.getElementById('pb-msg'); if (m) m.textContent = t || ''; }
+var PB = { at: 0, busy: false, st: null, view: null, ticket: null, words: null, code: null, who: null, seq: 0 };
+function pbMsg(t) { const m = document.getElementById('pb-msg'); if (m) m.textContent = t ? asSentence(t) : ''; }   // engine refusals are fragments
 function pbMaybe() {
   if (PB.busy) return;
   if (Date.now() - PB.at < 60000) { if (PB.st) pbPaint(); return; }
   PB.at = Date.now();
-  fetch('/api/personal-backup').then((res) => res.ok ? res.json() : null).then((j) => { PB.st = j; pbPaint(); }).catch(() => { /* the next minute tries again */ });
+  const seq = ++PB.seq;   // a read that started before this page last set the state answers nothing
+  fetch('/api/personal-backup').then((res) => res.ok ? res.json() : null).then((j) => { if (seq !== PB.seq) return; PB.st = j; pbPaint(); }).catch(() => { /* the next minute tries again */ });
 }
 function pbPrice(st) {
   const said = typeof plusSiAddPrice === 'function' && st && st.price ? plusSiAddPrice(st.price) : '';
@@ -55642,7 +55645,7 @@ function pbPaint() {
   document.getElementById('pb-words-price').textContent = price;
   const say = document.getElementById('pb-on-say');
   say.textContent = v === 'pending' ? 'Kosmos is checking with Kosmos+ whether personal backup is on for this computer. This takes a few minutes.'
-    : v === 'needs-key' ? 'Personal backup is on for this computer, but its recovery code is not saved yet. Press Show my recovery code to finish.'
+    : v === 'needs-key' ? 'Personal backup is on for this computer, but its backup key is not set up here yet. Press Finish setting up.'
     : 'Personal backup is on for this computer.';
   // An open Turn off confirm survives the 5-second repaint; it closes when the view is no longer one it belongs to.
   const ask = document.getElementById('pb-off-ask');
@@ -55650,7 +55653,7 @@ function pbPaint() {
   document.getElementById('pb-off-row').hidden = v === 'pending' || !ask.hidden;
   let fin = document.getElementById('pb-finish');
   if (v === 'needs-key' && !fin) {
-    fin = document.createElement('button'); fin.className = 'btn uprime'; fin.type = 'button'; fin.id = 'pb-finish'; fin.textContent = 'Show my recovery code';
+    fin = document.createElement('button'); fin.className = 'btn uprime'; fin.type = 'button'; fin.id = 'pb-finish'; fin.textContent = 'Finish setting up';
     fin.addEventListener('click', pbFinish);
     document.getElementById('pb-off-row').prepend(fin);
   }
@@ -55716,6 +55719,8 @@ async function pbAccept(yes) {
   try {
     const r = await pbPost('on', { ticket, accepted: true });
     if (r && r.ok && r.recoveryCode) { PB.at = 0; pbShowCode(r); return; }
+    // Challenge round 5: the backup was set up on another computer, so this one restores it with the code.
+    if (r && r.code === 'restore') { PB.at = 0; pbOpenRestore(r.because); return; }
     PB.view = null; PB.at = 0;
     if (!(r && r.ok)) pbMsg((r && r.because) || 'Nothing was turned on. Try again in a minute.');
   } finally { PB.busy = false; if (PB.view !== 'code') pbMaybe(); }
@@ -55727,7 +55732,7 @@ async function pbFinish() {
     if (r && r.ok && r.recoveryCode) { pbShowCode(r); return; }
     if (r && r.ok) { PB.at = 0; return; }
     pbMsg((r && r.because) || 'The recovery code could not be shown just now. Try again in a minute.');
-    if (r && r.code === 'restore') { PB.view = 'restore'; pbPaint(); }
+    if (r && r.code === 'restore') { pbMsg(''); pbOpenRestore(r.because); }
   } finally { PB.busy = false; if (PB.view !== 'code') pbMaybe(); }
 }
 async function pbSaved() {
@@ -55737,6 +55742,7 @@ async function pbSaved() {
     if (!(r && r.ok)) { pbMsg((r && r.because) || 'That could not be recorded. Try again.'); return; }
     PB.view = null; PB.who = null; PB.at = 0;
     if (PB.st) PB.st.state = 'on';   // the code is gone from the screen now, not when the next read lands
+    PB.seq++;
     pbPaint();
   } finally { PB.busy = false; pbMaybe(); }
 }
@@ -55786,6 +55792,10 @@ function pbRestoreSay(r) {
   if (c === 'no_keys') return 'This backup has no key yet, so there is nothing to restore.';
   return asSentence(r && r.because) || 'Nothing was restored. Try again.';
 }
+function pbOpenRestore(say) {
+  PB.view = 'restore'; pbPaint(); pbMsg(say || '');
+  document.getElementById('pb-restore-code').focus();
+}
 function pbRestoreBad(text) {
   document.getElementById('pb-restore-msg').textContent = text || '';
   document.getElementById('pb-restore-code').classList.toggle('bad', !!text);
@@ -55806,7 +55816,8 @@ async function pbRestore() {
     if (!(r && r.ok)) { pbRestoreBad(pbRestoreSay(r)); return; }
     pbRestoreBad('');
     document.getElementById('pb-restore-code').value = '';
-    PB.view = null; PB.at = 0; pbMsg('Your backup key is restored on this computer.');
+    PB.view = null; PB.at = 0; PB.seq++; if (PB.st) PB.st.state = 'on';
+    pbPaint(); pbMsg('Your backup key is restored on this computer. Personal backup is on.');
   } finally { PB.busy = false; pbMaybe(); }
 }
 document.getElementById('pb-on').addEventListener('click', pbOpen);
@@ -55818,7 +55829,6 @@ document.getElementById('pb-saved').addEventListener('click', pbSaved);
 document.getElementById('pb-off-btn').addEventListener('click', () => pbOffArm(true));
 document.getElementById('pb-off-no').addEventListener('click', () => pbOffArm(false));
 document.getElementById('pb-off-yes').addEventListener('click', pbOff);
-document.getElementById('pb-restore-open').addEventListener('click', () => { pbMsg(''); PB.view = 'restore'; pbPaint(); document.getElementById('pb-restore-code').focus(); });
 document.getElementById('pb-restore-no').addEventListener('click', () => { pbMsg(''); pbRestoreBad(''); PB.view = null; pbPaint(); });
 document.getElementById('pb-restore-go').addEventListener('click', pbRestore);
 document.getElementById('pb-restore-code').addEventListener('keydown', pbRestoreKey);

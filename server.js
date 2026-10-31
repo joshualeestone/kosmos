@@ -12738,7 +12738,7 @@ const server = http.createServer(async (req, res) => {
         else if (kind === 'on') r = await pb.switchOn(typeof body.ticket === 'string' ? body.ticket : null, body.accepted === true);
         else if (kind === 'key') r = await pb.setUpKey();
         else if (kind === 'saved') r = await pk.confirmRecoveryCodeSaved({ org: body.org, member: body.member });
-        else if (kind === 'restore') r = typeof body.code === 'string' && body.code.length <= 64 ? await pk.restorePersonalKey(body.code) : { ok: false, code: 'not_a_code', because: 'That is not a recovery code (26 letters and digits).' };
+        else if (kind === 'restore') r = typeof body.code === 'string' && body.code.length <= 64 ? await pb.restore(body.code) : { ok: false, code: 'not_a_code', because: 'That is not a recovery code (26 letters and digits).' };
         else if (kind === 'off') r = await pb.switchOff();
         else r = null;   // unreachable: kind was checked above; answers the generic refusal below
         /* What the page may see, by name. `code` is the recovery code on on/key, and a refusal's code elsewhere; org and

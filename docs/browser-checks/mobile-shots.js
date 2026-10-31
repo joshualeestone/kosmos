@@ -435,6 +435,12 @@ async function pbShot(page, state, price = '$5/month') {
   await page.waitForSelector(state === 'off' ? '#pb-off' : '#pb-onview', { state: 'visible', timeout: 10000 });
   await pbTop(page);
 }
+async function pbToRestore(page) {
+  await page.route('**/api/personal-backup/key', (r) => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify({ ok: false, code: 'restore', because: 'This backup already has a recovery code from another computer. Restore it here with that code.' }) }));
+  await pbShot(page, 'needs-key');
+  await page.click('#pb-finish'); await page.waitForSelector('#pb-restore', { state: 'visible', timeout: 10000 });
+}
 async function pbTop(page) { await page.evaluate(() => document.getElementById('pb').scrollIntoView({ block: 'start' })); }
 /* #5359: a restart note made seven minutes ago, on this page's own route (engine/restartnote.js makes the real one). */
 async function stubRebootNote(page) {
@@ -1731,8 +1737,8 @@ const SCREENS = [
   { name: 'pb-off', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off'); } },
   // Design review 1: no price set, so no Turn on; only the restore line.
   { name: 'pb-noprice', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off', null); } },
-  { name: 'pb-restore', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off');
-    await page.click('#pb-restore-open'); await page.waitForSelector('#pb-restore', { state: 'visible', timeout: 10000 }); await pbTop(page); } },
+  // Challenge round 5: the restore field opens when the key step finds this backup set up on another computer.
+  { name: 'pb-restore', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbToRestore(page); await pbTop(page); } },
   { name: 'pb-words', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off');
     await page.click('#pb-on'); await page.waitForSelector('#pb-words', { state: 'visible', timeout: 10000 }); await pbTop(page); } },
   { name: 'pb-code', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off');
@@ -1744,10 +1750,10 @@ const SCREENS = [
   { name: 'pb-off-ask', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on');
     await page.click('#pb-off-btn'); await page.waitForSelector('#pb-off-ask', { state: 'visible', timeout: 10000 }); await pbTop(page); } },
   // Restore review: a wrong code, its sentence, and the typed code kept in the field (a sample, one group mistyped).
-  { name: 'pb-restore-wrong', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off');
+  { name: 'pb-restore-wrong', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => {
     await page.route('**/api/personal-backup/restore', (r) => r.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ ok: false, code: 'wrong_code', because: 'that recovery code is not the one for this backup' }) }));
-    await page.click('#pb-restore-open'); await page.waitForSelector('#pb-restore', { state: 'visible', timeout: 10000 });
+    await pbToRestore(page);
     await page.fill('#pb-restore-code', 'k7qd-3mxa-9vpe-h2nw-4tbr-6yc8-jg'); await page.click('#pb-restore-go');
     await page.waitForFunction(() => /not the recovery code/.test(document.getElementById('pb-restore-msg').textContent), null, { timeout: 10000 });
     await pbTop(page); } },

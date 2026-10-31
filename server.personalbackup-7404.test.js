@@ -90,7 +90,8 @@ test('#7404: with no price set, nothing can be previewed or turned on (there is 
   process.env.KOSMOS_PERSONAL_BACKUP_PRICE = 'soon';
   assert.equal((await call('/api/personal-backup/preview', { body: {}, headers: SCREEN })).json.code, 'no_price');
   // Restore and turn off are not a charge, so they work without a price.
-  assert.equal((await call('/api/personal-backup/restore', { body: { code: 'x' }, headers: SCREEN })).json.code, 'not_a_code');
+  // Personal backup is not on in the sandbox, so the engine refuses before reading the code (not_on), with no price too.
+  assert.equal((await call('/api/personal-backup/restore', { body: { code: 'x' }, headers: SCREEN })).json.code, 'not_on');
 });
 
 test('#7404: from the screen, a decline turns nothing on; a bad code restores nothing; an unknown step is 404', async (t) => {
@@ -100,7 +101,8 @@ test('#7404: from the screen, a decline turns nothing on; a bad code restores no
   const stale = await call('/api/personal-backup/on', { body: { ticket: 'nope', accepted: true }, headers: SCREEN });
   assert.equal(stale.json.ok, false); assert.equal(stale.json.code, 'ticket', JSON.stringify(stale.json));
   const bad = await call('/api/personal-backup/restore', { body: { code: 'not a code' }, headers: SCREEN });
-  assert.equal(bad.json.ok, false); assert.equal(bad.json.code, 'not_a_code', JSON.stringify(bad.json));
+  // Challenge round 5: a restore needs personal backup on here; the sandbox has none, so nothing is read.
+  assert.equal(bad.json.ok, false); assert.equal(bad.json.code, 'not_on', JSON.stringify(bad.json));
   const notText = await call('/api/personal-backup/restore', { body: { code: 12345 }, headers: SCREEN });
   assert.equal(notText.json.code, 'not_a_code');
   // Not connected to Kosmos+ in the sandbox: the preview is refused before any tunnel, in words.
@@ -146,4 +148,19 @@ test('#7404: on and key pass the recovery code, org and member to the screen; un
   const s = await call('/api/personal-backup/saved', { body: { org: 'org_x', member: 'm_x' }, headers: SCREEN });
   assert.deepEqual(s.json, { ok: true, deleted: 1 });
   assert.deepEqual(gotSaved, { org: 'org_x', member: 'm_x' });
+});
+
+test('#7404: restore and off pass only their own fields; restore goes through the engine binding check', async (t) => {
+  offerOn(t, '$5/month');
+  const pb = require('./engine/personalbackup');
+  const was = { restore: pb.restore, switchOff: pb.switchOff };
+  t.after(() => { pb.restore = was.restore; pb.switchOff = was.switchOff; });
+  let gotCode = null;
+  pb.restore = async (code) => { gotCode = code; return { ok: true, epochs: [1, 2], org: 'never', recoveryCode: 'never' }; };
+  pb.switchOff = async () => ({ ok: false, pending: true, because: 'stopped here', epochs: 'never' });
+  const r = await call('/api/personal-backup/restore', { body: { code: 'k7qd 3mxa' }, headers: SCREEN });
+  assert.deepEqual(r.json, { ok: true, epochs: [1, 2] }, JSON.stringify(r.json));
+  assert.equal(gotCode, 'k7qd 3mxa', 'the typed code reaches the engine as typed (it normalises)');
+  const o = await call('/api/personal-backup/off', { body: {}, headers: SCREEN });
+  assert.deepEqual(o.json, { ok: false, pending: true, because: 'stopped here' });
 });

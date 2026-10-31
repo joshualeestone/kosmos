@@ -259,6 +259,21 @@ async function bindAndKey(ticket, t, opts) {
   return setUpKey(opts);
 }
 
+/* Whether Kosmos+ still names `rec`'s personal org, bound to this computer and this world: null when it does, else the
+   refusal to answer. personalbackupkey reads the ACCOUNT's current membership, whatever org that is, so both the key step
+   and a restore ask this first (code review 6, warning 4; backupscreens-7404 challenge round 5 for restore). */
+async function boundHereNow(rec, opts, notDone) {
+  const remote = remoteOf(opts);
+  const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
+  if (!st) return { ok: false, code: 'unreached', because: 'Kosmos+ could not be reached just now, so ' + notDone + '. Try again in a minute.' };
+  const d = st.data;
+  // Code review 7, NIT 1: and this record's world, so another board on this same computer is never set up from here.
+  if (!(d.member === true && d.org && d.org.kind === 'personal' && d.org.id === rec.org.id && d.enrolled && d.enrolled.thisComputer === true && d.enrolled.world === rec.world)) {
+    return { ok: false, code: 'not_on', because: 'Personal backup is no longer on for this computer on Kosmos+. Open personal backup again.' };
+  }
+  return null;
+}
+
 /* The key step: the backup key and the recovery code to show once. Also what the screen calls when state() says
    'needs-key' (a join settled later by the follow-up, or a key step that failed), so no fresh preview is needed.
    { ok: true, code, epoch } (code null when this computer already holds the keys: turned off and on again here), or
@@ -270,14 +285,8 @@ async function setUpKey(opts = {}) {
   /* Code review 6, warning 4: personalbackupkey reads the ACCOUNT's current membership, whatever org that is, so a stale
      record here (ended elsewhere, a company joined, before the next refresh) would set up or report keys for another
      org. Kosmos+ must still name this record's personal org, bound to this computer. */
-  const remote = remoteOf(opts);
-  const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
-  if (!st) return { ok: false, code: 'unreached', because: 'Kosmos+ could not be reached just now, so the backup key was not set up yet. Try again in a minute.' };
-  const d = st.data;
-  // Code review 7, NIT 1: and this record's world, so another board on this same computer is never set up from here.
-  if (!(d.member === true && d.org && d.org.kind === 'personal' && d.org.id === rec.org.id && d.enrolled && d.enrolled.thisComputer === true && d.enrolled.world === rec.world)) {
-    return { ok: false, code: 'not_on', because: 'Personal backup is no longer on for this computer on Kosmos+. Open personal backup again.' };
-  }
+  const held = await boundHereNow(rec, opts, 'the backup key was not set up yet');
+  if (held) return held;
   const pk = opts.personalbackupkey || require('./personalbackupkey');
   let k;
   try { k = await pk.setUpPersonalKey({ macRequest: opts.macRequest || ((m, rt, b) => remoteOf(opts).macRequest(m, rt, b)) }); } catch { k = null; }
@@ -294,6 +303,24 @@ async function setUpKey(opts = {}) {
   }
   if (k && k.code === 'already_set_up') return { ok: false, code: 'restore', because: 'This backup already has a recovery code from another computer. Restore it here with that code.' };
   return { ok: false, code: k && k.code, because: 'Personal backup is on for this computer, but its backup key could not be made yet: ' + ((k && k.because) || 'try again') + '.' };
+}
+
+/* backupscreens-7404 (challenge round 5): restore this backup's keys here with the person's recovery code. Only for a
+   computer personal backup is on for (the move to a new computer: turn on, then setUpKey answers code 'restore'), and
+   only while Kosmos+ still names that binding, so a restore never acts on another org's keys. A restore that worked
+   writes the key-ready marker, so state() reads 'on' rather than asking for a code it will never show.
+   { ok: true, epochs } or { ok: false, code, because }. */
+async function restore(code, opts = {}) {
+  const rec = record(opts);
+  if (!rec) return { ok: false, code: 'not_on', because: 'Turn on personal backup on this computer first, then restore with your recovery code.' };
+  const held = await boundHereNow(rec, opts, 'nothing was restored');
+  if (held) return held;
+  const pk = opts.personalbackupkey || require('./personalbackupkey');
+  let r;
+  try { r = await pk.restorePersonalKey(code, { macRequest: opts.macRequest || ((m, rt, b) => remoteOf(opts).macRequest(m, rt, b)) }); } catch { r = null; }
+  if (!(r && r.ok)) return r && typeof r === 'object' ? r : { ok: false, because: 'restoring the backup keys failed on this computer' };
+  try { fs.writeFileSync(path.join(root(opts), KEY_READY), JSON.stringify({ at: new Date().toISOString(), org: rec.org.id, world: rec.world }) + '\n', { mode: 0o600 }); } catch { /* state() then says needs-key, and the key step settles it (already_here) */ }
+  return { ok: true, epochs: r.epochs };
 }
 
 /** 'off', 'pending' (a join's answer was lost; the follow-up settles it), 'needs-key' (on, the key step not finished
@@ -440,4 +467,4 @@ async function switchOff(opts = {}) {
   return { ok: false, because: 'Kosmos+ could not be reached just now. Personal backup is still on; try again in a minute.' };
 }
 
-module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, state, isOn, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; LAST_SETTLE = 0; } };
+module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, restore, state, isOn, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; LAST_SETTLE = 0; } };
