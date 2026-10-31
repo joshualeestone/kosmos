@@ -1251,3 +1251,20 @@ test('#6232 review 13: an enrollment ending because this Kosmos has no id of its
   assert.equal(org.readEnrollment({ root: a }), null, 'CONTROL: the stale record was not cleared');
   assert.deepEqual(ended, [a], 'an ending for want of an id did not tell the listener');
 });
+
+test('#7661: onlyIfFree is sent only on a codeless enroll that asks for it, never with a code', async (t) => {
+  const { a } = sandbox(t);
+  const state = {};
+  const remote = fakeRemote(state);
+  // A code join that (wrongly) asks for it: the code path never sends the flag (its own refusals already cover a member).
+  await org.preview('ACME-JOIN-1234', { root: a, remote });
+  assert.equal((await org.enroll('ACME-JOIN-1234', true, { root: a, remote, onlyIfFree: true })).ok, true);
+  const withCode = remote.sent.filter((r) => r.route === org.ROUTES.enroll);
+  assert.equal(withCode[0].body.onlyIfFree, undefined, 'a code join sent onlyIfFree');
+  // A codeless enroll (a move) that does not ask: not sent.
+  assert.equal((await org.enroll(null, true, { root: a, remote })).ok, true);
+  // One that asks: sent.
+  assert.equal((await org.enroll(null, true, { root: a, remote, onlyIfFree: true })).ok, true);
+  const moves = remote.sent.filter((r) => r.route === org.ROUTES.enroll).slice(1).map((r) => r.body.onlyIfFree);
+  assert.deepEqual(moves, [undefined, true]);
+});

@@ -48,6 +48,8 @@ function coordinator(over = {}) {
       if (route === pb.ROUTE) { if (!over.preview) { member = true; left = false; } return over.preview || { ok: true, data: { org: ORG, role: 'member', consent: WORDS, consentHash: HASH, computerSalt: SALT } }; }
       if (route === oe.ROUTES.enroll) {
         if (over.enrollRefuse) return { ok: false, because: '409 {"code":"' + over.enrollRefuse + '"}', refusal: { status: 409, code: over.enrollRefuse } };
+        // kosmos#7661: the coordinator's onlyIfFree refusal, only when the board sent the flag (the test can see it unsent).
+        if (over.boundElsewhere && body.onlyIfFree === true) return { ok: false, because: '409 {"code":"' + over.boundElsewhere + '"}', refusal: { status: 409, code: over.boundElsewhere } };
         if (body.consentHash !== HASH || body.wordsShown !== true) return { ok: false, because: '409 {"code":"personal_backup_words_unseen"}', refusal: { status: 409, code: 'personal_backup_words_unseen' } };
         world = body.world; left = false;
         return { ok: true, data: { ok: true, org: over.enrollOrg || ORG, role: 'member', printPinned: true, enrolled: { computer: 'c1', world, thisComputer: over.notThisComputer ? false : true } } };
@@ -688,5 +690,24 @@ test('#7404 review 8: a binding to another world on this Mac does not keep this 
   pb._resetFollowUpForTests();
   await pb.followUp({ root, remote: c });
   assert.equal(pb.state({ root }), 'off');
+});
+
+/* kosmos#7661 item 1: the enroll carries onlyIfFree, and Kosmos+'s refusal of it (another computer, or another Kosmos on
+   this one, bound between the status read and the enroll) is said in this module's words, the ticket spent. */
+test('#7404/#7661: the enroll sends onlyIfFree, and a bound-elsewhere refusal is told as such', async (t) => {
+  for (const [code, words] of [['org_bound_elsewhere', /another of your computers/], ['org_bound_other_world', /another Kosmos on this computer/]]) {
+    const root = fresh(t);
+    const c = coordinator({ boundElsewhere: code });
+    const p = await pb.preview({ root, remote: c });
+    const r = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+    const sent = c.sent.filter((x) => x.route === oe.ROUTES.enroll);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].body.onlyIfFree, true, 'the flag was not sent');
+    assert.equal(r.code, code, code + ': told as a refusal, not a lost answer');
+    assert.match(r.because, words);
+    assert.equal(pb.isOn({ root }), false);
+    assert.equal(fs.existsSync(path.join(root, oe.JOIN_UNKNOWN_FILE)), false, 'a coded refusal left a lost-join marker');
+    assert.equal(pb._TICKETS.has(p.ticket), false, 'Kosmos+ answered: the ticket is spent');
+  }
 });
 

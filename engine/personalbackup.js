@@ -112,6 +112,9 @@ const SAY = {
   // The membership the preview made was ended meanwhile (turned off elsewhere, or ended at a company or family join).
   org_not_member: 'Personal backup was closed on Kosmos+ while it was open here. Nothing was turned on; open it again.',
   personal_on_elsewhere: ELSEWHERE,
+  // kosmos#7661: Kosmos+ refused the bind itself (onlyIfFree), so no status read before it could race another computer.
+  org_bound_elsewhere: ELSEWHERE,
+  org_bound_other_world: 'Personal backup is on for another Kosmos on this computer. Turn it off there first; nothing changed here.',
 };
 const UNREACHED = 'Kosmos+ could not be reached just now. Nothing was turned on; try again in a minute.';
 
@@ -215,6 +218,8 @@ async function bindAndKey(ticket, t, opts) {
   try {
     r = await oe.enroll(null, true, enrollOpts(opts, {
       orgId: t.org.id, consentHash: t.consentHash, wordsShown: true, consent: t.words, computerSalt: t.computerSalt,
+      // kosmos#7661: Kosmos+ moves nothing another computer holds; the status read above cannot close that race alone.
+      onlyIfFree: true,
     }));
   } catch { r = null; }
   forgetEnrolling(opts);

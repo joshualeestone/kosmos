@@ -447,7 +447,10 @@ function sayCode(c, kind) { return (kindOf(kind) === 'family' && FAMILY_SAY[c]) 
 /* Only the PUBLIC codes count: a field such as org_id elsewhere in the line must not be read as the error. */
 /* kosmos#7404: a personal backup's refusal codes (engine/personalbackup.js says them in its own words). Known here, so a
    coded personal refusal is a refusal, never read as a lost answer (personalswitch-7404 code review 2). */
-const PERSONAL_CODES = ['personal_backup_off', 'personal_backup_in_org', 'personal_backup_raced', 'personal_backup_words_unseen'];
+const PERSONAL_CODES = ['personal_backup_off', 'personal_backup_in_org', 'personal_backup_raced', 'personal_backup_words_unseen',
+  // kosmos#7661: a codeless enroll sent with onlyIfFree, refused because another computer (or another Kosmos on this one)
+  // holds the binding; nothing moved.
+  'org_bound_elsewhere', 'org_bound_other_world'];
 const CODES = Object.freeze(Object.keys(SAY).concat(['org_not_accepted'], PERSONAL_CODES));
 function codeOf(because) {
   const text = String(because || '');
@@ -632,6 +635,9 @@ async function enrollNow(code, accepted, opts) {
      check, no stronger, and it cannot tell a parent from a child at the keyboard (both named in the plan). Never set
      by an automatic accept (reacceptWords passes wordsShown: false), and only with the hash of the words shown. */
   if (opts && opts.wordsShown === true && body.consentHash) body.wordsShown = true;
+  /* kosmos#7661: a codeless enroll that must not MOVE a binding another computer holds (a personal backup's org is
+     reused across the account's computers). Only when the caller asks; a company's or family's enroll never sends it. */
+  if (opts && opts.onlyIfFree === true && code == null) body.onlyIfFree = true;
   // The code first (review 10): a malformed one costs no hardware read.
   if (code != null) {
     if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'That is not a join code. Check it and try again.' };
