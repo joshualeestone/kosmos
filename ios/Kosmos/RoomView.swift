@@ -844,6 +844,7 @@ struct RoomView: View {
             // boundary row they left from, as the board's PJ_ARCH.anchor. A failed open never moved them.
             .onChange(of: archiveShown != nil) { shown in
                 if shown {
+                    endJumps &+= 1   // kosmos#7654: the opening retries end when the archive shows
                     archiveWasShown = true
                     settledAtBottom = false
                     proxy.scrollTo("bottom", anchor: .bottom)
@@ -871,16 +872,18 @@ struct RoomView: View {
     // showing (RoomOpensAtNewestUITests). Not gated on atBottom: it starts true before the end marker is ever drawn.
     // kosmos#7654 round 3 (CI, 10-30): on CI's slower runner the rows above were still being measured after half a second
     // (the same runner took 1.3 s from will-show to did-show, #7645), and the 220-post room stopped short. Where the person's
-    // scroll can cancel the retries (iOS 18 and later, PersonScroll), they run to 2.3 s; below that they stop at 0.5 s, as
-    // before, so a flick on iOS 16 or 17 is never pulled back for longer than it was.
+    // scroll can cancel the retries (iOS 18 and later, PersonScroll), they run to 2.3 s; below that they stop at 0.5 s (main made
+    // one jump: there this adds a half-second window with no cancel). Held back while the person scrolls; ended by a newer
+    // goEnd, a reply jump, loadOlder, the archive showing or the person's scroll (endJumps).
     static let endRetries: [Double] = ChatView.followsScrollPhase ? [0.05, 0.15, 0.3, 0.5, 0.8, 1.2, 1.7, 2.3] : [0.05, 0.15, 0.3, 0.5]
     private func goEnd(_ proxy: ScrollViewProxy) {
         proxy.scrollTo("bottom", anchor: .bottom)
         endJumps &+= 1
+        // A person already scrolling gets the one jump, as before this change, and no retries (no new touch would cancel them).
+        if roomScrolling { return }
         let jump = endJumps
         for at in Self.endRetries {
             DispatchQueue.main.asyncAfter(deadline: .now() + at * Self.sampleRetryScale) {
-                // Not while the person is scrolling (already scrolling when goEnd began, so no new touch cancelled it).
                 if jump == endJumps && visible && !searchMode && archiveShown == nil && !roomScrolling { proxy.scrollTo("bottom", anchor: .bottom) }
             }
         }
