@@ -597,6 +597,8 @@ struct MessageActionsSheet: View {
     // kosmos#7678: set when these rows are the in-chat panel (keyboard up) rather than the sheet: closing it and More.
     var panelClose: (() -> Void)? = nil
     var panelMore: (() -> Void)? = nil
+    // The panel closes when the keyboard goes, and the question lowers it, so the host asks the question, not these rows.
+    var panelDelete: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismissSheet
     private func dismiss() { if let panelClose { panelClose() } else { dismissSheet() } }
     @State private var confirmingDelete = false   // kosmos#7614: Delete asks first, in the board's own words
@@ -677,7 +679,7 @@ struct MessageActionsSheet: View {
             }
             // kosmos#7614: last and red, on the person's own message only; it asks once, as the board does.
             if target.delete != nil {
-                row(Board.deleteConfirmYes + " message", "trash", destructive: true) { confirmingDelete = true }
+                row(Board.deleteConfirmYes + " message", "trash", destructive: true) { if let panelDelete { panelDelete() } else { confirmingDelete = true } }
             }
         }
         // An alert, not a confirmation dialog: on iOS 26 and later a dialog is a popover that drops its cancel button, and
@@ -754,6 +756,7 @@ struct MessageActionsHost: ViewModifier {
     // stays: lowering it grew the shown height and the chat (anchored at its end) jumped. The sheet cannot stay with the
     // keyboard up: it rises behind it (#7530). More, which needs the room, still lowers it and opens the sheet.
     @State private var panel: MessageActionTarget?
+    @State private var askDelete: MessageActionTarget?   // the panel's Delete question: see panelDelete
     @State private var keyboardUp = false
     @State private var detent: PresentationDetent = .large
     @State private var afterClose: (() -> Void)?
@@ -792,6 +795,7 @@ struct MessageActionsHost: ViewModifier {
     private func panelRows(_ t: MessageActionTarget) -> some View {
         MessageActionsSheet(target: t, detent: .constant(small(t)), small: small(t), after: { $0() },
                             panelClose: { panel = nil },
+                            panelDelete: { askDelete = t; panel = nil },
                             panelMore: {
                                 panel = nil
                                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -810,7 +814,13 @@ struct MessageActionsHost: ViewModifier {
                 }
                     .animation(.easeOut(duration: 0.2), value: litDim)
             }
-            .environment(\.shownMessageActions, (panel ?? target)?.id)
+            .alert(Board.deleteConfirmTitle, isPresented: Binding(get: { askDelete != nil }, set: { if !$0 { askDelete = nil } })) {
+                Button(Board.deleteConfirmYes, role: .destructive) { askDelete?.delete?(); askDelete = nil }
+                Button(Board.deleteConfirmNo, role: .cancel) { askDelete = nil }
+            } message: {
+                Text(Board.deleteConfirmBody)
+            }
+            .environment(\.shownMessageActions, (panel ?? target ?? askDelete)?.id)
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardUp = false
