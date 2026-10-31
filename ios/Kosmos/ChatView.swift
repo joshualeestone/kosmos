@@ -2412,7 +2412,7 @@ struct KeyboardHold: UIViewRepresentable {
                 defer { if acted { self.onPutBack() } }
                 if rearm == nil, self.guarding == nil { ChatView.trace("keyboard hold: settle skipped, the hold stood down"); return }
                 guard let r = self.rows?.y[id] else {
-                    ChatView.trace("keyboard hold: settle, row not drawn")
+                    ChatView.trace(retried ? "keyboard hold: settle retry, row still not drawn" : "keyboard hold: settle, row not drawn")
                     if rearm != nil, !retried { self.settleOnScreen(id, above: above, width: width, want: want, rearm: rearm, retried: true) }
                     return
                 }
@@ -2522,7 +2522,8 @@ struct KeyboardHold: UIViewRepresentable {
                 if !self.keyboardUp { self.settleToken &+= 1 }   // a new keyboard: a settle still waiting belongs to the one before
                 // A keyboard already up (a second will-show, say for the emoji panel) keeps the first reading (keyboardUp: its
                 // reading was used at did-show, so saved alone cannot tell).
-                guard !self.keyboardUp, self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating else { return }
+                if self.keyboardUp { ChatView.trace("keyboard hold: will-show with a keyboard up, the first reading stands"); return }
+                guard self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating else { return }
                 ChatView.trace("keyboard hold: will-show \(Self.numbers(sv))")
                 // The top of what shows, below the top inset (the bar), in window points: the same space as RowTop's .global for
                 // a full-screen window (an iPhone); elsewhere only which row is chosen could differ, not the put-back.
