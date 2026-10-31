@@ -133,7 +133,7 @@ test('#7404: on and key pass the recovery code, org and member to the screen; un
   pk.confirmRecoveryCodeSaved = async (who) => { gotSaved = who; return { ok: true, deleted: 1, extra: 'never' }; };
   for (const k of ['on', 'key']) {
     const r = await call('/api/personal-backup/' + k, { body: { ticket: 't1', accepted: true }, headers: SCREEN });
-    assert.deepEqual(r.json, { ok: true, code: made.code, org: 'org_x', member: 'm_x' }, k + ': ' + JSON.stringify(r.json));
+    assert.deepEqual(r.json, { ok: true, recoveryCode: made.code, org: 'org_x', member: 'm_x' }, k + ': ' + JSON.stringify(r.json));
   }
   assert.deepEqual(gotOn, { ticket: 't1', accepted: true });
   const s = await call('/api/personal-backup/saved', { body: { org: 'org_x', member: 'm_x' }, headers: SCREEN });

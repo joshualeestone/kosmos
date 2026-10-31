@@ -430,7 +430,7 @@ async function pbShot(page, state, price = '$5/month') {
   await page.route('**/api/personal-backup/preview', json({ ok: true, ticket: 't_sample', words: {
     // The coordinator's own personal words today (kosmos-relay org.rs personal_consent): nothing uploaded yet.
     reports: [], backsUp: [], readers: ['you, on your own computers'], never: ['keys and passwords'] } }));
-  await page.route('**/api/personal-backup/on', json({ ok: true, code: 'K7QD-3MXA-9VPE-H2NW-4TBR-6YC8-JF', org: 'org_sample', member: 'm_sample' }));
+  await page.route('**/api/personal-backup/on', json({ ok: true, recoveryCode: 'K7QD-3MXA-9VPE-H2NW-4TBR-6YC8-JF', org: 'org_sample', member: 'm_sample' }));
   await at(page, '?tab=settings&sec=plus');
   await page.waitForSelector(state === 'off' ? '#pb-off' : '#pb-onview', { state: 'visible', timeout: 10000 });
   await pbTop(page);

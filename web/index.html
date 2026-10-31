@@ -55655,7 +55655,10 @@ function pbPaint() {
     document.getElementById('pb-off-row').prepend(fin);
   }
   if (fin) fin.hidden = v !== 'needs-key';
-  if (v !== 'code') { PB.code = null; document.getElementById('pb-code-text').textContent = ''; }
+  if (v !== 'code') {
+    if (PB.code) pbMsg('');   // a "Copied" line belongs to the code view and leaves with it
+    PB.code = null; document.getElementById('pb-code-text').textContent = '';
+  }
 }
 /* One literal fetch per step, as plusOrgPost does, so web.api-routes-3957 reads each path and checks it has a route. */
 async function pbPost(kind, body) {
@@ -55679,8 +55682,8 @@ function pbCodeText(code) {
   groups.forEach((g, i) => { const sp = document.createElement('span'); sp.textContent = g + (i < groups.length - 1 ? '-' : ''); box.appendChild(sp); });   // no hidden characters: a copied selection restores as typed
 }
 function pbShowCode(r) {
-  PB.code = r.code; PB.who = { org: r.org, member: r.member }; PB.view = 'code';
-  pbCodeText(r.code);
+  PB.code = r.recoveryCode; PB.who = { org: r.org, member: r.member }; PB.view = 'code';
+  pbCodeText(r.recoveryCode);
   pbPaint();
   const lead = document.getElementById('pb-code-lead'); if (lead) lead.focus();
 }
@@ -55704,7 +55707,7 @@ async function pbAccept(yes) {
   try {
     const r = await pbPost('on', { ticket, accepted: yes === true });
     if (yes !== true) { PB.view = null; pbPaint(); return; }
-    if (r && r.ok && r.code) { PB.at = 0; pbShowCode(r); return; }
+    if (r && r.ok && r.recoveryCode) { PB.at = 0; pbShowCode(r); return; }
     PB.view = null; PB.at = 0;
     if (!(r && r.ok)) pbMsg((r && r.because) || 'Nothing was turned on. Try again in a minute.');
   } finally { PB.busy = false; if (PB.view !== 'code') pbMaybe(); }
@@ -55713,7 +55716,7 @@ async function pbFinish() {
   if (PB.busy) return; PB.busy = true; pbMsg('');
   try {
     const r = await pbPost('key');
-    if (r && r.ok && r.code) { pbShowCode(r); return; }
+    if (r && r.ok && r.recoveryCode) { pbShowCode(r); return; }
     if (r && r.ok) { PB.at = 0; return; }
     pbMsg((r && r.because) || 'The recovery code could not be shown just now. Try again in a minute.');
     if (r && r.code === 'restore') { PB.view = 'restore'; pbPaint(); }
@@ -55733,13 +55736,23 @@ function pbCopy() {
 }
 function pbPrint() {
   if (!PB.code) return;
-  const w = window.open('', '_blank', 'noopener=no,width=480,height=360');
-  if (!w) { pbMsg('The print window was blocked. Write the code down instead.'); return; }
-  const d = w.document; d.title = 'Kosmos recovery code';
+  /* A hidden frame, printed and then removed, rather than a second window: no other browsing context keeps the code
+     after the print dialog closes (challenge round 2). */
+  const f = document.createElement('iframe');
+  f.setAttribute('aria-hidden', 'true'); f.tabIndex = -1;
+  f.style.cssText = 'position:fixed;width:0;height:0;border:0;left:-9999px;top:0;';
+  document.body.appendChild(f);
+  const w = f.contentWindow; const d = w && w.document;
+  if (!d) { f.remove(); pbMsg('It could not be printed. Write the code down instead.'); return; }
+  d.title = 'Kosmos recovery code';
   const h = d.createElement('h1'); h.textContent = 'Kosmos personal backup recovery code';
   const p = d.createElement('p'); p.style.cssText = 'font: 600 22px ui-monospace, monospace; letter-spacing: .08em;'; p.textContent = PB.code;
-  const n = d.createElement('p'); n.textContent = 'Kosmos+ cannot read this code and cannot recover it. Keep it safe.';
-  d.body.append(h, p, n); w.focus(); w.print();
+  const n = d.createElement('p'); n.textContent = 'Kosmos+ never sees this code, so it cannot get it back for you. Keep it somewhere safe.';
+  d.body.append(h, p, n);
+  const done = () => { try { f.remove(); } catch { /* gone */ } };
+  w.addEventListener('afterprint', done, { once: true });
+  setTimeout(done, 60000);   // a browser that sends no afterprint still drops the frame
+  w.focus(); w.print();
 }
 function pbOffArm(on) {
   document.getElementById('pb-off-ask').hidden = !on;

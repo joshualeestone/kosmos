@@ -12743,6 +12743,9 @@ const server = http.createServer(async (req, res) => {
         const keep = ['ok', 'because', 'code', 'declined', 'pending', 'unknown', 'already', 'ticket', 'words', 'org', 'member', 'deleted', 'epochs'];
         const out = {};
         if (r && typeof r === 'object') for (const k of keep) if (k in r) out[k] = r[k];
+        /* Challenge round 2: the engine's `code` is the recovery code on a successful on/key and a refusal code everywhere
+           else. The secret is sent under its own name, so a refusal code can never be shown as a recovery code. */
+        if ((kind === 'on' || kind === 'key') && out.ok === true && 'code' in out) { if (typeof out.code === 'string') out.recoveryCode = out.code; delete out.code; }
         if (!('ok' in out)) { out.ok = false; out.because = 'This Kosmos could not finish that. Nothing changed; try again.'; }
         sendJson(res, 200, out);
       })
