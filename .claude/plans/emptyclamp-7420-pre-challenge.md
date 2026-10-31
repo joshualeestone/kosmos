@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: emptyclamp-7420
-diff_hash: 3dea5d82258f5f9f0719ab866f5f377d44948b3b3c29e58605e85de78b345ffc
+diff_hash: 0d78baf5f2f6c748b96a239333ed0d00d1bb7106c7a16558f6b3b421cbf0bd1e
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-31T05:15:47Z
@@ -136,3 +136,13 @@ Notes, stated plainly:
 - the report measures the scroll instead of counting onAppear, and says what the row count is (every iteration)
 - a later recovery acts only past the end with nobody scrolling, on every iOS (iterations 4 to 10)
 - the plan records the simulator experiment that weakened its own leading reading (iterations 7 to 10)
+
+### After the review: rebased onto main with #7666 (stated so the hash is not read as covering a reviewed diff)
+10-31 04:5x CDT, onto main 3d4938ee01. Two conflicts, both in the first commit and both "two additions in the same place":
+#7666's Board functions (anchorKind, letGoAfterPutBack, keepPageByScroll, holdTarget, readerRow) beside this branch's
+scrollPlace in BoardLogic.swift, and their checks beside scrollPlace's in LogicTests/main.swift. Resolved by keeping both,
+with one closing brace between the two functions. `git range-diff`: 13 commits identical (`=`); the first differs only in
+its context lines (main's code beside it) and the blank line at the join, none of this branch's own added or removed lines.
+After the rebase: every ios/LogicTests run (run.sh and the eight run-*.sh) passed, the DM's KeyboardSlideUITests 3/3 on the
+iOS 26.5 simulator, and full validation passed (validation-log hash 0d78baf5f2f6). The hash above is on the new base (it was
+3dea5d8225... before).
