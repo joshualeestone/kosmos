@@ -1342,6 +1342,7 @@ async function promptCommunityOnTaskDoneNow({ projectId, taskNumber, session, na
       inCommunity: agentInCommunity,
       postTimes: (s) => { const all = communitystore.postTimesAll(); return all === null ? null : (all.get(String(s).trim().toLowerCase()) || []); },
       deliver: (s, text) => chat.deliverAutomaticAsync(s, text, roster),
+      paneBusy: (s) => chat.paneBusyVerdict(s, roster),   // kosmos#7649: never typed behind another message
       DELIVERY: chat.DELIVERY,
     });
     // #5313: the prompt has already reached the pane when recorded; if the book write fails (disk full,

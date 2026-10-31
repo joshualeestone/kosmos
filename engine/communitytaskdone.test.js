@@ -302,3 +302,23 @@ test('kosmos#7649 promptOnTaskDoneAsync: never rejects, whatever the input', asy
   const bad = setup({ deliver: () => Promise.reject(new Error('x')) });
   assert.equal((await td.promptOnTaskDoneAsync(bad.o)).act, 'prompted', 'a rejection reads as UNCONFIRMED, which reached');
 });
+
+test('kosmos#7649: a pane still placing another message is pane-busy, not typed after it, and leaves the task unbooked (as the sync sender)', async () => {
+  const sends = [];
+  const { o } = setup({ paneBusy: () => ({ state: D.COULD_NOT, busy: true }), deliver: (s) => { sends.push(s); return later({ state: D.PLACED }); } });
+  const r = await td.promptOnTaskDoneAsync(o);
+  assert.equal(r.act, 'pane-busy');
+  assert.deepEqual(sends, []);
+  assert.equal(o.book.size, 0);
+  // CONTROL: a free pane is sent to.
+  const free = setup({ paneBusy: () => null, deliver: () => later({ state: D.PLACED }) });
+  assert.equal((await td.promptOnTaskDoneAsync(free.o)).act, 'prompted');
+});
+
+test('kosmos#7649: a delivery that never answers counts as unconfirmed after the deadline, is booked, and the prompt ends', async () => {
+  const { o } = setup({ deliverDeadlineMs: 20, deliver: () => new Promise(() => {}) });
+  const r = await td.promptOnTaskDoneAsync(o);
+  assert.deepEqual([r.act, r.delivery, r.recorded], ['prompted', D.UNCONFIRMED, true]);
+  assert.equal(o.book.has('proj1\t7'), true);
+  assert.equal(td.DELIVER_DEADLINE_MS, 3 * 60 * 1000, 'the board default');
+});

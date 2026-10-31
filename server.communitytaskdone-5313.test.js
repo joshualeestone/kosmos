@@ -80,3 +80,9 @@ test('kosmos#7649: every task-done prompt waits for the one before it (one chain
   assert.equal(SRC.split('promptCommunityOnTaskDoneNow(').length - 1, 2, 'promptCommunityOnTaskDoneNow is called somewhere other than the chain (or defined twice)');
   assert.equal(SRC.split('communitytaskdone.promptOnTaskDone').length - 1, 1, 'more than one call into the task-done core');
 });
+
+test('kosmos#7649: the task-done prompt asks chat whether the pane is still placing another message before it sends', () => {
+  const start = SRC.indexOf('async function promptCommunityOnTaskDoneNow(');
+  const fn = SRC.slice(start, SRC.indexOf('catch { return null; }', start));
+  assert.match(fn, /paneBusy:\s*\(s\)\s*=>\s*chat\.paneBusyVerdict\(s, roster\),/);
+});

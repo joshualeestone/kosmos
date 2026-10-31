@@ -179,12 +179,28 @@ function promptOnTaskDone(o) {
 /* kosmos#7649: the same, with the delivery awaited (o.deliver may return a promise), so the board's event loop is
    free while the pane is typed into. A rejection reads as a throw does: UNCONFIRMED. Never rejects. The book is read
    before the delivery and booked after it, so the CALLER must not run two of these over one book at once (server.js
-   runs them one after another), or both could pass the dedup before either books. */
+   runs them one after another), or both could pass the dedup before either books.
+   Two things the idle sweep's review taught (engine/communityturn.js tickOnceAsync), the same here:
+   - o.paneBusy, when given, is asked first and in the same turn as the delivery: the awaited sender would wait behind a
+     message still being placed and type straight after it, where the synchronous one refused (busy, not booked).
+   - A delivery that has not answered within o.deliverDeadlineMs (DELIVER_DEADLINE_MS) counts as UNCONFIRMED, booked:
+     the board runs these one after another, so one delivery that never settles would stop every later prompt. */
+const DELIVER_DEADLINE_MS = 3 * 60 * 1000;
 async function promptOnTaskDoneAsync(o) {
   const d = decide(o);
   if (d.done) return d.done;
+  let busy = null;
+  if (typeof o.paneBusy === 'function') { try { busy = o.paneBusy(d.p.session); } catch { busy = null; } }
+  if (busy && busy.busy === true) return settle(d.p, busy);
+  const ms = Number.isFinite(o.deliverDeadlineMs) && o.deliverDeadlineMs > 0 ? o.deliverDeadlineMs : DELIVER_DEADLINE_MS;
   let v = null;
-  try { v = await o.deliver(d.p.session, d.p.text); } catch { v = { state: d.p.D.UNCONFIRMED }; }
+  let timer = null;
+  try {
+    let sending;
+    try { sending = Promise.resolve(o.deliver(d.p.session, d.p.text)); } catch (e) { sending = Promise.reject(e); }
+    const late = new Promise((res) => { timer = setTimeout(() => res({ state: d.p.D.UNCONFIRMED }), ms); if (timer && timer.unref) timer.unref(); });
+    v = await Promise.race([sending, late]);
+  } catch { v = { state: d.p.D.UNCONFIRMED }; } finally { clearTimeout(timer); }
   return settle(d.p, v);
 }
 
@@ -217,4 +233,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { taskDoneText, promptOnTaskDone, promptOnTaskDoneAsync, readBook, writeBook, bookFile, POST_CLAUSE, PROMPTS_PER_DAY, RETENTION_MS, DAY_MS };
+module.exports = { taskDoneText, promptOnTaskDone, promptOnTaskDoneAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile, POST_CLAUSE, PROMPTS_PER_DAY, RETENTION_MS, DAY_MS };
