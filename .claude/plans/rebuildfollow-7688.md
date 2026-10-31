@@ -24,3 +24,12 @@ Card: kosmos#7688. Stacked on withinrebuild-7420 (#7420), which goes first.
 - Weakest premise: the timing check guards Board's values, not that ChatView keeps using them; a literal typed back into
   ChatView would not trip it. A row of the new list leaving at about 1 s gives a check that the spacing refuses with only a
   trace line; the scheduled check after the grace still covers it.
+
+## Review
+- Round 1: no BLOCKER, 2 warnings (the "redrawn" words could be false or go stale; the delayed report had no same-chat
+  guard), both fixed; NITs on plan item 3 (it named a recovery that does not happen), a stale comment, a force unwrap,
+  and the drag still settling, fixed.
+- Round 2: no BLOCKER, no WARNING. Converged. NITs taken: a report skipped because the person left the chat in the wait
+  re-arms (diagDone = false) under the same account; the hook traces when it runs while still scrolling; the ChatView
+  alias of rebuildGrace removed; the timing comment says what the check protects. Left: epoch and client.chatEpoch are
+  compared twice (the same value), harmless.

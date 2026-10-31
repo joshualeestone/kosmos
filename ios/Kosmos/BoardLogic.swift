@@ -494,8 +494,9 @@ enum Board {
     enum EmptyRecovery: Equatable { case none, newest, backInsideThenNewest, rebuild }
     // kosmos#7688 (1): the rebuild's timing, in one place, because its parts only work together. A rebuilt list gets one
     // check after rebuildGrace + rebuildCheckBump (diagTick), and diagCheck reads at each of diagCheckWaits after it; a second
-    // rebuild needs rebuildSpacing since the first. If the earliest read came before the spacing, a list still empty would
-    // be refused as "not rebuilt again" with no sign (rebuildTimingHolds is false then; LogicTests checks it).
+    // rebuild needs rebuildSpacing since the first. If the earliest read came before the spacing, that read would be
+    // refused as "not rebuilt again" (only a trace line says so), leaving the later reads to catch it. The check is on
+    // the earliest read to stay on the safe side (rebuildTimingHolds is false then; LogicTests checks it).
     static let rebuildGrace: Double = 1.5
     static let rebuildCheckBump: Double = 0.3
     static let rebuildSpacing: Double = 2
