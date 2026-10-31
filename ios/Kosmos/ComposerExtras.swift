@@ -795,13 +795,13 @@ struct MessageActionsHost: ViewModifier {
     private func panelRows(_ t: MessageActionTarget) -> some View {
         MessageActionsSheet(target: t, detent: .constant(small(t)), small: small(t), after: { $0() },
                             panelClose: { panel = nil },
-                            panelDelete: { askDelete = t; panel = nil },
                             panelMore: {
                                 panel = nil
                                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                                 detent = .large
                                 target = t
-                            })
+                            },
+                            panelDelete: { askDelete = t; panel = nil })
     }
 
     func body(content: Content) -> some View {
