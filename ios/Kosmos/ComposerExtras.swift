@@ -787,9 +787,10 @@ struct MessageActionsHost: ViewModifier {
     }
 
     // kosmos#7678: the sheet's own rows (one source, so the panel and the sheet cannot drift). Reply and Delete run at
-    // once (no sheet to wait for); More closes the panel, lowers the keyboard and opens the sheet at full height.
+    // once (no sheet to wait for); More closes the panel, lowers the keyboard and opens the sheet at full height. The panel
+    // is always the small rows: the sheet's own detent rests at .large, which would open it on the Reactions grid.
     private func panelRows(_ t: MessageActionTarget) -> some View {
-        MessageActionsSheet(target: t, detent: $detent, small: small(t), after: { $0() },
+        MessageActionsSheet(target: t, detent: .constant(small(t)), small: small(t), after: { $0() },
                             panelClose: { panel = nil },
                             panelMore: {
                                 panel = nil
