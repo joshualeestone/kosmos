@@ -91,9 +91,11 @@ test('#7689: a records-as-text render that throws answers 500 with no head out, 
     assert.equal(JSON.parse(r.text).error, 'we could not show its records as text');
   } finally { records.list = realList; records.renderList = realRender; }
   // And the board still answers.
+  /* And the same route answers again. (This file's own unhandled-rejection handlers would keep a crashed board's
+     process alive, so the proof is the escaped and status checks above; this one shows the route is not wedged.) */
   records.list = () => ({ label: 'records', staleDays: 30, rows: [], stale: 0 });
   try {
-    assert.equal((await get('/api/project/p7689/records?as=text')).code, 200, 'the board stopped answering after the records failure');
+    assert.equal((await get('/api/project/p7689/records?as=text')).code, 200, 'the route stopped answering after the records failure');
   } finally { records.list = realList; }
 });
 

@@ -18317,7 +18317,8 @@ const server = http.createServer(async (req, res) => {
       });
       if (!asText) { sendJson(res, 200, { ok: true, messages: rows, later, nextAt }); return; }
       /* #7689: the head goes out with the finished text, never before it: a throw while the rows were built used to
-         reach this catch's fail(500) with a 200 head already out. Now the catch answers with no head out. */
+         reach this catch's fail(500) with a 200 head already out (a crash, then a cut since #7686). Now the catch answers
+         with no head out. */
       const sendTextBody = (t) => { res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(t); };
       if (!rows.length) {
         if (unanswered) { sendTextBody('Nothing unanswered from the person' + (since !== null ? ' since then' : '') + '.\n'); return; }
