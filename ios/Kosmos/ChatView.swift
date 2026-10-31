@@ -659,9 +659,11 @@ struct ChatView: View {
                     // kosmos#7420: KOSMOS_SAMPLE_REBUILD=1 runs the empty-list recovery 3 s after opening, the reader at the newest
                     // (so the real decision gives .rebuild), then shows a marker 3 s later if it rebuilt exactly once. The cause (rows not drawn within
                     // the content) is not reproduced here; this checks the chat after a rebuild.
-                    if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REBUILD"] == "1", !Self.sampleRebuildDone {
+                    // =<seconds> sets the delay ("1" is 3 s), so a check can bring the keyboard up and down first (Josh's third
+                    // build-24 report went empty right after the keyboard came down).
+                    if let v = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REBUILD"], let n = Double(v), n > 0, !Self.sampleRebuildDone {
                         Self.sampleRebuildDone = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + (n == 1 ? 3 : n)) {
                             Self.trace("debug rebuild: atBottom \(atBottom)")
                             recoverEmpty(proxy, later: true)
                             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { sampleRebuilt = rebuilds.count == 1 }   // rebuilt, and only once
@@ -896,7 +898,10 @@ struct ChatView: View {
             }
             rebuilds.append(now)
             Self.trace("diag: empty within the content at the newest, list rebuilt (\(rebuilds.count) this chat open)")
-            if Self.idAnchor { positionId = "end" }
+            // As a fresh chat starts (the chatEpoch reset): no anchor and nothing drawn yet, so the new list's own open
+            // (goNewest on its appear) sets the anchor to the end in one step. Setting "end" here first made that a repeat,
+            // through nil a turn later, and on iOS 27 a rebuilt long list then showed its end and lost it (measured).
+            positionId = nil; anchorLetGo = false; rowTops.reset(); endSeen = false; endVisible = true
             listEpoch &+= 1
             return
         case .backInsideThenNewest:

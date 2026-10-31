@@ -66,6 +66,27 @@ final class KeyboardSlideUITests: XCTestCase {
         Self.assertAbove(newest, box, app.keyboards.firstMatch)
     }
 
+    // kosmos#7420 (build 24, Josh's third report): empty right after the keyboard came DOWN. The keyboard goes up and then
+    // down at the newest message, then the recovery runs (KOSMOS_SAMPLE_REBUILD=14, once the keyboard is down): one rebuild,
+    // and the newest message on screen above the box.
+    func testRebuiltAfterTheKeyboardWentDown() throws {
+        let app = Self.launch(["KOSMOS_SAMPLE_REBUILD": "14", "KOSMOS_SAMPLE_TRACE": "1"])
+        let box = Self.box(app)
+        let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Pages 9 to 12 need the new photos'")).firstMatch
+        XCTAssertTrue(newest.waitForExistence(timeout: 10), "Dana's newest message did not show")
+        Self.settle(newest)
+        try Self.keyboardUp(app, box, newest, shot: "rebuild-down-keyboard-up", test: self)
+        // Down, as a person's drag down the conversation does (the chat dismisses the keyboard interactively).
+        newest.swipeDown(velocity: .fast)
+        let down = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
+        XCTAssertEqual(XCTWaiter().wait(for: [down], timeout: 5), .completed, "the keyboard did not go down")
+        let rebuilt = app.descendants(matching: .any).matching(identifier: "sample-rebuilt").firstMatch
+        XCTAssertTrue(rebuilt.waitForExistence(timeout: 30), "the chat was not rebuilt exactly once after the keyboard went down")
+        XCTAssertTrue(newest.waitForExistence(timeout: 10) && newest.isHittable, "the rebuilt chat did not show its newest message")
+        Self.settle(newest)
+        XCTAssertLessThanOrEqual(newest.frame.maxY, box.frame.minY, "the newest message was not above the box after the rebuild")
+    }
+
     // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP moves
     // the reader up the thread 3 s after opening, as a reader's own scroll does.
     func testReadHigherUpStaysWhereItWas() throws {
