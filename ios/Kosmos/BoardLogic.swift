@@ -492,6 +492,15 @@ enum Board {
     // scrolls, and never for a reader higher up, who would lose their place.
     // On iOS 16 and 17 the chat clears atNewest when its end leaves the screen, so there this arm is effectively unreachable.
     enum EmptyRecovery: Equatable { case none, newest, backInsideThenNewest, rebuild }
+    // kosmos#7688 (1): the rebuild's timing, in one place, because its parts only work together. A rebuilt list gets one
+    // check after rebuildGrace + rebuildCheckBump (diagTick), and diagCheck reads at each of diagCheckWaits after it; a second
+    // rebuild needs rebuildSpacing since the first. If the earliest read came before the spacing, a list still empty would
+    // be refused as "not rebuilt again" with no sign (rebuildTimingHolds is false then; LogicTests checks it).
+    static let rebuildGrace: Double = 1.5
+    static let rebuildCheckBump: Double = 0.3
+    static let rebuildSpacing: Double = 2
+    static let diagCheckWaits: [Double] = [0.5, 1.5]
+    static var rebuildTimingHolds: Bool { rebuildGrace + rebuildCheckBump + (diagCheckWaits.min() ?? 0) >= rebuildSpacing }
     static func emptyRecovery(later: Bool, place: String?, scrolling: Bool, atNewest: Bool = false) -> EmptyRecovery {
         if !scrolling && atNewest && place == "within" { return .rebuild }
         if later { return !scrolling && place == "past the end" ? .backInsideThenNewest : .none }

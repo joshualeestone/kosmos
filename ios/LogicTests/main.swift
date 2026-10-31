@@ -5168,6 +5168,10 @@ do {
     check(Board.emptyRecovery(later: false, place: "past the end", scrolling: false) == .backInsideThenNewest && Board.emptyRecovery(later: false, place: "before the top", scrolling: false) == .backInsideThenNewest,
           "the first one puts a scroll outside its content back first")
     check(Board.emptyRecovery(later: false, place: "past the end", scrolling: true) == .newest, "never moves the scroll under a finger")
+    // kosmos#7688 (1): the check after a rebuild reads no earlier than a second rebuild is allowed.
+    check(Board.rebuildTimingHolds, "a rebuilt list's first check comes after the rebuild spacing, so a list still empty can be rebuilt again")
+    check(Board.rebuildGrace + Board.rebuildCheckBump + Board.diagCheckWaits.min()! - Board.rebuildSpacing < 1,
+          "and not so long after that a list still empty waits a noticeable extra second")
     check(Board.emptyRecovery(later: true, place: "past the end", scrolling: false) == .backInsideThenNewest, "a later empty list past the content's end is put right")
     check(Board.emptyRecovery(later: true, place: "within", scrolling: false) == .none && Board.emptyRecovery(later: true, place: "before the top", scrolling: false) == .none && Board.emptyRecovery(later: true, place: nil, scrolling: false) == .none,
           "a later one within, before the top (maybe a bounce) or unread pulls nobody to the newest")
