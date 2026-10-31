@@ -33,6 +33,8 @@ const ended = (exited) => {
 };
 // Review 3: start-up is slowed by load just as death is, so every wait for something to START shares a 60 s bound.
 const START_WAIT_MS = 60000;
+// Review 4: a pid in a file, or 0 while the file is missing or still empty (seen between create and write).
+const pidIn = (file) => { try { const n = Number(fs.readFileSync(file, 'utf8')); return Number.isInteger(n) && n > 0 ? n : 0; } catch { return 0; } };
 async function waitFor(cond) { for (const end = Date.now() + START_WAIT_MS; Date.now() < end && !cond();) await sleep(50); return cond(); }
 // Review 2: what an arm leaves when it fails before the tool kills its tree: SIGKILL reaches only the bash tool, never
 // what it started, so each process the arm recorded is woken (it may have been stopped mid-read) and ended too.
@@ -48,6 +50,7 @@ function sandbox(t) {
   fs.writeFileSync(path.join(dir, 'b.js'), 'const y = 1;\n');   // a colleague's file, edited during one run
   // The test the tool runs: it records its pid, then holds for 180 s, past the signal plus END_WITHIN_MS plus DIE_WAIT_MS.
   fs.writeFileSync(path.join(dir, 'slow.test.js'),
+    "require('node:fs').writeFileSync(__dirname + '/runner.pid', String(process.ppid));\n" +
     "require('node:fs').writeFileSync(__dirname + '/test.pid', String(process.pid));\n" +
     "require('node:test')('slow', () => new Promise((r) => setTimeout(r, 180000)));\n");
   const git = (...a) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { stdio: 'ignore' });
@@ -72,11 +75,12 @@ for (const [sig, want, colleague] of [['SIGTERM', 143, false], ['SIGHUP', 129, f
     const exited = new Promise((r) => child.on('exit', (code, signal) => r({ code, signal })));
     // Wait until the break is in the tree AND its test is running: then the signal lands mid-run.
     const pidFile = path.join(dir, 'test.pid');
-    await waitFor(() => fs.existsSync(pidFile));
+    await waitFor(() => pidIn(pidFile) > 0);
     assert.ok(fs.existsSync(pidFile), 'premise: the slow test started: ' + out);
     assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 2;\n', 'premise: the break was applied');
     const testPid = Number(fs.readFileSync(pidFile, 'utf8'));
-    t.after(() => endAll([testPid]));
+    const runnerPid = pidIn(path.join(dir, 'runner.pid'));   // review 4: read now, the sandbox goes first
+    t.after(() => endAll([testPid, runnerPid]));
     if (colleague) fs.writeFileSync(path.join(dir, 'b.js'), 'const y = 2;   // edited by someone else mid-run\n');
     child.kill(sig);
     const end = await ended(exited);
@@ -151,10 +155,11 @@ test('#7619 review 3: a broken file someone edits again mid-run is left alone an
   child.stdout.on('data', (d) => { out += d; });
   const exited = new Promise((r) => child.on('exit', (code) => r(code)));
   const pidFile = path.join(dir, 'test.pid');
-  await waitFor(() => fs.existsSync(pidFile));
+  await waitFor(() => pidIn(pidFile) > 0);
   assert.ok(fs.existsSync(pidFile), 'premise: the slow test started: ' + out);
   const slowPid = Number(fs.readFileSync(pidFile, 'utf8'));   // read NOW: the sandbox is gone before t.after runs
-  t.after(() => endAll([slowPid]));   // review 3: its test too, if the arm fails
+  const slowRunner = pidIn(path.join(dir, 'runner.pid'));
+  t.after(() => endAll([slowPid, slowRunner]));   // review 3 and 4: its test and runner too, if the arm fails
   fs.writeFileSync(path.join(dir, 'a.js'), 'const x = 3;   // a colleague, mid-run\n');
   child.kill('SIGTERM');
   const end = await ended(exited);
@@ -162,6 +167,8 @@ test('#7619 review 3: a broken file someone edits again mid-run is left alone an
   assert.equal(end, 143, out);
   assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 3;   // a colleague, mid-run\n', 'their edit was overwritten');
   assert.match(out, /NOT restored, changed again during the run \(check by hand\): a\.js/);
+  // Review 4: and its test is gone, or a tool that restores and exits without killing its test passes this arm.
+  assert.deepEqual(await waitGone([slowPid]), [], 'the test it was running was left going');
 });
 
 test('#7629 B1: a signal also ends what the test itself started (a child it spawned is not left running)', async (t) => {
@@ -181,7 +188,7 @@ test('#7629 B1: a signal also ends what the test itself started (a child it spaw
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   const exited = new Promise((r) => child.on('exit', (code) => r(code)));
   const kidFile = path.join(dir, 'kid.pid');
-  await waitFor(() => fs.existsSync(kidFile));
+  await waitFor(() => pidIn(kidFile) > 0);
   assert.ok(fs.existsSync(kidFile), 'premise: the test started its child');
   const kid = Number(fs.readFileSync(kidFile, 'utf8'));
   t.after(() => endAll([kid]));   // never leave it behind, even when the arm fails (woken first: it may be stopped)
