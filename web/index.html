@@ -12164,7 +12164,9 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .pb-codebox { color: var(--k-ink); font: 600 20px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; padding: 12px 14px; border: 1px solid var(--border-strong); background: var(--bg-sunken); border-radius: 8px; user-select: all; margin: 8px 0; }   /* kosmos#7404 */
 #s-sec-plus .pb-codebox span { display: inline-block; white-space: nowrap; }   /* review 1: breaks only between groups, the hyphen kept with the group before it */
 #s-sec-plus .pb-saved-row { margin-top: 24px; }
-#s-sec-plus .pb-codein { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; }
+#s-sec-plus .pb-codein { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; text-transform: uppercase; }   /* shown as the code was shown; the value stays as typed (the engine reads either case) */
+#s-sec-plus .pb-codein::placeholder { text-transform: none; }
+@media (max-width: 480px) { #s-sec-plus .pb-codein { letter-spacing: 0; padding-left: 10px; padding-right: 10px; } }   /* 32 characters at the 16px a phone needs to not zoom */
 #s-sec-plus #pb-restore-open { display: block; margin-top: 8px; text-align: left; }
 #s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
 #s-sec-plus .plus-org-outhead { display: flex; justify-content: flex-end; }
