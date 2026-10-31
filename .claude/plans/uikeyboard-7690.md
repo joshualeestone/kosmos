@@ -18,8 +18,17 @@ part 2 merges.
 ios/**, on macos-latest, the same job. If it fails, the failure is read (the trace dump above) and fixed or the class
 stays out; the PR does not merge red.
 
+The run that counts is the one on the head that merges: after the rebase onto main (once part 2 merges), the rebased
+head's own CI run, not this stacked branch's. A green stacked run is cited only as the stacked run.
+
 ## Budget
-The ui job takes about 16 of its 40 minutes on main (three runs 10-31). Two checks in a 220-post room add a few minutes.
+Measured: the ui job took 16, 16 and 15 of its 40 minutes on three main runs (10-31). The two room checks' cost is not
+measured yet; the PR's run is that measurement, and its duration goes on the card.
+
+## Shared trace file
+Both read-higher-up checks append to the app's one Documents/trace.txt. The dump names which of them ran, and shows
+200 lines instead of 60 when the DM check failed and the room check wrote after it. Not done: a trace file per check,
+which needs an app change in ChatView.trace for a diagnostic that does not decide red or green.
 
 ## Not done
 No retry or skip for a slow runner: a check that cannot hold on CI is the finding, not something to hide.

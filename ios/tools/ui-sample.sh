@@ -18,7 +18,8 @@ keep=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=1; shift ;;
-    # The header comment, however long it grows (#7690: a fixed line range cut its last line once).
+    # The header comment, however long it grows: a fixed line range has to be raised each time the header grows, and
+    # #7690's longer header would have cut its last line.
     -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) echo "ui-sample: unknown argument $1" >&2; exit 2 ;;
   esac
@@ -30,8 +31,9 @@ classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:3 RoomOpens
 #   TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/ChatOpensAtNewestUITests
 # KeyboardSlideUITests' third check (read higher up) used to wait on a clock and flake under load; Mona Lisa's #7627
 # (kbrested-7609) replaced the wait with a marker, so all three run here again. It records the chat's scroll events
-# (KOSMOS_SAMPLE_TRACE=1): when it fails, the last of them are printed below while the simulator still exists. So does
-# RoomKeyboardUITests' read-higher-up check (#7690); the dump does not say which check wrote the events it shows.
+# (KOSMOS_SAMPLE_TRACE=1): when it fails, the last of them are printed below while the simulator still exists.
+# RoomKeyboardUITests' read-higher-up check (#7690) appends to the SAME file, so the dump below names which of the two
+# ran, and shows more of the file when the DM check failed and the room check wrote after it.
 skip=""
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
   echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
@@ -91,14 +93,22 @@ echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)
 [ -n "$why" ] && printf '%s\n' "$why"
 # kosmos#7609: as ui-keyboard.sh does, the read-higher-up check's scroll trace, read from the app's own data container
 # before cleanup deletes the simulator (--keep keeps the log, not the simulator). The bundle id is the built app's.
-# #7690: and the long room's own read-higher-up check, which records the same trace (KOSMOS_SAMPLE_TRACE).
-if grep -q -E "^Test Case '-\[KosmosUITests\.(KeyboardSlideUITests testReadHigherUpStaysWhereItWas|RoomKeyboardUITests testRoomReadHigherUpStaysWhereItWas)\]' failed" "$log"; then
+# #7690: and the long room's own read-higher-up check, which appends to the same file.
+dm_check="KeyboardSlideUITests testReadHigherUpStaysWhereItWas"
+room_check="RoomKeyboardUITests testRoomReadHigherUpStaysWhereItWas"
+if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check)\]' failed" "$log"; then
   app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
-    echo "  the chat's last scroll events (read-higher-up check):"
-    tail -60 "$data/Documents/trace.txt" | sed 's/^/    /'
+    wrote=""; for c in "$dm_check" "$room_check"; do
+      grep -q -E "^Test Case '-\[KosmosUITests\.$c\]' (passed|failed)" "$log" && wrote="$wrote, ${c% *}"
+    done
+    n=60
+    # The DM check failed but the room check wrote after it: its own events sit further back in the file.
+    if grep -q -E "^Test Case '-\[KosmosUITests\.$dm_check\]' failed" "$log" && [ "${wrote#*RoomKeyboardUITests}" != "$wrote" ]; then n=200; fi
+    echo "  the app's last $n scroll events (one file, written this run by${wrote#,}; the newest lines are the last check's):"
+    tail -"$n" "$data/Documents/trace.txt" | sed 's/^/    /'
   else
     echo "  (no scroll trace from the app)"
   fi
