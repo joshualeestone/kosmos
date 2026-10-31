@@ -820,7 +820,7 @@ test('#7681 restore: a turn-off during the restore itself writes no key-ready ma
   const racing = Object.assign({}, taken, { restorePersonalKey: async () => { await pb.switchOff({ root, remote: c }); return { ok: true, epochs: [1] }; } });
   const res = await pb.restore('CODE', { root, remote: c, personalbackupkey: racing });
   assert.equal(res.ok, false, JSON.stringify(res));
-  assert.match(res.because, /changed on this computer while restoring/);
+  assert.match(res.because, /restored here, but personal backup changed/, 'the keys WERE restored by then: the message must say so');
   assert.equal(fs.existsSync(path.join(root, 'personal-key-ready')), false, 'a key-ready marker was written for a binding turned off');
   // CONTROL: the same restore with no turn-off writes the marker and reads on.
   const root2 = fresh(t);
