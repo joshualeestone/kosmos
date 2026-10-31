@@ -11991,6 +11991,10 @@ body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
 body.plus-active :is(.svc-door, .dmoff, .msg-valve, .rst-list li, .rolelimit, .note, .pj-warn,
   .pj-folder-state.bad, .pj-question, .pj-msg.unsure, #d-untied, #d-withdrawn) {
   --warn-bg: rgba(255,190,60,0.12); --warn-border: rgba(255,190,60,0.32); --border-strong: rgba(255,255,255,0.26); }
+/* kosmos#7404 (Mona Lisa's review 1): an outline button on the Kosmos+ page read its light-mode hairline on navy and lost
+   its border in light mode (Join Company or Family Account, Copy, Print, Not now). Scoped like #3692, to this page's
+   buttons only, so every other user of the token is unchanged. */
+body.plus-active #s-sec-plus .btn { --border-strong: rgba(255,255,255,0.26); }
 /* The roadmap needs-you ring is a hard-coded red, so it is pinned to the dark ring here too. */
 body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.attn { box-shadow: inset 0 0 0 1px rgba(255,140,130,.55); }
 /* The section is the positioning context for the ambient star field, which sits
