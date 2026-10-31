@@ -4477,7 +4477,15 @@ function sendFileStream(req, res, file, unread, headers, opts = {}) {
   rs.on('data', arm);
   res.once('close', () => clearTimeout(stall));
   arm();
-  pipeline(rs, res, () => { /* aborted or failed: both streams are destroyed */ });
+  try {
+    pipeline(rs, res, () => { /* aborted or failed: both streams are destroyed */ });
+  } catch {
+    // #7686 review 6: pipeline throws at once when the response is already gone (the client left while the preview was
+    // drawn); the stream it never took must still close its descriptor.
+    clearTimeout(stall);
+    rs.destroy();
+    res.destroy();
+  }
 }
 
 /* #6734: an upload answered with a refusal. When the body has not all arrived (over the cap, or the client went),
@@ -5889,6 +5897,9 @@ function sendFileDownload(req, res, found, recheck) {
         refuseDownload(req, res, DOWNLOAD_GONE);
         return;
       }
+      // #7686 review 6: the client can leave while the file is opened and checked (a cancelled download). Then the head
+      // would go to a dead response and pipeline() below throws, uncaught in this callback, ending the board.
+      if (res.destroyed) { fs.close(fd, () => {}); return; }
       if (checkOnly) { fs.close(fd, () => {}); res.writeHead(204, { 'cache-control': 'no-store' }); res.end(); return; }
       res.writeHead(200, headersFor(st.size));
       if (req.method === 'HEAD' || st.size === 0) { fs.close(fd, () => {}); res.end(); return; }
@@ -5904,7 +5915,12 @@ function sendFileDownload(req, res, found, recheck) {
       // A read that ends short of the declared length is a reset, never a response ended short. This listener must be
       // registered BEFORE pipeline() below, so it runs before the pipe's own end handler ends the response.
       stream.once('end', () => { if (stream.bytesRead < st.size) res.destroy(); });
-      require('node:stream').pipeline(stream, res, () => {});
+      try {
+        require('node:stream').pipeline(stream, res, () => {});
+      } catch {
+        stream.destroy();   // closes the descriptor (autoClose)
+        res.destroy();
+      }
     });
   });
 }
