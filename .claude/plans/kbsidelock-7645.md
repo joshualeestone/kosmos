@@ -36,6 +36,8 @@ A CI trace on this branch still showing put back 499 after "anchor let go".
   which drives the put-back itself; the LogicTests checks cover the five decisions alone.
 - A page landing above while the anchor is let go (the keepAnchor scroll on iOS 17+) has no check at all.
 
+(Rounds 2 to 4 below describe code that later rounds replaced; round 5 and after describe what ships.)
+
 ## Round 2 (21:59 CDT): CI on PR #7666 (run 41161105224)
 Measured: the let-go worked. The trace shows ONE put-back (797), "anchor let go", and 0.2 s later "anchor after let go
 none": no 499 pt re-moves, and SwiftUI did not name a row again. The check still failed, for a different reason: the
@@ -114,3 +116,8 @@ window" trace went with the offset watch it lived in; it is not in this code. Pe
 write per drawn row per scroll frame, no SwiftUI state, nothing redrawn.
 Not tested (round 5): the wiring (RowTop's readings, RowTops.watch, the size and sign of the write, .global against the
 window) is covered only by the CI UI check; LogicTests cover readerRow and the anchor decisions.
+Iteration 14: each row reading pairs the row's top with the scroll offset read in the same layout pass (RowReading, from
+onGeometryChange's transform), not later in its action. The stale cutoff is 3 s (did-show came 1.3 s after will-show on CI).
+If the reader's row is not drawn at did-show, or stops being drawn while held, the hold ends for that keyboard, with a line
+saying which. Readings are not kept when the hold is off (below iOS 26, or the Debug control). A move of the offset and the
+content together that leaves the row's y unchanged writes nothing (moved is 0): accepted, the row is where it was.

@@ -377,7 +377,7 @@ struct ChatView: View {
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
-            positionId = nil; anchorLetGo = false; rowTops.y = [:]; personScrolling = false; endVisible = true   // kosmos#7265 review: a fresh chat's anchor
+            positionId = nil; anchorLetGo = false; rowTops.y = [:]; rowTops.watch = nil; personScrolling = false; endVisible = true   // kosmos#7265 review: a fresh chat's anchor
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             replying = nil
@@ -547,7 +547,8 @@ struct ChatView: View {
                                               moves: "\(appMoves)|\(query)", rows: rowTops) {
                         // kosmos#7645: on CI's runner the list was moved again after each put-back while the id anchor still
                         // held its id, so a reader's place is let go here (Board.letGoAfterPutBack). Until a row is named again
-                        // the hold keeps the reader's row for its window, then the offset alone, and a page landing above is kept by keepAnchor. Why: .claude/plans/kbsidelock-7645.md.
+                        // the hold keeps the reader's row for its window; after it nothing holds the place but the offset where it
+                        // was left, and a page landing above is kept by keepAnchor. Why: .claude/plans/kbsidelock-7645.md.
                         if Self.idAnchor, Board.letGoAfterPutBack(positionId) {
                             positionId = nil; anchorLetGo = true; Self.trace("keyboard hold: anchor let go")
                             // Whether SwiftUI names a row again by itself (not measured yet): the record says.
@@ -2406,18 +2407,19 @@ struct KeyboardHold: UIViewRepresentable {
             observers.append(nc.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self, let kept = self.saved, let rows = self.rows else { return }
                 self.saved = nil
-                guard Date().timeIntervalSince(kept.at) < 1.5 else { ChatView.trace("keyboard hold: skipped, stale"); return }   // a stale reading is not this keyboard's
+                // 3 s: on CI's runner did-show came 1.3 s after will-show (kosmos#7645); a reading older than that is another keyboard's.
+                guard Date().timeIntervalSince(kept.at) < 3 else { ChatView.trace("keyboard hold: skipped, stale"); return }
                 // 10-30 measured: iOS 26 moves it more than once after did-show, so for a short window every move of the
                 // reader's row is put back, as long as nothing else is moving the list.
                 self.generation &+= 1
                 let mine = self.generation
                 self.guarding = (kept, Date().addingTimeInterval(Self.window))
-                if let r = rows.y[kept.row] { self.putBack(CGFloat(r.top), at: CGFloat(r.offset)) }
-                else { ChatView.trace("keyboard hold: the row left the drawn rows") }
+                guard let r = rows.y[kept.row] else { ChatView.trace("keyboard hold: the row was not drawn at did-show"); self.endGuard(); return }
+                self.putBack(CGFloat(r.top), at: CGFloat(r.offset))
                 // Deferred to the next turn of the main queue, so a move made inside a layout pass is answered after it.
-                rows.watch = (kept.row, { [weak self] y, offset in
-                    guard let y else { ChatView.trace("keyboard hold: the row left the drawn rows"); return }
-                    DispatchQueue.main.async { self?.putBack(y, at: offset) }
+                rows.watch = (kept.row, { [weak self] r in
+                    guard let r else { ChatView.trace("keyboard hold: the row left the drawn rows while held"); self?.endGuard(); return }
+                    DispatchQueue.main.async { self?.putBack(CGFloat(r.top), at: CGFloat(r.offset)) }
                 })
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.window + 0.05) { [weak self] in
                     if let self, self.generation == mine {
@@ -2435,17 +2437,18 @@ struct KeyboardHold: UIViewRepresentable {
 }
 
 // kosmos#7645: where each drawn row of the chat is on the screen (its top, in window points), kept by RowTop on iOS 26
-// only (where KeyboardHold runs), with the scroll offset at the moment it was read, so a correction made from it is absolute
-// (that offset plus how far the row moved) and doing it twice changes nothing. A class, so a reading redraws nothing.
-// `watch` hands one row's fresh readings to the hold, and says when that row stops being drawn (nil).
+// only (where KeyboardHold runs), with the scroll offset read in the same layout pass, so a correction made from it is
+// absolute (that offset plus how far the row moved) and doing it twice changes nothing. A class, so a reading redraws
+// nothing. `watch` hands one row's fresh readings to the hold, and says when that row stops being drawn (nil).
+struct RowReading: Equatable { let top: Double, offset: Double }
 final class RowTops {
-    var y: [String: (top: Double, offset: Double)] = [:]
+    var y: [String: RowReading] = [:]
     weak var scroll: UIScrollView?
-    var watch: (id: String, seen: (_ top: CGFloat?, _ offset: CGFloat) -> Void)?
-    func set(_ id: String, _ top: Double?) {
-        let offset = Double(scroll?.contentOffset.y ?? 0)
-        y[id] = top.map { ($0, offset) }
-        if let w = watch, w.id == id { w.seen(top.map { CGFloat($0) }, CGFloat(offset)) }
+    var watch: (id: String, seen: (RowReading?) -> Void)?
+    func set(_ id: String, _ r: RowReading?) {
+        if KeyboardHold.Probe.off { return }   // the hold is off (below iOS 26, or the Debug control): nothing reads these
+        y[id] = r
+        if let w = watch, w.id == id { w.seen(r) }
     }
     func tops() -> [String: Double] { y.mapValues(\.top) }
 }
@@ -2455,7 +2458,9 @@ struct RowTop: ViewModifier {
     let rows: RowTops
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
-            content.onGeometryChange(for: Double.self) { Double($0.frame(in: .global).minY) } action: { rows.set(id, $0) }
+            content.onGeometryChange(for: RowReading.self) {
+                RowReading(top: Double($0.frame(in: .global).minY), offset: Double(rows.scroll?.contentOffset.y ?? 0))
+            } action: { rows.set(id, $0) }
                 .onDisappear { rows.set(id, nil) }
         } else { content }
     }
