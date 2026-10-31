@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: iosfiles-7679
-diff_hash: 9a8524128646056fb47f31b8fbafa7202efa2ffce577f8b90f5c6dcb2a63cb42
+diff_hash: 3148a9ec4207f290b7448509fcaa0c6e1451440d3e91b9710835879cc31166be
 validation: focused (ios/LogicTests run-files 48/48, run-agentinfo 83/83, run-room 743/743, run.sh 1766/1766 on the head rebased onto main; the app build is iOS CI's, on the exact head)
 subdir_audit: not run (no subdir CLAUDE.md in the diff)
 timestamp: 2026-10-31T19:26:54Z
@@ -42,3 +42,6 @@ converged: true
 - [NIT] three trailing toolbar buttons on a narrow phone --> left for the design shots
 - [NIT] a refresh and the task can race (same account, last answer wins) --> left
 - [NIT] breadcrumbs are read-only (Back does the same) --> left
+
+### After convergence
+- [WARNING] CI: server.ios-routes-6838.test.js refused the new requests as undeclared --> FIXED (one SITES entry, five routes, source pins; 5/5)
