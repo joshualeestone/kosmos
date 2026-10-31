@@ -15,10 +15,14 @@ message landed off the screen. Locally the same path runs, but the content grows
   fresh place on the screen. With onRowLost given, a drawn row's put-back is settled the same way while the hold still
   stands (its content reading can be stale). A settle stands down on a finger, earlier messages landing, a new width, the
   hold's stand-down, the keyboard going, a new keyboard or the chat leaving the window, and stays inside the scrollable
-  range (Board.settleOffset). A placed row not drawn yet is tried once more; after a placing the hold guards the settled
-  row again until its window ends.
-- A will-show while a keyboard is already up (between did-show and will-hide) takes no new reading: the first one stands,
-  and the record says so. Before, a second will-show (focus moving to another field) took a fresh one.
+  range (Board.settleOffset). A placed row not drawn yet is tried again every 0.1 s until the hold's window ends; after a
+  placing the hold guards the settled row again until then. A will-show with a keyboard already up leaves a waiting settle
+  alone (each settle aims at the will-show top taken for it); readings are taken as before.
+
+## Not covered by a unit test (deliberate)
+- The hold's state machine (tokens, keyboardUp, re-arm) lives in a UIKit view and runs only under the simulator UI tests
+  (KeyboardSlideUITests); its arithmetic is in Board and unit-tested. Making the Probe unit-testable is a refactor beyond
+  this fix.
 - The DM passes onRowLost: the id anchor is let go first (as after any put-back, anchorLetGo), then scrollTo(id).
 - The DM's KeyboardSlide checks pass locally, and the read-higher-up check passes on CI.
 
