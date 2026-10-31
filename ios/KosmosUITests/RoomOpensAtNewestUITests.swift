@@ -34,9 +34,10 @@ final class RoomOpensAtNewestUITests: XCTestCase {
 
     // kosmos#7654 round 3: a person's scroll during the opening ends its retries (iOS 18 and later, where they run to 2.3 s).
     // The room is dragged toward older posts as soon as a post shows, then left alone past the last retry: it must not be
-    // pulled back to its newest post. The control (the cancel removed from RoomView) fails here.
+    // pulled back to its newest post. The control (the cancel removed from RoomView) fails here. The retries are stretched five
+    // times (KOSMOS_SAMPLE_ROOM_RETRYSCALE, last at 11.5 s): unstretched, they end before XCUITest has found the list.
     func testRoomOf220ScrolledUpAtOnceIsNotPulledBack() throws {
-        let app = Self.launch(220)
+        let app = Self.launch(220, ["KOSMOS_SAMPLE_ROOM_RETRYSCALE": "5"])
         XCTAssertTrue(Self.box(app).waitForExistence(timeout: 30), "no message box")
         let any = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'")).firstMatch
         XCTAssertTrue(any.waitForExistence(timeout: 15), "no posts of the 220-post room")
@@ -45,16 +46,16 @@ final class RoomOpensAtNewestUITests: XCTestCase {
         XCTAssertTrue(list.exists && list.isHittable, "the room's list is not on screen")
         list.swipeDown(velocity: .fast)
         list.swipeDown(velocity: .fast)
-        Thread.sleep(forTimeInterval: 3.5)   // past the last retry (2.3 s after the opening jump)
+        Thread.sleep(forTimeInterval: 12)   // past the last stretched retry (11.5 s after the opening jump)
         let newest = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Post 220 of 220.'")).firstMatch
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = "room-220-scrolled-up-at-once"; a.lifetime = .keepAlways; add(a)
         XCTAssertFalse(newest.exists && newest.isHittable, "the room pulled the reader back to its newest post after their own scroll")
     }
 
-    private static func launch(_ n: Int) -> XCUIApplication {
+    private static func launch(_ n: Int, _ more: [String: String] = [:]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue",
-                                 "KOSMOS_SAMPLE_ROOM_LONG": String(n)]
+                                 "KOSMOS_SAMPLE_ROOM_LONG": String(n)].merging(more) { _, new in new }
         app.launch()
         return app
     }

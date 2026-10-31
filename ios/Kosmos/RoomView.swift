@@ -879,7 +879,7 @@ struct RoomView: View {
         endJumps &+= 1
         let jump = endJumps
         for at in Self.endRetries {
-            DispatchQueue.main.asyncAfter(deadline: .now() + at) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + at * Self.sampleRetryScale) {
                 // Not while the person is scrolling (already scrolling when goEnd began, so no new touch cancelled it).
                 if jump == endJumps && visible && !searchMode && archiveShown == nil && !roomScrolling { proxy.scrollTo("bottom", anchor: .bottom) }
             }
@@ -889,6 +889,13 @@ struct RoomView: View {
     #if DEBUG
     // Once a launch, so coming back to the room in a screenshot run shows it as a person would.
     static var sampleSearched = false
+    #endif
+    // kosmos#7654: KOSMOS_SAMPLE_ROOM_RETRYSCALE=<x> (Debug) stretches the opening retries x times, so a UI check can scroll
+    // inside them (XCUITest finds the list too late for the real 2.3 s); 1 everywhere else.
+    #if DEBUG
+    static let sampleRetryScale: Double = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ROOM_RETRYSCALE"].flatMap(Double.init) ?? 1
+    #else
+    static let sampleRetryScale: Double = 1
     #endif
 
     // kosmos#7096: the search row, as the chat's (#7089).
