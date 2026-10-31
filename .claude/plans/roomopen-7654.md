@@ -42,7 +42,8 @@ reopened after new posts arrived) is reasoned, not measured.
 
 ## Known trade-off
 (Round 3: on iOS 18 and later the window is up to 2.3 s, ended by the person's scroll (PersonScroll: tracking, interacting or
-decelerating) but not by a tap, a long-press or, probably, a VoiceOver scroll (not measured). The text below is round 1's.)
+decelerating) but not by a tap, a long-press, a status-bar tap to the top (it scrolls in the animating phase) or, probably, a
+VoiceOver scroll (not measured). The text below is round 1's.)
 A person who flicks up within half a second of opening a long room is pulled back to the end. The thread's onAppear also
 runs on coming back from a member's chat or another tab: it jumped to the end before this branch, and now repeats that
 jump for half a second.
@@ -78,7 +79,7 @@ is the next thing to add.
 Round 3 review 1: the Debug scroll-up hook (KOSMOS_SAMPLE_ROOM_SCROLLUP, 3 s after opening) now ends the retries as a
 person's scroll would (a programmatic scroll reports no scroll phase), and no retry lands while the person is already
 scrolling (`!roomScrolling`, for a goEnd that began mid-scroll). New check: testRoomOf220ScrolledUpAtOnceIsNotPulledBack
-(drag toward older posts as soon as a post shows, wait 3.5 s, the newest must not be on screen); ui-sample's class count is
+(superseded below: the retries stretched ten times, the swipe bounded, a 24 s wait); ui-sample's class count is
 4. Results: below (ui-sample picks the newest runtime, iOS 27, where the opening jump already lands; the room checks are
 run on the iOS 26.5 simulator by hand, both arms).
 Round 3 results (iOS 26.5 simulator kbexp17e, by hand; iOS 27 by ui-sample):
@@ -91,3 +92,6 @@ Round 3 results (iOS 26.5 simulator kbexp17e, by hand; iOS 27 by ui-sample):
 - LogicTests run.sh 1723/1723, run-room.sh 741/741.
 Round 3 review 2: `roomScrolling` is cleared when the room goes off screen (its idle phase may never come across a push);
 the cancel check skips below iOS 18 (no scroll phase there). A full ui-sample run on the final commit is recorded in the PR.
+Round 3 review 3: the cancel check stretches the retries ten times (last at 23 s) and skips, saying why, if its swipe would
+start more than 18 s after launch (it would then test nothing). ui-sample counts a skipped check as run and names the
+skips in its PASS line ("N of them SKIPPED: a skip tested nothing"). Trade-off adds the status-bar tap (animating phase).

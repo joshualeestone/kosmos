@@ -34,21 +34,25 @@ final class RoomOpensAtNewestUITests: XCTestCase {
 
     // kosmos#7654 round 3: a person's scroll during the opening ends its retries (iOS 18 and later, where they run to 2.3 s).
     // The room is dragged toward older posts as soon as a post shows, then left alone past the last retry: it must not be
-    // pulled back to its newest post. The control (the cancel removed from RoomView) fails here. The retries are stretched five
-    // times (KOSMOS_SAMPLE_ROOM_RETRYSCALE, last at 11.5 s): unstretched, they end before XCUITest has found the list.
+    // pulled back to its newest post. The control (the cancel removed from RoomView) fails here. The retries are stretched ten
+    // times (KOSMOS_SAMPLE_ROOM_RETRYSCALE, last at 23 s): unstretched, they end before XCUITest has found the list. A swipe that
+    // starts more than 18 s after launch could miss them, so the check skips then (it would test nothing) and says so.
     func testRoomOf220ScrolledUpAtOnceIsNotPulledBack() throws {
         // The person's cancel exists only where the scroll phase is reported (iOS 18 and later); below it the retries stop at 0.5 s.
         guard #available(iOS 18.0, *) else { throw XCTSkip("the scroll phase is not reported below iOS 18") }
-        let app = Self.launch(220, ["KOSMOS_SAMPLE_ROOM_RETRYSCALE": "5"])
+        let launched = Date()
+        let app = Self.launch(220, ["KOSMOS_SAMPLE_ROOM_RETRYSCALE": "10"])
         XCTAssertTrue(Self.box(app).waitForExistence(timeout: 30), "no message box")
         let any = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'")).firstMatch
         XCTAssertTrue(any.waitForExistence(timeout: 15), "no posts of the 220-post room")
         // The room's own list (the one holding its posts), not a post: the first post found can be laid out off the screen.
         let list = app.scrollViews.containing(NSPredicate(format: "label CONTAINS ' of 220.'")).firstMatch
         XCTAssertTrue(list.exists && list.isHittable, "the room's list is not on screen")
+        let late = Date().timeIntervalSince(launched)
+        if late > 18 { throw XCTSkip("the swipe would start \(Int(late)) s after launch, after the stretched retries could have ended") }
         list.swipeDown(velocity: .fast)
         list.swipeDown(velocity: .fast)
-        Thread.sleep(forTimeInterval: 12)   // past the last stretched retry (11.5 s after the opening jump)
+        Thread.sleep(forTimeInterval: 24)   // past the last stretched retry (23 s after the opening jump)
         let newest = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Post 220 of 220.'")).firstMatch
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = "room-220-scrolled-up-at-once"; a.lifetime = .keepAlways; add(a)
         XCTAssertFalse(newest.exists && newest.isHittable, "the room pulled the reader back to its newest post after their own scroll")
