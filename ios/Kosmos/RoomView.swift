@@ -393,13 +393,13 @@ struct RoomView: View {
     private func loadOlder(_ proxy: ScrollViewProxy) {
         // Not while searching: a search shortens the room; its top showing is not a reader asking for older posts.
         guard !searchMode else { return }
+        endJumps &+= 1   // kosmos#7654: cancels goEnd's pending retries, so none lands while the page loads
         // A post's id: a folded refusal line's id can change when older refusals join its run, which would leave
         // nothing to scroll back to.
         let anchor = items.first(where: { if case let .row(r, _, _) = $0.kind { return r.kind == .post } else { return false } })?.id
         Task {
             let before = store.older[project.id]?.cursor
             await store.loadOlder(project.id)
-            endJumps &+= 1   // kosmos#7654: cancels goEnd's pending retries before the anchor scroll below
             // kosmos#7101 review 1: a post a reply's header just went to stays centred while it flashes.
             if let jumped = flashed, rows.contains(where: { $0.id == jumped }) { proxy.scrollTo(jumped, anchor: .center) }
             else if let anchor { proxy.scrollTo(anchor, anchor: .top) }

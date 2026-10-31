@@ -6,7 +6,9 @@ hooks: KOSMOS_SAMPLE_ROOM_LONG=<n>, ROOM_SCROLLUP, ROOM_FOCUS), which is stacked
 ## Finished looks like
 On iOS 26.5 a 150- and a 220-post room open with the newest post on screen above the box, measured by a UI test that
 fails without the change. 50- and 100-post rooms and iOS 27 opened there before the change (screenshots, 10-30); no
-test covers them, because the change only repeats a jump that already landed for them.
+test covers them, because the change only repeats a jump that already landed for them. The checks that fail without
+the change use a Debug-only setup (150 or more posts arriving at once); the path a real person meets (a long room
+reopened after new posts arrived) is reasoned, not measured.
 
 ## Measured before the change (iOS 26.5 simulator, 8 s after opening, no other hooks)
 - 50 posts (a real room's first page, RoomStore.pageSize): Post 50. 100: Post 100. 150: half a post short. 220: Posts
@@ -21,12 +23,14 @@ test covers them, because the change only repeats a jump that already landed for
 - ios/Kosmos/RoomView.swift: goEnd(proxy) replaces the single jump on the two opening paths (the first page in
   onChange(of: rows.last?.id), and the thread's onAppear for a room opened again). It jumps, then retries at 0.05, 0.15,
   0.3 and 0.5 s while the room is visible, not searching and not in the archive (review 7: not gated on atBottom, which
-  starts true before the end marker is drawn; a jump to the end already there does nothing). endJumps: a newer goEnd cancels an older one's retries. The other jumps (new post, pending post,
+  starts true before the end marker is drawn; a jump to the end already there does nothing). endJumps: a newer goEnd,
+  a reply jump, or loadOlder (at its start) cancels an older one's retries. The other jumps (new post, pending post,
   search cleared, archive) are untouched.
 - ios/KosmosUITests/RoomOpensAtNewestUITests.swift: 150 and 220 posts open on the newest, above the box, and 220 opened
   AGAIN (Back, then the row). Presence first (some post of the room is drawn), then the newest. The reopen check is a
   guard on reopening, NOT proof of goEnd there: a control with the retries removed only from the onAppear path passes it
-  (a reopened room appears with its posts already loaded, and its single jump lands at 220 posts on iOS 26.5). The box is pinned by app.textFields and its placeholder.
+  (a reopened room appears with its posts already loaded, and its single jump lands at 220 posts on iOS 26.5). The box
+  is pinned by app.textFields and its placeholder.
 - ios/tools/ui-sample.sh: the new class, 3 tests, in the CI run's class list and header (--help range bumped to 2,13
   for the extra header line). .github/workflows/ios.yml: the ui job's comment names what it now guards.
 
