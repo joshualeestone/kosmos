@@ -547,9 +547,9 @@ fi
 # its own, so wait for it rather than cut beside it. #7674: a build between two steps is waited for too, until its
 # next step starts and, reading the claim, stops (which ends its turn). Bounded at 100 minutes, past the card's longest
 # step, then the wait says it gave up and the cut stops. The claim lasts 30 minutes and step() is what renews it, so
-# each poll of this wait (every 30 s) renews it first: a claim that lapsed mid-wait would let the build start its next step beside the cut. Only
-# a claim that is still ours, or none (ours lapsed), is renewed, as the cut's renewer does (#5134); one with another
-# cookie belongs to whoever took the box and is left alone.
+# each poll of this wait (every 30 s) renews it first: a claim that lapsed mid-wait would let the build start its next
+# step beside the cut. Only a claim that is still ours, or none (ours lapsed), is renewed, as the cut's renewer does
+# (#5134); one with another cookie belongs to whoever took the box and is left alone.
 # KOSMOS_CUT_IGNORE_PREPUSH=1 cuts anyway; KOSMOS_CUT_PREPUSH_WAIT_S sets the bound.
 if [ "${KOSMOS_CUT_IGNORE_PREPUSH:-0}" != 1 ] && command -v kosmos_refuse_if_prepush_build_live >/dev/null 2>&1; then
   _rel_prepush() {

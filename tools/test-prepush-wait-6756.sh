@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 . "$HERE/lib/cut-guard.sh"
 unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_CUT_LOCKF_BIN KOSMOS_PREPUSH_RECHECK_S KOSMOS_CUT_IGNORE_PREPUSH KOSMOS_CUT_PREPUSH_WAIT_S
-unset KOSMOS_PREPUSH_TURN_LIVE_S KOSMOS_PREPUSH_TURN_GRACE   # #7674: the turn window's two inputs
+unset KOSMOS_PREPUSH_TURN_LIVE_S KOSMOS_PREPUSH_TURN_GRACE KOSMOS_PREPUSH_MAX_STEP   # #7674: the turn window's and the gate bound's inputs
 unset KOSMOS_MACHINE_CLAIM_COOKIE KOSMOS_MACHINE_CLAIM_MINUTES KOSMOS_CLAIM_LABEL KOSMOS_CLAIM_KEEP_LABEL
 T="$(mktemp -d "${TMPDIR:-/tmp}/test-prepush-wait-6756.XXXXXXXXXX")"
 HOLDERS=""
@@ -189,6 +189,7 @@ mv "$TURNF.aside" "$TURNF"
 # a build that died left it, and the gate lock's holder is then a waiter, not a build.
 touch -A -030000 "$TURNF"   # BSD touch -A: 3 hours earlier (the fleet's Macs; this file's lock arms are Mac-only)
 kosmos_prepush_build_live && fail "10 a gate lock beside a turn older than any step reads as a build" || pass "10 a gate lock beside a turn older than any step (a dead build's) is not a build"
+KOSMOS_PREPUSH_MAX_STEP=20000 kosmos_prepush_build_live && pass "10 CONTROL: a raised hook step limit (20000 s) counts that same gate lock and turn as a build" || fail "10 KOSMOS_PREPUSH_MAX_STEP=20000 did not widen the gate lock's bound"
 # The same held gate lock with a FRESH turn: a step is running, so the refusal names the step, not a gap between steps.
 printf 'abc123.4567.1793450000\n' > "$TURNF"
 out="$(kosmos_refuse_if_prepush_build_live "a heavy run" 2>&1)"; rc=$?

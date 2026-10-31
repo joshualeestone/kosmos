@@ -38,6 +38,9 @@ and the build stopped at its next step ("Mortals is now claimed ... stopping", 9
   turn is on file (a real checkout writes its turn first), so a queue of waiting pushes with no turn reads as no build.
   With a lapsed turn left on file, a waiter's instant holds 0.3 s apart can still read as one, until a waiter takes the
   turn over (within its next pass).
+- The gate lock's bound follows KOSMOS_PREPUSH_MAX_STEP (else 2400 s) the same way, so a step limit raised only in the
+  hook's own environment leaves a very long step under the gate lock, with its turn older than 2400 s plus the window,
+  reading as no build.
 - The window follows KOSMOS_PREPUSH_TURN_GRACE + 60 only where that variable is set in the environment cut-guard reads.
   A grace raised only in the hook's own environment on Mortals leaves the window at 180 s, and a build idle between
   steps for longer reads as none.

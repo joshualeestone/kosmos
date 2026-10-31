@@ -1379,11 +1379,16 @@ _kosmos_prepush_holders() {
 # the previous gate removed its turn, this reads no build, so a heavy run can claim the box then; the checkout goes on
 # (it already read no claim) and its first cargo step stops with 96. Bounded at one checkout, not a build. Closing it
 # needs the hook to read the claim again after taking its turn (a relay change, kosmos#7674).
-# The turn's age bounds this too, by the longest step the hook allows (its KOSMOS_PREPUSH_MAX_STEP, 2400 s by default)
-# plus the window: a step under the gate lock touches the turn when it ends, so a turn older than that is left by a
-# build that died, and the waiters' instant holds next to it are no build either.
+# The turn's age bounds this too, by the longest step the hook allows plus the window: a step under the gate lock
+# touches the turn when it ends, so a turn older than that is left by a build that died, and the waiters' instant holds
+# next to it are no build either. The step limit is KOSMOS_PREPUSH_MAX_STEP when it is set here (the name the hook reads
+# on Mortals), else the hook's default 2400 s; as for the grace, a limit raised only in the hook's own environment is
+# not seen here.
+_kosmos_prepush_max_step() {
+  case "${KOSMOS_PREPUSH_MAX_STEP:-}" in ''|*[!0-9]*|0*|????????*) printf '2400' ;; *) printf '%s' "$KOSMOS_PREPUSH_MAX_STEP" ;; esac
+}
 _kosmos_prepush_gate_held() {
-  _kosmos_prepush_turn_fresh $(( 2400 + $(_kosmos_prepush_turn_window) )) >/dev/null && _kosmos_prepush_held "$(_kosmos_prepush_gate_lock_file)"
+  _kosmos_prepush_turn_fresh $(( $(_kosmos_prepush_max_step) + $(_kosmos_prepush_turn_window) )) >/dev/null && _kosmos_prepush_held "$(_kosmos_prepush_gate_lock_file)"
 }
 # _kosmos_prepush_turn_fresh [window]: 0, printing the turn's age in seconds, while the turn was touched within the
 # window (_kosmos_prepush_turn_window when none is given).
@@ -1401,6 +1406,8 @@ _kosmos_prepush_turn_fresh() {
   printf '%s' "$age"
 }
 _kosmos_prepush_lock_held() { _kosmos_prepush_held "$(_kosmos_prepush_lock_file)"; }
+# Accepted trade-off (the plan, .claude/plans/turnlive-7674.md): pushes that hand the turn straight to one another can
+# hold a waiting heavy run until its queue bound, since it now gets in only between gates, not between steps.
 kosmos_prepush_build_live() {
   _kosmos_prepush_lock_held && return 0
   _kosmos_prepush_gate_held && return 0
