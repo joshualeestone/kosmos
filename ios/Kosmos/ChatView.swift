@@ -542,8 +542,9 @@ struct ChatView: View {
                                               moves: "\(appMoves)|\(query)") {
                         // kosmos#7645 (CI's runner, 10-30): after a put-back the list was moved again by the same 499 pt, each
                         // time with a fresh 16 pt sideways shift, which is the id anchor's .bottom scroll (see SideScrollLock),
-                        // until the window ended. The anchor still named the message iOS 26's move had put at the bottom, and
-                        // re-applied it on each later layout. The reader's place is the offset now, so the anchor is let go.
+                        // until the window ended: the anchor still held its id and re-applied it at the bottom of the shorter
+                        // view. So it is let go ("top" too, which is also a reader's place; repeat calls find it nil). Until the
+                        // reader scrolls again, which sets a new one, the list is held by its offset alone, as on iOS 16.
                         if Self.idAnchor, positionId != nil, positionId != "end" { positionId = nil; Self.trace("keyboard hold: anchor let go") }
                         // Review 3: iOS 26's jump may have shown the end (atBottom true) before it was put back; the end's
                         // disappearance clears atBottom only under a person's scroll, so the reader's place is read again.
