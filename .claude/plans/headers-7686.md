@@ -50,7 +50,7 @@ than left to end the test process.
 ## Not in this card (found in review round 3)
 The records `as=text` route writes its 200 head, then renders with no try, so a throw in the render is an unhandled
 rejection with no second head involved. It is a different shape (a throw after a head with no catch at all), so it
-has its own card.
+has its own card: kosmos#7689. This PR's claim is narrower: no answer can write a SECOND head and end the board.
 
 ## Weakest premise
 That the thrower on Josh's board was inside the preview's `.then` after the head. The log records neither the

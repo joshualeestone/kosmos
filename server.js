@@ -4329,7 +4329,9 @@ function isGateThrowInTest(e) {
 function answeredAlready(res, what) {
   if (!res.headersSent) return false;
   const req = res.req;
-  console.error(what + ' after the head was sent, not written (' + (req ? req.method + ' ' + safeLogUrl(req.url) : 'no request') + '); the response is ended');
+  // The path only, cut at ? and #, as the slow-request line logs it: a query can carry a person's own words.
+  const where = req ? req.method + ' ' + safeLogUrl(req.url).split(/[?#]/)[0] : 'no request';
+  console.error(what + ' after the head was sent, not written (' + where + '); the response is ended');
   if (!res.writableEnded) res.destroy();
   return true;
 }
@@ -4341,8 +4343,11 @@ function sendText(res, code, text) {
 }
 function sendJson(res, code, obj) {
   if (answeredAlready(res, 'sendJson ' + code)) return;
+  // #7686 review 4: serialise BEFORE the head, so a value that cannot be written (circular, too large) throws with no
+  // head out, and the caller's own catch can still answer (a 500) instead of meeting the guard above.
+  const body = strictStringify(obj);   // #7108: never a lone surrogate, which a strict reader (the iPhone) refuses whole
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-  res.end(strictStringify(obj));   // #7108: never a lone surrogate, which a strict reader (the iPhone) refuses whole
+  res.end(body);
 }
 
 /* #6903: the Update and Roll back presses. Every refusal (a non-200 answer) is logged with its sentence, and every
