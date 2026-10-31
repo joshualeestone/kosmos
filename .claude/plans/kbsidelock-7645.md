@@ -21,7 +21,8 @@ no longer pulls the list back to that message. Trace lines "keyboard hold: ancho
 Until the reader scrolls again (which sets a new anchor) the list is held by its offset alone, as on iOS 16. kosmos#7265 measured that drifting by tens of points as reads re-estimate rows above, so a reader who opens the keyboard and types without scrolling may drift that way. Re-anchoring on a real row was rejected: the anchor is .bottom, so naming any row scrolls the list to it, the very move being undone. A page of earlier messages landing above meanwhile is kept by keepAnchor (scrollTo the row that was topmost), which the iOS 17+ path always skipped and now runs only while the anchor is nil after a let-go (anchorLetGo, cleared when any row or "end" is named again, and with a fresh chat). That scrollTo on lazily drawn rows is unmeasured on iOS 17+ (kosmos#7265 measured offset holding there, not scrollTo, and the same proxy.scrollTo already takes the newest message there); the alternative, no keep at all, moves the reader a whole page. "end" is never let go: it is the keep on the newest message. Whether SwiftUI writes the binding back by itself after the nil is not known; the CI trace answers it (see Change my mind). Follow-up if drift shows: a check that lands reads after the let-go (noted in the PR).
 
 ## Rejected
-- Widening the 0.8 s window: prolongs the fight, does not end it.
+- Widening the 0.8 s window: prolongs the fight, does not end it. (Reversed in round 3: with the anchor let go there is no
+  fight, and the window is 1.5 s.)
 - Side lock writing only x: its y is read inside the same KVO change, so not stale; and it would not explain the 499 pt re-moves.
 
 ## Weakest premise
@@ -158,3 +159,9 @@ RowTops.reset() for a fresh chat. LogicTests run.sh PASS 1735/1735, run-room.sh 
 Iteration 20: the hold's arithmetic is Board.holdTarget (will-show offset plus the row's move in the content, clamped to
 the scrollable range), with LogicTests checks for both directions of the row's move, an offset-only move, both clamps, and
 short content; the CI run 4 numbers are the fixture. LogicTests run.sh PASS 1741/1741, run-room.sh 742/742.
+MEASURED GREEN (23:59 CDT 10-30): CI run 41169452211 on 589b99fbf7 (the content-based hold, iteration 16) passed all 11
+sample-board UI checks, KeyboardSlideUITests.testReadHigherUpStaysWhereItWas included: the finish line's CI half, met on
+that commit. The commits after it are review fixes and get their own CI run before the merge.
+Iteration 21: the window-end check uses Board.holdTarget (the clamped place the hold writes), so a hold at either end of the
+conversation is not reported as a missed move; after a let-go, the page-keep scroll is followed by "keepAnchor: anchor after
+<kind>" 0.2 s later, so the record shows whether SwiftUI named a row again beside it.
