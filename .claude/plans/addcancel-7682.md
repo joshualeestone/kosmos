@@ -9,6 +9,7 @@ Decided, with reasons:
   is the way out. Upload keeps its 300 s idle timeout (Board.uploadTimeout) for large files.
 - No "tap to retry" after a timeout: picking again is the retry.
 - Each add carries a per-chat generation; the x and a sign-out move it, so a stale add's defer leaves the count alone.
-- Rooms share the client's cancel but keep their own pick loop (RoomView), with the same check.
+- Rooms and chats share the cancel and one pick loop (BoardClient.addEach).
+- The upload is its own task: every add caller is a bare Task nothing holds or cancels, so no parent cancel is lost.
 
 Open on the card: why the line showed in another chat is not explained (keyed by agent.session, rooms by "room:<project>").

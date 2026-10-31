@@ -3080,14 +3080,6 @@ section("native board loop: connecting")
         c.cancelAdding(for: "dana")
         check((c.uploading["dana"] ?? 0) == 0, "the x clears the adding line at once")
         check(c.attachLine["dana"] == "an earlier file's refusal", "review 1: and leaves an earlier file's refusal under the composer")
-        // "Still being added" (a Send refused while adding) no longer holds after the x; a refusal does.
-        let stale = Task { await c.attach(.file(picked("stale.pdf")), epoch: c.chatEpoch, to: dana) }
-        _ = await settle { c.uploading["dana"] == 1 }
-        c.attachLine["dana"] = Board.stillAddingLine
-        c.cancelAdding(for: "dana")
-        check(c.attachLine["dana"] == nil, "review 6: the x takes away a line saying the file is still being added")
-        await stale.value
-        c.attachLine["dana"] = "an earlier file's refusal"
         // A new add after the x is counted on its own, and the cancelled one ending does not take it down.
         let fresh = Task { await c.attach(.file(picked("fresh.pdf")), epoch: c.chatEpoch, to: dana) }
         _ = await settle { c.uploading["dana"] == 1 }
@@ -3100,6 +3092,16 @@ section("native board loop: connecting")
         await fresh.value
         check((c.uploading["dana"] ?? 0) == 0 && (c.attached["dana"] ?? []).map(\.name) == ["fresh.pdf"],
               "the new add lands, and the count is back to none")
+        // "Still being added" (a Send refused while adding) no longer holds after the x.
+        w.holdUploads = ["stale.pdf"]
+        let staleStarted = w.uploadsStarted
+        let stale = Task { await c.attach(.file(picked("stale.pdf")), epoch: c.chatEpoch, to: dana) }
+        _ = await settle { w.uploadsStarted > staleStarted }
+        c.attachLine["dana"] = Board.stillAddingLine
+        c.cancelAdding(for: "dana")
+        check(c.attachLine["dana"] == nil, "review 6: the x takes away a line saying the file is still being added")
+        w.holdUploads = []
+        await stale.value
         // Another chat's x touches only its own.
         w.uploadYields = 400
         let other = Task { await c.attach(.file(picked("other.pdf")), epoch: c.chatEpoch, to: dana) }
