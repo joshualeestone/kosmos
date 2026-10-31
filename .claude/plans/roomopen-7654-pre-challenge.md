@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: roomopen-7654
-diff_hash: e1b89fc6393758b693ea2585c7ba5ad2de03b490da3b4906ae9c329955ad6895
+diff_hash: c9fdd6ed2bff984e981ad1ef797979c638ac5e02722ea507b277d3f2b345bc5f
 validation: failed (fleet load; every failing file green alone; CI runs the full suite before merge)
 subdir_audit: passed
 timestamp: 2026-10-31T01:24:09Z
@@ -42,6 +42,11 @@ CI on PR #7665 could not type-check sampleLongRoom's mixed-type dictionary liter
 ProjectsView.swift:628), so nothing built. Commit "build the long sample room a field at a time" splits it into typed
 pieces: same rows, Debug-only, no behaviour change. Built locally with -warn-long-expression-type-checking=200: no
 expression in the app over 200 ms. Not re-reviewed by the loop; the hash above includes it.
+
+Rebased 10-31 03:5x CDT onto main 3d4938ee01 (#7666 merged) with no conflicts. `git range-diff` marks all 30 of this
+branch's commits identical (`=`), so the code is the reviewed code; only the base moved, and the hash above is recomputed on
+the new base (it was e1b89fc639... before). After the rebase: every ios/LogicTests run (run.sh and the eight run-*.sh) passed,
+and full validation passed (validation-log hash c9fdd6ed2bff).
 
 ### Per-Iteration Breakdown
 
