@@ -1,4 +1,5 @@
 import SwiftUI
+import QuickLook   // review 2: .quickLookPreview, never reached only through another file's import
 
 // kosmos#7679: an agent's or a project's Files, as the board's Files screens show them. An agent's opens at the top of its
 // Files folder with its folders first (the board's paintAgentFilesAll, through /files/browse); a project's is one list
@@ -61,10 +62,10 @@ struct FilesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .kosmosSolidTopBar()
         .refreshable { await load() }
-        .task { await load() }
+        // Review 2: keyed on the account, so a sign-out, another account or another Mac cancels the old read and starts
+        // a new one; load() also drops an answer that lands for the account before.
+        .task(id: client.chatEpoch) { read = nil; opener.failed = nil; await load() }
         .filesQuickLook(opener, client: client)
-        // Signed out, another account or another Mac: what this list showed belongs to the one before.
-        .onChange(of: client.chatEpoch) { _ in read = nil; opener.failed = nil; Task { await load() } }
     }
 
     // A project's list is flat, so a file in a subfolder keeps its path; an agent's folder already names where it is.
@@ -84,12 +85,14 @@ struct FilesView: View {
         #if DEBUG
         if let sample = FilesView.sample(owner: owner, dir: dir) { read = sample; return }
         #endif
+        let epoch = client.chatEpoch
         let res = await client.throughMac { mac in
             switch owner {
             case .agent: return Board.filesRequest(mac: mac, owner: owner, dir: dir)
             case .project: return Board.filesRequest(mac: mac, owner: owner)
             }
         }
+        guard epoch == client.chatEpoch else { return }   // the answer belongs to the account before
         read = Board.filesResult(status: res?.1.statusCode ?? 0, body: res?.0)
     }
 
@@ -209,6 +212,7 @@ final class FileOpener: ObservableObject {
     func open(_ f: Board.ListedFile, owner: Board.FilesOwner, client: BoardClient, openOnBoard: () -> Void) {
         guard opening == nil, previewURL == nil else { return }
         if Board.isWebDocument(name: f.name, type: "") { openOnBoard(); return }
+        if Board.filesTooBigToOpen(f) { say(Board.filesTooBig); return }   // review 2: never read whole into memory
         guard let a = Board.filesAttachment(owner: owner, file: f, id: UUID().uuidString) else { say(Board.filesDidNotOpen); return }
         failed = nil
         opening = f.name

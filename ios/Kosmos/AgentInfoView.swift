@@ -303,7 +303,10 @@ struct AgentInfoView: View {
         instructions = i.flatMap { $0.1.statusCode == 200 ? Board.parseInstructions($0.0) : nil } ?? instructions
         skills = k.flatMap { $0.1.statusCode == 200 ? Board.parseSkills($0.0) : nil } ?? skills
         readFailed = d == nil || instructions == nil || skills == nil
-        filesRead = await files
+        // Review 2: a refresh that gets no answer keeps the list it had, as instructions and skills keep theirs; a
+        // refusal or a new list replaces it.
+        let newFiles = await files
+        if case .noAnswer = newFiles, case .page = filesRead {} else { filesRead = newFiles }
     }
 
     private func save() async {

@@ -46,8 +46,8 @@ extension Board {
     // The project list reads up to the route's own bound, as the board's Documents view does (limit=500).
     static let projectFilesCap = 500
 
-    // The board's words (checked against web/index.html), except filesCannotRead, the agent page's own unread line, and
-    // filesOnBoard and filesMore, which the board has no need of.
+    // The board's words (checked against web/index.html), except filesCannotRead (the agent page's own unread line),
+    // filesTooBig and filesMore, which the board has no need of.
     static let filesAgentEmpty = "This agent has no files yet."
     static let filesFolderEmpty = "This folder is empty."
     static let filesProjectEmpty = "Nothing here yet. Files you or your agents put in this project\u{2019}s folder show up here."
@@ -55,7 +55,11 @@ extension Board {
     static let filesCannotRead = "We cannot read this right now."
     static let filesTitle = "Files"
     static let filesAll = "All files"
-    static let filesOnBoard = "This file opens on your computer\u{2019}s board."
+    // Review 2: a file is read whole into memory to open it, so one past this is not fetched (a 3 GB recording would get
+    // the app killed, or run for minutes over cellular). It stays in Files on the computer.
+    static let filesMaxOpenBytes = 100 * 1024 * 1024
+    static let filesTooBig = "This file is too big to open on the phone. It is in Files on your computer."
+    static func filesTooBigToOpen(_ f: ListedFile) -> Bool { (f.size ?? 0) > filesMaxOpenBytes }
 
     // Review 1: a list cut short says so (the route stops at 500 project files, or 1000 entries in one agent folder), so
     // a missing file is never read as not there.
@@ -170,19 +174,11 @@ extension Board {
         return ListedFile(name: name, size: size, modified: when, changedBy: by)
     }
 
-    // The board's pjSize, word for word.
-    static func filesSize(_ bytes: Int?) -> String {
-        guard let n = bytes, n >= 0 else { return "" }
-        if n < 1024 { return "\(n) B" }
-        if n < 1024 * 1024 { return "\(Int((Double(n) / 1024).rounded())) KB" }
-        return String(format: "%.1f MB", Double(n) / (1024 * 1024))
-    }
-
     // A row's small line, as the board's pjDocMeta: size, date, and the agent that changed it last when recorded. (The
     // board's fingerprint is left off: twelve hex characters mean nothing on a phone's row.)
     static func filesMeta(_ f: ListedFile, date: (Date) -> String) -> String {
         var parts: [String] = []
-        let size = filesSize(f.size)
+        let size = sizeText(f.size)   // review 2: the one pjSize the app already has
         if !size.isEmpty { parts.append(size) }
         if let m = f.modified { parts.append(date(m)) }
         var line = parts.joined(separator: " \u{00B7} ")
