@@ -55617,7 +55617,7 @@ document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgL
 /* ---- kosmos#7404: personal backup (Settings, Kosmos+). The views follow the engine's state (engine/personalbackup.js
    state(): off, pending, needs-key, on); the words, the code and restore are steps the person opens here. The recovery
    code is held only in PB.code while it is on screen, and dropped once "I saved it" is confirmed or the view changes. */
-var PB = { at: 0, busy: false, st: null, view: null, ticket: null, words: null, wordsPrice: null, code: null, who: null, seq: 0, printTimer: null };
+var PB = { at: 0, busy: false, st: null, view: null, ticket: null, words: null, wordsPrice: null, code: null, who: null, seq: 0, printTimer: null, printOut: null };
 function pbMsg(t) { const m = document.getElementById('pb-msg'); if (m) m.textContent = t ? asSentence(t) : ''; }   // engine refusals are fragments
 function pbMaybe() {
   if (PB.busy) return;
@@ -55772,8 +55772,12 @@ function pbPrint() {
      body.pb-printing is set). It was a hidden 0x0 frame, which some browsers (Safari, some Firefox) print as the parent
      page: Settings with no code and no error. Still no other browsing context holds the code (challenge round 2), and
      the printout is emptied again the moment printing ends. */
-  const out = document.getElementById('pb-printout');
-  if (!out || typeof window.print !== 'function') { pbMsg('It could not be printed. Write the code down instead.'); return; }
+  if (typeof window.print !== 'function') { pbMsg('It could not be printed. Write the code down instead.'); return; }
+  /* #7681 suite: made only while printing and removed after (pbPrintClear). A static child of <body> would be a 43rd
+     pre-rail row in the consolidated grid, which reserves 42 (web.consolidated-980.test.js), and the print rule needs it
+     to be a direct child of <body>. */
+  if (!PB.printOut) { PB.printOut = document.createElement('div'); PB.printOut.id = 'pb-printout'; document.body.appendChild(PB.printOut); }
+  const out = PB.printOut;
   const h = document.createElement('h1'); h.textContent = 'Kosmos personal backup recovery code';
   const p = document.createElement('p'); p.className = 'pb-printcode'; p.textContent = PB.code;
   const n = document.createElement('p'); n.textContent = 'Kosmos+ never sees this code, so it cannot get it back for you. Keep it somewhere safe.';
@@ -55791,9 +55795,9 @@ function pbPrint() {
 /* Empties the printout and leaves print mode: after a print, and whenever the code leaves the page (review: hiding the
    panel dropped PB.code but left the printout filled until afterprint). */
 function pbPrintClear() {
-  const out = document.getElementById('pb-printout');
-  if (out) out.textContent = '';
-  document.body.classList.remove('pb-printing');
+  // Nothing to clear unless a print made the printout (and only then is print mode on). Held in PB rather than looked
+  // up by id, so the element is this page's own and nothing else can stand in for it.
+  if (PB.printOut) { PB.printOut.remove(); PB.printOut = null; document.body.classList.remove('pb-printing'); }
   if (PB.printTimer) { clearTimeout(PB.printTimer); PB.printTimer = null; }
 }
 function pbOffArm(on) {
@@ -92616,6 +92620,5 @@ setInterval(ageCheckedStamp, 1000);
   }
 })();
 </script>
-<div id="pb-printout"></div><!-- kosmos#7681 item 2: what Print prints, filled only while printing (pbPrint) -->
 </body>
 </html>
