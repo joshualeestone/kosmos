@@ -33,7 +33,7 @@ classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:3 RoomOpens
 # (kbrested-7609) replaced the wait with a marker, so all three run here again. It records the chat's scroll events
 # (KOSMOS_SAMPLE_TRACE=1): when it fails, the last of them are printed below while the simulator still exists.
 # RoomKeyboardUITests' read-higher-up check (#7690) appends to the SAME file, so the dump below names which of the two
-# ran, and shows more of the file when the DM check failed and the room check wrote after it.
+# ran, and prints the whole file when the DM check failed and the room check ran after it.
 skip=""
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
   echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
@@ -101,14 +101,20 @@ if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check)\]' failed" 
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
-    wrote=""; for c in "$dm_check" "$room_check"; do
-      grep -q -E "^Test Case '-\[KosmosUITests\.$c\]' (passed|failed)" "$log" && wrote="$wrote, ${c% *}"
+    ran=""; for c in "$dm_check" "$room_check"; do
+      grep -q -E "^Test Case '-\[KosmosUITests\.$c\]' (passed|failed)" "$log" && ran="$ran, ${c% *}"
     done
-    n=60
-    # The DM check failed but the room check wrote after it: its own events sit further back in the file.
-    if grep -q -E "^Test Case '-\[KosmosUITests\.$dm_check\]' failed" "$log" && [ "${wrote#*RoomKeyboardUITests}" != "$wrote" ]; then n=200; fi
-    echo "  the app's last $n scroll events (one file, written this run by${wrote#,}; the newest lines are the last check's):"
-    tail -"$n" "$data/Documents/trace.txt" | sed 's/^/    /'
+    ran="${ran#, }"
+    lines="$(wc -l < "$data/Documents/trace.txt" | tr -d ' ')"
+    # The DM check failed but the room check ran after it (XCTest runs the classes in name order, KeyboardSlide first),
+    # so its own events open the file, followed by the room's: the whole file, never a tail that may miss them.
+    if grep -q -E "^Test Case '-\[KosmosUITests\.$dm_check\]' failed" "$log" && [ "${ran#*RoomKeyboardUITests}" != "$ran" ]; then
+      echo "  the app's whole scroll trace, $lines lines (one file: $ran ran this run, in that order):"
+      sed 's/^/    /' "$data/Documents/trace.txt"
+    else
+      echo "  the app's last 60 of $lines scroll events (one file: $ran ran this run):"
+      tail -60 "$data/Documents/trace.txt" | sed 's/^/    /'
+    fi
   else
     echo "  (no scroll trace from the app)"
   fi
