@@ -20475,7 +20475,9 @@ window.kosmosMeasureScrollbarWidth();
           <p class="fhint" id="pb-on-say">Personal backup is on for this computer.</p>
           <div class="frow" id="pb-off-row"><button class="btn" type="button" id="pb-off-btn">Turn off personal backup</button></div>
           <div id="pb-off-ask" hidden>
-            <p class="fhint">Turn off personal backup on this computer? What is already backed up stays on Kosmos+, locked with your recovery code.</p>
+            <!-- Only what is true: the coordinator ends the membership (org.rs mac_leave). What it then keeps of a personal
+                 backup is not settled anywhere yet, so this promises nothing about it. -->
+            <p class="fhint">Turn off personal backup on this computer? Nothing more from it is backed up.</p>
             <div class="frow">
               <button class="btn danger-btn" type="button" id="pb-off-yes">Turn off</button>
               <button class="btn" type="button" id="pb-off-no">Cancel</button>
