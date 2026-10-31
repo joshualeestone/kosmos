@@ -69,7 +69,9 @@ test('the key step refuses another org, no key, a key this computer does not hol
   const empty = await ask(none.org, [row], {}, none);
   assert.match(empty.because, /off here, then on again, and enter your recovery code/, 'no keys here: setUp answers already_set_up, so the code is asked for');
   assert.equal(empty.personActs, true);
-  assert.equal((await ask(pair.org, [row], { lostEpoch: 1 })).ok, false);
+  assert.equal((await ask(pair.org, [row], { lostEpoch: 1 })).ok, true, 'a lostEpoch for no named pair is not this one\'s');
+  assert.equal((await ask(pair.org, [row], { lostEpoch: 3, lostFor: { org: 'acme', member: 'm' } })).ok, true, 'nor another pair\'s');
+  assert.match((await ask(pair.org, [row], { lostEpoch: 1, lostFor: pair })).because, /newer key/);
   const pending = newPair();
   const made = backupkeys.newMemberKey();
   mk.writeKeys(pending.org, pending.member, { 1: { sk: made.sk, pk: made.pk, registered: false } });
@@ -155,6 +157,40 @@ test('words Kosmos+ refused take the hash off the record, and the person is told
   const b = jobOpts(pair, { runBackup: async () => ({ ok: false, because: 'grant refused (HTTP 500)' }) });
   await pb.runJob({ roots: [] }, b.opts);
   assert.deepEqual(b.withdrawn, [], 'control');
+});
+
+test('a company\'s left-over pointer, lost epoch and bad state file never touch a personal run', async () => {
+  const store = require('./store');
+  const backupstate = require('./backupstate');
+  const company = newPair();
+  const dir = path.join(store.ROOT, 'backupstate');
+  const before = new Set(fs.existsSync(dir) ? fs.readdirSync(dir) : []);
+  backupstate.writeState(company.org, company.member, { job: { lostEpoch: 3 }, periods: [] });
+  const companyFiles = fs.readdirSync(dir).filter((n) => !before.has(n));
+  assert.equal(companyFiles.length, 1, 'the company pair\'s state file');
+  const companyPointer = JSON.stringify({ v: 1, org: company.org, member: company.member });
+  fs.writeFileSync(path.join(dir, 'current.json'), companyPointer);
+  const pair = newPair();
+  const { key, row } = keyed(pair);
+  const k = kosmosPlus({ ...pair, keys: [row] });
+  const taken = [];
+  const dk = backupkeys.newMemberKey();
+  const runBackup = (input, deps) => backuprun.runBackup(input, Object.assign({}, deps, {
+    deviceKey: () => ({ ok: true, privateKey: dk.sk }), now: () => Date.UTC(2026, 9, 31),
+    takeSnapshot: async (s) => { taken.push(s); return { ok: true, added: new Map(), files: 1 }; },
+  }));
+  const { opts } = jobOpts(pair, { macRequest: k.macRequest, runBackup });
+  const r = await pb.runJob({ roots: [{ name: 'workers', path: SANDBOX }] }, opts);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.ok(taken[0].memberPk.equals(key.pk));
+  assert.equal(fs.readFileSync(path.join(dir, 'current.json'), 'utf8'), companyPointer, 'the company\'s pointer is untouched');
+  // A bad state file under the company's pair: control, the company's run is refused, the personal one runs.
+  for (const x of companyFiles) fs.writeFileSync(path.join(dir, x), 'not json');
+  const again = await pb.runJob({ roots: [{ name: 'workers', path: SANDBOX }] }, opts);
+  assert.equal(again.ok, true, JSON.stringify(again));
+  const control = await runBackup({ roots: [] }, { ensureMemberKey: async () => ({ ok: false, because: 'x' }) });
+  assert.equal(control.ok, false);
+  assert.equal(control.refusedState, true, 'control: the company\'s run reads that file');
 });
 
 test('words accepted during a run stay: the hash withdrawn is the one the run started under', async () => {

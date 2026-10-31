@@ -29,7 +29,8 @@
  * error.
  *
  * Kept from ensureMemberKey's answer, for the scheduler: unreadableKeyFile (a person must move the file aside; not a
- * retry), orgKeyRefused (the company key was not accepted, kosmos#5686: said to the person), refusal, pendingEpoch and
+ * retry), orgKeyRefused (the company key was not accepted, kosmos#5686: said to the person), personActs (a personal
+ * backup's key step: said to the person), refusal, pendingEpoch and
  * lostEpochIgnored.
  *
  * An ok key that comes with pendingEpoch is NEVER sealed under. ensureMemberKey keeps an unregistered key above a
