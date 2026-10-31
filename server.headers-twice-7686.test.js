@@ -33,12 +33,15 @@ process.on('exit', () => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
-/* Every rejection nobody handled, recorded rather than left to end the process, so the test can say which one. */
+/* Every rejection and exception nobody handled, recorded rather than left to end the process, so the test can say
+   which one. An fs callback's throw (sendFileDownload's) is an uncaught exception, not a rejection. */
 const unhandled = [];
 process.on('unhandledRejection', (e) => { unhandled.push(e); });
+process.on('uncaughtException', (e) => { unhandled.push(e); });
 
 const { start, server, _sendJsonForTest: sendJson, _sendTextForTest: sendText, _refuseDownloadForTest: refuseDownload } = require('./server');
 const attachments = require('./engine/attachments');
+const projects = require('./engine/projects');
 
 test.before(async () => { await start(0); });
 test.after(() => { try { server.closeAllConnections(); server.close(); } catch { /* best effort */ } });
@@ -57,9 +60,9 @@ function fdsOn(file) {
 
 /** GET a path; resolves with the status, 'cut' when the connection ended without a full answer, or 'hung' when
  *  nothing ended it within 5 s (a head sent with its body never finished, and the socket left open). */
-function get(p) {
+function get(p, headers = {}) {
   return new Promise((resolve) => {
-    const req = http.get({ host: '127.0.0.1', port: port(), path: p }, (res) => {
+    const req = http.get({ host: '127.0.0.1', port: port(), path: p, headers }, (res) => {
       res.resume();
       res.on('end', () => resolve(res.statusCode));
       res.on('error', () => resolve('cut'));
@@ -188,16 +191,7 @@ test('#7686: the diagnostics download that fails after its head ends that respon
   const before = unhandled.length;
   let first;
   try {
-    first = await new Promise((resolve) => {
-      const req = http.get({ host: '127.0.0.1', port: port(), path: '/api/diagnostics', headers: { 'sec-fetch-mode': 'navigate' } }, (res) => {
-        res.resume();
-        res.on('end', () => resolve(res.statusCode));
-        res.on('error', () => resolve('cut'));
-        res.on('aborted', () => resolve('cut'));
-      });
-      req.on('error', () => resolve('cut'));
-      setTimeout(() => { resolve('hung'); req.destroy(); }, 5000).unref();
-    });
+    first = await get('/api/diagnostics', { 'sec-fetch-mode': 'navigate' });
   } finally { JSON.stringify = realStringify; }
   await wait(50);
   if (thrown === 0) {
@@ -244,4 +238,43 @@ test('#7686: the 10-31 crash path itself: a throw after the preview head reaches
   assert.deepEqual(unhandled.slice(before).map((e) => String(e && (e.code || e.message))), [], 'a rejection escaped the route catch (the 10-31 crash)');
   assert.equal(first, 'cut', 'the response after the failure was ' + first + ', not ended');
   assert.equal(await get(`/api/attachment/${rec.id}/preview`), 200, 'the board stopped answering');
+});
+
+test('#7686: a project download whose stream cannot open after its head closes the descriptor, and the board keeps answering', async () => {
+  const folder = fs.mkdtempSync(path.join(process.env.AGENT_WORKFORCE_PROJECTS, 'dl-'));
+  const file = path.join(folder, 'deck.bin');
+  fs.writeFileSync(file, crypto.randomBytes(32 * 1024));
+  const p = projects.create({ name: 'Download 7686', folder, agents: [], roster: [] });
+  const url = '/api/project/' + encodeURIComponent(p.id) + '/file-download?name=deck.bin';
+  assert.equal(await get(url), 200, 'CONTROL: the download did not answer 200');
+  const before = unhandled.length;
+  const realCreate = fs.createReadStream;
+  let thrown = 0;
+  fs.createReadStream = function (...args) {
+    if (thrown === 0 && args[0] === null && args[1] && typeof args[1].fd === 'number') {
+      thrown += 1;
+      throw Object.assign(new Error('simulated failure after the head'), { code: 'EIO' });
+    }
+    return realCreate.apply(this, args);
+  };
+  let first;
+  try { first = await get(url); await wait(50); } finally { fs.createReadStream = realCreate; }
+  assert.equal(thrown, 1, 'CONTROL: the failure was never injected, so this test proves nothing');
+  assert.deepEqual(unhandled.slice(before).map((e) => String(e && (e.code || e.message))), [], 'an exception escaped the download (it ends the board)');
+  assert.equal(first, 'cut', 'the download after the failure was ' + first + ', not ended');
+  assert.equal(fdsOn(file), 0, 'the failed download left ' + fdsOn(file) + ' descriptor(s) open on the file');
+  assert.equal(await get(url), 200, 'the board stopped answering');
+});
+
+test('#7686: every as=text `fail` closure answers through sendText and writes no head of its own', () => {
+  /* The inbox and report routes' failures can come after their 200 head; sendText is what ends such a response
+     instead of writing a second head. Read from the source, so inlining the old write again goes red (review 5). */
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const starts = [...src.matchAll(/const fail = \(status, msg\) => \{/g)].map((m) => m.index);
+  assert.equal(starts.length, 2, 'CONTROL: expected the inbox and report closures, found ' + starts.length);
+  for (const at of starts) {
+    const body = src.slice(at, src.indexOf('\n    };', at));
+    assert.match(body, /sendText\(res, status/, 'a fail closure does not answer through sendText:\n' + body);
+    assert.doesNotMatch(body, /res\.writeHead\(/, 'a fail closure writes a head itself:\n' + body);
+  }
 });

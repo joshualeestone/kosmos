@@ -22,9 +22,15 @@ Every `res.writeHead(` in server.js was read in context (40 on main; 39 on this 
 (review 2: the first sweep listed functions and missed inline closures).
 - Guarded now, because a head can already be out when they run:
   - `sendJson` and `refuseDownload`, both through `answeredAlready`;
-  - the `as=text` `fail` closures in `/api/inbox` and `/api/report`, which write their 200 head before formatting the
-    rows, so a throw there reaches the route's catch. They now answer through `sendText`, which shares the guard.
-- `sendFileStream` closes the descriptor and ends the response if opening the stream throws after its head.
+  - the `as=text` `fail` closures in `/api/inbox` and `/api/report`. Inbox writes its 200 head before formatting the
+    rows, so a throw there reaches the route's catch; report builds its text first, so there it is defence only. Both
+    now answer through `sendText`, which shares the guard, and a source test pins that wiring.
+- `sendFileStream` and `sendFileDownload` close the descriptor and end the response if opening the stream throws
+  after the head (review 5 found the second; in an fs callback that throw is an uncaught exception, so the board died
+  there too).
+- `sendJson` serialises before its head (review 4). That is also what keeps the `try { sendJson(200, x) } catch {
+  ... 500 }` pattern working, the agents route's own catch-500 included: do not move the serialise back after the
+  head.
 - The rest write the FIRST head on their path (a redirect, a 204 check answer, a static file, a page), with nothing
   that can have answered before them.
 - Rejected: wrapping `res.writeHead` for every response. It would cover all 40, but the caller then calls `res.end`
@@ -32,7 +38,7 @@ Every `res.writeHead(` in server.js was read in context (40 on main; 39 on this 
   guard that rests on one runtime's behaviour is the wrong kind of guard.
 
 ## Test
-`server.headers-twice-7686.test.js`, six tests. Unhandled rejections are recorded (each test reads only its own) rather
+`server.headers-twice-7686.test.js`, ten tests. Unhandled rejections are recorded (each test reads only its own) rather
 than left to end the test process.
 - **The 10-31 crash path, end to end:** a throw after the preview's head, from outside sendFileStream's own catch,
   reaches the route's `.catch(() => sendJson(...))`. Asserted: the guard's log line, no rejection, a cut response, and
@@ -41,8 +47,12 @@ than left to end the test process.
   is cut.
 - The diagnostics download failing after its head, with the injection only when sendDiagnostics is the caller:
   `refuseDownload`'s guard, end to end.
-- Unit tests: sendJson, sendText and refuseDownload after a head end the response, never throw, and log the route
-  without a token.
+- A project download whose stream cannot open after its head: no exception escapes, the descriptor is closed, and the
+  response is cut.
+- Unit tests: sendJson, sendText and refuseDownload after a head end the response and never throw (sendJson's also
+  checks the log names the route with no query); a response that already ENDED is not destroyed; a value sendJson
+  cannot serialise throws before any head.
+- A source test: every `as=text` `fail` closure answers through sendText and writes no head of its own.
 - Controls: each injection is asserted to have fired, and the preview answers 200 before each failure.
 - Each guard (answeredAlready, refuseDownload's use of it, sendText's, sendFileStream's open catch) turns its own test
   red under mutation.
