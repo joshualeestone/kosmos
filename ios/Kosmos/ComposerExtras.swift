@@ -47,6 +47,26 @@ struct ComposerMicButton: View {
     }
 }
 
+// kosmos#7687: the send button in the microphone's place once there is something to send: a paper plane on a filled
+// rounded square (Discord's, Josh 10-31), with a 44 pt tap area. Tapping it sends, or says why it cannot (the caller's).
+struct ComposerSendButton: View {
+    let label: String   // "Send" in a chat, "Post" in a project room
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "paperplane.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 34, height: 34)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Palette.link))
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+}
+
 // The board's emoji panel (#pj-emoji): the 80 glyphs in a grid, in place of the keyboard while open.
 struct EmojiPanel: View {
     let pick: (String) -> Void
