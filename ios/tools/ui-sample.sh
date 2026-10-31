@@ -67,16 +67,18 @@ log="$work/xcodebuild.log"
 ( cd "$here/.." && TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test -project Kosmos.xcodeproj -scheme Kosmos -destination "id=$udid" \
     $only $skip -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
 rc=$?
-ran="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' (passed|failed)" "$log")"
+ran="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' (passed|failed|skipped)" "$log")"
+skipped="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' skipped" "$log")"   # #7654: a check that says it could not test here
 failed="$(grep -c -E "^Test Case '-\[KosmosUITests\.[A-Za-z0-9_]+ [A-Za-z0-9_]+\]' failed" "$log")"
 # Review 1: each class must have run exactly its own number, so one class gaining a test cannot hide another skipping one.
 short=""
 for c in $classes; do
-  n="$(grep -c -E "^Test Case '-\[KosmosUITests\.${c%%:*} [A-Za-z0-9_]+\]' (passed|failed)" "$log")"
+  n="$(grep -c -E "^Test Case '-\[KosmosUITests\.${c%%:*} [A-Za-z0-9_]+\]' (passed|failed|skipped)" "$log")"
   [ "$n" -eq "${c##*:}" ] || short="$short ${c%%:*}=$n/${c##*:}"
 done
 if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ] && [ -z "$short" ]; then
-  echo "PASS  ui-sample: $ran of $want UI checks passed on a fresh simulator"
+  note=""; [ "$skipped" -gt 0 ] && note=" ($skipped of them SKIPPED: a skip tested nothing, see the log)"
+  echo "PASS  ui-sample: $ran of $want UI checks passed on a fresh simulator$note"
   exit 0
 fi
 why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\] : /\1.\2: /p' "$log" | head -3)"
