@@ -15,7 +15,7 @@ ChatView: in KeyboardHold's onPutBack, when the id anchor holds a reader's place
 no longer pulls the list back to that message. Trace line "keyboard hold: anchor let go".
 
 ## Trade-off, accepted
-Until the reader scrolls again (which sets a new anchor) the list is held by its offset alone, as on iOS 16. kosmos#7265 measured that drifting by tens of points as reads re-estimate rows above, so a reader who opens the keyboard and types without scrolling may drift that way. Re-anchoring on a real row was rejected: the anchor is .bottom, so naming any row scrolls the list to it, the very move being undone. A page of earlier messages landing above meanwhile is kept by keepAnchor (scrollTo the row that was topmost), which the iOS 17+ path skipped while an anchor existed and now runs when the anchor is nil. "end" is never let go: it is the keep on the newest message. Whether SwiftUI writes the binding back by itself after the nil is not known; the CI trace answers it (see Change my mind). Follow-up if drift shows: a check that lands reads after the let-go (noted in the PR).
+Until the reader scrolls again (which sets a new anchor) the list is held by its offset alone, as on iOS 16. kosmos#7265 measured that drifting by tens of points as reads re-estimate rows above, so a reader who opens the keyboard and types without scrolling may drift that way. Re-anchoring on a real row was rejected: the anchor is .bottom, so naming any row scrolls the list to it, the very move being undone. A page of earlier messages landing above meanwhile is kept by keepAnchor (scrollTo the row that was topmost), which the iOS 17+ path skipped while an anchor existed and now runs only while the anchor is nil after a let-go (anchorLetGo, cleared when any row or "end" is named again, and with a fresh chat). "end" is never let go: it is the keep on the newest message. Whether SwiftUI writes the binding back by itself after the nil is not known; the CI trace answers it (see Change my mind). Follow-up if drift shows: a check that lands reads after the let-go (noted in the PR).
 
 ## Rejected
 - Widening the 0.8 s window: prolongs the fight, does not end it.
@@ -27,3 +27,6 @@ on main confirms it; red with the same trace refutes it.
 
 ## Change my mind
 A CI trace on this branch still showing put back 499 after "anchor let go".
+
+## Results
+- Local, iPhone 17e iOS 26.5, fresh simulator (ios/tools/ui-keyboard.sh): 3 of 3 keyboard checks passed on 7392b97 (21:03 CDT). Re-run on the final HEAD: pending at the time of writing; result goes in the PR.
