@@ -86,6 +86,23 @@ function cleanPreview(d) {
   return { org: { id: org.id, kind: 'personal' }, words, consentHash: d.consentHash, computerSalt: d.computerSalt };
 }
 
+/* #7681 item 1: the price the screen shows must be the price Kosmos+ bills. The screen's comes from this board's
+   setting (personalbackupoffer.js); Kosmos+'s own preview answer must carry the same figure (`price`, in the shape
+   Stripe prices come in), or nothing goes past the preview. Kosmos+ bills no personal backup today and sends no price,
+   so with a price set here nothing can be turned on: true, since nothing would charge it. The price itself is Josh's
+   (#7404). A screen with no price is refused before this by the server (design review 1), so null meets null only on
+   paths that never reach a person. */
+function priceOf(d) {
+  const { PRICE_SHAPE } = require('./remote');
+  const p = d && typeof d.price === 'string' ? d.price.trim() : '';
+  return p && PRICE_SHAPE.test(p) ? p : null;
+}
+function shownPrice(opts) {
+  if (Object.prototype.hasOwnProperty.call(opts, 'shownPrice')) return opts.shownPrice;
+  try { return require('./personalbackupoffer').offer().price; } catch { return null; }
+}
+const PRICE_UNCONFIRMED = 'Kosmos+ did not confirm the price shown here, so nothing was turned on. Open personal backup again later.';
+
 /* Its own ticket (never server.js ORG_TICKET): the exact words, hash, org and salt served to THIS screen, one use, ten
    minutes. switchOn takes only a ticket, so a page cannot send a hash it was not shown. */
 const TICKETS = new Map();
@@ -179,6 +196,10 @@ async function preview(opts = {}) {
   }
   const served = cleanPreview(r.data);
   if (!served) return { ok: false, because: 'Kosmos+ answered in a form this Kosmos does not read. Nothing was turned on.' };
+  // #7681 item 1: the ticket carries the price Kosmos+ confirmed, so switchOn can refuse one the screen no longer shows.
+  const shown = shownPrice(opts);
+  if (priceOf(r.data) !== shown) return { ok: false, code: 'price_unconfirmed', because: PRICE_UNCONFIRMED };
+  served.price = shown;
   const now = (opts.now || Date.now)();
   return { ok: true, ticket: issue(served, now), words: served.words };
 }
@@ -208,6 +229,8 @@ async function switchOn(ticket, accepted, opts = {}) {
 const CLAIMED = new Set();
 async function bindAndKey(ticket, t, opts) {
   const oe = opts.orgenroll || require('./orgenroll');
+  // #7681 item 1: the price on this board changed since Kosmos+ confirmed it at the preview: read the words again.
+  if (t.price !== shownPrice(opts)) { TICKETS.delete(ticket); return { ok: false, code: 'price_unconfirmed', because: PRICE_UNCONFIRMED }; }
   // Bound elsewhere since the preview: refused before anything is sent (blocker 1). Unanswered: nothing sent, ticket kept.
   const remote = remoteOf(opts);
   const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
