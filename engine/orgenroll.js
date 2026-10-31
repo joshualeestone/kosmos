@@ -313,7 +313,9 @@ function rememberConsent(hash, consent, opts) {
   const keep = held && held.consentHash;
   while (order.length > CONSENT_KEEP) { const i = order.findIndex((h) => h !== keep && h !== hash); if (i < 0) break; order.splice(i, 1); }
   const byHash = {};
-  for (const h of order) byHash[h] = h === hash ? { reports, usageConsented: reports.some((l) => NAMES_USAGE.test(l)) } : all.byHash[h];
+  // kosmos#7404: backsUp is kept too: a personal backup uploads only under words that name something backed up.
+  const backsUp = Array.isArray(consent.backsUp) ? consent.backsUp.filter((l) => typeof l === 'string' && l) : [];
+  for (const h of order) byHash[h] = h === hash ? { reports, backsUp, usageConsented: reports.some((l) => NAMES_USAGE.test(l)) } : all.byHash[h];
   try { writeWhole(path.join(storeRoot(opts), CONSENT_FILE), JSON.stringify({ byHash, order }) + '\n'); return true; } catch { return false; }
 }
 /* The accepted words for the hash on this world's record, or null: only while it may report (mayReport), and only when
@@ -325,7 +327,7 @@ function acceptedConsent(opts) {
   const j = readConsents(opts).byHash[rec.consentHash];
   if (!j || !Array.isArray(j.reports)) return null;
   const reports = j.reports.filter((l) => typeof l === 'string' && l);
-  return { reports, usageConsented: j.usageConsented === true, policyConsented: reports.some((l) => NAMES_POLICY.test(l)),
+  return { reports, backsUp: Array.isArray(j.backsUp) ? j.backsUp.filter((l) => typeof l === 'string' && l) : [], usageConsented: j.usageConsented === true, policyConsented: reports.some((l) => NAMES_POLICY.test(l)),
     everyKosmosConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l)),
     /* kosmos#5532: another Kosmos's usage goes only when ONE line names both every Kosmos on this computer and usage (the
        coordinator's "the agent, project, activity and token use lines above from every Kosmos on this computer"): a

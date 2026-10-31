@@ -156,7 +156,7 @@ function startTick(deps) {
   const now = deps.now || Date.now;
   const every = Number.isSafeInteger(deps.everyMs) && deps.everyMs > 0 ? deps.everyMs : HOUR;
   const state = { running: false, pausedUntil: 0, said: null, saidLeft: '', blind: 0 };
-  const say = (text) => { try { if (deps.say) deps.say(`company backup: ${text}`); } catch { /* a log line */ } };
+  const say = (text) => { try { if (deps.say) deps.say(`${deps.label || 'company backup'}: ${text}`); } catch { /* a log line */ } };
   async function tick() {
     try {
       if (state.running || now() < state.pausedUntil || !deps.enrolled()) return;
@@ -332,11 +332,19 @@ function mayBackUp() {
 /* The board's own tick: mayBackUp, the roots of this world, the real run. say: one console line, which reaches the
    board's log. RESIDUAL: the gate is asked when a run starts; a Leave during a run does not stop that run's uploads (a
    rollup re-asks per batch). A run is bounded by the week's allowance and is one an hour at most. */
-function startHere() {
+function startHere() { return startWorld({ stage: 'agy', run: (input) => require('./backuprun').runBackup(input), enrolled: mayBackUp }); }
+/* kosmos#7404 (pbjob-7404): a personal backup's own tick, the same run under its own key step. Its own instance, so a pause
+   the company's took never carries over, and its own stage folder, since each tick clears its folder. It covers what the
+   company's covers: the words the person accepted say so. */
+function startPersonal() {
+  const pb = () => require('./personalbackup');
+  return startWorld({ stage: 'agy-personal', label: 'personal backup', run: (input) => pb().runJob(input), enrolled: () => pb().mayBackUp() });
+}
+function startWorld(mode) {
   // kosmos#5883 slice 3: Antigravity conversations are live SQLite files, copied whole into a staging folder under
   // Kosmos's own data (engine/backupagy.js). Staged INSIDE the run (review 1): a copy exists only for a run that
   // happens, and is cleared after it, whatever happened. roots() keeps the agents it listed for the run to use.
-  const stageDir = () => path.join(require('./store').ROOT, 'backupstage', 'agy');
+  const stageDir = () => path.join(require('./store').ROOT, 'backupstage', mode.stage);
   const agy = require('./backupagy');
   let lastAgents = [];
   return startTick({
@@ -347,7 +355,7 @@ function startHere() {
         try { home = require('./agytrust').agyHome(); } catch { /* none */ }
         let extra = [];
         try { extra = await agy.stageAgy({ home, stageDir: stageDir(), agents: lastAgents }); } catch { extra = []; }
-        return await require('./backuprun').runBackup(Object.assign({}, input, { roots: input.roots.concat(extra) }));
+        return await mode.run(Object.assign({}, input, { roots: input.roots.concat(extra) }));
       } finally { agy.clearStage(stageDir()); }
     },
     roots: () => {
@@ -355,9 +363,10 @@ function startHere() {
       lastAgents = (input.agents || []).map((a) => ({ dir: a.dir, seg: rootSegment(a.id) })).filter((a) => a.seg);
       return rootsFor(input);
     },
-    enrolled: mayBackUp,
+    enrolled: mode.enrolled,
+    label: mode.label,
     say: (text) => console.error(text),
   });
 }
 
-module.exports = { rootsFor, startTick, nextWeekStart, inputsHere, startHere, mayBackUp };
+module.exports = { rootsFor, startTick, nextWeekStart, inputsHere, startHere, startPersonal, mayBackUp };
