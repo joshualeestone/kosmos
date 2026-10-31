@@ -3102,12 +3102,14 @@ section("native board loop: connecting")
         await other.value
         check((c.attached["dana"] ?? []).contains { $0.name == "other.pdf" } && (c.uploading["dana"] ?? 0) == 0,
               "and it lands")
-        // A batch stops at the next pick once cancelled.
-        let gen = c.addGenerationNow(for: "dana")
-        check(!c.addingCancelled(for: "dana", since: gen), "premise: not cancelled yet")
-        c.cancelAdding(for: "dana")
-        check(c.addingCancelled(for: "dana", since: gen) && !c.addingCancelled(for: "eli", since: c.addGenerationNow(for: "eli")),
-              "a batch sees its own chat's x, not another's")
+        // The one batch loop, the chat's and the room's: it stops on its own key's x, not another's.
+        var reached: [Int] = []
+        await c.addEach([0, 1, 2], key: "room:p") { i, _ in
+            reached.append(i)
+            if i == 0 { c.cancelAdding(for: "dana") }
+            if i == 1 { c.cancelAdding(for: "room:p") }
+        }
+        check(reached == [0, 1], "a batch sees its own key's x, not another's, and stops at the next item")
         // Review 1: a photo still loading when the x is tapped sends nothing once it loads (the first guard).
         let gate = Gate7682()
         let uploadsBefore = w.uploads.count
@@ -3153,6 +3155,7 @@ section("native board loop: connecting")
         let so = Task { await c.attach(.file(picked("signout.pdf")), epoch: c.chatEpoch, to: dana) }
         _ = await settle { w.uploadsStarted > soStarted }
         c.accountChanged()
+        _ = await settle { isLive(c) }
         // Settle with a limit, then release: without the cancel this hold never ends and awaiting it first would hang.
         _ = await settle { w.uploadsCancelled > soCancelled }
         let soCancelledCount = w.uploadsCancelled
@@ -3162,11 +3165,16 @@ section("native board loop: connecting")
         // Review 2: an add from before a sign-out that ENDS after a later add is counted leaves that count alone.
         w.uploadIgnoresCancel = true
         w.holdUploads = ["held-before.pdf", "held-after.pdf"]
+        let hbStarted = w.uploadsStarted
         let hb = Task { await c.attach(.file(picked("held-before.pdf")), epoch: c.chatEpoch, to: dana) }
-        _ = await settle { c.uploading["dana"] == 1 }
+        _ = await settle { w.uploadsStarted > hbStarted }
+        check(w.uploadsStarted == hbStarted + 1, "premise: the add from before the sign-out reached its upload")
         c.accountChanged()
+        _ = await settle { isLive(c) }
+        let haStarted = w.uploadsStarted
         let ha = Task { await c.attach(.file(picked("held-after.pdf")), epoch: c.chatEpoch, to: dana) }
-        _ = await settle { c.uploading["dana"] == 1 }
+        _ = await settle { w.uploadsStarted > haStarted }
+        check(w.uploadsStarted == haStarted + 1, "premise: the later add reached its upload")
         w.holdUploads.remove("held-before.pdf")
         await hb.value
         check(c.uploading["dana"] == 1, "the add from before the sign-out ending leaves the later add's count at one")
@@ -3176,11 +3184,14 @@ section("native board loop: connecting")
         w.uploadIgnoresCancel = false
         // A sign-out with an add in flight, then a new add: the old one ending does not take the new count down.
         w.uploadYields = 400
+        let beforeStarted = w.uploadsStarted
         let before = Task { await c.attach(.file(picked("before.pdf")), epoch: c.chatEpoch, to: dana) }
-        _ = await settle { c.uploading["dana"] == 1 }
+        _ = await settle { w.uploadsStarted > beforeStarted }
         c.accountChanged()
+        _ = await settle { isLive(c) }
+        let afterStarted = w.uploadsStarted
         let after = Task { await c.attach(.file(picked("after.pdf")), epoch: c.chatEpoch, to: dana) }
-        _ = await settle { c.uploading["dana"] == 1 }
+        _ = await settle { w.uploadsStarted > afterStarted }
         await before.value
         check(c.uploading["dana"] == 1, "an add from before a sign-out ending leaves a later add's count alone")
         w.uploadYields = 0

@@ -795,25 +795,18 @@ final class BoardClient: ObservableObject {
         uploadTasks[session] = nil
     }
 
-    /// kosmos#7682 review 1: a multi-file pick in an agent's chat, one at a time in the order picked; the x stops the
-    /// rest of it. ChatView calls this (tested in LogicTests); a project room keeps its own loop in RoomView, with the
-    /// same check, because its picks go through RoomStore's own count first.
-    func attachAll(_ picks: [Pick], epoch: Int, to agent: Board.Agent) async {
-        let generation = addGenerationNow(for: agent.session)
-        for pick in picks {
-            if addingCancelled(for: agent.session, since: generation) { return }
-            await attach(pick, epoch: epoch, to: agent)
+    /// kosmos#7682: a multi-file pick, one at a time in the order picked; the x on `key` stops the rest of it.
+    func addEach<Item>(_ items: [Item], key: String, _ add: (Int, Item) async -> Void) async {
+        let generation = addGeneration[key, default: 0]
+        for (index, item) in items.enumerated() {
+            if addGeneration[key, default: 0] != generation { return }
+            await add(index, item)
         }
     }
 
-    /// kosmos#7682: whether this chat's adds were cancelled since `generation` (a picker's batch stops then).
-    func addingCancelled(for session: String, since generation: Int) -> Bool {
-        addGeneration[session, default: 0] != generation
-    }
-
-    /// kosmos#7682: this chat's current add generation, taken when a batch of picks starts.
-    func addGenerationNow(for session: String) -> Int {
-        addGeneration[session, default: 0]
+    /// kosmos#7682 review 1: a multi-file pick in an agent's chat.
+    func attachAll(_ picks: [Pick], epoch: Int, to agent: Board.Agent) async {
+        await addEach(picks, key: agent.session) { _, pick in await attach(pick, epoch: epoch, to: agent) }
     }
 
     // Taken off the composer. The Mac keeps the file it was sent (nothing there removes a stored one), as with the

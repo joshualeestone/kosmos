@@ -1183,11 +1183,9 @@ struct RoomView: View {
     // One at a time, in the order picked, as the chat adds them (its comments say why).
     private func addPhotos(_ picks: [PhotosPickerItem]) async {
         let epoch = client.chatEpoch
-        let generation = client.addGenerationNow(for: attachKey)
         let at = Date()
         client.attachLine[attachKey] = nil
-        for (i, item) in picks.enumerated() {
-            if client.addingCancelled(for: attachKey, since: generation) { return }   // kosmos#7682
+        await client.addEach(picks, key: attachKey) { i, item in
             await store.attach(.photo(load: {
                 guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
                 let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
@@ -1208,10 +1206,8 @@ struct RoomView: View {
 
     private func addFiles(_ urls: [URL]) async {
         let epoch = client.chatEpoch
-        let generation = client.addGenerationNow(for: attachKey)
         client.attachLine[attachKey] = nil
-        for url in urls {
-            if client.addingCancelled(for: attachKey, since: generation) { return }   // kosmos#7682
+        await client.addEach(urls, key: attachKey) { _, url in
             await store.attach(.file(url), epoch: epoch, to: project.id)
         }
     }
