@@ -423,13 +423,13 @@ async function orgConnected(page, enrolled, extra) {
     never: ['your chats are never shown in the console', 'keys and passwords'] } }) }));
 }
 /* kosmos#7404: a connected computer whose board offers personal backup, in `state`; preview and on answer samples. */
-async function pbShot(page, state) {
+async function pbShot(page, state, price = '$5/month') {
   await orgConnected(page, false);
   const json = (body) => (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
-  await page.route('**/api/personal-backup', json({ shown: true, price: null, state }));
+  await page.route('**/api/personal-backup', json({ shown: true, price, state }));
   await page.route('**/api/personal-backup/preview', json({ ok: true, ticket: 't_sample', words: {
-    reports: [], backsUp: ['agent folders and their files', 'transcripts', 'projects and what agents make'],
-    readers: ['you, with your recovery code'], never: ['keys and passwords'] } }));
+    // The coordinator's own personal words today (kosmos-relay org.rs personal_consent): nothing uploaded yet.
+    reports: [], backsUp: [], readers: ['you, on your own computers'], never: ['keys and passwords'] } }));
   await page.route('**/api/personal-backup/on', json({ ok: true, code: 'K7QD-3MXA-9VPE-H2NW-4TBR-6YC8-JF', org: 'org_sample', member: 'm_sample' }));
   await at(page, '?tab=settings&sec=plus');
   await page.waitForSelector(state === 'on' ? '#pb-onview' : '#pb-off', { state: 'visible', timeout: 10000 });
@@ -1727,8 +1727,12 @@ const SCREENS = [
     await page.evaluate(() => document.getElementById('plus-org').scrollIntoView({ block: 'start' }));
   } },
   /* kosmos#7404: personal backup in Settings, Kosmos+, one shot per view. The routes are stubbed (the price is a sample
-     in Stripe's shape; the code is a sample in the engine's shape, never a real one). */
+     in Stripe's shape; the code is a sample in the engine's shape, never a real one; the words are the coordinator's). */
   { name: 'pb-off', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off'); } },
+  // Design review 1: no price set, so no Turn on; only the restore line.
+  { name: 'pb-noprice', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off', null); } },
+  { name: 'pb-restore', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off');
+    await page.click('#pb-restore-open'); await page.waitForSelector('#pb-restore', { state: 'visible', timeout: 10000 }); await pbTop(page); } },
   { name: 'pb-words', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off');
     await page.click('#pb-on'); await page.waitForSelector('#pb-words', { state: 'visible', timeout: 10000 }); await pbTop(page); } },
   { name: 'pb-code', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off');

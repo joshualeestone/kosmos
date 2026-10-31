@@ -5200,6 +5200,9 @@ const REMOTE_STEP_UP_EXACT = new Set([
   // Joining a company or family: it applies that org's policy here and starts reporting this computer's activity to
   // it. Previewing a code and leaving are not gated (one reads, the other takes away).
   'POST /api/org/enroll',
+  // kosmos#7404: turning personal backup on or off, showing its recovery code again, or restoring with one each moves a
+  // backup key or ends a membership. Preview (reads) and saved (deletes this computer's copy of a code) are not gated.
+  'POST /api/personal-backup/on', 'POST /api/personal-backup/key', 'POST /api/personal-backup/restore', 'POST /api/personal-backup/off',
   // Resetting the account's second factor: from a stolen session it would let the thief enrol their own, and then
   // pass this very step-up. At the computer it needs nothing more.
   'POST /api/remote/second-reset',
@@ -12688,6 +12691,58 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, r);
       })
       .catch(() => sendJson(res, 200, { ok: false, because: 'This Kosmos could not read that request. Nothing was sent to your company.' }));
+    return;
+  }
+  /* kosmos#7404 (backupscreens-7404): personal backup, from Settings > Kosmos+. Every route is the person's (isViaScreen,
+     as /api/org/*), and none exists unless this board offers it (engine/personalbackupoffer.js: 404, so a board with the
+     switch off has no surface). Answers carry named fields only. The recovery code leaves this process in ONE answer,
+     the one that made it (on, or key while it is still unconfirmed), and is never logged. */
+  if (pathname === '/api/personal-backup' || pathname.startsWith('/api/personal-backup/')) {
+    let off = true;
+    try { off = !require('./engine/personalbackupoffer').offer().shown; } catch { off = true; }
+    if (off) { sendJson(res, 404, { error: 'not found' }); return; }
+    if (pathname === '/api/personal-backup' && (req.method === 'GET' || req.method === 'HEAD')) {
+      if (!isViaScreen(req, {})) { sendJson(res, 403, { error: 'only you can see personal backup, from Settings' }); return; }
+      let out = { shown: false };
+      try {
+        const o = require('./engine/personalbackupoffer').offer();
+        out = { shown: true, price: o.price, state: require('./engine/personalbackup').state() };
+      } catch { out = { shown: false }; }
+      sendJson(res, 200, out);
+      return;
+    }
+    const PB_KINDS = new Set(['preview', 'on', 'key', 'saved', 'restore', 'off']);
+    const kind = pathname.slice('/api/personal-backup/'.length);
+    if (req.method !== 'POST' || !PB_KINDS.has(kind)) { sendJson(res, 404, { error: 'not found' }); return; }
+    readBody(req, 4096)
+      .then(async (buf) => {
+        let body = {};
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change personal backup, from Settings' }); return; }
+        /* Design review 1 (Mona Lisa): with no price there is nothing to agree to, so nothing is turned on; the page hides
+           Turn on, and this keeps a page that did not (an older one, a stale tab) from accepting a charge it never showed. */
+        if ((kind === 'preview' || kind === 'on') && !require('./engine/personalbackupoffer').offer().price) {
+          sendJson(res, 200, { ok: false, code: 'no_price', because: 'Personal backup cannot be turned on yet. Nothing was turned on.' });
+          return;
+        }
+        const pb = require('./engine/personalbackup');
+        const pk = require('./engine/personalbackupkey');
+        let r;
+        if (kind === 'preview') r = await pb.preview();
+        else if (kind === 'on') r = await pb.switchOn(typeof body.ticket === 'string' ? body.ticket : null, body.accepted === true);
+        else if (kind === 'key') r = await pb.setUpKey();
+        else if (kind === 'saved') r = await pk.confirmRecoveryCodeSaved({ org: body.org, member: body.member });
+        else if (kind === 'restore') r = typeof body.code === 'string' && body.code.length <= 64 ? await pk.restorePersonalKey(body.code) : { ok: false, code: 'not_a_code', because: 'That is not a recovery code (26 letters and digits).' };
+        else r = await pb.switchOff();
+        /* What the page may see, by name. `code` is the recovery code on on/key, and a refusal's code elsewhere; org and
+           member are the opaque ids confirmRecoveryCodeSaved needs back, nothing more. */
+        const keep = ['ok', 'because', 'code', 'declined', 'pending', 'unknown', 'already', 'ticket', 'words', 'org', 'member', 'deleted', 'epochs'];
+        const out = {};
+        if (r && typeof r === 'object') for (const k of keep) if (k in r) out[k] = r[k];
+        if (!('ok' in out)) { out.ok = false; out.because = 'This Kosmos could not finish that. Nothing changed; try again.'; }
+        sendJson(res, 200, out);
+      })
+      .catch(() => sendJson(res, 200, { ok: false, because: 'This Kosmos could not read that request. Nothing changed.' }));
     return;
   }
   /* kosmos#4794 slice 1: this computer joining. GET runs one pairing round and answers the page-safe status; POST
