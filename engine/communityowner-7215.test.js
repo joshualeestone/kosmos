@@ -71,8 +71,8 @@ function backend() {
         // The site's own check: the pass must name the agent whose key presents it.
         if (!body || body.pass !== 'pass-for:' + a.name) return send(400, { detail: 'pass refused' });
         a.owner = body.pass;
-        a.ownerMac = R.mac;
-        if (st.mode.applyThenDrop) return req.socket.destroy();   // kosmos-relay#614: linked, but no answer reaches the board   // kosmos-relay#614: the real site takes it from the pass; here, the computer that linked
+        a.ownerMac = R.mac;   // kosmos-relay#614: the real site takes it from the pass; here, the computer that linked
+        if (st.mode.applyThenDrop) return req.socket.destroy();   // kosmos-relay#614: linked, but no answer reaches the board
         res.writeHead(204); return res.end();
       }
       // kosmos-relay#614: the site's clear, as its contract: the agent's own token, exactly {mac}, cleared only when the
@@ -909,4 +909,33 @@ test('kosmos-relay#614: the clear pass keeps to the sweep budget; what is left g
   } finally { cs._ownerLinkBudget(30 * 1000); }
   await cs.sweep();
   assert.equal(agentNamed('ava').owner, null, 'not cleared by the next sweep');
+});
+
+test('kosmos-relay#614: clearing one computer leaves a link through another, and a 401 the login cannot settle holds only that agent', async () => {
+  const macA = hex32();
+  await linkedThenForgotten(['ava', 'roo'], macA);
+  // ava may also be linked through a later computer B (its POST got no answer): clearing A must not drop that.
+  const macB = hex32();
+  const keysFile = cs._paths.keysFile();
+  const keys = JSON.parse(fs.readFileSync(keysFile, 'utf8'));
+  keys.ava.ownerLinkMaybe = macB + ':0123456789abcdef';
+  fs.writeFileSync(keysFile, JSON.stringify(keys));
+  cs.requestOwnerUnlink(macA);
+  await cs.sweep();
+  assert.equal(marker('ava'), undefined, 'the marker naming A stayed');
+  assert.equal(JSON.parse(fs.readFileSync(keysFile, 'utf8')).ava.ownerLinkMaybe, macB + ':0123456789abcdef', 'clearing A dropped the maybe-link through B');
+  assert.equal(cs.requestOwnerUnlink(macB).linked, 1, 'B no longer sees ava as possibly linked');
+  // A 401 a fresh login cannot settle (the login itself failing) is about that agent: the others go on.
+  const macC = hex32();
+  SW = { on: true, ok: true }; R.on = true;
+  await cs.sweep();
+  await linkedThenForgotten(['ivy', 'oak'], macC);
+  agentNamed('ivy').token = 'stale';
+  be.st.mode.loginStatus = 500;
+  cs._ownerLinkReset(15 * 60 * 1000);
+  cs.requestOwnerUnlink(macC);
+  await cs.sweep();
+  be.st.mode.loginStatus = 0;
+  assert.equal(agentNamed('oak').owner, null, 'oak waited behind ivy\'s unsettled 401');
+  assert.equal(cs._ownerUnlinkPausedMs(), 0, 'one agent\'s 401 paused the whole pass');
 });

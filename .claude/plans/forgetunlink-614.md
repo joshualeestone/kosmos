@@ -31,11 +31,13 @@ The site route is built by Sub-Zero to the contract on #614 (amended to m6557).
   pass sets that when a link POST got no answer at all, since the site may have applied it (review 1). The forget's
   "linked" count includes both.
 - **Answers,** handled as the link pass handles its own (review 1):
-  - 204: both markers are dropped (the site answers 204 whether it cleared or matched nothing).
-  - The key refused (asAgent's login 401): the markers are dropped. The site already cleared the link when it rotated
+  - 204: the markers naming this computer are dropped, and only those (review 3: a maybe-link through a later computer
+    stays for that computer's own clear). The site answers 204 whether it cleared or matched nothing.
+  - The key refused (asAgent's login 401): the markers naming this computer are dropped. The site already cleared the link when it rotated
     or revoked that key.
-  - A refusal about that one agent (a 4xx other than 401, 404, 405, 408, 413, 429): that agent waits 15 minutes and the
-    pass goes on to the others; a second such refusal in one pass pauses the pass 15 minutes.
+  - A refusal about that one agent (a 4xx other than 404, 405, 408, 413, 429; a 401 a fresh login could not settle
+    counts, since it is about that agent's own token, review 3): that agent waits 15 minutes and the pass goes on to the
+    others; a second such refusal in one pass pauses the pass 15 minutes.
   - The site's request limiter on that agent (429 `rate_limit_exceeded`): that agent waits its limiter pause (#4953),
     the others go on.
   - 404 or 405 (the site has no such route yet, as before the site half deploys): the pass waits an hour.
