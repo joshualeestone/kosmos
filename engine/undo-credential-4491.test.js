@@ -100,6 +100,7 @@ test('#4491: the undo copier never keeps a copy of the board token or a sender t
 const taskchat = require('./taskchat');
 const T = (hhmm) => `2026-10-01T${hhmm}:00.000Z`;
 const ms = (hhmm) => Date.parse(T(hhmm));
+const NOW = ms('12:00');   // #7671: a plan is asked on the fixtures' day, never the real clock
 test('#4491: a forged undo record naming board.token is never restored, moved or copied', () => {
   undo.setOn(true, ms('08:00'));
   const me = worker('ud-forge');
@@ -117,7 +118,7 @@ test('#4491: a forged undo record naming board.token is never restored, moved or
   const forged = fs.readFileSync(index, 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => r.path === own)
     .map((r) => JSON.stringify({ ...r, id: r.id + 'f', path: token, dirReal: fs.realpathSync(store.ROOT) }));
   fs.appendFileSync(index, forged.join('\n') + '\n');
-  const plan = undo.plan('pf', { number: 1, closedAt: T('11:00') });
+  const plan = undo.plan('pf', { number: 1, closedAt: T('11:00') }, { now: NOW });
   const row = plan.files.find((x) => x.path === token);
   assert.ok(row, 'CONTROL: the forged record is in the plan, so the check below is reached: ' + JSON.stringify(plan.files));
   assert.deepEqual([row.ok, row.why], [false, 'protected']);
@@ -195,12 +196,12 @@ test('#4491 review 5: when the set cannot be worked out, plan flags cannot-check
   fs.writeFileSync(file, [{ at: T('10:00'), kind: 'created', who: 'ud-plancheck' }, { at: T('11:00'), kind: 'closed' }].map((r) => JSON.stringify(r)).join('\n') + '\n');
   assert.deepEqual(undo.keep(f, { cwd: me, session: 's', now: ms('10:10') }), { kept: true });
   fs.writeFileSync(f, 'after'); const t10 = new Date(ms('10:11')); fs.utimesSync(f, t10, t10);
-  const ok = undo.plan('pc', { number: 1, closedAt: T('11:00') });
+  const ok = undo.plan('pc', { number: 1, closedAt: T('11:00') }, { now: NOW });
   const okRow = ok.files.find((x) => x.path === f) || {};
   // 'incomplete' (undo was switched on after the agent began, by an earlier test) is choosable: the person can still undo it.
   assert.ok(okRow.ok === true || okRow.why === 'incomplete', 'CONTROL: with a readable list the file can be undone: ' + JSON.stringify(okRow));
   fs.writeFileSync(sendertoken.tokenOnlyFile(), '{not json');   // the set can no longer be worked out
-  const row = undo.plan('pc', { number: 1, closedAt: T('11:00') }).files.find((x) => x.path === f);
+  const row = undo.plan('pc', { number: 1, closedAt: T('11:00') }, { now: NOW }).files.find((x) => x.path === f);
   assert.deepEqual([row.ok, row.why], [false, 'cannot-check']);
   const r = undo.apply('pc', { number: 1, closedAt: T('11:00') }, [f], { now: ms('12:00') });
   assert.ok(!r.done.includes(f), 'a file was undone while Kosmos could not check it');
@@ -225,7 +226,7 @@ test('#4491 review 6: a folder swapped for a link into a token-only agent .claud
   fs.writeFileSync(file, [{ at: T('10:00'), kind: 'created', who: 'ud-swap' }, { at: T('11:00'), kind: 'closed' }].map((r) => JSON.stringify(r)).join('\n') + '\n');
   assert.deepEqual(undo.keep(f, { cwd: me, session: 's', now: ms('10:10') }), { kept: true });
   fs.writeFileSync(f, '{"edited":1}'); const t10 = new Date(ms('10:11')); fs.utimesSync(f, t10, t10);
-  const row = undo.plan('sw', { number: 1, closedAt: T('11:00') }).files.find((x) => x.path === f) || {};
+  const row = undo.plan('sw', { number: 1, closedAt: T('11:00') }, { now: NOW }).files.find((x) => x.path === f) || {};
   assert.ok(row.ok === true || row.why === 'incomplete', 'CONTROL: before the swap the file can be undone: ' + JSON.stringify(row));
   // At the write: sub becomes a link to the agent's own .claude.
   undo._setBeforeWriteForTests(() => { fs.renameSync(sub, sub + '.was'); fs.symlinkSync(guard, sub); });
