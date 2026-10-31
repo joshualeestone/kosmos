@@ -64,7 +64,7 @@ function backoffMs(waits) {
 
 /* The key step. deps: { ensureMemberKey, pair?, now? } (now in whole milliseconds, as Date.now). Resolves
    { ok: true, key: { epoch, publicKey, org?, member? }, state, lostEpochIgnored?, pair? }
-   or { ok: false, because, waiting?, pendingEpoch?, lostEpochIgnored?, unreadableKeyFile?, refusal?, otherPair?, needsPair?, badPair?,
+   or { ok: false, because, waiting?, pendingEpoch?, lostEpochIgnored?, unreadableKeyFile?, personActs?, refusal?, otherPair?, needsPair?, badPair?,
    pair?, state }. pair, and key.org and key.member, are the pair the answer named, when it named one. Never throws. */
 async function memberKeyFor(state, deps) {
   const st = cleanState(state);
