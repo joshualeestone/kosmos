@@ -106,3 +106,11 @@ Rejected: switching the id anchor to the top row with a .top anchor (it would ne
 changes the anchor for every reader on iOS 17+, not only iOS 26 with a keyboard).
 Weakest premise: that the row's window y from onGeometryChange is current when the hold reads it. If CI shows the put-back
 undershooting or oscillating, it is not.
+Round 5 review (iteration 13): the put-back is now ABSOLUTE. Each row reading carries the scroll offset at the moment it
+was read, and the write is that offset plus how far the row moved, so two queued readings of one move write the same value
+(a relative correction could add twice). If the reader's row stops being drawn the record says so ("the row left the drawn
+rows"); the hold then does nothing for that keyboard. A fresh chat clears the row readings. Round 3's "moved after the
+window" trace went with the offset watch it lived in; it is not in this code. Per-frame cost on iOS 26: one dictionary
+write per drawn row per scroll frame, no SwiftUI state, nothing redrawn.
+Not tested (round 5): the wiring (RowTop's readings, RowTops.watch, the size and sign of the write, .global against the
+window) is covered only by the CI UI check; LogicTests cover readerRow and the anchor decisions.
