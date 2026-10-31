@@ -1732,10 +1732,10 @@ function snapshotCapture(pane) {
 }
 function gatheredNote(target) { return gathered && gathered.held.has(target) ? { held: true } : null; }
 async function gatherCaptures() {
-  const at = Date.now();
   const texts = new Map();
   const budget = { left: GATHER_LIVE_READS };
   const out = paneSource ? paneSource() : await tmuxPanesAsync();
+  const at = Date.now();   // after the list: a slow list must not make fresh captures read as old (review 4)
   if (out === null || out === undefined) return { out: null, texts, at, budget };
   const panes = onePanePerSession(readPanes(out).panes);
   let timer;
@@ -1749,7 +1749,12 @@ async function gatherCaptures() {
 }
 async function snapshotUnheld() {
   if (paneCapture) return snapshot();   // a test seam, or a Windows board's own capture
-  if (!gathering) gathering = gatherCaptures().catch(() => ({ out: null, texts: new Map(), at: Date.now(), budget: { left: 0 } })).finally(() => { gathering = null; });
+  if (!gathering) {
+    gathering = gatherCaptures().catch((e) => {
+      console.error('FAIL snapshotUnheld gather: ' + (e && e.message));   // not only "could not see": a bug here must say so
+      return { out: null, texts: new Map(), at: Date.now(), budget: { left: 0 } };
+    }).finally(() => { gathering = null; });
+  }
   const got = await gathering;
   await new Promise((resolve) => { setImmediate(resolve); });   // requests sharing a gather each take their own turn of the loop
   gathered = { ...got, held: new Set() };
@@ -1867,10 +1872,11 @@ function unsentInputOf(pane, text, now = Date.now()) {
   const name = pane && pane.name;
   /* #7693: a gather with no text for this pane saw nothing, so it keeps what is known: dropping it would re-read every box next
      time and restart the clock. */
-  if (text === null && pane && gatheredNote(pane.target)) {
+  const kept = () => {
     const held = unsentSeen.get(name);
     return held && now - held.since >= UNSENT_SHOW_MS ? { since: new Date(held.since).toISOString() } : null;
-  }
+  };
+  if (text === null && pane && gatheredNote(pane.target)) return kept();
   const claude = !!pane && (!pane.runner || pane.runner === 'claude')
     && !isCodexCommand(pane.command) && !isGrokCommand(pane.command) && !isAntigravityCommand(pane.command);
   const plain = claude ? plainBoxText(text) : '';
@@ -1879,6 +1885,11 @@ function unsentInputOf(pane, text, now = Date.now()) {
   const last = unsentRead.get(name);
   if (last && last.plain === plain) typed = last.text;
   else {
+    /* #7693: the colour read blocks, so on the gathered route it spends the same budget, and held text never pairs with a live box. */
+    if (gathered) {
+      if (gathered.budget.left <= 0 || gatheredNote(pane.target)) return kept();
+      gathered.budget.left -= 1;
+    }
     let box;
     try { box = composerText(captureAnsi(pane.target)); } catch { box = { ok: false }; }
     typed = box.ok ? box.text : '';
@@ -9255,7 +9266,7 @@ function snapshot() {
        `claude agents --json` (win32capture). The capture says so here, so the card is marked as
        remembered and a held "working" is never counted as a witnessed live turn below. Asked
        only for a Windows row; a Mac pane never reaches it, so the Mac card is unchanged. */
-    const readNote = require('./win32roster').isWin32Pane(pane) ? captureNote(pane.target) : gatheredNote(pane.target);
+    const readNote = (require('./win32roster').isWin32Pane(pane) ? captureNote(pane.target) : null) || gatheredNote(pane.target);
     /* One fact, read at both places that ask whether the pane is working NOW (#1921's account badge and #2146's
        'Working now' beside a wait): a held reading is a memory, not a turn seen this tick. */
     const scrapedNow = !(readNote && readNote.held);
