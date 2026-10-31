@@ -625,9 +625,15 @@ final class RoomStore: ObservableObject {
         guard let v = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ROOM_LONG"], let asked = Int(v), asked > 0 else { return nil }
         let n = asked == 1 ? 220 : asked
         let who = ["cleo", "dana", "eli"]
-        let rows: [[String: Any]] = (0..<n).map { i in
-            ["kind": "post", "id": "p\(i + 1)", "from": who[i % 3], "text": "Post \(i + 1) of \(n).", "mentioned": [String](),
-             "at": String(format: "2026-10-23T%02d:%02d:00.000Z", 8 + i / 60, i % 60)]
+        // Built a field at a time: one mixed-type literal timed out CI's type checker (#7665).
+        var rows: [[String: Any]] = []
+        for i in 0..<n {
+            let at: String = String(format: "2026-10-23T%02d:%02d:00.000Z", 8 + i / 60, i % 60)
+            var row: [String: Any] = ["kind": "post", "id": "p\(i + 1)", "at": at]
+            row["from"] = who[i % 3]
+            row["text"] = "Post \(i + 1) of \(n)."
+            row["mentioned"] = [String]()
+            rows.append(row)
         }
         let body: [String: Any] = ["ok": true, "olderCount": 0, "olderCursor": NSNull(), "rows": rows]
         return (try? JSONSerialization.data(withJSONObject: body)).flatMap { String(data: $0, encoding: .utf8) } ?? sampleRoom
