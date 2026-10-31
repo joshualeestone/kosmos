@@ -36,6 +36,11 @@ struct ChatView: View {
     @State private var endVisible = true
     // kosmos#7265 (iOS 17+, idAnchor): the message the list is anchored on; "end" keeps the newest in view.
     @State private var positionId: String?
+    // kosmos#7420 (build 24): the list's identity; a new value rebuilds it, opened at its end (recoverEmpty's .rebuild). At
+    // most `rebuildsMax` a chat open and 2 s apart, so a list that stays empty cannot rebuild itself in a loop.
+    @State private var listEpoch = 0
+    @State private var rebuilds: [Date] = []
+    static let rebuildsMax = 3
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
     @State private var anchorLetGo = false
     // kosmos#7645: where each drawn row is on the screen (iOS 26 and later), for the keyboard hold.
@@ -47,6 +52,14 @@ struct ChatView: View {
     #if DEBUG
     // kosmos#7609: set only by the DEBUG sample scroll-up once it has told the chat where the reader is; checks wait on it.
     @State private var sampleScrollRested = false
+    @State private var sampleRebuilt = false   // kosmos#7420: KOSMOS_SAMPLE_REBUILD's marker, shown once the rebuild has settled
+    static var sampleRebuildDone = false       // once a launch: the hook below runs again on the rebuilt list's appear
+    // kosmos#7420: KOSMOS_SAMPLE_NOREBUILD=1 (Debug) is the control: the recovery never rebuilds.
+    #if DEBUG
+    static let sampleNoRebuild = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOREBUILD"] == "1"
+    #else
+    static let sampleNoRebuild = false
+    #endif
     #endif
     // kosmos#7265 (Josh 10-27): the id of the first eager row, fixed when the conversation is first drawn (eagerStart).
     @State private var eagerFrom: String?
@@ -379,7 +392,7 @@ struct ChatView: View {
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
-            positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true   // kosmos#7265 review: a fresh chat's anchor
+            positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true; rebuilds = []   // kosmos#7265 review: a fresh chat's anchor
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             replying = nil
@@ -572,6 +585,7 @@ struct ChatView: View {
                     .modifier(ContentSpace())   // kosmos#7645: rows read their place in the content by this (iOS 26 and later)
                 }
                 .modifier(PositionById(on: Self.idAnchor, id: $positionId))
+                .id(listEpoch)   // kosmos#7420: a new epoch is a new list (recoverEmpty's .rebuild)
                 .scrollDismissesKeyboard(.interactively)
                 .modifier(PersonScroll(scrolling: $personScrolling) {
                     // Their scroll has come to rest: they are at the newest message exactly when the end shows.
@@ -591,6 +605,11 @@ struct ChatView: View {
                         Color.clear.frame(width: 1, height: 1)
                             .allowsHitTesting(false)
                             .accessibilityElement().accessibilityLabel("sample scroll rested").accessibilityIdentifier("sample-scroll-rested")
+                    }
+                    if sampleRebuilt {
+                        Color.clear.frame(width: 1, height: 1)
+                            .allowsHitTesting(false)
+                            .accessibilityElement().accessibilityLabel("sample rebuilt").accessibilityIdentifier("sample-rebuilt")
                     }
                 }
                 #endif
@@ -635,6 +654,17 @@ struct ChatView: View {
                             if Self.idAnchor { positionId = target } else { proxy.scrollTo(target, anchor: .top) }
                         }
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { atBottom = endVisible; sampleScrollRested = true; Self.trace("debug scroll-up rested, atBottom \(endVisible)") }
+                    }
+                    // kosmos#7420: KOSMOS_SAMPLE_REBUILD=1 runs the empty-list recovery 3 s after opening, the reader at the newest
+                    // (so the real decision gives .rebuild), then shows a marker 1.5 s later. The cause (rows not drawn within
+                    // the content) is not reproduced here; this checks the chat after a rebuild.
+                    if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REBUILD"] == "1", !Self.sampleRebuildDone {
+                        Self.sampleRebuildDone = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                            Self.trace("debug rebuild: atBottom \(atBottom)")
+                            recoverEmpty(proxy, later: true)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { sampleRebuilt = !rebuilds.isEmpty }   // only if it rebuilt
+                        }
                     }
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {
                         // Twice: the first reaches the top and loads a page; the second shows what landed above.
@@ -851,8 +881,20 @@ struct ChatView: View {
     private func recoverEmpty(_ proxy: ScrollViewProxy, later: Bool = false) {
         let scrolling = personScrolling || scrollBox.underFinger
         var wrote = false
-        switch Board.emptyRecovery(later: later, place: scrollBox.reading()?.place, scrolling: scrolling) {
+        switch Board.emptyRecovery(later: later, place: scrollBox.reading()?.place, scrolling: scrolling, atNewest: atBottom && !Self.sampleNoRebuild) {
         case .none: return
+        case .rebuild:
+            let now = Date()
+            if rebuilds.count >= Self.rebuildsMax || rebuilds.last.map({ now.timeIntervalSince($0) < 2 }) == true {
+                Self.trace("diag: empty within the content, not rebuilt again (\(rebuilds.count) this chat open)")
+                if !later { goNewest(proxy) }
+                return
+            }
+            rebuilds.append(now)
+            Self.trace("diag: empty within the content at the newest, list rebuilt (\(rebuilds.count) this chat open)")
+            if Self.idAnchor { positionId = "end" }
+            listEpoch &+= 1
+            return
         case .backInsideThenNewest:
             wrote = scrollBox.backInside()
             if wrote { Self.trace("diag: the scroll was outside its content, put back at its end") }

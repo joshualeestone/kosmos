@@ -486,8 +486,13 @@ enum Board {
     // acts only on a scroll past the content's end (the case the evidence points at; before the top may be a bounce), and
     // never while the person scrolls. An unread place (no scroll view) is treated as within. The first one's "before the
     // top" arm is probably unreachable from the chat's check, which needs the top marker off screen.
-    enum EmptyRecovery: Equatable { case none, newest, backInsideThenNewest }
-    static func emptyRecovery(later: Bool, place: String?, scrolling: Bool) -> EmptyRecovery {
+    // kosmos#7420 (build 24, 10-31): a list empty WITHIN its content while the reader is at the newest message (atNewest) is
+    // rebuilt (.rebuild): the scroll is where the newest messages are and none is drawn there, so moving the scroll cannot
+    // help (the one try moved it and the list stayed empty), but a new list opened at its end can. Never while the person
+    // scrolls, and never for a reader higher up, who would lose their place.
+    enum EmptyRecovery: Equatable { case none, newest, backInsideThenNewest, rebuild }
+    static func emptyRecovery(later: Bool, place: String?, scrolling: Bool, atNewest: Bool = false) -> EmptyRecovery {
+        if !scrolling && atNewest && place == "within" { return .rebuild }
         if later { return !scrolling && place == "past the end" ? .backInsideThenNewest : .none }
         return !scrolling && (place == "past the end" || place == "before the top") ? .backInsideThenNewest : .newest
     }

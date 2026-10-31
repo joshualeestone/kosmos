@@ -5021,6 +5021,16 @@ do {
     check(settle(14900, 1241) == 14983, "never past the end (content plus the bottom inset, less the view): the 1,241 pt case at the end")
     check(settle(-50, -400) == -100, "never above the top (minus the top inset)")
     check(Board.settleOffset(offset: 0, moved: 500, insetTop: 0, insetBottom: 0, contentHeight: 100, viewHeight: 346) == 0, "content shorter than the view: its end is its top")
+    // kosmos#7420 (build 24): empty within the content with the reader at the newest is rebuilt, first or later; never under
+    // a finger, never for a reader higher up, never outside the content (those keep the arms above).
+    check(Board.emptyRecovery(later: false, place: "within", scrolling: false, atNewest: true) == .rebuild
+          && Board.emptyRecovery(later: true, place: "within", scrolling: false, atNewest: true) == .rebuild, "within at the newest: rebuilt")
+    check(Board.emptyRecovery(later: false, place: "within", scrolling: true, atNewest: true) == .newest
+          && Board.emptyRecovery(later: true, place: "within", scrolling: true, atNewest: true) == .none, "not under a finger")
+    check(Board.emptyRecovery(later: false, place: "within", scrolling: false, atNewest: false) == .newest
+          && Board.emptyRecovery(later: true, place: "within", scrolling: false, atNewest: false) == .none, "not for a reader higher up")
+    check(Board.emptyRecovery(later: true, place: "past the end", scrolling: false, atNewest: true) == .backInsideThenNewest
+          && Board.emptyRecovery(later: false, place: nil, scrolling: false, atNewest: true) == .newest, "outside the content or unread: as before")
 
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
