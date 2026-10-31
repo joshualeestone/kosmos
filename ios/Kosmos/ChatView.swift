@@ -41,6 +41,7 @@ struct ChatView: View {
     @State private var listEpoch = 0
     @State private var rebuilds: [Date] = []
     static let rebuildsMax = 3
+    static let rebuildGrace: TimeInterval = 1.5
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
     @State private var anchorLetGo = false
     // kosmos#7645: where each drawn row is on the screen (iOS 26 and later), for the keyboard hold.
@@ -656,14 +657,14 @@ struct ChatView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { atBottom = endVisible; sampleScrollRested = true; Self.trace("debug scroll-up rested, atBottom \(endVisible)") }
                     }
                     // kosmos#7420: KOSMOS_SAMPLE_REBUILD=1 runs the empty-list recovery 3 s after opening, the reader at the newest
-                    // (so the real decision gives .rebuild), then shows a marker 1.5 s later. The cause (rows not drawn within
+                    // (so the real decision gives .rebuild), then shows a marker 3 s later if it rebuilt exactly once. The cause (rows not drawn within
                     // the content) is not reproduced here; this checks the chat after a rebuild.
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REBUILD"] == "1", !Self.sampleRebuildDone {
                         Self.sampleRebuildDone = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                             Self.trace("debug rebuild: atBottom \(atBottom)")
                             recoverEmpty(proxy, later: true)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { sampleRebuilt = !rebuilds.isEmpty }   // only if it rebuilt
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { sampleRebuilt = rebuilds.count == 1 }   // rebuilt, and only once
                         }
                     }
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {
@@ -842,6 +843,9 @@ struct ChatView: View {
         // arrived more than 2 s ago (never the moment after an account or computer change, before its rows appear).
         let neverDrew = !endSeen && !diagEverDrew && (diagThreadAt.map { Date().timeIntervalSince($0) > 2 } ?? false)
         guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible || neverDrew, !topVisible, count > 0, thread != nil else { return }
+        // kosmos#7420: a list just rebuilt has no rows for a moment while the new one lays out; that is not an empty list
+        // (measured on iOS 27: without this the rebuild's own gap read as empty and rebuilt it again, three times).
+        if let at = rebuilds.last, Date().timeIntervalSince(at) < Self.rebuildGrace { return }
         diagCapture(proxy, why: "no message on screen", count: count)
     }
 
