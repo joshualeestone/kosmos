@@ -74,6 +74,15 @@ The records `as=text` route writes its 200 head, then renders with no try, so a 
 rejection with no second head involved. It is a different shape (a throw after a head with no catch at all), so it
 has its own card: kosmos#7689. This PR's claim is narrower: no answer can write a SECOND head and end the board.
 
+Also left for kosmos#7689's "after a head" sweep (review round 8, the last one):
+- `sendDiagnostics` still writes its head before it serialises. A serialise failure is now a cut, not a crash, but
+  serialising first (as `sendJson` now does) would let it answer DIAG_FAILED, so the page's look and the download
+  never disagree. Not done here: it came after the last review round, and it would remove the only end-to-end test of
+  `refuseDownload`'s late-head guard, which would then need another route to pin it.
+- The `as=text` inbox route renders its rows after its 200 head. A throw there reaches the route's catch, then `fail`,
+  then `sendText`, which ends the response (traced in review 8). That wiring is pinned by the source test, not by a
+  behavioural test of the inbox route itself.
+
 ## Weakest premise
 That the thrower on Josh's board was inside the preview's `.then` after the head. The log records neither the
 request nor what threw. The fix does not depend on it: whatever threw, sendJson can no longer throw a second head.
