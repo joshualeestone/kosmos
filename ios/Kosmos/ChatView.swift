@@ -842,16 +842,19 @@ struct ChatView: View {
     // kosmos#7420: an empty list put right as Board.emptyRecovery decides.
     private func recoverEmpty(_ proxy: ScrollViewProxy, later: Bool = false) {
         let scrolling = personScrolling || scrollBox.underFinger
+        var wrote = false
         switch Board.emptyRecovery(later: later, place: scrollBox.reading()?.place, scrolling: scrolling) {
         case .none: return
         case .backInsideThenNewest:
-            if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") }
+            wrote = scrollBox.backInside()
+            if wrote { Self.trace("diag: the scroll was outside its content, put back at its end") }
         case .newest: break
         }
         goNewest(proxy)
-        // The move above may have made SwiftUI name a row in the binding, which goNewest's own put-back (when it had one to
-        // make) leaves alone; this runs after it, in main-queue order, and helps only if SwiftUI wrote the binding by then.
-        if Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
+        // Only after a direct offset write: it may have made SwiftUI name a row in the binding, which goNewest's own put-back
+        // (when it had one to make) leaves alone; this runs after it, in main-queue order, and helps only if SwiftUI wrote the
+        // binding by then.
+        if wrote, Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
     }
 
     // kosmos#7575: when this chat open had a sideways shift, one report to the person's board (numbers and kind words,
@@ -2559,7 +2562,7 @@ final class ScrollBox {
         let i = sv.adjustedContentInset
         let p = Board.scrollPlace(offset: Double(sv.contentOffset.y), content: Double(sv.contentSize.height),
                                   view: Double(sv.bounds.height), insetTop: Double(i.top), insetBottom: Double(i.bottom))
-        func n(_ x: CGFloat) -> Int { x.isFinite ? Int(x) : -1 }   // never a trap on a broken number in the report about it
+        func n(_ x: CGFloat) -> Int { x.isFinite ? Int(x) : -1 }   // no trap on NaN or infinity in the report about a broken scroll
         return ("scroll y \(n(sv.contentOffset.y)), content \(n(sv.contentSize.height)), view \(n(sv.bounds.height)), insets \(n(i.top))/\(n(i.bottom)): \(p.place)",
                 p.place, p.end)
     }
