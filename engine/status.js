@@ -1692,6 +1692,18 @@ function capturePane(target, lines = 40) {
 }
 
 /* ── #6249: text left in a Claude Code agent's input box ─────────────────── */
+/* kosmos#7693: snapshot()'s captures only, so its fan-out does not hold the board's one thread on a busy computer: after a slow
+   round they read text kept by a background round (engine/capturekeep.js). capturePane itself stays a live read, because its
+   other callers act on what it says right after typing. A test seam (setPaneCapture) or a Windows pane goes straight to it. */
+const captureKeep = require('./capturekeep').makeKeep({
+  blocking: (target, lines) => capturePane(target, lines),
+  background: (target, lines, done) => {
+    shDetailAsync(tmuxBin(), ['capture-pane', '-p', '-J', '-t', target, '-S', `-${lines}`])
+      .then((got) => done(got.ran && got.status === 0 ? got.out : null), () => done(null));
+  },
+});
+function snapshotCapture(target) { return paneCapture ? capturePane(target) : captureKeep.read(target, 40); }
+
 /* The reader of the live input box in an ANSI capture (capture-pane -e); engine/chat.js uses it to confirm a line was
    submitted, and the card below to show text left there. The screen it reads is described in chat.js (#6249). */
 const COMPOSER_RULE = /^─{10,}/;
@@ -9178,8 +9190,9 @@ function snapshot() {
   // not make every limit row read late).
   if (panes.length) limitCaptureSweep(panes.map((pane) => pane.name));
   if (panes.length) unsentSweep(panes.map((pane) => pane.name));   // #6249 round 1 (not on an empty read, as above)
+  captureKeep.begin();   // #7693
   const agents = panes.map((pane) => {
-    const text = capturePane(pane.target);
+    const text = snapshotCapture(pane.target);
     /* #5949: a Windows agent's state can be its LAST GOOD reading, held through a short gap in
        `claude agents --json` (win32capture). The capture says so here, so the card is marked as
        remembered and a held "working" is never counted as a witnessed live turn below. Asked
@@ -9843,6 +9856,8 @@ function snapshot() {
       swarm: tied ? swarmField(rowProfile, pane.name, pane.session) : null,
     };
   });
+  captureKeep.end();   // #7693
+  if (panes.length) captureKeep.forgetExcept();   // not on an empty read, as the sweeps above
 
   /* ⭐ THE ROSTER CAN NOW HOLD AN AGENT WITH NO PANE (#1112 phase 1).
      Merged HERE, in the one function that derives the fleet, rather than in
