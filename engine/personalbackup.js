@@ -197,11 +197,15 @@ async function preview(opts = {}) {
   const served = cleanPreview(r.data);
   if (!served) return { ok: false, because: 'Kosmos+ answered in a form this Kosmos does not read. Nothing was turned on.' };
   // #7681 item 1: the ticket carries the price Kosmos+ confirmed, so switchOn can refuse one the screen no longer shows.
+  // Review: the request above already made the (unbound) membership, so a price_unconfirmed press leaves one, as a
+  // decline does; #7658 ends it at a later join. While Kosmos+ sends no price, every press on a priced board does this.
   const shown = shownPrice(opts);
   if (priceOf(r.data) !== shown) return { ok: false, code: 'price_unconfirmed', because: PRICE_UNCONFIRMED };
   served.price = shown;
   const now = (opts.now || Date.now)();
-  return { ok: true, ticket: issue(served, now), words: served.words };
+  // Review: the confirmed price goes to the screen too, so the words screen shows what the ticket holds, never an
+  // earlier read of this board's setting (a tab left open across a restart that changed it).
+  return { ok: true, ticket: issue(served, now), words: served.words, price: shown };
 }
 
 /** Step 2: the person accepted the words on `ticket`. Binds this computer, then makes the key and the recovery code.
@@ -361,9 +365,17 @@ async function restore(code, opts = {}) {
   if (held) return held;
   if (!sameRecord(rec, opts)) return CHANGED;
   let r;
-  try { r = await pk.restorePersonalKey(code, { macRequest: opts.macRequest || ((m, rt, b) => remoteOf(opts).macRequest(m, rt, b)) }); } catch { r = null; }
+  /* Review: the restore re-checks too, from inside personalbackupkey: its own membership read must name this record's
+     org (expectOrg), and stillOurs is asked with no await before the keys are written, so no keys land for a binding
+     that is gone. */
+  try {
+    r = await pk.restorePersonalKey(code, { macRequest: opts.macRequest || ((m, rt, b) => remoteOf(opts).macRequest(m, rt, b)),
+      expectOrg: rec.org.id, stillOurs: () => sameRecord(rec, opts) });
+  } catch { r = null; }
   if (!(r && r.ok)) return r && typeof r === 'object' ? r : { ok: false, because: 'restoring the backup keys failed on this computer' };
-  if (!sameRecord(rec, opts)) return CHANGED;
+  // A turn-off after the keys were written: they were restored (true), but no key-ready marker is written for a
+  // binding that is gone (review: the CHANGED sentence, "nothing was restored", would be false here).
+  if (!sameRecord(rec, opts)) return { ok: false, code: 'not_on', because: 'The backup keys were restored here, but personal backup changed on this computer meanwhile. Open personal backup again.' };
   try { fs.writeFileSync(path.join(root(opts), KEY_READY), JSON.stringify({ at: new Date().toISOString(), org: rec.org.id, world: rec.world }) + '\n', { mode: 0o600 }); } catch { /* state() then says needs-key, and the key step settles it (already_here): the screen says so (#7681 item 4) */ }
   return { ok: true, epochs: r.epochs };
 }
