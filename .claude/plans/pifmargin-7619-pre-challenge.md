@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: pifmargin-7619
 diff_hash: f21c8cf06bf7dc44e31e626ea11c2b01322bdf545395bb04b65a1f65a7c31ebf
-validation: focused (the branch's own test file 9/9 on the final head 6d235ad9b4, 11.1 s; the full suite is CI's, on the exact head)
+validation: focused (the branch's own test file 9/9 on the head rebased onto main 9cf6c3d426 (v0778), after the rebase; the full suite is CI's, on the exact head)
 subdir_audit: not run (no subdir CLAUDE.md in the diff)
 timestamp: 2026-10-31T17:42:54Z
 iterations: 8
