@@ -3153,9 +3153,12 @@ section("native board loop: connecting")
         let so = Task { await c.attach(.file(picked("signout.pdf")), epoch: c.chatEpoch, to: dana) }
         _ = await settle { w.uploadsStarted > soStarted }
         c.accountChanged()
-        await so.value
+        // Settle with a limit, then release: without the cancel this hold never ends and awaiting it first would hang.
+        _ = await settle { w.uploadsCancelled > soCancelled }
+        let soCancelledCount = w.uploadsCancelled
         w.holdUploads = []
-        check(w.uploadsCancelled == soCancelled + 1, "a sign-out cancels an upload still going")
+        await so.value
+        check(soCancelledCount == soCancelled + 1, "a sign-out cancels an upload still going")
         // Review 2: an add from before a sign-out that ENDS after a later add is counted leaves that count alone.
         w.uploadIgnoresCancel = true
         w.holdUploads = ["held-before.pdf", "held-after.pdf"]
