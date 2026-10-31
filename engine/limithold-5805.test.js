@@ -64,7 +64,7 @@ const limitScreen = (resets) => '> hello\n'
 const DAY = 24 * 3600 * 1000;
 const AHEAD = () => limitScreen(`${chicagoDay(Date.now() + 3 * DAY)} at 3pm`);
 const PAST = () => limitScreen(`${chicagoDay(Date.now() - 3 * DAY)} at 3pm`);
-const DATELESS = () => limitScreen(clockAt(Date.now() + 3 * 3600e3));   // relative: a fixed clock time reds this file for part of every day
+const DATELESS = () => limitScreen(clockAt(Date.now() + 3 * 3600e3));   // relative: a fixed clock time is a 25-hour day away on the fall-back day, past the 24h05m span, for 55 minutes
 
 function fakeTmux(screen) {
   const calls = [];
