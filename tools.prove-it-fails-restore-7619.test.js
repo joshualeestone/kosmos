@@ -38,6 +38,15 @@ const pidIn = (file) => { try { const n = Number(fs.readFileSync(file, 'utf8'));
 async function waitFor(cond) { for (const end = Date.now() + START_WAIT_MS; Date.now() < end && !cond();) await sleep(50); return cond(); }
 // Review 2: what an arm leaves when it fails before the tool kills its tree: SIGKILL reaches only the bash tool, never
 // what it started, so each process the arm recorded is woken (it may have been stopped mid-read) and ended too.
+/* Review 5: the live tree under a pid, read before anything is killed (children read one level at a time with pgrep -P,
+   each read at once). A failed arm walks the tool's own tree, so its subshell, the test, its runner and anything they
+   started are all ended, not only the pids the arm happened to record. */
+function treeOf(pid) {
+  const out = [];
+  const walk = (p) => { let kids = []; try { kids = execFileSync('/usr/bin/pgrep', ['-P', String(p)], { encoding: 'utf8' }).split('\n').filter(Boolean).map(Number); } catch { /* none */ } for (const k of kids) { out.push(k); walk(k); } };
+  walk(pid);
+  return out;
+}
 function endAll(pids) { for (const p of pids) { if (p && alive(p)) { try { process.kill(p, 'SIGCONT'); process.kill(p, 'SIGTERM'); } catch { /* gone */ } } } }
 async function waitGone(pids) { for (const end = Date.now() + DIE_WAIT_MS; Date.now() < end && pids.some(alive);) await sleep(50); return pids.filter(alive); }
 
@@ -67,8 +76,8 @@ for (const [sig, want, colleague] of [['SIGTERM', 143, false], ['SIGHUP', 129, f
     // /bin/bash: macOS's own bash 3.2, the one the script's shebang names (an empty array under set -u differs there).
     const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'slow.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
       { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
-  // Review 1 and 2: a failed arm stops the bash tool it started; what that tool started is ended by endAll below.
-  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
+  // Review 1 to 5: a failed arm ends the tool's whole live tree (walked first), then the tool itself.
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) { const tree = treeOf(child.pid); child.kill('SIGKILL'); endAll(tree); } });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { out += d; });
@@ -76,7 +85,7 @@ for (const [sig, want, colleague] of [['SIGTERM', 143, false], ['SIGHUP', 129, f
     // Wait until the break is in the tree AND its test is running: then the signal lands mid-run.
     const pidFile = path.join(dir, 'test.pid');
     await waitFor(() => pidIn(pidFile) > 0);
-    assert.ok(fs.existsSync(pidFile), 'premise: the slow test started: ' + out);
+    assert.ok(pidIn(pidFile) > 0, 'premise: the slow test started: ' + out);
     assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 2;\n', 'premise: the break was applied');
     const testPid = Number(fs.readFileSync(pidFile, 'utf8'));
     const runnerPid = pidIn(path.join(dir, 'runner.pid'));   // review 4: read now, the sandbox goes first
@@ -127,8 +136,8 @@ test('#7619 review 3: a TERM after the break is written but before it is recorde
   const env = { ...process.env, PIF_TEST_PAUSE_AFTER_BREAK: '20' }; delete env.NODE_TEST_CONTEXT;
   const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'slow.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
-  // Review 1 and 2: a failed arm stops the bash tool it started; what that tool started is ended by endAll below.
-  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
+  // Review 1 to 5: a failed arm ends the tool's whole live tree (walked first), then the tool itself.
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) { const tree = treeOf(child.pid); child.kill('SIGKILL'); endAll(tree); } });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
   const exited = new Promise((r) => child.on('exit', (code) => r(code)));
@@ -149,14 +158,14 @@ test('#7619 review 3: a broken file someone edits again mid-run is left alone an
   const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
   const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'slow.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
-  // Review 1 and 2: a failed arm stops the bash tool it started; what that tool started is ended by endAll below.
-  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
+  // Review 1 to 5: a failed arm ends the tool's whole live tree (walked first), then the tool itself.
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) { const tree = treeOf(child.pid); child.kill('SIGKILL'); endAll(tree); } });
   let out = '';
   child.stdout.on('data', (d) => { out += d; });
   const exited = new Promise((r) => child.on('exit', (code) => r(code)));
   const pidFile = path.join(dir, 'test.pid');
   await waitFor(() => pidIn(pidFile) > 0);
-  assert.ok(fs.existsSync(pidFile), 'premise: the slow test started: ' + out);
+  assert.ok(pidIn(pidFile) > 0, 'premise: the slow test started: ' + out);
   const slowPid = Number(fs.readFileSync(pidFile, 'utf8'));   // read NOW: the sandbox is gone before t.after runs
   const slowRunner = pidIn(path.join(dir, 'runner.pid'));
   t.after(() => endAll([slowPid, slowRunner]));   // review 3 and 4: its test and runner too, if the arm fails
@@ -184,12 +193,12 @@ test('#7629 B1: a signal also ends what the test itself started (a child it spaw
   const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
   const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'kids.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
-  // Review 1 and 2: a failed arm stops the bash tool it started; what that tool started is ended by endAll below.
-  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
+  // Review 1 to 5: a failed arm ends the tool's whole live tree (walked first), then the tool itself.
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) { const tree = treeOf(child.pid); child.kill('SIGKILL'); endAll(tree); } });
   const exited = new Promise((r) => child.on('exit', (code) => r(code)));
   const kidFile = path.join(dir, 'kid.pid');
   await waitFor(() => pidIn(kidFile) > 0);
-  assert.ok(fs.existsSync(kidFile), 'premise: the test started its child');
+  assert.ok(pidIn(kidFile) > 0, 'premise: the test started its child');
   const kid = Number(fs.readFileSync(kidFile, 'utf8'));
   t.after(() => endAll([kid]));   // never leave it behind, even when the arm fails (woken first: it may be stopped)
   assert.ok(alive(kid), 'premise: the child is running');
@@ -228,8 +237,8 @@ test('#7629 B1 review 2: a child that keeps forking leaves nothing behind (the t
   const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
   const child = spawn('/bin/bash', ['tools/prove-it-fails.sh', 'fork.test.js', 'break x', "s = s.replace('x = 1', 'x = 2')"],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env });
-  // Review 1 and 2: a failed arm stops the bash tool it started; what that tool started is ended by endAll below.
-  t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
+  // Review 1 to 5: a failed arm ends the tool's whole live tree (walked first), then the tool itself.
+  t.after(() => { if (child.exitCode === null && child.signalCode === null) { const tree = treeOf(child.pid); child.kill('SIGKILL'); endAll(tree); } });
   const exited = new Promise((r) => child.on('exit', (code) => r(code)));
   const read = () => (fs.existsSync(pidsFile) ? fs.readFileSync(pidsFile, 'utf8').split('\n').filter(Boolean).map(Number) : []);
   // Review 3: the forker first (a late forker would go on forking after a short read), then the list, read again.
