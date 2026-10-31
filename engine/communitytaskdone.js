@@ -184,7 +184,10 @@ function promptOnTaskDone(o) {
    - o.paneBusy, when given, is asked first and in the same turn as the delivery: the awaited sender would wait behind a
      message still being placed and type straight after it, where the synchronous one refused (busy, not booked).
    - A delivery that has not answered within o.deliverDeadlineMs (DELIVER_DEADLINE_MS) counts as UNCONFIRMED, booked:
-     the board runs these one after another, so one delivery that never settles would stop every later prompt. */
+     the board runs these one after another, so one delivery that never settles would stop every later prompt. The
+     cost, accepted as the idle sweep accepts it: the late delivery still holds that agent's pane in chat's queue, so a
+     later task-done prompt to the same agent reads as pane-busy and is not sent, and if the late one is then refused,
+     its task stays booked. Both need a delivery stuck for over three minutes. */
 const DELIVER_DEADLINE_MS = 3 * 60 * 1000;
 async function promptOnTaskDoneAsync(o) {
   const d = decide(o);

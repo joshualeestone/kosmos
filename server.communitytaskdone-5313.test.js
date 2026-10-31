@@ -78,11 +78,20 @@ test('kosmos#7649: every task-done prompt waits for the one before it (one chain
   assert.match(SRC, /let TASK_DONE_CHAIN = Promise\.resolve\(\);\nfunction promptCommunityOnTaskDone\(args\) \{\n  const next = TASK_DONE_CHAIN\.then\(\(\) => promptCommunityOnTaskDoneNow\(args\)\);\n  TASK_DONE_CHAIN = next\.catch\(\(\) => null\);[^\n]*\n  return TASK_DONE_CHAIN;\n\}/, 'the task-done prompts are not chained one after another');
   // The routes reach the work only through the chain.
   assert.equal(SRC.split('promptCommunityOnTaskDoneNow(').length - 1, 2, 'promptCommunityOnTaskDoneNow is called somewhere other than the chain (or defined twice)');
-  assert.equal(SRC.split('communitytaskdone.promptOnTaskDone').length - 1, 1, 'more than one call into the task-done core');
+  // review 1: each name counted exactly (the sync name is a prefix of the async one, so a substring count saw both).
+  assert.equal(SRC.split('communitytaskdone.promptOnTaskDoneAsync(').length - 1, 1, 'more than one call into the task-done core');
+  assert.equal(SRC.split('communitytaskdone.promptOnTaskDone(').length - 1, 0, 'the synchronous task-done sender is called from the board again');
 });
 
 test('kosmos#7649: the task-done prompt asks chat whether the pane is still placing another message before it sends', () => {
   const start = SRC.indexOf('async function promptCommunityOnTaskDoneNow(');
   const fn = SRC.slice(start, SRC.indexOf('catch { return null; }', start));
   assert.match(fn, /paneBusy:\s*\(s\)\s*=>\s*chat\.paneBusyVerdict\(s, roster\),/);
+});
+
+test('kosmos#7649 review 1: a queued task-done prompt reads the roster when its turn comes, not when the mark arrived', () => {
+  const start = SRC.indexOf('async function promptCommunityOnTaskDoneNow(');
+  const fn = SRC.slice(start, SRC.indexOf('catch { return null; }', start));
+  assert.match(fn, /let roster = atMark;\s*try \{ const r = safeRoster\(\); if \(Array\.isArray\(r\)\) roster = r; \}/);
+  assert.ok(fn.indexOf('safeRoster()') > fn.indexOf('const book = communitytaskdone.readBook();'), 'read at the prompt\'s turn, beside the book');
 });

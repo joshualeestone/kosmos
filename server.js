@@ -1328,10 +1328,15 @@ function promptCommunityOnTaskDone(args) {
   TASK_DONE_CHAIN = next.catch(() => null);   // a failed prompt never stops the ones after it
   return TASK_DONE_CHAIN;
 }
-async function promptCommunityOnTaskDoneNow({ projectId, taskNumber, session, name, trigger, roster }) {
+async function promptCommunityOnTaskDoneNow({ projectId, taskNumber, session, name, trigger, roster: atMark }) {
   try {
     const communitystore = require('./engine/communitystore');
     const book = communitytaskdone.readBook();
+    /* kosmos#7649 review 1: the roster as it is when this prompt's turn on the chain comes (the one before it can have
+       waited minutes), so the pane, its question menu and its quota hold are read off the agent's current card. The
+       route's own roster stands in only if the board's cannot be read. */
+    let roster = atMark;
+    try { const r = safeRoster(); if (Array.isArray(r)) roster = r; } catch { /* the route's roster */ }
     const r = await communitytaskdone.promptOnTaskDoneAsync({
       projectId, taskNumber, session, name, trigger,
       now: Date.now(), book,

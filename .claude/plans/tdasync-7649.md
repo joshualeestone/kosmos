@@ -23,6 +23,19 @@ Once #7611's squash lands on main, this branch is moved onto main.
 
 ## Weakest premise
 That marks arrive slowly enough for an unbounded chain: each entry is one task mark, and each waits at most the
-3-minute deadline (about 1.5 s in practice).
+3-minute deadline. A second premise: that a delivery stuck past the deadline is rare, since the late one still holds
+the agent's pane and a later prompt to that agent is then read as pane-busy and dropped (stated in the code).
 
 ## Review rounds
+- Round 1 (Opus, the branch on top of #7611): no BLOCKER; it confirmed the sync sender unchanged, no double prompt
+  and no lost entry (each prompt reads the book at its own turn on the chain), the chain cannot stop, and the busy
+  check and the send in one turn. Fixed:
+  - W1 each prompt used the roster captured when the mark arrived, though its turn on the chain can come minutes
+    later: it reads the board's roster at its turn (the route's only if that cannot be read). Pinned; mutant red.
+  - N the pin counting calls into the core matched the sync name as a prefix of the async one: each name is counted
+    exactly, and the sync sender must not be called from the board.
+  - N the plan's unmeasured "1.5 s" is gone; its weakest premise names the deadline's cost.
+  Decided: W2 a delivery past the deadline is booked while it still runs, and holds the pane, so a later prompt to
+  that agent is read as pane-busy and dropped, and a late refusal leaves its task booked: the idle sweep's choice,
+  bounded by a delivery stuck for over three minutes, now stated in the code. The chain is pinned by source text;
+  the race it closes is shown in engine/communitytaskdone.test.js.
