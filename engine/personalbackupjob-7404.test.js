@@ -223,6 +223,13 @@ test('no keys here and a key on Kosmos+: the person is told off then on, and set
   assert.equal(r.code, 'already_set_up', JSON.stringify(r));
 });
 
+test('off then on with the key still here: the real setUp answers already_here, which setUpKey takes as on', async () => {
+  const pair = newPair();
+  const { row } = keyed(pair);
+  const r = await pk.setUpPersonalKey({ macRequest: kosmosPlus({ ...pair, keys: [row] }).macRequest });
+  assert.equal(r.code, 'already_here', JSON.stringify(r));
+});
+
 test('a different reason is said, even with the last one unresolved', async () => {
   const said = [];
   const why = ['first reason', 'first reason', 'second reason'];

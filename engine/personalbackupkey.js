@@ -36,7 +36,7 @@
  * leave no single code that restores everything. A new code means re-wrapping every epoch to it, not a new epoch.
  *
  * Not here: turning personal backup on and showing its words (POST /v1/mac/personal-backup, then the codeless
- * enroll), a new epoch, and the screens. All of it stays behind
+ * enroll), and a new epoch. All of it stays behind
  * KOSMOS_PERSONAL_BACKUP on the coordinator (off).
  *
  * Calls run one at a time in this process. Never throws: answers { ok: true, ... } or { ok: false, because, code? },
