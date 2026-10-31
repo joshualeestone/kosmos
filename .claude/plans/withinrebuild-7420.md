@@ -11,12 +11,17 @@ the message box growing a line at a time (412 -> 390 -> 368 -> 346). Long (144 m
   keep #7669's arms.
 - The chat's list gets an identity (`listEpoch`); `.rebuild` gives it a new one. The new list starts as a chat's open does:
   no anchor (its first rows drawn), then goNewest 0.05 s and 0.4 s later, unless the person has started scrolling.
-- At most 3 rebuilds a chat open, 2 s apart, and the empty check ignores the 1.5 s after a rebuild (the new list's own
-  moment without rows read as empty and rebuilt itself three times on iOS 27, traced).
+- At most 3 rebuilds a chat open (per open, not per episode), 2 s apart, and the empty check ignores the 1.5 s after a
+  rebuild (the new list's own moment without rows read as empty and rebuilt itself three times on iOS 27, traced); one
+  check is scheduled just after that grace, since a new list that draws no row never has a row leave to set one off.
+- Rows and the top and end markers count only for the list they were drawn in (listEpoch), so the old list's teardown
+  cannot clear the new one's state.
+- A later empty reading can now rebuild (it used to do nothing within the content). It is reached only through
+  diagCheck: no row counted, the end not showing, the top not showing, at the newest, nobody scrolling.
 - Debug only: KOSMOS_SAMPLE_REBUILD=<seconds> runs the real recovery once (its marker shows only if the list was rebuilt
   exactly once); KOSMOS_SAMPLE_NOREBUILD=1 is the control.
 - UI checks (KeyboardSlideUITests): a long chat, a short chat, and a chat after the keyboard went down are rebuilt once and
-  show the newest message above the box (and above the keyboard); the message box growing four lines keeps messages drawn.
+  show the newest message above the box (and above the keyboard); the message box growing four lines keeps messages drawn (a regression guard: it passes with or without the rebuild).
 - LogicTests: emptyRecovery's .rebuild on each side (finger, reader higher up, outside the content).
 
 ## Measured (10-31)
