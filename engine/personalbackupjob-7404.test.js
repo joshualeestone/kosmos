@@ -63,8 +63,8 @@ test('the key step refuses another org, no key, a key this computer does not hol
   assert.match((await ask('another-org', [row])).because, /no longer in the personal backup/);
   assert.match((await ask(pair.org, [])).because, /no key on Kosmos\+/);
   const other = { ...row, member_public: b64(Buffer.alloc(32, 9)) };
-  assert.match((await ask(pair.org, [other])).because, /Restore it with your recovery code/);
-  assert.match((await ask(pair.org, [{ ...row, epoch: 2 }, row].reverse())).because, /Restore it with your recovery code/, 'the newest epoch decides');
+  assert.match((await ask(pair.org, [other])).because, /off here, then on again, and enter your recovery code/);
+  assert.match((await ask(pair.org, [{ ...row, epoch: 2 }, row].reverse())).because, /off here, then on again, and enter your recovery code/, 'the newest epoch decides');
   assert.equal((await ask(pair.org, [row], { lostEpoch: 1 })).ok, false);
   const pending = newPair();
   const made = backupkeys.newMemberKey();
@@ -87,8 +87,9 @@ function gate(over = {}) {
   const orgenroll = {
     JOIN_UNKNOWN_FILE: 'join', LEAVE_PENDING_FILE: 'leave',
     readEnrollment: () => (over.noRecord ? null : rec),
-    mayReport: (o) => (o ? over.mayReport !== false : over.company === true),
+    mayReport: () => over.mayReport !== false,
     acceptedConsent: () => ('words' in over ? over.words : { backsUp: ['your agents\' folders'] }),
+    holdsEnrollment: () => over.company === true,
   };
   return { root, orgenroll, personalbackupkey: { hasPendingCode: () => over.pendingCode === true }, offer: () => ({ shown: over.shown !== false }) };
 }
@@ -138,15 +139,44 @@ test('a real run seals to the personal key under the pair Kosmos+ named, and nam
   assert.ok(!k.calls.some((c) => /backup-key/.test(c.route)), 'never the company key read');
 });
 
-test('words Kosmos+ refused take the hash off the record; any other refusal leaves it', async () => {
+test('words Kosmos+ refused take the hash off the record, and the person is told; any other refusal leaves it', async () => {
   const pair = newPair();
-  const refused = { ok: false, because: 'grant refused (HTTP 409 on /v1/org/backup/grant, code org_consent_changed)' };
+  const refused = { ok: false, pair, because: 'grant refused (HTTP 409 on /v1/org/backup/grant, code org_consent_changed)' };
   const a = jobOpts(pair, { runBackup: async () => refused });
-  assert.deepEqual(await pb.runJob({ roots: [] }, a.opts), refused);
+  const r = await pb.runJob({ roots: [] }, a.opts);
+  assert.equal(r.ok, false);
+  assert.equal(r.personActs, true);
+  assert.match(r.because, /read the new words/);
   assert.deepEqual(a.withdrawn, ['cd'.repeat(32)]);
   const b = jobOpts(pair, { runBackup: async () => ({ ok: false, because: 'grant refused (HTTP 500)' }) });
   await pb.runJob({ roots: [] }, b.opts);
   assert.deepEqual(b.withdrawn, [], 'control');
+});
+
+test('words accepted during a run stay: the hash withdrawn is the one the run started under', async () => {
+  const pair = newPair();
+  const a = jobOpts(pair);
+  const rec = a.opts.orgenroll.readEnrollment();
+  a.opts.runBackup = async () => { rec.consentHash = 'ee'.repeat(32); return { ok: false, because: 'x, code org_consent_changed' }; };
+  await pb.runJob({ roots: [] }, a.opts);
+  assert.deepEqual(a.withdrawn, ['cd'.repeat(32)]);
+});
+
+test('a key step refusal a person must act on reaches the tick\'s one said line, through the real run', async () => {
+  const pair = newPair();
+  keyed(pair);
+  const k = kosmosPlus({ ...pair, keys: [] });
+  const dk = backupkeys.newMemberKey();
+  const runBackup = (input, deps) => backuprun.runBackup(input, Object.assign({}, deps, { deviceKey: () => ({ ok: true, privateKey: dk.sk }) }));
+  const { opts } = jobOpts(pair, { macRequest: k.macRequest, runBackup });
+  const said = [];
+  const stop = tick.startTick({
+    label: 'personal backup', enrolled: () => true, roots: () => [{ name: 'workers', path: SANDBOX }],
+    runBackup: (input) => pb.runJob(input, opts), say: (t) => said.push(t), setInterval: () => 1, clearInterval: () => {}, now: (() => { let n = 0; return () => { n += 3 * 24 * 3600 * 1000; return n; }; })(),
+  });
+  await stop.tick();
+  await stop.tick();
+  assert.deepEqual(said, ['personal backup: this backup has no key on Kosmos+ yet, so nothing was backed up']);
 });
 
 test('the tick names itself, and the company wording stays the default', async () => {
@@ -168,4 +198,38 @@ test('the board\'s personal tick runs nothing while personal backup is not on he
   try { await stop.tick(); } finally { backuprun.runBackup = real; stop(); }
   assert.deepEqual(seen, []);
   assert.equal(stop.state.running, false);
+});
+
+/* The proceed path of both board ticks through startWorld: real roots, real staging, each its own stage folder, cleared. */
+test('startPersonal reaches runJob with the roots, under its own stage folder, cleared after', async () => {
+  const store = require('./store');
+  const create = require('./create');
+  fs.mkdirSync(create.WORKERS_DIR, { recursive: true });
+  const stage = path.join(store.ROOT, 'backupstage', 'agy-personal');
+  fs.mkdirSync(stage, { recursive: true });
+  fs.writeFileSync(path.join(stage, 'left-by-a-dead-run'), 'x');
+  const seen = [];
+  const real = { may: pb.mayBackUp, run: pb.runJob };
+  pb.mayBackUp = () => true;
+  pb.runJob = async (input) => { seen.push({ input, staged: fs.existsSync(path.join(stage, 'left-by-a-dead-run')) }); return { ok: true }; };
+  const stop = tick.startPersonal();
+  try { await stop.tick(); } finally { pb.mayBackUp = real.may; pb.runJob = real.run; stop(); }
+  assert.equal(seen.length, 1);
+  assert.ok(seen[0].input.roots.some((r) => r.name === 'workers'));
+  assert.equal(seen[0].staged, false, 'a dead run\'s copies are gone before this run');
+  assert.equal(fs.existsSync(path.join(stage, 'left-by-a-dead-run')), false);
+});
+test('startHere still runs the company path, with no personal key step', async () => {
+  const create = require('./create');
+  const oe = require('./orgenroll');
+  fs.mkdirSync(create.WORKERS_DIR, { recursive: true });
+  const seen = [];
+  const real = { may: oe.mayReport, run: backuprun.runBackup };
+  oe.mayReport = () => true;
+  backuprun.runBackup = async (...a) => { seen.push(a); return { ok: true }; };
+  const stop = tick.startHere();
+  try { await stop.tick(); } finally { oe.mayReport = real.may; backuprun.runBackup = real.run; stop(); }
+  assert.equal(seen.length, 1);
+  assert.ok(seen[0][0].roots.some((r) => r.name === 'workers'));
+  assert.equal(seen[0][1], undefined, 'the default key step');
 });

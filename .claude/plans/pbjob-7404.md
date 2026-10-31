@@ -18,22 +18,25 @@ KOSMOS_PERSONAL_BACKUP and the price stay Josh's (#7685).
 ## Slices
 A. RELAY: the words, and the upload gate. personal_consent names what goes up, who can read it and the lock; Personal::Upload
    refuses (org_consent_changed) unless the bound consent hash is the current words' hash. Deploys first.
-B. ENGINE (this branch): personalbackupjob.js:
+B. ENGINE (this branch), in personalbackup.js, personalbackupkey.js and backuptick.js:
    - key step: reads /v1/org/backup/member-key/mine, answers the newest registered key from the local file only when
      Kosmos+ lists that same key for that epoch and the org is the personal record's org. Never registers, never makes a
      new epoch (personalbackupkey.js: a new epoch needs re-wrapping to the code).
    - gate: board offer shown AND state() 'on' AND mayReport under the personal root AND the accepted words name something
-     backed up AND the company gate is false. So words that say nothing goes up can never upload.
+     backed up AND no company enrollment file at store.ROOT (holdsEnrollment). So words that say nothing goes up can never
+     upload.
    - a second startTick with its own say prefix and stage folder; backuprun's chain keeps runs one at a time.
-C. Panel: "last backed up" and a failure a person can see; the on-view words. Design review. The tick's say reaches only the
-   log, so a paying person cannot see a backup that stopped. Must land before the switch.
+C. Panel: "last backed up" and a failure a person can see; the on-view words; and a state for "the words changed" and for
+   "the key is gone", each with its own way forward. state() still reads 'on' for both, and today's only way out is off then
+   on, which the log says and the panel does not. Design review. The tick's say reaches only the log, so a paying person
+   cannot see a backup that stopped. Must land before the switch.
 D. Restore of files: a personal route for manifests and chunks, then the restore screen. Must land before the switch. The
    line before Restore changes then.
 
 ## Decisions
 - Second tick instance, not one tick choosing per run. Rejected: one tick, because its pause state (a day on backup_off)
-  would carry across a company join. Weakest premise: company and personal are never both true. The gate makes them
-  exclusive here; the relay already refuses a personal org to an account in a company.
+  would carry across a company join. Weakest premise: company and personal are never both true. The gate refuses while a
+  company file is here; the relay already refuses a personal org to an account in a company.
 - Reuse store.ROOT/backupstate and backupkeys, per (org, member). Rejected: a separate root, because backupstate and
   backupmemberkey read store.ROOT and the files are keyed by pair. The company readers named in personalbackup.js do not
   read them. Weakest premise: the shared current.json pointer; it moves on otherPair, which costs one extra key read.
