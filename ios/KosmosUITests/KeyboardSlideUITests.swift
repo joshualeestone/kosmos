@@ -51,6 +51,21 @@ final class KeyboardSlideUITests: XCTestCase {
         Self.assertAbove(newest, box, app.keyboards.firstMatch)
     }
 
+    // kosmos#7420 (build 24, Josh's second report): the same empty-within failure on a SHORT chat (13 messages), so the
+    // rebuild is checked on Dana's short sample chat too: its newest message above the box after one rebuild.
+    func testRebuiltShortChatShowsTheNewestMessage() throws {
+        let app = Self.launch(["KOSMOS_SAMPLE_REBUILD": "1", "KOSMOS_SAMPLE_TRACE": "1"])
+        let box = Self.box(app)
+        let rebuilt = app.descendants(matching: .any).matching(identifier: "sample-rebuilt").firstMatch
+        XCTAssertTrue(rebuilt.waitForExistence(timeout: 30), "the short chat was not rebuilt exactly once")
+        let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Pages 9 to 12 need the new photos'")).firstMatch
+        XCTAssertTrue(newest.waitForExistence(timeout: 10) && newest.isHittable, "the rebuilt short chat did not show its newest message")
+        Self.settle(newest)
+        XCTAssertLessThanOrEqual(newest.frame.maxY, box.frame.minY, "the newest message was not above the box after the rebuild")
+        try Self.keyboardUp(app, box, newest, shot: "rebuilt-short-keyboard-up", test: self)
+        Self.assertAbove(newest, box, app.keyboards.firstMatch)
+    }
+
     // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP moves
     // the reader up the thread 3 s after opening, as a reader's own scroll does.
     func testReadHigherUpStaysWhereItWas() throws {
