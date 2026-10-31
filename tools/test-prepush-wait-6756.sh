@@ -161,8 +161,28 @@ kosmos_prepush_build_live && fail "10 CONTROL: no lock held and no turn reads as
 printf 'abc123.4567.1793450000\n' > "$TURNF"
 kosmos_prepush_build_live && pass "10 a fresh turn with no lock held is a build (between steps)" || fail "10 a fresh turn reads as no build"
 out="$(kosmos_refuse_if_prepush_build_live "a heavy run" "KOSMOS_CUT_IGNORE_PREPUSH=1 cuts anyway" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && has "$out" "between two of its steps" && has "$out" "s ago" && has "$out" "KOSMOS_CUT_IGNORE_PREPUSH=1 cuts anyway." \
-  && pass "10 refused between steps, saying so, how long ago the turn was used, and the override" || fail "10 between-steps refusal: rc=$rc $out"
+[ "$rc" = 1 ] && has "$out" "between two of its steps" && has "$out" "s ago" && has "$out" "lapses within 180s" && has "$out" "KOSMOS_CUT_IGNORE_PREPUSH=1 cuts anyway." \
+  && pass "10 refused between steps, saying so, how long ago the turn was used, the window, and the override" || fail "10 between-steps refusal: rc=$rc $out"
+for bad in abc 0 007 ""; do
+  out="$(KOSMOS_PREPUSH_TURN_LIVE_S="$bad" kosmos_refuse_if_prepush_build_live "a heavy run" 2>&1)"; rc=$?
+  [ "$rc" = 1 ] && has "$out" "lapses within 180s" && pass "10 a window of '$bad' falls back to 180 s (the turn still counts, and the message says 180)" || fail "10 window '$bad': rc=$rc $out"
+done
+# The build lock held AND a fresh turn: the lock's own message (a cargo step), not the between-steps one.
+hold || exit 1
+out="$(kosmos_refuse_if_prepush_build_live "a heavy run" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "for one long cargo step" && ! has "$out" "between two of its steps" && pass "10 with the lock held too, the refusal names the cargo step, not the gap" || fail "10 lock+turn: rc=$rc $out"
+finish
+# The GATE lock held (a checkout: pruning, the target cap, git), no build lock and an OLD turn: still a build.
+touch -A -0400 "$TURNF"
+GL="$(dirname "$KOSMOS_PREPUSH_MACHINE_LOCK")/prepush.gate.lock"; : >> "$GL"
+"$LOCKF" -k -s -t 5 "$GL" perl -e 'select(undef, undef, undef, 600)' & G=$!; HOLDERS="$HOLDERS $G"
+for j in $(seq 1 100); do rc=0; "$LOCKF" -k -s -t 0 "$GL" true 2>/dev/null || rc=$?; [ "$rc" = 75 ] && break; sleep 0.1; done
+kosmos_prepush_build_live && pass "10 a held gate lock (a long checkout, its turn old) is a build" || fail "10 a held gate lock reads as no build"
+out="$(kosmos_refuse_if_prepush_build_live "a heavy run" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "running a step" && has "$out" "prepush.gate.lock" && pass "10 the gate-lock refusal names the step and its lock" || fail "10 gate-lock refusal: rc=$rc $out"
+for c in $(pgrep -P "$G" 2>/dev/null); do kill "$c" 2>/dev/null; done; wait "$G" 2>/dev/null
+kosmos_prepush_build_live && fail "10 CONTROL: the gate lock let go and the turn old still reads as a build" || pass "10 CONTROL: gate lock let go and the turn old: no build"
+printf 'abc123.4567.1793450000\n' > "$TURNF"
 out="$(WHAT="a heavy run" KOSMOS_QUEUE_CLASS=heavy _qh_clear 2>&1)"; rc=$?
 [ "$rc" != 0 ] && pass "10 queued-heavy's own check waits between a build's steps" || fail "10 _qh_clear let a heavy run in between steps: rc=$rc $out"
 touch -A -0400 "$TURNF"   # used 4 minutes ago: past the 180 s window
