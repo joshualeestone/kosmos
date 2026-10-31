@@ -1159,7 +1159,7 @@ struct RoomView: View {
                         // kosmos#7682: a way out of an add that hangs, as in an agent's chat.
                         Button {
                             client.cancelAdding(for: attachKey)
-                            UIAccessibility.post(notification: .announcement, argument: "Stopped adding")
+                            Self.say("Stopped adding")
                         } label: {
                             Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundColor(Palette.secondary)
                                 .frame(width: 44, height: 44).contentShape(Rectangle()).padding(-12)

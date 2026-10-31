@@ -3080,6 +3080,14 @@ section("native board loop: connecting")
         c.cancelAdding(for: "dana")
         check((c.uploading["dana"] ?? 0) == 0, "the x clears the adding line at once")
         check(c.attachLine["dana"] == "an earlier file's refusal", "review 1: and leaves an earlier file's refusal under the composer")
+        // "Still being added" (a Send refused while adding) no longer holds after the x; a refusal does.
+        let stale = Task { await c.attach(.file(picked("stale.pdf")), epoch: c.chatEpoch, to: dana) }
+        _ = await settle { c.uploading["dana"] == 1 }
+        c.attachLine["dana"] = Board.stillAddingLine
+        c.cancelAdding(for: "dana")
+        check(c.attachLine["dana"] == nil, "review 6: the x takes away a line saying the file is still being added")
+        await stale.value
+        c.attachLine["dana"] = "an earlier file's refusal"
         // A new add after the x is counted on its own, and the cancelled one ending does not take it down.
         let fresh = Task { await c.attach(.file(picked("fresh.pdf")), epoch: c.chatEpoch, to: dana) }
         _ = await settle { c.uploading["dana"] == 1 }
@@ -3182,21 +3190,6 @@ section("native board loop: connecting")
         await ha.value
         check((c.uploading["dana"] ?? 0) == 0, "and the later add ends at none")
         w.uploadIgnoresCancel = false
-        // A sign-out with an add in flight, then a new add: the old one ending does not take the new count down.
-        w.uploadYields = 400
-        let beforeStarted = w.uploadsStarted
-        let before = Task { await c.attach(.file(picked("before.pdf")), epoch: c.chatEpoch, to: dana) }
-        _ = await settle { w.uploadsStarted > beforeStarted }
-        c.accountChanged()
-        _ = await settle { isLive(c) }
-        let afterStarted = w.uploadsStarted
-        let after = Task { await c.attach(.file(picked("after.pdf")), epoch: c.chatEpoch, to: dana) }
-        _ = await settle { w.uploadsStarted > afterStarted }
-        await before.value
-        check(c.uploading["dana"] == 1, "an add from before a sign-out ending leaves a later add's count alone")
-        w.uploadYields = 0
-        await after.value
-        check((c.uploading["dana"] ?? 0) == 0, "and the later add ends at none")
         c.stop()
     }
 

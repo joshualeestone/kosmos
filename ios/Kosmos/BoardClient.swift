@@ -680,7 +680,7 @@ final class BoardClient: ObservableObject {
     // kosmos#7093: a project's room keeps its own under Board.roomAttachKey(project), which no agent's name can be.
     @Published private(set) var attached: [String: [Board.Attached]] = [:]
     @Published private(set) var uploading: [String: Int] = [:]
-    // kosmos#7682: moved on by cancelAdding, per chat, so an add from before a cancel neither counts nor lands.
+    // kosmos#7682: moved on by cancelAdding and forgetChats, per chat, so an add from before a cancel neither counts nor lands.
     private var addGeneration: [String: Int] = [:]
     // kosmos#7682 review 1: each chat's uploads still going, so the x can cancel them.
     private var uploadTasks: [String: [UUID: Task<(Data, HTTPURLResponse)?, Never>]] = [:]
@@ -783,14 +783,15 @@ final class BoardClient: ObservableObject {
     }
 
     // kosmos#7682: the x on "Adding a file...": this chat's adds stop counting at once, its uploads still going are
-    // cancelled, and anything they answer later is dropped. A photo still loading is not stopped (a load can ignore
-    // cancellation); its add ends at the next check and sends nothing. A file that reached the Mac before the cancel
+    // cancelled, and anything they answer later is dropped. A photo still loading or a file still copying is not stopped;
+    // its add ends at the next check and sends nothing. A file that reached the Mac before the cancel
     // stays there, as with the board's x.
     func cancelAdding(for session: String) {
         addGeneration[session, default: 0] += 1
         uploading[session] = nil
-        // Review 1: the uploads still going are cancelled. The line under the composer is left as it is: it can be an
-        // earlier file's refusal from the same pick, which must stay.
+        // Review 1: the uploads still going are cancelled. The line under the composer can be an earlier file's refusal
+        // from the same pick, which stays; "still being added" no longer holds, so it goes.
+        if attachLine[session] == Board.stillAddingLine { attachLine[session] = nil }
         for task in (uploadTasks[session] ?? [:]).values { task.cancel() }
         uploadTasks[session] = nil
     }
@@ -1311,6 +1312,7 @@ final class BoardClient: ObservableObject {
             attached["dana"] = [Board.Attached(id: "00000000000000000000000a", name: "Catalogue pages 1-8.pdf"),
                                 Board.Attached(id: "00000000000000000000000b", name: "Photo 2026-10-24 at 18.30.05.jpg")]
             uploading["dana"] = 1
+            uploading[Board.roomAttachKey("springcatalogue")] = 1   // kosmos#7682: the same in a room
             let sent = [Board.Attached(id: "00000000000000000000000c", name: "Cover draft.png")]
             pending["dana", default: []].append(Board.PendingSend(id: "sample-files", text: Board.sendWords("", files: sent), at: env.now(), files: sent))
         }

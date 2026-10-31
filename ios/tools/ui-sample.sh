@@ -1,7 +1,7 @@
 #!/bin/bash
 # kosmos#7609: the sample-board UI tests (no account, a Debug build) a CI runner can run, on one fresh simulator: the +
 # panel (AttachMenuUITests), the room title check (RoomTitleUITests), the keyboard (KeyboardSlideUITests) and a long
-# room opening on its newest post (RoomOpensAtNewestUITests, #7654). Run by the ios workflow's "ui tests (sample board)"
+# room opening on its newest post (RoomOpensAtNewestUITests, #7654) and the x on an add (StopAddingUITests, #7682). Run by the ios workflow's "ui tests (sample board)"
 # job and by hand. Prints PASS, or FAIL with the failing check's own words.
 #
 #

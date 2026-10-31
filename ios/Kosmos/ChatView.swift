@@ -1655,8 +1655,9 @@ struct ChatView: View {
                         // stalls). The same x and 44 pt place to tap as a waiting file's chip.
                         Button {
                             client.cancelAdding(for: agent.session)
+                            if composerNote == Board.stillAddingLine { composerNote = nil }
                             // Review 1: the line goes from under VoiceOver's focus; say what happened.
-                            UIAccessibility.post(notification: .announcement, argument: "Stopped adding")
+                            RoomView.say("Stopped adding")
                         } label: {
                             Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundColor(Palette.secondary)
                                 .frame(width: 44, height: 44).contentShape(Rectangle()).padding(-12)

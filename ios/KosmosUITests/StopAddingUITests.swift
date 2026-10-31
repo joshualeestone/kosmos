@@ -5,6 +5,21 @@ import XCTest
 final class StopAddingUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
+    func testTheXClearsAnAddThatNeverEndsInARoom() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue",
+                                 "KOSMOS_SAMPLE_ATTACHED": "1"]
+        app.launch()
+        let adding = app.staticTexts["Adding a file\u{2026}"]
+        XCTAssertTrue(adding.waitForExistence(timeout: 30), "premise: the sample's add shows as going in the room")
+        let stop = app.buttons["stopAdding"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 5) && stop.isHittable, "an add going has an x to stop it")
+        stop.tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: adding)
+        waitForExpectations(timeout: 5)
+        XCTAssertFalse(stop.exists, "the x goes with the line")
+    }
+
     func testTheXClearsAnAddThatNeverEnds() throws {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_ATTACHED": "1"]
