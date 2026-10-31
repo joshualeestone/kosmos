@@ -87,24 +87,28 @@ test('Finish setting up on a computer that already holds the keys says the key i
 test('Print puts the code on this page for the print only, and takes it off after', async () => {
   const { ctx, el } = load({ ok: true });
   const doc = ctx.document;
-  const out = doc.createElement('div'); out.id = 'pb-printout'; doc.body.appendChild(out);
   const made = [];
   const create = doc.createElement.bind(doc);
-  doc.createElement = (tag) => { made.push(String(tag).toLowerCase()); return create(tag); };
-  doc.getElementById = ((get) => (id) => (id === 'pb-printout' ? out : get(id)))(doc.getElementById.bind(doc));
+  doc.createElement = (tag) => { const e = create(tag); made.push(e); e.tag = String(tag).toLowerCase(); return e; };
+  // #7681 suite: the page makes the printout as it prints (a static child of body broke the grid's 42 rows).
+  const printout = () => made.find((e) => e.id === 'pb-printout');
   const listeners = {};
   let atPrint = null;
-  ctx.window = { addEventListener: (t, fn) => { listeners[t] = fn; }, removeEventListener: (t) => { delete listeners[t]; }, print: () => { atPrint = { text: out.textContent, printing: doc.body.classList.contains('pb-printing') }; } };
+  ctx.window = { addEventListener: (t, fn) => { listeners[t] = fn; }, removeEventListener: (t) => { delete listeners[t]; }, print: () => {
+    const out = printout();
+    atPrint = { text: out ? out.textContent : '', inBody: Boolean(out && out.parent === doc.body), printing: doc.body.classList.contains('pb-printing') };
+  } };
   ctx.setTimeout = () => 0;
   vm.runInContext(liftAll(SCRIPT, ['pbPrint']), ctx);
   ctx.pbShowCode({ recoveryCode: CODE, org: 'o', member: 'm' });
   ctx.pbPrint();
   assert.ok(atPrint, 'premise: print was called');
+  assert.ok(atPrint.inBody, 'the printout was not a direct child of body at print time (the print rule hides only body\'s other children)');
   assert.ok(atPrint.printing, 'the page printed without body.pb-printing, so the print rule showed the whole page');
   assert.match(atPrint.text, new RegExp(CODE.replace(/-/g, '\\-')), 'the printout did not hold the code at print time');
-  assert.equal(made.includes('iframe'), false, 'it printed from a frame again');
+  assert.equal(made.some((e) => e.tag === 'iframe'), false, 'it printed from a frame again');
   listeners.afterprint();
-  assert.equal(out.textContent, '', 'the code stayed on the printout after printing');
+  assert.equal(printout().parent, null, 'the printout (with the code) stayed in the page after printing');
   assert.equal(doc.body.classList.contains('pb-printing'), false, 'the page stayed in print mode after printing');
 });
 
@@ -123,37 +127,39 @@ test('the words screen shows the price the preview confirmed, not the earlier re
 /* #7681 review: what happens to a printout on the paths that are not a clean print. */
 function printSetup(ctx) {
   const doc = ctx.document;
-  const out = doc.createElement('div'); out.id = 'pb-printout'; doc.body.appendChild(out);
-  doc.getElementById = ((get) => (id) => (id === 'pb-printout' ? out : get(id)))(doc.getElementById.bind(doc));
+  const made = [];
+  const create = doc.createElement.bind(doc);
+  doc.createElement = (tag) => { const e = create(tag); made.push(e); return e; };
   ctx.setTimeout = () => 1; ctx.clearTimeout = () => {};
   vm.runInContext(liftAll(SCRIPT, ['pbPrint']), ctx);
-  return out;
+  return () => made.find((e) => e.id === 'pb-printout');   // the page makes it as it prints (#7681 suite)
 }
 test('a print that throws empties the printout at once and says so', () => {
   const { ctx, el } = load({ ok: true });
   ctx.window = { addEventListener: () => {}, removeEventListener: () => {}, print: () => { throw new Error('blocked'); } };
-  const out = printSetup(ctx);
+  const printout = printSetup(ctx);
   ctx.pbShowCode({ recoveryCode: CODE, org: 'o', member: 'm' });
   ctx.pbPrint();
-  assert.equal(out.textContent, '', 'the code stayed on the printout after a failed print');
+  assert.ok(printout(), 'premise: a printout was made');
+  assert.equal(printout().parent, null, 'the printout (with the code) stayed in the page after a failed print');
   assert.equal(ctx.document.body.classList.contains('pb-printing'), false);
   assert.match(el('pb-msg').textContent, /could not be printed/);
 });
 test('hiding the panel empties a printout still waiting for afterprint', () => {
   const { ctx } = load({ ok: true });
   ctx.window = { addEventListener: () => {}, removeEventListener: () => {}, print: () => {} };   // no afterprint ever comes
-  const out = printSetup(ctx);
+  const printout = printSetup(ctx);
   ctx.pbShowCode({ recoveryCode: CODE, org: 'o', member: 'm' });
   ctx.pbPrint();
-  assert.ok(out.textContent.length > 0, 'premise: the printout holds the code');
+  assert.ok(printout() && printout().textContent.length > 0 && printout().parent === ctx.document.body, 'premise: the printout holds the code, in the page');
   ctx.PB.st = { shown: false };
   ctx.pbPaint();
-  assert.equal(out.textContent, '', 'the printout kept the code after the panel hid');
+  assert.equal(printout().parent, null, 'the printout (with the code) stayed in the page after the panel hid');
   assert.equal(ctx.document.body.classList.contains('pb-printing'), false);
 });
-test('#pb-printout is a direct child of body (the print rule hides only body\'s other children)', () => {
+test('#pb-printout is never in the page\'s own markup (made only to print), and the print rule still hides the rest', () => {
   const html = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
-  const tail = html.slice(html.lastIndexOf('</body>') - 400, html.lastIndexOf('</body>'));
-  assert.match(tail, /<\/script>\s*<div id="pb-printout"><\/div>[^<]*<!--[^>]*-->\s*$/, 'the printout moved inside another element');
+  // #7681 suite: a static child of body is a 43rd pre-rail row in the consolidated grid (web.consolidated-980.test.js).
+  assert.doesNotMatch(html, /<div id="pb-printout"/, 'the printout is back in the static markup');
   assert.match(html, /body\.pb-printing > \*:not\(#pb-printout\) \{ display: none !important; \}/, 'the print rule changed');
 });
