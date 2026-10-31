@@ -73,3 +73,7 @@ takes #7675's and keeps only the room's changes (RoomView.swift, the two room UI
 - NIT 1 fixed: the queued re-set to the end (toEnd, goEnd) checks appMoves, so a toRow in that turn is not undone.
 - NIT 2 fixed: the 0.1 s end-marker check carries a token (endShows), so a flash away and back cannot confirm early.
 - NIT 3 moot after W1 (the retries run again on iOS 18 to 25). NIT 4 (rowTops never reset) left: ids differ per project.
+
+## After review round 3
+- A second early-scroll check runs with the anchor off, so the person's cancel is guarded on a runner on iOS 26 or later. Its control is round 3's, on that same path; it was not re-run. ui-sample's count for the class is 5.
+- Accepted, unmeasured: after toRow, roomPosition stays nil until SwiftUI writes the position back. A reader placed by an older page, a reply jump or closing the archive may have no id anchor if it is not written back after a programmatic scrollTo.
