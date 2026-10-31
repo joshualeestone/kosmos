@@ -7,12 +7,15 @@ and the three keyboard checks still pass locally on an iPhone 17e iOS 26.5 simul
 ## Finding
 CI trace (PR #7665 run 41156064258): after KeyboardHold's first put-back the list is moved again by 499 pt every ~0.12 s, and each
 re-move comes with a new 16 pt sideways shift (side lock shift 2, 4, 8). A 16 pt sideways shift is the id anchor's .bottom scroll
-(SideScrollLock's own comment), so the re-mover is SwiftUI re-applying scrollPosition(id:anchor: .bottom) to the message iOS 26's
-keyboard move had put at the bottom, not the side lock writing a stale y (candidate a: its write reads y in the same change).
+(SideScrollLock's own comment), so the re-mover is SwiftUI re-applying scrollPosition(id:anchor: .bottom) to its id at the bottom of the
+keyboard-shrunk view (the check itself sets that id, KOSMOS_SAMPLE_SCROLLUP; a reader's own scroll sets it the same way), not the side lock writing a stale y (candidate a: its write reads y in the same change). Whether the anchor or iOS 26 makes the FIRST move is not settled by this; only the repeats are claimed.
 
 ## Change
-ChatView: in KeyboardHold's onPutBack, when the id anchor holds a message (not nil, not "end"), set positionId = nil, so the anchor
+ChatView: in KeyboardHold's onPutBack, when the id anchor holds a reader's place (a message or "top"; not nil, not "end"), set positionId = nil, so the anchor
 no longer pulls the list back to that message. Trace line "keyboard hold: anchor let go".
+
+## Trade-off, accepted
+Until the reader scrolls again (which sets a new anchor) the list is held by its offset alone, as on iOS 16. kosmos#7265 measured that drifting by tens of points as reads re-estimate rows above, so a reader who opens the keyboard and types without scrolling may drift that way. Re-anchoring on a real row was rejected: the anchor is .bottom, so naming any row scrolls the list to it, the very move being undone. Follow-up if it shows: a check that lands reads after the let-go.
 
 ## Rejected
 - Widening the 0.8 s window: prolongs the fight, does not end it.
