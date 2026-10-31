@@ -3,8 +3,8 @@
 ## Finished looks like
 The next empty-chat report from a phone says where the scroll was against its content (within, past the end, or before the
 top), before and after the recovery, measured from the scroll view rather than from onAppear; an empty list whose scroll is
-outside its content is put back at its end; and an empty list is put right every time it is found in a chat, not only the
-first time. The app builds and the chat's keyboard checks still pass on a fresh iOS 26 simulator.
+outside its content is put back at its end; and a later empty list in the same chat whose scroll is past its content's end
+is put right too (not only the first), never pulling a resting reader to the newest message. The app builds and the chat's keyboard checks still pass on a fresh iOS 26 simulator.
 
 ## What the report shows
 134 messages, 0 on screen, end and top not showing, at newest with the anchor on "end", keyboard down. Events: opened,
@@ -29,8 +29,9 @@ offset or the content height, so this has not been checkable.
   empty reading (onScreen counts onAppear) must never pull a resting reader to the newest message. "Scrolling" is
   personScrolling (iOS 18+) or ScrollBox.underFinger (UIKit's tracking, dragging or decelerating, every iOS). After going
   to the newest message, "end" is named again on the next turn (queued after goNewest's own put-back) in case the direct
-  offset write made SwiftUI write a row into the binding, unless the person is scrolling by then. Repeats leave a trace
-  only in the Debug trace file; no shared report carries them. The room suite checks the wiring by its source text.
+  offset write made SwiftUI write a row into the binding, unless the person is scrolling by then. A repeat's trace line goes to the
+  in-memory record too, so a later report in the same app run (a width report, or a new chat after a computer change) can
+  show it under recent events; it carries no text or ids. The room suite checks the wiring by its source text.
 
 ## Rejected
 - Changing the side lock's write now: the record shows it firing, but #7575's report found it was not the cause on 10-29,
@@ -45,6 +46,8 @@ nobody drags, so an at-rest "within" while empty does not by itself prove the ca
 not outside at that moment.
 
 ## Not tested
+- The first recovery's "before the top" arm is likely unreachable from diagCheck, which requires the top marker not to show
+  (a scroll above the top shows it).
 - The empty state itself has never been reproduced off Josh's phone; the clamp is unexercised by any check.
 - Recovery runs only from the existing empty-list check (diagTick: when the last row leaves, 2 s after the chat shows or
   comes back, and the never-drew timer).
