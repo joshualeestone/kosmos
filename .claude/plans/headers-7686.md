@@ -18,12 +18,18 @@ Rejected: guarding each catch by hand (200 sites, and the next new route reopens
 deliberate choice not to have one).
 
 ## Sweep of the other head writers
-Every top-level function that calls `res.writeHead` was listed. `sendFileStream` already destroyed the response when
-its head was out, except for a throw while opening the stream: that now closes the descriptor and ends the response
-too (review 1: before, the board died there; surviving it would have leaked one descriptor per failure).
-`refuseDownload` writes a 204 itself for a browser download, and review 1 found it IS reached after a head: the
-diagnostics route writes its 200 head and then serialises, so a throw there lands in its catch, which refuses. So
-`refuseDownload` shares the guard (`answeredAlready`), which also logs the route by its method and safe path.
+Every `res.writeHead(` in server.js was read in context (40 on this branch), not only the top-level functions
+(review 2: the first sweep listed functions and missed inline closures).
+- Guarded now, because a head can already be out when they run:
+  - `sendJson` and `refuseDownload`, both through `answeredAlready`;
+  - the `as=text` `fail` closures in `/api/inbox` and `/api/report`, which write their 200 head before formatting the
+    rows, so a throw there reaches the route's catch. They now answer through `sendText`, which shares the guard.
+- `sendFileStream` closes the descriptor and ends the response if opening the stream throws after its head.
+- The rest write the FIRST head on their path (a redirect, a 204 check answer, a static file, a page), with nothing
+  that can have answered before them.
+- Rejected: wrapping `res.writeHead` for every response. It would cover all 40, but the caller then calls `res.end`
+  on a destroyed response. That was measured silent on Node 26 here, but the board ships its own runtime, and a
+  guard that rests on one runtime's behaviour is the wrong kind of guard.
 
 ## Test
 `server.headers-twice-7686.test.js` makes `fs.createReadStream` throw once, which is after the preview route's head is
