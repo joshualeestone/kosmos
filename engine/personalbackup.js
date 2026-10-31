@@ -305,11 +305,6 @@ async function setUpKey(opts = {}) {
   return { ok: false, code: k && k.code, because: 'Personal backup is on for this computer, but its backup key could not be made yet: ' + ((k && k.because) || 'try again') + '.' };
 }
 
-/* backupscreens-7404 (challenge round 5): restore this backup's keys here with the person's recovery code. Only for a
-   computer personal backup is on for (the move to a new computer: turn on, then setUpKey answers code 'restore'), and
-   only while Kosmos+ still names that binding, so a restore never acts on another org's keys. A restore that worked
-   writes the key-ready marker, so state() reads 'on' rather than asking for a code it will never show.
-   { ok: true, epochs } or { ok: false, code, because }. */
 /* Whether this computer made the key for `rec` and its recovery code is still pending here (a restore would drop it). */
 function codeWaitingHere(rec, pk, opts) {
   try {
@@ -317,6 +312,22 @@ function codeWaitingHere(rec, pk, opts) {
     return !!(k && k.org === rec.org.id && k.world === rec.world && k.keyOrg && k.member && pk.hasPendingCode(k.keyOrg, k.member));
   } catch { return false; }
 }
+/* Whether the record read before an await is still this computer's record after it: the same org and world. A turn-off
+   (or a turn-off and a new turn-on) in that window would otherwise let a restore act on, and mark key-ready, a binding
+   that is no longer this one (#7681 item 3). */
+function sameRecord(rec, opts) {
+  const now = record(opts);
+  return !!(now && now.org.id === rec.org.id && now.world === rec.world);
+}
+const CHANGED = { ok: false, code: 'not_on', because: 'Personal backup changed on this computer while restoring, so nothing was restored here. Open personal backup again.' };
+
+/* backupscreens-7404 (challenge round 5): restore this backup's keys here with the person's recovery code. Only for a
+   computer personal backup is on for (the move to a new computer: turn on, then setUpKey answers code 'restore'), and
+   only while Kosmos+ still names that binding, so a restore never acts on another org's keys. A restore that worked
+   writes the key-ready marker, so state() reads 'on' rather than asking for a code it will never show.
+   #7681 item 3: the record is read again after each await (Kosmos+'s check, then the restore itself), and a restore whose
+   record changed meanwhile stops there: no keys restored after the check, no marker written after the restore.
+   { ok: true, epochs } or { ok: false, code, because }. */
 async function restore(code, opts = {}) {
   const rec = record(opts);
   if (!rec) return { ok: false, code: 'not_on', because: 'Turn on personal backup on this computer first, then restore with your recovery code.' };
@@ -325,10 +336,12 @@ async function restore(code, opts = {}) {
   if (codeWaitingHere(rec, pk, opts)) return { ok: false, code: 'code_waiting', because: 'A recovery code made on this computer is still waiting to be saved. Press Finish setting up to see it.' };
   const held = await boundHereNow(rec, opts, 'nothing was restored');
   if (held) return held;
+  if (!sameRecord(rec, opts)) return CHANGED;
   let r;
   try { r = await pk.restorePersonalKey(code, { macRequest: opts.macRequest || ((m, rt, b) => remoteOf(opts).macRequest(m, rt, b)) }); } catch { r = null; }
   if (!(r && r.ok)) return r && typeof r === 'object' ? r : { ok: false, because: 'restoring the backup keys failed on this computer' };
-  try { fs.writeFileSync(path.join(root(opts), KEY_READY), JSON.stringify({ at: new Date().toISOString(), org: rec.org.id, world: rec.world }) + '\n', { mode: 0o600 }); } catch { /* state() then says needs-key, and the key step settles it (already_here) */ }
+  if (!sameRecord(rec, opts)) return CHANGED;
+  try { fs.writeFileSync(path.join(root(opts), KEY_READY), JSON.stringify({ at: new Date().toISOString(), org: rec.org.id, world: rec.world }) + '\n', { mode: 0o600 }); } catch { /* state() then says needs-key, and the key step settles it (already_here): the screen says so (#7681 item 4) */ }
   return { ok: true, epochs: r.epochs };
 }
 
