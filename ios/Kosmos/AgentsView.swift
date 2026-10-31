@@ -27,7 +27,7 @@ struct AgentsView: View {
 
     // kosmos#7343: the order the list is in, kept on this phone: as the computer orders them (who needs you first), or by
     // name.
-    @AppStorage("kosmos.agentSort") private var agentSort = Board.agentSortDefault.rawValue
+    @AppStorage(Board.agentSortKey) private var agentSort = Board.agentSortDefault.rawValue
     // kosmos#7421: By project's key, each agent's first project name, read when that order is chosen or the list shows.
     @State private var projectNames: [String: String] = [:]
     private var sortChoice: Board.AgentSort { Board.agentSort(saved: agentSort) }
