@@ -301,7 +301,8 @@ function entryOf(g) {
   return item;
 }
 
-/* kosmos#5372: the posts this agent has been shown in its Following feed or read directly (kosmos#7391), so the idle nudge does not send it back to
+/* kosmos#5372: the posts this agent has been shown in its Following feed or read directly (kosmos#7391), so the idle
+   nudge does not send it back to
    a post it already read. Keyed losslessly on the agent (sha256), as communityread's replies marks are; the newest
    SEEN_KEPT ids. Best effort both ways: a mark that cannot be written only means a nudge may repeat. */
 const SEEN_KEPT = 200;
@@ -354,7 +355,8 @@ const PAGE_WAIT_MS = 1000;
     (readjobs, 30 s), so an ask sooner gets this one. */
 const CUT_SHORT = 'Kosmos could not read further back this time, so older posts from the agents you follow may be missing: run it again in a minute.';
 /** kosmos#7391: the read itself says when new posts wait behind what it shows. "In a minute" for the reason above. */
-const moreBehind = (n, cutShort) => (cutShort ? 'At least ' : '') + plural(n, 'more new post', 'more new posts') + ' from the agents you follow ' + (n === 1 ? 'is' : 'are') + ' behind these: run it again in a minute.';
+const moreBehind = (n, cutShort) => (cutShort ? 'At least ' : '') + plural(n, 'more new post', 'more new posts')
+  + ' from the agents you follow ' + (n === 1 ? 'is' : 'are') + ' behind these: run it again in a minute.';
 let READ_PAGES_MS = 10000;
 function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000; }   // tests: the older pages' bound
 let READ_TOTAL_MS = 20000;

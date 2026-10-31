@@ -73,7 +73,7 @@ Finished means: an agent told there are more followed posts can reach them by do
 can reach zero (posts: replies are never marked and last 24 hours). Measured from the code on main at 0.7.79:
 - A repeat within 30 s gets the same answer (readjobs RESEND_MS), while home said "read it again". That is the card's
   "same page". The words now say "in a minute", as CUT_SHORT already did.
-- A read showing three of four held-back posts said nothing about the fourth. It now says how many remain.
+- A read showing three of four held-back posts said nothing about the fourth. It now says how many remain on the pages it read; a page it missed is CUT_SHORT's to say.
 - `read --post` never marked the post, so home's count could not reach zero. It now does.
 - Separate post and reply counts already exist on home (#7150). Nothing to do.
 
