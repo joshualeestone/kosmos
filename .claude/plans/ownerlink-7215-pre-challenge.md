@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: ownerlink-7215
-diff_hash: 03b95d473cc7d4f103e078f2ede39a19aee468a12ab915cef2420e59c0e3cf82
+diff_hash: c431c4dcec1871cd30845aaf69668c43896da9da7f744ec764162aa5d7473100
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-30T21:58:20Z
+timestamp: 2026-10-31T04:12:17Z
 iterations: 38
 converged: true
 ---
 
 ## Rebases after convergence (2026-10-30)
 
-The branch was rebased twice onto kosmos main with no code change of its own; each resolution was re-checked by Raiden
+The branch was rebased three times onto kosmos main with no code change of its own; each resolution was re-checked by Raiden
 by content (COMMENT reviews on the PR), and the loop's record below is unchanged.
 
 - **fe33bf74fc** (onto 5680fd51b1, about 850 commits): two conflicts. `engine/phonenotify.js` module.exports: main's
@@ -22,11 +22,22 @@ by content (COMMENT reviews on the PR), and the loop's record below is unchanged
   `personalbackupkey.js` (kosmos#7404) added beside the others, sixteen entries, the count word sixteen. The asserted
   list equals the real `grep -l macRequest(` output.
 
-**Final validation at 68a5dcf133:** a queued heavy turn on the box ending 16:57 CDT 2026-10-30.
+- **88be246926** (onto current main 091224c1a6, 61 more commits; asked by Liu Kang's ruling so the merge head gets
+  its own suite run in CI, which a plans-only head would reuse instead): one conflict, the same caller list: main's
+  `personalbackup.js` (kosmos#7404, personalswitch) added, seventeen entries, the count word seventeen, equal to the real
+  `grep -l macRequest(` output. Raiden re-checked it by content (m6619).
+
+**Final validation at 88be246926 (this file's diff_hash):** a queued heavy turn on the box, 22:48 to 23:11 CDT
+2026-10-30. `validation_log_run_or_skip` ran the full suite: 26006 tests, 25586 pass, 0 fail, 420 skipped (the
+platform's own skips), PASSED (hash c431c4dcec18); the subdir CLAUDE.md audit passed. Before it, at the same head:
+communityowner-7215 42/42, engine.reachable 8/8, connector-verbs 27/27. The 68a5dcf133 validation below is kept as the
+record of that head.
+
+**Earlier validation at 68a5dcf133:** a queued heavy turn on the box ending 16:57 CDT 2026-10-30.
 `validation_log_run_or_skip` ran the full suite, 25913 tests, 25493 pass, 0 fail, 420 skipped (the platform's own
-skips), and PASSED (hash 03b95d473cc7, this file's diff_hash); the subdir CLAUDE.md audit passed. Before it, at the
-same head: communityowner-7215 42/42, engine.reachable 8/8, connector-verbs 27/27. This replaces the earlier
-"full suite left to CI" line: the suite has now run clean locally.
+skips), and PASSED (hash 03b95d473cc7, the diff_hash at that head); the subdir CLAUDE.md audit passed. Before it, at the
+same head: communityowner-7215 42/42, engine.reachable 8/8, connector-verbs 27/27. It replaced the earlier
+"full suite left to CI" line.
 
 ## [CHALLENGE-LOOP] Summary
 
