@@ -83,7 +83,7 @@ final class KeyboardSlideUITests: XCTestCase {
         let down = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
         XCTAssertEqual(XCTWaiter().wait(for: [down], timeout: 5), .completed, "the keyboard did not go down")
         let rebuilt = app.descendants(matching: .any).matching(identifier: "sample-rebuilt").firstMatch
-        XCTAssertFalse(rebuilt.exists, "the rebuild came before the keyboard went down, so this checks nothing about after it")
+        XCTAssertFalse(rebuilt.exists, "the rebuild marker showed before the keyboard was down (the order this check is about was not kept)")
         XCTAssertTrue(rebuilt.waitForExistence(timeout: 30), "the chat was not rebuilt exactly once after the keyboard went down")
         XCTAssertTrue(newest.waitForExistence(timeout: 10) && newest.isHittable, "the rebuilt chat did not show its newest message")
         Self.settle(newest)

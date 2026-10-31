@@ -504,6 +504,8 @@ struct ChatView: View {
             let loaded = Board.shownRows(earlier, thread: thread)
             let rows = Board.chatFilter(loaded, agentName: shown.name, query: query)
             let items = Board.chatItems(rows, now: Date(), calendar: .current)
+            // kosmos#7420: the list these markers are drawn in; a list since rebuilt (listEpoch) answers for nothing.
+            let drawnEpoch = listEpoch
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -511,8 +513,9 @@ struct ChatView: View {
                         // earlierNearTop); the line says only that a page is loading, or that one failed, with Try again.
                         earlierFailedLine
                         Color.clear.frame(height: 1).id("top")
-                            .onAppear { Self.trace("top appear"); topVisible = true; loadEarlier() }
+                            .onAppear { guard drawnEpoch == listEpoch else { return }; Self.trace("top appear"); topVisible = true; loadEarlier() }
                             .onDisappear {
+                                guard drawnEpoch == listEpoch else { return }
                                 topVisible = false
                                 // The top leaving after the first layout proves the jump to the newest message
                                 // happened, even if the end marker was not reached (estimated row heights). Not when
@@ -530,6 +533,7 @@ struct ChatView: View {
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
                         Color.clear.frame(height: ChatView.fadeHeight + 8).id("end")   // the fade plus 8 pt (kosmos#7346): at the end, the newest message sits clear of it
                             .onAppear {
+                                guard drawnEpoch == listEpoch else { return }
                                 Self.trace("end appear (atBottom was \(atBottom), endSeen was \(endSeen))")
                                 endVisible = true
                                 atBottom = true; unseenNew = false; endSeen = true
@@ -540,6 +544,7 @@ struct ChatView: View {
                                 if !settledAtEnd { DispatchQueue.main.async { settledAtEnd = true; loadEarlier() } }
                             }
                             .onDisappear {
+                                guard drawnEpoch == listEpoch else { return }
                                 Self.trace("end disappear (personScrolling \(personScrolling))")
                                 endVisible = false
                                 if !Self.followsScrollPhase || personScrolling { atBottom = false }
@@ -861,8 +866,9 @@ struct ChatView: View {
     private func diagCapture(_ proxy: ScrollViewProxy, why: String, count: Int, recover: Bool = true) {
         guard visible, scenePhase == .active else { return }
         // kosmos#7420 (build 22, 10-30): reported once per chat. A later empty list (or the same one at the 1.5 s check) is
-        // put right only as Board.emptyRecovery says (past the content's end, nobody scrolling), so a false empty reading
-        // (onScreen counts onAppear) never pulls a resting reader to the newest message.
+        // put right only as Board.emptyRecovery says: past the content's end, or (build 24) rebuilt when within the content
+        // at the newest. Nobody scrolling either way, and never a reader higher up. A later reading reaches here only through
+        // diagCheck, which asks for no row counted, the end not showing and the top not showing.
         if recover, diagDone { recoverEmpty(proxy, later: true); return }
         guard recover || !diagWideDone else { return }
         if recover { diagDone = true } else { diagWideDone = true }
@@ -917,6 +923,10 @@ struct ChatView: View {
                     guard listEpoch == listAt, epoch == chatAt, !personScrolling, !scrollBox.underFinger else { return }
                     goNewest(proxy)
                 }
+            }
+            // A new list that draws no row never has a row leave, so nothing would check it: one check once the grace is over.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.rebuildGrace + 0.3) {
+                if listEpoch == listAt, epoch == chatAt { diagTick &+= 1 }
             }
             return
         case .backInsideThenNewest:
