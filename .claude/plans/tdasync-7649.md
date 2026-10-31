@@ -50,3 +50,16 @@ the agent's pane and a later prompt to that agent is then read as pane-busy and 
   - W a restart between typing and booking (up to the deadline) leaves a prompt that reached the pane unbooked, so a
     later mark on that task can prompt once more; the idle sweep accepts the same trade.
   - N pane-busy is asked before the sender's own holds, so a pane both busy and held is logged pane-busy (neither books).
+- Round 3 (Opus, the branch on top of #7611): no BLOCKER; it re-confirmed no double prompt or lost entry in one board
+  process, no lasting stop, the busy check and send in one run, the sync sender unchanged, and the close route's
+  missing roster harmless. Fixed:
+  - N two comments overstated: a busy window is refused as pane-busy (only an agent mid-turn gets it Queued), and the
+    prompt never holds the event loop (it never held the 200).
+  - N tests: a sender that throws at once reads as unconfirmed; a busy check that throws lets the prompt go.
+  Decided, not changed:
+  - W2 again (round 2 too): a restart between typing and booking can mean one more prompt for that task. Booking
+    first and unbooking on a miss would trade that for a possible missed prompt instead; both need a restart mid-
+    delivery, and the idle sweep books after the answer too, so the two senders stay alike.
+  - W1 and W3 as rounds 1 and 2 (one chain, delayed never lost; a deadline books the task), stated in the code. A
+    restart also drops prompts still waiting on the chain (in memory, never double-sent).
+  - N the built route still passes its own roster (a fallback it already has); the close route passes none.

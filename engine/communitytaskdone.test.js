@@ -322,3 +322,13 @@ test('kosmos#7649: a delivery that never answers counts as unconfirmed after the
   assert.equal(o.book.has('proj1\t7'), true);
   assert.equal(td.DELIVER_DEADLINE_MS, 3 * 60 * 1000, 'the board default');
 });
+
+test('kosmos#7649 review 3: a sender that throws at once reads as unconfirmed (as the sync path), and a busy check that throws lets the prompt go', async () => {
+  const thrower = setup({ deliver: () => { throw new Error('after the paste'); } });
+  const r = await td.promptOnTaskDoneAsync(thrower.o);
+  assert.deepEqual([r.act, r.delivery, r.recorded], ['prompted', D.UNCONFIRMED, true]);
+  const sends = [];
+  const bad = setup({ paneBusy: () => { throw new Error('busy check failed'); }, deliver: (s) => { sends.push(s); return later({ state: D.PLACED }); } });
+  assert.equal((await td.promptOnTaskDoneAsync(bad.o)).act, 'prompted');
+  assert.deepEqual(sends, ['ann']);
+});

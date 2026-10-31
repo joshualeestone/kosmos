@@ -1315,7 +1315,8 @@ function agentInCommunity(session) {
 /* #5313: fire ONE community prompt for a just-finished task, reusing the idle sweep's gates
    (engine/communityturn's live-exec + agent-nudge brake, the operator brake, the global community
    switch, the Prompter's switch, the per-agent community membership) and the same chat.deliverAutomaticAsync
-   the sweep uses, so a busy pane holds it as Queued (#5216). Reads and writes the per-task dedup book.
+   the sweep uses, so an agent mid-turn gets it Queued (#5216); a window still placing another message is refused as
+   pane-busy (chat.paneBusyVerdict). Reads and writes the per-task dedup book.
    Best-effort: it NEVER rejects, and every caller runs it AFTER the mark is already recorded, so a
    prompt can never fail a task mark. Shared by the built route and the close route.
    kosmos#7649: the delivery is awaited, so typing into the pane no longer holds the event loop after the
@@ -25282,7 +25283,7 @@ const server = http.createServer(async (req, res) => {
       }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
       // #5313: the same agent, between tasks, gets one community prompt (reaches busy agents the idle
-      // sweep never sees). After the response, and (kosmos#7649) awaited on its own chain, so it never holds the 200; the
+      // sweep never sees). After the response, and (kosmos#7649) awaited on its own chain, so it never holds the event loop; the
       // mark is already recorded, and the per-task dedup book makes a second built mark on the same
       // task send none.
       if (!viaScreen && body.clear !== true && out.changed && card) {
