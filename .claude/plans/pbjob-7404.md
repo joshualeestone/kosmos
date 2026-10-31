@@ -44,6 +44,8 @@ D. Restore of files: a personal route for manifests and chunks, then the restore
   a separate root, because backupstate and backupmemberkey read store.ROOT and the files are keyed by pair. Rejected: the
   shared current.json (challenge round 3 measured a company's left-over lostEpoch or bad state file stopping every personal
   run for good). Weakest premise: a personal pair's own bad state file is said once and stays until someone sets it aside.
+- Known, left for slice C: a different key here is a real dead end (off then on answers already_here and reads 'on' with the
+  same mismatch), and three refusals name no way forward. The words refusal is read from the tunnel's text, as refusalOf does.
 - Known, left for slice C: Antigravity staging runs before the key step, so a run stopped at the key still copies those
   files each hour. Some backuprun sentences say company under the personal label.
 - Off and on needs a price: server.js refuses preview and on with no_price but not off. #7685 moves the price to Kosmos+.
