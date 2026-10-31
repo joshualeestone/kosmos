@@ -1648,11 +1648,14 @@ async function sweepOwnerLink(keys, on) {
       // says, so it is handled as the service failing below, and said in the log, rather than marked linked for good.
       if (r.status === 204) {
         k.ownerLinked = marker;
+        delete k.ownerLinkMaybe;
         ownerLinkLogged.delete(ep + '\n' + agentKey);
         ownerLinkPassLogged.delete(ep);
         marks = true;
         continue;
       }
+      // kosmos-relay#614: no answer at all, so the site may have linked it: a Forget's clear asks for this one too.
+      if (!r.status) { k.ownerLinkMaybe = marker; marks = true; }
       // A second agent refused by the site in one pass means the site no longer takes these passes at all, not two
       // bad agents: the whole pass waits (as for the coordinator's 400).
       // 408 and 413 are the service or what sits in front of it (the body is one short pass), so they are its failures.
@@ -1714,53 +1717,75 @@ function requestOwnerUnlink(mac) {
     }
     // How many agents show a link through this computer now, so the Forget can say so only when there are some.
     const keys = loadJson(keysFile()) || {};
-    const linked = Object.values(keys).filter((k) => k && typeof k.ownerLinked === 'string' && k.ownerLinked.startsWith(mac + ':')).length;
+    const linked = Object.values(keys).filter((k) => k && ownerLinkThrough(k, mac)).length;
     return { ok: true, linked };
   } catch {
     return { ok: false, because: 'we could not save that' };
   }
 }
 const ownerUnlinkAt = new Map();      // endpointDir -> ms: the clear pass is paused until then
-const ownerUnlinkLogged = new Map();  // endpointDir -> the reason last logged (once per reason)
+const ownerUnlinkAgentAt = new Map(); // endpointDir + agentKey -> ms: this one agent is skipped until then
+const ownerUnlinkLogged = new Map();  // endpointDir (+ agentKey) -> the reason last logged (once per reason)
+// A link this computer made, or one whose POST got no answer and so may have landed (ownerLinkMaybe).
+const ownerLinkThrough = (k, mac) => [k.ownerLinked, k.ownerLinkMaybe].some((m) => typeof m === 'string' && m.startsWith(mac + ':'));
 /* The site's DELETE /agents/me/owner {mac} (contract on kosmos-relay#614): 204 whether it cleared the link or found
-   nothing naming this mac, so 204 drops the marker either way. It runs whatever the Community switch and Kosmos+ say,
+   nothing naming this mac, so 204 drops the markers either way. It runs whatever the Community switch and Kosmos+ say,
    as the industry clear and the owner's deletes do: taking something back must not wait for a switch, and after such a
-   Forget Kosmos+ is off here. */
+   Forget Kosmos+ is off here. Failures are handled as the link pass handles them: a refusal about one agent skips that
+   agent for 15 minutes and goes on, a second one in a pass pauses the pass; the agent's own request limiter
+   (rate_limit_exceeded) holds only that agent; anything else pauses the pass. A computer stays noted while any agent
+   still shows a link through it. */
 async function sweepOwnerUnlink(keys) {
   const pending = loadJson(ownerUnlinkFile());
   const macs = pending ? Object.keys(pending).filter((m) => /^[0-9a-f]{32}$/.test(m)) : [];
   if (!macs.length) return;
   const ep = endpointDir();
   if ((ownerUnlinkAt.get(ep) || 0) > Date.now()) return;
-  const pause = (ms, why, reason = why) => {
-    ownerUnlinkAt.set(ep, Date.now() + ms);
-    if (ownerUnlinkLogged.get(ep) !== reason) { ownerUnlinkLogged.set(ep, reason); log(`owner link clear: ${why}`); }
+  const say = (id, why, reason = why) => {
+    if (ownerUnlinkLogged.get(id) !== reason) { ownerUnlinkLogged.set(id, reason); log(`owner link clear: ${why}`); }
   };
+  const pause = (ms, why, reason = why) => { ownerUnlinkAt.set(ep, Date.now() + ms); say(ep, why, reason); };
+  const until = Date.now() + OWNER_LINK_PASS_MS;   // the sweep holds the lock agents' own community calls wait on
   let marks = false;
+  let refusedInPass = 0;
+  let stopped = false;
   const cleared = [];
   try {
     for (const mac of macs) {
       let left = false;
       for (const [agentKey, k] of Object.entries(keys)) {
-        if (!k || typeof k.ownerLinked !== 'string' || !k.ownerLinked.startsWith(mac + ':')) continue;
+        if (!k || !ownerLinkThrough(k, mac)) continue;
         // A key the site refused was rotated or revoked there, and the site cleared its link when it did.
-        if (k.refused) { delete k.ownerLinked; marks = true; continue; }
+        if (k.refused) { delete k.ownerLinked; delete k.ownerLinkMaybe; marks = true; continue; }
+        if (Date.now() > until) { left = true; stopped = true; break; }   // the rest go with the next sweep
+        if ((ownerUnlinkAgentAt.get(ep + '\n' + agentKey) || 0) > Date.now()) { left = true; continue; }
+        if ((limiterPauseUntil.get(agentKey) || 0) > Date.now()) { left = true; continue; }
         const r = await asAgent(agentKey, keys, 'DELETE', '/agents/me/owner', { mac });
-        if (r.status === 204 || k.refused) { delete k.ownerLinked; marks = true; continue; }
+        if (r.status === 204 || k.refused) { delete k.ownerLinked; delete k.ownerLinkMaybe; marks = true; continue; }
         left = true;
+        if (r.status === 429 && r.json && r.json.error === 'rate_limit_exceeded') { limiterPauseUntil.set(agentKey, shortPause(r, Date.now())); continue; }
+        const agentRefusal = r.status >= 400 && r.status < 500 && ![401, 404, 405, 408, 413, 429].includes(r.status);
+        if (agentRefusal) refusedInPass += 1;
+        if (agentRefusal && refusedInPass < 2) {
+          ownerUnlinkAgentAt.set(ep + '\n' + agentKey, Date.now() + OWNER_LINK_RETRY_MS);
+          say(ep + '\n' + agentKey, `for ${agentKey}: the community refused it (${r.status}); trying again in ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`);
+          continue;
+        }
         if (r.status === 404 || r.status === 405) {
           pause(OWNER_LINK_UNKNOWN_MS, `the community has no route to clear an owner link yet (${r.status}); trying again in an hour`);
-        } else if (r.status === 429 || r.status === 503) {
-          const waitS = Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter || 0));
+        } else if ((r.status === 429 || r.status === 503) && r.retryAfter) {
+          const waitS = Math.min(REGISTER_429_WAIT_MAX_S, Math.max(60, r.retryAfter));
           pause(waitS * 1000, `the community asked to wait (${r.status}); trying again in ${waitS} s`, 'site ' + r.status);
         } else {
-          pause(OWNER_LINK_RETRY_MS, `the community answered ${r.status || 'nothing'}; trying again in ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`,
-            'site ' + (r.status >= 500 ? '5xx' : r.status || 'none'));
+          pause(OWNER_LINK_RETRY_MS, agentRefusal ? `the community refused two agents in one pass (${r.status}); trying again in ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`
+            : `the community answered ${r.status || 'nothing'}; trying again in ${ownerLinkWait(OWNER_LINK_RETRY_MS)}`,
+            agentRefusal ? 'site refusals' : 'site ' + (r.status >= 500 ? '5xx' : r.status || 'none'));
         }
+        stopped = true;
         break;
       }
-      if (left) break;   // the pass waits; the macs after this one go with the next one
-      cleared.push(mac);
+      if (!left) cleared.push(mac);
+      if (stopped) break;   // the pass waits; the macs after this one go with the next one
     }
   } finally {
     if (marks) saveJson(keysFile(), keys);
@@ -3364,6 +3389,7 @@ module.exports = {
   _registration: (agentKey) => registration(agentKey),   // #4922: for its test of what registration carries
   REGISTER_429_WAIT_MAX_S, _registerRetryAt: (k) => registerRetryAt.get(k),   // #4940: read-only, for its test
   _ownerLinkBudget: (ms) => { OWNER_LINK_PASS_MS = ms; },   // #7215: for its budget test
-  _ownerLinkReset: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); ownerLinkLogged.clear(); ownerLinkPassLogged.clear(); ownerLinkFrom.clear(); ownerUnlinkAt.clear(); ownerUnlinkLogged.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215, kosmos-relay#614: for its tests: ends every pause and wait, and sets the short pause
+  _ownerUnlinkPausedMs: () => Math.max(0, (ownerUnlinkAt.get(endpointDir()) || 0) - Date.now()),   // kosmos-relay#614: for its wait tests
+  _ownerLinkReset: (ms) => { ownerLinkPassAt.clear(); ownerLinkAgentAt.clear(); ownerLinkLogged.clear(); ownerLinkPassLogged.clear(); ownerLinkFrom.clear(); ownerUnlinkAt.clear(); ownerUnlinkAgentAt.clear(); ownerUnlinkLogged.clear(); OWNER_LINK_RETRY_MS = ms; },   // #7215, kosmos-relay#614: for its tests: ends every pause and wait, and sets the short pause
   _installGroupRetry: (ms) => { installGroupPassAt.clear(); installGroupFrom.clear(); installGroupUnknownUntil.clear(); INSTALL_GROUP_RETRY_MS = ms; },   // #4922: for its tests
 };

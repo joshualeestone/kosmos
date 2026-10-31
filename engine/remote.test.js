@@ -2796,7 +2796,6 @@ test('kosmos-relay#614 CONTROL: a retired computer, and a kept Remove, note noth
     assert.equal((await remote.forget()).kept, true, 'fixture: kept');
     assert.deepEqual(ownerUnlinkNoted(), {}, 'a kept Remove (the key is still here) noted the computer');
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
-  delete process.env.FAKE_TUNNEL_MODE;
   const got = await remote.forget();   // the fake tunnel retires it now
   assert.equal(got.retired, true, 'fixture: retired');
   assert.deepEqual(ownerUnlinkNoted(), {}, 'a retired computer was noted: owner-live already ends its links');
@@ -2811,7 +2810,10 @@ test('kosmos-relay#614: with an agent linked through this computer, the answer s
     fs.writeFileSync(keysFile, JSON.stringify({ ava: { name: 'ava', apiKey: 'k', token: 't', ownerLinked: mac + ':0123456789abcdef' } }));
     const got = await remote.forget({ anyway: true });
     assert.match(got.because, /Its agents leave the page of your agents' community posts once Kosmos can reach the community/, got.because);
-  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    fs.rmSync(require('./communitysend')._paths.keysFile(), { force: true });   // no stray agent for later tests
+  }
 });
 
 test('#3827: the older Settings setup is refused while a register is in flight', async () => {
