@@ -20,6 +20,7 @@ message landed off the screen. Locally the same path runs, but the content grows
 - The DM's KeyboardSlide checks pass locally, and the read-higher-up check passes on CI.
 
 ## Measured
+- (Commit ids in this section predate the 06:4x rebase onto main; the commits are the same, renumbered.)
 - The DM on this branch, iOS 26.5 simulator (iPhone 17e), first commit (c4e6181d41): read-higher-up 5/5 traced, every run
   through the new path (row not drawn at did-show, placed by id, settled by 7 pt); KeyboardSlideUITests 3/3.
 - After review 1 (e44fa5c003: the lost path's stand-downs, the settle's token and bounds, the watch kept in step, the
