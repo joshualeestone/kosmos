@@ -724,7 +724,9 @@ test('#7404 restore: refused before any key is touched unless personal backup is
   const off = await pb.restore('CODE', { root, remote: c, personalbackupkey: keys });
   assert.equal(off.code, 'not_on'); assert.equal(called, 0, 'restored with personal backup off here');
   const p = await pb.preview({ root, remote: c });
-  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true);
+  // Turned on here, but the key step found the backup set up elsewhere: needs-key, the one state a restore is for.
+  const taken = Object.assign({}, keys, { setUpPersonalKey: async () => ({ ok: false, code: 'already_set_up', because: 'set up elsewhere' }) });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: taken })).code, 'restore');
   const real = c.macRequest;
   c.macRequest = async (m, route, body) => (route === oe.ROUTES.status ? { ok: true, data: { member: true, org: { id: 'acme', kind: 'company' }, enrolled: { computer: 'c1', world: 'w', thisComputer: true } } } : real(m, route, body));
   const company = await pb.restore('CODE', { root, remote: c, personalbackupkey: keys });
@@ -751,4 +753,17 @@ test('#7404 restore: a restore that worked reads on; a refused one leaves the st
   const right = Object.assign({}, taken, { restorePersonalKey: async () => ({ ok: true, epochs: [1, 2] }) });
   assert.equal((await pb.restore('CODE', { root, remote: c, personalbackupkey: right })).ok, true);
   assert.equal(pb.state({ root, personalbackupkey: right }), 'on');
+});
+
+test('#7404 restore: refused once the key is set up here (it would drop a code still waiting to be shown)', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  let called = 0;
+  const keys = { setUpPersonalKey: KEY_OK.setUpPersonalKey, hasPendingCode: () => false,
+    restorePersonalKey: async () => { called++; return { ok: true, epochs: [1] }; } };
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: keys })).ok, true);
+  assert.equal(pb.state({ root, personalbackupkey: keys }), 'on');
+  const r = await pb.restore('CODE', { root, remote: c, personalbackupkey: keys });
+  assert.equal(r.code, 'not_needed', JSON.stringify(r)); assert.equal(called, 0);
 });

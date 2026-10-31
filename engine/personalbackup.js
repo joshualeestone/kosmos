@@ -313,6 +313,9 @@ async function setUpKey(opts = {}) {
 async function restore(code, opts = {}) {
   const rec = record(opts);
   if (!rec) return { ok: false, code: 'not_on', because: 'Turn on personal backup on this computer first, then restore with your recovery code.' };
+  /* Challenge round 6: only while the key is not set up here. With it set up a restore has nothing to do, and it would
+     delete a recovery code still waiting to be shown here (restorePersonalKey drops any pending code). */
+  if (state(opts) !== 'needs-key') return { ok: false, code: 'not_needed', because: 'This computer already has its backup key, so there is nothing to restore.' };
   const held = await boundHereNow(rec, opts, 'nothing was restored');
   if (held) return held;
   const pk = opts.personalbackupkey || require('./personalbackupkey');
