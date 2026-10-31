@@ -380,8 +380,9 @@ final class BoardClient: ObservableObject {
             chosenMac = nil
             forgetYou()
             pictures = [:]
-            pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil
-            try? FileManager.default.removeItem(at: env.avatars)   // kosmos#7677: no kept pictures once signed out
+            pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil; prunedFor = nil
+            // kosmos#7677 review 1: the kept pictures are NOT deleted here (as the kept Mac session is not): a Keychain that
+            // is briefly unreadable would cost them. A sign-out or another account deletes them, in forget().
             forgetToday()   // kosmos#7030: no count or tasks while signed out
             cookies.removeCookies(since: .distantPast)
         }
@@ -460,7 +461,7 @@ final class BoardClient: ObservableObject {
         stars = nil
         pictureTask?.cancel()
         pictures = [:]
-        pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil
+        pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil; prunedFor = nil
         forgetYou()
         forgetChats()
         forgetToday()
@@ -1328,6 +1329,24 @@ final class BoardClient: ObservableObject {
             }
         }
     }
+    // kosmos#7677 review 1: after each list this computer answered, a picture of an agent no longer listed, or listed with no
+    // picture (hasAvatar false), goes from memory and from the kept folder; so a removed picture never comes back from disk
+    // and the folder holds only this computer's current agents. Only on a list that was read, never on a failed read.
+    private var prunedFor: (address: String, sessions: Set<String>)?   // the last prune's list: the same list is not pruned again
+    private func dropPicturesNotListed() {
+        let withPicture = Set(agents.filter(\.hasAvatar).map(\.session))
+        if let done = prunedFor, done.address == picturesLoadedFor, done.sessions == withPicture { return }
+        prunedFor = picturesLoadedFor.map { ($0, withPicture) }
+        for session in Array(pictures.keys) where !withPicture.contains(session) {
+            pictures[session] = nil; pictureVersions[session] = nil; pictureFetchedAt[session] = nil
+        }
+        guard let address = picturesLoadedFor,
+              let names = try? FileManager.default.contentsOfDirectory(atPath: keptFolder(address).path) else { return }
+        for name in names {
+            let session = name.hasSuffix(".json") ? String(name.dropLast(5)) : name.hasSuffix(".img") ? String(name.dropLast(4)) : ""
+            if !session.isEmpty && !withPicture.contains(session) { dropKeptPicture(session) }
+        }
+    }
     private func keepPicture(_ session: String, data: Data, ver: String, at: Date) {
         guard let address = picturesLoadedFor, Board.isAgentSession(session) else { return }
         let dir = keptFolder(address)
@@ -1401,7 +1420,8 @@ final class BoardClient: ObservableObject {
         shownOwner = nil
         pictureTask?.cancel()
         pictures = [:]
-        pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil
+        pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil; prunedFor = nil
+        try? FileManager.default.removeItem(at: env.avatars)   // kosmos#7677: another account (or a sign-out) keeps none of them
         agents = []
         stars = nil
         updatedAt = nil
@@ -1467,7 +1487,7 @@ final class BoardClient: ObservableObject {
         }
         // Another Mac: its agents' pictures are its own, even for an agent of the same name.
         // Another Mac: its pictures and the chats (opened on the one before) go now, before any chat call reaches it.
-        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil; forgetYou(); forgetChats(); forgetToday() }
+        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil; prunedFor = nil; forgetYou(); forgetChats(); forgetToday() }
         failedRefreshes = 0
         while !Task.isCancelled && gen == generation {
             guard await refresh(url: url, mac: mac, gen) else { return }
@@ -1699,6 +1719,7 @@ final class BoardClient: ObservableObject {
             // kosmos#7677: this computer's kept pictures, in place before its first list in a run is shown.
             if picturesLoadedFor != mac.address.lowercased() { loadKeptPictures(mac.address) }
             agents = sorting ? Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known) : Board.keepingOrder(agents, with: rows, stars: known, sort: agentSort, projects: sortProjects)
+            dropPicturesNotListed()   // kosmos#7677 review 1
             waitingCount = Board.waitingCount(data)   // kosmos#7030: the Today tab's badge, the Dock's number
             tasksTab = AppTabs.tasksTab(fromStatus: data)   // kosmos#7032: Tasks earned, with no board page loaded
             projectsUnread = AppTabs.projectsUnread(fromStatus: data)     // kosmos#7032: the Projects tab's badge
