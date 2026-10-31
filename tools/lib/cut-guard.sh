@@ -1338,7 +1338,8 @@ kosmos_refuse_if_machine_claimed() {
 # file's own seams. The gate lock and the turn are found beside KOSMOS_PREPUSH_MACHINE_LOCK, so one seam moves all three
 # (run-tests.sh's /dev/null path makes all three unreadable).
 _kosmos_prepush_lock_file() { printf '%s' "${KOSMOS_PREPUSH_MACHINE_LOCK:-${HOME:-/tmp}/.cache/prepush/machine.lock}"; }
-_kosmos_prepush_dir() { local l; l="$(_kosmos_prepush_lock_file)"; case "$l" in */*) printf '%s' "${l%/*}" ;; *) printf '.' ;; esac; }
+# A lock seam with no folder in it falls back to the hook's own folder, never to the caller's working directory.
+_kosmos_prepush_dir() { local l; l="$(_kosmos_prepush_lock_file)"; case "$l" in */*) printf '%s' "${l%/*}" ;; *) printf '%s' "${HOME:-/tmp}/.cache/prepush" ;; esac; }
 _kosmos_prepush_gate_lock_file() { printf '%s/prepush.gate.lock' "$(_kosmos_prepush_dir)"; }
 _kosmos_prepush_turn_file() { printf '%s/prepush.gate.turn' "$(_kosmos_prepush_dir)"; }
 # _kosmos_prepush_held <lock file>: 0 while a lockf holder holds it (asked twice, a moment apart).
@@ -1357,8 +1358,9 @@ _kosmos_prepush_held() {
 # environment both share moves this with it); else 180, the hook's default grace (120 s) plus 60. A grace raised only
 # where the hook alone reads it still leaves this at 180: then a build idle between steps for longer reads as none.
 _kosmos_prepush_turn_window() {
-  case "${KOSMOS_PREPUSH_TURN_LIVE_S:-}" in ''|*[!0-9]*|0*) ;; *) printf '%s' "$KOSMOS_PREPUSH_TURN_LIVE_S"; return 0 ;; esac
-  case "${KOSMOS_PREPUSH_TURN_GRACE:-}" in ''|*[!0-9]*|0*) printf '180' ;; *) printf '%s' "$(( KOSMOS_PREPUSH_TURN_GRACE + 60 ))" ;; esac
+  # Seven digits at most (115 days): a longer number would overflow the shell's arithmetic and read as no build.
+  case "${KOSMOS_PREPUSH_TURN_LIVE_S:-}" in ''|*[!0-9]*|0*|????????*) ;; *) printf '%s' "$KOSMOS_PREPUSH_TURN_LIVE_S"; return 0 ;; esac
+  case "${KOSMOS_PREPUSH_TURN_GRACE:-}" in ''|*[!0-9]*|0*|????????*) printf '180' ;; *) printf '%s' "$(( KOSMOS_PREPUSH_TURN_GRACE + 60 ))" ;; esac
 }
 # _kosmos_prepush_holders <file>: "pid N: program" for up to three processes holding it open (lsof), for messages only
 # (liveness is the lock). The program name only, never the command line (this goes to logs).
@@ -1370,9 +1372,13 @@ _kosmos_prepush_holders() {
   done
   printf '%s' "$holder"
 }
-# The gate lock counts only while a turn exists (any age). A checkout writes its turn FIRST, before touching anything,
-# so a real step under the gate lock always has one; a queued push answering "wait" in its turn loop takes the gate lock
-# for an instant too, and with a busy queue two such instants can fall 0.3 s apart. With no turn on file, that is no build.
+# The gate lock counts only while a turn exists (any age). A checkout writes its turn before touching the tree, so a
+# step under the gate lock has one from then on; a queued push answering "wait" in its turn loop takes the gate lock for
+# an instant too, and with a busy queue two such instants can fall 0.3 s apart. With no turn on file, that is no build.
+# KNOWN GAP: the checkout reads the machine claim (under the gate lock) BEFORE it writes its turn. In that instant, after
+# the previous gate removed its turn, this reads no build, so a heavy run can claim the box then; the checkout goes on
+# (it already read no claim) and its first cargo step stops with 96. Bounded at one checkout, not a build. Closing it
+# needs the hook to read the claim again after taking its turn (a relay change, kosmos#7674).
 _kosmos_prepush_gate_held() { [ -s "$(_kosmos_prepush_turn_file)" ] && _kosmos_prepush_held "$(_kosmos_prepush_gate_lock_file)"; }
 # _kosmos_prepush_turn_fresh: 0, printing the turn's age in seconds, while the turn was touched within the window.
 _kosmos_prepush_turn_fresh() {

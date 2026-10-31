@@ -190,6 +190,10 @@ kosmos_prepush_build_live && fail "10 CONTROL: the gate lock let go and the turn
 printf 'abc123.4567.1793450000\n' > "$TURNF"
 out="$(WHAT="a heavy run" KOSMOS_QUEUE_CLASS=heavy _qh_clear 2>&1)"; rc=$?
 [ "$rc" != 0 ] && pass "10 queued-heavy's own check waits between a build's steps" || fail "10 _qh_clear let a heavy run in between steps: rc=$rc $out"
+out="$(_rel_prepush 2>&1)"; rc=$?
+rm -f "$(_kosmos_machine_claim_file)"
+[ "$rc" != 0 ] && has "$out" "between two of its steps" && pass "10 release.sh's own wait sees a build between steps, and says so" || fail "10 _rel_prepush between steps: rc=$rc $out"
+KOSMOS_PREPUSH_TURN_LIVE_S=123456789012345678901234 kosmos_prepush_build_live && pass "10 an over-long window value falls back to 180 s (no arithmetic overflow reading as no build)" || fail "10 an over-long window read as no build"
 touch -A -0400 "$TURNF"   # used 4 minutes ago: past the 180 s window
 kosmos_prepush_build_live && fail "10 a turn unused past the window still reads as a build" || pass "10 a turn unused past the window is not a build (a build that went away)"
 KOSMOS_PREPUSH_TURN_GRACE=300 kosmos_prepush_build_live && pass "10 a raised hook grace (300 s) widens the window with it (360 s)" || fail "10 KOSMOS_PREPUSH_TURN_GRACE=300 did not widen the window"

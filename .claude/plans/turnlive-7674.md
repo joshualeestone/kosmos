@@ -12,7 +12,14 @@ and the build stopped at its next step ("Mortals is now claimed ... stopping", 9
 - The turn path is derived from the lock path, so one seam moves both (tests; run-tests.sh's /dev/null path).
 - `kosmos_refuse_if_prepush_build_live` says "between two of its steps" and the turn's age when only the turn is live.
 - No relay change. Only the callers that already wait for a build see the extra time: queued-heavy's `_qh_clear` and a
-  cut's waits. `run-tests.sh` suites never check for a build, so ordinary suites are unaffected.
+  cut's waits. `run-tests.sh` suites never check for a build themselves, BUT a suite queued behind a heavy waiter waits
+  for that waiter (the suite queue is first-come), so when a heavy waiter is held by a push gate, the suites behind it
+  wait out that gate too (15 to 45 min). Before, the heavy run broke in at the first gap between steps (the bug) and the
+  suites behind it moved on soon after. Accepted and named; letting the suite queue pass a heavy waiter whose only
+  blocker is a push build would change the lib's queue order, which is Sonya's call (raised on #6756).
+- Known gap: the checkout reads the claim before it writes its turn, so in that instant a heavy run can still claim and
+  the push loses its checkout (not a build) at its first cargo step. Closing it is a relay change (read the claim again
+  after taking the turn), noted on #7674.
 
 ## Rejected
 - (a) Every push holds a suite-queue place for its gate: every later `yarn test` would wait out every push gate.
