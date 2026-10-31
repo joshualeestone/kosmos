@@ -2328,7 +2328,7 @@ struct KeyboardHold: UIViewRepresentable {
     let rows: RowTops
     // Review 3: told after each put-back, so the chat can read again whether the newest message is on screen.
     var onPutBack: () -> Void = {}
-    // EXPERIMENT kosmos#7654 part 2: the reader's row not drawn at did-show is placed by its id at the fraction of the shown
+    // kosmos#7654 part 2: the reader's row not drawn at did-show is placed by its id at the fraction of the shown
     // band it held (a list whose estimated heights move by thousands of points cannot use the last reading). nil: as before.
     var onRowLost: ((String, CGFloat) -> Void)? = nil
     func makeUIView(context: Context) -> Probe {
@@ -2341,25 +2341,25 @@ struct KeyboardHold: UIViewRepresentable {
 
     final class Probe: UIView {
         // Review 1: a reading taken while `hold` was true is dropped the moment it turns false (the reader reached the newest).
-        var hold = false { didSet { if !hold { if saved != nil || guarding != nil { ChatView.trace("keyboard hold: EXPERIMENT stand down, hold off") }; standDown() } } }
+        var hold = false { didSet { if !hold { standDown() } } }
         var above = 0
         var moves = ""
         var rows: RowTops?
         var onPutBack: () -> Void = {}
         var onRowLost: ((String, CGFloat) -> Void)?
         private var keptScreenTop: CGFloat = 0
-        // EXPERIMENT kosmos#7654: 0.1 s later, the row's fresh place on the screen against where it was at will-show; the offset
+        // kosmos#7654: 0.1 s later, the row's fresh place on the screen against where it was at will-show; the offset
         // takes up the difference (not under a finger).
         private func settleOnScreen(_ id: String) {
             let want = keptScreenTop
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                guard let self, let sv = self.scroll, let r = self.rows?.y[id] else { ChatView.trace("keyboard hold: EXPERIMENT settle, row not drawn"); return }
+                guard let self, let sv = self.scroll, let r = self.rows?.y[id] else { ChatView.trace("keyboard hold: settle, row not drawn"); return }
                 let d = CGFloat(r.top) - want
-                ChatView.trace("keyboard hold: EXPERIMENT settle, row off by \(Int(d))")
+                ChatView.trace("keyboard hold: settle, row off by \(Int(d))")
                 if abs(d) > 1, !sv.isTracking, !sv.isDragging, !sv.isDecelerating { sv.contentOffset.y += d }
             }
         }
-        func standDown() { if saved != nil || guarding != nil { ChatView.trace("keyboard hold: EXPERIMENT stand down") }; saved = nil; endGuard() }
+        func standDown() { saved = nil; endGuard() }
         // The reader's row, its place in the content and the scroll offset when the keyboard started to show, the rows above
         // and the width, and when (review 1: a will-show with no did-show, an iPad's floating keyboard say, must not leave a
         // reading for a later one).
@@ -2452,7 +2452,7 @@ struct KeyboardHold: UIViewRepresentable {
                         let top = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.adjustedContentInset.top), to: nil).y
                         let bottom = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.bounds.height - sv.adjustedContentInset.bottom), to: nil).y
                         let f = bottom > top ? min(1, max(0, (self.keptScreenTop - top) / (bottom - top))) : 0
-                        ChatView.trace("keyboard hold: EXPERIMENT row not drawn at did-show, placed by id at \(String(format: "%.2f", f))")
+                        ChatView.trace("keyboard hold: row not drawn at did-show, placed by id at \(String(format: "%.2f", f))")
                         lost(kept.row, f); self.endGuard()
                         // scrollTo(id, anchor: f) lines up the row's own point f with the band's point f, not its top: once the row is
                         // drawn again, its fresh reading says how far its top is from where it was, and the offset takes that up.
@@ -2465,7 +2465,7 @@ struct KeyboardHold: UIViewRepresentable {
                     self.endGuard(); return
                 }
                 self.putBack(CGFloat(r.content))
-                // EXPERIMENT kosmos#7654: the room's readings of a row's place in the content can be stale while iOS measures rows
+                // kosmos#7654: the room's readings of a row's place in the content can be stale while iOS measures rows
                 // above again (put back to the will-show offset while the content grew 492 pt): check it by where it is on screen.
                 if self.onRowLost != nil { self.settleOnScreen(kept.row) }
                 // Deferred to the next turn of the main queue, so a move made inside a layout pass is answered after it.

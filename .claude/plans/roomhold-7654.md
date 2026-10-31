@@ -21,8 +21,10 @@ from #7645. Stacked on #7666 (the DM's keyboard hold, merged 3d4938ee01) and #76
     its path.
 - A reader at the newest post stays there when the keyboard comes up (iOS 27 had no rule for it: newest at 636, box at
   473), as the DM's keepNewestInView, reading holdAtEnd before the keyboard rises.
-- RoomOpensAtNewestUITests' scrolled-up-at-once check is documented as guarding iOS 16's retries (under the anchor nothing
-  retries, so it passes for that reason).
+- RoomOpensAtNewestUITests' scrolled-up-at-once check says what it now checks: under the anchor nothing retries, so it
+  guards that the anchor does not pull an early scroller back. #7665's 2.3 s retry list (iOS 18 and later) and the scroll
+  cancel are now unreachable, since the anchor covers iOS 17 and later; left in place, named here, for the review to rule on
+  (removing them changes #7665's code inside this PR).
 
 ## Measured (simulator, 10-31)
 - iOS 26.5 (iPhone 17e): the nine room and DM keyboard checks 9/9 in four full runs; read-higher-up 12 of 13 traced or
