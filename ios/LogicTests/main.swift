@@ -3037,6 +3037,67 @@ section("native board loop: connecting")
         c.stop()
     }
 
+    section("native chat: an add that hangs can be stopped, and only in its own chat (kosmos#7682)")
+    do {
+        let (c, w, _, _) = make("kst1")
+        c.start()
+        _ = await settle { isLive(c) }
+        let dana = c.agents.first { $0.session == "dana" }!
+        func picked(_ name: String) -> URL {
+            let folder = testFiles.appendingPathComponent("picked-\(UUID().uuidString)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let file = folder.appendingPathComponent(name)
+            try? Data("bytes".utf8).write(to: file)
+            return file
+        }
+        // A stalled upload: the x clears it at once, and its late answer lands nothing.
+        w.uploadYields = 400
+        let stuck = Task { await c.attach(.file(picked("stuck.pdf")), epoch: c.chatEpoch, to: dana) }
+        _ = await settle { c.uploading["dana"] == 1 }
+        check(c.uploading["dana"] == 1 && (c.uploading["eli"] ?? 0) == 0, "premise: dana's add is going, eli's chat shows none")
+        c.cancelAdding(for: "dana")
+        check((c.uploading["dana"] ?? 0) == 0 && c.attachLine["dana"] == nil, "the x clears the line at once")
+        // A new add after the x is counted on its own, and the cancelled one ending does not take it down.
+        let fresh = Task { await c.attach(.file(picked("fresh.pdf")), epoch: c.chatEpoch, to: dana) }
+        _ = await settle { c.uploading["dana"] == 1 }
+        await stuck.value
+        check(c.uploading["dana"] == 1, "the cancelled add ending leaves the new add's count alone")
+        check(!(c.attached["dana"] ?? []).contains { $0.name == "stuck.pdf" }, "and lands nothing")
+        w.uploadYields = 0
+        await fresh.value
+        check((c.uploading["dana"] ?? 0) == 0 && (c.attached["dana"] ?? []).map(\.name) == ["fresh.pdf"],
+              "the new add lands, and the count is back to none")
+        // Another chat's x touches only its own.
+        w.uploadYields = 400
+        let other = Task { await c.attach(.file(picked("other.pdf")), epoch: c.chatEpoch, to: dana) }
+        _ = await settle { c.uploading["dana"] == 1 }
+        c.cancelAdding(for: "eli")
+        check(c.uploading["dana"] == 1, "eli's x leaves dana's add going")
+        w.uploadYields = 0
+        await other.value
+        check((c.attached["dana"] ?? []).contains { $0.name == "other.pdf" } && (c.uploading["dana"] ?? 0) == 0,
+              "and it lands")
+        // A batch stops at the next pick once cancelled.
+        let gen = c.addGenerationNow(for: "dana")
+        check(!c.addingCancelled(for: "dana", since: gen), "premise: not cancelled yet")
+        c.cancelAdding(for: "dana")
+        check(c.addingCancelled(for: "dana", since: gen) && !c.addingCancelled(for: "eli", since: c.addGenerationNow(for: "eli")),
+              "a batch sees its own chat's x, not another's")
+        // A sign-out with an add in flight, then a new add: the old one ending does not take the new count down.
+        w.uploadYields = 400
+        let before = Task { await c.attach(.file(picked("before.pdf")), epoch: c.chatEpoch, to: dana) }
+        _ = await settle { c.uploading["dana"] == 1 }
+        c.accountChanged()
+        let after = Task { await c.attach(.file(picked("after.pdf")), epoch: c.chatEpoch, to: dana) }
+        _ = await settle { c.uploading["dana"] == 1 }
+        await before.value
+        check(c.uploading["dana"] == 1, "an add from before a sign-out ending leaves a later add's count alone")
+        w.uploadYields = 0
+        await after.value
+        check((c.uploading["dana"] ?? 0) == 0, "and the later add ends at none")
+        c.stop()
+    }
+
     section("native chat: the client's sends and reads, against a fake Mac (kosmos#7008)")
     // kosmos#7093: a project room's files go through the same attach, under the room's own key and its own request
     // (this suite compiles without BoardRoom.swift, so the room's route and key are written out here), and a post that
