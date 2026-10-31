@@ -4321,6 +4321,15 @@ function isGateThrowInTest(e) {
   return require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message));
 }
 function sendJson(res, code, obj) {
+  /* #7686: about two hundred routes answer a failure with sendJson from a catch, and some of those failures happen
+     after the head went out. writeHead then throws inside the catch, nothing handles it, and the board ends for
+     every agent and device on the computer (10-31 11:51). So a second answer ends the broken response instead:
+     the client sees a cut, never a 200 head with a 404 body. Pinned by server.headers-twice-7686.test.js. */
+  if (res.headersSent) {
+    console.error('sendJson after the head was sent: ' + code + ' not written; the response is ended');
+    if (!res.writableEnded) res.destroy();
+    return;
+  }
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(strictStringify(obj));   // #7108: never a lone surrogate, which a strict reader (the iPhone) refuses whole
 }
