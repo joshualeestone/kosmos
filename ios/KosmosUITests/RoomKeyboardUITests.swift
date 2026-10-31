@@ -17,7 +17,6 @@ final class RoomKeyboardUITests: XCTestCase {
         known.issueMatcher = { i in
             ["did not reach the newest post", "was not above the box", "Post 220 of 220."].contains { i.compactDescription.contains($0) }
         }
-        XCTExpectFailure("kosmos#7654 part 2: on iOS 26 a person's scroll stops short of a long room's end", options: known)
         let app = Self.launch([:])
         let box = Self.box(app)
         for _ in 0..<6 { app.swipeUp(velocity: .fast) }
@@ -31,7 +30,7 @@ final class RoomKeyboardUITests: XCTestCase {
 
     // KOSMOS_SAMPLE_ROOM_SCROLLUP moves the reader up the room 3 s after opening, as a reader's own scroll does.
     func testRoomReadHigherUpStaysWhereItWas() throws {
-        let app = Self.launch(["KOSMOS_SAMPLE_ROOM_SCROLLUP": "40"])
+        let app = Self.launch(["KOSMOS_SAMPLE_ROOM_SCROLLUP": "40", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         let rows = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'"))
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15), "no sample posts")
