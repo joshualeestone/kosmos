@@ -432,7 +432,7 @@ async function pbShot(page, state, price = '$5/month') {
     reports: [], backsUp: [], readers: ['you, on your own computers'], never: ['keys and passwords'] } }));
   await page.route('**/api/personal-backup/on', json({ ok: true, code: 'K7QD-3MXA-9VPE-H2NW-4TBR-6YC8-JF', org: 'org_sample', member: 'm_sample' }));
   await at(page, '?tab=settings&sec=plus');
-  await page.waitForSelector(state === 'on' ? '#pb-onview' : '#pb-off', { state: 'visible', timeout: 10000 });
+  await page.waitForSelector(state === 'off' ? '#pb-off' : '#pb-onview', { state: 'visible', timeout: 10000 });
   await pbTop(page);
 }
 async function pbTop(page) { await page.evaluate(() => document.getElementById('pb').scrollIntoView({ block: 'start' })); }
@@ -1739,6 +1739,10 @@ const SCREENS = [
     await page.click('#pb-on'); await page.waitForSelector('#pb-words', { state: 'visible', timeout: 10000 });
     await page.click('#pb-accept'); await page.waitForSelector('#pb-code', { state: 'visible', timeout: 10000 }); await pbTop(page); } },
   { name: 'pb-on', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on'); } },
+  { name: 'pb-pending', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'pending'); } },
+  { name: 'pb-needs-key', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'needs-key'); } },
+  { name: 'pb-off-ask', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on');
+    await page.click('#pb-off-btn'); await page.waitForSelector('#pb-off-ask', { state: 'visible', timeout: 10000 }); await pbTop(page); } },
   // Restore review: a wrong code, its sentence, and the typed code kept in the field (a sample, one group mistyped).
   { name: 'pb-restore-wrong', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off');
     await page.route('**/api/personal-backup/restore', (r) => r.fulfill({ status: 200, contentType: 'application/json',
