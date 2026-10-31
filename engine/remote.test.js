@@ -2749,6 +2749,73 @@ test('#6389: a retire Kosmos+ refused outright is final: Remove wipes the key, n
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });
 
+/* kosmos-relay#614: a Forget that wipes the key while the computer stays on the account notes the computer for the
+   community sweep, which clears its agents' owner links. Read from the file the sweep reads. */
+const ownerUnlinkNoted = () => {
+  try { return JSON.parse(fs.readFileSync(require('./communitysend')._paths.ownerUnlinkFile(), 'utf8')); } catch { return {}; }
+};
+async function registeredFor614(mode) {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  fs.rmSync(require('./communitysend')._paths.ownerUnlinkFile(), { force: true });
+  // The fake tunnel names a computer mac-<name>; the coordinator's ids are 32 lowercase hex (util::new_id), which is
+  // what the site's clear takes. Write one, as a real register would have.
+  const dir = process.env.AGENT_WORKFORCE_TUNNEL_STATE || nodePath.join(DATA_ROOT, 'remote');
+  fs.writeFileSync(nodePath.join(dir, 'mac_id'), require('node:crypto').randomBytes(16).toString('hex'));
+  const mac = remote.macIdHere();
+  assert.match(String(mac), /^[0-9a-f]{32}$/, 'fixture: a computer id of the coordinator\'s shape');
+  process.env.FAKE_TUNNEL_MODE = mode;
+  return mac;
+}
+
+test('kosmos-relay#614: Remove from this computer only, after a retire with no answer, notes the computer for clearing', async () => {
+  const mac = await registeredFor614('retire-5xx');
+  try {
+    const got = await remote.forget({ anyway: true });
+    assert.equal(got.retired, false, 'fixture: not retired');
+    assert.equal(remote.enrolled(), false, 'fixture: the key went');
+    assert.deepEqual(Object.keys(ownerUnlinkNoted()), [mac], 'the computer was not noted');
+    assert.doesNotMatch(got.because, /community/, 'no agent was linked, so nothing is said about the community');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
+test('kosmos-relay#614: a retire refused for good notes the computer too', async () => {
+  const mac = await registeredFor614('retire-401-other');
+  try {
+    const got = await remote.forget();
+    assert.equal(got.retired, false, 'fixture: refused');
+    assert.deepEqual(Object.keys(ownerUnlinkNoted()), [mac]);
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
+test('kosmos-relay#614 CONTROL: a retired computer, and a kept Remove, note nothing', async () => {
+  await registeredFor614('retire-down');
+  try {
+    assert.equal((await remote.forget()).kept, true, 'fixture: kept');
+    assert.deepEqual(ownerUnlinkNoted(), {}, 'a kept Remove (the key is still here) noted the computer');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  const got = await remote.forget();   // the fake tunnel retires it now
+  assert.equal(got.retired, true, 'fixture: retired');
+  assert.deepEqual(ownerUnlinkNoted(), {}, 'a retired computer was noted: owner-live already ends its links');
+});
+
+test('kosmos-relay#614: with an agent linked through this computer, the answer says its agents leave the owner page', async () => {
+  const mac = await registeredFor614('retire-5xx');
+  try {
+    const cs = require('./communitysend');
+    const keysFile = cs._paths.keysFile();
+    fs.mkdirSync(nodePath.dirname(keysFile), { recursive: true });
+    fs.writeFileSync(keysFile, JSON.stringify({ ava: { name: 'ava', apiKey: 'k', token: 't', ownerLinked: mac + ':0123456789abcdef' } }));
+    const got = await remote.forget({ anyway: true });
+    assert.match(got.because, /Its agents leave the page of your agents' community posts once Kosmos can reach the community/, got.because);
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    fs.rmSync(require('./communitysend')._paths.keysFile(), { force: true });   // no stray agent for later tests
+  }
+});
+
 test('#3827: the older Settings setup is refused while a register is in flight', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   process.env.FAKE_TUNNEL_MODE = 'slow-register';
