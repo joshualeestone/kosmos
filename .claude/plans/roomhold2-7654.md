@@ -61,3 +61,15 @@ takes #7675's and keeps only the room's changes (RoomView.swift, the two room UI
   row; the next toEnd sets it). Comments for "animated", endRetries and the debug scroll-up now say which iOS they describe.
   Left: the room's hold traces land in the DM's diagRing under the DM's label, and the room read-higher test runs without
   KOSMOS_SAMPLE_TRACE. Both diagnostic-only; go on #7688's sibling card if a later round raises them again.
+
+## Review round 2 (10-31, sonnet): no BLOCKER; what changed
+- W1 fixed by narrowing: the room anchors on a post id only from iOS 26 (RoomView.idAnchor), where KeyboardHold runs and
+  where it was measured. iOS 17 to 25 keep main's room (position retries, no hold), so the anchor-without-hold case the
+  review named cannot happen there. The DM's own anchor from iOS 17 (#7265) is untouched.
+- W2: RoomOpensAtNewestUITests added to this round's run on iOS 27 and 26.5 (results below once measured). On iOS 26+
+  its fourth check (scrolled up at once is not pulled back) has little left to catch, since goEnd makes no retries there;
+  it still guards iOS 18 to 25 in CI terms and the NOPOSID control. Named, not re-aimed.
+- W3: the room's keyboard checks are not in CI: follow-up card to add them after one by-hand CI run.
+- NIT 1 fixed: the queued re-set to the end (toEnd, goEnd) checks appMoves, so a toRow in that turn is not undone.
+- NIT 2 fixed: the 0.1 s end-marker check carries a token (endShows), so a flash away and back cannot confirm early.
+- NIT 3 moot after W1 (the retries run again on iOS 18 to 25). NIT 4 (rowTops never reset) left: ids differ per project.
