@@ -24,8 +24,8 @@ offset or the content height, so this has not been checkable.
   place (plus "rows said to appear N", named as what it is) instead of "messages on screen again".
 - Recovery (recoverEmpty): if the scroll is outside its content, put it at the content's end, then go to the newest message
   as before. Reported once per chat as before, but recovered every time the list is found empty, except while the person scrolls
-  (and backInside never acts under a finger). After going to the newest message, "end" is named again on the next turn in
-  case the direct offset write made SwiftUI write a row into the binding. A repeat recovery leaves the trace line
+  (personScrolling on iOS 18+, and UIKit's tracking, dragging or decelerating on every iOS: ScrollBox.underFinger). After going to the newest message, "end" is named again on the next turn in
+  case the direct offset write made SwiftUI write a row into the binding, unless a finger is on the list by then. A repeat recovery leaves the trace line
   "diag: empty again, put right", so the record counts them.
 
 ## Rejected

@@ -814,7 +814,7 @@ struct ChatView: View {
         guard visible, scenePhase == .active else { return }
         // kosmos#7420 (build 22, 10-30): reported once per chat, but an empty list is put right every time it is found.
         if recover, diagDone {
-            if !personScrolling { Self.trace("diag: empty again, put right"); recoverEmpty(proxy) }
+            if !personScrolling, !scrollBox.underFinger { Self.trace("diag: empty again, put right"); recoverEmpty(proxy) }
             return
         }
         guard recover || !diagWideDone else { return }
@@ -845,7 +845,7 @@ struct ChatView: View {
         if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") }
         goNewest(proxy)
         // The move above may have made SwiftUI name a row in the binding, which goNewest's own put-back leaves alone.
-        if Self.idAnchor { DispatchQueue.main.async { if positionId != "end" { positionId = "end" } } }
+        if Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !scrollBox.underFinger { positionId = "end" } } }
     }
 
     // kosmos#7575: when this chat open had a sideways shift, one report to the person's board (numbers and kind words,
@@ -2546,6 +2546,8 @@ struct PositionTargets: ViewModifier {
 // and putting an offset outside the content back at its end.
 final class ScrollBox {
     weak var view: UIScrollView?
+    // UIKit's own reading, on every iOS (personScrolling is set only on 18 and later).
+    var underFinger: Bool { guard let sv = view else { return false }; return sv.isTracking || sv.isDragging || sv.isDecelerating }
     func reading() -> (line: String, place: String, end: Double)? {
         guard let sv = view else { return nil }
         let i = sv.adjustedContentInset
@@ -2554,9 +2556,10 @@ final class ScrollBox {
         return ("scroll y \(Int(sv.contentOffset.y)), content \(Int(sv.contentSize.height)), view \(Int(sv.bounds.height)), insets \(Int(i.top))/\(Int(i.bottom)): \(p.place)",
                 p.place, p.end)
     }
-    // Outside either way it goes to the end, since the newest message follows. Never under a finger. True when it moved it.
+    // Outside either way it goes to the end, since the newest message follows. The end is read from the content's size now,
+    // which for lazy rows is an estimate; goNewest corrects it on the next turn. Never under a finger. True when it moved it.
     func backInside() -> Bool {
-        guard let sv = view, !sv.isTracking, !sv.isDragging, !sv.isDecelerating, let r = reading(), r.place != "within" else { return false }
+        guard let sv = view, !underFinger, let r = reading(), r.place != "within" else { return false }
         sv.contentOffset = CGPoint(x: -sv.adjustedContentInset.left, y: CGFloat(r.end))
         return true
     }
