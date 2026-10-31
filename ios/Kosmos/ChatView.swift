@@ -844,7 +844,8 @@ struct ChatView: View {
         let scrolling = personScrolling || scrollBox.underFinger
         switch Board.emptyRecovery(later: later, place: scrollBox.reading()?.place, scrolling: scrolling) {
         case .none: return
-        case .backInsideThenNewest: if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") }
+        case .backInsideThenNewest:
+            if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") } else if later { return }   // it came back inside meanwhile
         case .newest: break
         }
         goNewest(proxy)
@@ -2622,6 +2623,7 @@ struct SideScrollLock: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
+            if window == nil { box?.view = nil }   // kosmos#7420: no stale scroll view for the diagnostic
             if window == nil { wasShifted = shifted }   // kosmos#7575 review 3: remembered across the move
             watch = nil; shifted = false; fixing = false; quick = 0; generation &+= 1
             guard window != nil else { return }
