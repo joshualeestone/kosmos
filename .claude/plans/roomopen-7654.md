@@ -95,3 +95,8 @@ the cancel check skips below iOS 18 (no scroll phase there). A full ui-sample ru
 Round 3 review 3: the cancel check stretches the retries ten times (last at 23 s) and skips, saying why, if its swipe would
 start more than 18 s after launch (it would then test nothing). ui-sample counts a skipped check as run and names the
 skips in its PASS line ("N of them SKIPPED: a skip tested nothing"). Trade-off adds the status-bar tap (animating phase).
+Round 3 review 4: on GitHub Actions a skipped UI check is also a ::warning:: annotation on the run, so a green job that
+tested less shows it; the cancel check is best-effort on a slow runner (it skips if its swipe would start after 18 s).
+Reasoned, not measured: loadOlder (which cancels the opening retries) runs from the settled-at-bottom path only while the
+top's older-posts line shows, i.e. the whole loaded page is on screen, where no retry is needed; a long real room (older
+pages, its top off screen) keeps its retries. The sample room has no older pages, so no check covers that interaction.
