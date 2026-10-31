@@ -104,3 +104,6 @@ part-2 messages, so any other failure there shows; the claim that iOS 16 and 17 
 main (main made one jump; this adds a half-second window there), corrected in the code and here.
 Both arms on the current cancel check (ten-times stretch, 18 s guard, 24 s wait), commit 5190cba0fd, iOS 26.5: with the
 change PASS; CONTROL (cancel removed) FAILS "the room pulled the reader back to its newest post after their own scroll".
+Round 3 arms on the final code (a3b1bbb222, iOS 26.5): with the change, RoomOpensAtNewest 4 of 4 PASS; CONTROL (cancel
+removed) 3 PASS and the cancel check FAILS. RoomKeyboardUITests' known part-2 failure also surfaced as a failed lookup of
+Post 220 inside a helper (not one of the two matched messages), so the matcher includes that lookup too.
