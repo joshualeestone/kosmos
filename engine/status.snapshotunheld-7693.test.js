@@ -133,3 +133,90 @@ test('#7693: GET /api/status is the route that uses it', () => {
   assert.ok(at > 0, 'the route was not found');
   assert.match(src.slice(at, at + 200), /const snap = await snapshotUnheld\(\);/);
 });
+
+test('#7693: the budget of live reads is shared by requests on one gather', async () => {
+  const many = Array.from({ length: 6 }, (_, i) => `p${i}-discord\t0.0\t2.1.212\t0\t\t\t`).join('\n');
+  let open;
+  const gate = new Promise((r) => { open = r; });
+  st.setPaneSource(() => many);
+  st.setCaptureAsync(() => gate.then(() => null));
+  try {
+    const both = [st.snapshotUnheld(), st.snapshotUnheld()];
+    await new Promise((r) => setImmediate(r));
+    open();
+    const [a, b] = await Promise.all(both);
+    const remembered = (x) => x.agents.filter((c) => c.screenRead === 'remembered').length;
+    assert.equal(remembered(a) + remembered(b), 12 - 3, 'three live reads between the two');
+  } finally { st.setPaneSource(null); st.setCaptureAsync(undefined); }
+});
+
+test('#7693: a pane that has not answered gets no live read', async () => {
+  await withSeams((target) => (target.startsWith('one') ? new Promise(() => {}) : Promise.resolve(ASKING)), async () => {
+    const board = await st.snapshotUnheld();
+    assert.equal(board.agents.find((a) => a.sessionName === 'one').screenRead, 'remembered');
+  });
+});
+
+test('#7693: a list that cannot be read is the honest error, with no capture run', async () => {
+  let asked = 0;
+  st.setPaneSource(() => null);
+  st.setCaptureAsync(() => { asked += 1; return Promise.resolve(ASKING); });
+  try {
+    await assert.rejects(st.snapshotUnheld(), /could not see/);
+    assert.equal(asked, 0);
+  } finally { st.setPaneSource(null); st.setCaptureAsync(undefined); }
+});
+
+test('#7693: a pane the gather has no text for keeps its unsent record: only the live-read panes lose theirs', async () => {
+  const many = Array.from({ length: 5 }, (_, i) => `p${i}-discord\t0.0\t2.1.212\t0\t\t\t`).join('\n');
+  const SCREEN = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'test-support', 'composer-6249', 'typed-long.ansi'), 'utf8');
+  const BOX = SCREEN.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+  let ansi = 0;
+  st.setAnsiCapture(() => { ansi += 1; return SCREEN; });
+  st.setPaneSource(() => many);
+  st.setPaneCapture(() => BOX);
+  try {
+    st.snapshot();
+    assert.equal(ansi, 5, 'each box read once to start');
+    st.snapshot();
+    assert.equal(ansi, 5, 'CONTROL: the same box is not read again');
+    st.setPaneCapture(null);
+    st.setCaptureAsync(() => Promise.resolve(null));
+    await st.snapshotUnheld();   // three live reads (no such panes, so no text), two held
+    st.setPaneCapture(() => BOX);
+    st.snapshot();
+    assert.equal(ansi, 8, 'the three that read nothing start again; the two held ones did not');
+  } finally {
+    st.setPaneSource(null); st.setPaneCapture(null); st.setCaptureAsync(undefined); st.setAnsiCapture(null); st.resetUnsentForTests();
+  }
+});
+
+test('#7693: the board\'s thread turns while a real (fake, slow) tmux answers, and the board is built from its text', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unheld-7693-'));
+  const bin = path.join(dir, 'tmux');
+  fs.writeFileSync(bin, `#!/bin/sh
+for a in "$@"; do
+  case "$a" in
+    list-panes) printf 'one-discord\\t0.0\\t2.1.212\\t0\\t\\t\\t\\n'; exit 0 ;;
+    capture-pane) sleep 0.8; printf 'Do you want to proceed?\\n\\342\\235\\257 1. Yes\\n  2. No\\n'; exit 0 ;;
+  esac
+done
+exit 0
+`, { mode: 0o755 });
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  process.env.AGENT_WORKFORCE_TMUX_BIN = bin;
+  let longest = 0, last = 0, running = true;
+  const spin = () => { const t = Date.now(); if (last) longest = Math.max(longest, t - last); last = t; if (running) setImmediate(spin); };
+  try {
+    setImmediate(spin);
+    const board = await st.snapshotUnheld();
+    running = false;
+    assert.ok(longest < 500, `the board's thread was held for ${longest} ms`);
+    assert.equal(stateOf(board, 'one'), 'needs_you');
+  } finally {
+    running = false;
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

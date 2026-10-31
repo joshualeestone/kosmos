@@ -1701,8 +1701,11 @@ function captureArgs(target, lines) { return ['capture-pane', '-p', '-J', '-t', 
    - the gather waits GATHER_WAIT_MS at most, so one hung pane cannot hold the answer; captures all start together, so they are
      all as young;
    - text older than GATHERED_MAX_AGE_MS when the snapshot is built is used, and marked as a remembered reading (#5949), not
-     re-read; so is a pane with no text once GATHER_LIVE_READS live reads are spent;
-   - a pane mid-restart (a disruption record) is read live: its card must not go idle off the dead session's screen. */
+     re-read;
+   - GATHER_LIVE_READS is the most live reads one gather pays for, shared by every request using it. They go to a pane mid-restart
+     (a disruption record: its card must not go idle off the dead session's screen) and a capture that failed. A pane that has
+     not answered does not get one (it is the slowest to read), and past the budget no text is read: a held null reads unknown;
+   - a list that could not be read is the board's honest "could not see" error, not the blocking round (review 3). */
 const CAPTURE_LINES = 40;
 const GATHER_WAIT_MS = 2500;
 const GATHERED_MAX_AGE_MS = 3000;
@@ -1712,25 +1715,29 @@ let gathering = null;
 const liveCaptureAsync = (target, lines) => shDetailAsync(tmuxBin(), captureArgs(target, lines)).then((got) => (got.ran && got.status === 0 ? got.out : null));
 let captureAsync = liveCaptureAsync;
 function setCaptureAsync(fn) { captureAsync = typeof fn === 'function' ? fn : liveCaptureAsync; }   // the tests' seam
-function snapshotCapture(pane) {
-  if (!gathered) return capturePane(pane.target);
-  if (disruption.active(pane.name)) return capturePane(pane.target);
-  const text = gathered.texts.get(pane.target);
-  if (text !== null && text !== undefined) {
-    if (Date.now() - gathered.at > GATHERED_MAX_AGE_MS) gathered.held.add(pane.target);
-    return text;
-  }
-  if (gathered.liveLeft > 0) { gathered.liveLeft -= 1; return capturePane(pane.target); }
+function gatheredOld() { return !!gathered && Date.now() - gathered.at > GATHERED_MAX_AGE_MS; }
+function gatherLiveRead(pane) {
+  if (gathered.budget.left > 0) { gathered.budget.left -= 1; return capturePane(pane.target); }
   gathered.held.add(pane.target);
   return null;
 }
+function snapshotCapture(pane) {
+  if (!gathered) return capturePane(pane.target);
+  if (disruption.active(pane.name)) return gatherLiveRead(pane);
+  const text = gathered.texts.get(pane.target);
+  if (text === null) return gatherLiveRead(pane);
+  if (text === undefined) { gathered.held.add(pane.target); return null; }
+  if (gatheredOld()) gathered.held.add(pane.target);
+  return text;
+}
 function gatheredNote(target) { return gathered && gathered.held.has(target) ? { held: true } : null; }
 async function gatherCaptures() {
-  const out = paneSource ? paneSource() : await tmuxPanesAsync();
-  if (out === null || out === undefined) return null;
-  const panes = onePanePerSession(readPanes(out).panes);
   const at = Date.now();
   const texts = new Map();
+  const budget = { left: GATHER_LIVE_READS };
+  const out = paneSource ? paneSource() : await tmuxPanesAsync();
+  if (out === null || out === undefined) return { out: null, texts, at, budget };
+  const panes = onePanePerSession(readPanes(out).panes);
   let timer;
   await Promise.race([
     Promise.all(panes.map((pane) => Promise.resolve().then(() => captureAsync(pane.target, CAPTURE_LINES))
@@ -1738,14 +1745,14 @@ async function gatherCaptures() {
     new Promise((resolve) => { timer = setTimeout(resolve, GATHER_WAIT_MS); }),
   ]);
   clearTimeout(timer);
-  return { out, texts, at };
+  return { out, texts, at, budget };
 }
 async function snapshotUnheld() {
   if (paneCapture) return snapshot();   // a test seam, or a Windows board's own capture
-  if (!gathering) gathering = gatherCaptures().catch(() => null).finally(() => { gathering = null; });
+  if (!gathering) gathering = gatherCaptures().catch(() => ({ out: null, texts: new Map(), at: Date.now(), budget: { left: 0 } })).finally(() => { gathering = null; });
   const got = await gathering;
   await new Promise((resolve) => { setImmediate(resolve); });   // requests sharing a gather each take their own turn of the loop
-  gathered = got && { ...got, liveLeft: GATHER_LIVE_READS, held: new Set() };
+  gathered = { ...got, held: new Set() };
   try { return snapshot(); } finally { gathered = null; }
 }
 
@@ -1858,6 +1865,12 @@ function deliveryStallOf(pane, status) {
    is captured again with colours, and only when what it shows changed since the last colour read. */
 function unsentInputOf(pane, text, now = Date.now()) {
   const name = pane && pane.name;
+  /* #7693: a gather with no text for this pane saw nothing, so it keeps what is known: dropping it would re-read every box next
+     time and restart the clock. */
+  if (text === null && pane && gatheredNote(pane.target)) {
+    const held = unsentSeen.get(name);
+    return held && now - held.since >= UNSENT_SHOW_MS ? { since: new Date(held.since).toISOString() } : null;
+  }
   const claude = !!pane && (!pane.runner || pane.runner === 'claude')
     && !isCodexCommand(pane.command) && !isGrokCommand(pane.command) && !isAntigravityCommand(pane.command);
   const plain = claude ? plainBoxText(text) : '';
@@ -9233,8 +9246,9 @@ function snapshot() {
   const panes = onePanePerSession(read);
   // #5805 3b review 2: agents gone from this pass are no longer captured (not on an empty read: a failed listing must
   // not make every limit row read late).
-  if (panes.length) limitCaptureSweep(panes.map((pane) => pane.name));
-  if (panes.length) unsentSweep(panes.map((pane) => pane.name));   // #6249 round 1 (not on an empty read, as above)
+  // #7693: not on a gathered list that has gone old: a pane since started would lose its row.
+  if (panes.length && !gatheredOld()) limitCaptureSweep(panes.map((pane) => pane.name));
+  if (panes.length && !gatheredOld()) unsentSweep(panes.map((pane) => pane.name));   // #6249 round 1 (not on an empty read, as above)
   const agents = panes.map((pane) => {
     const text = snapshotCapture(pane);
     /* #5949: a Windows agent's state can be its LAST GOOD reading, held through a short gap in
