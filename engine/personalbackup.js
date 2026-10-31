@@ -8,7 +8,8 @@
  *      show, their hash and the computer salt. It binds nothing.
  *   2. switchOn(ticket, true): the existing codeless enroll binds THIS computer as the org's enrolled computer, through
  *      engine/orgenroll.js, then engine/personalbackupkey.js makes the backup key and the recovery code to show.
- *   3. (later slices) the backup job, and the screens.
+ *   3. the backup job: mayBackUp and runJob below, driven hourly by engine/backuptick.js startPersonal. Its keys and its
+ *      state sit with the company path's, per (org, member), so nothing here reads another org's.
  *
  * Kept apart from the company enrollment ON PURPOSE (the plan's option C): every orgenroll call here runs under this
  * module's own data root, so the company readers (rollups, agent events, company policy, the hourly refresh), which read
@@ -427,6 +428,44 @@ function state(opts = {}) {
   } catch { return 'needs-key'; }
 }
 
+/* pbjob-7404: may the backup job upload now? All of: the board offers it; on, with its key here and its code confirmed;
+   the words accepted here, and they name something backed up (words that say nothing goes up can never upload); and no
+   company backup here, so the two never run side by side. Asked when a run starts, as the company's mayBackUp is. */
+function mayBackUp(opts = {}) {
+  try {
+    if (!(opts.offer || require('./personalbackupoffer').offer)().shown) return false;
+    if (state(opts) !== 'on') return false;
+    const oe = opts.orgenroll || require('./orgenroll');
+    const eo = enrollOpts(opts);
+    if (oe.mayReport(eo) !== true) return false;
+    const words = oe.acceptedConsent(eo);
+    if (!words || !Array.isArray(words.backsUp) || !words.backsUp.length) return false;
+    return oe.mayReport() !== true;
+  } catch { return false; }
+}
+/* backuprun's ensureMemberKey for this backup: the key step reads, for this record's org only. */
+function jobKey(opts = {}) {
+  return (o = {}) => {
+    const rec = record(opts);
+    if (!rec) return Promise.resolve({ ok: false, because: 'Personal backup is not on for this computer.' });
+    const pk = opts.personalbackupkey || require('./personalbackupkey');
+    return pk.personalKeyForJob(rec.org.id, { lostEpoch: o.lostEpoch, macRequest: opts.macRequest });
+  };
+}
+/* One run under this backup's key. Kosmos+ refusing the words (they changed): the hash here goes, so mayBackUp is false
+   and no later run walks every file to be refused the same way; the person accepts again from the panel. */
+async function runJob(input, opts = {}) {
+  const run = opts.runBackup || require('./backuprun').runBackup;
+  const r = await run(input, { ensureMemberKey: jobKey(opts) });
+  if (r && !r.ok && typeof r.because === 'string' && /\borg_consent_changed\b/.test(r.because)) {
+    const oe = opts.orgenroll || require('./orgenroll');
+    const eo = enrollOpts(opts);
+    const rec = record(opts);
+    try { if (rec && rec.consentHash) await oe.consentWithdrawn(eo, rec.consentHash); } catch { /* asked again next run */ }
+  }
+  return r;
+}
+
 /** Whether this computer holds a personal backup's enrollment, from this module's own record only. */
 function isOn(opts = {}) { return !!record(opts); }
 function record(opts) {
@@ -524,4 +563,4 @@ async function switchOff(opts = {}) {
   return { ok: false, because: 'Kosmos+ could not be reached just now. Personal backup is still on; try again in a minute.' };
 }
 
-module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, restore, state, isOn, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; LAST_SETTLE = 0; } };
+module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, restore, state, isOn, mayBackUp, runJob, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; LAST_SETTLE = 0; } };

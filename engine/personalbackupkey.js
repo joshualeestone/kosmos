@@ -36,7 +36,7 @@
  * leave no single code that restores everything. A new code means re-wrapping every epoch to it, not a new epoch.
  *
  * Not here: turning personal backup on and showing its words (POST /v1/mac/personal-backup, then the codeless
- * enroll), the backup job choosing this path over ensureMemberKey, a new epoch, and the screens. All of it stays behind
+ * enroll), a new epoch, and the screens. All of it stays behind
  * KOSMOS_PERSONAL_BACKUP on the coordinator (off).
  *
  * Calls run one at a time in this process. Never throws: answers { ok: true, ... } or { ok: false, because, code? },
@@ -266,6 +266,29 @@ async function restoreNow(code, opts) {
   } catch { return refused('restoring the backup keys failed on this computer'); }
 }
 
+/** kosmos#7404 (pbjob-7404): the backup job's key step, in place of ensureMemberKey (whose company-key read Kosmos+ refuses
+    for a personal org for good). It only reads: the newest epoch Kosmos+ lists for `orgId`, answered when this computer
+    holds that same registered key. It never registers and never starts an epoch, because a new epoch has to be wrapped
+    to the person's recovery code, which this computer does not keep. Sealing needs the public key alone.
+    { ok: true, epoch, publicKey, org, member }, or { ok: false, because, unreadableKeyFile?, refusal? }. */
+function personalKeyForJob(orgId, opts = {}) { return serial(() => jobKeyNow(orgId, opts)); }
+async function jobKeyNow(orgId, opts) {
+  try {
+    const read = await readContext(macRequestOf(opts));
+    if (!read.ok) return Object.assign({ ok: false, because: read.because }, read.code ? { refusal: { code: read.code } } : {});
+    const { org, member, rows } = read.ctx;
+    if (typeof orgId !== 'string' || org !== orgId) return refused('this account is no longer in the personal backup on this computer, so nothing was backed up');
+    const row = rows.reduce((a, b) => (!a || b.epoch > a.epoch ? b : a), null);
+    if (!row) return refused('this backup has no key on Kosmos+ yet, so nothing was backed up');
+    const kept = memberkeys.readKeys(org, member);
+    if (!kept.ok) return { ok: false, unreadableKeyFile: true, because: 'the backup key file on this computer could not be read; it was left as it is' };
+    const k = kept.keys[String(row.epoch)];
+    if (!k || !k.registered || !k.pk.equals(row.memberPk)) return refused('this computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Restore it with your recovery code');
+    if (opts.lostEpoch === row.epoch) return refused('Kosmos+ asked for a newer key than this backup lists, so nothing was backed up');
+    return { ok: true, epoch: row.epoch, publicKey: row.memberPk, org, member };
+  } catch { return refused('the backup key could not be read on this computer'); }
+}
+
 /** kosmos#7404 (personalswitch-7404 review 5): whether a recovery code is still waiting to be confirmed for (org,
     member), read locally. True for an unreadable file too: setup then stops and says so rather than look finished. */
 function hasPendingCode(org, member) {
@@ -273,4 +296,4 @@ function hasPendingCode(org, member) {
   return readPending(org, member) !== null;
 }
 
-module.exports = { setUpPersonalKey, confirmRecoveryCodeSaved, restorePersonalKey, hasPendingCode, MINE_ROUTE };
+module.exports = { setUpPersonalKey, confirmRecoveryCodeSaved, restorePersonalKey, personalKeyForJob, hasPendingCode, MINE_ROUTE };
