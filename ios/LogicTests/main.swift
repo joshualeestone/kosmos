@@ -4994,6 +4994,15 @@ do {
     check(Board.scrollPlace(offset: 0, content: 300, view: 700, insetTop: 0, insetBottom: 0) == ("within", 0, 0), "content shorter than the view: its end is its top")
     check(Board.scrollPlace(offset: 1380.8, content: 2000, view: 700, insetTop: 0, insetBottom: 80).place == "within", "under a point over is not outside (rounding)")
     check(Board.scrollPlace(offset: -101, content: 2000, view: 700, insetTop: 100, insetBottom: 0).place == "within" && Board.scrollPlace(offset: -101.5, content: 2000, view: 700, insetTop: 100, insetBottom: 0).place == "before the top", "the same point of tolerance at the top")
+    check(Board.emptyRecovery(reported: false, place: "within", scrolling: false) == .newest && Board.emptyRecovery(reported: false, place: nil, scrolling: false) == .newest,
+          "the first empty list goes to the newest message as before, the scroll left alone when within or unread")
+    check(Board.emptyRecovery(reported: false, place: "past the end", scrolling: false) == .backInsideThenNewest && Board.emptyRecovery(reported: false, place: "before the top", scrolling: false) == .backInsideThenNewest,
+          "the first one puts a scroll outside its content back first")
+    check(Board.emptyRecovery(reported: false, place: "past the end", scrolling: true) == .newest, "never moves the scroll under a finger")
+    check(Board.emptyRecovery(reported: true, place: "past the end", scrolling: false) == .backInsideThenNewest, "a later empty list past the content's end is put right")
+    check(Board.emptyRecovery(reported: true, place: "within", scrolling: false) == .none && Board.emptyRecovery(reported: true, place: "before the top", scrolling: false) == .none && Board.emptyRecovery(reported: true, place: nil, scrolling: false) == .none,
+          "a later one within, before the top (maybe a bounce) or unread pulls nobody to the newest")
+    check(Board.emptyRecovery(reported: true, place: "past the end", scrolling: true) == .none, "and never while the person scrolls")
 
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
