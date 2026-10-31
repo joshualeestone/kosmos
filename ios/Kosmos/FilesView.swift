@@ -158,52 +158,50 @@ struct FilesRow: View {
 struct FilesSection: View {
     @ObservedObject var client: BoardClient
     let session: String
-    let read: Board.FilesRead?
+    let state: Board.FilesSectionState
     @ObservedObject var opener: FileOpener
     let openOnBoard: () -> Void
 
     var body: some View {
-        Section {
-            switch read {
-            case nil:
-                ProgressView()
-            case .noAnswer?:
-                Text(Board.filesCannotRead).foregroundColor(Palette.secondary)
-            case .refused(let why)?:
-                Text(why).foregroundColor(Palette.secondary)
-            case .page(let page)?:
-                if page.files.isEmpty {
-                    Text(Board.filesAgentEmpty).foregroundColor(Palette.secondary)
-                } else {
-                    ForEach(page.files) { f in
-                        FilesRow(file: f, shownName: f.shownName, opening: opener.opening == f.name) {
-                            opener.open(f, owner: .agent(session), client: client, openOnBoard: openOnBoard)
-                        }
+        switch state {
+        case .hidden:
+            EmptyView()
+        case .message(let line):
+            Section {
+                Text(line).foregroundColor(Palette.secondary)
+            } header: { header }
+        case .rows(let files):
+            Section {
+                ForEach(files) { f in
+                    FilesRow(file: f, shownName: f.shownName, opening: opener.opening == f.name) {
+                        opener.open(f, owner: .agent(session), client: client, openOnBoard: openOnBoard)
                     }
                 }
-            }
-            if let failed = opener.failed { Text(failed).foregroundColor(Palette.secondary) }
-            NavigationLink {
-                FilesView(client: client, owner: .agent(session), openOnBoard: openOnBoard)
-            } label: {
-                Text(Board.filesAll).foregroundColor(Palette.primary)
-            }
-            .accessibilityIdentifier("agent-files-all")
-        } header: {
-            Text(Board.filesTitle).font(.footnote.weight(.semibold)).foregroundColor(Palette.secondary).textCase(nil)
+                if let failed = opener.failed { Text(failed).foregroundColor(Palette.secondary) }
+                NavigationLink {
+                    FilesView(client: client, owner: .agent(session), openOnBoard: openOnBoard)
+                } label: {
+                    Text(Board.filesAll).foregroundColor(Palette.primary)
+                }
+                .accessibilityIdentifier("agent-files-all")
+            } header: { header }
         }
     }
 
+    private var header: some View {
+        Text(Board.filesTitle).font(.footnote.weight(.semibold)).foregroundColor(Palette.secondary).textCase(nil)
+    }
+
     // The section's read (the newest few), for AgentInfoView's load.
-    static func read(client: BoardClient, session: String) async -> Board.FilesRead {
+    static func read(client: BoardClient, session: String) async -> Board.FilesSectionState {
         #if DEBUG
         if let sample = FilesView.sample(owner: .agent(session), dir: "") {
-            if case .page(let p) = sample { return .page(Board.FilesPage(dir: "", dirs: [], files: p.files, missing: false, truncated: false, total: p.total)) }
-            return sample
+            if case .page(let p) = sample { return p.files.isEmpty ? .hidden : .rows(p.files) }
+            return .hidden
         }
         #endif
         let res = await client.throughMac { Board.filesRequest(mac: $0, owner: .agent(session)) }
-        return Board.filesResult(status: res?.1.statusCode ?? 0, body: res?.0)
+        return Board.filesSection(status: res?.1.statusCode ?? 0, body: res?.0)
     }
 }
 

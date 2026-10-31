@@ -29,7 +29,7 @@ struct AgentInfoView: View {
     @State private var freshLine: (text: String, ok: Bool)?
     @State private var freshBusy = false
     // kosmos#7679: the Files section's read and its opener, owned here so they attach once, to the List (review 1).
-    @State private var filesRead: Board.FilesRead?
+    @State private var filesRead: Board.FilesSectionState = .hidden
     @StateObject private var filesOpener = FileOpener()
 
     @ScaledMetric(relativeTo: .body) private var markSize: CGFloat = 22
@@ -172,7 +172,7 @@ struct AgentInfoView: View {
             }
         } header: { label("Skills") }
         // kosmos#7679: the agent's Files, the newest few and All files (FilesView.swift).
-        FilesSection(client: client, session: agent.session, read: filesRead, opener: filesOpener, openOnBoard: openOnBoard)
+        FilesSection(client: client, session: agent.session, state: filesRead, opener: filesOpener, openOnBoard: openOnBoard)
     }
 
     private var changed: Bool {
@@ -306,7 +306,7 @@ struct AgentInfoView: View {
         // Review 2: a refresh that gets no answer keeps the list it had, as instructions and skills keep theirs; a
         // refusal or a new list replaces it.
         let newFiles = await files
-        if case .noAnswer = newFiles, case .page = filesRead {} else { filesRead = newFiles }
+        if newFiles == .message(Board.filesAgentUnread), case .rows = filesRead {} else { filesRead = newFiles }
     }
 
     private func save() async {
