@@ -173,3 +173,5 @@ while let go <kind>" at each scroll rest meanwhile. Assumed, not measured: no ro
 stray one could only offer a row outside what shows, which readerRow never picks).
 Iteration 24: the watch closure holds the row store weakly (no cycle while a hold is armed); the not-drawn-at-did-show line
 says whether it put back by the row's last reading or by will-show's.
+Iteration 25: with no last reading of the row at did-show (a fresh chat cleared the readings mid-hold), nothing is written
+(it used to write the old chat's will-show offset). `saved` is cleared before any other guard in did-show.
