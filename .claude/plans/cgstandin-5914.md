@@ -21,7 +21,8 @@ a stand-in recorded before it showed as itself.
 
 ## Done when
 1. The file passes on main's lib.
-2. With a 2 s life the FIXTURE arm fails by name (control).
+2. With a 2 s life the FIXTURE arm fails by name (control). Measured for the first stand-in on f61c60d977 (its
+   check was kill -0 then; now it matches the command line, as q_ready does, so a zombie or a reused pid fails too).
 3. PR open, CI green by name.
 
 ## Not changed
