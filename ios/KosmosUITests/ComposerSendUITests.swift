@@ -33,10 +33,10 @@ final class ComposerSendUITests: XCTestCase {
         field.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "no on-screen keyboard")
         XCTAssertTrue(app.buttons["Dictate a message"].exists, "an empty box shows the microphone")
-        XCTAssertFalse(app.buttons["Send"].exists, "an empty box shows no send button")
+        XCTAssertFalse(app.buttons["composer-send"].exists, "an empty box shows no send button")
         shot(app, "empty box, \(mode)")
         field.typeText("Line one")
-        let send = app.buttons["Send"]
+        let send = app.buttons["composer-send"]
         XCTAssertTrue(send.waitForExistence(timeout: 5), "words in the box did not bring the send button")
         XCTAssertFalse(app.buttons["Dictate a message"].exists, "the microphone stayed beside the send button")
         field.typeText("\n")
@@ -44,12 +44,39 @@ final class ComposerSendUITests: XCTestCase {
         let value = (field.value as? String) ?? ""
         XCTAssertTrue(value.contains("Line one\nLine two"), "Return did not add a new line (the box reads \(value.debugDescription))")
         shot(app, "two lines, send button, \(mode)")
-        Thread.sleep(forTimeInterval: 0.6)   // past the button's first moment (it takes no tap then)
         send.tap()
         XCTAssertTrue(app.buttons["Dictate a message"].waitForExistence(timeout: 5), "after sending the box did not go back to the microphone")
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Line one")).firstMatch.waitForExistence(timeout: 5),
-                      "the sent message is not in the chat")
+        let left = (field.value as? String) ?? ""
+        XCTAssertFalse(left.contains("Line"), "the box still holds the words after Send (it reads \(left.debugDescription))")
+        // Review 2: the bubble has both lines, so the new line went out with the message.
+        let bubble = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Line one", "Line two")).firstMatch
+        XCTAssertTrue(bubble.waitForExistence(timeout: 5), "the sent message, with both lines, is not in the chat")
         shot(app, "sent, \(mode)")
+    }
+
+    // Review 2: the project room's box too (Post), where the reply @name and the room's own send path live.
+    func testRoomReturnAddsALineAndPostPosts() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
+        app.launch()
+        let field = app.textFields.matching(NSPredicate(format: "placeholderValue == 'Message Spring catalogue'")).firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "no room message box")
+        field.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "no on-screen keyboard")
+        XCTAssertFalse(app.buttons["composer-send"].exists, "an empty room box shows no Post button")
+        field.typeText("Room one")
+        let post = app.buttons["composer-send"]
+        XCTAssertTrue(post.waitForExistence(timeout: 5), "words in the room box did not bring the Post button")
+        field.typeText("\n")
+        field.typeText("Room two")
+        let value = (field.value as? String) ?? ""
+        XCTAssertTrue(value.contains("Room one\nRoom two"), "Return did not add a new line in the room (the box reads \(value.debugDescription))")
+        shot(app, "room, two lines, Post button")
+        post.tap()
+        let posted = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Room one", "Room two")).firstMatch
+        XCTAssertTrue(posted.waitForExistence(timeout: 5), "the post, with both lines, is not in the room")
+        shot(app, "room, posted")
     }
 
     func testReturnAddsALineAndSendSendsLight() throws { try returnAddsALineAndSendSends(dark: false) }

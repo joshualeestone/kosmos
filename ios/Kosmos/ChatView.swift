@@ -1770,7 +1770,7 @@ struct ChatView: View {
             }
             // kosmos#7687: the send button in the microphone's place once there is something to send (not while dictating).
             if ComposerExtras.showsSend(text: draftText, files: attachedHere.count, dictating: dictation.busy) {
-                ComposerSendButton(label: "Send") { sendOrSayWhy() }
+                ComposerSendButton(label: "Send", dictationEnded: dictation.endedAt) { sendOrSayWhy() }
                     .padding(.trailing, 4)
             } else {
                 ComposerMicButton(dictation: dictation) {

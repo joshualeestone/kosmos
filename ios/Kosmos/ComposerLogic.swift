@@ -14,6 +14,11 @@ enum ComposerExtras {
         "💡", "📌", "📝", "🐛", "🔧", "🔒", "⏳", "📈", "☕", "🎯", "🧠", "🍕", "🐢", "🎈", "📎", "🗂️",
     ]
 
+    // kosmos#7687 review 2: the send button refuses only a tap within sendSettle of dictation ending (it appears where the
+    // stop button was, so a quick second tap on Stop would send words nobody has read). Never keyed on the button appearing.
+    static let sendSettle: TimeInterval = 0.4
+    static func sendTakes(now: Date, dictationEnded: Date?) -> Bool { dictationEnded.map { now.timeIntervalSince($0) >= sendSettle } ?? true }
+
     // kosmos#7687 (Josh 10-31, reversing #7346's no-arrow): the keyboard's return key puts in a new line and never sends;
     // a send button takes the microphone's place once there is something to send (words, or files with or without
     // words), as Discord's composer does. Not while dictating or while its last words land: the microphone is the stop

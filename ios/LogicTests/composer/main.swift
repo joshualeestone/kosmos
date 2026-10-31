@@ -111,13 +111,18 @@ print("")
 section("the send button's wiring (kosmos#7687 review 1)")
 do {
     let chat = code("ChatView"), room = code("RoomView"), extras = code("ComposerExtras")
-    check(chat.contains("showsSend(text: draftText, files: attachedHere.count, dictating: dictation.busy)") && chat.contains("ComposerSendButton(label: \"Send\") { sendOrSayWhy() }"),
+    check(chat.contains("showsSend(text: draftText, files: attachedHere.count, dictating: dictation.busy) {") && chat.contains("ComposerSendButton(label: \"Send\", dictationEnded: dictation.endedAt) { sendOrSayWhy() }"),
           "the chat shows the send button from its own words, files and dictation, and it sends through sendOrSayWhy")
-    check(room.contains("showsSend(text: Board.isOnlyMention(draft, mention: replyMention) ? \"\" : draft") && room.contains("ComposerSendButton(label: \"Post\") { postOrSayWhy() }"),
+    check(room.contains("showsSend(text: Board.isOnlyMention(draft, mention: replyMention) ? \"\" : draft, files: attachedHere.count, dictating: dictation.busy) {") && room.contains("ComposerSendButton(label: \"Post\", dictationEnded: dictation.endedAt) { postOrSayWhy() }"),
           "the room does too, with a reply's @name alone counted as no words, and it posts through postOrSayWhy")
-    check(extras.contains(".keyboardShortcut(.return, modifiers: .command)") && extras.contains("Date().timeIntervalSince(shownAt) >= Self.settle"),
+    check(extras.contains(".keyboardShortcut(.return, modifiers: .command)") && extras.contains("if ComposerExtras.sendTakes(now: Date(), dictationEnded: dictationEnded) { action() }"),
           "Cmd-Return sends, and a tap in the button's first moment is not taken")
     check(extras.contains("scheme == .dark ? .black : .white"), "a dark glyph on the light dark-mode fill")
+    // Review 2: the guard is keyed on dictation ending, never on the button appearing.
+    let t0 = Date(timeIntervalSince1970: 1000)
+    check(ComposerExtras.sendTakes(now: t0, dictationEnded: nil), "no dictation: a send right after the first character goes through")
+    check(!ComposerExtras.sendTakes(now: t0.addingTimeInterval(0.2), dictationEnded: t0), "a tap 0.2 s after dictation ended is refused (the second tap on Stop)")
+    check(ComposerExtras.sendTakes(now: t0.addingTimeInterval(0.5), dictationEnded: t0), "and 0.5 s after it goes through")
 }
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

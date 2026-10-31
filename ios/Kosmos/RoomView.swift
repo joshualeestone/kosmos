@@ -1252,8 +1252,9 @@ struct RoomView: View {
                     ComposerEmojiButton(open: emojiOpen) {
                         if emojiOpen { emojiOpen = false; typing = true } else { emojiOpen = true; typing = false }
                     }
-                    if ComposerExtras.showsSend(text: Board.isOnlyMention(draft, mention: replyMention) ? "" : draft, files: attachedHere.count, dictating: dictation.busy)   // review 1: a reply's @name alone keeps the microphone {
-                        ComposerSendButton(label: "Post") { postOrSayWhy() }
+                    // kosmos#7687 review 1: a reply's @name alone counts as no words, so the microphone stays.
+                    if ComposerExtras.showsSend(text: Board.isOnlyMention(draft, mention: replyMention) ? "" : draft, files: attachedHere.count, dictating: dictation.busy) {
+                        ComposerSendButton(label: "Post", dictationEnded: dictation.endedAt) { postOrSayWhy() }
                             .padding(.trailing, 4)
                     } else {
                         ComposerMicButton(dictation: dictation) {

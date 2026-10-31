@@ -33,3 +33,14 @@ Card: kosmos#7687 (Josh 10-31 11:57, Discord's composer). Reverses #7346's no-ar
 - NITs left, by design: Return no longer picks the first @name from the open list (a tap does); the in-app mic cannot add
   to typed words (once there are words the mic is the send button; the keyboard's own dictation key still works).
 - Weakest premise: 0.4 s is a guess at a second tap's spacing; a slower double tap could still land after it.
+
+## Review round 2 (10-31): 1 BLOCKER, 2 warnings, all fixed
+- BLOCKER (mine, from round 1's fix): a trailing comment on the room's `if` line swallowed its `{`, so the app did not
+  compile. The logic suites passed because they do not compile SwiftUI views and the source check strips comments.
+  Fixed; the source checks now end in ` {`, so they fail on that shape. New step before every review round:
+  `xcrun --sdk iphonesimulator swiftc -typecheck` of ios/Kosmos (about 30 s); control: the round-1 RoomView fails it.
+- W: the 0.4 s guard was keyed on the button appearing, so Cmd-Return or a tap right after typing or attaching a file
+  was silently dropped. Now keyed on dictation ending (Dictation.endedAt, ComposerExtras.sendTakes): only a tap within
+  0.4 s of dictation ending is refused. Logic checks for both.
+- W: the UI check covered the chat only. Added the room (Post), and the button has an identifier (composer-send).
+- NIT taken: the "sent" check now proves the box emptied and a bubble holds both lines.
