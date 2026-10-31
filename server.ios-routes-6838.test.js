@@ -100,6 +100,15 @@ const SITES = [
     routes: ['POST /api/project/x/task/1/seen'], pins: ['taskRoute(mac: mac, project: project, number: number, "seen")'] },
   { file: 'ios/Kosmos/TaskPageLogic.swift', text: 'var activity = URLRequest(url: url)', method: 'GET',
     routes: ['GET /api/project/x/task/1/activity'], pins: ['taskRoute(mac: mac, project: project, number: number, "activity")'] },
+  // kosmos#7679: an agent's and a project's Files. filesRequest builds one GET from the path its owner picks (the newest
+  // few, a folder, or a project's list); a listed file downloads through fetchFile (attachmentRequest above) from the
+  // path filesDownloadPath builds, so those two routes are this file's too.
+  { file: 'ios/Kosmos/FilesLogic.swift', text: 'var r = URLRequest(url: url)', method: 'GET',
+    routes: ['GET /api/agent/x/files', 'GET /api/agent/x/files/browse', 'GET /api/project/x/documents',
+      'GET /api/agent/x/files/download', 'GET /api/project/x/file-download'],
+    pins: ['path = "/api/agent/\\(session)/files/browse"', 'path = "/api/agent/\\(session)/files"',
+      'path = "/api/project/\\(id)/documents"', 'base = "/api/agent/\\(s)/files/download"',
+      'base = "/api/project/\\(id)/file-download"'] },
 ];
 /* A SITES entry's callers (review 6): every call of the helper, in every app file, has its argument read, and the set
    of arguments must equal expect; a call the pattern cannot read is a problem too. So a new route passed to a helper
