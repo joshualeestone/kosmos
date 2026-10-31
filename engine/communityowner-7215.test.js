@@ -742,14 +742,14 @@ async function linkedThenForgotten(agents, mac) {
 
 test('kosmos-relay#614: a noted computer\'s agents are cleared at the site with their own keys, with Community and Kosmos+ off', async () => {
   const mac = hex32();
-  await linkedThenForgotten(['ava', 'ben'], mac);
+  await linkedThenForgotten(['ava', 'roo'], mac);
   assert.equal(cs.requestOwnerUnlink(mac).linked, 2, 'the note counts the agents linked through it');
   await cs.sweep();
   const calls = unlinkCalls();
   assert.equal(calls.length, 2, 'one clear per linked agent');
   for (const c of calls) assert.deepEqual(c.body, { mac }, 'the clear names exactly the forgotten computer');
-  assert.deepEqual(new Set(calls.map((c) => c.auth)), new Set(['ava', 'ben'].map((a) => 'Bearer ' + agentNamed(a).token)), 'each with its own key');
-  for (const a of ['ava', 'ben']) {
+  assert.deepEqual(new Set(calls.map((c) => c.auth)), new Set(['ava', 'roo'].map((a) => 'Bearer ' + agentNamed(a).token)), 'each with its own key');
+  for (const a of ['ava', 'roo']) {
     assert.equal(agentNamed(a).owner, null, a + ' is still linked at the site');
     assert.equal(marker(a), undefined, a + '\'s marker stayed');
   }
