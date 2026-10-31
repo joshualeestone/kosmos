@@ -21,7 +21,7 @@ a stand-in recorded before it showed as itself.
 
 ## Done when
 1. The file passes on main's lib.
-2. With a 2 s life the FIXTURE arm fails by name (control). Run by hand, not in the suite: at 1d0208a862 the
+2. With a 2 s life the FIXTURE arm fails by name (control). Run by hand, not in the suite: at 55bb1c5bb1 (rebased onto main) the
    file passed (205, 0 fail); with the first stand-in at 2 s its FIXTURE arm failed by name beside the eight order
    arms; with the second at 2 s only its FIXTURE arm failed (the last run-tests.sh arm had passed with no waiter).
 3. PR open, CI green by name.
