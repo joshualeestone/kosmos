@@ -41,7 +41,7 @@ function fakeDom(ids) {
 }
 
 const IDS = ['acct-add-modal', 'acct-add-dialog', 'acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow',
-  'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-qwen-flow', 'acct-add-acts', 'acct-success', 'acct-success-say', 'acct-success-close',
+  'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-qwen-flow', 'acct-compat-flow', 'acct-add-acts', 'acct-success', 'acct-success-say', 'acct-success-close',
   // #2241: acctShowSuccess now also touches these (the gold-box arm hides the default
   // check/heading and shows the box; the else-arm restores them). The stub throws on an
   // id it does not carry, so the real function's new refs must be declared here.
@@ -58,6 +58,7 @@ function makeShow(modalHidden) {
   dom.els.get('acct-grok-flow').hidden = false;   // #3391 part 2: shown, so the hide below is observed, not inherited
   dom.els.get('acct-gemini-flow').hidden = false;   // #3998: likewise for the Gemini subscription flow
   dom.els.get('acct-qwen-flow').hidden = false;   // #5977: and the Qwen step
+  dom.els.get('acct-compat-flow').hidden = false;   // #7206: and the DeepSeek step
   const fn = new Function('document', lift(SCRIPT, 'acctShowSuccess') + '\nreturn acctShowSuccess;');
   return { show: fn(dom.document), els: dom.els };
 }
@@ -67,7 +68,7 @@ test('kosmos#1656: on an OPEN modal, success shows, names the account, and hides
   show('your Claude account');
   assert.equal(els.get('acct-success').hidden, false, 'the success panel is shown');
   assert.equal(els.get('acct-success-say').textContent, 'Successfully connected to your Claude account.');
-  for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-qwen-flow', 'acct-add-acts']) {
+  for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow', 'acct-openai-flow', 'acct-apikey-flow', 'acct-grok-flow', 'acct-gemini-flow', 'acct-qwen-flow', 'acct-compat-flow', 'acct-add-acts']) {
     assert.equal(els.get(id).hidden, true, id + ' is hidden while success shows');
   }
   assert.equal(els.get('acct-add-dialog').attrs['aria-labelledby'], 'acct-success-t', 'the dialog is renamed to its success heading, not the hidden form title');
@@ -116,7 +117,8 @@ test('kosmos#1656: closeAcctAdd puts the modal back to its form state on the way
   // function does not throw ReferenceError on the read.
   // #3566: closeAcctAdd also clears the Gemini/Grok key step (acctApikeyShow(null)).
   // #3939: closeAcctAdd also puts Meta Muse's step away (acctMuseShow(false)), and (slice 3c-2) counts the visit.
-  const close = new Function('document', 'acctAddConfirmReset', 'acctOpenaiSubStop', 'acctOpenaiSubReset', 'ACCT_ADD_RETURN_FOCUS', 'acctApikeyShow', 'acctMuseShow', 'ACCT_ADD_VISIT', 'acctQwenShow', lift(SCRIPT, 'closeAcctAdd') + '\nreturn closeAcctAdd;')(dom.document, () => {}, () => {}, () => {}, null, () => {}, () => {}, 0, () => {});
+  // kosmos#7198: closeAcctAdd also gives back the login notices' inert (loginAdvInert(false), render-refreshlogin-5407 D4). #7206: and puts the DeepSeek step away.
+  const close = new Function('document', 'acctAddConfirmReset', 'acctOpenaiSubStop', 'acctOpenaiSubReset', 'ACCT_ADD_RETURN_FOCUS', 'acctApikeyShow', 'acctMuseShow', 'ACCT_ADD_VISIT', 'acctQwenShow', 'loginAdvInert', 'acctCompatShow', lift(SCRIPT, 'closeAcctAdd') + '\nreturn closeAcctAdd;')(dom.document, () => {}, () => {}, () => {}, null, () => {}, () => {}, 0, () => {}, () => {}, () => {});
   close();
   assert.equal(dom.els.get('acct-success').hidden, true, 'the success panel is hidden on close');
   for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts']) {

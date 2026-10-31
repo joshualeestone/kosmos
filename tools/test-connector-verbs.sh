@@ -208,8 +208,26 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # remote.macRequest to takeSnapshot, whose only signed calls are backupupload's grant routes, and the key step is
 # backupmemberkey's: both already decided above. An older connector refuses there and the run answers ok:false with the
 # state file untouched by any chunk. Nothing calls runBackup yet (the tick is slice (d)), so nothing that works breaks.
+# kosmos#7541 re-decided for engine/companycommunity.js (slice 3 of #7538): it calls /v1/mac/org/community-pass for an
+# agent's company community pass, which only a connector carrying that route signs (#7540). An older connector refuses
+# ("mac-request does not sign"); fetchPass answers ok:false, nothing is sent to a company space and the post waits. A
+# company community never worked before, and a post for the public community never asks for a pass, so nothing that
+# works today breaks.
+# kosmos#7404 re-decided for engine/personalbackupkey.js (a personal backup's key, step 3): it calls
+# /v1/org/backup/member-key/mine and /v1/org/backup/member-key. The coordinator serves /mine since kosmos-relay #702, but
+# NO connector signs it yet (crates/tunnel MAC_REQUEST_ROUTES lacks it on relay main 0ca0fa2c9; a relay slice of #7404
+# adds it). Every entry point that signs (setUpPersonalKey, restorePersonalKey) asks /mine FIRST, before any file is
+# written; a connector without it refuses ("mac-request does not sign") and the call answers ok:false with no key,
+# pending code or recovery file touched. confirmRecoveryCodeSaved signs nothing. Nothing calls it yet and personal
+# backup never worked before these connectors, so nothing that works today breaks.
+# kosmos#7404 re-decided for engine/personalbackup.js (turning a personal backup on and off, personalswitch-7404): it
+# calls /v1/mac/personal-backup, which only a connector carrying that route signs (kosmos-relay tunnelroutes-7404), and
+# /v1/mac/org/status, which every connector with the org routes signs (its leave goes through orgenroll, decided above).
+# An older connector refuses personal-backup; preview answers "could not be reached" and nothing is made or written, and
+# the status read it sends first only reads. Nothing calls it yet (the screens are a later slice, behind
+# KOSMOS_PERSONAL_BACKUP, off), so nothing that works today breaks.
 callers="$(grep -l "macRequest(" engine/*.js 2>/dev/null | grep -v -e "engine/remote.js" -e "\.test\.js$" | sort | tr '\n' ' ')"
-[ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupmemberkey.js engine/backuprun.js engine/backupupload.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the thirteen the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
+[ "$callers" = "engine/account-computers.js engine/agentevents.js engine/backupmemberkey.js engine/backuprun.js engine/backupupload.js engine/companycommunity.js engine/federation.js engine/fedmembers.js engine/fedseats.js engine/mac-standing.js engine/orgenroll.js engine/orgrollup.js engine/personalbackup.js engine/personalbackupkey.js engine/phonenotify.js engine/updating.js " ] && ok "mac-request callers are exactly the sixteen the gate-closed rule was decided on" || bad "the mac-request callers changed ($callers); re-decide whether an old connector breaks something that works, then update this list"
 
 # The real connector on this Mac, when it is there: an integration line, reported but never failed.
 R="${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}"

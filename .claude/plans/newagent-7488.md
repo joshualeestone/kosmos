@@ -1,0 +1,40 @@
+# newagent-7488: TestFlight build 13 (native New Agent, and "Create" on New project)
+
+## Finished looks like
+
+- #7488: + on Agents opens a native sheet, at once, with the desktop's first screen: Create a Single Agent, Create a Team of Agents, and Create a Swarm of Autonomous Agents when the board says swarms are on. Each one leads to a native flow that creates the agent(s) on the connected computer, in the desktop's words (Mona Lisa's phone design on the card), and it fits the smallest phone.
+  - Single: What should this agent do? (the recommended role, Pick another role grouped from /api/roles, Describe it yourself), then Set up your agent (Name, Role, Reports to, Model), Create, Making it, Say hello, which opens the agent's chat.
+  - Swarm: the same without the recommended Project Manager, plus Maximum helpers and the Daily usage limit.
+  - Team: Pick a ready-made team, its members lead first (names editable), Project (optional), Model for every agent, Create N agents, the members made lead first, Go to your team (the lead's chat).
+- #7489: the New project button reads "Create" on every size, so the title is not cut short on the smallest phone (Mona).
+
+## Decided
+
+- **Every list comes from the board's routes** (/api/roles, /api/teams/seeded, /api/projects), and every request is the desktop's own (POST /api/agents with the desktop's body; the specs route for a team). The phone never keeps its own copy of a role, model or team.
+- **No provider or account picker in this build.** The board's default account and the Claude models /api/roles serves. Weakest premise: a person with only OpenAI connected gets the board's refusal sentence rather than a choice; the provider picker is the next slice (#7502).
+- **A swarm's limit is in tokens a day** (the desktop's token mode). The desktop switches to a share of the weekly allowance when the chosen Claude account is calibrated; the phone does not read that calibration yet.
+- **Say hello waits until the board can see the agent running**: the desktop's boardCanSeeIt (a live session that is ours, not stopped) on the phone's list, read every 5 s. Being listed is not enough, since /api/status also lists an agent with a folder and no session, which a just-made agent is first. The same test gates the project tell and taking a lost create as made. After 30 s unseen the screen says the desktop's "has not come up" and offers Done, not hello, as the desktop does; the list keeps being watched, so hello appears if the agent comes up later.
+- **Agents made into a project are told about it** once the board sees them (POST /api/project/<id>/agent/<name>, the desktop's tell). No picture is set by the phone in this build, for a team member or a single agent (the desktop uploads the catalogue's picture or the generated mark once the board sees the agent).
+- **A project tell is sent once, when the phone's list first shows the agent, and not retried** (the desktop's fire-and-forget): if the phone is not connected at that moment, the tell is not sent, and the project's own screen shows the stored verdict.
+- **A team run is not cancelled when the sheet goes** (the lock closes it): the person asked for the whole team, so it finishes off screen, and its project tells still go out through the app. Weakest premise: a member that fails then is seen only in Agents, not on this screen; off screen the run keeps its own record of the lead, but what it writes to the closed sheet is not read back. A tell waits ten minutes at most. A single create whose answer was lost is not sent again under the same name.
+- **A tab change now closes the New project sheet too** (it was left set to reopen by itself), and New Agent closes when the phone moves to another computer, since its roles, managers and projects were the last one's.
+- **New Agent stays up over a notification tapped while it is open**: the tab or chat changes underneath and shows once the sheet is closed, so a team run is never cut short.
+- **Duplicate names inside a team** are refused by the board's own name check, in its words; the phone does not check them a second time.
+- **Team names are editable on the preview**, because the board refuses a name already taken and the person must be able to change it.
+- The team's button reads the desktop's "Create N agents", not "Create the team" (Mona's note named the desktop's words as the rule).
+- Not on the phone in this build (Mona's design): import an agent, upload an org chart.
+- **The team-making order lives in the view and is not unit-tested**, as New project's and New task's flows are not; the pieces it composes (requests, answers, names, the seen test) are. Weakest premise: an ordering slip there would only show on a real board.
+- "Describe it yourself" with an emptied box cannot continue (the desktop falls back to the example); "Let Kosmos know an agent was created" is always on, the board's own default, with no box on the phone.
+
+## Not verified
+
+- Not run on a device, and not sent against a real board: shown through simulator shots with Debug sample hooks.
+
+## Reviews
+
+Eighteen rounds, alternating Sonnet and Opus; converged at 18 (its three warnings were all decisions recorded above). The largest catches:
+- Round 2: Team Try again could never work (it re-checked names the team had already taken).
+- Round 7: "seen" meant listed, not running (the board lists a just-made agent with no session); hello, the project tell and adoption now use the desktop's boardCanSeeIt.
+- Round 11: New Agent could stay over the Face ID lock once moved above the tabs; it closes on lock, account and computer change.
+- Round 15: the sheet lost the app's ink tint above the tabs (system blue, under AA).
+- Others: project tells (the desktop's, kept by the app), role cautions, the desktop's "has not come up", folder_taken retries, lost creates never re-sent or adopted under another name, VoiceOver for every state.

@@ -112,6 +112,7 @@ function poolReset() { agyquota.POOL_MEMO.bySession.clear(); agyquota.POOL_MEMO.
 test.beforeEach(() => {
   chat.resetForTests();
   messages.resetForTests();
+  require('./roomloop').resetForTests();   // kosmos#7246 slice 2: the per-project agent-wake cap starts empty
   poolReset();
   for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
 });
@@ -149,9 +150,10 @@ test('#4588 B room: an un-addressed colleague post is held for the paused (idle-
     armSender('leo-discord');
     const tmux = arm();
     const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'thinking out loud' }, rosterOf(board, AHEAD()), MEMBERS);
-    assert.equal(sent.outcomes.mara, roomhold.HELD);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now: not typed and not held, for the paused member as for any other.
+    assert.equal(sent.outcomes.mara, roomhold.QUIET);
     assert.deepEqual(typedTo(tmux, 'mara'), []);
-    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id], 'an un-addressed post is kept unmarked');
+    assert.deepEqual(roomhold.heldIn('mara', PROJECT), [], 'an un-addressed post is quiet, not kept');
   });
 });
 
@@ -237,7 +239,8 @@ test('#4588 B room: the async room path (sendPostAsync) holds a colleague post t
     report('mara', 'idle');
     armSender('leo-discord');
     const tmux = arm();
-    const sent = await messages.sendPostAsync({ fromPane: '%7', project: PROJECT, text: '@mara async?' }, rosterOf(board, AHEAD()), MEMBERS);
+    // kosmos#7246 slice 2: april is @-named too, so the CONTROL arm is typed (unaddressed, she would be quiet).
+    const sent = await messages.sendPostAsync({ fromPane: '%7', project: PROJECT, text: '@mara @april async?' }, rosterOf(board, AHEAD()), MEMBERS);
     assert.equal(sent.outcomes.mara, roomhold.HELD);
     assert.deepEqual(typedTo(tmux, 'mara'), []);
     assert.equal(typedTo(tmux, 'april').length, 1, 'CONTROL: the claude member is typed');
@@ -266,6 +269,10 @@ test('#4588 B idle flush: on a paused agy member it is held, nothing is typed, a
     arm();
     const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara look at this' }, rosterOf(board, AHEAD()), MEMBERS);
     const bg = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'and this, not for you' }, rosterOf(board, AHEAD()), MEMBERS);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now, not held: bg is held here as a post held before the upgrade (the plan keeps old
+    // holds), so the flush still has a plain id beside the addressed one.
+    assert.equal(bg.outcomes.mara, roomhold.QUIET);
+    assert.equal(roomhold.hold('mara', PROJECT, bg.id), true);
     const kept = [roomhold.addressedId(sent.id), bg.id];
     assert.deepEqual(roomhold.heldIn('mara', PROJECT), kept);
 
@@ -348,6 +355,7 @@ const AGY_STOPPED = { ...AGY, state: 'stopped', command: '-zsh' };
 function fresh() {
   chat.resetForTests();
   messages.resetForTests();
+  require('./roomloop').resetForTests();   // kosmos#7246 slice 2: the per-project agent-wake cap starts empty
   poolReset();
   for (const d of [messages.LOG, roomhold.dir(), selfreport.DIR]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* fresh */ } }
 }
@@ -484,7 +492,8 @@ test('#4797: the log line says "told of" only when something was told', () => {
 
 test('#4797: both server log lines for a flush go through toldLine (no inline "told of" left)', () => {
   const src = fs.readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
-  assert.equal((src.match(/roomhold\.toldLine\(/g) || []).length, 2, 'CONTROL: the two call sites were not found');
+  // #7246 added the third: the hourly digest sweep's line.
+  assert.equal((src.match(/roomhold\.toldLine\(/g) || []).length, 3, 'CONTROL: the three call sites were not found');
   const inline = /room-hold: (\$\{[^}]+\}|' \+ \w+ \+ ')\s*told of/;
   // CONTROL: the check matches the old inline line, in both template and concatenated form.
   assert.ok(inline.test('write(`room-hold: ${who} told of ${d.n} held post(s)`)'), 'the check cannot see a template line');
@@ -515,7 +524,8 @@ test('#4624 follow-up review 2: the production shape, a quota-paused agy member 
     armSender('leo-discord');
     arm();
     const plain = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'thinking out loud' }, rosterOf(board, AHEAD()), MEMBERS);
-    assert.equal(plain.outcomes.mara, roomhold.HELD);
+    // kosmos#7246 slice 2: an unaddressed member is quiet now (it was held by the idle rule): not held, and so never retried.
+    assert.equal(plain.outcomes.mara, roomhold.QUIET);
     assert.equal(!!(plain.heldUntil && plain.heldUntil.mara), false, 'the idle rule held it, so no quota time applies');
     const asked = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@mara please' }, rosterOf(board, AHEAD()), MEMBERS);
     assert.equal(asked.outcomes.mara, roomhold.HELD);
@@ -550,6 +560,11 @@ test('#4588 ask 3: an idle agy member\'s #4624-held PLAIN post waits for its nex
         armSender('leo-discord');
         arm();
         const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'an update for the room' }, rosterOf(board, null), MEMBERS);
+        // kosmos#7246 slice 2: an unaddressed member is quiet now, not held: the plain id is held here as a post held before the upgrade (the
+        // plan keeps old holds), which is the only way a plain held post still arises.
+        assert.equal(sent.outcomes.mara, roomhold.QUIET);
+        assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
+        assert.equal(roomhold.hold('mara', PROJECT, sent.id), true);
         assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id], 'fixture: the plain post is held for mara, unmarked');
         const tmux = arm();
         const r2 = rosterOf(board, null);
@@ -580,6 +595,11 @@ test('#4588 ask 3: a post the cap held is marked and the retry tells it once the
         const first = arm();
         const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'an update for the room' }, withZed(board, true), MEMBERS);
         assert.deepEqual(typedTo(first, 'mara'), [], 'fixture: the cap held the post');
+        // kosmos#7246 slice 2: an unaddressed member is quiet now: the post never reaches the cap for mara (an addressed one is marked asked,
+        // not capped), so the cap-marked id is held here as one held before the upgrade (the plan keeps old holds).
+        assert.equal(sent.outcomes.mara, roomhold.QUIET);
+        assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
+        assert.equal(roomhold.hold('mara', PROJECT, roomhold.cappedId(sent.id)), true);
         assert.deepEqual(roomhold.heldIn('mara', PROJECT), [roomhold.cappedId(sent.id)], 'the cap-held post carries the cap mark');
         if (!marked) {
           // CONTROL: the same held post, unmarked.
@@ -649,6 +669,11 @@ test('#4588 ask 3: a turn-end flush the cap refuses puts its posts back marked, 
         armSender('leo-discord');
         arm();
         const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: 'an update for the room' }, withZed(board, false, null), MEMBERS);
+        // kosmos#7246 slice 2: an unaddressed member is quiet now, not held for the working member: the plain id is held here as a post held
+        // before the upgrade (the plan keeps old holds), which is what the turn-end flush still tells.
+        assert.equal(sent.outcomes.mara, roomhold.QUIET);
+        assert.deepEqual(roomhold.heldIn('mara', PROJECT), []);
+        assert.equal(roomhold.hold('mara', PROJECT, sent.id), true);
         assert.deepEqual(roomhold.heldIn('mara', PROJECT), [sent.id], 'fixture: the #4624 hold kept the post for the working member, unmarked');
         // Her turn ends (automatic idle); the turn-end line meets the cap (zed working) or the quota (a reset ahead).
         assert.equal(selfreport.record('mara', { state: 'idle', because: 'test', auto: true }).recorded, true);
@@ -673,4 +698,98 @@ test('#4588 ask 3: a turn-end flush the cap refuses puts its posts back marked, 
       });
     } finally { fs.rmSync(capSetting.FILE, { force: true }); agyquota.CAP_STARTS.clear(); poolReset(); }
   }
+});
+
+/* kosmos#7406: the same hold and retry under the per-account cap, for Claude members (engine/workcap-setting.js). All
+   four are on the default account (no launch job in the sandbox). april is working, so with a cap of one an idle
+   member is held; once april is idle the minute retry tells it, once. */
+test('kosmos#7406 room: under the per-account cap an agent\'s post to an idle Claude member is held and noted, then told once the cap frees; CONTROL room under the cap types it', async () => {
+  const workcap = require('./workcap-setting');
+  const room = (aprilState) => [fleet.agent('leo', { state: 'idle' }), fleet.agent('april', { state: aprilState }), fleet.agent('kit', { state: 'idle' })];
+  const members = ['leo', 'april', 'kit'];
+  agyquota.CAP_STARTS.clear();
+  agyquota.ACCOUNT_MEMO.clear();
+  try {
+    assert.equal(workcap.set({ maxWorking: 2 }).ok, true);
+    // CONTROL first: with a cap of two, one working (april) leaves room, so kit is typed.
+    await withFleetAsync(room('working'), async (board) => {
+      armSender('leo-discord');
+      const tmux = arm();
+      const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@kit please look' }, rosterOf(board, null), members);
+      assert.equal(sent.outcomes.kit, chat.DELIVERY.PLACED, 'held under the cap with room to spare');
+      assert.equal(typedTo(tmux, 'kit').length, 1);
+    });
+    agyquota.CAP_STARTS.clear();
+    roomhold.forget('kit');
+    await withFleetAsync(room('working'), async (board) => {
+      armSender('leo-discord');
+      const r = rosterOf(board, null);
+      // Two busy on the account: april working, and leo, whose own turn the cap reserved a moment ago.
+      agyquota.CAP_STARTS.set('leo', Date.now());
+      const tmux = arm();
+      // A new text: the same words again from leo would fold onto the first post (an agent's retry) and not be sent.
+      const sent = messages.sendPost({ fromPane: '%7', project: PROJECT, text: '@kit and this one too' }, r, members);
+      assert.equal(sent.state, chat.DELIVERY.PLACED, 'a capped post must read as placed to the sender');
+      assert.equal(sent.outcomes.kit, roomhold.HELD);
+      assert.deepEqual(typedTo(tmux, 'kit'), [], 'a capped member was typed');
+      assert.deepEqual(roomhold.capProjects('kit'), [PROJECT], 'the cap hold was not noted for the retry');
+      // Still capped: the retry tries nothing.
+      assert.deepEqual(await roomhold.flushReleased(r, releasedDeps(r, Date.now())), [], 'the retry tried a member the cap holds');
+      assert.deepEqual(typedTo(tmux, 'kit'), []);
+    });
+    // april is idle now and the reservations lapse: the retry tells kit once.
+    agyquota.CAP_STARTS.clear();
+    await withFleetAsync(room('idle'), async (board) => {
+      const r = rosterOf(board, null);
+      const tmux = arm();
+      const told = await roomhold.flushReleased(r, releasedDeps(r, Date.now()));
+      assert.deepEqual(told.map((d) => [d.name, d.why]), [['kit', 'cap']], JSON.stringify(told));
+      assert.equal(typedTo(tmux, 'kit').length, 1, 'kit was not told once the cap freed');
+      assert.deepEqual(roomhold.heldIn('kit', PROJECT), []);
+      assert.deepEqual(await roomhold.flushReleased(r, releasedDeps(r, Date.now())), [], 'told twice');
+    });
+  } finally {
+    try { fs.rmSync(workcap.FILE, { force: true }); } catch { /* fresh */ }
+    agyquota.CAP_STARTS.clear();
+  }
+});
+
+/* kosmos#7406 review 3 (a blocker): only a Claude box can be read, so the cap retry must not wait on the box for any
+   other runner, or a capped post to an idle Codex member waits for good. */
+test('kosmos#7406 review 3: a cap-held post to an idle Codex member is told by the retry though its box cannot be read; CONTROL a Claude member whose box reads text waits', async () => {
+  const room = [fleet.agent('leo', { state: 'idle' }), fleet.agent('cx', { state: 'unknown', runner: 'codex', command: 'codex', screen: '' }), fleet.agent('kit', { state: 'idle' })];
+  agyquota.CAP_STARTS.clear();
+  await withFleetAsync(room, async (board) => {
+    const r = rosterOf(board, null);
+    for (const name of ['cx', 'kit']) {
+      roomhold.forget(name);
+      assert.ok(roomhold.hold(name, PROJECT, roomhold.addressedId('m7406')));
+      assert.equal(roomhold.noteCap(name, PROJECT, roomhold.addressedId('m7406')), true);
+    }
+    const tmux = arm();
+    const told = await roomhold.flushReleased(r, { ...releasedDeps(r, Date.now()), boxEmpty: () => false });
+    // The retry TRIES the Codex member (what this guards). This fake tmux answers as a Claude pane, so the typing itself
+    // is refused here; that it is typed on a real Codex pane is the delivery's own tests' job.
+    assert.deepEqual(told.filter((d) => d.why === 'cap').map((d) => d.name), ['cx'], 'the retry skipped the Codex member: ' + JSON.stringify(told));
+    assert.deepEqual(typedTo(tmux, 'kit'), [], 'CONTROL: a Claude member whose box holds text was typed into');
+    roomhold.forget('cx'); roomhold.forget('kit');
+  });
+});
+
+test('kosmos#7406 review 5: a cap retry that reached nothing is not tried again for ten minutes (no rewrite every minute)', async () => {
+  const room = [fleet.agent('leo', { state: 'idle' }), fleet.agent('cx', { state: 'unknown', runner: 'codex', command: 'codex', screen: '' })];
+  agyquota.CAP_STARTS.clear();
+  await withFleetAsync(room, async (board) => {
+    const r = rosterOf(board, null);
+    roomhold.forget('cx');
+    assert.ok(roomhold.hold('cx', PROJECT, roomhold.addressedId('m7407')));
+    roomhold.noteCap('cx', PROJECT, roomhold.addressedId('m7407'));
+    arm();
+    const t0 = Date.now();
+    const first = await roomhold.flushReleased(r, releasedDeps(r, t0));
+    assert.deepEqual(first.map((d) => [d.name, d.why, d.state]), [['cx', 'cap', chat.DELIVERY.COULD_NOT]], 'fixture: the first try should be refused here');
+    assert.deepEqual(await roomhold.flushReleased(r, releasedDeps(r, t0 + 60e3)), [], 'tried again a minute later');
+    assert.deepEqual((await roomhold.flushReleased(r, releasedDeps(r, t0 + 11 * 60e3))).map((d) => d.name), ['cx'], 'CONTROL: never tried again');
+    roomhold.forget('cx');
+  });
 });

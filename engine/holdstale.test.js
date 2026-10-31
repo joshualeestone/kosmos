@@ -137,11 +137,11 @@ test('#6209 part 3: the board runs the sweep on its own minute timer, with the r
   const at = src.indexOf('const holdStaleTick = setInterval(');
   assert.notEqual(at, -1, 'server.js has no hold-stale timer');
   const body = src.slice(at, src.indexOf('}, 60000);', at));
-  assert.match(body, /const rows = messages\.readLog\(\);/, 'the sweep is not given the room log');
+  assert.match(body, /const rec = messages\.record\(\);\s*if \(rec\.stampsUnknown\) return;\s*const rows = rec\.rows;/, 'the sweep is not given the room log, or not with the stamps it was filtered by (#7367)');
   assert.match(body, /holdstale\.sweep\(\{/, 'the timer does not run the sweep');
   assert.match(body, /agentnudge\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\)/, 'not gated like the other tells');
   assert.match(body, /sent: AGENT_NUDGE_SENT/, 'not counted against Agent Communication\'s hour');
-  assert.match(body, /if \(!allowed \|\| heartbeatSetting\.read\(\)\.on !== true\) return;\s*const rows = messages\.readLog\(\);/, 'the log is read before the typing and Prompter gates are checked');
+  assert.match(body, /if \(!allowed \|\| heartbeatSetting\.read\(\)\.on !== true\) return;\s*(?:\/\*[\s\S]*?\*\/\s*)?const rec = messages\.record\(\);/, 'the log is read before the typing and Prompter gates are checked');
   assert.match(body, /\ballowed,\s/, 'the gate is not handed to the sweep');
   assert.match(body, /book: HOLD_STALE_BOOK, idleSeen: HOLD_STALE_IDLE/, 'the sweep does not keep its own tries and idle record');
 });
@@ -275,4 +275,52 @@ test('#6209 part 3 review 8: the book keeps a told entry for good and drops a st
   assert.ok(book.has('x:old-told@1/1'), 'a told entry was pruned');
   assert.ok(!book.has('x:old-tries@1/1'), 'a tries entry 31 days old was kept');
   assert.ok(book.has('x:fresh-tries@1/1'), 'control: a fresh tries entry was pruned');
+});
+
+test('#7367: in the few seconds a passing read error is kept, the sweep tells nobody (old rows show then); after, it tells as before', () => {
+  const { id } = fixture();
+  const rows = [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)];
+  const read = holdAt(3 * HOUR);
+  const realReadAll = projects.readAll;
+  projects.readAll = () => { const e = new Error('held by a scanner'); e.code = 'UNREADABLE'; throw e; };
+  try {
+    assert.equal(require('../engine/projectborn').snapshot().ok, false, 'CONTROL: the one failed read is seen');
+  } finally {
+    projects.readAll = realReadAll;
+  }
+  // The projects file itself reads again (the sweep's own projects come from it), but the stamps are still unknown.
+  assert.equal(pass(id, rows, read).sent.length, 0, 'inside the window: nothing typed');
+  const realNow = Date.now;
+  Date.now = () => realNow() + 6000;
+  try {
+    assert.equal(pass(id, rows, read).sent.length, 1, 'CONTROL: after the window the same hold is told');
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test('#7367: the stamps going unknown DURING the history reads is caught by owed()\'s check after them', () => {
+  const { id } = fixture();
+  const rows = [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)];
+  const list = only(id);
+  assert.equal(hs.owed(list, rows, NOW, { read: holdAt(3 * HOUR) }).length, 1, 'CONTROL: with the stamps known one owner is owed');
+  const f = projects.file();
+  const good = fs.readFileSync(f);
+  const midRead = (...a) => { fs.writeFileSync(f, Buffer.alloc(good.length + 7, 0)); return holdAt(3 * HOUR)(...a); };
+  let out;
+  try { out = hs.owed(list, rows, NOW, { read: midRead }); } finally { fs.writeFileSync(f, good); }
+  assert.deepEqual(out, [], 'damaged mid-read: owed nobody');
+});
+
+test('#7367: stamps unknown at entry and the file repaired DURING the reads is caught by owed()\'s check before them', () => {
+  const { id } = fixture();
+  const rows = [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)];
+  const list = only(id);
+  const f = projects.file();
+  const good = fs.readFileSync(f);
+  fs.writeFileSync(f, Buffer.alloc(good.length + 7, 0));
+  const repairMidRead = (...a) => { fs.writeFileSync(f, good); return holdAt(3 * HOUR)(...a); };
+  let out;
+  try { out = hs.owed(list, rows, NOW, { read: repairMidRead }); } finally { fs.writeFileSync(f, good); }
+  assert.deepEqual(out, [], 'unknown at entry: owed nobody, even though the stamps are known again by the end');
 });

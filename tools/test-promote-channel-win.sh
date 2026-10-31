@@ -260,8 +260,11 @@ grep -q "approval_ref=$REF promoted=yes" "$KOSMOS_WIN_PROMOTE_LOG" 2>/dev/null &
 Sm="$(make_site)"
 out="$(bash "$PROMOTE" "$Sm" --approved-sha "$SHA" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "for --family win only" && pass "promote: the approval flags are refused for the Mac family" || bad "promote mac + approval (rc=$rc, out=$out)"
-out="$(bash "$PROMOTE" "$Sm" --family linux 2>&1)"; rc=$?
+out="$(bash "$PROMOTE" "$Sm" --family freebsd 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "must be 'mac' or 'win'" && pass "promote: an unknown family is refused" || bad "promote unknown family (rc=$rc, out=$out)"
+# kosmos#7281: linux is a known family that only ever moves with the Mac promote.
+out="$(bash "$PROMOTE" "$Sm" --family linux 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "not promoted on its own" && pass "promote: --family linux is refused (it moves with the Mac pointer)" || bad "promote linux family (rc=$rc, out=$out)"
 out="$(bash "$PROMOTE" "$Sm" 17999 --family win --approved-version "$V" --approved-sha "$SHA" --approval-ref "$REF" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "takes no [port]" && pass "promote: a [port] is refused for the Windows family" || bad "promote win + port (rc=$rc, out=$out)"
 

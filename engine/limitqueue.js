@@ -150,10 +150,58 @@ function settle(name, id) { if (!remove(name, id)) done.add(id); }
 let flushingSince = 0;
 let runToken = 0;
 const FLUSH_STUCK_MS = 15 * 60 * 1000;
+/* #7212: what a kept message was held for: 'input' (text sat unsent in the agent's input box, or the box could not be
+   read), 'signin' (its account was signed out), 'behind' (kept behind earlier messages that were held), else 'limit'
+   (its usage limit). */
+function heldWhy(e) {
+  if (e && e.input === true) return 'input';
+  if (e && e.signin === true) return 'signin';
+  if (e && e.behind === true) return 'behind';
+  return 'limit';
+}
+/* #7212: agents with messages held behind their input box for at least `afterMs`, as [{ name, since, count }] (since:
+   the oldest such message's arrival, ISO). The board says so once per held stretch rather than leaving it silent. */
+function heldBehindInput(now, afterMs) {
+  const out = [];
+  for (const name of names()) {
+    const held = list(name).filter((e) => e && e.input === true && Number.isFinite(Date.parse(e.at)));
+    if (!held.length) continue;
+    const oldest = held.reduce((a, e) => (Date.parse(e.at) < Date.parse(a.at) ? e : a));
+    if (now - Date.parse(oldest.at) >= afterMs) out.push({ name, since: oldest.at, count: held.length });
+  }
+  return out;
+}
+/* #7212: which of `heldBehindInput`'s agents to say now: once per held stretch, and again each HELD_INPUT_RESAY_MS it
+   lasts, so a hold of a week is a line a day rather than one line on its first half hour (review 3). `said` (a Map the
+   caller keeps: name -> when it was last said) ends a stretch only when the agent has no input-held message at all,
+   so delivering or dropping the oldest message of a stretch (a backlog drains five a minute; a week-long hold drops
+   one a day) never says it early. Keyed on the stretch, not on its oldest message, for that reason (review 1). A
+   file that cannot be read this minute (a write in progress) ends nothing: only a read that worked and found no
+   input-held message, or no file at all, ends a stretch (review 2). */
+function heldInputToSay(now, afterMs, said) {
+  for (const n of [...said.keys()]) {
+    const read = readEntries(n);
+    if (read.ok && !read.entries.some((e) => e && e.input === true)) said.delete(n);
+  }
+  const out = heldBehindInput(now, afterMs).filter((h) => !said.has(h.name) || now - said.get(h.name) >= HELD_INPUT_RESAY_MS);
+  for (const h of out) said.set(h.name, now);
+  return out;
+}
+const HELD_INPUT_RESAY_MS = 24 * 60 * 60 * 1000;
+/* #7212: after this long, messages held behind an input box are said in the board log (a usage limit is reported at
+   the same half hour). */
+const HELD_INPUT_SAY_MS = 30 * 60 * 1000;
+const HELD_FOR = { input: 'once its input box was empty', signin: 'once it was signed in again', behind: 'once the messages kept ahead of it were given', limit: 'after its usage reset' };
+/* #7212: the board log's line for a held message the sweep typed, with the reason it was held. */
+function deliveredLine(d) {
+  return 'limit-queue: ' + d.name + ' was given held message ' + d.id + ' ' + (HELD_FOR[d.why] || HELD_FOR.limit) + ', delivery=' + d.state + '\n';
+}
 /* The minute sweep. For each agent with kept messages: drop those DROP_AFTER_MS past their reset (onDropped); then,
    when `isReleased(card, roster, live)` (the card for the agent in `roster`, and the messages still kept), type the
    rest in order with `deliver`. A message typed (placed or unconfirmed) is removed and reported (onDelivered); the
-   first that is not stops that agent's run and stays. Returns [{ name, id, state }] for what was typed. */
+   first that is not stops that agent's run and stays. Returns [{ name, id, state, why }] for what was typed. */
+/* #7212: true while a flush run is typing (one younger than FLUSH_STUCK_MS), so a reader of the input box can wait. */
+function isFlushing() { return !!flushingSince && Date.now() - flushingSince < FLUSH_STUCK_MS; }
 async function flush(roster, opts) {
   // One run at a time: a run still typing a backlog when the next minute starts would type each message twice. A run
   // that has not finished in FLUSH_STUCK_MS (a delivery that never settled) no longer blocks the next one.
@@ -207,7 +255,8 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
         }
         if (!remove(name, e.id)) done.add(e.id);
         try { if (onDelivered) onDelivered(e, v); } catch { /* it was typed */ }
-        out.push({ name, id: e.id, state });
+        /* #7212: why it was held, so the log says the true reason (a held input box is not a usage limit). */
+        out.push({ name, id: e.id, state, why: heldWhy(e) });
         // Unconfirmed: it may still be in the composer; the next one waits a minute rather than type on top of it.
         if (state === DELIVERY.UNCONFIRMED) break;
       }
@@ -224,9 +273,15 @@ function setRow(name, at, delivery, chat) {
   const key = String(name) + '\u0000' + String(at);
   let ok = false;
   try { ok = chat.updateDmDelivery(name, at, delivery); } catch { ok = false; }
-  if (ok) rowFixes.delete(key); else rowFixes.set(key, { name: String(name), at: String(at), delivery });
+  /* kosmos#7614 review 3: a row the person deleted has nothing to write to: no fix is kept for it. */
+  if (ok || (typeof chat.dmRowGone === 'function' && chat.dmRowGone(name, at))) rowFixes.delete(key);
+  else rowFixes.set(key, { name: String(name), at: String(at), delivery });
   return ok;
 }
+/* kosmos#7614: a row the person deleted has nothing left to write to: its kept fix is dropped. */
+function forgetRow(name, at) { rowFixes.delete(String(name) + '\u0000' + String(at)); }
+function rowFixFor(name, at) { return rowFixes.get(String(name) + '\u0000' + String(at)) || null; }
+function hasRowFix(name, at) { return rowFixes.has(String(name) + '\u0000' + String(at)); }   // read by the tests
 function retryRows(chat) {
   for (const f of [...rowFixes.values()]) setRow(f.name, f.at, f.delivery, chat);
 }
@@ -234,10 +289,17 @@ function retryRows(chat) {
    are typed through the automatic gate, each as its own route types it, once chat.limitQueueReleased; a typed or
    dropped message is recorded where its sender looks (the message log and its sender's pane, or the person's
    conversation row), and a task message's in its task's conversation (#5842). */
+/* kosmos#7406: whether this agent's kept queue holds a person's own message (a DM, or a task line they typed). */
+function personsIn(name) {
+  try { return list(name).some((x) => x && (x.kind === 'dm' || x.person === true)); } catch { return true; }   // unreadable: never hold a person's
+}
 function sweepHooks({ chat, messages }) {
   retryRows(chat);
   return {
-    deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r)),
+    /* kosmos#7406: an agent's kept lines ask for the per-account cap (a usage limit resets a whole account at once, the
+       burst the cap is for), except while the same agent's queue holds a person's message: the queue is in order and
+       one held entry stops it. A person's own entry never asks for it. */
+    deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r, undefined, undefined, (e && e.person === true) || personsIn(n) ? {} : { workCap: true })),
     resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
     /* #6774: a queue holding a message kept for a stuck input box waits for the box to read empty as well (the #6256
        rule: an unreadable box keeps them waiting). */
@@ -262,4 +324,4 @@ function sweepHooks({ chat, messages }) {
 
 function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); flushingSince = 0; }
 
-module.exports = { TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle };
+module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };

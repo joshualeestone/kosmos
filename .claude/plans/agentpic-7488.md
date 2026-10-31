@@ -1,0 +1,37 @@
+# agentpic-7488: TestFlight build 14 (Mona Lisa's list on #7488, after build 13)
+
+## Finished looks like
+
+- **A new agent has a picture, the desktop's way.** Set up your agent has the desktop's Identity row: the mark drawn from the name as it is typed, or a photo the person chose with Change picture. Once the board can see the agent, the app sets its picture: the chosen photo, else (for a ready-made team's member) the catalogue's portrait, else the mark. The mark is the desktop's own scatter for the same name, so the phone and the Mac draw the same picture apart from the letter's font.
+- **Editable team names look editable**: a pencil beside each name that can be changed.
+- **Model shows once**: the heading says Model; the row shows only the choice.
+- Shots include the team screen scrolled to the bottom (Project and Model), closing Mona's item 1.
+- **#7487, Settings at the top** (Mona Lisa, 16:0x): the picture's top sits on the other tabs' top-bar line, the safe area plus 8 pt (the list's top margin set to 8 on iOS 17 and later, and the profile row's own top inset at 0). Measured in shots: 28 pt on the small phone, the bar's line plus 8 on the large one. iOS 16 keeps the list's own top margin.
+
+## Decided
+
+- The mark is ported number for number (the desktop's FNV and generator, including JavaScript's double arithmetic, which rounds above 2^53), tested against web/index.html's own dotGlyph run in node for five names. Only the letter's outline comes from the phone's system font (the desktop draws it with the browser's).
+- A chosen photo is read already shrunk and upright from its file, cut to the centred square the desktop's crop editor opens on (the phone has no crop editor in this build), and redrawn as a JPEG on white, 512 px down to 128, until it fits the board's 60,000-byte limit (the desktop's fitPicture for a picture with no transparency). All of it off the main thread. One that cannot be read or fitted is refused with a sentence; the mark stays.
+- A catalogue portrait that is a still PNG within the limits is kept as it came; the catalogue serves WebP, so in practice every portrait is redrawn: a centred square (the desktop keeps the shape), transparency kept as PNG where it fits.
+- The picture is set by the app with the project tells (ContentView), when the board sees the agent, so leaving the sheet early loses neither. Two tries two seconds apart, as the desktop; a failed photo falls back to the mark.
+- A picture with transparency (a chosen PNG, a catalogue WebP portrait) is tried as a PNG at each size first, keeping it, then as a JPEG on white if no PNG fits; the desktop also tries WebP, which the phone cannot write. Weakest premise: a large transparent picture that fits only as JPEG shows on white.
+- A chosen photo waits in the app until the board sees the agent, and is then sent (with its retry, a few seconds); if the app is closed before it has gone, the agent gets no picture from the phone (as the project tells; the agent's page can set one).
+- With no photo chosen, the mark is set as the picture, as the desktop's create does (PENDING_AVATAR is the mark then); the stored mark carries the phone's font.
+- When a chosen photo cannot be set, the phone falls back to the mark silently (the desktop says "That picture did not load. The mark drawn from the name is still there." on its made screen; the phone may have closed the sheet by then).
+- "Number for number" holds for the arithmetic; the trig functions are the platform's, so a last-bit difference could in principle move a dot. The five reference names match. The reference numbers are frozen from one node run of the desktop's dotGlyph; its constants (size, radius, dots, tries, dot sizes, clearance) and colours are checked against web/index.html's own text, so a change there fails the test.
+
+## Not verified
+
+- Not run on a device and not sent against a real board; shown through simulator shots.
+- A photo whose upload got no answer is taken as maybe set, so the mark is not put over it; on a flaky link the agent can end up with no picture and nothing says so. Untested on a real network.
+- Settings on iOS 16 was not shot (the simulators run iOS 26); it keeps the row spacing it had before.
+- The drawing half (the letter's mask, its orientation and centring, the photo fitting) has no unit test: the scatter is tested against the desktop's code, and the letter was checked by eye in the shots ("Finch": an upright, centred F).
+
+## Reviews
+
+Seventeen blind rounds, alternating Sonnet and Opus; converged at round 17 (its two warnings were a recorded gap and a spacing Mona Lisa approved in the shots). The largest catches:
+- The ink test could not fail; the mark was redrawn on every redraw; the letter mask relied on a colour key CoreText may not read, then on two bitmap formats not documented for iOS (now RGBA, checked by eye after each change).
+- A picture could be sent to another computer's agent of the same name after a switch; a lost answer could let the mark overwrite a photo; a send that never left counted as maybe-set.
+- Every catalogue portrait (WebP) was flattened on white; transparency was read from the format, not the pixels.
+- A photo pick could finish after Create, after a role change, or on the main thread; the Settings change also moved iOS 16.
+

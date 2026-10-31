@@ -273,12 +273,16 @@ S="$(newsite)"; out="$(KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $HOLD" bash "$HERE/p
 [ "$rc" = 2 ] && has "$out" "pass --force only after verifying remote access by hand" && pass "default: CONTROL the tunnel HOLD wording is unchanged" || bad "default tunnel HOLD wording (rc=$rc, out=$out)"
 
 # ---- a version older than prod's is a rollback, and needs --allow-older ----
-S="$(newsite)"; bash "$HERE/promote-channel.sh" "$S" >/dev/null 2>&1   # prod now serves 9.9.9
+S="$(newsite)"; out="$(bash "$HERE/promote-channel.sh" "$S" 2>&1)"   # prod now serves 9.9.9
 [ "$(field "$S/dist/latest.json" version)" = 9.9.9 ] && pass "rollback fixture: prod serves 9.9.9" || bad "rollback fixture: prod is $(cat "$S/dist/latest.json")"
+# kosmos#7349: a forward Mac promote names the What's New pool build to run once its deploy serves.
+has "$out" "NEXT, once the deploy serves 9.9.9: node tools/whats-new-pool.js build" && pass "a forward promote names the What's New pool build (kosmos#7349)" || bad "forward promote: no pool-build hint (out=$out)"
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 2>&1)"; rc=$?
 [ "$rc" = 1 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.9 ] && has "$out" "older than 9.9.9" && pass "named: an older version is refused without --allow-older, nothing written" || bad "named older (rc=$rc, out=$out)"
 out="$(bash "$HERE/promote-channel.sh" "$S" --version 9.9.8 --allow-older 2>&1)"; rc=$?
 [ "$rc" = 0 ] && [ "$(field "$S/dist/latest.json" version)" = 9.9.8 ] && has "$out" "rolling prod back" && pass "named: CONTROL --allow-older rolls prod back to it" || bad "named --allow-older (rc=$rc, out=$out)"
+# ...and a rollback does not (prod-check passes an older prod, and a build would record nothing).
+! has "$out" "whats-new-pool.js build" && pass "a rollback names no What's New pool build (kosmos#7349)" || bad "rollback: printed the pool-build hint (out=$out)"
 # 9.9.10 against 9.9.9 compares as numbers, not as text (as text 9.9.10 < 9.9.9).
 S="$(newsite)"; bash "$HERE/promote-channel.sh" "$S" >/dev/null 2>&1
 [ "$(field "$S/dist/latest.json" version)" = 9.9.9 ] && pass "numeric fixture: prod serves 9.9.9 before 9.9.10 is named" || bad "numeric fixture: prod is $(cat "$S/dist/latest.json")"

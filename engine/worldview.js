@@ -86,8 +86,9 @@ function providersFrom(cards, now = Date.now()) {
   const by = new Map();
   for (const c of Array.isArray(cards) ? cards : []) {
     if (!c || c.paneless === true || typeof c.runner !== 'string' || !c.runner) continue;
-    /* #5977: a Qwen agent runs on codex; the route tags it (providerWord), so it has its own row, not OpenAI's. */
-    const key = c.providerWord === 'qwen' ? 'qwen' : c.runner;
+    /* #5977: a Qwen agent runs on codex; the route tags it (providerWord), so it has its own row, not OpenAI's.
+       #7206: likewise a DeepSeek agent on claude, never Claude's row. */
+    const key = (typeof c.providerWord === 'string' && c.providerWord) ? c.providerWord : c.runner;   // any word the route tags (review 2)
     const row = by.get(key) || { provider: key, agents: 0, stopped: 0, paused: 0, signInFailed: 0, until: null, untimed: 0 };
     if (c.state === 'stopped') { row.stopped += 1; by.set(key, row); continue; }
     row.agents += 1;

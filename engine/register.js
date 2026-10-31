@@ -827,6 +827,22 @@ function repair(opts) {
       runnerOpt.runner = 'codex';
       runnerOpt.configDir = rec;
     }
+    /* #7206: a vendor agent (DeepSeek) is claude ON ITS VENDOR ACCOUNT. Rebuilt without that folder it would be a plain
+       Claude agent on the default account, billing Anthropic, and nothing would say so. Refused the same way. */
+    { const compat = require('./anthropiccompat'); const v = compat.vendorOf(provider);
+      if (v) {
+        /* 1b review 1: Repair is a route to a vendor too, so it obeys the same switch as create and setProvider: with it
+           off, a vendor agent is not rebuilt (and so not launched with its key), and the person is told why. */
+        if (!compat.enabled(platform)) {
+          return { name, shownAs: shownName(name), ok: false, because: `it runs on ${v.name}, and ${compat.notYet(v.id)}` };
+        }
+        const rec = (store.readProfile(name) || {}).vendorAccount;
+        if (typeof rec !== 'string' || !rec || compat.vendorOfName(rec) !== v.id || !fs.existsSync(rec)) {
+          return { name, shownAs: shownName(name), ok: false, because: `it runs on ${v.name} and Kosmos does not know which ${v.name} account any more; switch it to ${v.name} again to pick one` };
+        }
+        runnerOpt.runner = 'claude';
+        runnerOpt.configDir = rec;
+      } }
     /* #5534: an imported agent the company policy held never ran here, so Repair does not start it either while
        the policy still says no. An agent that ran before is restored as always (nothing is bricked). */
     if ((store.readProfile(name) || {}).policyHeld === true) {

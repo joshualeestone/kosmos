@@ -36,10 +36,41 @@ final class RoomStore: ObservableObject {
     // Each room's newest-page reads in the order they started, and the read count when a reopen landed: a read started
     // before the reopen never writes the hold back (review 1: an older poll landing late brought the notice back).
     private var roomReads: [String: Int] = [:]
+    // kosmos#7365 slice 3c review 6: the newest live read applied, by project.
+    private var roomLanded: [String: Int] = [:]
     private var reopenedAt: [String: Int] = [:]
     @Published private(set) var loadingOlder: Set<String> = []
     // Rooms whose last older-page read failed: the top of the room offers it again rather than spinning.
     @Published private(set) var olderFailed: Set<String> = []
+    // kosmos#7365 slice 3c: how many of each room's messages are archived, from its latest live read.
+    @Published private(set) var archivedCount: [String: Int] = [:]
+    // The archive view, by project, its own state as the board's PJ_ARCH: its rows (newest at the bottom), its earlier
+    // pages' cursor and count, whether its first page is on its way, and whether an earlier page failed. While a room
+    // shows its archive, the live reads go on (the working line, the unread counts) and the live rows stay as they were.
+    struct ArchiveView: Equatable {
+        var rows: [Board.RoomRow] = []
+        var older: (count: Int, cursor: String?) = (0, nil)
+        var opening = true
+        var loading = false
+        var olderFailed = false
+        // Review 1: the archive read's own count, which the header says (the board's PJ_ARCH.count), so a live poll
+        // cannot put a new count over the old rows.
+        var count = 0
+        static func == (l: ArchiveView, r: ArchiveView) -> Bool {
+            l.rows == r.rows && l.older.count == r.older.count && l.older.cursor == r.older.cursor && l.opening == r.opening
+                && l.loading == r.loading && l.olderFailed == r.olderFailed && l.count == r.count
+        }
+    }
+    @Published private(set) var archive: [String: ArchiveView] = [:]
+    // Said once when opening the archive did not work (the board's toast): the room shows it for a few seconds and
+    // clears it (review 1), and the next open clears it too.
+    @Published var archiveNote: [String: String] = [:]
+    // Review 2: each note's number, so a timer clears only the note it was started for.
+    @Published private(set) var archiveNoteId: [String: Int] = [:]
+    // Review 2 and 3: the count a refresh last failed to read and when, so a failing read is asked again every 30 s, not
+    // on every poll and not never (the board's next poll catches a failed re-read).
+    private var archiveRefreshFailed: [String: (count: Int, at: Date)] = [:]
+    static let archiveRetry: TimeInterval = 30
     // A post in the air or one that did not go, by project: its words, the line under it once answered, and the ids of
     // the person's posts already in the room when Post was pressed (so an earlier post with the same words never
     // settles it).
@@ -72,6 +103,10 @@ final class RoomStore: ObservableObject {
     private var ownAsk: [String: Board.OwnAsk] = [:]
     static let ownEvery: TimeInterval = 10
     static let pageSize = 50
+    #if DEBUG
+    // kosmos#7365 slice 3c: the sample room's archive (KOSMOS_SAMPLE_ARCHIVE=1), a Debug build only.
+    static let sampleArchive = #"{"rows":[{"kind":"post","id":"a1","text":"Kickoff: the spring catalogue goes to print on 3 March.","from":null,"at":"2026-08-20T15:00:00.000Z"},{"kind":"post","id":"a2","text":"Noted. I will draft the page plan this week.","from":"cleo","at":"2026-08-20T15:04:00.000Z"},{"kind":"post","id":"a3","text":"The page plan is in the project folder: 48 pages, 6 sections.","from":"cleo","at":"2026-08-22T10:12:00.000Z"},{"kind":"post","id":"a4","text":"Looks right. Go ahead with the copy for section one.","from":null,"at":"2026-08-22T10:30:00.000Z"}],"olderCount":0,"olderCursor":null,"archivedCount":1240}"#
+    #endif
 
     private let client: BoardClient
     init(client: BoardClient) { self.client = client }
@@ -81,8 +116,10 @@ final class RoomStore: ObservableObject {
     func reset() {
         list = nil; listState = .reaching
         rows = [:]; older = [:]; roomFailed = []; roomPartial = []; loadingOlder = []; olderFailed = []; pending = [:]; notes = [:]
+        archivedCount = [:]; archive = [:]; archiveNote = [:]; archiveNoteId = [:]; archiveOpens = [:]; archiveRefreshing = []; archiveRefreshFailed = [:]   // kosmos#7365 slice 3c
         returned = [:]; kept = [:]; drafts = [:]; needsFailed = [:]; ownCompare = [:]; ownSeq = [:]; ownAsk = [:]
-        held = [:]; roomReads = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
+        held = [:]; roomReads = [:]; roomLanded = [:]; reopenedAt = [:]; spokeAt = [:]; spokeBaseline = []; cameBack = [:]   // kosmos#7072 review 1: another account or computer's holds go too
+        deletedPosts = [:]; deleteNotes = [:]   // kosmos#7614 review 4: post ids repeat across computers
     }
     private func same(_ epoch: Int) -> Bool { epoch == client.chatEpoch }
     private var listReads = 0
@@ -155,12 +192,15 @@ final class RoomStore: ObservableObject {
             let room = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REFUSAL"] == "1"
                 ? Self.sampleRoom.replacingOccurrences(of: #"{"kind":"post","id":"m5""#, with: Self.sampleRefusal + #",{"kind":"post","id":"m5""#)
                 : Self.sampleRoom
-            rows[project] = Board.parseRoom(Data(room.utf8), names: names)?.rows ?? []
+            rows[project] = Board.withoutDeleted(Board.parseRoom(Data(room.utf8), names: names)?.rows ?? [], deletedPosts[project] ?? [])
             // kosmos#7072: KOSMOS_SAMPLE_HELD=1 shows the sample room held, for its screenshots (a Debug build only).
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HELD"] == "1", !Self.sampleReopened.contains(project) {
                 held[project] = .some(Self.sampleHeldUntil)
             }
-            older[project] = (0, nil); return true
+            older[project] = (0, nil)
+            // kosmos#7365 slice 3c: KOSMOS_SAMPLE_ARCHIVE=1 gives the sample room an archive, for its screenshots.
+            archivedCount[project] = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ARCHIVE"] == "1" ? 1240 : 0
+            return true
         }
         #endif
         Task { await self.loadOwnCompare(project) }   // kosmos#7137: with each room read, landed or not (at most every 10 s)
@@ -175,21 +215,111 @@ final class RoomStore: ObservableObject {
         roomFailed.remove(project)
         roomPartial = Board.partialRooms(roomPartial, project: project, partial: page.unread)
         if Board.readMayWriteHold(read: read, reopenedAt: reopenedAt[project]) { if page.held { held[project] = .some(page.heldUntil) } else { held[project] = nil } }
-        let fresh = Board.refreshRoom(rows[project], older: older[project], page: page)
+        // Review 3: the archive moved under the rows shown. Only rows that reach the start of the live part (no earlier
+        // live page) can now be archived, so only then: k more archived drops the first k rows shown, the oldest (the
+        // board's pjRoomDropArchived drops the leading run); fewer archived (an undo) takes the page and its cursor, so
+        // the rows given back are reachable above. Otherwise the pages already read are kept, as the board's poll keeps
+        // them (the automatic rule moves the count with every post in a room past 1,000).
+        // Review 6: a read older than one already applied is dropped (it would put back rows a newer read took out).
+        if read < (roomLanded[project] ?? 0) { return true }
+        roomLanded[project] = read
+        // Review 5: only the newest read started counts a move; an older one landing late must not read as an undo.
+        let newest = read == roomReads[project]
+        // Review 7: a read a newer one has overtaken, at another count than the rows shown, writes nothing (its rows and
+        // its cursor are of another archive); the newer read will say.
+        if !newest, let was = archivedCount[project], was != page.archivedCount { return true }
+        let fresh = (newest ? Board.archiveMoved(rows[project], older: older[project], was: archivedCount[project], page: page) : nil)
+            ?? Board.refreshRoom(rows[project], older: older[project], page: page)
         // Stamped before the rows are replaced: `before` must be what the room held until this read. The phone's clock,
         // as BoardClient.updatedAt is (its env.now() is Date() outside the tests).
         let stamped = Board.stampSpeakers(spokeAt[project] ?? [:], baselined: spokeBaseline.contains(project), before: rows[project],
                                           fresh: fresh.rows, unread: page.unread, at: Date())
         spokeAt[project] = stamped.spokeAt
         if stamped.baselined { spokeBaseline.insert(project) }
-        rows[project] = fresh.rows
+        rows[project] = Board.withoutDeleted(fresh.rows, deletedPosts[project] ?? [])
         older[project] = fresh.older
+        if newest { archivedCount[project] = page.archivedCount }
+        // Review 1: an archive set or undone elsewhere while this one shows: read it again, as the board's poll does
+        // when the count it sees changes.
+        let failed = archiveRefreshFailed[project]
+        if let a = archive[project], !a.opening, a.count != page.archivedCount,
+           !(failed?.count == page.archivedCount && Date().timeIntervalSince(failed!.at) < Self.archiveRetry) {
+            let want = page.archivedCount
+            Task { await self.refreshArchive(project, want: want) }
+        }
         settle(project)
         return true
     }
 
+    // kosmos#7365 slice 3c: the archive view, as the board's View archive: its newest page first, the room's live rows
+    // left as they are. A failed first read leaves the room as it was and says so once. Each open is numbered, so a
+    // read from an archive closed (or opened again) meanwhile is dropped.
+    private var archiveOpens: [String: Int] = [:]
+    func openArchive(_ project: String) async {
+        archiveOpens[project, default: 0] += 1
+        let open = archiveOpens[project]!
+        archiveNote[project] = nil
+        archive[project] = ArchiveView()
+        #if DEBUG
+        if Self.sample {
+            archive[project] = ArchiveView(rows: Board.parseRoom(Data(Self.sampleArchive.utf8), names: names)?.rows ?? [], older: (0, nil), opening: false,
+                                           count: archivedCount[project] ?? 0)
+            return
+        }
+        #endif
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, part: .archive) }
+        guard same(epoch), archiveOpens[project] == open, archive[project] != nil else { return }
+        guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
+            archive[project] = nil; archiveNote[project] = Board.Archive.couldNotOpen; archiveNoteId[project, default: 0] += 1; return
+        }
+        // Review 3: the archive's count stays the archive's; the live count is the live read's (it is what a move is
+        // measured against).
+        archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
+    }
+    // The archive's newest page again, in place of what it showed (its count changed under it). Kept as it was when the
+    // read fails; dropped when the archive was closed or opened again meanwhile.
+    private var archiveRefreshing: Set<String> = []
+    func refreshArchive(_ project: String, want: Int) async {
+        guard archive[project] != nil, !archiveRefreshing.contains(project) else { return }
+        archiveRefreshing.insert(project)
+        defer { archiveRefreshing.remove(project) }
+        let open = archiveOpens[project]
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, part: .archive) }
+        guard same(epoch), archiveOpens[project] == open, archive[project] != nil else { return }
+        guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
+            archiveRefreshFailed[project] = (want, Date()); return
+        }
+        archiveRefreshFailed[project] = nil
+        archive[project] = ArchiveView(rows: page.rows, older: (page.olderCount, page.olderCursor), opening: false, count: page.archivedCount)
+    }
+    // Back to the room: the archive's rows go, and a read still on its way for it is dropped.
+    func closeArchive(_ project: String) {
+        archiveOpens[project, default: 0] += 1
+        archive[project] = nil
+        archiveRefreshFailed[project] = nil
+    }
+    // The archive's page before the oldest one shown.
+    func loadArchiveOlder(_ project: String) async {
+        guard var view = archive[project], !view.opening, !view.loading, let cursor = view.older.cursor else { return }
+        let open = archiveOpens[project]
+        view.loading = true; view.olderFailed = false
+        archive[project] = view
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.roomRequest(mac: $0, project: project, n: Self.pageSize, cursor: cursor, part: .archive) }
+        guard same(epoch), archiveOpens[project] == open, var now = archive[project], now.older.cursor == cursor else { return }
+        now.loading = false
+        guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
+            now.olderFailed = true; archive[project] = now; return
+        }
+        now.rows = Board.mergeRoom(page.rows, with: now.rows)
+        now.older = (page.olderCount, page.olderCursor)
+        archive[project] = now
+    }
+
     // The page before the oldest one shown, by the computer's own cursor.
-    func loadOlder(_ project: String) async {
+    func loadOlder(_ project: String, retried: Bool = false) async {
         guard let cursor = older[project]?.cursor, !loadingOlder.contains(project) else { return }
         loadingOlder.insert(project)
         olderFailed.remove(project)
@@ -200,8 +330,21 @@ final class RoomStore: ObservableObject {
         guard let answer, answer.1.statusCode == 200, let page = Board.parseRoom(answer.0, names: names) else {
             olderFailed.insert(project); return
         }
-        rows[project] = Board.mergeRoom(page.rows, with: rows[project] ?? [])
+        // Review 7: a page read at another archived count than the rows shown were is not merged: the archive moved
+        // between the two reads, and only the newest page can say where the live part now starts. That read reconciles
+        // (Board.archiveMoved, on the cursor kept), then this read is tried once more on whatever cursor it left.
+        if page.archivedCount != (archivedCount[project] ?? page.archivedCount) {
+            loadingOlder.remove(project)
+            await loadRoom(project)
+            // Review 8: not when the room was left; and a retry used up shows the top's Try again, never a spinner that
+            // nothing is loading.
+            if !retried, same(epoch), !Task.isCancelled { await loadOlder(project, retried: true) }
+            else if retried { olderFailed.insert(project) }
+            return
+        }
+        rows[project] = Board.withoutDeleted(Board.mergeRoom(page.rows, with: rows[project] ?? []), deletedPosts[project] ?? [])
         older[project] = (page.olderCount, page.olderCursor)
+        archivedCount[project] = page.archivedCount
     }
 
     // Posts the words. Kept: the room is re-read, then the bubble goes (so the post never blinks out). Otherwise, as the
@@ -383,6 +526,50 @@ final class RoomStore: ObservableObject {
         await loadRoom(project)
     }
 
+    // kosmos#7614: the person's own post deleted for everyone; the row goes at once and the room is re-read. Nil when the
+    // answer belongs to another account or computer (switched meanwhile).
+    // Review 2: the line a delete put under the room's composer, so a later delete that works can take it away.
+    private var deleteNotes: [String: String] = [:]
+    // Review 3: the posts deleted here, kept out of every later read (Board.withoutDeleted).
+    private var deletedPosts: [String: Set<String>] = [:]
+    func delete(_ row: Board.RoomRow, in project: String) async -> Board.DeleteResult? {
+        // Review 3: said under the composer too, as every other refusal is (the sheet offers Delete only on the person's own).
+        guard row.kind == .post, row.byPerson else {
+            let why = "Only your own messages can be deleted."
+            notes[project] = why; deleteNotes[project] = why
+            return .refused(why)
+        }
+        #if DEBUG
+        if Self.sample { rows[project]?.removeAll { $0.id == row.id }; return .deleted(told: []) }
+        #endif
+        let epoch = client.chatEpoch
+        let answer = await client.throughMac { Board.roomDeleteRequest(mac: $0, project: project, post: row.id) }
+        guard same(epoch) else { return nil }
+        let result = Board.deleteResult(status: answer?.1.statusCode ?? 0, body: answer?.0)
+        // The room's own line under the composer says what happened: a refusal, or that an agent had already read it.
+        switch result {
+        case .deleted, .gone:
+            // Mona Lisa's routes: `gone` (already deleted elsewhere) takes the post out the same way, and says so.
+            var told: [String] = []
+            if case .deleted(let t) = result { told = t }
+            deletedPosts[project, default: []].insert(row.id)
+            rows[project]?.removeAll { $0.id == row.id }
+            // Review 1: only when there is something to say, so the room's "not confirmed" line is kept otherwise.
+            if let note = result == .gone ? Board.deleteGoneNote : Board.deletedNote(told: told, names: names) {
+                notes[project] = note; deleteNotes[project] = note
+            } else {
+                // Review 4: the earlier delete's line goes if it still shows; either way it is no longer this delete's.
+                if let was = deleteNotes[project], notes[project] == was { notes[project] = nil }
+                deleteNotes[project] = nil
+            }
+        case .refused(let why):
+            notes[project] = why
+            deleteNotes[project] = why
+        }
+        await loadRoom(project)
+        return result
+    }
+
     // The project's members the board says need the person now (their card's tone), for the pinned line.
     // kosmos#7106: the room's needs-you notice from the projects route's own count for THIS project (needsYouHere), as
     // the board's pjNeedsNotice; an agent's card tone can be about another project, so it is never the test here.
@@ -419,7 +606,14 @@ final class RoomStore: ObservableObject {
     #if DEBUG
     // The sample Projects tab (KOSMOS_SAMPLE_AGENTS=1, a Debug build only), for screenshots.
     static var sample: Bool { ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" }
-    static let sampleProjects = #"{"agentsUnreadable":false,"projects":[{"id":"springcatalogue","name":"Spring catalogue","description":"The print catalogue for March.","unread":3,"parent":null,"archived":false,"paused":false,"createdAt":"2026-10-20T10:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo","needsYouHere":"question","needsYouKey":"question:Which cover photo should we use?","because":"Which cover photo should we use?"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli","needsYouHere":"trust","needsYouKey":"trust"}],"folderState":{"state":"readable"},"summary":{"needsYou":2,"needsYouQuestions":1,"working":1}},{"id":"covershoot","name":"Cover shoot","description":"","unread":0,"parent":"springcatalogue","archived":false,"paused":false,"createdAt":"2026-10-21T10:00:00.000Z","agents":[{"sessionName":"dana","name":"Dana"}],"folderState":{"state":"readable"},"summary":{"working":1}},{"id":"website","name":"Website","description":"Shipping and returns pages.","unread":0,"parent":null,"archived":false,"paused":true,"createdAt":"2026-10-18T10:00:00.000Z","agents":[{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{}},{"id":"oldlaunch","name":"Old launch","description":"","unread":0,"parent":null,"archived":true,"archivedAt":"2026-09-01T12:00:00.000Z","paused":false,"createdAt":"2026-08-01T10:00:00.000Z","agents":[],"folderState":{"state":"readable"},"summary":{}}]}"#
+    // kosmos#7269: KOSMOS_SAMPLE_CROWD=1 adds a project of 15 members with sub-projects of 3 and 12 (and one deeper), for
+    // the faces' "+N" and the connector lines in design shots.
+    static var sampleProjects: String {
+        guard ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_CROWD"] == "1" else { return sampleBase }
+        return sampleBase.replacingOccurrences(of: #""projects":["#, with: #""projects":"# + String(sampleCrowd.dropLast()) + ",")
+    }
+    static let sampleCrowd = #"[{"id":"retail","name":"Retail rollout","description":"Every store, one launch day.","unread":0,"parent":null,"archived":false,"paused":false,"createdAt":"2026-10-24T10:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"},{"sessionName":"farah","name":"Farah"},{"sessionName":"gus","name":"Gus"},{"sessionName":"iris","name":"Iris"},{"sessionName":"jun","name":"Jun"},{"sessionName":"kai","name":"Kai"},{"sessionName":"lena","name":"Lena"},{"sessionName":"milo","name":"Milo"},{"sessionName":"nia","name":"Nia"},{"sessionName":"otto","name":"Otto"},{"sessionName":"pia","name":"Pia"},{"sessionName":"rex","name":"Rex"},{"sessionName":"suki","name":"Suki"}],"folderState":{"state":"readable"},"summary":{"working":3}},{"id":"signage","name":"Store signage","description":"","unread":0,"parent":"retail","archived":false,"paused":false,"createdAt":"2026-10-24T11:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{}},{"id":"training","name":"Staff training","description":"Guides and the first week.","unread":0,"parent":"retail","archived":false,"paused":false,"createdAt":"2026-10-24T12:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli"},{"sessionName":"farah","name":"Farah"},{"sessionName":"gus","name":"Gus"},{"sessionName":"iris","name":"Iris"},{"sessionName":"jun","name":"Jun"},{"sessionName":"kai","name":"Kai"},{"sessionName":"lena","name":"Lena"},{"sessionName":"milo","name":"Milo"},{"sessionName":"nia","name":"Nia"},{"sessionName":"otto","name":"Otto"}],"folderState":{"state":"readable"},"summary":{"working":1}},{"id":"weekone","name":"Week one","description":"","unread":0,"parent":"training","archived":false,"paused":false,"createdAt":"2026-10-24T13:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo"},{"sessionName":"dana","name":"Dana"}],"folderState":{"state":"readable"},"summary":{}}]"#
+    static let sampleBase = #"{"agentsUnreadable":false,"projects":[{"id":"springcatalogue","name":"Spring catalogue","description":"The print catalogue for March.","unread":3,"parent":null,"archived":false,"paused":false,"createdAt":"2026-10-20T10:00:00.000Z","agents":[{"sessionName":"cleo","name":"Cleo","needsYouHere":"question","needsYouKey":"question:Which cover photo should we use?","because":"Which cover photo should we use?"},{"sessionName":"dana","name":"Dana"},{"sessionName":"eli","name":"Eli","needsYouHere":"trust","needsYouKey":"trust"}],"folderState":{"state":"readable"},"summary":{"needsYou":2,"needsYouQuestions":1,"working":1}},{"id":"covershoot","name":"Cover shoot","description":"","unread":2,"notify":"mentions","parent":"springcatalogue","archived":false,"paused":false,"createdAt":"2026-10-21T10:00:00.000Z","agents":[{"sessionName":"dana","name":"Dana"}],"folderState":{"state":"readable"},"summary":{"working":1}},{"id":"website","name":"Website","description":"Shipping and returns pages.","unread":0,"parent":null,"archived":false,"paused":true,"createdAt":"2026-10-18T10:00:00.000Z","agents":[{"sessionName":"eli","name":"Eli"}],"folderState":{"state":"readable"},"summary":{}},{"id":"oldlaunch","name":"Old launch","description":"","unread":0,"parent":null,"archived":true,"archivedAt":"2026-09-01T12:00:00.000Z","paused":false,"createdAt":"2026-08-01T10:00:00.000Z","agents":[],"folderState":{"state":"readable"},"summary":{}}]}"#
     // The sample hold: one lift time for the launch, and gone for good once reopened (review 3: re-reads brought it back).
     static let sampleHeldUntil = Date().addingTimeInterval(40 * 60)
     static var sampleReopened: Set<String> = []
@@ -433,27 +627,42 @@ struct ProjectsView: View {
     @StateObject private var store: RoomStore
     @Binding var roomRequest: PushBridge.RoomTarget?
     let openPage: (URL) -> Void
-    @AppStorage("kosmos.projects.sort") private var sortRaw = Board.ProjectSort.newest.rawValue
+    // kosmos#7266: the + at the top right, the board's own new-project form (ContentView.openCreate).
+    var create: () -> Void = {}
+    @AppStorage("kosmos.projects.sort") private var sortRaw = Board.projectSortDefault.rawValue
     @State private var openProject: Board.ProjectRow?
     // A notification's room was not in the list: it has had its one fresh read.
     @State private var listReread = false
     @State private var listShown = false
     @State private var showArchived = false
 
-    init(client: BoardClient, roomRequest: Binding<PushBridge.RoomTarget?>, openPage: @escaping (URL) -> Void) {
+    init(client: BoardClient, roomRequest: Binding<PushBridge.RoomTarget?>, openPage: @escaping (URL) -> Void,
+         create: @escaping () -> Void = {}) {
         self.client = client
         self._roomRequest = roomRequest
         self.openPage = openPage
+        self.create = create
         _store = StateObject(wrappedValue: RoomStore(client: client))
     }
 
-    private var sort: Board.ProjectSort { Board.ProjectSort(rawValue: sortRaw) ?? .newest }
+    private var sort: Board.ProjectSort { Board.ProjectSort(rawValue: sortRaw) ?? Board.projectSortDefault }
 
     var body: some View {
         NavigationView {
             content
                 .navigationTitle("Projects")
-                .toolbar { ToolbarItem(placement: .navigationBarTrailing) { sortMenu } }
+                .navigationBarTitleDisplayMode(.inline)   // kosmos#7343: the shared bar, no big title
+                .kosmosSolidTopBar()   // kosmos#7346 (Josh 10-27 20:21): no row shows behind the top bar
+                .toolbar {
+                    ToolbarItem(placement: .principal) { ScreenHeading(title: "Projects") }
+                    KosmosBarLeading(switcher: MacSwitcher(client: client))
+                    // kosmos#7266 review 1: two items, not one HStack, so each keeps the toolbar's full tap target.
+                    ToolbarItemGroup(placement: .navigationBarTrailing) {
+                        sortMenu
+                        Button(action: create) { Image(systemName: "plus").font(.body.weight(.semibold)) }
+                            .accessibilityLabel("Add project")   // the board's own button says Add Project
+                    }
+                }
                 .background(Palette.ground.ignoresSafeArea())
                 .background(
                     NavigationLink(isActive: Binding(get: { openProject != nil }, set: { if !$0 { openProject = nil } })) {
@@ -538,8 +747,9 @@ struct ProjectsView: View {
             Picker("Order", selection: $sortRaw) {
                 ForEach(Board.ProjectSort.allCases, id: \.rawValue) { s in Text(Board.projectSortLabel(s)).tag(s.rawValue) }
             }
-        } label: { Image(systemName: "arrow.up.arrow.down") }
-        .accessibilityLabel("Order: \(Board.projectSortLabel(sort))")
+        } label: { SortButtonLabel(pressed: sort != Board.projectSortDefault) }
+        .accessibilityLabel(Board.sortButtonLabel(Board.projectSortLabel(sort)))
+        .accessibilityAddTraits(sort != Board.projectSortDefault ? .isSelected : [])
     }
 
     @ViewBuilder private var content: some View {
@@ -564,9 +774,15 @@ struct ProjectsView: View {
                         Section {
                             ForEach(tree) { row in
                                 Button { openProject = row.project } label: {
-                                    ProjectRowView(project: row.project, depth: row.depth, unreadable: list.agentsUnreadable, store: store)
+                                    ProjectRowView(project: row.project, depth: row.depth, lastKid: row.lastKid, hasKids: row.hasKids, through: row.through,
+                                                   parentName: row.depth > 0 ? list.projects.first { $0.id == row.project.parent }?.name : nil, unreadable: list.agentsUnreadable, store: store)
                                 }
                                 .buttonStyle(.plain)
+                                // kosmos#7269: the row draws its own top and bottom space, so its connector line reaches
+                                // the cell's edges and meets the next row's; no separator crosses a family's line.
+                                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                                .listRowSeparator(row.depth > 0 ? .hidden : .automatic, edges: .top)
+                                .listRowSeparator(row.depth > 0 && !row.lastKid ? .hidden : .automatic, edges: .bottom)
                             }
                         }
                     }
@@ -604,7 +820,12 @@ struct ProjectsView: View {
 struct ProjectRowView: View {
     let project: Board.ProjectRow
     let depth: Int
+    var lastKid = false
+    var hasKids = false
+    var through: [Int] = []
+    var parentName: String? = nil
     let unreadable: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ObservedObject var store: RoomStore
 
     private var word: Board.ProjectWord? { Board.projectWord(project, agentsUnreadable: unreadable) }
@@ -612,10 +833,19 @@ struct ProjectRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(1)
-                if let bubble = Board.unreadBubble(project.unread) { UnreadBubble(text: bubble) }
+                // Review 2: at the largest sizes a sub-project's indent leaves little room, so the name may wrap.
+                Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary)
+                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                 Spacer(minLength: 8)
-                if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
+                // kosmos#7486 (Josh 10-28 09:35): Working is the Agents list's own animated green pill, in the same place; the
+                // other words keep their look. kosmos#7342 (Mona Lisa): the unread bubble at the right end, after the word,
+                // 6 pt apart, as the Agents list has it, so the two tabs read alike.
+                HStack(spacing: 6) {
+                    if word == .working {
+                        StatusPill(word: Board.projectWordText(.working), pill: .working, wraps: typeSize.isAccessibilitySize)
+                    } else if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
+                    if let bubble = Board.unreadBubble(project.unread) { UnreadBubble(text: bubble, quiet: project.quiet) }
+                }
             }
             if !project.description.isEmpty {
                 Text(project.description).font(.footnote).foregroundColor(Palette.secondary).lineLimit(1)
@@ -625,13 +855,62 @@ struct ProjectRowView: View {
                 Text(problem + ".").font(.footnote).foregroundColor(Palette.dangerWord)
             }
         }
-        .padding(.leading, CGFloat(depth) * 16)
-        .frame(minHeight: 64)   // the spec's row: slice 1 geometry
+        .padding(.vertical, 10)   // the list's own row inset, drawn by the row (kosmos#7269: see listRowInsets)
+        .padding(.leading, CGFloat(depth) * indent)
+        // Top-aligned (review 1: centred, a short row's name sat below the elbow drawn at the name's height).
+        .frame(minHeight: 64, alignment: .topLeading)   // the spec's row: slice 1 geometry
+        .background(alignment: .topLeading) { connector }
+        // Every separator starts at the card's text edge, so the one that closes a family is not indented with its
+        // last child (review 1).
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spoken)
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the room")
+    }
+
+    // kosmos#7269 (Josh: "show nesting with a connector line, light and maybe dashed, like the desktop"): the board's
+    // file-tree rails (.pj-row.child::before/::after, #5712) as a light dashed line. A sub-project draws a vertical line
+    // under its parent's first face, down from the top of its row, and an elbow across to its own name; the last sub-project's
+    // line stops at its elbow. Unlike the board (one line at the row's own level), a deeper row also carries the lines of
+    // ancestors that run on past it (`through`), so a line never breaks where a sub-project has sub-projects of its own.
+    // Scaled with the faces (review 1: a fixed indent let the scaled line run through a sub-project's name at the
+    // largest text sizes).
+    @ScaledMetric(relativeTo: .footnote) private var indent: CGFloat = 28
+    // The middle of the name's line (the row's 10pt top space plus half a callout line), scaled with the text.
+    @ScaledMetric(relativeTo: .callout) private var nameMid: CGFloat = 10.5
+    private static let rail = Palette.pair(0xbdb8ae, 0x4a4e55)
+    @ViewBuilder private var connector: some View {
+        if depth > 0 || !through.isEmpty || hasKids {
+            GeometryReader { g in
+                Path { path in
+                    // A parent: the line's start, from under its last line (faces, name or folder problem) down to its
+                    // row's bottom space, which no text is in.
+                    if hasKids {
+                        let px = CGFloat(depth) * indent + face / 2 + 1.5
+                        path.move(to: CGPoint(x: px, y: g.size.height - 10 + 2))
+                        path.addLine(to: CGPoint(x: px, y: g.size.height))
+                    }
+                    // An ancestor's line passing this row on to that ancestor's later sibling: the whole row's height.
+                    for level in through {
+                        let ax = CGFloat(level - 1) * indent + face / 2 + 1.5
+                        path.move(to: CGPoint(x: ax, y: 0))
+                        path.addLine(to: CGPoint(x: ax, y: g.size.height))
+                    }
+                    guard depth > 0 else { return }
+                    // Under the centre of the parent's first face (its ring included), at the parent's own indent.
+                    let x = CGFloat(depth - 1) * indent + face / 2 + 1.5
+                    let mid = 10 + nameMid
+                    path.move(to: CGPoint(x: x, y: 0))
+                    path.addLine(to: CGPoint(x: x, y: lastKid ? mid : g.size.height))
+                    path.move(to: CGPoint(x: x, y: mid))
+                    path.addLine(to: CGPoint(x: CGFloat(depth) * indent - 4, y: mid))
+                }
+                .stroke(Self.rail, style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [3, 3]))
+            }
+            .accessibilityHidden(true)
+        }
     }
 
     private func wordColor(_ w: Board.ProjectWord) -> Color {
@@ -643,97 +922,68 @@ struct ProjectRowView: View {
         }
     }
 
+    // kosmos#7269 (Josh, 2026-10-26: "remove the '5 agents' text and just show the members as small avatar bubbles",
+    // "design the truncation, the first N then +3"): the members as overlapping faces, each ringed in the row's colour so
+    // the overlap reads, then "+N" for the rest (Board.faceBubbles: 12 members are 9 faces and +3). Fewer faces at the
+    // largest text sizes and on deep sub-projects, so the row never runs past its edge. No count and no model marks.
+    @ScaledMetric(relativeTo: .footnote) private var face: CGFloat = 24
     @ViewBuilder private var faces: some View {
         if !project.members.isEmpty {
-            // The tally beside the count when it fits, else on its own line under it (review 1: a narrow phone or a large
-            // text size squeezed the numbers to "…"; the board's tally wraps its items).
-            // Last (review 2): when even that does not fit (the largest text on a narrow phone, a nested sub-project), the
-            // faces, the count (allowed to wrap) and the tally entries (wrapping, as the board's flex-wrap) each take
-            // what room there is, so nothing runs past the row's edge.
             ViewThatFits(in: .horizontal) {
-                HStack(spacing: 4) { facesAndCount; providerTally(hairline: true) }
-                VStack(alignment: .leading, spacing: 4) { facesAndCount; providerTally(hairline: false) }
-                VStack(alignment: .leading, spacing: 4) {
-                    faceRow
-                    countText.lineLimit(2)
-                    providerTally(hairline: false, wrap: true)
-                }
+                faceRow(room: 10)
+                faceRow(room: 6)
+                faceRow(room: 4)
+                faceRow(room: 2)
             }
             .accessibilityHidden(true)
         }
     }
-
-    // kosmos#7114: the board's provider tally beside the count (pjProviderTally, .pjtally): a hairline, then each
-    // provider's mark and its number, quiet; the faces stay as they are. Marks at the caption's size, scaled with text.
-    @ScaledMetric(relativeTo: .footnote) private var markSize: CGFloat = 13
-    @ViewBuilder private func providerTally(hairline: Bool, wrap: Bool = false) -> some View {
-        let tally = Board.providerTally(project.members)
-        if !tally.isEmpty {
-            // A hairline only beside the count; on a line of its own it would stand against nothing (review 2).
-            if wrap {
-                TallyFlow(spacing: 8, lineSpacing: 4) { ForEach(tally) { t in tallyEntry(t) } }
-            } else {
-                HStack(spacing: 8) {
-                    if hairline { Rectangle().fill(Palette.separator).frame(width: 1, height: markSize + 2) }
-                    ForEach(tally) { t in tallyEntry(t) }
-                }
-                .padding(.leading, hairline ? 4 : 0)
+    private func faceRow(room: Int) -> some View {
+        let fit = Board.faceBubbles(project.members.count, room: room)
+        return HStack(spacing: -face * 0.25) {
+            ForEach(project.members.prefix(fit.faces), id: \.session) { m in
+                AgentAvatar(name: m.name, picture: store.picture(m.session), tone: nil, size: face)
+                    .padding(1.5)
+                    .background(Circle().fill(Palette.card))
+            }
+            if fit.more > 0 {
+                Text("+\(fit.more)")
+                    .font(.system(size: face * 0.42, weight: .semibold)).monospacedDigit()
+                    .foregroundColor(Palette.secondary)
+                    .padding(.horizontal, face * 0.22)
+                    .frame(minWidth: face, minHeight: face)
+                    .background(Capsule().fill(Palette.avatarFill))
+                    .padding(1.5)
+                    .background(Capsule().fill(Palette.card))
+                    .fixedSize()
             }
         }
-    }
-    private func tallyEntry(_ t: Board.TallyEntry) -> some View {
-        HStack(spacing: 3) {
-            if let mark = t.mark {
-                Image(mark).resizable().scaledToFit().frame(width: markSize, height: markSize)
-                    .foregroundColor(Palette.primary)
-                    // As the board's: the OpenAI glyph fills about half its viewBox, so it is drawn larger.
-                    .scaleEffect(mark == "MarkOpenAI" ? 1.5 : 1)
-            } else {
-                // The board's .pcombo-chip: a filled rule-coloured square, the letter bold in the second ink.
-                Text(t.initial).font(.system(size: markSize * 0.62, weight: .bold)).foregroundColor(Palette.secondary)
-                    .frame(width: markSize, height: markSize)
-                    .background(RoundedRectangle(cornerRadius: 3).fill(Palette.separator))
-            }
-            Text("\(t.n)").font(.footnote).foregroundColor(Palette.secondary).fixedSize()
-        }
-    }
-
-    private var faceRow: some View {
-        HStack(spacing: 4) {
-            ForEach(project.members.prefix(5), id: \.session) { m in
-                AgentAvatar(name: m.name, picture: store.picture(m.session), tone: nil, size: 22)
-            }
-        }
-    }
-    private var countText: some View {
-        Text(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
-            .font(.footnote).foregroundColor(Palette.secondary)
-    }
-    private var facesAndCount: some View {
-        HStack(spacing: 4) { faceRow; countText.padding(.leading, 2).lineLimit(1).fixedSize() }
     }
 
     private var spoken: String {
         var parts = [project.name]
+        if let parentName { parts.append("in " + parentName) }   // kosmos#7269 review 1: the nesting, said
         if let word { parts.append(Board.projectWordText(word)) }
-        if let u = project.unread, u > 0 { parts.append("\(u) unread") }
+        if let u = project.unread, u > 0 { parts.append(project.quiet ? "\(u) unread, muted" : "\(u) unread") }   // kosmos#7342 (Mona Lisa)
         if !project.description.isEmpty { parts.append(project.description) }
-        parts.append((project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
-                     + Board.providerTallySpoken(Board.providerTally(project.members)))   // kosmos#7114
+        // kosmos#7269: the faces are hidden from VoiceOver, so it hears the count the row no longer prints.
+        parts.append(project.members.count == 1 ? "1 agent" : "\(project.members.count) agents")
         return parts.joined(separator: ", ")
     }
 }
 
 // The board's unread bubble (.pj-unread: #d93a2f, white, 11pt bold, at least 18pt tall).
+// kosmos#7342 (Mona Lisa): a Mentions-only or Muted project's is the same capsule in the system's secondary grey.
 struct UnreadBubble: View {
     let text: String
+    var quiet = false
     var body: some View {
         Text(text)
             .font(.system(size: 11, weight: .bold))
             .foregroundColor(.white)
             .padding(.horizontal, 5)
             .frame(minWidth: 18, minHeight: 18)
-            .background(Capsule().fill(Color(red: 0xd9 / 255, green: 0x3a / 255, blue: 0x2f / 255)))
+            .background(Capsule().fill(quiet ? Color(UIColor.systemGray) : Color(red: 0xd9 / 255, green: 0x3a / 255, blue: 0x2f / 255)))
             .accessibilityHidden(true)
     }
 }
@@ -747,39 +997,5 @@ struct ArchivedRow: View {
                 .font(.footnote).foregroundColor(Palette.secondary)
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-// kosmos#7114 review 2: the tally's entries wrapped onto as many lines as they need (the board's .pjtally flex-wrap), for
-// a row too narrow for them on one line.
-struct TallyFlow: Layout {
-    var spacing: CGFloat
-    var lineSpacing: CGFloat
-    // Both methods break lines with Board.flowLines (tested) AT THE SAME WIDTH, the proposal the size was measured from
-    // (review 4: placing at bounds.width, which is the reported width, re-broke the lines differently), so what is
-    // measured is what is placed.
-    // (review 5) The widths reported are the ones flowLayout summed as it compared, so a parent that places this at its
-    // reported width (as with no width proposed) replays the same lines.
-    private func lines(_ subviews: Subviews, width: CGFloat?) -> (sizes: [CGSize], lines: [[Int]], widths: [Double]) {
-        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
-        let laid = Board.flowLayout(sizes.map { Double($0.width) }, width: Double(width ?? .infinity), spacing: Double(spacing))
-        return (sizes, laid.lines, laid.widths)
-    }
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let (sizes, rows, widths) = lines(subviews, width: proposal.width)
-        let heights = rows.map { r in r.map { sizes[$0].height }.max() ?? 0 }
-        return CGSize(width: CGFloat(widths.max() ?? 0), height: heights.reduce(0, +) + lineSpacing * CGFloat(max(0, rows.count - 1)))
-    }
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let (sizes, rows, _) = lines(subviews, width: proposal.width ?? bounds.width)
-        var y = bounds.minY
-        for r in rows {
-            var x = bounds.minX
-            for i in r {
-                subviews[i].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(sizes[i]))
-                x += sizes[i].width + spacing
-            }
-            y += (r.map { sizes[$0].height }.max() ?? 0) + lineSpacing
-        }
     }
 }

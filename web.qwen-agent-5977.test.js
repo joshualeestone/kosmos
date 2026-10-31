@@ -115,7 +115,7 @@ test('#5977 UI review: the At a glance overview gives Qwen its own row, named Qw
     { ...CARDS.o, runner: 'codex', state: 'idle' },
   ]);
   assert.deepEqual(rows.map((r) => [r.provider, r.agents]), [['codex', 1], ['qwen', 1]]);
-  assert.match(PAGE, /muse: 'Meta Muse', qwen: 'Qwen' \}/, 'the page names the qwen row');
+  assert.match(PAGE, /muse: 'Meta Muse', qwen: 'Qwen'[,\s}]/, 'the page names the qwen row');   // #7206: deepseek follows it
   assert.match(SERVER, /providerWord: 'qwen'/, 'the route tags a Qwen card');
 });
 

@@ -606,6 +606,56 @@ kosmos_refuse_if_suite_live() {
   return 0
 }
 
+# #7512: the release cut's quiet-box wait, ONE committed answer to "is anything still running that the cut must wait
+# for?", so the per-cut wrapper (outside the repo, mortals:~/.cut-07NN.sh) sources it instead of keeping its own copy.
+# Review 1: the wrapper must FAIL CLOSED around it. It sources the main checkout's copy of this file BEFORE that checkout
+# is moved to the cut's target, so a checkout older than this function gives 127 (not found), and a bare
+# `running() { kosmos_cut_quiet_box_busy; }` would read that as a quiet box and start the cut beside a live suite.
+# Only 0 (busy) and 1 (quiet) are answers; anything else is busy:
+#   running() { local r; kosmos_cut_quiet_box_busy; r=$?; [ "$r" -le 1 ] && return "$r"
+#               echo "could not ask whether the box is quiet (rc $r; is the main checkout pulled?): treated as busy"; return 0; }
+# Call it only as a condition (`while why=$(running)`, `if running`): under `set -e` a bare call stops the wrapper on a
+# quiet box (review 2), which starts no cut but says nothing.
+# The 0.7.73 cut deadlocked for about 20 minutes because the wrapper's own copy counted ANY live
+# `bash tools/run-tests.sh` as busy, including a suite that was only WAITING on the cut's own machine claim (it runs no
+# test, and waits for the claim to go). That is the 0.7.27 deadlock (#5467, #5470) through another door. Here a suite
+# that holds a verified waiting marker (kosmos_wait_until_clear's queue writes one after its first refused check; see
+# _kosmos_suite_waiter_live) is not counted, nor is anything descended from one; an unmarked suite still is.
+# Prints what it waits for on stdout and returns 0 while busy; returns 1 when the box is quiet. Anything it cannot read
+# counts as busy, the safe side. The same five things as the wrapper's copy, in its order: a relay pre-push build, a
+# suite, stray shell-shard workers (a #7100 shard can outlive its leader), an install harness, a browser-checks run.
+# (Review 5: except the pre-push check, which reads a lockf failure as no build, as kosmos_prepush_build_live says; the
+# wrapper's copy did the same.)
+# KNOWN RESIDUAL: a suite started with the suite check off (KOSMOS_TESTS_IGNORE_SUITE=1, or inside a test) waits
+# without a marker, so it still reads as busy; its wait gives up at its own bound (KOSMOS_WAIT_MAX_S, 20 minutes).
+# 🔑 SAFE ONLY WHILE THE CALLER HOLDS THE MACHINE CLAIM AND RENEWS IT (review 3). Skipping a waiting suite is safe
+# because that suite's box check asks about the claim first, so it cannot leave its wait while the claim stands (review 4:
+# unless it runs with KOSMOS_IGNORE_MACHINE_CLAIM, which its marker records on line 7, and then it is still counted). A
+# caller that waits for quiet BEFORE claiming, or lets the claim lapse, could read a waiter as not running in the very
+# moment it unmarks and starts. The wrapper claims first and renews every poll.
+# Unlike kosmos_refuse_if_suite_live it keeps suites started inside a test (no _kosmos_drop_test_fixtures), as the
+# wrapper's copy did: that only errs toward busy.
+# Seams: KOSMOS_SUITE_PROBE and KOSMOS_SUITE_SELF_PID, as kosmos_refuse_if_suite_live reads them.
+# 0 shards live, 1 none, 2 or more pgrep failed (review 2: busy too; review 6: said as "could not tell").
+_kosmos_shell_shards_live() { local rc=0; pgrep -f "tools/shell-shard\.js run" >/dev/null 2>&1 || rc=$?; return "$rc"; }
+kosmos_cut_quiet_box_busy() {
+  local probe="${KOSMOS_SUITE_PROBE:-}" self="${KOSMOS_SUITE_SELF_PID:-$$}" out rc sc
+  if kosmos_prepush_build_live; then echo "relay pre-push build"; return 0; fi
+  if [ -n "$probe" ]; then out="$("$probe" 2>/dev/null)"; rc=$?; else out="$(_kosmos_suite_candidates)"; rc=$?; fi
+  if [ "$rc" -ge 2 ]; then echo "could not tell whether a test suite runs (rc $rc): treated as busy"; return 0; fi
+  [ -n "$out" ] && out="$(printf '%s\n' "$out" | _kosmos_drop_self_subtree "$self" || true)"
+  [ -n "$out" ] && out="$(printf '%s\n' "$out" | _kosmos_drop_claim_bound_suite_waiters || true)"
+  if [ -n "$out" ]; then echo "suite ${out%% *}"; return 0; fi
+  _kosmos_shell_shards_live; rc=$?
+  if [ "$rc" -eq 0 ]; then echo "shell shards running"; return 0; fi
+  if [ "$rc" -ge 2 ]; then echo "could not tell whether shell shards run (rc $rc): treated as busy"; return 0; fi
+  for sc in tools/test-install.sh tools/browser-checks.sh; do
+    if kosmos_running_lines "$sc" >/dev/null; then echo "running: $sc"; return 0; else rc=$?; fi
+    [ "$rc" -eq 1 ] || { echo "could not tell whether $sc runs (rc $rc): treated as busy"; return 0; }
+  done
+  return 1
+}
+
 # --- #4498: wait for a quiet box instead of refusing at once ------------------
 # The guards above refuse at once. On a busy Mac a suite is usually running, so a refusal sent the
 # agent round by hand, or to the override. kosmos_wait_until_clear asks a caller's check again every
@@ -717,6 +767,34 @@ _kosmos_pid_gone() {
   case "$err" in *[Nn]'o such process'*) return 0 ;; esac
   return 1
 }
+# #7512 review 4: the waiter a pid belongs to (itself or the nearest ancestor holding a verified waiting marker), or
+# nothing. The same bounded walk as _kosmos_descends_from_suite_waiter.
+_kosmos_suite_waiter_of() {
+  local pid="$1" hops=0
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
+    _kosmos_suite_waiter_live "$pid" && { printf '%s' "$pid"; return 0; }
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+    hops=$((hops + 1)); [ "$hops" -gt 64 ] && break
+  done
+  return 1
+}
+# Like _kosmos_drop_suite_waiters, but a waiter whose marker says it ignores the machine claim is KEPT: it is free to
+# start while a cut's claim stands, so a cut must still wait for it (kosmos_cut_quiet_box_busy).
+_kosmos_drop_claim_bound_suite_waiters() {
+  local line pid w
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pid="${line%% *}"
+    if w="$(_kosmos_suite_waiter_of "$pid")"; then
+      # Review 5: one read of the whole marker. A waiter can unmark between the liveness check above and this read
+      # (its wait passed); an empty or unreadable marker then keeps the line (busy), never reads as claim-bound.
+      local m=""; m="$(cat "$(_kosmos_suite_waiter_file "$w")" 2>/dev/null)" || m=""
+      { [ -n "$m" ] && [ "$(printf '%s\n' "$m" | sed -n '7p')" != ignores-claim ]; } && continue
+    fi
+    _kosmos_pid_gone "$pid" && continue
+    printf '%s\n' "$line"
+  done
+}
 _kosmos_drop_suite_waiters() {
   local line pid
   while IFS= read -r line; do
@@ -744,7 +822,10 @@ kosmos_mark_suite_waiting() {
   # light waiter that never will (an older queued-heavy, KOSMOS_SIDE_LANE=0) does not hold the side lane for others.
   # "aware" when it is a queued-heavy.sh that knows about side turns (KOSMOS_SIDE_AWARE=1) but does not take them.
   local l6=""; if [ "${KOSMOS_SIDE_CAPABLE:-0}" = 1 ]; then l6=side; elif [ "${KOSMOS_SIDE_AWARE:-0}" = 1 ]; then l6=aware; fi
-  printf '%s %s\n%s\n%s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" "$(_kosmos_queue_class)" "$l6" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
+  # #7512 review 4: line 7 is "ignores-claim" when this run waits with KOSMOS_IGNORE_MACHINE_CLAIM set. Such a waiter can
+  # leave its wait while a cut's claim stands, so the cut's quiet-box wait (kosmos_cut_quiet_box_busy) still counts it.
+  local l7=""; [ -n "${KOSMOS_IGNORE_MACHINE_CLAIM:-}" ] && l7=ignores-claim
+  printf '%s %s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$ts" "$$" "$(ps -ww -o command= -p "$$" 2>/dev/null)" "$(_kosmos_pid_started_local "$$")" "$(_kosmos_pid_started "$$")" "$(_kosmos_queue_class)" "$l6" "$l7" > "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null \
     && mv -f "$(_kosmos_suite_waiter_file "$$").tmp.$$" "$(_kosmos_suite_waiter_file "$$")" 2>/dev/null
   return 0
 }

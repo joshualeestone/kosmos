@@ -157,7 +157,7 @@ test('#6206: every mobile-shots screen that stubs with .route turns the service 
   const { stubbing, missing } = unflaggedStubbers(SRC);
   assert.deepEqual(missing, [], 'these screens stub a request but leave the service worker on (they time out on WebKit): ' + missing.join(', '));
   // CONTROL: the reader sees stubbing directly, through a helper and through another screen.
-  for (const n of ['allow-card', 'connect-sheet', 'settings-accounts-landed']) assert.ok(stubbing.includes(n), 'the reader missed ' + n);
+  for (const n of ['allow-card', 'connect-sheet', 'settings-add-qwen-downloading']) assert.ok(stubbing.includes(n), 'the reader missed ' + n);   // kosmos#7198: settings-accounts-landed is gone
   // CONTROL: it found every screen the file declares, and the helpers known to stub.
   const { screens, helpers } = unflaggedStubbers(SRC);
   const declared = screensArrayEntries(SRC);

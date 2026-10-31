@@ -531,14 +531,15 @@ test('#4787: a due repeating task is nudged with its due run and the record verb
     assert.match(text, /has not been reported: run it now, then record it with kosmos task ran rp4787 3 \(add --unchanged if it found nothing new\)\./);
   }
   // Review 3: a daily job whose slot passed two minutes ago ALWAYS has its deadline ahead (tomorrow's slot less the
-  // 15-minute grace), worked out here without recordBy, so the wiring and recordBy are both pinned on every run.
+  // 30-minute early window, kosmos#7413), worked out here without recordBy, so the wiring and recordBy are both pinned on
+  // every run.
   const back = new Date(now - 2 * 60000);
   const hhmm = String(back.getHours()).padStart(2, '0') + ':' + String(back.getMinutes()).padStart(2, '0');
   const daily = { number: 9, sentence: 'Daily check', who: 'ag', repeat: { every: 'day', at: hhmm }, repeatSetAt: new Date(now - 10 * 60000).toISOString(), createdAt: new Date(now - 10 * 60000).toISOString() };
   const d = nudge.openParts('ag', proj(daily))[0];
   const slotD = new Date(back.getFullYear(), back.getMonth(), back.getDate(), back.getHours(), back.getMinutes()).getTime();
   const tomorrow = tr.nextAfter(daily.repeat, slotD);
-  assert.equal(d.byWords, tr.whenWords(Math.floor((tomorrow - 15 * 60000) / 60000) * 60000), 'the daily deadline is not tomorrow\'s slot less 15 minutes: ' + JSON.stringify(d));
+  assert.equal(d.byWords, tr.whenWords(Math.floor((tomorrow - 30 * 60000) / 60000) * 60000), 'the daily deadline is not tomorrow\'s slot less 30 minutes: ' + JSON.stringify(d));
   assert.match(nudge.nudgeText(d), /has not been reported: run it now \(record it before [^,]+, ahead of the next one; if it is still going then, stop it, record it as it stands with what stopped it, and start the next\), then record it with kosmos task ran rp4787 9 \(add --unchanged if it found nothing new\)\./);
   // CONTROL: a part with no deadline named says nothing about one, and one with a deadline says it.
   assert.doesNotMatch(nudge.nudgeText({ ...due[0], byWords: undefined }), /record it before/);

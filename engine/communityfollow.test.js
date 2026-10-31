@@ -36,6 +36,18 @@ function backend() {
       const send = (code, obj) => (st.slowMs ? setTimeout(() => sendNow(code, obj), st.slowMs) : sendNow(code, obj));   // review 2: every answer late
       if (st.hang && st.hang(req)) return undefined;                  // a service that never answers
       const known = (n) => ['quill', 'Echo Two'].includes(n) || [...st.agents.values()].some((a) => a.name === n);
+      // kosmos#7660: the public profile by @handle (any case, one leading '@' dropped, as the service's lookup_form).
+      const byh = req.method === 'GET' && req.url.match(/^\/agents\/by-handle\/([^/?]+)$/);
+      if (byh) {
+        const h = decodeURIComponent(byh[1]).replace(/^@/, '').toLowerCase();
+        const HANDLES = { 'quill-ab3k': 'quill', 'echo-two-x7mn': 'Echo Two' };
+        // Review 1: st.handleMode answers the lookup with a large profile, an unreadable body, or never.
+        if (st.handleMode === 'hang') return undefined;
+        if (st.handleMode === 'busy') return send(429, { detail: { error: 'rate_limit_exceeded' } });
+        if (st.handleMode === 'junk') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end('{not json'); }
+        const extra = st.handleMode === 'big' ? { posts: Array.from({ length: 50 }, (_, i) => ({ id: 'p' + i, body: 'x'.repeat(4000) })), comments: Array.from({ length: 50 }, (_, i) => ({ id: 'c' + i, body: 'y'.repeat(2000) })) } : {};
+        return HANDLES[h] ? send(200, { name: HANDLES[h], handle: h, ...extra }) : send(404, { detail: 'agent not found' });
+      }
       // The public routes (no bearer): an agent's profile and its following list.
       const pub = req.method === 'GET' && req.url.match(/^\/agents\/by-name\/([^/?]+)(\/following\?limit=(\d+))?$/);
       if (pub) {
@@ -81,7 +93,8 @@ function backend() {
           (st.feedCalls = st.feedCalls || []).push(c);
           const i = c ? Number(c.slice(1)) : 0;
           if (st.failPage === i) return send(503, { detail: 'down' });
-          return send(200, { items: st.pages[i] || [], next_cursor: i + 1 < st.pages.length ? 'c' + (i + 1) : null });
+          const next = i + 1 < st.pages.length ? 'c' + (i + 1) : null;
+          return send(200, { items: st.pages[i] || [], next_cursor: st.cursorOf && st.cursorOf(i) !== undefined ? st.cursorOf(i) : next });
         }
         return send(200, { items: st.feed, next_cursor: null });
       }
@@ -636,6 +649,7 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.ok(r.text.includes('POST500') && r.text.includes('POST501'), 'the posts behind a page of replies were not read: ' + r.text);
     assert.ok(!r.text.includes('POST502'), 'more than FEED_PAGES_MAX pages were read');
     assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2']);
+    assert.ok(!r.text.includes(cf.CUT_SHORT), 'kosmos#7391 review 1: stopping at FEED_PAGES_MAX, with a next page still there, said cut short: ' + r.text);
     assert.ok(!r.text.includes('REPLY11'), 'a later page\'s reply was added');
     assert.ok(r.text.includes('Reply to: Other 1\n') || r.text.includes('Reply to: Other 1 '), 'CONTROL: the first page\'s replies are kept: ' + r.text);
     assert.ok(r.text.indexOf('Reply to: Other 9') > 0 && r.text.indexOf('POST501') < r.text.indexOf('Reply to: Other 9'), 'a post is listed after a reply');
@@ -667,7 +681,42 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     assert.equal(down.ok, true, down.because);
     assert.ok(down.text.includes('None of the newest items from the agents you follow is a post'), down.text);
     assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the failing page was never asked for, so this tests nothing');
-    // Review 3: each older page waits at most PAGE_WAIT_MS for the agent's call chain (the first page keeps the default).
+    assert.ok(down.text.includes(cf.CUT_SHORT), 'kosmos#7391: a read cut short by a failed page did not say so: ' + down.text);
+    assert.ok(down.text.indexOf(cf.CUT_SHORT) < down.text.indexOf('None of the newest items'), 'kosmos#7391 review 8: the notice sits between a heading and its list: ' + down.text);
+    assert.ok(!enough.text.includes(cf.CUT_SHORT), 'CONTROL: a read whose pages all answered said it was cut short');
+    // kosmos#7391 review 6: a next page whose cursor the read cannot use is a page not read, so the read says so.
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(745, '11')]];
+    b.st.cursorOf = (i) => (i === 0 ? 'not a cursor!' : undefined);
+    const odd = await cf.readFollowing('mara');
+    b.st.cursorOf = undefined;
+    assert.deepEqual(b.st.feedCalls, [null], 'CONTROL: the odd cursor was asked for, so this tests nothing');
+    assert.ok(odd.text.includes(cf.CUT_SHORT), 'an unusable next cursor ended the paging silently: ' + odd.text);
+    // kosmos#7391 review 7: the same odd cursor at FEED_PAGES_MAX is the read's depth, not a cut; and a non-string one
+    // inside it is a page not read.
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(746, '11')], [post(747, '11')], [post(748, '10')]];
+    b.st.cursorOf = (i) => (i === 2 ? 'not a cursor!' : undefined);
+    const deep = await cf.readFollowing('mara');
+    assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'CONTROL: the read did not reach FEED_PAGES_MAX, so this tests nothing');
+    assert.ok(!deep.text.includes(cf.CUT_SHORT), 'an odd cursor at FEED_PAGES_MAX said cut short: ' + deep.text);
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(749, '11')]];
+    b.st.cursorOf = (i) => (i === 0 ? 42 : undefined);
+    const num = await cf.readFollowing('mara');
+    b.st.cursorOf = undefined;
+    assert.ok(num.text.includes(cf.CUT_SHORT), 'a non-string next cursor ended the paging silently: ' + num.text);
+    // kosmos#7391 review 2: nothing to show and an older page refused: the heading does not say "nothing new".
+    b.st.feedCalls = [];
+    b.st.pages = [[], [post(740, '11')]];
+    b.st.failPage = 1;
+    const empty = await cf.readFollowing('mara');
+    b.st.failPage = undefined;
+    assert.ok(empty.text.includes('Nothing new in the newest items Kosmos could read.') && empty.text.includes(cf.CUT_SHORT)
+      && !empty.text.includes('Nothing new from the agents you follow.'), empty.text);
+    // kosmos#7391: each older page waits for the board's call chain for what is left of READ_PAGES_MS (from the newest
+    // page's answer) and of READ_TOTAL_MS (from the read's start), whichever is less, never less than PAGE_WAIT_MS (the
+    // first page keeps the default). At 1 s a busy board refused them on every read.
     const calls = [];
     const real = cs.agentCall;
     cs.agentCall = (k, m, p, o) => { calls.push({ p, waitMs: o && o.waitMs }); return real(k, m, p, o); };
@@ -679,14 +728,76 @@ test('#5636 F7c: a page of replies does not crowd out the posts: older pages are
     const feedCalls = calls.filter((c) => c.p.startsWith('/agents/me/following/feed'));
     assert.equal(feedCalls.length, 2, JSON.stringify(calls));
     assert.equal(feedCalls[0].waitMs, undefined, 'the first page lost its default wait');
-    assert.equal(feedCalls[1].waitMs, cf.PAGE_WAIT_MS, 'an older page did not ask for the short PAGE_WAIT_MS wait');
-    // Review 3: no older page starts once READ_PAGES_MS has passed since the read began.
+    assert.ok(feedCalls[1].waitMs > cf.PAGE_WAIT_MS && feedCalls[1].waitMs <= 10000,
+      'an older page did not wait for the rest of the read-time bound: ' + feedCalls[1].waitMs);
+    // kosmos#7391 review 3, the reported case through the REAL chain: another agent's call holds the board's one
+    // community chain for about 1.5 s (its request is never answered and is cut at the timeout), queued between this
+    // read's newest page and its older page, so the older page has to wait longer than PAGE_WAIT_MS to get in.
+    cs.setTimeoutMs(1500);
+    b.st.hang = (req) => req.method === 'POST' && req.url === '/agents/by-name/quill/follow';
+    let holder = null;
+    let olderWaited = null;
+    cs.agentCall = (k, m, p, o) => {
+      if (k === 'mara' && p.includes('&cursor=')) {
+        const asked = Date.now();
+        return real(k, m, p, o).then((a) => { olderWaited = Date.now() - asked; return a; });
+      }
+      const out = real(k, m, p, o);
+      if (k === 'mara' && p.startsWith('/agents/me/following/feed')) holder = real('juno', 'POST', '/agents/by-name/quill/follow', {});
+      return out;
+    };
+    try {
+      b.st.feedCalls = [];
+      b.st.pages = [tens(1, '12'), [post(720, '11')]];
+      b.st.seen.length = 0;
+      const busy = await cf.readFollowing('mara');
+      const held = await holder;
+      const at = (f) => b.st.seen.findIndex(f);
+      const follow = at((q) => q.method === 'POST' && q.url === '/agents/by-name/quill/follow');
+      const older = at((q) => q.method === 'GET' && q.url.includes('following/feed') && q.url.includes('cursor='));
+      assert.ok(busy.text.includes('POST720') && !busy.text.includes(cf.CUT_SHORT), 'kosmos#7391: on a busy chain the post behind the newest page was not reached: ' + busy.text);
+      // The controls, so the pass above means the older page really waited behind the other agent's call.
+      assert.ok(follow >= 0 && older > follow, 'CONTROL: the other agent\'s follow did not reach the service before the older page, so it held nothing: ' + JSON.stringify(b.st.seen.map((q) => q.url)));
+      assert.equal(held.ok, false, 'CONTROL: the other agent\'s call was answered, so it did not hold the chain');
+      assert.ok(olderWaited > cf.PAGE_WAIT_MS, 'CONTROL: the older page itself waited only ' + olderWaited + ' ms, so this tests nothing');
+    } finally { cs.agentCall = real; cs.setTimeoutMs(5000); b.st.hang = null; }
+    // kosmos#7391 review 3: the whole read is bounded too, so it normally ends while the command is still asking.
+    cf._setReadTotalMs(200);
+    cs.agentCall = async (k, m, p, o) => { if (!p.includes('&cursor=')) await new Promise((res) => setTimeout(res, 300)); return real(k, m, p, o); };
+    try {
+      b.st.feedCalls = [];
+      b.st.pages = [tens(1, '12'), [post(725, '11')]];
+      const total = await cf.readFollowing('mara');
+      assert.deepEqual(b.st.feedCalls, [null], 'an older page was asked for after the whole read\'s bound');
+      assert.ok(total.text.includes(cf.CUT_SHORT), total.text);
+    } finally { cs.agentCall = real; cf._setReadTotalMs(null); }
+    // kosmos#7391 review 4: a read that took POSTS_WANTED posts from behind still says it could not reach a page: that page
+    // may hold the deepest posts, the next to pass the depth edge.
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(726, '11'), post(727, '11'), post(728, '11')], [post(729, '10')]];
+    b.st.failPage = 2;
+    const movedOn = await cf.readFollowing('mara');
+    b.st.failPage = undefined;
+    assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2'], 'CONTROL: the third page was not asked for, so this tests nothing');
+    assert.ok(['POST726', 'POST727', 'POST728'].every((t) => movedOn.text.includes(t)) && movedOn.text.includes(cf.CUT_SHORT), movedOn.text);
+    // kosmos#7391 review 1: on a busy board the newest page can itself wait most of READ_PAGES_MS; the older pages'
+    // bound counts from its answer, so they are still read.
+    cf._setReadPagesMs(200);
+    cs.agentCall = async (k, m, p, o) => { if (!p.includes('&cursor=')) await new Promise((res) => setTimeout(res, 300)); return real(k, m, p, o); };
+    try {
+      b.st.feedCalls = [];
+      b.st.pages = [tens(1, '12'), [post(730, '11')]];
+      const slowFirst = await cf.readFollowing('mara');
+      assert.ok(slowFirst.text.includes('POST730') && !slowFirst.text.includes(cf.CUT_SHORT), 'a slow newest page left the older pages no time: ' + slowFirst.text);
+    } finally { cs.agentCall = real; cf._setReadPagesMs(null); }
+    // Review 3, #7391: no older page is asked for once READ_PAGES_MS has passed since the newest page answered.
     cf._setReadPagesMs(0);
     try {
       b.st.feedCalls = [];
       const late = await cf.readFollowing('mara');
       assert.equal(late.ok, true, late.because);
       assert.deepEqual(b.st.feedCalls, [null], 'an older page started after the read-time bound');
+      assert.ok(late.text.includes(cf.CUT_SHORT), 'kosmos#7391: a read the time bound cut short did not say so: ' + late.text);
     } finally { cf._setReadPagesMs(null); }
   } finally { await b.close(); }
 });
@@ -942,4 +1053,290 @@ test('#5636 F7c: frame numbers only unlabelled items, and takes a label only in 
   for (const bad of ['', '5', 'r0', 'R1', 'r1]', 'x1', 'r1234', 7]) {
     assert.deepEqual(heads([it('a', bad), it('b')]), ['[1]', '[2]'], 'frame took the label ' + JSON.stringify(bad));
   }
+});
+
+/* kosmos#7660: an agent can be named by its @handle. */
+test('kosmos#7660 follow by @handle: with or without the @, any case, it follows the agent the handle names; the display name still works', async () => {
+  fresh(); const b = await backend();
+  try {
+    const r = await cf.follow('mara', '@echo-two-x7mn');
+    assert.deepEqual(r, { ok: true, text: 'You now follow Echo Two.' });
+    assert.ok(b.st.seen.some((s) => s.method === 'POST' && s.url === '/agents/by-name/Echo%20Two/follow'), 'the follow went to the name the handle resolves to');
+    assert.ok(b.st.seen.some((s) => s.url === '/agents/by-handle/echo-two-x7mn' && s.auth === null), 'the handle was looked up publicly, in its lookup form');
+    const r2 = await cf.follow('mara', '@QUILL-AB3K');
+    assert.deepEqual(r2, { ok: true, text: 'You now follow quill.' }, 'after an @, in capitals');
+    assert.deepEqual(await cf.follow('mara', 'quill-ab3k'), { ok: true, text: 'You already follow quill.' }, 'bare, as the handle is written');
+    const me = [...b.st.agents.values()][0].name;
+    assert.deepEqual(follows(b.st), [me + '>Echo Two', me + '>quill']);
+    // CONTROL: the display name still works, and it is not looked up as a handle (it is not in the handle's shape).
+    const seenBefore = b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length;
+    const r3 = await cf.follow('mara', 'Echo Two', { unfollow: true });
+    assert.deepEqual(r3, { ok: true, text: 'You no longer follow Echo Two.' });
+    assert.equal(b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length, seenBefore);
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660: an unknown @handle is "no agent", never a display name; a handle-shaped word nobody holds is read as a display name', async () => {
+  fresh(); const b = await backend();
+  try {
+    const r = await cf.follow('mara', '@nobody-zz99');
+    assert.deepEqual(r, { ok: false, because: 'there is no agent with the handle @nobody-zz99 in the community' });
+    assert.equal(b.st.seen.some((s) => s.url.startsWith('/agents/by-name/')), false, 'an @handle is never tried as a display name');
+    const r2 = await cf.follow('mara', 'nobody-zz99');
+    assert.deepEqual(r2, { ok: false, because: 'there is no agent named nobody-zz99 in the community' });
+    assert.ok(b.st.seen.some((s) => s.url === '/agents/by-name/nobody-zz99'), 'CONTROL: the bare word fell back to the display name');
+    const r3 = await cf.follow('mara', '@');
+    assert.equal(r3.ok, false);
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660: the handle shape matches the service (lowercase slug, dash, four letters with no 0/o/1/l/i)', () => {
+  for (const h of ['ada-3f2c', 'echo-two-x7mn', 'a1-b2-zz99']) assert.ok(cf.HANDLE_RE.test(h), h);
+  for (const h of ['Echo Two', 'quill', 'ada-3f20', 'ada-oooo', 'ada-3f2', '-ada-3f2c']) assert.ok(!cf.HANDLE_RE.test(h), h);
+});
+
+/* kosmos#7660 review 1. */
+test('kosmos#7660 review 1: a profile larger than the usual answer cap (50 long posts and comments) still resolves the handle', async () => {
+  fresh(); const b = await backend();
+  try {
+    b.st.handleMode = 'big';
+    assert.deepEqual(await cf.follow('mara', '@quill-ab3k'), { ok: true, text: 'You now follow quill.' });
+    assert.ok(cs.RESPONSE_CAP < 50 * 4000 + 50 * 2000, 'CONTROL: the profile is larger than the usual cap');
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 4: a bare handle-shaped word is a handle only on a clear 200; an unreadable or missing answer leaves it a display name, while an @handle says what went wrong', async () => {
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');   // mara has an account
+    b.st.handleMode = 'junk';
+    await cf.follow('mara', 'quill-ab3k');
+    assert.ok(b.st.seen.some((s) => s.method === 'POST' && s.url === '/agents/by-name/quill-ab3k/follow'), 'an unreadable lookup leaves a bare word a display name');
+    const junk = await cf.follow('mara', '@quill-ab3k');
+    assert.deepEqual(junk, { ok: false, upstream: true, because: 'the community gave an answer we could not read' }, 'an @handle never falls back');
+    b.st.handleMode = 'hang';
+    cs.setTimeoutMs(300);
+    await cf.follow('mara', 'echo-two-x7mn');
+    assert.ok(b.st.seen.some((s) => s.method === 'POST' && s.url === '/agents/by-name/echo-two-x7mn/follow'), 'no answer leaves a bare word a display name');
+    const slow = await cf.follow('mara', '@echo-two-x7mn');
+    assert.deepEqual(slow, { ok: false, upstream: true, because: 'the community could not be reached' });
+    // CONTROL: a clear answer makes the bare word the handle (it follows quill, not a "quill-ab3k").
+    b.st.handleMode = null;
+    cs.setTimeoutMs(5000);
+    assert.deepEqual(await cf.follow('mara', 'quill-ab3k'), { ok: true, text: 'You already follow quill.' }, 'resolved to quill, whom mara follows');
+  } finally { cs.setTimeoutMs(5000); await b.close(); }
+});
+
+test('kosmos#7660 review 1: an @ that is not in the handle shape is refused with nothing sent (@@x, @ x, a display name after @)', async () => {
+  fresh(); const b = await backend();
+  try {
+    for (const w of ['@@quill-ab3k', '@Echo Two', '@quill']) {
+      const r = await cf.follow('mara', w);
+      assert.equal(r.ok, false, w);
+      assert.match(r.because, /is not a community handle/, w);
+    }
+    assert.equal(b.st.seen.length, 0, 'nothing was sent for any of them');
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 1: while the company has the public community off (or its settings cannot be read), the handle is not looked up', async () => {
+  fresh(); const b = await backend();
+  const real = cs.communityScope;
+  try {
+    cs.communityScope = () => ({ publicAllowed: false, company: true, org: null });
+    const off = await cf.follow('mara', '@quill-ab3k');
+    assert.deepEqual(off, { ok: false, because: cs.PUBLIC_OFF_WORDS }, 'review 2: the words a follow by name gets');
+    cs.communityScope = () => ({ publicAllowed: false, company: false, org: null, fault: true });
+    const fault = await cf.follow('mara', '@quill-ab3k');
+    assert.equal(fault.because, 'Kosmos cannot read your company’s community settings right now, so nothing was sent');   // review 3: a follow sends
+    assert.equal(b.st.seen.some((s) => s.url.startsWith('/agents/by-handle/')), false, 'no lookup went out');
+    cs.communityScope = real;
+    assert.equal((await cf.follow('mara', '@quill-ab3k')).ok, true, 'CONTROL: with the public community on, the same handle resolves');
+  } finally { cs.communityScope = real; await b.close(); }
+});
+
+test('kosmos#7660 review 1: an agent call\'s wait for the chain counts from budgetFrom, so time already spent cannot push it past the wait', async () => {
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');
+    cs.setTimeoutMs(6000);
+    cs.setAgentWaitMs(3000);
+    b.st.hang = (req) => req.method === 'POST' && /\/follow$/.test(req.url);
+    const holding = cf.follow('mara', 'Echo Two');   // holds the chain
+    for (let i = 0; i < 200 && !b.st.seen.some((s) => s.method === 'POST' && s.url === '/agents/by-name/Echo%20Two/follow'); i += 1) await new Promise((r) => setTimeout(r, 10));   // the chain is held only once that call is on the wire
+    assert.ok(b.st.seen.some((s) => s.method === 'POST' && s.url === '/agents/by-name/Echo%20Two/follow'), 'setup: the holding follow never reached the service');
+    const t0 = Date.now();
+    const late = await cs.agentCall('lena', 'GET', '/agents/me', { register: false, budgetFrom: t0 - 2800 });
+    assert.equal(late.ok, false);
+    assert.ok(Date.now() - t0 < 1500, 'waited ' + (Date.now() - t0) + ' ms: the 2800 ms already spent did not count');
+    // CONTROL: without budgetFrom, the same call waits its full 3000 ms.
+    const t1 = Date.now();
+    await cs.agentCall('lena', 'GET', '/agents/me', { register: false });
+    assert.ok(Date.now() - t1 >= 2500, 'CONTROL waited only ' + (Date.now() - t1) + ' ms');
+    await holding;
+  } finally { b.st.hang = null; cs.setAgentWaitMs(null); cs.setTimeoutMs(5000); await b.close(); }
+});
+
+/* kosmos#7660 review 2. */
+test('kosmos#7660 review 2: a refused @ or a failed lookup follows nobody and does not use the hourly follow allowance', async () => {
+  fresh(); const b = await backend();
+  try {
+    for (let i = 0; i < cf.FOLLOW_PER_HOUR + 5; i += 1) assert.equal((await cf.follow('mara', '@nope')).ok, false);
+    b.st.handleMode = 'junk';
+    for (let i = 0; i < cf.FOLLOW_PER_HOUR + 5; i += 1) assert.equal((await cf.follow('mara', '@quill-ab3k')).ok, false);   // review 3: more than the allowance, so a counted failure would show
+    b.st.handleMode = null;
+    assert.deepEqual(await cf.follow('mara', '@quill-ab3k'), { ok: true, text: 'You now follow quill.' }, 'the allowance is untouched');
+    // CONTROL: real follows still count; past the allowance the next is refused before any lookup goes out.
+    for (let i = 1; i < cf.FOLLOW_PER_HOUR; i += 1) await cf.follow('mara', i % 2 ? 'Echo Two' : 'quill', { unfollow: i % 2 === 0 });
+    const lookups = b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length;
+    const over = await cf.follow('mara', '@echo-two-x7mn');
+    assert.equal(over.limited, true);
+    assert.equal(b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length, lookups, 'no lookup was sent past the cap');
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 2: a display name typed after an @ is told to leave the @ out', async () => {
+  fresh(); const b = await backend();
+  try {
+    const r = await cf.follow('mara', '@Echo Two');
+    assert.match(r.because, /leave out the @$/);
+  } finally { await b.close(); }
+});
+
+/* kosmos#7660 review 3. */
+test('kosmos#7660 review 3: with the public community off, an unfollow by @handle still works (as one by name does); a follow is refused', async () => {
+  fresh(); const b = await backend();
+  const real = cs.communityScope;
+  try {
+    assert.equal((await cf.follow('mara', 'Echo Two')).ok, true);
+    cs.communityScope = () => ({ publicAllowed: false, company: true, org: null });
+    assert.deepEqual(await cf.follow('mara', '@quill-ab3k'), { ok: false, because: cs.PUBLIC_OFF_WORDS }, 'CONTROL: a follow by handle is refused');
+    assert.deepEqual(await cf.follow('mara', '@echo-two-x7mn', { unfollow: true }), { ok: true, text: 'You no longer follow Echo Two.' });
+    cs.communityScope = () => ({ publicAllowed: false, company: false, org: null, fault: true });
+    assert.equal((await cf.follow('mara', '@quill-ab3k')).because, 'Kosmos cannot read your company’s community settings right now, so nothing was sent', 'a follow says nothing was sent');
+  } finally { cs.communityScope = real; await b.close(); }
+});
+
+test('kosmos#7660 review 3: handle lookups have their own hourly allowance; past it nothing more is sent', async () => {
+  fresh(); const b = await backend();
+  try {
+    for (let i = 0; i < cf.LOOKUPS_PER_HOUR; i += 1) assert.equal((await cf.follow('mara', '@typo-abcd')).ok, false);
+    const sent = b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length;
+    assert.equal(sent, cf.LOOKUPS_PER_HOUR, 'CONTROL: each of those lookups went out');
+    const over = await cf.follow('mara', '@typo-abcd');
+    assert.equal(over.limited, true);
+    assert.equal(b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length, sent, 'no lookup past the allowance');
+    assert.deepEqual(await cf.follow('mara', 'quill'), { ok: true, text: 'You now follow quill.' }, 'a follow by name is not held by it');
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 3: a handle lookup the policy refuses is recorded against the agent, as an agent call\'s is', async () => {
+  fresh(); const b = await backend();
+  const ae = require('./agentevents');
+  const op = require('./orgpolicy');
+  const realRecord = ae.recordRefusal; const realAllows = op.contactAllows;
+  const recorded = [];
+  try {
+    cs.setContact(() => ({ ok: false, because: 'the policy set for this Kosmos keeps agents out of the Kosmos+ community' }));
+    op.contactAllows = () => ({ ok: false });
+    ae.recordRefusal = (e) => { recorded.push(e); return { queued: true }; };
+    const r = await cf.follow('mara', '@quill-ab3k');
+    assert.equal(r.ok, false);
+    assert.deepEqual(recorded, [{ agent: 'mara', rule: 'outside-contact' }]);
+    assert.equal(b.st.seen.length, 0, 'nothing was sent');
+  } finally { ae.recordRefusal = realRecord; op.contactAllows = realAllows; cs.setContact(null); await b.close(); }
+});
+
+/* kosmos#7660 review 4. */
+test('kosmos#7660 review 4: a lookup refused here (community switched off) does not use the lookup allowance', async () => {
+  fresh(); const b = await backend();
+  try {
+    SWITCH = false;
+    for (let i = 0; i < cf.LOOKUPS_PER_HOUR + 5; i += 1) assert.equal((await cf.follow('mara', '@quill-ab3k')).ok, false);
+    SWITCH = true;
+    assert.deepEqual(await cf.follow('mara', '@quill-ab3k'), { ok: true, text: 'You now follow quill.' }, 'the allowance is untouched');
+  } finally { SWITCH = true; await b.close(); }
+});
+
+test('kosmos#7660 review 4: with the lookup allowance spent, an @handle is refused but a bare handle-shaped display name still goes by name', async () => {
+  fresh(); const b = await backend();
+  try {
+    for (let i = 0; i < cf.LOOKUPS_PER_HOUR; i += 1) await cf.follow('mara', '@typo-abcd');
+    const over = await cf.follow('mara', '@quill-ab3k');
+    assert.equal(over.limited, true);
+    await cf.follow('mara', 'quill-ab3k');
+    assert.ok(b.st.seen.some((s) => s.url.startsWith('/agents/by-name/quill-ab3k')), 'the bare word went by name, not refused');
+  } finally { await b.close(); }
+});
+
+/* kosmos#7660 review 5. */
+test('kosmos#7660 review 5: a bare handle-shaped word whose lookup could not be checked, then not found by name, says the handle could not be checked', async () => {
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');
+    b.st.handleMode = 'junk';
+    const r = await cf.follow('mara', 'nobody-zz99');
+    assert.equal(r.because, 'there is no agent named nobody-zz99 in the community. Kosmos could not check just now whether nobody-zz99 is someone’s handle; if it is, try @nobody-zz99 again in a few minutes');
+    // CONTROL: a clear 404 from the lookup says plainly that there is no such agent.
+    b.st.handleMode = null;
+    assert.deepEqual(await cf.follow('mara', 'nobody-zz99'), { ok: false, because: 'there is no agent named nobody-zz99 in the community' });
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 5: a capitalised display name in the handle\'s shape goes straight to the name, with no lookup', async () => {
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'Team-Scan');
+    await cf.follow('mara', 'Ada-b3f9');
+    assert.equal(b.st.seen.filter((s) => s.url.startsWith('/agents/by-handle/')).length, 0);
+    await cf.follow('mara', 'ada-b3f9');    // CONTROL: lowercase, handle-shaped: looked up
+    assert.equal(b.st.seen.filter((s) => s.url === '/agents/by-handle/ada-b3f9').length, 1);
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 5: a lookup the community rate-limits says it is busy and to try again in a minute', async () => {
+  fresh(); const b = await backend();
+  try {
+    b.st.handleMode = 'busy';
+    assert.deepEqual(await cf.follow('mara', '@quill-ab3k'), { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' });
+  } finally { await b.close(); }
+});
+
+/* kosmos#7660 review 6. */
+test('kosmos#7660 review 6: with the lookup allowance spent, a bare word not found by name says to try the @handle in an hour, not in minutes', async () => {
+  fresh(); const b = await backend();
+  try {
+    await cf.follow('mara', 'quill');
+    for (let i = 0; i < cf.LOOKUPS_PER_HOUR; i += 1) await cf.follow('mara', '@typo-abcd');
+    const r = await cf.follow('mara', 'nobody-zz99');
+    assert.equal(r.because, 'there is no agent named nobody-zz99 in the community. Kosmos has looked up its most handles for this hour, so it did not check whether nobody-zz99 is someone’s handle; if it is, try @nobody-zz99 again in an hour');
+  } finally { await b.close(); }
+});
+
+test('kosmos#7660 review 6: a bare handle-shaped word refused by the policy is recorded once (by the by-name call), an @handle once (by the lookup)', async () => {
+  fresh(); const b = await backend();
+  const ae = require('./agentevents');
+  const op = require('./orgpolicy');
+  const realRecord = ae.recordRefusal; const realAllows = op.contactAllows;
+  const recorded = [];
+  try {
+    cs.setContact(() => ({ ok: false, because: 'the policy set for this Kosmos keeps agents out of the Kosmos+ community' }));
+    op.contactAllows = () => ({ ok: false });
+    ae.recordRefusal = (e) => { recorded.push(e); return { queued: true }; };
+    await cf.follow('mara', 'quill-ab3k');
+    assert.equal(recorded.length, 1, 'bare word: one act, one record');
+    await cf.follow('mara', '@quill-ab3k');
+    assert.equal(recorded.length, 2, 'CONTROL: an @handle is recorded by its lookup');
+  } finally { ae.recordRefusal = realRecord; op.contactAllows = realAllows; cs.setContact(null); await b.close(); }
+});
+
+/* kosmos#7660 review 7. */
+test('kosmos#7660 review 7: a spent lookup allowance says to name the agent by its display name, not to stop', async () => {
+  fresh(); const b = await backend();
+  try {
+    for (let i = 0; i < cf.LOOKUPS_PER_HOUR; i += 1) await cf.follow('mara', '@typo-abcd');
+    const over = await cf.follow('mara', '@quill-ab3k');
+    assert.equal(over.because, 'you have looked up ' + cf.LOOKUPS_PER_HOUR + ' community handles in the last hour, so Kosmos is pausing handle lookups for the hour. Name the agent by its display name instead, which still works');
+    assert.deepEqual(await cf.follow('mara', 'quill'), { ok: true, text: 'You now follow quill.' }, 'and it does');
+  } finally { await b.close(); }
 });

@@ -256,3 +256,117 @@ test('the clamping contract: a secret differing only in a clamped bit unwraps ag
   const got = keys.unwrapMemberKey(r.sk, keys.wrapMemberKey(variant, r.pk, mctx), mctx, member.pk);
   assert.ok(got && got.equals(variant), 'the variant passes and comes back as wrapped (not clamped, not the original)');
 });
+
+/* ---- kosmos#7404 step 3, end to end: the recovery code, its keys, the KBR1 wrap and the binding tag ---- */
+// The public key the fixed code (16 bytes of 0x07) makes. Changing the derivation orphans every backup made under
+// the old one, so this pin must only ever change on purpose, with a migration.
+const PINNED_PK = '33533d46f5bf7ccb29869cc4154b3b3f8aa6e3f6f5bc759e76df6240a5653348';
+
+test('#7404: a recovery code is 26 Crockford characters in groups, and reads back to the same 16 bytes', () => {
+  for (let i = 0; i < 200; i += 1) {
+    const code = keys.newRecoveryCode();
+    assert.match(code, /^([0-9A-HJKMNP-TV-Z]{4}-){6}[0-9A-HJKMNP-TV-Z]{2}$/, code);
+    const b = keys.recoveryCodeBytes(code);
+    assert.ok(b && b.length === 16, code);
+    assert.strictEqual(keys.formatRecoveryCode(b), code, 'format and read are inverses');
+  }
+  // Every byte value, at both ends, survives (the bit packing is not lossy at the edges).
+  for (const v of [0x00, 0x01, 0x7f, 0x80, 0xfe, 0xff]) {
+    const b = Buffer.alloc(16, v);
+    assert.ok(keys.recoveryCodeBytes(keys.formatRecoveryCode(b)).equals(b), v.toString(16));
+  }
+});
+
+test('#7404: a typed code is read forgivingly (case, spaces, dashes, I/L/O) and strictly otherwise', () => {
+  const b = Buffer.from('00112233445566778899aabbccddeeff', 'hex');
+  const code = keys.formatRecoveryCode(b);
+  const forms = [code.toLowerCase(), code.replace(/-/g, ' '), code.replace(/-/g, ''), '  ' + code + '\n',
+    code.replace(/0/g, 'O').replace(/1/g, 'I'), code.replace(/1/g, 'l')];
+  for (const f of forms) assert.ok(keys.recoveryCodeBytes(f) && keys.recoveryCodeBytes(f).equals(b), JSON.stringify(f));
+  const bad = [code.slice(0, -1), code + 'A', code.replace(/^./, 'U'), code.replace(/^./, '*'), '', 42, null, undefined];
+  for (const f of bad) assert.strictEqual(keys.recoveryCodeBytes(f), null, JSON.stringify(f));
+  // The 2 padding bits must be zero: the last character's value 0 reads, 1 (bit set in the padding) does not.
+  assert.ok(keys.recoveryCodeBytes(code), 'CONTROL: the real last character reads');
+  const lastVal = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'.indexOf(code.slice(-1));
+  const flipped = code.slice(0, -1) + '0123456789ABCDEFGHJKMNPQRSTVWXYZ'[lastVal ^ 1];
+  assert.strictEqual(keys.recoveryCodeBytes(flipped), null, 'a last character with a padding bit set is not a code');
+});
+
+test('#7404: the same code always makes the same keys; another code, other keys; a non-code, none', () => {
+  const code = keys.newRecoveryCode();
+  const a = keys.recoveryKeysFromCode(code), b = keys.recoveryKeysFromCode(code.toLowerCase());
+  assert.ok(a.sk.equals(b.sk) && a.pk.equals(b.pk) && a.authKey.equals(b.authKey), 'deterministic');
+  assert.ok(keys.publicKeyOf(a.sk).equals(a.pk));
+  assert.ok(!a.sk.equals(a.authKey), 'the wrap key and the authentication key are different keys');
+  const c = keys.recoveryKeysFromCode(keys.newRecoveryCode());
+  assert.ok(!c.pk.equals(a.pk) && !c.authKey.equals(a.authKey));
+  assert.strictEqual(keys.recoveryKeysFromCode('not a code'), null);
+  // Pinned: a fixed code gives fixed keys, so a change to the derivation (which would orphan every backup made
+  // with the old one) cannot pass unnoticed.
+  const fixed = keys.recoveryKeysFromCode(keys.formatRecoveryCode(Buffer.alloc(16, 7)));
+  assert.strictEqual(fixed.pk.toString('hex'), PINNED_PK);
+});
+
+test('#7404: a member key wrapped to the code opens with the code and its tag, and the wrap is KBR1', () => {
+  const code = keys.newRecoveryCode(), rk = keys.recoveryKeysFromCode(code), member = keys.newMemberKey();
+  const w = keys.wrapMemberKeyToRecovery(member.sk, rk.pk, mctx);
+  assert.strictEqual(w.length, 84, 'the coordinator checks 84 bytes');
+  assert.ok(w.subarray(0, 4).equals(Buffer.from('KBR1')));
+  const tag = keys.recoveryBindingTag(rk.authKey, mctx, member.pk);
+  const back = keys.unwrapMemberKeyFromRecovery(keys.recoveryKeysFromCode(code), w, mctx, member.pk, tag);
+  assert.ok(back && back.equals(member.sk));
+  assert.strictEqual(keys.unwrapMemberKeyFromRecovery(keys.recoveryKeysFromCode(keys.newRecoveryCode()), w, mctx, member.pk, tag), null,
+    'another code opens nothing');
+});
+
+test('#7404: a FORGED wrap (made by whoever holds only the recovery PUBLIC key) opens, but its key is refused for want of a tag', () => {
+  const rk = keys.recoveryKeysFromCode(keys.newRecoveryCode()), real = keys.newMemberKey(), forged = keys.newMemberKey();
+  // The coordinator holds rk.pk, so it can wrap a key of its own that the code really does open:
+  const forgedWrap = keys.wrapMemberKeyToRecovery(forged.sk, rk.pk, mctx);
+  const realTag = keys.recoveryBindingTag(rk.authKey, mctx, real.pk);
+  assert.strictEqual(keys.unwrapMemberKeyFromRecovery(rk, forgedWrap, mctx, forged.pk, realTag), null, 'the real tag does not cover the forged key');
+  assert.strictEqual(keys.unwrapMemberKeyFromRecovery(rk, forgedWrap, mctx, real.pk, realTag), null, 'nor does the forged wrap derive to the real key');
+  // Without the code, no tag for the forged key can be made: the only key that makes tags is derived from the code.
+  const guessTag = keys.recoveryBindingTag(keys.newMemberKey().sk, mctx, forged.pk);
+  assert.strictEqual(keys.unwrapMemberKeyFromRecovery(rk, forgedWrap, mctx, forged.pk, guessTag), null);
+  // CONTROL: the code holder's own tag over the forged key would pass (so the tag, not the wrap, is the check).
+  assert.ok(keys.unwrapMemberKeyFromRecovery(rk, forgedWrap, mctx, forged.pk, keys.recoveryBindingTag(rk.authKey, mctx, forged.pk)));
+});
+
+test('#7404: a tag binds its context: another org, member or epoch refuses', () => {
+  const rk = keys.recoveryKeysFromCode(keys.newRecoveryCode()), member = keys.newMemberKey();
+  const w = keys.wrapMemberKeyToRecovery(member.sk, rk.pk, mctx);
+  const tag = keys.recoveryBindingTag(rk.authKey, mctx, member.pk);
+  assert.ok(keys.unwrapMemberKeyFromRecovery(rk, w, mctx, member.pk, tag), 'CONTROL');
+  for (const k of Object.keys(mctx)) {
+    const other = Object.assign({}, mctx, { [k]: mctx[k] + 'x' });
+    assert.strictEqual(keys.unwrapMemberKeyFromRecovery(rk, w, other, member.pk, tag), null, k);
+    assert.notStrictEqual(keys.recoveryBindingTag(rk.authKey, other, member.pk), tag, k + ' changes the tag');
+  }
+});
+
+test('#7404: KBR1 and KBK1 never open as each other, even to the same recipient key', () => {
+  const rk = keys.recoveryKeysFromCode(keys.newRecoveryCode()), member = keys.newMemberKey();
+  const kbk = keys.wrapMemberKey(member.sk, rk.pk, mctx), kbr = keys.wrapMemberKeyToRecovery(member.sk, rk.pk, mctx);
+  const tag = keys.recoveryBindingTag(rk.authKey, mctx, member.pk);
+  assert.strictEqual(keys.unwrapMemberKeyFromRecovery(rk, kbk, mctx, member.pk, tag), null, 'a KBK1 wrap is not a recovery wrap');
+  assert.strictEqual(keys.unwrapMemberKey(rk.sk, kbr, mctx, member.pk), null, 'a KBR1 wrap is not an escrow wrap');
+  // With the magic swapped, the associated data still separates them (the magic is only a routing hint).
+  const kbkAsKbr = Buffer.concat([Buffer.from('KBR1'), kbk.subarray(4)]);
+  assert.strictEqual(keys.unwrapMemberKeyFromRecovery(rk, kbkAsKbr, mctx, member.pk, tag), null);
+  const kbrAsKbk = Buffer.concat([Buffer.from('KBK1'), kbr.subarray(4)]);
+  assert.strictEqual(keys.unwrapMemberKey(rk.sk, kbrAsKbk, mctx, member.pk), null);
+});
+
+test('#7404: the recovery context bytes are the coordinator\'s (docs/coordinator-api.md names them)', () => {
+  assert.strictEqual(keys.recoveryContextBytes({ org: 'o1', member: 'm1', epoch: '2' }).toString(),
+    'kosmos-backup v1 member-key-recovery\norg=o1\nmember=m1\nepoch=2');
+});
+
+test('#7404: the recovery unwrap never throws, whatever it is handed', () => {
+  const rk = keys.recoveryKeysFromCode(keys.newRecoveryCode());
+  for (const args of [[null, null, null, null, null], [rk, Buffer.alloc(3), mctx, Buffer.alloc(32), 'x'],
+    [rk, Buffer.alloc(84), mctx, Buffer.alloc(32), '0'.repeat(64)], [{ sk: 1 }, 1, 1, 1, 1], [rk, Buffer.alloc(84), {}, Buffer.alloc(32), 'a'.repeat(64)]]) {
+    assert.strictEqual(keys.unwrapMemberKeyFromRecovery(...args), null);
+  }
+});

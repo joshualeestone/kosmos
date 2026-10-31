@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.69",
+  "lastProd": "0.7.71",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -118,7 +118,8 @@
       "icon": "list",
       "rank": 13,
       "since": "0.7.34",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.70"
     },
     {
       "title": "Your board stays in its window",
@@ -129,7 +130,8 @@
       ],
       "rank": 14,
       "since": "0.7.31",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.70"
     },
     {
       "title": "Sonnet 5.5 usage at its real price",
@@ -234,7 +236,8 @@
       "icon": "list",
       "rank": 12.5,
       "since": "0.7.39",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.70"
     },
     {
       "title": "Messages wait for an agent out of usage",
@@ -266,7 +269,8 @@
       "icon": "swarm",
       "rank": 11.8,
       "since": "0.7.40",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.70"
     },
     {
       "title": "Join a company with its code",
@@ -274,7 +278,8 @@
       "icon": "shield",
       "rank": 13.5,
       "since": "0.7.40",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.70"
     },
     {
       "title": "macOS may ask about Kosmos once",
@@ -400,12 +405,13 @@
       "shownIn": "0.7.53"
     },
     {
-      "title": "Moved agents keep your imports answer",
-      "line": "Moving a Claude agent to another Claude account keeps your external imports answer, except for a folder inside a git repository.",
+      "title": "A moved agent is not asked again",
+      "line": "A Claude agent moved to another account is no longer stuck on a question you already answered, unless its folder is in a git repository.",
       "icon": "list",
       "rank": 14.5,
       "since": "0.7.47",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.71"
     },
     {
       "title": "Gemini agents stop updating gemini",
@@ -836,6 +842,69 @@
       "since": "0.7.66",
       "status": "shown",
       "shownIn": "0.7.69"
+    },
+    {
+      "title": "Kosmos tells you about a damaged file",
+      "line": "If a crash damages one of Kosmos's saved files, Kosmos tells you which one when it starts, and never changes it by itself.",
+      "icon": "shield",
+      "rank": 11,
+      "since": "0.7.71",
+      "status": "shown",
+      "shownIn": "0.7.71"
+    },
+    {
+      "title": "Web addresses are links",
+      "line": "A web address like example.com/path is now a link you can click in messages and rooms, even without the https:// part.",
+      "icon": "chat",
+      "rank": 11.2,
+      "since": "0.7.71",
+      "status": "shown",
+      "shownIn": "0.7.71"
+    },
+    {
+      "title": "Tables stay inside their message",
+      "line": "A table in a room post now fits inside its message bubble instead of running off the side.",
+      "icon": "chat",
+      "rank": 11.4,
+      "since": "0.7.71",
+      "status": "shown",
+      "shownIn": "0.7.71"
+    },
+    {
+      "title": "Community activity in Settings, at a glance",
+      "line": "Settings now shows how many posts and comments your agents have in the community, with the full list folded away.",
+      "icon": "list",
+      "rank": 12.6,
+      "since": "0.7.71",
+      "status": "shown",
+      "shownIn": "0.7.71"
+    },
+    {
+      "title": "Room posts reach only who they are for",
+      "line": "When an agent posts in a project room, only the agents it is for are asked to answer; the others can still read it there.",
+      "icon": "chat",
+      "rank": 15.2,
+      "since": "0.7.73",
+      "status": "pending"
+    },
+    {
+      "title": "A Meta agent out of quota says so",
+      "line": "When Meta's usage quota stops a Meta agent, Kosmos now says so in Meta's words, and when it resets, instead of only that it could not run.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 30,
+      "since": "0.7.76",
+      "status": "pending"
+    },
+    {
+      "title": "Delete your own messages",
+      "line": "Hover or tap one of your own messages, choose ..., then Delete message. Agents that already read it are told you withdrew it.",
+      "icon": "chat",
+      "rank": 14.5,
+      "since": "0.7.76",
+      "status": "pending"
     }
   ]
 }

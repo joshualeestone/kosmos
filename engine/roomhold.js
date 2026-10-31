@@ -65,6 +65,9 @@ const store = require('./store');
    as placed (messages.js): the post is kept and the member will be told, so "do not re-post" holds (#4926: unless it
    asks nothing of the member and goes stale before it is told; the post itself is still in the room). */
 const HELD = 'held';
+/* kosmos#7246 slice 2: an agent's post that did not address this member (messages.addressedMembers): not typed, not
+   held, in the room to read. Counts as placed for the sender: the post is where it was sent. */
+const QUIET = 'quiet';
 /* Ids kept per project per agent. The line names at most SHOWN of them and counts the rest; the cap
    only bounds the file if an agent never goes idle and is never typed to. */
 const KEEP = 200;
@@ -151,13 +154,73 @@ function inputProjects(name) {
   return live;
 }
 function forgetInput(name) { inputHeld.delete(String(name)); }
+/* kosmos#7406: the posts the per-account cap held for a member of any runner but Antigravity (whose capped posts carry
+   their own mark and are retried with its quota, below). A capped post that ASKS the member is stored with the @ mark,
+   which other holds use too, so the cap's own posts are noted here and flushReleased retries exactly those once the cap
+   lets the member through. Kept beside the held file, as the usage-limit notes are (review 1): no wake comes for an
+   idle member, so a note lost to a board restart would leave its ask unsaid. */
+const CAP_RETRY_MS = 10 * 60 * 1000;
+const capTried = new Map();   // name -> when a cap retry last reached nothing (in memory: a restart tries at once)
+function capBackingOff(name, now) {
+  const at = capTried.get(String(name));
+  return at !== undefined && now - at >= 0 && now - at < CAP_RETRY_MS;
+}
+function capFileFor(name) { return path.join(dir(), store.safeKey(String(name)) + '.cap'); }
+function readCaps(name) {
+  try {
+    const got = JSON.parse(fs.readFileSync(capFileFor(name), 'utf8'));
+    return got && typeof got === 'object' && !Array.isArray(got) ? got : {};
+  } catch { return {}; }
+}
+function writeCaps(name, all) {
+  const kept = Object.create(null);
+  for (const [p, ids] of Object.entries(all)) if (Array.isArray(ids) && ids.length) kept[p] = ids;
+  if (!Object.keys(kept).length) { try { fs.rmSync(capFileFor(name), { force: true }); } catch { /* nothing to remove */ } return true; }
+  fs.mkdirSync(dir(), { recursive: true });
+  require('./securewrite').writeSecret(capFileFor(name), JSON.stringify(kept), 0o600, { atomicOnly: true });
+  return true;
+}
+function noteCap(name, projectId, id) {
+  if (!name || !projectId || !id) return false;
+  try {
+    const all = readCaps(name);
+    const ids = new Set(Array.isArray(all[projectId]) ? all[projectId] : []);
+    ids.add(plainId(String(id)));
+    all[projectId] = [...ids];
+    return writeCaps(name, all);
+  } catch {
+    try { process.stdout.write('room-hold: ' + name + ' could not record a cap-held post in ' + projectId + '; it waits for the next wake\n'); } catch { /* never breaks a send */ }
+    return false;
+  }
+}
+/* The projects that still hold one of the member's cap-held posts; notes for posts gone since are dropped. */
+function capProjects(name) {
+  const all = readCaps(name);
+  const projects = Object.keys(all);
+  if (!projects.length) return [];
+  const live = [];
+  let changed = false;
+  for (const p of projects) {
+    const ids = new Set(Array.isArray(all[p]) ? all[p] : []);
+    const still = heldIn(String(name), p).map(plainId).filter((x) => ids.has(x));
+    if (still.length !== ids.size) changed = true;
+    if (still.length) { all[p] = [...new Set(still)]; live.push(p); } else delete all[p];
+  }
+  if (changed) { try { writeCaps(name, all); } catch { /* re-checked next minute */ } }
+  return live;
+}
+/* An Antigravity member's capped posts carry their own mark and are retried on its own path, so they are not noted. */
+function agyCard(name, roster) {
+  try { const c = require('./chat').resolveCard(roster, name); return Boolean(c && c.runner === 'antigravity'); } catch { return false; }
+}
+function forgetCap(name) { capTried.delete(String(name)); try { fs.rmSync(capFileFor(name), { force: true }); } catch { /* nothing to remove */ } }
 
 /* #4588 PR B: a post held because the member is an Antigravity agent paused on the shared Google quota may @-name
    the member (an agent's post is an automatic sender there, addressed or not). Its id is kept with this mark, so the
    line that later tells the member says which of the held posts ask for an answer. Board ids never start with it. */
 const ADDRESSED = '@';
 function addressedId(id) { return ADDRESSED + String(id); }
-/* #4588 ask 3 (review 13): a post the Gemini cap held, that asks nothing of the member, is kept with this mark instead.
+/* #4588 ask 3 (review 13): a post the Gemini cap held (kosmos#7406: or the per-account cap), that asks nothing of the member, is kept with this mark instead.
    The cap holds it while the member is idle, when no wake is coming, so flushReleased retries it; a post the ordinary
    #4624 idle hold kept is unmarked and waits for the member's next wake, cap or no cap. Board ids never start with it. */
 const CAPPED = '^';
@@ -225,6 +288,20 @@ function writeAll(name, all) {
 
 /* Keep one post id for this member. Returns false when it could not be kept, so the caller types
    the post as before rather than losing it. */
+/* #7246 review 2: keep at most KEEP ids, oldest first, dropping the oldest that ask NOTHING before any @ post that asks
+   for an answer. A digest room now holds up to an hour of posts, so a busy hour must not push out the one class that
+   has to be told. */
+function capKept(ids) {
+  if (ids.length <= KEEP) return ids;
+  let over = ids.length - KEEP;
+  const out = [];
+  for (const x of ids) {
+    if (over > 0 && !isAddressed(x)) { over -= 1; continue; }
+    out.push(x);
+  }
+  return out.slice(-KEEP);   // only when more than KEEP of them ask: the oldest asks go then
+}
+
 function hold(name, projectId, id) {
   try {
     const all = readAll(name);
@@ -234,7 +311,7 @@ function hold(name, projectId, id) {
     const bare = plainId(id);
     ids.push(isAddressed(id) || prior.includes(addressedId(bare)) ? addressedId(bare)
       : isCapped(id) || prior.includes(cappedId(bare)) ? cappedId(bare) : bare);
-    all[projectId] = ids.slice(-KEEP);
+    all[projectId] = capKept(ids);
     return writeAll(name, all);
   } catch { return false; }
 }
@@ -270,7 +347,7 @@ function restore(name, projectId, ids) {
     const all = readAll(name);
     const back = new Set(ids.map(plainId));
     const since = Array.isArray(all[projectId]) ? all[projectId].filter((x) => !back.has(plainId(x))) : [];
-    all[projectId] = ids.concat(since).slice(-KEEP);
+    all[projectId] = capKept(ids.concat(since));
     return writeAll(name, all);
   } catch { return false; }
 }
@@ -311,13 +388,14 @@ function dropShown(name, projectId, shownIds) {
 /* The member was removed: nothing held for it is told to anyone who later takes its name. */
 function forget(name) {
   forgetInput(name);   // #6256 item 1
+  forgetCap(name);   // kosmos#7406
   try { fs.rmSync(limitFileFor(name), { force: true }); } catch { /* the held file is what matters */ }
   try { fs.rmSync(fileFor(name), { force: true }); return true; } catch { return false; }
 }
 
 /* The line, in the room's own bracket form. `shown` is the project as the member reads it (its name);
    the id is the one `kosmos room` takes. Ids are the board's own (m123), never member words. */
-function clauseFor(projectId, shown, ids) {
+function clauseFor(projectId, shown, ids, { digest = false } = {}) {
   if (!ids.length) return '';
   /* The room's own rule for a name inside the bracket (messages.js shownProject): a person-written
      name that could close or bend the bracket is replaced by the id. */
@@ -342,6 +420,13 @@ function clauseFor(projectId, shown, ids) {
       + '. Any you already answered need nothing more.]';
   }
   // Neutral since the H7 follow-up: posts are held for a working member AND an idle one.
+  /* #7246: a digest (a big room's hourly line) also says not to answer or log it, or each digest becomes a turn of
+     posting and note-taking about posts that asked nothing. */
+  if (digest) {
+    return '[Hourly digest: ' + n + ' room post' + (n === 1 ? '' : 's') + ' not addressed to you arrived in project ' + shown + ' ('
+      + named + '). Nothing is asked of you, so do not reply or write about them; read them with: kosmos room ' + projectId
+      + ' only if they bear on your own work]';
+  }
   return '[Since you last heard from this room, ' + n + ' room post' + (n === 1 ? '' : 's') + ' not addressed to you arrived in project '
     + shown + ' (' + named + '). Nothing is asked of you; read them with: kosmos room ' + projectId + ']';
 }
@@ -381,23 +466,104 @@ function withoutStale(projectId, ids, stale, name) {
   return kept;
 }
 
+/* #7246: how a project's members hear about room posts that do not name them. 'each' (the #4624 hold: one line at the
+   member's next turn end), 'digest' (at most one line an hour per project; the turn end tells only a post that asks
+   something of the member), or 'named' (never pushed; told only alongside the next post typed to the member). A
+   project's own `roomNotices` wins; otherwise a project of more than BIG_ROOM members is 'digest'. Why: the turn-end
+   line starts a turn, which ends in another idle report that flushes whatever arrived meanwhile, so in a busy big room
+   an idle member never stopped (hundreds of turns a day, one agent over 1,000; #7246). The digest is an hour, not
+   longer, because an unaddressed held post is dropped as stale after messages.HELD_TELL_MAX_MS (2 h, #4926): a longer
+   digest would drop everything and say nothing. */
+const NOTICE_MODES = ['each', 'digest', 'named'];
+const BIG_ROOM = 8;
+const DIGEST_MS = 60 * 60 * 1000;
+function noticeMode(project) {
+  if (!project || typeof project !== 'object') return 'each';
+  if (NOTICE_MODES.includes(project.roomNotices)) return project.roomNotices;
+  const members = Array.isArray(project.agents) ? project.agents.length : 0;
+  return members > BIG_ROOM ? 'digest' : 'each';
+}
+/* When each member was last told a digest, per project: its own file beside the held list, so a digest is at most
+   one an hour across board restarts. */
+function digestFile(name) { return path.join(dir(), store.safeKey(String(name)) + '.digest.json'); }
+/* Review 3: the same times in memory too, so a write that keeps failing (a full disk, a refused securewrite) cannot make
+   every turn end a due digest, which is the very wake loop this card removes. The later of the two is used. */
+const digestMem = new Map();
+let digestWriteSaid = false;
+function digestAt(name, projectId) {
+  let at = null;
+  try {
+    const got = JSON.parse(fs.readFileSync(digestFile(name), 'utf8'));
+    const v = got && typeof got === 'object' && !Array.isArray(got) ? got[projectId] : null;
+    if (Number.isFinite(v)) at = v;
+  } catch { /* none on disk */ }
+  const mem = digestMem.get(String(name) + '\u0000' + projectId);
+  if (Number.isFinite(mem) && (at === null || mem > at)) at = mem;
+  return at;
+}
+function digestDue(name, projectId, now) {
+  const at = digestAt(name, projectId);
+  return at === null || !Number.isFinite(now) || now - at >= DIGEST_MS || now < at;
+}
+function noteDigest(name, projectId, now) {
+  digestMem.set(String(name) + '\u0000' + projectId, now);
+  try {
+    let all = Object.create(null);
+    try {
+      const got = JSON.parse(fs.readFileSync(digestFile(name), 'utf8'));
+      if (got && typeof got === 'object' && !Array.isArray(got)) for (const k of Object.keys(got)) if (Number.isFinite(got[k])) all[k] = got[k];
+    } catch { /* none yet */ }
+    all[projectId] = now;
+    fs.mkdirSync(dir(), { recursive: true });
+    require('./securewrite').writeSecret(digestFile(name), JSON.stringify(all), 0o600, { atomicOnly: true });
+  } catch (err) {
+    // Held in memory above, so the hour still holds while the board runs; said once, so a failing disk is visible.
+    if (!digestWriteSaid) {
+      digestWriteSaid = true;
+      try { process.stdout.write('room-hold: could not record a digest time on disk (' + ((err && err.code) || 'error') + '); keeping it in memory until the board restarts\n'); } catch { /* never breaks a flush */ }
+    }
+  }
+}
+/* A held post that names the member and asks for its answer (the @ mark): told at once in any mode. A cap-marked post
+   (^) asks nothing; it waits for the digest like any other (review 1: counting it made a Gemini member's every post in a
+   digest room skip the digest). */
+function urgent(x) { return isAddressed(x); }
+/* A digest the gate held (a menu, a limit, the quota, the cap) is tried again this long after, not every minute
+   (review 1: the #4797 shape, the held file taken and rewritten each minute while the hold lasted). */
+const DIGEST_RETRY_MS = 10 * 60 * 1000;
+
 /* The turn ended: tell the member, one line per project, about what was held. `deliver` is the board's
    typing path (chat.deliverAsync). An id is cleared only once its line was typed (anything but
    COULD_NOT), so a pane that could not take it keeps it for the next arrival; a stale one (#4926, withoutStale) is
    cleared without being told. Never throws. */
-async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly, afterOf, only }) {
+async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly, afterOf, only, modeOf, now = Date.now() }) {
   const out = [];
   if (off(env)) return out;
   for (const projectId of heldProjects(name)) {
     if (Array.isArray(only) && !only.includes(projectId)) continue;   // #6256 item 1: the projects named, the rest untouched
+    /* #7246: in a 'digest' or 'named' project, posts that ask nothing of the member are not told at a turn end (that is
+       the wake that kept a busy room's idle members going); only a due digest tells them. A project holding nothing
+       urgent and no due digest is left untouched, not taken and rewritten (#4797). */
+    let mode = 'each';
+    if (typeof modeOf === 'function') { try { mode = modeOf(projectId) || 'each'; } catch { mode = 'each'; } }
+    const due = mode === 'digest' && digestDue(name, projectId, now);
+    const quiet = mode !== 'each' && !due;
+    if (quiet && askedOnly !== true && !heldIn(name, projectId).some(urgent)) continue;
     /* #5805: the Claude retry (flushReleased) tells only a project holding an ask a usage limit kept (limitKept), and
        only once it survives the staleness rule; any other project is left untouched (not taken and rewritten every
        minute, #4797) for the member's next wake. */
     const limitAsk = (x) => isAddressed(x) && limitKept(name, projectId, x);
     if (askedOnly === true && !heldIn(name, projectId).some(limitAsk)) continue;
-    const ids = withoutStale(projectId, take(name, projectId), stale, name);
+    let ids = withoutStale(projectId, take(name, projectId), stale, name);
     if (!ids.length) continue;
     if (askedOnly === true && !ids.some(limitAsk)) { restore(name, projectId, ids); continue; }
+    if (quiet) {
+      // #7246: only what asks something is told now; the rest waits, still held, for the digest (or the next typed arrival).
+      const wait = ids.filter((x) => !urgent(x));
+      ids = ids.filter(urgent);
+      if (wait.length) restore(name, projectId, wait);
+      if (!ids.length) continue;
+    }
     let shown = projectId;
     try { shown = shownOf(projectId) || projectId; } catch { /* the id reads fine */ }
     /* #4926 N7 diagnostic: the member's own posts since each post told, read BEFORE the line is typed (so a reply the
@@ -408,17 +574,48 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     let capped = false;
     let limitUntil = null;
     try {
-      const sent = await deliver(name, clauseFor(projectId, shown, ids), roster);
+      // kosmos#7406: telling a member the posts kept for it is a burst source (a turn end, a digest, the retry): it asks
+      // for the per-account cap. These are other agents' posts; a person's post is never held, so never here.
+      const sent = await deliver(name, clauseFor(projectId, shown, ids, { digest: due }), roster, undefined, undefined, { workCap: true });
       state = sent && sent.state;
       capped = !!(sent && sent.held === true && sent.heldBy === 'cap');
       if (sent && sent.held === true && sent.heldBy === 'limit') limitUntil = sent.limitReset;
     } catch { state = DELIVERY.COULD_NOT; }
-    /* #4588 ask 3 (review 14): the Gemini cap held this turn-end line, so the member is idle with no wake coming; its
+    /* #4588 ask 3 (review 14): a working-at-once cap held this turn-end line, so the member is idle with no wake coming; its
        posts are put back with the cap's mark (an asked one keeps @), so flushReleased tells them once the cap frees. */
     // #5805: a usage limit held this flush: its ids keep their marks, and the reset is recorded for withoutStale.
     if (limitUntil) noteLimit(name, projectId, ids.filter(isAddressed), limitUntil);
     if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
-    out.push({ projectId, n: ids.length, state, ...(after ? { after } : {}) });
+    else if (due) noteDigest(name, projectId, now);   // #7246: a digest was typed (or held for typing): the next waits an hour
+    if (capped && !agyCard(name, roster)) for (const x of ids) noteCap(name, projectId, x);   // kosmos#7406: retried by flushReleased once the cap frees
+    // A digest the gate refused is tried again in DIGEST_RETRY_MS, not at the next minute's sweep.
+    if (due && (!state || state === DELIVERY.COULD_NOT)) noteDigest(name, projectId, now - DIGEST_MS + DIGEST_RETRY_MS);
+    out.push({ projectId, n: ids.length, state, ...(due ? { digest: true } : {}), ...(after ? { after } : {}) });
+  }
+  return out;
+}
+
+/* #7246: the hourly digest. Once a minute, a member who is not in a fresh `working` turn (a working one is told at its
+   turn end) and holds posts in a 'digest' project whose digest is due is told them, one line per such project, through
+   flushOnIdle's own gated path. A member the board cannot type into is skipped, its posts waiting. Never throws. */
+async function flushDigests(roster, { readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale, afterOf, modeOf, addressable }) {
+  const out = [];
+  if (off(env) || typeof modeOf !== 'function') return out;
+  for (const card of Array.isArray(roster) ? roster : []) {
+    try {
+      if (!card || !card.sessionName) continue;
+      const name = String(card.sessionName);
+      const due = heldProjects(name).filter((p) => {
+        let m = 'each';
+        try { m = modeOf(p) || 'each'; } catch { m = 'each'; }
+        return m === 'digest' && digestDue(name, p, now);
+      });
+      if (!due.length) continue;
+      if (workingNow(readReport, name, now, decayMs)) continue;
+      const canType = typeof addressable === 'function' ? addressable : require('./chat').addressable;   // a seam for the tests
+      if (canType(name, roster).ok !== true) continue;
+      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: due, modeOf, now })) out.push({ name, ...d });
+    } catch { /* the posts stay held for the next minute */ }
   }
   return out;
 }
@@ -430,7 +627,7 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
    same gated path (a held verdict puts the ids back again). `isAgy` picks those cards; #5805 adds a Claude member
    holding an ask a usage limit kept (see the loop), and #6256 a project holding a post that text in a Claude member's
    input box held, once the box reads empty (see the loop). Every other #4624 hold is exactly as before. Never throws. */
-async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale, afterOf, boxEmpty }) {
+async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale, afterOf, boxEmpty, modeOf }) {
   const out = [];
   if (off(env)) return out;
   for (const card of Array.isArray(roster) ? roster : []) {
@@ -446,10 +643,32 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
       if (inProjects.length && !workingNow(readReport, inName, now, decayMs)) {
         const chatMod = require('./chat');
         if (chatMod.addressable(inName, roster).ok === true && !chatMod.accountHeldVerdict(inName, roster) && boxEmpty(card) === true) {
-          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: inProjects });
+          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: inProjects, modeOf, now });   // #7246: a digest room's unasked posts still wait
           inputProjects(inName);   // drop the notes for posts now told
           for (const d of done) out.push({ name: inName, why: 'input', ...d });
           continue;
+        }
+      }
+      /* kosmos#7406: the per-account cap held these while the member was idle, so no wake is coming for them. Told once
+         the member is not in a fresh working turn, can be typed into, no usage limit or sign-out holds it, and the cap
+         lets it through; until then they wait, untouched. Antigravity members are left to their own path below. */
+      const capIn = isAgy(card) ? [] : capProjects(inName);
+      if (capIn.length && !workingNow(readReport, inName, now, decayMs) && !capBackingOff(inName, now)) {
+        const chatMod = require('./chat');
+        /* Review 1: a menu up or text in the box would hold the line again, and the take, put-back and log line would
+           repeat every minute (#4797), so those wait too, as the input-box path above does. */
+        if (chatMod.addressable(inName, roster).ok === true && !chatMod.accountHeldVerdict(inName, roster) && !chatMod.menuHeld(inName, roster)
+          && (String(card.runner || 'claude') !== 'claude' || typeof boxEmpty !== 'function' || boxEmpty(card) === true)   // review 3: only a Claude box can be read; any other reads never-empty
+          && require('./agyquota').heldForCap(inName, roster, now, undefined, env || process.env, undefined, true) === null) {
+          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: capIn, modeOf, now });
+          capProjects(inName);   // drop the notes for posts now told
+          for (const d of done) out.push({ name: inName, why: 'cap', ...d });
+          // Review 5: a member that refused every line (a non-Claude pane on its own prompt reads none of the checks
+          // above) is not tried again for CAP_RETRY_MS, rather than every minute (#4797).
+          if (done.length && done.every((d) => !d.state || d.state === DELIVERY.COULD_NOT)) capTried.set(inName, now); else capTried.delete(inName);
+          // Review 4: only a minute that told something skips the rest; a note left for a digest room's quiet post must
+          // not keep this member from the usage-limit path below.
+          if (done.length) continue;
         }
       }
       const agy = isAgy(card);
@@ -506,7 +725,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
          skipped. */
       const agyquota = require('./agyquota');
       if (agyquota.heldForAgy(name, roster, now, agyquota.POOL_MEMO, env || process.env) != null) continue;   // #4588 ask 3: the cap too
-      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly: !agy, afterOf })) out.push({ name, ...d });
+      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly: !agy, afterOf, modeOf, now })) out.push({ name, ...d });   // #7246: and here
     } catch { /* the posts stay held for the next minute */ }
   }
   return out;
@@ -550,4 +769,4 @@ function carriedLine(name, projectId, ids, after, state) {
     : `room-hold: ${name} could not yet be told of ${ids.length} held post(s) in ${projectId} on an arrival there (delivery=${state || 'none'})\n`;
 }
 
-module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };
+module.exports = { QUIET, capKept, NOTICE_MODES, BIG_ROOM, DIGEST_MS, DIGEST_RETRY_MS, noticeMode, digestDue, noteDigest, flushDigests, withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, noteCap, capProjects, forgetCap, agyCard, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };

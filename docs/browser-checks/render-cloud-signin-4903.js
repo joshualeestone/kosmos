@@ -1,0 +1,198 @@
+'use strict';
+// Browser-check-surface: pollWaiting asSentence fr-conn-url fr-conn-cloudsay-code fr-conn-cloudsay-open frCloudSigninDetail frConnPaintUrl fr-conn-code data-cloud-hide data-cloud-copy boardEmpty d-rename-hint import-folder fr-pane-5
+/**
+ * kosmos#4903 S5 design (Mona Lisa, card comment 6433522198), first run's Claude sign-in on a Kosmos cloud machine:
+ *   1. the sign-in link is the PRIMARY button, gold and filled, no underline, full width on a phone. It used to lose to
+ *      `#firstrun .btn` (white), so a source check cannot see it: this measures the computed paint.
+ *   2. the sentence says "below" once the link is there;
+ *   3. the code field carries "Paste the code from Claude" and no second label.
+ * CONTROL: the Mac keeps its quiet white fallback link and its label.
+ * HERMETIC: loads web/index.html over file://, no board. The cloud machine is the served meta the board writes
+ * (kosmos-cloud-machine = 1), set on the page before painting.
+ *
+ *   NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-cloud-signin-4903.js
+ */
+const nodePath = require('path');
+const { chromium } = require('playwright');
+
+const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
+const URL = 'https://claude.com/cai/oauth/authorize?code=true&x=1';
+const results = [];
+function check(name, pass, detail) {
+  results.push({ name, pass: Boolean(pass) });
+  console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`);
+}
+
+async function arm(browser, { cloud, width }) {
+  const page = await browser.newPage({ viewport: { width, height: 1000 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => { window.setInterval = () => 0; });
+  await page.goto('file://' + PAGE);
+  const got = await page.evaluate(({ cloud, URL }) => {
+    if (cloud) {
+      let m = document.querySelector('meta[name="kosmos-cloud-machine"]');
+      if (!m) { m = document.createElement('meta'); m.setAttribute('name', 'kosmos-cloud-machine'); document.head.appendChild(m); }
+      m.setAttribute('content', '1');
+    }
+    if (typeof frPaintConnect !== 'function' || typeof onCloudMachine !== 'function') return { error: 'frPaintConnect / onCloudMachine missing' };
+    if (onCloudMachine() !== cloud) return { error: 'the page did not read the cloud meta as set' };
+    document.getElementById('firstrun').hidden = false;
+    const host = document.getElementById('fr-sub');
+    for (let n = host; n; n = n.parentElement) {
+      n.removeAttribute('hidden');
+      if (getComputedStyle(n).display === 'none') n.style.display = 'block';
+    }
+    // Review 1: first with no link yet (the sentence says one is coming), then the link arriving inside the phase.
+    frPaintConnect({ phase: 'signin-awaiting-code', url: null });
+    const before = host.textContent;
+    const linkBefore = !!document.querySelector('#fr-conn-url a');
+    frConnPaintUrl(URL);
+    const box = document.getElementById('fr-conn-url');
+    const link = box && box.querySelector('a.btn');
+    if (!link) return { error: 'no sign-in link painted', html: box ? box.innerHTML.slice(0, 160) : null };
+    // The gold the first-run card itself resolves, measured beside the link (not a hard-coded colour).
+    const ref = document.createElement('span');
+    ref.style.background = 'var(--gold-bright)';
+    box.appendChild(ref);
+    const gold = getComputedStyle(ref).backgroundColor;
+    ref.remove();
+    const cs = getComputedStyle(link);
+    const lr = link.getBoundingClientRect(), br = box.getBoundingClientRect();
+    const input = document.getElementById('fr-conn-code');
+    return {
+      bg: cs.backgroundColor, gold, deco: cs.textDecorationLine, linkW: lr.width, boxW: br.width,
+      sub: host.textContent, before, linkBefore, placeholder: input ? input.getAttribute('placeholder') : 'NO INPUT',
+      label: !!host.querySelector('label[for="fr-conn-code"]'),
+    };
+  }, { cloud, URL });
+  got.errors = errors;
+  await page.close();
+  return got;
+}
+
+/* kosmos#4903 seams G and H: what data-cloud-hide hides is CSS keyed on a stamp applyPlatformCopy writes, which no
+   source check can see, so this measures the computed display of each row once the cloud meta is set and the copy
+   layer applied, and reads the words No agents yet paints. */
+async function hideArm(browser, cloud) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.addInitScript(() => { window.setInterval = () => 0; });
+  await page.goto('file://' + PAGE);
+  const got = await page.evaluate(async (cloud) => {
+    // A real cloud machine is a Linux board as well (review 7), so the cloud arm is Linux plus the cloud meta.
+    const meta = (name, content) => {
+      let m = document.querySelector('meta[name="' + name + '"]');
+      if (!m) { m = document.createElement('meta'); m.setAttribute('name', name); document.head.appendChild(m); }
+      m.setAttribute('content', content);
+    };
+    if (cloud) { meta('kosmos-platform', 'linux'); meta('kosmos-cloud-machine', '1'); }
+    if (typeof applyPlatformCopy !== 'function' || typeof boardEmpty !== 'function') return { error: 'applyPlatformCopy / boardEmpty missing' };
+    applyPlatformCopy(document);
+    const pane = document.getElementById('fr-pane-5');
+    for (let n = pane; n; n = n.parentElement) { n.removeAttribute('hidden'); if (getComputedStyle(n).display === 'none') n.style.display = 'block'; }
+    const rows = [...pane.querySelectorAll('.llm .llm-m[data-pmark]')].map((s) => [s.getAttribute('data-pmark'), getComputedStyle(s.closest('.llm')).display !== 'none']);
+    const folder = document.getElementById('import-folder');
+    for (let n = folder; n; n = n.parentElement) n.removeAttribute('hidden');
+    const hint = document.getElementById('d-rename-hint');
+    return {
+      rows,
+      ages: [...pane.querySelectorAll('p.fr-age')].filter((p) => getComputedStyle(p).display !== 'none').map((p) => p.textContent),
+      msgs: ['fr-openai-msg', 'fr-gemini-msg', 'fr-grok-msg'].map((id) => getComputedStyle(document.getElementById(id)).display !== 'none'),
+      folderHidden: !!folder && !!folder.closest('[data-cloud-hide]') && getComputedStyle(folder.closest('[data-cloud-hide]')).display === 'none',
+      // Over file:// the board's first read fails, which paints the cannot-read card instead: the state is set to "looked
+      // and found none" first (the page's own globals), so the empty state is what is painted.
+      empty: (() => {
+        BOARD_DEVICE_OFFLINE = false; BOARD_SIGNED_OUT = false; BOARD_NEEDS_SIGNIN = false; BOARD_LOOK_FAILED = null; BOARD_SEEN = true;
+        const d = document.createElement('div'); d.innerHTML = boardEmpty(); return d.textContent;
+      })(),
+      hint: hint ? hint.textContent : 'NO HINT',
+      // Seam H, the engine's half: an engine reason as the page says it (the presence line's funnel, and a restart failure).
+      reason: typeof pjSentence === 'function' ? pjSentence('we cannot see an agent by exactly this name on this computer right now') : 'NO pjSentence',
+      restart: typeof restartFailureLine === 'function' ? restartFailureLine({ because: 'we could not find Claude Code on this computer' }) : 'NO restartFailureLine',
+      // kosmos#7640: the subscription sentence, in the Model step lead and in a sign-in panel, as painted.
+      keys: [...document.querySelectorAll('p')].map((p) => p.textContent).filter((t) => /It stays on /.test(t))
+        .map((t) => (t.match(/It stays on (your cloud machine|this computer)\b/) || [])[1] || t),
+      subs: [...document.querySelectorAll('p')].map((p) => p.textContent).filter((t) => /on your own subscription, on /.test(t))
+        .map((t) => (t.match(/on your own subscription, on ([a-z ]+)\./) || [])[1] || t),   // review 1: an odd sentence is reported, not thrown
+      // kosmos#7640: the create form's refusal as the page says it (asSentence applies cloudWords).
+      refusal: typeof asSentence === 'function' ? asSentence('there is no Claude account signed in on this computer, so an agent created on Claude could not run.') : 'NO asSentence',
+      // kosmos#7640: the waiting-list poll, three times against a 403, from a page reached through Kosmos+ (kplusRemote
+      // stubbed true: a file:// page is not one) and from a local tab (a signed-out tab is refused the same way).
+      polls: await (async () => {
+        if (typeof pollWaiting !== 'function' || typeof kplusRemote !== 'function') return null;
+        const count = async (remote) => {
+          let n = 0;
+          const realFetch = window.fetch; const realRemote = kplusRemote;
+          window.fetch = async (u) => { if (String(u).includes('/api/remote/waiting')) n += 1; return new Response('{}', { status: 403 }); };
+          kplusRemote = () => remote;
+          try { await pollWaiting(); await pollWaiting(); await pollWaiting(); } finally { window.fetch = realFetch; kplusRemote = realRemote; }
+          return n;
+        };
+        return { remote: await count(true), local: await count(false) };
+      })(),
+    };
+  }, cloud);
+  got.errors = errors;
+  await page.close();
+  return got;
+}
+
+(async () => {
+  let browser;
+  try { browser = await chromium.launch({ headless: process.env.HEADED === '0' }); }
+  catch (e) { console.error('could not launch chromium: ' + e.message); process.exit(1); }
+  const WHITE = 'rgb(255, 255, 255)';
+  for (const width of [1280, 700, 393]) {
+    const c = await arm(browser, { cloud: true, width });
+    if (c.error) { check(`cloud ${width}: the sign-in screen paints`, false, JSON.stringify(c)); continue; }
+    check(`cloud ${width}: the sign-in link is gold (the card's --gold-bright), not white`, c.bg === c.gold && c.bg !== WHITE, `link ${c.bg}, gold ${c.gold}`);
+    check(`cloud ${width}: the link is a button, not underlined text`, c.deco === 'none', c.deco);
+    check(`cloud ${width}: the sentence says the link is below`, /sign-in page below/.test(c.sub) && !/in a moment|its link appears/i.test(c.sub), c.sub.slice(0, 140));
+    check(`cloud ${width}: the code field has the placeholder and no second label`, c.placeholder === 'Paste the code from Claude' && !c.label, `${c.placeholder} / label ${c.label}`);
+    check(`cloud ${width}: no page errors`, c.errors.length === 0, c.errors.join(' | '));
+    check(`cloud ${width}: before the link arrives, no link and the sentence says it is coming`, !c.linkBefore && /in a moment/.test(c.before) && !/below/.test(c.before), c.before.slice(0, 120));
+    if (width <= 720) check(`cloud ${width}: the link is full width in the phone layout`, c.linkW >= c.boxW - 1, `link ${Math.round(c.linkW)} of ${Math.round(c.boxW)}`);
+    else check(`CONTROL cloud ${width}: on a desktop the link is not stretched`, c.linkW < c.boxW - 1, `link ${Math.round(c.linkW)} of ${Math.round(c.boxW)}`);
+    const m = await arm(browser, { cloud: false, width });
+    if (m.error) { check(`mac ${width}: the sign-in screen paints`, false, JSON.stringify(m)); continue; }
+    check(`CONTROL mac ${width}: the fallback link stays quiet (white)`, m.bg === WHITE, m.bg);
+    check(`CONTROL mac ${width}: the code label stays, with no placeholder`, m.label && m.placeholder === null, `label ${m.label} / ${m.placeholder}`);
+  }
+  // Seams G and H.
+  const hc = await hideArm(browser, true);
+  const hm = await hideArm(browser, false);
+  if (hc.error || hm.error) check('seam G/H: the page paints', false, JSON.stringify(hc.error ? hc : hm));
+  else {
+    const shown = (r) => r.rows.filter((x) => x[1]).map((x) => x[0]);
+    check('cloud: the first-run Connect list shows Claude alone (computed display)', JSON.stringify(shown(hc)) === '["claude"]', JSON.stringify(shown(hc)));
+    check('CONTROL mac: the Connect list shows more than Claude', shown(hm).length > 1 && shown(hm).includes('claude'), JSON.stringify(shown(hm)));
+    check('cloud: the folder import is hidden by data-cloud-hide (computed display none)', hc.folderHidden, '');
+    check('CONTROL mac: the folder import is not hidden by data-cloud-hide', !hm.folderHidden, '');
+    check('cloud: No agents yet says the agent runs on your cloud machine', /runs on your cloud machine and keeps going while you are away/.test(hc.empty), hc.empty.slice(0, 160));
+    check('CONTROL mac: No agents yet keeps "this computer"', /runs on this computer/.test(hm.empty), hm.empty.slice(0, 160));
+    check('cloud: the rename hint says your cloud machine', /where they live on your cloud machine,/.test(hc.hint), hc.hint);
+    check('CONTROL mac: the rename hint says this computer', /where they live on this computer,/.test(hm.hint), hm.hint);
+    // kosmos#7640 (the 10-30 Cloud walk, items 2 and 6).
+    check('cloud: every subscription sentence says your cloud machine', hc.subs.length >= 4 && hc.subs.every((w) => w === 'your cloud machine'), JSON.stringify(hc.subs));
+    check('cloud: every API-key callout says your cloud machine', hc.keys.length === 3 && hc.keys.every((w) => w === 'your cloud machine'), JSON.stringify(hc.keys));
+    check('CONTROL mac: the API-key callouts say this computer', hm.keys.length === 3 && hm.keys.every((w) => w === 'this computer'), JSON.stringify(hm.keys));
+    check('CONTROL mac: the subscription sentences say this computer', hm.subs.length >= 4 && hm.subs.every((w) => w === 'this computer'), JSON.stringify(hm.subs));
+    check('cloud: the no-Claude refusal reads as a sentence and names your cloud machine', /^There is no Claude account signed in on your cloud machine,/.test(hc.refusal), hc.refusal);
+    check('CONTROL mac: the refusal is a sentence that keeps this computer', /^There is no Claude account signed in on this computer,/.test(hm.refusal), hm.refusal);
+    check('a page reached through Kosmos+ never asks for the waiting list', !!hc.polls && hc.polls.remote === 0 && hm.polls.remote === 0, JSON.stringify([hc.polls, hm.polls]));
+    check('CONTROL: a local tab refused (signed out) keeps asking', !!hc.polls && hc.polls.local === 3 && hm.polls.local === 3, JSON.stringify([hc.polls, hm.polls]));
+    check('cloud: the age line is Claude\'s alone (the OpenAI or Grok line is hidden)', JSON.stringify(hc.ages) === JSON.stringify(['Claude needs you to be 18 or over. Age rules vary by country.']), JSON.stringify(hc.ages));
+    check('CONTROL mac: the age line names the under-18 choice', hm.ages.length === 1 && /choose OpenAI or Grok/.test(hm.ages[0]), JSON.stringify(hm.ages));
+    check('cloud: the hidden providers\' status boxes are hidden too', hc.msgs.every((v) => !v), JSON.stringify(hc.msgs));
+    check('CONTROL mac: their status boxes are not hidden', hm.msgs.every((v) => v), JSON.stringify(hm.msgs));
+    check('cloud: an engine reason says your cloud machine', /on your cloud machine right now\.$/.test(hc.reason) && /on your cloud machine$/.test(hc.restart), `${hc.reason} / ${hc.restart}`);
+    check('CONTROL mac: the engine reason keeps "this computer"', /on this computer right now\.$/.test(hm.reason) && /on this computer$/.test(hm.restart), `${hm.reason} / ${hm.restart}`);
+    check('seam G/H: no page errors', hc.errors.length === 0 && hm.errors.length === 0, hc.errors.concat(hm.errors).join(' | '));
+  }
+  await browser.close();
+  const failed = results.filter((r) => !r.pass);
+  console.log(`\n${results.length - failed.length}/${results.length} passed`);
+  process.exit(failed.length ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(1); });

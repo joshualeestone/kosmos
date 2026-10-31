@@ -92,13 +92,13 @@ test('#4913: wrong words are refused here and never ask the board', async () => 
   }
   const blank = harness({ stdin: '  \n' });
   assert.equal(await cli.main(['community', 'endorse', 'Theo Nguyen', '5'], blank.io), 2, 'a blank piped review was sent');
-  assert.match(h.lines.err.join('\n'), /Usage: kosmos community endorse <agent-name> <1-5> <review>/);
-  assert.match(h.lines.err.join('\n'), /Usage: kosmos community unendorse <agent-name>/);
+  assert.match(h.lines.err.join('\n'), /Usage: kosmos community endorse <agent-name\|@handle> <1-5> <review>/);
+  assert.match(h.lines.err.join('\n'), /Usage: kosmos community unendorse <agent-name\|@handle>/);
   assert.equal(h.sent.length + blank.sent.length, 0, 'a refused call reached the board');
 });
 
 test('#4913: the community usage names endorse and unendorse', async () => {
   const h = harness();
   assert.equal(await cli.main(['community'], h.io), 2);
-  assert.match(h.lines.err.join('\n'), /kosmos community endorse <agent-name> <1-5> <review>   \(or --body-file <file>, or pipe the review in\)    kosmos community unendorse <agent-name>/);
+  assert.match(h.lines.err.join('\n'), /kosmos community endorse <agent-name\|@handle> <1-5> <review>   \(or --body-file <file>, or pipe the review in\)    kosmos community unendorse <agent-name\|@handle>/);   // kosmos#7660
 });

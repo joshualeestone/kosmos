@@ -1774,6 +1774,28 @@ function unsentSweep(names) {
   const present = new Set(Array.from(names || [], String));
   for (const m of [unsentSeen, unsentRead]) for (const k of [...m.keys()]) if (!present.has(k)) m.delete(k);
 }
+/* #7212 slice 2: the card's deliveryStall (engine/deliverystreak.js), with its limitShownOn rule. Never throws. */
+function deliveryStallOf(pane, status) {
+  try {
+    const st = status || {};
+    const ds = require('./deliverystreak');
+    /* A read stays a read: the minute sweep starts a stopped or otherwise self-speaking card's streak over
+       (deliverystreak.settleFor), never this getter. */
+    /* Only a card that reads idle or working: those look fine while nothing reaches them (Josh's read Idle for a
+       week). A stopped agent refuses lines by design, and needs_you, a sign-in or a limit already say themselves. */
+    if (st.state !== STATE.IDLE && st.state !== STATE.WORKING) return null;
+    // The card's own four fields, built as the card builds them.
+    const limitShown = ds.limitShownOn({ limitUntil: claudeLimitUntilIso(pane, st), limitFrom: st.limitFrom, quotaUntil: st.quotaUntil, poolUntil: st.poolUntil });
+    /* kosmos#7368: a Windows Claude agent on one step with no activity for over an hour and messages queued behind it.
+       It comes first: those messages each landed, so the streak below can never see them, and it names the step
+       (PigeonPete, m716: when both apply, show this one). */
+    if (st.state === STATE.WORKING && pane && require('./win32roster').isWin32Pane(pane) && (!pane.runner || pane.runner === 'claude')) {
+      const turn = ds.turnStuckOf(pane.name, require('./win32streamstate').turnFor(pane.name));
+      if (turn) return turn;
+    }
+    return ds.stallOf(pane && pane.name, { limitShown });
+  } catch { return null; }
+}
 /* #6249: the card's unsentInput, { since } (ISO) once the same text has sat in a Claude agent's box UNSENT_SHOW_MS,
    else null. The plain capture this pass already made decides whether to look; only a pane showing something there
    is captured again with colours, and only when what it shows changed since the last colour read. */
@@ -3132,8 +3154,8 @@ const LIMIT_ROW_GONE_MS = 2 * 60 * 1000;
 const LIMIT_FIRST_SEEN_KEEP_MS = 2 * DAY_LIMIT_SPAN_MS;   // backstop for an agent that went away
 /* Agents the screen pass has captured before (review 1): a row already on screen at the board's FIRST capture of an
    agent arrived at an unknown time (a board restart, an agent first appearing, or a capture after a long gap), so it is
-   marked late and given no time, no hold and no retirement, as before 3b. Only a row the board watched arrive is
-   timed. */
+   marked late and given no time and no hold, as before 3b. Only a row the board watched arrive is timed. A late row
+   can still be retired once its reset has passed (kosmos#7264, retireResetLimits). */
 const limitCapturedAgents = new Map();   // agent -> its last capture time
 /* Review 4: a capture after a gap longer than this (a Mac asleep, captures failing) is like a first capture: a row new
    in it may have arrived any time in the gap, so it is late. */
@@ -3184,6 +3206,18 @@ function noteLimitRows(agent, text, nowMs) {
     seen.last = Math.max(seen.last, now);
     const newFooter = [...here].some((f) => !seen.footers.has(f));
     for (const f of here) seen.footers.add(f);
+    /* kosmos#7264 (reviews 2 and 3): a late entry is retired from its own sighting (retireResetLimits), so a NEW limit
+       printing the same words must not inherit an old sighting and read as already reset while it binds. A new limit
+       ends a new turn, so a turn footer this entry has not seen moves the sighting to now (only ever later; the entry
+       stays late, so it never gives the row a time to hold messages on). More rows, or the row coming back after a
+       capture without it, move nothing without a new footer (challenge loop): a redraw or a scroll back reprints the
+       old block, footer and all, and moving on those re-capped a released row for up to a span. Residual: a new limit
+       whose footer text repeats one this entry has seen cannot be told apart. */
+    if (seen.late && newFooter) {
+      seen.at = now;
+      seen.count = count;
+      continue;
+    }
     /* More rows than before is a NEW limit only when one could have appeared and the new row ended a NEW turn
        (reviews 3 and 5): a SESSION limit, timed, its reset passed (the next day's limit can print the same words), and a
        turn footer under its rows this entry has not seen. A redraw (a resize reprinting the transcript) copies the old
@@ -3210,9 +3244,31 @@ function limitFirstSeenOf(agent, text) {
   const seen = key ? limitFirstSeen.get(key) : null;
   return seen && !seen.late ? seen.at : null;   // a row seen late is not timed
 }
+/* kosmos#7264: when to time `agent`'s dateless limit row from for RETIRING it, or null: as limitFirstSeenOf, except that
+   a row seen late (on the board's first capture after a restart, or back after a redraw) is timed from that sighting
+   too. The line cannot have appeared after the board first saw it, so the reset read from that sighting is never
+   earlier than the true one: the row is retired no sooner than it should be, and at most one span late, where before it
+   was never retired and an idle agent read Rate Limit for good. Only retiring uses this: limitUntil, and so the
+   delivery hold, keeps limitFirstSeenOf, so a message to such an agent is still typed (it is what clears the line). */
+function limitRetireFromOf(agent, text) {
+  const key = limitRowKey(agent, text);
+  const seen = key ? limitFirstSeen.get(key) : null;
+  return seen ? { at: seen.at, late: seen.late === true } : null;
+}
+/* kosmos#7264: whether a dateless reset line can be read at all (a real clock time, in a zone this runtime knows), so a
+   late row given no time because its next reset is beyond the span is told apart from one that cannot be read. */
+function limitTimeOnlyReadable(line) {
+  const m = LIMIT_RESET_TIME_ONLY.exec(String(line == null ? '' : line));
+  if (!m) return false;
+  const hour12 = Number(m[1]);
+  const minute = m[2] === undefined ? 0 : Number(m[2]);
+  if (hour12 < 1 || hour12 > 12 || minute > 59) return false;
+  try { zoneOffsetMs(m[4], Date.now()); return true; } catch { return false; }
+}
 /* #5805 slice 3: the reset a capped Claude card is out of usage until, as epoch ms, or null when its line names none
    this can read. A dated line is read as limitResetAt reads it; a dateless one from when the screen pass first saw it
-   (null when it has not: the board saw it late, or it is not on the screen). */
+   (null when it has not: the board saw it late, or it is not on the screen). Retiring a late row is separate
+   (kosmos#7264, limitRetireFromOf), so a null here does not keep a row capped. */
 function claudeLimitUntil(agent, evidence, nowMs) {
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
   const line = String(evidence == null ? '' : evidence);
@@ -3278,6 +3334,37 @@ function underPromptAt(rows, i) {
    "Stop" (usage-based billing) or "Wait for limit to reset" (the spend-limit menu), all under that one title, which
    it uses only for the limit, spend-limit and trial-ended menus (review round 3). The reset gets a minute's grace:
    the printed time drops seconds (12:00:45 prints "12am"), and the clocks may differ. */
+/* kosmos#7358: when the turn whose footer is `footerRow` ended, from its "done <clock>" (Claude Code prints this machine's
+   local time with no date: "✻ Sautéed for 0s · done 10:35 PM"), read as the latest such instant at or before `atMs`; null
+   when the footer has no done time or one this cannot read for sure. Why a reset timed from it is never early: the limit
+   row printed as that turn stopped, so the true done time is at or after the limit, and every reading here errs later: the
+   latest day (a footer older than a day reads later), the later of the two instants of a clock time the night the
+   clocks go back (as limitResetTimeOnlyAt), and the caller times the reset from the END of the done minute. It rests
+   on Claude Code printing the time in the zone this board runs in. */
+const TURN_DONE = /· done (\d{1,2}):(\d{2})(?![:\d])(?:\s?([ap])\.?m\b\.?)?/i;   // a clock with seconds is not read: null
+function turnDoneAt(footerRow, atMs) {
+  const m = TURN_DONE.exec(String(footerRow == null ? '' : footerRow));
+  if (!m || !Number.isFinite(atMs)) return null;
+  let hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (minute > 59) return null;
+  if (m[3] !== undefined) {
+    if (hour < 1 || hour > 12) return null;
+    hour = (hour % 12) + (m[3].toLowerCase() === 'p' ? 12 : 0);
+  } else if (hour > 23) return null;
+  for (const back of [0, 1]) {
+    const d = new Date(atMs);
+    d.setDate(d.getDate() - back);
+    d.setHours(hour, minute, 0, 0);
+    let t = d.getTime();
+    // The repeated hour the night the clocks go back: setHours takes the first; the later one, if it is also that clock.
+    const later = new Date(t + 3600000);
+    if (later.getHours() === hour && later.getMinutes() === minute && later.getTime() <= atMs) t = later.getTime();
+    if (t <= atMs) return t;
+  }
+  return null;
+}
+
 function retireResetLimits(text, nowMs, firstSeenOf) {
   const rows = String(text == null ? '' : text).split('\n');
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
@@ -3305,7 +3392,33 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
     if (resetAt === null && typeof firstSeenOf === 'function') {
       let first = null;
       try { first = firstSeenOf(row); } catch { first = null; }
-      if (Number.isFinite(first)) resetAt = limitResetTimeOnlyAt(row, first);
+      // A number, or (limitRetireFromOf) { at, late }.
+      const late = first !== null && typeof first === 'object' && first.late === true;
+      const at = first !== null && typeof first === 'object' ? first.at : first;
+      if (Number.isFinite(at)) {
+        resetAt = limitResetTimeOnlyAt(row, at);
+        /* kosmos#7358: a row seen late is timed from when its turn ended, when the footer says ("done <clock>"), not from
+           the board's sighting: the line printed as that turn stopped, so its reset is the first after that. This is what
+           releases a weekly limit on its last day after a restart, whose clock time always comes round again within its
+           span after the sighting (before: Rate Limit for up to a day). Without a done time, timed from the sighting. */
+        if (late) {
+          const done = turnDoneAt(rows[footer], at);
+          /* Review 2: the footer gives the minute only, so the turn may have ended anywhere in it; a reset in that same
+             minute (a "done 6:00 PM" under "resets 6pm") may already have been before the limit, so it is skipped and the
+             next is taken. limitResetTimeOnlyAt keeps a reset up to its grace before the time it is given, hence both. */
+          const fromDone = done === null ? null : limitResetTimeOnlyAt(row, done + 60 * 1000 + RESET_GRACE_MS);
+          // Review 3: both readings are never early, so the earlier wins (a sighting just after the reset would otherwise
+          // be held a day by the done minute's skip). Weakest premise: the agent prints its done time in this board's
+          // zone; one started with its own TZ would shift it (the card reads idle early; delivery is not held either way).
+          if (fromDone !== null) resetAt = resetAt === null ? fromDone : Math.min(resetAt, fromDone);
+        }
+        /* kosmos#7264: a row seen late (on screen before the board's sighting) whose clock time does not come round
+           again within its span after the sighting cannot still be binding, since no limit outlasts its span: its reset
+           was before the sighting, so it is retired at the sighting. Not for a row this cannot read (an unknown zone:
+           kept, as before). A new limit with the same words is not this row: when a turn footer the entry has not seen
+           arrives, noteLimitRows moves its sighting to that capture, so the reset is read after it. */
+        if (resetAt === null && late && limitTimeOnlyReadable(row)) resetAt = at - RESET_GRACE_MS;   // passed long before: no grace owed
+      }
     }
     if (!superseded && (resetAt === null || now < resetAt + RESET_GRACE_MS)) return;
     /* Up to the footer, or to the NEXT limit row of any wording if one shares this footer (review rounds 2 and 3): an
@@ -3344,10 +3457,9 @@ function retireResetLimits(text, nowMs, firstSeenOf) {
  * that pinned test is deliberately left as WORKING and this change does
  * not touch it.
  */
-const AUTH_FAILED_MARKERS = [
-  /OAuth\s*access\s*token\s*is\s*invalid/i,
-  /"type":\s*"authentication_error"/i,
-];
+/* #7369: the patterns themselves live in engine/claudesignintext.js, unchanged, so the Windows stream reads the same
+   words without loading this file; the reasoning for each stays here. */
+const { AUTH_FAILED_MARKERS } = require('./claudesignintext');
 
 /**
  * The envelope the two markers above were captured INSIDE, and the thing that
@@ -3377,7 +3489,7 @@ const AUTH_FAILED_MARKERS = [
  * were captured 2026-08-25, off the SAME line. What the prose lacks is the rest
  * of that line, so the rest of that line is the discriminator.
  */
-const AUTH_ENVELOPE = /"type":\s*"error"/i;
+const { AUTH_ENVELOPE } = require('./claudesignintext');   // #7369: shared, unchanged
 
 /**
  * #1930: how many real 401 auth-error lines are on this screen right now -- the
@@ -3530,8 +3642,7 @@ function waitingSinceFrom(waitReport, cardState, nowMs = Date.now()) {
  * false calm that stopped the tester. A missed dead token is worse than a rare false
  * pause; that trade is this file's oldest rule.
  */
-const AUTH_FRIENDLY_MESSAGE = /OAuth access token (?:has expired|has been revoked|is invalid)|API Error:\s*401\s+Invalid API key|OAuth token revoked|Login expired|Your session has expired/i;
-const AUTH_FRIENDLY_REMEDY = /Please run \/login|Re-authenticate to continue/i;
+const { AUTH_FRIENDLY_MESSAGE, AUTH_FRIENDLY_REMEDY } = require('./claudesignintext');   // #7369: shared, unchanged
 
 /**
  * #3410. Claude Code's own on-screen text for a TRANSIENT network error --
@@ -5138,17 +5249,48 @@ function classify(pane, paneText) {
          AUTOMATIC report, as #3723 does for Codex's and Gemini's limit messages (review 5). */
       return { state: STATE.RATE_LIMITED, confidence: CONFIDENCE.SCRAPED, because: 'its account reported a usage limit', evidence: line, limitUntil: until, streamLimit: true, streamLimitSince: since };
     }
+    /* #7369: its last turn was refused for its sign-in (win32streamstate's `auth <since> <busy|idle>[ <line>]`). It reads
+       exactly as the Mac's screen reading of a dead token does (auth_failed, scraped, never reported), so the card says
+       "Sign-in Issue", the account's live check (authprobe, kicked below for a scraped auth_failed) can clear it, and
+       chat.signinHeldVerdict holds messages on it. `underlying` is the plain state the stream read under it: when that
+       live check reads the account signed in again, reconcileReport shows this instead of "can't tell" (the Mac has no
+       such reading under a stale line, so it never carries one). Evidence is Claude's own sentence or nothing. */
+    const authTok = typeof paneText === 'string' ? /^auth (\S+) (busy|idle)(?: ([\s\S]*))?$/.exec(paneText) : null;
+    if (authTok && Number.isFinite(Date.parse(authTok[1]))) {
+      const line = typeof authTok[3] === 'string' && authTok[3].trim() ? authTok[3].trim() : null;
+      const underlying = authTok[2] === 'busy'
+        ? { state: STATE.WORKING, because: 'it is working' }
+        : { state: STATE.IDLE, because: 'it is idle at its prompt' };
+      /* Review 2: the record stands until the agent's next good turn, which may be long after the person signed in again.
+         Once the account check has read this refusal (by its own `since`) as stale, it stays cleared, so the idle card
+         does not flicker back to "Sign-in Issue" each time the 30 s check is re-asked. A NEW refusal has a new since. */
+      const authKey = String((pane && pane.name) || '') + '\u0000' + authTok[1];   // review 4: this agent's refusal, not a same-ms one of another's
+      if (WIN32_AUTH_CLEARED.has(authKey)) return { ...underlying, confidence: CONFIDENCE.SCRAPED };
+      return { state: STATE.AUTH_FAILED, confidence: CONFIDENCE.SCRAPED, because: 'its Claude sign-in is not working', evidence: line, underlying, authSince: authTok[1], authKey };
+    }
     /* The two tokens are win32streamstate's, the one vocabulary win32capture holds by too (#5949). */
-    const { BUSY: WIN32_BUSY, IDLE: WIN32_IDLE } = require('./win32streamstate');
+    const { BUSY: WIN32_BUSY, IDLE: WIN32_IDLE, isStreamIdleToken, streamIdleSince } = require('./win32streamstate');
+    /* 🛑 #7361: AN IDLE FROM THE AGENT'S OWN STREAM IS PROOF ITS TURN ENDED, for a Windows Claude agent as for a per-turn
+       runner: its supervisor writes it on the turn's `result` (win32capture asks stateFor for it as `stream-idle
+       <since>`). Before this a Windows Claude idle never carried liveToken, on the reading that it came from
+       `claude agents --json` (which also reads idle while a session waits); but every agent Kosmos starts is a
+       streaming session, whose idle comes from the stream. So a first turn whose Stop hook's idle never landed left
+       the card on "working" for the five minutes the automatic report took to decay (the 0.7.71 V2 run). `liveIdleSince`
+       is when the file recorded the idle: reconcileReport lets it end only an automatic "working" written BEFORE it. */
+    if (isStreamIdleToken(paneText)) {
+      const since = streamIdleSince(paneText);
+      return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it is idle at its prompt', liveToken: true, ...(since ? { liveIdleSince: since } : {}) };
+    }
     if (paneText === WIN32_BUSY) {
       return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is working' };
     }
     if (paneText === WIN32_IDLE) {
       /* #5949: `liveToken` marks this idle as the state file a per-turn runner's supervisor (Codex, Gemini, Grok,
          Antigravity) writes when a turn ends: there is no turn running, so it is not a guess. reconcileReport lets it
-         end a stale automatic "working" (see there). NOT for a Windows Claude agent, whose idle comes from
-         `claude agents --json`, which also reads idle while the session waits on something (measured, #570). Set only
-         here, so no Mac pane ever carries it. */
+         end a stale automatic "working" (see there). NOT for a Windows Claude agent's plain `idle`, which comes from
+         `claude agents --json` (an interactive session), and that also reads idle while the session waits on something
+         (measured, #570). A stream-file idle arrives as `stream-idle` instead (#7361, just above), so a per-turn runner
+         reaches here only if a reader hands over the plain token. Set only in this arm, so no Mac pane ever carries it. */
       const perTurn = require('./win32codexlive').PER_TURN.has(pane.runner);
       return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it is idle at its prompt', ...(perTurn ? { liveToken: true } : {}) };
     }
@@ -7031,7 +7173,7 @@ const MODEL_NAMES = {
    "Haiku 4 5"); so an id with two number-only parts side by side, or a date part, stays raw, and only then. Ids that
    write their version with a dot (gemini-3.8-flash, grok-4.6, gpt-5.6-sol) read cleanly: "Gemini 3.8 Flash",
    "Grok 4.6", "GPT 5.6 Sol". PURE; exported for its test. */
-const MODEL_WORDS = { gpt: 'GPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claude', codex: 'Codex', llama: 'Llama', qwen: 'Qwen', kimi: 'Kimi', mistral: 'Mistral', muse: 'Muse', mini: 'mini', nano: 'nano',
+const MODEL_WORDS = { gpt: 'GPT', gemini: 'Gemini', grok: 'Grok', claude: 'Claude', codex: 'Codex', llama: 'Llama', qwen: 'Qwen', deepseek: 'DeepSeek', kimi: 'Kimi', mistral: 'Mistral', muse: 'Muse', mini: 'mini', nano: 'nano',
   oss: 'OSS', vl: 'VL', hd: 'HD', tts: 'TTS', ai: 'AI' };   // acronyms, so they are not read as words ("Oss")
 function readableModelId(id) {
   const parts = String(id || '').split('-');
@@ -8024,7 +8166,22 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
         conflict: 'the account sign-in currently reads valid, but its screen is still producing new Claude sign-in rejections, so a live rejection loop is running' + saidWords(reported, nowMs),
       };
     }
-    const answer = reconcileReport(reported, { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE }, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity, runner);
+    /* #7369: a Windows stream reading carries the plain state under the refusal (`underlying`), so a re-signed-in
+       Windows agent reads idle or working again rather than "can't tell" until its next turn (which a held queue
+       would never give it). A Mac screen has no such reading: UNKNOWN, as before. Neither is AUTH_FAILED, so this
+       still cannot recurse. */
+    const under = scraped.underlying && typeof scraped.underlying === 'object' && typeof scraped.underlying.state === 'string'
+      && scraped.underlying.state !== STATE.AUTH_FAILED ? scraped.underlying : null;
+    /* Review 2: stays cleared. Review 3: only when the HEALTHY check began after this refusal: a cached HEALTHY from
+       before it (another agent on the account, or this one's earlier clear) shows the plain state for this tick only,
+       and the next check, asked after the refusal, decides. */
+    if (under && typeof scraped.authSince === 'string' && Number(scraped.authCheckStartedAt) > Date.parse(scraped.authSince)) {
+      if (typeof scraped.authKey === 'string') noteWin32AuthCleared(scraped.authKey);
+    }
+    const reentry = under
+      ? { state: under.state, confidence: CONFIDENCE.SCRAPED, because: under.because }
+      : { ...scraped, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE };
+    const answer = reconcileReport(reported, reentry, nowMs, liveAuth, disruptionRec, codexLiveAuth, activity, runner);
     return { ...answer, conflict: 'its screen shows an old Claude sign-in rejection, but the account sign-in is currently valid, so the rejection is stale' };
   }
   /* #4006: a restart that did NOT come back (disruption.fail). Not "restarting" and not a quiet
@@ -8332,6 +8489,20 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
   if (reported.state === 'working') {
     const at = Date.parse(reported.at || '');
     const stale = !Number.isFinite(at) || (nowMs - at) > REPORT_WORKING_DECAY_MS;
+    /* 🛑 #7361: A FRESH AUTOMATIC "WORKING" FROM A TURN THAT HAS SINCE ENDED IS IDLE. The hook's `working --auto` at a
+       turn's start normally meets the Stop hook's `idle --auto` at its end; when that idle never lands (a new Windows
+       agent's first turn, 0.7.71 V2: the agent answered, the card said "working" for five minutes), the stream's own
+       idle is the record that the turn ended. Only when the idle was recorded AFTER the report (`liveIdleSince`, the
+       stream file's time, on this box's one clock): an automatic "working" written later is a new turn the capture has
+       not seen yet (the 1.5 s memo), or a background agent's heartbeat after the turn's result (#1889), and stands. Only
+       an automatic report (the agent's own words outrank the screen, rule 6), and only a liveToken idle read this tick
+       (a held one is stripped in snapshot). With no time on the idle, the fresh report stands, as before. */
+    const liveIdleAt = scraped && scraped.state === STATE.IDLE && scraped.liveToken === true && typeof scraped.liveIdleSince === 'string'
+      ? Date.parse(scraped.liveIdleSince) : NaN;
+    if (!stale && reported.by === 'auto' && Number.isFinite(liveIdleAt) && at < liveIdleAt) {
+      const { liveToken: _liveToken, liveIdleSince: _liveIdleSince, ...screen } = scraped;
+      return { ...screen, reported: false, conflict: null };
+    }
     if (!stale) {
       /* 🛑 CARRY `backgroundWait` THROUGH. This branch builds a FRESH object rather
          than spreading `scraped`, so every scraped-only field is dropped -- and the
@@ -8446,11 +8617,11 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        Antigravity agent on Windows fell here five minutes after each turn: its last report was the automatic
        "working" from the turn's start, and its supervisor wrote idle to its state file when the turn ended, which the
        board read (scraped IDLE) and then ignored for "we could not check". That idle is the supervisor's own record
-       that no turn is running (`liveToken`, set only by classify's win32 arm for a per-turn runner), so it decides
-       once the working report has gone stale. A Mac screen, or a Windows Claude agent, that merely reads idle still
-       falls through to the honest unknown below. */
+       that no turn is running (`liveToken`, set only by classify's win32 arm for a per-turn runner or, #7361, any
+       stream-file idle), so it decides once the working report has gone stale. A Mac screen, or a Windows Claude
+       agent's `agents --json` idle, that merely reads idle still falls through to the honest unknown below. */
     if (scraped.state === STATE.IDLE && scraped.liveToken === true) {
-      const { liveToken: _liveToken, ...screen } = scraped;
+      const { liveToken: _liveToken, liveIdleSince: _liveIdleSince, ...screen } = scraped;
       return { ...screen, reported: false, conflict: null };
     }
     return {
@@ -8665,6 +8836,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     reachedByChannel: false,
     runner: null,
     lastWorked: null,   // #5959 slice 2: no pane, nothing observed; its page shows no health line
+    deliveryStall: null,   // #7212 slice 2: carried only while a pane card reads idle or working
     task: null,
     state: status.state,
     stateConfidence: status.confidence,
@@ -8783,9 +8955,46 @@ function liveAuthForAuthFailed(name, readJobFn, verdictFn) {
   // #5977 review 2: a Qwen agent's home holds an endpoint, not a Claude sign-in; asking the Claude check about it could
   // only be wrong, and a HEALTHY answer would hide the endpoint's real refusal. auth_failed stands.
   if (job.configDir && require('./qwenaccounts').isQwenHome(job.configDir)) return undefined;
+  // #7206: nor a vendor account (~/.kosmos-deepseek-<label>): a claude agent there holds the vendor's key, not a Claude
+  // sign-in, so `claude auth status` on it could only be wrong, and a HEALTHY answer would hide the vendor's refusal.
+  if (job.configDir && require('./anthropiccompat').isCompatHome(job.configDir)) return undefined;
+  /* #7369 review 4: nor an API-key account (#2420: a key file and an apiKeyHelper in the folder). `claude auth status`
+     reads it logged in whenever a key is THERE, revoked or not (measured), so a HEALTHY answer could only hide the key's
+     real refusal. auth_failed stands: the card says Sign-in Issue, and nothing is held (nothing could release it). */
+  try {
+    // Review 5: the default account too (no configDir: CLAUDE_CONFIG_DIR, else ~/.claude), which may hold a key.
+    const dir = job.configDir || process.env.CLAUDE_CONFIG_DIR || require('node:path').join(require('node:os').homedir(), '.claude');
+    if (require('node:fs').existsSync(require('./claudeaccounts').keyFile(dir))) return undefined;
+  } catch { return undefined; }
   // verdictFn is throw-safe by contract (authprobe.verdict), but wrap it too so the safety is
   // LOCAL: a future change that threw must leave auth_failed standing, never crash the tick.
   try { return verdictFn(job.configDir || null); } catch { return undefined; }
+}
+
+/* #7369: whether a scraped auth_failed on this agent is one authprobe can check, and so can clear (the HEALTHY drop in
+   reconcileReport). The SAME guards as liveAuthForAuthFailed (it is asked, with a verdict that only says "asked"), so
+   the two can never disagree: no job, a Qwen home or a vendor home is not checkable. chat.signinHeldVerdict holds a
+   Claude agent only when this is true, because a hold nothing can release would keep its messages for a day. */
+/* #7369 review 2: the Windows sign-in refusals (by the `since` win32streamstate stamped) the account check has read as
+   stale. Bounded: refusals are rare, and the oldest are dropped past 200. In memory only, accepted: after a board
+   restart a cleared record reads "Sign-in Issue" once, until the first check answers HEALTHY again (a check in flight
+   holds nothing, so it is a label for a few seconds, never a hold). */
+const WIN32_AUTH_CLEARED = new Set();
+function noteWin32AuthCleared(since) {
+  WIN32_AUTH_CLEARED.add(since);
+  if (WIN32_AUTH_CLEARED.size > 200) WIN32_AUTH_CLEARED.delete(WIN32_AUTH_CLEARED.values().next().value);
+}
+
+/* #7369 review 1: whether this agent's own account check (the same guards as liveAuthForAuthFailed) POSITIVELY reads
+   signed out right now: authprobe EXPIRED, fresh from its cache. chat.signinHeldVerdict holds a Claude agent only on this,
+   never on the card's label alone: a stale HEALTHY being re-checked reads UNCHECKED for a few seconds every 30 s, and an
+   agent printing live 401s keeps its auth_failed label over a HEALTHY account, and neither may hold a healthy agent's
+   messages. Asking also keeps the check fresh (authprobe kicks a re-check when its entry is old). */
+function claudeSignedOutConfirmed(name, readJobFn, verdictFn) {
+  const ap = require('./authprobe');
+  try {
+    return liveAuthForAuthFailed(name, readJobFn || ((n) => require('./create').readJob(n)), verdictFn || ap.verdict) === ap.EXPIRED;
+  } catch { return false; }
 }
 
 /* #2093: the per-account live-auth verdict for a running codex agent whose screen said nothing
@@ -8932,19 +9141,25 @@ function computeLoginAdvisories(panes, nowMs, opts = {}) {
           return typeof email === 'string' && email ? email : null;
         } catch { return null; }
       });
+      // The folders AI Models lists (accounts.list, read from disk; no live check), less API-key rows, which have no
+      // sign-in to redo (#2433). Unreadable: no notice names a row.
+      let rowDirs = null;
+      try { rowDirs = opts.rowDirs instanceof Set ? opts.rowDirs : new Set(accounts.list().filter((a) => a && !a.apiKey).map((a) => a.dir).filter(Boolean)); } catch { rowDirs = null; }
       /* #5407: the account's folder as Settings > AI Models names its row (accounts.list: the default is
-         ~/.claude, any other the folder itself), so the notice's Refresh login can open that row.
+         ~/.claude, any other the folder itself), so the notice's Refresh login can sign in again as that account.
          Review 5: ONLY when that row reads the same login. The row's login is the keychain entry for its folder
          (claudeloginlive: the default reads the bare entry, any other its folder's own); the notice's is a.service,
          from the agents' exact CLAUDE_CONFIG_DIR. An explicit ~/.claude, or a folder with a trailing slash, reads a
-         different entry from the row of that folder, so it names no row (null): Refresh login then opens AI Models
-         with nothing ringed, and the notice stays up there. */
+         different entry from the row of that folder, so it names no row (null): Refresh login then opens AI Models,
+         and the notice stays up there. */
       const dirOf = (adv) => {
         const set = adv.ccd == null ? '' : String(adv.ccd).replace(/[\r\n]+$/, '');
         const def = path.join(accounts.homeDir(), '.claude');
         const dir = set ? path.resolve(set) : def;
         const rowReads = le.serviceNameFor(dir === def ? undefined : dir);
-        return rowReads === adv.service ? dir : null;
+        /* kosmos#7198: and only a folder AI Models lists as an account: the notice's Refresh login opens Sign in again
+           for this folder in place, which must never be a folder with no account row (removed, or never listed). */
+        return rowReads === adv.service && rowDirs && rowDirs.has(dir) ? dir : null;
       };
       const out = le.agentAdvisories({ agents, readCcd, now: nowMs, readCred: opts.readCred })
         .map((a) => ({ ...a, provider: 'Claude', email: emailOf(a.ccd), names: a.agents.map(nameOf), dir: dirOf(a) }));
@@ -8974,11 +9189,12 @@ function snapshot() {
        'Working now' beside a wait): a held reading is a memory, not a turn seen this tick. */
     const scrapedNow = !(readNote && readNote.held);
     noteLimitRows(pane.name, text, Date.now());   // #5805 slice 3b: before retiring, so a first sighting never retires
-    let scrapedStatus = classify(pane, retireResetLimits(text, Date.now(), (row) => limitFirstSeenOf(pane.name, row)));   // #5031
+    let scrapedStatus = classify(pane, retireResetLimits(text, Date.now(), (row) => limitRetireFromOf(pane.name, row)));   // #5031; kosmos#7264: a late row too
     /* #5949: a HELD idle is a memory of an earlier look, not the per-turn supervisor's state file read this tick, so it
        never carries classify's `liveToken` (which lets an idle end a stale automatic "working" in reconcileReport). */
+    /* #7361: and the stream idle's time with it, so a held reading can end no report, fresh or stale. */
     if (!scrapedNow && scrapedStatus.liveToken === true) {
-      const { liveToken: _heldLiveToken, ...heldScrape } = scrapedStatus;
+      const { liveToken: _heldLiveToken, liveIdleSince: _heldLiveIdleSince, ...heldScrape } = scrapedStatus;
       scrapedStatus = heldScrape;
     }
     /* The agent's own account outranks the scrape when fresh (#188); only a
@@ -8991,10 +9207,16 @@ function snapshot() {
        need the name to resolve the account config dir); no probe for a healthy agent. */
     let liveAuth;
     if (scrapedStatus.state === STATE.AUTH_FAILED && isNamedOurs(pane)) {
+      let probedDir;
       liveAuth = liveAuthForAuthFailed(
         pane.name,
         (n) => require('./create').readJob(n),
-        (d) => require('./authprobe').verdict(d, now));
+        (d) => { probedDir = d; return require('./authprobe').verdict(d, now); });
+      /* #7369 review 3: a Windows refusal is remembered as cleared only by a HEALTHY check that BEGAN after it (a cached
+         HEALTHY from before a new sign-out must not hide it for good); reconcileReport reads this. */
+      if (typeof scrapedStatus.authSince === 'string' && probedDir !== undefined) {
+        scrapedStatus = { ...scrapedStatus, authCheckStartedAt: require('./authprobe').startedAt(probedDir) };
+      }
     }
     /* #2019: is this pane's agent one we are deliberately restarting right now?
        Only for a pane TIED to the name -- the same identity gate every
@@ -9534,6 +9756,9 @@ function snapshot() {
       limitUntil: claudeLimitUntilIso(pane, status),
       /* #6249: text has sat unsent in its input box for a few minutes ({ since }), else null. */
       unsentInput: unsentInputOf(pane, text),
+      /* #7212 slice 2: no message has been seen to reach it for half an hour, whatever the cause ({ since, count,
+         lastWhy }), else null. A run of usage-limit holds alone is not said while the card shows the limit itself. */
+      deliveryStall: deliveryStallOf(pane, status),
       /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
       lastWorked: lastWorkedOf(pane),
       because: status.because,
@@ -9718,7 +9943,10 @@ function needsPerson(a) {
     // said so only in a log -- now it counts as needing the person. Like stuckError, ownBound is NOT normalised
     // into snapshot()'s shape (server.js attaches it via ownbounds.peek only to the /api/status rows, where
     // `raised` can be true), so the read is GUARDED on presence for the same bare-snapshot-row reason.
-    || (Object.prototype.hasOwnProperty.call(a, 'ownBound') && Boolean(a.ownBound) && a.ownBound.raised === true));
+    || (Object.prototype.hasOwnProperty.call(a, 'ownBound') && Boolean(a.ownBound) && a.ownBound.raised === true)
+    // #7212 slice 2: no message has been seen to reach it for half an hour (only ever set on an idle or working card).
+    // Guarded on presence like the two above: bare rows built elsewhere may omit it.
+    || (Object.prototype.hasOwnProperty.call(a, 'deliveryStall') && Boolean(a.deliveryStall)));
 }
 /**
  * The numbers on the summary line, for a given set of cards.
@@ -9793,6 +10021,9 @@ function projectsUnreadTotal(projects, unreadMap) {
   let total = 0;
   for (const p of projects) {
     if (!p || p.archived === true) continue;
+    /* kosmos#7210: a project on Mentions only or Muted keeps its own row's count but adds nothing to the Dock badge or
+       the Projects badge, as a muted conversation does in a messaging app. The page's pjDmTotal leaves it out too. */
+    if (p.notify === 'mentions' || p.notify === 'muted') continue;
     const v = Number(unreadMap[p.id]);
     if (Number.isFinite(v) && v > 0) total += v;
   }
@@ -9917,6 +10148,22 @@ async function sessionStartedAtFromTmuxAsync(sessionName) {
   try { text = sessionSource ? sessionSource() : await tmuxSessionsAsync(); } catch { return null; }
   return sessionStartIn(text, want);
 }
+/* kosmos#7411: every session's start in ONE read without blocking the board's thread, for the restart line, which asks
+   about every running agent at once (one list-sessions, not one per agent). A Map of session name to ms; null when tmux
+   could not be read (not-knowing, as above), an empty Map when there is no server. */
+async function sessionStartsAsync() {
+  let text;
+  try { text = sessionSource ? sessionSource() : await tmuxSessionsAsync(); } catch { return null; }
+  if (text === null || text === undefined) return null;
+  const out = new Map();
+  for (const line of String(text).split('\n')) {
+    const tab = line.indexOf('\t');
+    if (tab <= 0 || out.has(line.slice(0, tab))) continue;
+    const at = sessionStartIn(line, line.slice(0, tab));
+    if (at !== null) out.set(line.slice(0, tab), at);
+  }
+  return out;
+}
 function sessionStartIn(text, want) {
   if (text === null || text === undefined) return null;
   for (const line of String(text).split('\n')) {
@@ -9935,7 +10182,7 @@ function sessionStartIn(text, want) {
 }
 
 module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
-  composerText, unsentInputOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
+  composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
   waitingTotal,   // #3996: the Dock badge's number
@@ -9947,7 +10194,7 @@ module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, split
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
   swarmField,   // #3564: exported so the meter's owner test is tested through the real folder search
-  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, paneRosterAsync, sessionStartedAtFromTmuxAsync, readPanes, isParseable, classify, isNamedOurs,
+  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, paneRosterAsync, sessionStartedAtFromTmuxAsync, sessionStartsAsync, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
   rank, paneOrder, modelDisplayName, readGeminiSession, readIdentity, transcriptFor, readCodexContext, readCodexSession, claudeAccountDirOf, ownsFor,
@@ -9975,7 +10222,7 @@ module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, split
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
-  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
+  reconcileReport, limitResetAt, limitResetTimeOnlyAt, claudeLimitUntil, noteLimitRows, limitFirstSeenOf, limitCaptureSweep, resetLimitFirstSeenForTests, retireResetLimits, turnDoneAt, claudeLimitMenuUp, providerLimitReport, quotaPauseUntil, quotaResetOf, QUOTA_REPORT_PREFIX, QUOTA_RESUME_WINDOW_MS, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, claudeSignedOutConfirmed, codexLiveAuthFor,
   freshestActivity, activeWhileWaitingFrom, authErrorLineCount,
   PANE_FORMAT, PANE_COLUMNS, STATE, CONFIDENCE, CONTEXT_LIMITS,
   /* ⚠️ EXPORTED for the restart-survival repair, which has to put the model an

@@ -87,6 +87,17 @@ test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a pos
   assert.ok(!('kosmos_bug' in h.sent[2].body), 'an ordinary post carried kosmos_bug');
 });
 
+test('#7541: --public sends public: true, before or after --topic; a post without it sends no such field (as the Mac)', async () => {
+  const h = harness();
+  assert.equal(await cli.main(['community', 'post', '--public', '--topic', 'Build notes', 'what I built'], h.io), 0, h.all());
+  assert.equal(h.sent[0].body.public, true, 'the flag did not reach the board: ' + JSON.stringify(h.sent[0].body));
+  assert.equal(await cli.main(['community', 'post', '--topic', 'Build notes', '--public', 'what I built'], h.io), 0, h.all());
+  assert.equal(h.sent[1].body.public, true, 'the flag after --topic was taken as text');
+  assert.equal(h.sent[1].body.body, 'what I built');
+  assert.equal(await cli.main(['community', 'post', '--topic', 'Weekly ops', 'hello'], h.io), 0, h.all());
+  assert.ok(!('public' in h.sent[2].body), 'an ordinary post carried public');
+});
+
 test('#5171: --channel <c> and --channel=<c> send that channel, in any order with --topic; none sends no channel; a bare --channel sends nothing (as the Mac)', async () => {
   const h = harness();
   assert.equal(await cli.main(['community', 'post', '--channel', 'engineering', '--topic', 'Build notes', 'what I built'], h.io), 0, h.all());
@@ -136,7 +147,7 @@ test('#4330: usage, empty posts, a bare --topic and --help send nothing', async 
   const h = harness({ stdin: { text: '  \n', ended: true } });
   assert.equal(await cli.main(['community'], h.io), 2);
   assert.equal(await cli.main(['community', 'publish', 'x'], h.io), 2);
-  assert.match(h.lines.err.join('\n'), /^Usage: kosmos community post \[--channel <channel>\] \[--topic "<topic>"\] \[--kosmos-bug\] <text> {3}\(or --body-file <file>, or pipe the post in on stdin\)$/m);
+  assert.match(h.lines.err.join('\n'), /^Usage: kosmos community post \[--channel <channel>\] \[--topic "<topic>"\] \[--kosmos-bug\] \[--public\] <text> {3}\(or --body-file <file>, or pipe the post in on stdin\)$/m);
   assert.doesNotMatch(h.lines.err.join('\n'), /^Unknown:/m);
   assert.equal(await cli.main(['community', 'post'], h.io), 2);
   assert.match(h.lines.err.join('\n'), /Nothing to post: a community post needs some text/);
@@ -160,4 +171,17 @@ test('#4330: a malformed agent token is not sent (the hook keeps hex only, as th
   const h = harness({ token: hook.agentToken({ KOSMOS_AGENT_TOKEN: 'not-hex; rm -rf' }) });
   assert.equal(await cli.main(['community', 'post', 'hi'], h.io), 0, h.all());
   assert.equal(h.sent[0].headers['x-kosmos-agent-token'], undefined);
+});
+
+test('#7541 review 1: a post the board stored for the company\'s own community is said to go there, not public (as the Mac)', async () => {
+  const sent = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p1', sends: true, later: false, space: 'company' }] });
+  assert.equal(await cli.main(['community', 'post', 'notes from today'], sent.io), 0, sent.all());
+  assert.match(sent.lines.out.join('\n'), /Queued for your company's own community/);
+  const held = harness({ answer: () => [200, { ok: true, status: 'held', id: 'p1', space: 'company' }] });
+  assert.equal(await cli.main(['community', 'post', 'notes from today'], held.io), 0, held.all());
+  assert.match(held.lines.out.join('\n'), /before it goes to your company's own community/);
+  assert.doesNotMatch(held.lines.out.join('\n'), /goes public/);
+  const pub = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p1', sends: true, later: false }] });
+  assert.equal(await cli.main(['community', 'post', 'notes from today'], pub.io), 0, pub.all());
+  assert.match(pub.lines.out.join('\n'), /Queued for the Kosmos\+ community/, 'CONTROL: a public post keeps its words');
 });

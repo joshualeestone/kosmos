@@ -90,6 +90,9 @@ function hasContent(name) {
     /* #4557: a seeded team member's brief, written ONCE at birth and never re-synced. Per agent, never
        empty where it exists; who is entitled is decided below. */
     case 'team':     return true;
+    /* #7410: the pointer to notes carried across a provider switch. Per agent, never empty where it exists; who is
+       entitled is decided below (an agent whose folder holds the notes). */
+    case 'carried-notes': return true;
     /* #5050/#5080: written on a sure read that is not English: the person's choice in Settings (any platform) or a Mac's
        own language; an English read writes none. */
     /* An unsure read (Automatic on a failed Mac read or off a Mac) is CANNOT TELL (null), never "nothing to deliver":
@@ -98,6 +101,10 @@ function hasContent(name) {
     default: return null;
   }
 }
+
+/* #7410: the block-name column, 12 wide as before, but never without a space after the name: a 13-letter name
+   (carried-notes) ran into the count and its row stopped reading as a row. */
+function nameCol(name) { return name.length >= 12 ? name + ' ' : name.padEnd(12); }
 
 /* Who is entitled to each block. `projects` (members) and `swarm` (leads) are narrower than everyone. */
 function entitled(name, agents, text) {
@@ -132,6 +139,19 @@ function entitled(name, agents, text) {
     const ent = agents.filter((a) => projects.teamBlockState(text[a]) !== 'none');
     ent.unsure = ent.filter((a) => projects.teamBlockState(text[a]) === 'broken');
     return ent;
+  }
+  /* #7410: SWITCH-ONLY, NOT UNIVERSAL. Entitled exactly where the agent's folder holds carried notes: memory/ and
+     memory/claude-notes/ real folders (not a link or junction) with a plain .md in them, the rule
+     engine/create.js carryClaudeNotes points by. An agent that never switched off Claude is right to lack it, and one
+     that carries it with no notes there is STALE (the switch takes such a pointer out). */
+  if (name === 'carried-notes') {
+    const realDir = (p) => { try { const s = fs.lstatSync(p); return s.isDirectory() && !s.isSymbolicLink(); } catch { return false; } };
+    return agents.filter((a) => {
+      const mem = path.join(WORKERS, a, 'memory');
+      const notes = path.join(mem, 'claude-notes');
+      try { return realDir(mem) && realDir(notes) && fs.readdirSync(notes, { withFileTypes: true }).some((e) => e.isFile() && /\.md$/i.test(e.name)); }
+      catch { return false; }
+    });
   }
   if (name !== 'projects') return agents;
   try {
@@ -212,7 +232,7 @@ for (const name of names) {
     } catch { verdict = 'CANNOT TELL -- could not read its source'; cannotTell += 1; }
     /* "has it" is agents CURRENT here, not agents carrying the marker: a file can
        hold the rules as its own text with no marker, or a marked but outdated span. */
-    console.log('  ' + name.padEnd(12) + String((currentDoctrine === null ? '?' : currentDoctrine) + '/' + agents.length).padEnd(9)
+    console.log('  ' + nameCol(name) + String((currentDoctrine === null ? '?' : currentDoctrine) + '/' + agents.length).padEnd(9)
       + String(agents.length).padEnd(10) + verdict);
     continue;
   }
@@ -239,7 +259,7 @@ for (const name of names) {
       verdict = bits.join('; ');
     }
   }
-  console.log('  ' + name.padEnd(12) + String(have.length + '/' + agents.length).padEnd(9)
+  console.log('  ' + nameCol(name) + String(have.length + '/' + agents.length).padEnd(9)
     + String(ent === null ? '?' : ent.length).padEnd(10) + verdict);
 }
 

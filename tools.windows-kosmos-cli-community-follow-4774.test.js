@@ -87,7 +87,7 @@ test('#4774: no name exits 2 without asking the board', async () => {
   for (const args of [['community', 'follow'], ['community', 'unfollow'], ['community', 'follow', '   '], ['community', 'unfollow', ' ', '  ']]) {
     assert.equal(await cli.main(args, h.io), 2, args.join(' '));
   }
-  assert.match(h.lines.err.join('\n'), /Usage: kosmos community (follow|unfollow) <agent-name>/);
+  assert.match(h.lines.err.join('\n'), /Usage: kosmos community (follow|unfollow) <agent-name\|@handle>/);
   assert.equal(h.sent.length, 0, 'a refused call reached the board');
 });
 

@@ -11,6 +11,9 @@ struct SettingsView: View {
     let openPage: (URL) -> Void
     // The board's own Settings, shown under Today (AppTabs.barTab).
     let openBoardSettings: () -> Void
+    // kosmos#7266 slice B: the person on the shown computer, for the page's top (BoardClient.youName / youPicture).
+    var youName: String? = nil
+    var youPicture: Data? = nil
 
     private enum Load: Equatable {
         case reading
@@ -41,6 +44,7 @@ struct SettingsView: View {
         NavigationView {
             ScrollViewReader { scroller in
                 List {
+                    profile
                     notifications
                     computer
                     // Only while the app really asks for it: the lock is off by default (KosmosConfig.requireBiometricUnlock,
@@ -48,14 +52,25 @@ struct SettingsView: View {
                     if KosmosConfig.requireBiometricUnlock { security }
                     account
                     board
+                    about
                 }
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
+                .modifier(TopOnTheBarLine())
                 // A switch that is on reads as on in both modes: the app's ink tint made it black in light and
                 // near-white on a white knob in dark. The system green is what the 19 Oct design drew (p6-settings).
                 .tint(Color(UIColor.systemGreen))
                 .background(Palette.ground.ignoresSafeArea())
-                .navigationTitle("Settings")
+                // kosmos#7487 (Josh 10-28 09:36): no "Settings" title at all (only the Settings tab leads here), so no bar;
+                // the profile picture is the first thing, at the top of the safe area. kosmos#7346 still holds: a solid
+                // strip of ground behind the status bar, so no row shows through it, and the same soft fade below it.
+                .toolbar(.hidden, for: .navigationBar)
+                .overlay(alignment: .top) {
+                    Color.clear.frame(height: 0)
+                        .background(Palette.ground.ignoresSafeArea(edges: .top))
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
+                .kosmosTopFade()
                 .refreshable { await read() }
                 .onAppear {
                     #if DEBUG
@@ -71,6 +86,43 @@ struct SettingsView: View {
         .task { await read() }
     }
 
+    // MARK: Profile (kosmos#7266 slice B)
+
+    // The person's picture and name on top, as a profile page; every setting under it. The picture and the name are
+    // the computer's own ("You" on the board): they are changed there, which the footer says.
+    private var profile: some View {
+        Section {
+            VStack(spacing: 10) {
+                Group {
+                    if let picture = YouFace.profileImage(youPicture) {
+                        Image(uiImage: picture).resizable().scaledToFill()
+                    } else if let letter = Board.youLetter(youName) {
+                        // Mona Lisa's review: the person's letter on the avatar cream, as an agent with no picture.
+                        ZStack {
+                            Palette.avatarFill
+                            Text(letter).font(.system(size: 36, weight: .semibold)).foregroundColor(Palette.avatarLetter)
+                        }
+                    } else {
+                        Image(systemName: "person.crop.circle.fill").resizable().scaledToFit().foregroundColor(Palette.secondary)
+                    }
+                }
+                .frame(width: 88, height: 88)
+                .clipShape(Circle())
+                .accessibilityHidden(true)
+                Text(youName ?? "You").font(.title2.weight(.semibold)).foregroundColor(Palette.primary)
+                    .multilineTextAlignment(.center)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            .frame(maxWidth: .infinity)
+            .modifier(ProfileRowTop())
+            .listRowBackground(Color.clear)
+        } footer: {
+            Text("Your name and picture come from your computer. Change them in your Profile in the board's Settings.")
+                .font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+        }
+    }
+
     // MARK: Notifications
 
     @ViewBuilder private var notifications: some View {
@@ -82,7 +134,7 @@ struct SettingsView: View {
                     Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
                 }
             case .signedOut:
-                Text("Sign in on the Today tab, then your computer's phone settings show here.")
+                Text("Sign in to Kosmos+ first, then your computer's phone settings show here.")
                     .font(.subheadline).foregroundColor(Palette.secondary)
             case .noComputer:
                 Text("Open the Agents tab to connect to your computer, then its phone settings show here.")
@@ -210,6 +262,17 @@ struct SettingsView: View {
         }
     }
 
+    // kosmos#7266: the credit the Agents tab's icon needs (Font Awesome Free's icons are CC BY 4.0).
+    private var about: some View {
+        Section {
+            // Review 1 nit: the licence linked and its holder named, as CC BY 4.0 asks.
+            Text("The Agents icon is from Font Awesome Free, \u{00A9} Fonticons, Inc., used under the [CC BY 4.0 licence](https://creativecommons.org/licenses/by/4.0/).")
+                .font(.footnote).foregroundColor(Palette.secondary)
+        } header: {
+            Text("About")
+        }
+    }
+
     private func row(_ title: String, detail: String?) -> some View {
         HStack {
             Text(title).foregroundColor(Palette.primary)
@@ -281,5 +344,30 @@ private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil)
+    }
+}
+
+// The profile row's own spacing: on iOS 17 and later no room above the picture but the list's 8 pt; on iOS 16, which
+// has no content margins, the row keeps the spacing it had before.
+private struct ProfileRowTop: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.padding(.bottom, 8).listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
+        } else {
+            content.padding(.vertical, 8)
+        }
+    }
+}
+
+// kosmos#7487 build 14 (Mona Lisa): the picture's top on the line of the other tabs' top bar, the safe area plus 8 pt,
+// rather than below the inset-grouped list's own top margin (with the profile row's own top inset at 0, ProfileRowTop).
+// iOS 16 has no content margins and keeps the list's own.
+private struct TopOnTheBarLine: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.contentMargins(.top, 8, for: .scrollContent)
+        } else {
+            content
+        }
     }
 }

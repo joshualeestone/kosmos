@@ -73,9 +73,22 @@ function reportNote(session, at, { selfreport = require('./selfreport'), tailByt
     if (!lines[i].trim()) continue;
     let row;
     try { row = JSON.parse(lines[i]); } catch { continue; }
-    if (row && row.at === at && row.state === 'needs_you') return typeof row.because === 'string' && row.because.trim() ? row.because : null;
+    if (row && row.at === at && row.state === 'needs_you') return reportWords(row);
   }
   return null;
+}
+
+/** kosmos#6487: a needs_you report may carry no reason when it was made with only `--on` (what it waits on) or only
+ *  `--owner` (who must act); an older row may carry nothing (before the #2001 rule). With no words the phone shows the
+ *  bare push, so a recorded report answers something true: its reason, else what it waits on, else who must act, else
+ *  that it waits for an answer. (A permission hook's report always carries a reason, so it is not this case.) */
+function reportWords(row) {
+  const said = (v) => typeof v === 'string' && v.trim() ? v.trim().replace(/[.\s]+$/, '') : '';
+  if (typeof row.because === 'string' && row.because.trim()) return row.because;
+  const end = (v) => 'Waiting on ' + v + (/[?!]$/.test(v) ? '' : '.');   // no full stop after a question (review 2)
+  if (said(row.on)) return end(said(row.on));
+  if (said(row.owner)) return end(said(row.owner));
+  return 'Waiting for your answer.';
 }
 
 /** The text of the direct reply an agent sent at exactly `at`, or null. Only the agent's own message counts. */
@@ -99,32 +112,61 @@ function postWords(postId, { messages = require('./messages') } = {}) {
   return { session: m.from, text: m.text, project: typeof m.project === 'string' && m.project ? m.project : null };
 }
 
-/** What the phone shows for an event: { kind, session, text } with the words shortened (and, for a room post, the
- *  `project` it was posted in), or null when the id is not
- *  one of ours or its words are not (or no longer) here. `deps.mask(session, text)` runs on the whole words BEFORE
- *  they are shortened (server.js passes the setup guide's secret mask: a cut first could leave half a key the mask no
- *  longer recognises). Never throws. */
-function wordsFor(id, deps = {}) {
+/** The kind an event id names (`report`, `reply`, `post`, or a kind the phone cannot ask about, such as `crashloop`),
+ *  for the board's log: lowercase letters only, never the rest of the id. */
+function idKind(id) {
+  const m = typeof id === 'string' ? /^([a-z]{1,20}):/.exec(id) : null;
+  return m ? m[1] : 'unknown';
+}
+
+/** An agent's session name for one board-log line: C0 and C1 controls and the line and paragraph separators blanked
+ *  (a terminal tailing the log acts on them), and the zero-width and direction marks (they reorder a shown line), at
+ *  most 80 characters. */
+function logName(v) {
+  const clean = String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g, ' ');
+  return Array.from(clean).slice(0, 80).join('');   // by character, so a cut never leaves half an emoji
+}
+
+/** Six hex characters of the id's hash, so a board-log "asked" line pairs with its "sent" line without logging the id
+ *  (which holds the time and the session). */
+function idRef(id) {
+  return require('node:crypto').createHash('sha256').update(String(id == null ? '' : id)).digest('hex').slice(0, 6);
+}
+
+/** kosmos#6487: wordsFor, and why it answered nothing: { got, why }. `why` is null when there are words, else
+ *  'unaskable' (a kind this board never answers, such as crashloop:), 'malformed-id' (a report:, reply: or post: id
+ *  that does not parse, such as one cut short), 'no-report-words' (no needs_you report with words
+ *  at that time), 'no-reply', 'no-post', or 'mask-failed'. The board logs `why` so a plain notice explains itself. */
+function explain(id, deps = {}) {
   const p = parseId(id);
-  if (!p) return null;
+  if (!p) return { got: null, why: ['report', 'reply', 'post'].includes(idKind(id)) ? 'malformed-id' : 'unaskable' };
   let raw;
   if (p.kind === 'post') {
     const w = postWords(p.postId, deps);
-    if (!w) return null;
+    if (!w) return { got: null, why: 'no-post' };
     p.session = w.session;   // the post's own author, never anything the id says
     p.project = w.project;
     raw = w.text;
   } else {
     raw = p.kind === 'report' ? reportNote(p.session, p.at, deps) : replyText(p.session, p.at, deps);
   }
-  if (raw === null) return null;
+  if (raw === null) return { got: null, why: p.kind === 'report' ? 'no-report-words' : 'no-reply' };
   if (typeof deps.mask === 'function') {
-    try { raw = deps.mask(p.session, raw); } catch { return null; }   // a mask that fails must not serve the words unmasked
-    if (typeof raw !== 'string') return null;
+    try { raw = deps.mask(p.session, raw); } catch { return { got: null, why: 'mask-failed' }; }   // a mask that fails must not serve the words unmasked
+    if (typeof raw !== 'string') return { got: null, why: 'mask-failed' };
   }
   const out = { kind: p.kind, session: p.session, text: shorten(raw) };
   if (p.project) out.project = p.project;
-  return out;
+  return { got: out, why: null };
 }
 
-module.exports = { TEXT_MAX, REPORT_TAIL_BYTES, parseId, shorten, reportNote, replyText, postWords, wordsFor };
+/** What the phone shows for an event: { kind, session, text } with the words shortened (and, for a room post, the
+ *  `project` it was posted in), or null when the id is not
+ *  one of ours or its words are not (or no longer) here. `deps.mask(session, text)` runs on the whole words BEFORE
+ *  they are shortened (server.js passes the setup guide's secret mask: a cut first could leave half a key the mask no
+ *  longer recognises). Never throws. */
+function wordsFor(id, deps = {}) {
+  return explain(id, deps).got;
+}
+
+module.exports = { TEXT_MAX, REPORT_TAIL_BYTES, parseId, idKind, logName, idRef, shorten, reportNote, replyText, postWords, explain, wordsFor };

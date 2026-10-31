@@ -1427,6 +1427,45 @@ test('#5683 r40: one Leave spanning an enrollment\'s FIRST tick, refused after i
   }
 });
 
+test('#7404: a stop under ANOTHER root mid-tick does not stop this root\'s send; one under its own root does', async (t) => {
+  /* personalswitch-7404: a personal backup's enrollment lives under its own root, and its stops (a Leave, a clear) must
+     not make the company root's in-flight tick write withdrawn and send nothing. The count was process-wide; it is per
+     root now. The own-root arm is the control: it shows this test can see a stop at all. Red on the pre-fix file in the
+     other-root arm. */
+  // 'link' (code review 3, NIT 9): its own root spelled through a symlink is still its own root. NOT a pin of rootKey's
+  // realpath: markWithdrawn also writes the withdrawn state through the link, and the tick reads that file, so this arm
+  // stays green with a path.resolve key too (measured, mutant M7). It shows the outcome, not which mechanism gave it.
+  for (const own of [false, true, 'link']) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-7404-a-'));
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-7404-b-'));
+    const tdir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentevents-7404-t-'));
+    t.after(() => { for (const d of [root, other, tdir]) fs.rmSync(d, { recursive: true, force: true }); });
+    const file = path.join(tdir, 'sess-1.jsonl'); fs.writeFileSync(file, '');
+    const c = coordinator();
+    await oe.enroll('ACME-JOIN-1234', true, { root, remote: c }); accept(root);
+    const base = { agents: () => ['Scout'], everyAgent: () => ['Scout'], guarded: () => true, transcriptDirsOf: (d) => ['/p' + d],
+      dirOf: (n) => '/Users/ann/work/workers/' + n.toLowerCase(), transcripts: async (d) => (d.endsWith('/scout') ? [file] : []) };
+    await ae.tick({ platform: 'darwin', root, remote: c, sources: base, now: Date.now() });
+    await new Promise((r) => setTimeout(r, 1100));
+    append(file, use('mid-tick', 'Bash', { command: 'x' }), result('mid-tick', DENIED('x'), true));
+    let once = true;
+    const src = Object.assign({}, base, { transcripts: async (d) => {
+      if (!d.endsWith('/scout')) return [];
+      if (once) {
+        once = false;
+        let at = own ? root : other;
+        if (own === 'link') { at = path.join(tdir, 'root-link'); fs.symlinkSync(root, at); }
+        ae.markWithdrawn(at);
+      }
+      return [file];
+    } });
+    await ae.tick({ platform: 'darwin', root, remote: c, sources: src, now: Date.now() });
+    const refs = c.sent.filter((x) => x.route === ae.ROUTE).flatMap((x) => x.body.events.map((e) => e.toolUseRef));
+    if (own) assert.equal(refs.includes('mid-tick'), false, 'control: a stop under its own root mid-tick still sent');
+    else assert.equal(refs.includes('mid-tick'), true, 'a stop under another root stopped this root\'s send');
+  }
+});
+
 test('#5683 r40: a bare cd, a pushd, and tar -C move where a walk starts', () => {
   const c = ctx({ agentDir: '/Users/ann/work/workers/a', home: '/Users/ann', boardRoot: '/Users/ann/Library/Application Support/Kosmos' });
   for (const [cmd, want] of [['cd && grep -r tok .', 'board-files'], ['cd; grep -r tok .', 'board-files'], ['pushd ~ && grep -r tok .', 'board-files'],

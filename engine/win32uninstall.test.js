@@ -139,7 +139,7 @@ test.afterEach(() => { win32job.setRunner(null); win32board.setRunner(null); });
 test('the board is switched off and ended first, every agent task of every Kosmos goes, the board task last, and the list is READ again', WINDOWS_FOLDERS, async () => {
   const s = sandbox();
   try {
-    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava', 'Kosmos\\agent-bo+qa']), listing([])], boardXml: boardDefinition(true) });
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\board-watchdog', 'Kosmos\\agent-ava', 'Kosmos\\agent-bo+qa']), listing([])], boardXml: boardDefinition(true) });
     const r = await run(s);
     assert.deepEqual(calls, [
       'job /Query /FO CSV /NH',
@@ -153,6 +153,8 @@ test('the board is switched off and ended first, every agent task of every Kosmo
       'job /Change /TN Kosmos\\agent-bo+qa /DISABLE',
       'job /End /TN Kosmos\\agent-bo+qa',
       'job /Delete /F /TN Kosmos\\agent-bo+qa',
+      /* #2988: the board's watchdog goes first, so nothing can start the board between the two. */
+      'board /Delete /F /TN Kosmos\\board-watchdog',
       'board /Delete /F /TN Kosmos\\board',
       'job /Query /FO CSV /NH',
       'job /Query /FO CSV /NH',
@@ -164,6 +166,7 @@ test('the board is switched off and ended first, every agent task of every Kosmo
     assert.ok(r.notes.includes('Your agents\' chats and settings were kept in ' + s.dataDir + '.'), JSON.stringify(r.notes));
     assert.ok(r.notes.includes('Your projects were kept in ' + s.projectsRoot + '.'), JSON.stringify(r.notes));
     assert.ok(r.done.some((d) => d.includes('"bo" in the Kosmos "qa"')), 'a named world\'s agent is not named by its world: ' + JSON.stringify(r.done));
+    assert.ok(r.done.includes('removed the job that starts the Kosmos board again if it stops (Kosmos\\board-watchdog)'), JSON.stringify(r.done));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
@@ -457,6 +460,37 @@ test('an empty Kosmos folder in Task Scheduler is a clean removal', WINDOWS_FOLD
     assert.deepEqual(calls, ['job /Query /FO CSV /NH', 'job /Query /FO CSV /NH', 'job /Query /FO CSV /NH']);
     assert.equal(r.ok, true, JSON.stringify(r.left));
     assert.ok(!fs.existsSync(s.runtimeDir) && !fs.existsSync(s.dataDir));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#2988: the board\'s watchdog on its own (its board task already gone) is Kosmos\'s, so it is removed, never left as unrecognised', WINDOWS_FOLDERS, async () => {
+  const s = sandbox();
+  try {
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board-watchdog']), listing([])] });
+    const r = await run(s);
+    assert.ok(calls.includes('board /Delete /F /TN Kosmos\\board-watchdog'), calls.join(' | '));
+    assert.ok(!calls.some((c) => /\/Change|\/End/.test(c)), 'there is no board task to switch off or end: ' + calls.join(' | '));
+    assert.equal(r.ok, true, JSON.stringify(r.left));
+    assert.ok(r.done.includes('removed the job that starts the Kosmos board again if it stops (Kosmos\\board-watchdog)'), JSON.stringify(r.done));
+    assert.ok(!fs.existsSync(s.runtimeDir), 'every task went, so the runtime folder goes');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#2988: a watchdog Windows would not remove is named with why, and the board task is still removed after it', WINDOWS_FOLDERS, async () => {
+  const s = sandbox();
+  try {
+    const calls = stubSchedulers({
+      lists: [listing(['Kosmos\\board', 'Kosmos\\board-watchdog']), listing(['Kosmos\\board-watchdog'])],
+      boardXml: boardDefinition(true),
+      fail: { '/Delete /F /TN Kosmos\\board-watchdog': { ok: false, out: 'ERROR: Access is denied.' } },
+    });
+    const r = await run(s);
+    const at = (c) => calls.indexOf('board ' + c);
+    assert.ok(at('/Delete /F /TN Kosmos\\board-watchdog') >= 0 && at('/Delete /F /TN Kosmos\\board-watchdog') < at('/Delete /F /TN Kosmos\\board'), calls.join(' | '));
+    assert.equal(r.ok, false);
+    assert.ok(r.left.some((l) => l.startsWith('the job that starts the Kosmos board again if it stops (Kosmos\\board-watchdog), which is still in Task Scheduler (we could not remove the job that restarts the board if it stops (ERROR: Access is denied.))')), JSON.stringify(r.left));
+    assert.ok(r.done.includes('removed the startup job for the Kosmos board (Kosmos\\board)'), JSON.stringify(r.done));
+    assert.ok(fs.existsSync(s.runtimeDir), 'a task is still there, so the runtime folder it runs from is kept');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 

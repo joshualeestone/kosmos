@@ -65,8 +65,8 @@ function sentence(name, wrote, back, RESTARTED) {
      So the codex sentence is honest about the split rather than silent on it. */
   /* #3566: Gemini and Grok accounts are per-home too (GEMINI_CLI_HOME / GROK_HOME, no
      cross-home link), so their chat stays behind exactly as Codex's does. The word
-     names the chat the person would look for. */
-  const moveChatWord = ({ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen' })[String(account.provider || '').toLowerCase()];
+     names the chat the person would look for. #7206: a DeepSeek account is its own CLAUDE_CONFIG_DIR, per-home too. */
+  const moveChatWord = ({ openai: 'Codex', google: 'Gemini', xai: 'Grok', alibaba: 'Qwen', deepseek: 'DeepSeek' })[String(account.provider || '').toLowerCase()];
   const isPerHomeMove = !!moveChatWord;
   return {
     outcome: ok ? 'changed' : 'partial',
@@ -124,7 +124,20 @@ function view(m) {
  * back partial is. Never throws into the move.
  * Returns the restarts' promise too (`done`), for tests; the route does not wait on it.
  */
+/* kosmos#7548 rule 11: a throw out of the move says whether an account write had begun (`err.wroteAccount`), so the
+   automatic move can tell a refusal (nothing changed) from an unknown (the agent may be on its new account). A write
+   that was tried counts as begun: the safe side. */
 function start(body, deps) {
+  const step = { wrote: false };
+  try { return startSteps(body, deps, step); }
+  catch (err) {
+    const e = err instanceof Error ? err : new Error(String(err));
+    e.wroteAccount = step.wrote;
+    throw e;
+  }
+}
+
+function startSteps(body, deps, step) {
   if (busy()) return { status: 409, body: { outcome: 'refused', because: BUSY } };
   if (typeof deps.boardRestarting === 'function' && deps.boardRestarting()) return { status: 409, body: { outcome: 'refused', because: BOARD_GOING } };
   const dir = body && body.dir;
@@ -171,6 +184,7 @@ function start(body, deps) {
     }
     const from = readNow(name);
     let wrote;
+    step.wrote = true;
     try { wrote = deps.setAccount(name, dir); }
     catch (err) { wrote = { outcome: deps.REFUSED, because: String((err && err.message) || err) }; }
     if (!wrote || wrote.outcome === deps.REFUSED) {

@@ -263,4 +263,6 @@ async function ensureNow(opts, seen) {
   }
 }
 
-module.exports = { ensureMemberKey, BACKUP_KEY_ROUTE, MEMBER_KEY_ROUTE };
+// kosmos#7404: the key file is shared with a personal backup's keys (engine/personalbackupkey.js), so the backup job
+// reads one place whichever way a key was made: readKeys and writeKeys keep its format and checks in one module.
+module.exports = { ensureMemberKey, BACKUP_KEY_ROUTE, MEMBER_KEY_ROUTE, readKeys, writeKeys };

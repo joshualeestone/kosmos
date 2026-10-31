@@ -703,3 +703,14 @@ test('#6974: "around to" and "someone else has time" in passing are bob\'s; cont
     assert.equal(claim('cy', ask(text)).op, 'add', text);
   }
 });
+
+test('kosmos#7246 round 7: an agent post that names its members by header can be claimed only by them, as an @-name', () => {
+  append({ kind: 'post', id: 'm1', project: 'p', from: 'cy', to: ['ann', 'bob'], addressed: ['bob'], text: 'Cy -> Bob: please take #12', outcomes: { ann: 'quiet', bob: 'placed' }, at: new Date().toISOString() });
+  const ann = claim('ann');
+  assert.equal(ann.ok, false, 'ann claimed a post whose header asks bob');
+  assert.deepEqual(ann.askedOf, ['bob']);
+  assert.equal(claim('bob').op, 'add', 'bob could not claim the post that asks him');
+  // CONTROL: the same post with no header name (an FYI) is anyone's.
+  append({ kind: 'post', id: 'm2', project: 'p', from: 'cy', to: ['ann', 'bob'], text: 'someone could take #13', outcomes: { ann: 'quiet', bob: 'quiet' }, at: new Date().toISOString() });
+  assert.equal(claim('ann', 'm2').op, 'add');
+});

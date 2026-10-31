@@ -680,6 +680,7 @@ module.exports = {
   createRestoreSink,
   RECORD_NAME,
   LOCK_NAME,
+  TEMP_PREFIX,     // #5536 slice 4b: engine/restoreworld.js refuses to finish a root holding any of the sink's own entries
   setRecordMaxBytesForTests,
   isPrivateGroup,  // exported for its test only
 };

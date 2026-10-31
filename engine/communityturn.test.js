@@ -177,6 +177,52 @@ test('tickOnce: prompts the due agents with the line and books them; a second pa
   assert.deepEqual(ct.tickOnce(o), [], 'prompted twice within the gap');
 });
 
+/* kosmos#7230 ask 2. Notice times are ms, as instructionreread.recordSent stores them; idleSince defaults to an hour ago. */
+const afterGreeting = (t) => 'Kosmos here: ' + ct.PAUSE_OVER_TEXT + t.charAt('Kosmos here: '.length).toUpperCase() + t.slice('Kosmos here: '.length + 1);
+
+test('#7230 ask 2: a reminder after an instructions-change notice whose turn has ended says the pause is over', () => {
+  // Posted more than a day ago, so each gets the floor line, which is not gated on work.
+  const { sent, o } = tickArgs({ postTimes: () => [ago(30 * H)], kosmosLines: (s) => (s === 'ann' ? [NOW - 2 * H] : []) });
+  ct.tickOnce(o);
+  const by = Object.fromEntries(sent);
+  assert.equal(by.ann, afterGreeting(ct.FLOOR_TEXT));
+  assert.match(by.ann, /turn\. You have not posted/, 'the line after the inserted sentence starts a sentence');
+  assert.equal(by.bea, ct.FLOOR_TEXT, 'control: with no notice the line is unchanged');
+});
+
+test('#7230 ask 2, review 1: a notice whose turn is not over, one over a day old, or an unreadable record adds nothing', () => {
+  for (const [why, lines, extra] of [
+    ['newer than the agent\'s latest idle report (its turn may still be running)', [NOW - 0.5 * H], {}],
+    ['older than a day', [NOW - 30 * H], {}],
+    ['no idle report to place it', [NOW - 2 * H], { idleSince: () => null }],
+    ['an unreadable record', null, { kosmosLines: () => { throw new Error('boom'); } }],
+  ]) {
+    const { sent, o } = tickArgs({ postTimes: () => [ago(30 * H)], kosmosLines: () => lines, ...extra });
+    ct.tickOnce(o);
+    const ann = Object.fromEntries(sent).ann;
+    if (why === 'no idle report to place it') { assert.ok(!ann || ann === ct.FLOOR_TEXT, why); continue; }
+    assert.equal(ann, ct.FLOOR_TEXT, why);
+  }
+});
+
+test('#7230 review 2: with no idle report the pause is never said to be over; CONTROL: the same notice with one is', () => {
+  const lines = () => [NOW - 2 * H];
+  assert.equal(ct._pauseEnded({ kosmosLines: lines, idleSince: () => null }, 'ann', [], NOW), false, 'no idle report, yet "over"');
+  assert.equal(ct._pauseEnded({ kosmosLines: lines, idleSince: () => NOW - 1 * H }, 'ann', [], NOW), true, 'control: idle after the notice');
+});
+
+test('#7230 ask 2: only a notice after the previous reminder is named (that reminder already followed an older one)', () => {
+  // The met-floor path: posted 5 hours ago, worked since (WORKED), previous reminder 6 hours ago, before the post.
+  const at = (notice) => {
+    const { sent, o } = tickArgs({ postTimes: () => [ago(5 * H)], book: new Map([['ann', [NOW - 6 * H]]]), kosmosLines: (s) => (s === 'ann' ? [notice] : []) });
+    ct.tickOnce(o);
+    return Object.fromEntries(sent).ann;
+  };
+  const late = at(NOW - 3 * H);
+  assert.equal(late, afterGreeting(ct.TURN_TEXT), 'a notice after the previous reminder is named');
+  assert.equal(at(NOW - 7 * H), ct.TURN_TEXT, 'a notice before the previous reminder is not');
+});
+
 test('tickOnce gates: live execution off, the brake, the community switch off, the Prompter off: nothing is sent', () => {
   for (const over of [{ allowed: () => false }, { env: { AGENT_WORKFORCE_COMMUNITY_TURN_OFF: '1' } }, { switchOn: () => false }, { prompterOn: () => false }]) {
     const { sent, o } = tickArgs(over);
@@ -538,9 +584,230 @@ test('#5636 F7a: the stamp is the board\'s LOCAL clock, not UTC (pinned under a 
 
 test('#5636 F7a: the board stamps its community turn line (server.js passes stamp: true beside the community-home line)', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
-  const call = src.slice(src.indexOf('communityturn.tickOnce('), src.indexOf('communityturn.tickOnce(') + 4000);
-  assert.ok(src.includes('communityturn.tickOnce('), 'CONTROL: the board call was not found');
+  const call = src.slice(src.indexOf('communityturn.tickOnceAsync('), src.indexOf('communityturn.tickOnceAsync(') + 4000);
+  assert.ok(src.includes('communityturn.tickOnceAsync('), 'CONTROL: the board call was not found');
   const end = call.indexOf('log: (r) => process.stdout.write(`community-turn:');
   assert.ok(end > 0, 'CONTROL: the community-turn log line, which ends the board call, was not found');
   assert.match(call.slice(0, end), /^\s*stamp: true,/m, 'the board no longer asks for the stamp');
+});
+
+/* kosmos#7649: the board's sender awaits each delivery. Same pass, same verdict reading, same book. */
+const later = (v, ms = 5) => new Promise((res) => setTimeout(() => res(v), ms));
+
+test('kosmos#7649 tickOnceAsync: a delivery that answers late is booked once, in the due order, and a second pass sends nothing', async () => {
+  const order = [];
+  const { o } = tickArgs({ deliver: (s) => { order.push('start ' + s); return later({ state: D.PLACED }).then((v) => { order.push('end ' + s); return v; }); } });
+  const r = await ct.tickOnceAsync(o);
+  assert.deepEqual(r.map((x) => [x.session, x.act, x.delivery]), [['ann', 'prompted', 'placed'], ['bea', 'prompted', 'placed']]);
+  assert.deepEqual(order, ['start ann', 'end ann', 'start bea', 'end bea'], 'one agent at a time: the next delivery starts only once the last has answered');
+  assert.deepEqual(o.book.get('ann'), [NOW]);
+  assert.deepEqual(o.book.get('bea'), [NOW]);
+  assert.equal(o.sent.length, 2, 'both counted in the shared hour log');
+  assert.deepEqual(await ct.tickOnceAsync(o), [], 'prompted twice within the gap');
+});
+
+test('kosmos#7649 tickOnceAsync: same results and book as tickOnce for every verdict (placed, unconfirmed, could-not, held, busy, a throw, a rejection)', async () => {
+  const verdicts = {
+    placed: () => ({ state: D.PLACED }), unconfirmed: () => ({ state: D.UNCONFIRMED }), couldNot: () => ({ state: D.COULD_NOT }),
+    held: () => ({ state: D.COULD_NOT, held: true }), busy: () => ({ state: D.COULD_NOT, busy: true }),
+    throws: () => { throw new Error('after the paste'); },
+  };
+  for (const [name, f] of Object.entries(verdicts)) {
+    const a = tickArgs({ deliver: f });
+    const b = tickArgs({ deliver: () => later(null).then(f) });   // a throw inside the promise is a rejection
+    const ra = ct.tickOnce(a.o);
+    const rb = await ct.tickOnceAsync(b.o);
+    assert.deepEqual(rb, ra, name + ': results differ');
+    assert.deepEqual([...b.o.book], [...a.o.book], name + ': book differs');
+    assert.deepEqual(b.o.sent, a.o.sent, name + ': hour log differs');
+  }
+  // CONTROL: the comparison can fail. A held verdict and a placed one do not book alike.
+  const h = tickArgs({ deliver: verdicts.held }); ct.tickOnce(h.o);
+  const p = tickArgs({ deliver: verdicts.placed }); ct.tickOnce(p.o);
+  assert.notDeepEqual([...h.o.book], [...p.o.book]);
+});
+
+test('kosmos#7649 tickOnceAsync: the hour cap stops the pass as tickOnce does, and a gate off sends nothing', async () => {
+  const cap = tickArgs({ readLimit: () => ({ on: true, perHour: 1 }), deliver: () => later({ state: D.PLACED }) });
+  const r = await ct.tickOnceAsync(cap.o);
+  assert.deepEqual(r.map((x) => [x.session, x.act]), [['ann', 'prompted'], ['bea', 'limit']]);
+  const off = tickArgs({ switchOn: () => false, deliver: () => { throw new Error('sent with the switch off'); } });
+  assert.deepEqual(await ct.tickOnceAsync(off.o), []);
+  assert.equal(off.o.idleSeen.size, 0, 'review 5: a gate off clears the idle marks');
+});
+
+test('kosmos#7649 tickOnceAsync: never rejects, even when the pass itself throws', async () => {
+  class Broken extends Map { set() { throw new Error('book'); } }
+  let delivered = 0;
+  const { o } = tickArgs({ roster: () => [card('ann')], book: new Broken(), deliver: () => { delivered += 1; return later({ state: D.PLACED }); } });
+  const r = await ct.tickOnceAsync(o);
+  assert.equal(delivered, 1, 'CONTROL: the pass reached the booking that throws');
+  assert.deepEqual(r, []);
+});
+
+test('kosmos#7649: two passes run at once DO book the same agent twice, which is why the board runs one at a time', async () => {
+  const sends = [];
+  const { o } = tickArgs({ roster: () => [card('ann')], deliver: (s) => { sends.push(s); return later({ state: D.PLACED }); } });
+  await Promise.all([ct.tickOnceAsync(o), ct.tickOnceAsync({ ...o, idleSeen: new Set(['ann']) })]);
+  assert.deepEqual(sends, ['ann', 'ann'], 'the overlap the server guard (server.communityturn-4947.test.js) exists for');
+  // CONTROL: one after the other, the second pass sees the first one's booking and sends nothing.
+  const seq = []; const s2 = tickArgs({ roster: () => [card('ann')], deliver: (s) => { seq.push(s); return later({ state: D.PLACED }); } });
+  await ct.tickOnceAsync(s2.o); await ct.tickOnceAsync({ ...s2.o, idleSeen: new Set(['ann']) });
+  assert.deepEqual(seq, ['ann']);
+});
+
+/* kosmos#7649 review 1. */
+test('kosmos#7649 review 1: a delivery that never answers counts as unconfirmed after the deadline, is booked, and the pass ends', async () => {
+  const { o } = tickArgs({ roster: () => [card('ann')], deliverDeadlineMs: 20, deliver: () => new Promise(() => {}) });
+  const r = await ct.tickOnceAsync(o);
+  assert.deepEqual(r.map((x) => [x.session, x.act, x.delivery]), [['ann', 'prompted', D.UNCONFIRMED]]);
+  assert.deepEqual(o.book.get('ann'), [NOW]);
+  assert.equal(ct.DELIVER_DEADLINE_MS, 3 * 60 * 1000, 'the board default');
+});
+
+test('kosmos#7649 review 1: the hour-log slot is held while a line is typed and given back when it did not reach', async () => {
+  const during = [];
+  const reached = tickArgs({ roster: () => [card('ann')], deliver: () => { during.push(reached.o.sent.length); return later({ state: D.PLACED }); } });
+  await ct.tickOnceAsync(reached.o);
+  assert.deepEqual(during, [1], 'another nudge checking the cap mid-delivery would undercount');
+  assert.deepEqual(reached.o.sent, [NOW], 'counted once, not twice');
+  const missed = tickArgs({ roster: () => [card('ann')], deliver: () => later({ state: D.COULD_NOT }) });
+  await ct.tickOnceAsync(missed.o);
+  assert.deepEqual(missed.o.sent, [], 'a line that did not reach is not counted');
+});
+
+test('kosmos#7649 review 1: an agent that starts working while the one before it is typed into is not sent to, nor booked', async () => {
+  let bea = card('bea');
+  const sends = [];
+  const { o } = tickArgs({ roster: () => [card('ann'), bea], deliver: (s) => { sends.push(s); if (s === 'ann') bea = card('bea', { state: 'working' }); return later({ state: D.PLACED }); } });
+  const r = await ct.tickOnceAsync(o);
+  assert.deepEqual(sends, ['ann']);
+  assert.deepEqual(r.map((x) => x.session), ['ann']);
+  assert.equal(o.book.has('bea'), false, 'due again once idle');
+  // CONTROL: bea stays idle and is sent to.
+  const ctl = tickArgs({ deliver: () => later({ state: D.PLACED }) });
+  assert.deepEqual((await ct.tickOnceAsync(ctl.o)).map((x) => x.session), ['ann', 'bea']);
+});
+
+test('kosmos#7649 review 1: the book is saved after each booking, and the idle-seen set ends as tickOnce leaves it', async () => {
+  const saves = [];
+  const { o } = tickArgs({ deliver: () => later({ state: D.PLACED }), saveBook: (b) => saves.push([...b.keys()]) });
+  await ct.tickOnceAsync(o);
+  assert.deepEqual(saves, [['ann'], ['ann', 'bea']]);
+  const a = tickArgs(); ct.tickOnce(a.o);
+  const b = tickArgs({ deliver: () => later({ state: D.PLACED }) }); await ct.tickOnceAsync(b.o);
+  assert.deepEqual([...b.o.idleSeen].sort(), [...a.o.idleSeen].sort());
+});
+
+/* kosmos#7649 review 2. */
+test('kosmos#7649 review 2: an agent after the first is handed the fresh roster, not the one the pass started with', async () => {
+  let gen = 0;
+  const seen = [];
+  const { o } = tickArgs({ roster: () => { gen += 1; return [card('ann', { gen }), card('bea', { gen })]; }, deliver: (s, t, r) => { seen.push([s, r.find((c) => c.sessionName === s).gen]); return later({ state: D.PLACED }); } });
+  await ct.tickOnceAsync(o);
+  assert.deepEqual(seen, [['ann', 1], ['bea', 2]]);
+});
+
+test('kosmos#7649 review 2: a switch turned off mid-pass stops it; an agent that left the community mid-pass is skipped, unbooked', async () => {
+  let on = true;
+  const sw = tickArgs({ switchOn: () => on, deliver: (s) => { on = false; return later({ state: D.PLACED }); } });
+  assert.deepEqual((await ct.tickOnceAsync(sw.o)).map((x) => x.session), ['ann']);
+  assert.equal(sw.o.idleSeen.size, 0, 'as an off gate at the start: the idle marks are not trusted');
+  const left = new Set();
+  const lv = tickArgs({ inCommunity: (s) => !left.has(s), deliver: () => { left.add('bea'); return later({ state: D.PLACED }); } });
+  assert.deepEqual((await ct.tickOnceAsync(lv.o)).map((x) => x.session), ['ann']);
+  assert.equal(lv.o.book.has('bea'), false);
+  assert.equal(lv.o.idleSeen.has('bea'), true, 'review 5: still an idle card, so still idle at this pass');
+});
+
+test('kosmos#7649 review 2: without a fixed clock, each agent is booked when it was sent to, not when the pass began', async () => {
+  const { o } = tickArgs({ now: undefined, deliver: () => later({ state: D.PLACED }, 30) });
+  const r = await ct.tickOnceAsync(o);
+  assert.deepEqual(r.map((x) => x.session), ['ann', 'bea'], 'CONTROL: both were sent to');
+  assert.ok(o.book.get('bea')[0] > o.book.get('ann')[0], 'the second booking reads the clock again');
+});
+
+/* kosmos#7649 review 3. */
+test('kosmos#7649 review 3: a pane still placing another message is pane-busy, not typed after it, and not booked (as tickOnce)', async () => {
+  const sends = [];
+  const busyV = { state: D.COULD_NOT, busy: true };
+  const { o } = tickArgs({ roster: () => [card('ann')], paneBusy: () => busyV, deliver: (s) => { sends.push(s); return later({ state: D.PLACED }); } });
+  const r = await ct.tickOnceAsync(o);
+  assert.deepEqual(r.map((x) => [x.session, x.act]), [['ann', 'pane-busy']]);
+  assert.deepEqual(sends, [], 'nothing typed behind the other message');
+  assert.equal(o.book.has('ann'), false);
+  assert.deepEqual(o.sent, [], 'no slot held or leaked');
+  // CONTROL: a free pane is sent to.
+  const free = tickArgs({ roster: () => [card('ann')], paneBusy: () => null, deliver: () => later({ state: D.PLACED }) });
+  assert.equal((await ct.tickOnceAsync(free.o))[0].act, 'prompted');
+});
+
+test('kosmos#7649 review 3: the second agent is judged by the whole due() test again: a post, a fresh idle report or a pause mid-pass skips it', async () => {
+  const cases = {
+    posted: (st) => ({ postTimes: (s) => (s === 'bea' && st.mid ? [ago(0)] : [ago(6 * H)]) }),
+    justIdle: (st) => ({ idleSince: (s) => (s === 'bea' && st.mid ? NOW : NOW - H) }),
+    paused: (st) => ({ readProjects: () => (st.mid ? [{ id: 'p', name: 'P', agents: ['bea'], paused: true }] : []) }),
+  };
+  for (const [name, f] of Object.entries(cases)) {
+    const st = { mid: false };
+    const sends = [];
+    const { o } = tickArgs({ ...f(st), deliver: (s) => { sends.push(s); st.mid = true; return later({ state: D.PLACED }); } });
+    await ct.tickOnceAsync(o);
+    if (name === 'paused') {
+      // CONTROL for the pause shape: the same projects at the start of a pass stand bea down.
+      const pre = tickArgs({ ...f({ mid: true }) });
+      const stood = ct.due({ ...args(), projects: pre.o.readProjects(), roster: [card('bea')], seenIdle: new Set(['bea']) });
+      assert.deepEqual(stood, [], 'CONTROL: this projects shape does stand bea down');
+    }
+    assert.deepEqual(sends, ['ann'], name + ': bea was sent to');
+    assert.equal(o.book.has('bea'), false, name + ': bea was booked');
+  }
+});
+
+/* kosmos#7649 review 4. */
+test('kosmos#7649 review 4: a caller that reads posts once a pass (as the board does) sees a mid-pass post once beforeRecheck drops its copy', async () => {
+  const run = async (withHook) => {
+    let store = { ann: [ago(6 * H)], bea: [ago(6 * H)] };
+    let cached;   // the board's postsNow: read once, kept until dropped
+    const sends = [];
+    const { o } = tickArgs({
+      postTimes: (s) => { if (cached === undefined) cached = JSON.parse(JSON.stringify(store)); return cached[s]; },
+      ...(withHook ? { beforeRecheck: () => { cached = undefined; } } : {}),
+      deliver: (s) => { sends.push(s); store = { ...store, bea: [ago(0)] }; return later({ state: D.PLACED }); },
+    });
+    await ct.tickOnceAsync(o);
+    return sends;
+  };
+  assert.deepEqual(await run(true), ['ann'], 'bea posted while ann was typed into');
+  assert.deepEqual(await run(false), ['ann', 'bea'], 'CONTROL: without the hook the cached read misses the post');
+});
+
+test('kosmos#7649 review 4: the book is saved only after a booking (not after a held or busy verdict)', async () => {
+  const saves = [];
+  const { o } = tickArgs({ roster: () => [card('ann')], saveBook: () => saves.push(1), deliver: () => later({ state: D.COULD_NOT, held: true }) });
+  await ct.tickOnceAsync(o);
+  assert.deepEqual(saves, []);
+});
+
+/* kosmos#7649 review 5. */
+test('kosmos#7649 review 5: a re-check that fails drops the agent from the idle marks only when its fresh card is no longer idle', async () => {
+  let bea = card('bea');
+  const w = tickArgs({ roster: () => [card('ann'), bea], deliver: (s) => { if (s === 'ann') bea = card('bea', { state: 'working' }); return later({ state: D.PLACED }); } });
+  await ct.tickOnceAsync(w.o);
+  assert.equal(w.o.idleSeen.has('bea'), false, 'working now: not idle at this pass');
+  let held = false;
+  const q = tickArgs({ quotaHeld: (s) => s === 'bea' && held, deliver: () => { held = true; return later({ state: D.PLACED }); } });
+  const r = await ct.tickOnceAsync(q.o);
+  assert.deepEqual(r.map((x) => x.session), ['ann'], 'CONTROL: the quota hold did skip bea');
+  assert.equal(q.o.idleSeen.has('bea'), true, 'still idle: its next turn is not a pass late');
+});
+
+test('kosmos#7649 review 5: the delivery starts in the same turn as the busy check, before anything queued meanwhile', async () => {
+  let queuedRan = false;
+  let sawQueued = null;
+  const { o } = tickArgs({ roster: () => [card('ann')],
+    paneBusy: () => { Promise.resolve().then(() => { queuedRan = true; }); return null; },
+    deliver: () => { sawQueued = queuedRan; return later({ state: D.PLACED }); } });
+  await ct.tickOnceAsync(o);
+  assert.equal(sawQueued, false);
 });

@@ -237,7 +237,9 @@ DATA_PATHS_BEFORE="$(data_paths)"
 # #4350: the board records the setup guide's last outcome on first boot so the
 # existing install ping can report whether setup assistance was seeded or which
 # gate stopped it. That deliberate runtime record is created by guidestate.js.
-EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/agy-report-bridge.js ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/bin/gemini-report-bridge.js ./Kosmos/bin/grok-report-bridge.js ./Kosmos/board-alive.json ./Kosmos/community.json ./Kosmos/ping.json ./Kosmos/prompter-nudges.json ./Kosmos/setup-guide-state.json ./Kosmos/source-channel)"
+# kosmos#7411: the board records the version it starts on and when (engine/restartline.js atStart), so the
+# restart line can name the agents started before an update. version-start.json ('v') sorts last.
+EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/agy-report-bridge.js ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/bin/gemini-report-bridge.js ./Kosmos/bin/grok-report-bridge.js ./Kosmos/board-alive.json ./Kosmos/community.json ./Kosmos/ping.json ./Kosmos/prompter-nudges.json ./Kosmos/setup-guide-state.json ./Kosmos/source-channel ./Kosmos/version-start.json)"
 
 # ⚠️ THE PRODUCT'S DEFAULT PORT, RECORDED BEFORE ANYTHING RUNS, and checked
 # again at the end. Found by Splinter, 2026-08-21: a test run left a board

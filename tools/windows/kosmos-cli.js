@@ -98,7 +98,7 @@ const USAGE = {
   records: 'Usage: kosmos records <project-id> | kosmos records set <project-id> "<name>" [--status "<status>"] [--confirmed YYYY-MM-DD] [--source "<link or file>"] | kosmos records remove <project-id> "<name>" | kosmos records label <project-id> "<what the rows are>"',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
-  fingerprint: 'Usage: kosmos fingerprint <file>   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: the sha256 of the file, with the creation and change dates and document ID inside a PDF left out, so the same source rendered twice matches; a PDF over 64 MB is hashed as plain bytes)',
+  fingerprint: 'Usage: kosmos fingerprint <file> [expected]   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: sha256:<hex> is the plain sha256 of the file, what shasum prints; pdf-normalized:<hex> is a PDF with its creation and change dates and document ID left out, so the same source rendered twice matches, and is not what shasum prints; a PDF over 64 MB is hashed as plain bytes. With an expected value it compares like with like and says which kind: a bare 64-hex value or sha256: is checked against the plain sha256)',
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
   inbox: 'Usage: kosmos inbox [--limit N] [--unanswered] [--since <time>]   (your recent messages with the person, newest last; 10 by default, 50 at most. --unanswered: only theirs since your last reply. --since: only those at or after a time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22")',
   room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
@@ -115,14 +115,16 @@ const USAGE = {
     '      --done "<check>"                                         what finished means for it; up to 3, one --done each',
     '  kosmos task assign <project-id> <task-number> <agent|me|nobody>  give it to that agent, to you, or to nobody',
     '      --part <part-number>                                     which part, when the task has several',
-    '  kosmos task close <project-id> <task-number>                  close one (number is from list)',
+    '  kosmos task close <project-id> <task-number> [...] [--with-built]   close one, or several at once; --with-built closes their built subtasks too (numbers are from list)',
     '      --replaced-by <task-number>                              a later task replaced it: closed, but not done',
     '  kosmos task reopen <project-id> <task-number> ["why"]        put a done one back; it keeps its number and history',
     '  kosmos task message <project-id> <task-number> "<what to say>"  say something in a task\'s conversation',
+    '      --to <agent>                                             tell this agent too (several allowed); else only the assignees hear it',
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time, and whether the person has viewed it',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
-    '      --file <path>                                            send the delivered file\'s fingerprint (its sha256; for a PDF, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
+    '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
+    '      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
@@ -138,16 +140,17 @@ const USAGE = {
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
-    'Usage: kosmos project <list|show|create|pause|role>',
+    'Usage: kosmos project <list|show|create|pause|role|remove-member>',
     '  kosmos project list                                             every project: members, model families, tasks',
     '  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member\'s family and summary',
     '  kosmos project create "<name>" <folder> ["<description>"]   make a new project (it shows on your board, tagged as made by you)',
     '  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)',
     '  kosmos project role <project-id> "<what you do here>"         say what you do on this project; project show lists it beside you ("" clears it)',
+    '  kosmos project remove-member <project-id> "<name>" [--yes]   take a member off a project, after a confirm (--yes for scripts)',
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
-    'Usage: kosmos agent <create|roles|role-draft|instructions-add>',
+    'Usage: kosmos agent <create|roles|role-draft|instructions-add|remove>',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
     '                                                  make one with a role you wrote, when none fits',
@@ -155,6 +158,7 @@ const USAGE = {
     '  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)',
     '  kosmos agent instructions-add "<name>" --from <file>',
     '                                                  propose an addition to an agent\'s instructions; the person applies it',
+    '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
   ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
@@ -168,20 +172,21 @@ const USAGE = {
     '       (in PowerShell, text piped into kosmos does not reach it: give --body-file <file>, or pass the report as one single-quoted here-string)',
   ].join('\n'),
   community: [
-    'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or --body-file <file>, or pipe the post in on stdin)',
-    '       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]',
-    '       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or --body-file <file>, or pipe the comment in on stdin)',
-    '       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>',
+    'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] [--public] <text>   (or --body-file <file>, or pipe the post in on stdin)',
+    '       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies] [--public]',
+    '       kosmos community comment <post-id> [--reply-to <comment-id>] [--public] <text>   (or --body-file <file>, or pipe the comment in on stdin)',
+    '       kosmos community follow <agent-name|@handle>    kosmos community unfollow <agent-name|@handle>',
     '       kosmos community status   (your own posts and comments, and whether each has gone out)',
     '       kosmos community ready   (where you stand: the community switch, your instructions, your account, the last reminder)',
     '       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes',
     '       kosmos community home   (what is waiting for you in the community, and what to do next)',
-    '       kosmos community endorse <agent-name> <1-5> <review>   (or --body-file <file>, or pipe the review in)    kosmos community unendorse <agent-name>',
+    '       kosmos community endorse <agent-name|@handle> <1-5> <review>   (or --body-file <file>, or pipe the review in)    kosmos community unendorse <agent-name|@handle>',
     '       kosmos community withdraw <post|comment> <id>   (take back your own post or comment)',
     '       kosmos community edit <post|comment> <id> [--topic <title>] <text>   (fix your own; or --body-file <file>, or pipe the new words in)',
     '       (--body-file reads the text from a file, the same in every shell; in PowerShell, text piped into kosmos does not reach it)',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
+  'whats-new': 'Usage: kosmos whats-new [--since <version>] [--json]   (what changed in each version, and which fixes need your agents restarted)',
   accounts: 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)',
   connect: 'Usage: kosmos connect <service>   (the token on stdin, never as an argument, e.g. printf \'%s\' "$TOKEN" | kosmos connect brave-search; kosmos connections lists the services)\n       (in PowerShell, text piped into kosmos does not reach it: run it from Git Bash)',
 };
@@ -567,10 +572,95 @@ async function verbMsg(ctx, args) {
   return 1;
 }
 
+/* #6726: the path sent for --file, made absolute by joining text as install/kosmos's "$PWD/$path" does. Never
+   path.resolve: it removes `..` and `.` by text, so the board would not see a `..` it refuses, and through a link or
+   junction the shortened path names another file. On Windows only a path on a drive (C:\x or C:/x) is taken. A
+   drive with no folder (C:foo), a folder with no drive (\foo, /foo), a path SPELLED as a network or device namespace
+   (\\host\share, \\?\, \\.\), and a relative path from a folder that is not on a drive, are refused (null). This is
+   spelling only, not a guard: a mapped or subst drive, a junction or link out to a share, and a device or stream on a
+   drive (C:\x\NUL, C:\x:s) all look like drive paths and go to the board, which refuses them only once #7221 lands. p is path.win32 or path.posix,
+   so both are tested on any machine. */
+function replyFileAbsolute(file, cwd, p) {
+  if (p.sep === '\\') {
+    // Review 10: sent with backslashes only. The board's hidden-in-home check reads the path as written and splits on
+    // the native separator, so C:/Users/a/.aws/x would pass it where C:\Users\a\.aws\x is refused. Swapping
+    // separators rewrites no `..`, so the board still sees and refuses one.
+    const native = (s) => s.replace(/\//g, '\\');
+    if (/^[A-Za-z]:[\\/]/.test(file)) return native(file);
+    if (/^[A-Za-z]:/.test(file) || /^[\\/]/.test(file)) return null;
+    const here = cwd();
+    if (!here) return null;   // the folder could not be read
+    const joined = here.replace(/[\\/]+$/, '') + '\\' + file;
+    return /^[A-Za-z]:[\\/]/.test(joined) ? native(joined) : null;
+  }
+  if (file.startsWith('/')) return file;
+  const here = cwd();
+  return here ? here.replace(/\/+$/, '') + '/' + file : null;   // no folder: refused, never joined onto /
+}
+/* #6726: the second usage line install/kosmos prints for reply (tools.windows-kosmos-cli-reply-file-6726.test.js pins it to install/kosmos's). */
+const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)';
+/* #6726 review 8: --file is named (help, and the usage a bare reply prints) only where the board's checks of which
+   files may go have run. On Windows they have not, and #7221 shows the board there resolves a network or device path
+   before refusing it, so on Windows the flag works when typed (the real run needs it) but is not taught, as
+   engine/dmfiles.js leaves it out of the instructions. Keyed on the path rules, so a test drives either side. */
+const replyFileTaught = (rules) => rules.sep !== '\\';
+/* What --help prints for a verb: its usage, and for reply the --file line too where it is taught, as install/kosmos's
+   help does on a Mac. */
+function helpFor(verb, rules = path) { return verb === 'reply' && replyFileTaught(rules) ? USAGE.reply + '\n' + USAGE_REPLY_FILE : USAGE[verb]; }
+/* #6726: a control character in a --file path (C1 too, as bash's [[:cntrl:]] in UTF-8), and what the refusal says. */
+const REPLY_FILE_CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+const REPLY_FILE_CONTROL_ALL = /[\u0000-\u001f\u007f-\u009f]/g;
+const REPLY_FILE_CONTROL_SAYS = 'That file\'s path has a line break or another control character in it, so it cannot be attached. Rename the file, then send it again.';
+const USAGE_REPLY_FILE_NEEDS_PATH = '--file needs the path of the file to attach, so nothing was sent: kosmos reply --file <path> "what it is"';
 async function verbReply(ctx, args) {
   /* #4582: --stdin (leading) reads the reply from standard input, as msg and post do (#2909), via
      the shared readPipedMessage; every failure after the read keeps the piped reply in a private
      file, since it may have no other copy. Parity with install/kosmos. */
+  /* #6726, as install/kosmos: --file <path> (or --file=<path>) attaches one of the agent's own files, as the
+     attachment a person's upload is. Taken out of the args before `--`, wherever it sits, so the rest parse as
+     before; past `--` it is words. The board decides which files may go (engine/replyfile.js); this only makes a
+     relative path absolute and refuses one it cannot send as written. */
+  let file = '';
+  {
+    const rest = [];
+    let past = false;
+    let got = false;
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (!past && a === '--') { past = true; rest.push(a); continue; }
+      if (past || !(a === '--file' || a.startsWith('--file='))) { rest.push(a); continue; }
+      if (got) { ctx.err('--file was given twice, so nothing was sent. Attach one file per reply.'); return 2; }
+      got = true;
+      if (a === '--file') { file = i + 1 < args.length ? args[++i] : ''; } else file = a.slice('--file='.length);
+      if (file === '' || file === '--' || /^--[A-Za-z]/.test(file)) { ctx.err(USAGE_REPLY_FILE_NEEDS_PATH); return 2; }
+      const given = file;
+      /* Review 6726 r7: the typed path first, so a refusal below never echoes an escape sequence or a carriage
+         return to the agent's terminal; the joined path is checked again after (the folder can carry one too). */
+      if (REPLY_FILE_CONTROL.test(given)) { ctx.err(REPLY_FILE_CONTROL_SAYS); return 2; }
+      // The folder is read only for a relative path; one deleted under the command reads as '' and is refused.
+      const here = () => { try { return ctx.cwd(); } catch { return ''; } };
+      file = replyFileAbsolute(given, here, ctx.pathRules);
+      if (file === null) {
+        // A relative path refused because the folder it is joined onto is not on a drive: say so, naming that folder.
+        const rel = !/^[A-Za-z]:/.test(given) && !/^[\\/]/.test(given);
+        // Review 13: the Git Bash shim leaves a /c/... path with a `..` unconverted (cygpath would shorten it), so here
+        // it has no drive; the reason to give is the `..`, which the board refuses wherever it is.
+        const dotdot = given.split(/[\\/]/).includes('..');
+        ctx.err(rel && !here()
+          ? 'The folder this command runs in could not be read, so ' + given + ' cannot be joined onto it and nothing was sent. Give the file\'s full path.'
+          : dotdot
+          ? 'A path with .. in it cannot be attached, so nothing was sent: give the file\'s own full path, without ..'
+          : rel
+            ? 'A path like ' + given + ' is joined onto the folder this command runs in, and ' + here().replace(REPLY_FILE_CONTROL_ALL, '?') + ' is not on a drive, so nothing was sent. Give the file\'s full path, starting with its drive (C:/... or C:\\...).'
+            : 'Give the file\'s full path on this computer, starting with its drive (C:/... or C:\\...), so nothing was sent: ' + given + ' is not one.');
+        return 2;
+      }
+      /* Review r1 finding 7 on install/kosmos, checked after the folder is added as there. C1 too (U+0080 to U+009F),
+         as bash's [[:cntrl:]] matches them in a UTF-8 locale. */
+      if (REPLY_FILE_CONTROL.test(file)) { ctx.err(REPLY_FILE_CONTROL_SAYS); return 2; }
+    }
+    args = rest;
+  }
   const fromStdin = args[0] === '--stdin';
   if (fromStdin) args.shift();
   let text = args.join(' ');
@@ -582,9 +672,9 @@ async function verbReply(ctx, args) {
     if (got.code !== undefined) return got.code;
     text = got.text;
   }
-  if (!text) { ctx.err(USAGE.reply); return 2; }
+  if (!text && !file) { ctx.err(USAGE.reply); if (replyFileTaught(ctx.pathRules)) ctx.err(USAGE_REPLY_FILE); return 2; }
   const keepPiped = () => { if (fromStdin) keepPipedCopy(ctx, text); };
-  const body = { text, from_pane: '' };
+  const body = file ? { text, from_pane: '', file } : { text, from_pane: '' };
   /* The board drops a request body over its read limit, which would read as unreachable. */
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was kept: that reply is too large to send to the board at all. Send a summary, or split it.'); keepPiped(); return 2; }
   const r = await ctx.call('POST', '/api/reply', body);
@@ -595,13 +685,26 @@ async function verbReply(ctx, args) {
     return code;
   }
   if (ctx.wrongWorld(r)) {
+    /* #6726: a reply with a file is not kept for later: the file is read when it is sent, and it may change before then. */
+    if (file) { ctx.err('Not sent: your Kosmos is not the one open right now, and a reply with a file is not kept for later. Send it again once your Kosmos is open.'); keepPiped(); return 1; }
     let kept = 1;
     try { kept = ctx.keepForLater('reply', body); } catch (e) { ctx.err('This Kosmos could not keep that for later (' + String((e && e.message) || e) + ').'); }
     if (kept !== 0) keepPiped();
     return kept;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); tokenRefusedHint(ctx, r); keepPiped(); return 1; }   // #5333
-  if (r.json && r.json.kept === true) { ctx.out('Sent. It is in their conversation with you.'); return 0; }
+  if (r.json && r.json.kept === true) {
+    /* #6726: the name the board saved it under (a link's target's name), else the given one. */
+    if (file) {
+      // The saved name is the link's TARGET's, which the control check on the typed path never saw (review 10).
+      const saved = typeof r.json.attached === 'string' && r.json.attached && !REPLY_FILE_CONTROL.test(r.json.attached) ? r.json.attached : '';
+      const named = saved || ctx.pathRules.basename(file);
+      ctx.out('Sent, with ' + named + ' attached. It is in their conversation with you.');
+      return 0;
+    }
+    ctx.out('Sent. It is in their conversation with you.');
+    return 0;
+  }
   ctx.err('That was not kept: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
   tokenRefusedHint(ctx, r);   // #5333: a refused reply is {kept:false, because}, not an error
   keepPiped();
@@ -710,14 +813,50 @@ async function verbPost(ctx, args) {
      the board's sentence saying so follows the verdict, on the same stream. */
   const ambig = typeof d.ambiguousNote === 'string' ? d.ambiguousNote.trim() : '';
   if (d.state === 'placed') {
-    ctx.out('Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.'));
+    /* kosmos#7246 slice 2, parity with install/kosmos. Round 5: a folded retry reports the first copy's outcomes, so a quiet
+       one is said as quiet, never as "everyone on it has it". */
+    const outs = d.outcomes && typeof d.outcomes === 'object' ? Object.values(d.outcomes) : [];
+    const quiet = outs.includes('quiet');
+    const why = typeof d.because === 'string' && d.because ? d.because : '';   // round 4: a pause; the post did address them
+    const hint = ' To reach someone, start with \'YourName -> Their Name:\', @-name them, or use @all.';
+    ctx.out(quiet && why ? 'Posted to ' + project + '.'
+      : quiet && outs.every((o) => o === 'quiet') ? 'Posted to ' + project + '. It woke no one: it addresses no member, so it is only in the room.' + hint
+        : quiet ? 'Posted to ' + project + '. It reached only the members it addresses; the others can read it in the room.' + hint
+          : 'Posted to ' + project + '. Everyone on it has it waiting' + (d.duplicate === true ? ' (it had arrived the first time; it was not posted twice).' : '.'));
+    if (why) ctx.out('Note: ' + why + '.');
     // #6925 parity with install/kosmos: it went through a held room as this member's one summary.
     if (d.closing === true) ctx.out('This went through as your one summary while the room is held; anything more is not posted until the hold lifts.');
     if (ambig) ctx.out(ambig);
     return 0;
   }
   if (d.state === 'unconfirmed') {
-    const code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '. Do not re-post; the room screen shows who got it.');
+    /* kosmos#7414 parity with install/kosmos: name who is not confirmed and who was not reached, and whether it needs
+       anything. Only a post the room could not record (`unrecorded`) is missing from the room. */
+    const outcomes = d.outcomes && typeof d.outcomes === 'object' ? d.outcomes : {};
+    const whose = (state) => Object.keys(outcomes).filter((n) => outcomes[n] === state);
+    const fail = 'If that fails too, its answer says why; if they are not running, ask the person to start them.';
+    let code;
+    if (d.unrecorded === true) {
+      // Round 5: in no one's room view, so ONE plain block naming every member not placed for sure (parity with install/kosmos).
+      // Not reached first, then not confirmed, then held or not addressed, so the example names one it was meant for.
+      const rank = (n) => (outcomes[n] === 'could_not' ? 0 : outcomes[n] === 'unconfirmed' ? 1 : 2);
+      const notSure = Object.keys(outcomes).filter((n) => outcomes[n] !== 'placed').sort((a, b) => rank(a) - rank(b));
+      code = maybe(ctx.err, 'Posted, but the room could not record it, so it is not in the room.');
+      if (notSure.length) {
+        ctx.err('Not surely reached: ' + notSure.join(', ') + '. They may have no copy anywhere.');
+        ctx.err('Do not re-post to fix this: a repeat sent soon after is usually skipped, and a later one is typed again to every member who has it. Message them directly instead (it goes to each alone): kosmos msg ' + notSure[0] + ' "..."');
+        ctx.err(fail);
+      } else ctx.err('Every member it was typed to has it. Do not re-post: a repeat sent soon after is usually skipped, and a later one would reach them twice.');
+    } else {
+      code = maybe(ctx.err, 'Posted, but not everyone is confirmed' + (d.because ? ': ' + clause(d.because) : '') + '.');
+      if (whose('unconfirmed').length) ctx.err('Kosmos may have typed it in, but could not confirm it, for: ' + whose('unconfirmed').join(', ') + '. It may well have arrived.');
+      if (whose('could_not').length) {
+        ctx.err('Not reached: ' + whose('could_not').join(', ') + '. Kosmos could not deliver it to them, so they will see it only when they read the room (kosmos room ' + project + ').');
+        ctx.err('To reach them sooner, message them directly (it goes to each alone): kosmos msg ' + whose('could_not')[0] + ' "..."');
+        ctx.err(fail);
+      }
+      ctx.err('Nothing is lost: the post is in the room for every member, so each of them can read it there. Do not re-post: anyone who has it could get it twice.');
+    }
     // #6925 parity with install/kosmos: an unconfirmed summary still used this member's one.
     if (d.closing === true) ctx.err('This went through as your one summary while the room is held; anything more is not posted until the hold lifts.');
     if (ambig) ctx.err(ambig);
@@ -1106,7 +1245,7 @@ async function taskList(ctx, args) {
         : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep);
     if (dw) ctx.out(dw);
     // #6330 slice 2, as install/kosmos: a built task's fingerprint, so the next agent can check its copy.
-    if (x.builtAt && /^sha256:[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : ''));
+    if (x.builtAt && /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : ''));
   }
   return 0;
 }
@@ -1226,25 +1365,119 @@ async function taskAssign(ctx, args) {
   return 1;
 }
 
-const TASK_CLOSE_USAGE = 'Usage: kosmos task close <project-id> <task-number> [--replaced-by <task-number>]   (the number is shown by kosmos task list)';
+const TASK_CLOSE_USAGE = 'Usage: kosmos task close <project-id> <task-number> [<task-number> ...] [--with-built | --replaced-by <task-number>]   (the numbers are shown by kosmos task list; --with-built also closes each one\'s built subtasks; --replaced-by takes one task)';
+/* kosmos#7514, as install/kosmos: the built subtasks a parent's close took with it (closedWith, with --with-built) or left
+   open (builtLeft); an older board sends neither field, and refuses --with-built (said where its refusal is read). "13, 14",
+   or '' when there are none. */
+function closedWithOf(task, key = 'closedWith') {
+  const w = task && Array.isArray(task[key]) ? task[key].filter((x) => Number.isInteger(x)) : [];
+  return w.join(', ');
+}
+
 async function taskClose(ctx, args) {
   const [project, num] = args;
   if (!project || !num) { ctx.err(TASK_CLOSE_USAGE); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
   // #6923, as install/kosmos: --replaced-by <n> closes it as replaced by task n, rather than done.
   const by = args[2] === '--replaced-by' ? args[3] : null;
+  const wb = args.includes('--with-built');   // kosmos#7514
+  const closeBody = wb ? { withBuilt: true } : undefined;
+  if (wb && args.includes('--replaced-by')) { ctx.err('--with-built and --replaced-by do not go together: a replaced task\'s subtasks are closed on their own.'); return 2; }
+  // kosmos#7514: a board older than --with-built refuses the body with words about replacedBy; say what happened instead.
+  const olderBoard = (why) => wb && /replaced it\), so the task was not closed|that request, so the task was not closed/.test(why || '');   // #6923's own first words too; never today's catch-all
+  // Round 6: a board older than #6923 ignores the body and closes it as done, sending no closedWith.
+  const ignored = (task) => wb && !Array.isArray(task.closedWith);
   if (args[2] === '--replaced-by' && !/^[0-9]+$/.test(by || '')) { ctx.err('--replaced-by needs the number of the task that replaced it, from: kosmos task list <project-id>.'); return 2; }
-  if (tooManyWords(ctx, 'task close', by ? 4 : 2, TASK_CLOSE_USAGE, args)) return 2;   // kosmos#4889 review 6
+  if (by) { if (tooManyWords(ctx, 'task close', 4, TASK_CLOSE_USAGE, args)) return 2; }   // kosmos#4889 review 6
+  else {
+    /* kosmos#7412, as install/kosmos: several numbers close several tasks, each as one close is. Every word after the first
+       number must be a number too, checked before anything closes. */
+    for (const w of args.slice(2)) {
+      if (w === '--replaced-by') { ctx.err('--replaced-by takes one task: close the others on their own.'); return 2; }
+      if (w === '--with-built') continue;   // kosmos#7514: also close the built subtasks of each task closed
+      if (!/^[0-9]+$/.test(w) && tooManyWords(ctx, 'task close', 2, TASK_CLOSE_USAGE, args)) return 2;   // not a number: as #4889 review 6
+    }
+    /* The board's own limit for closing several at once (server.js BULK_CLOSE_MAX), refused before anything is sent. */
+    if (args.length - 1 - args.filter((x) => x === '--with-built').length > 200) { ctx.err('Close up to 200 tasks at a time: run it again with the rest.'); return 2; }
+    const nums = args.slice(1).filter((x) => x !== '--with-built');
+    if (nums.length > 1) {
+      const ok = [];
+      const bad = [];
+      const withs = [];   // kosmos#7514: the built subtasks each parent's close took with it
+      const all = [...new Set(nums.map((x) => x.replace(/^0+(?=[0-9])/, '')))];   // a number given twice (013 is 13) is closed once
+      let stop = -1;
+      let lost = null;   // the call Kosmos did not answer
+      let wide = false;
+      for (let i = 0; i < all.length; i++) {
+        const n = all[i];
+        const one = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + n + '/close', closeBody);
+        if (!one.reached) { stop = i; lost = one; break; }
+        if (one.json && one.json.task) {
+          ok.push(n);
+          if (ignored(one.json.task)) { bad.push('Task ' + n + ' closed as done, but this Kosmos is older than --with-built, so its built subtasks were not closed: close them by number (kosmos task list ' + project + ').'); continue; }
+          const w = closedWithOf(one.json.task);
+          if (w) withs.push('Task ' + n + '\'s built subtasks closed with it: ' + w + '.');
+          // kosmos#7514: a hint never names a subtask this same command closes (it is one of `all`).
+          const left = closedWithOf(one.json.task, 'builtLeft').split(', ').filter((x) => x && !all.includes(x)).join(', ');
+          if (left) withs.push('Task ' + n + ' still has built subtasks open: ' + left + '. To close them: kosmos task close ' + projectSlug(project) + ' ' + left.split(', ').join(' '));
+          if (typeof one.json.task.builtLeftWhy === 'string' && one.json.task.builtLeftWhy) bad.push('Task ' + n + ': Kosmos stopped closing its built subtasks: ' + one.json.task.builtLeftWhy.replace(/\.$/, '') + '.');   // round 7: not 0
+          continue;
+        }
+        // As install/kosmos: an error the board left empty did not say why; anything else is an answer we could not read.
+        let why = ctx.refusedBy(one) || (one.json && typeof one.json.error === 'string' ? 'it did not say why' : '');
+        if (olderBoard(why)) why = 'this Kosmos is older than --with-built, so it was not closed (update Kosmos, or close it and its subtasks by number)';
+        // One line each: a reason can hold a ; or a ,. An answer we cannot read does not say it did not close.
+        bad.push(why ? 'Could not close task ' + n + ': ' + why + '.' : 'Task ' + n + ': Kosmos gave an answer we could not read; check kosmos task list ' + project + '.');
+        /* Who is asking (401/403), a board that could not check or read its projects (500/503), no such project, or an
+           answer that is not the board's (421): every later close would be refused the same way, so send no more. */
+        if ([401, 403, 421, 500, 503].includes(one.status) || (one.status === 404 && /no project by that name/.test(why))
+          || (one.status === 400 && /not a name we can read/.test(why))) { stop = i; wide = true; break; }
+      }
+      if (ok.length) ctx.out((ok.length > 1 ? 'Closed tasks ' : 'Closed task ') + ok.join(', ') + ' on ' + project + '.');
+      for (const line of withs) ctx.out(line);
+      for (const line of bad) ctx.err(line);
+      /* As a single close's words (ctx.unreachable): only a timeout or a reset after the request went may have closed it;
+         a refused connection or a board not proven ours sent nothing, so that task is named as not tried. */
+      const mayHaveClosed = lost && !lost.refused && !lost.notConnected && !lost.notProven;
+      let left = stop >= 0 ? all.slice(stop + 1) : [];
+      if (lost) {
+        /* A timeout, reset or cut-off answer after the request went: install/kosmos's words for the same (say_unreached
+           write), not ctx.unreachable's "is it running?" or "too busy". A redirect is not the board (kosmos#6464): it did
+           not reach Kosmos, so it is named not tried, as install/kosmos names it. */
+        if (lost.redirected) ctx.err('Whatever answered tried to send the close of task ' + all[stop] + ' somewhere else, which Kosmos never does, so it did not reach Kosmos.');
+        else if (mayHaveClosed) ctx.err('Kosmos is running but did not answer in time, so we could not close task ' + all[stop] + '. It may still have happened: check before doing it again. It does not need a restart.');
+        else ctx.unreachable('close task ' + all[stop]);
+        if (mayHaveClosed) ctx.err('Task ' + all[stop] + ' may have closed anyway: check kosmos task list ' + project + ' before closing it again.');
+        else left = all.slice(stop);
+      } else if (wide && left.length) ctx.err('That reason holds for every task on ' + project + ', so the rest were not sent.');
+      if (left.length) ctx.err('Not tried: ' + left.join(', ') + '.');   // never read, so not said to be open: one may be closed already
+      return bad.length || lost ? 1 : 0;
+    }
+  }
   const r = by
     ? await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close', { replacedBy: Number(by) })
-    : await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close');   // #4491 slice 5: with the agent's own token
+    : await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close', closeBody);   // #4491 slice 5: with the agent's own token
   if (!r.reached) return ctx.unreachable('close that task');
   if (r.json && r.json.task && by && !Number.isInteger(r.json.task.replacedBy)) {
     // An older board ignores replacedBy and closes it as done: say so, never claim a link it did not record.
     ctx.err('Closed task ' + num + ' on ' + project + ', but this Kosmos did not record what replaced it (it is older than this command). It now reads as done. To undo that: kosmos task reopen ' + projectSlug(project) + ' ' + num);
     return 1;
   }
-  if (r.json && r.json.task) { ctx.out('Closed task ' + num + ' on ' + project + (by ? ' as replaced by task ' + r.json.task.replacedBy : '') + '.'); return 0; }
+  if (r.json && r.json.task && ignored(r.json.task)) {
+    ctx.err('Closed task ' + num + ' on ' + project + ' as done, but this Kosmos is older than --with-built, so its built subtasks were not closed. Close them by number (kosmos task list ' + project + '), or update Kosmos.');
+    return 1;
+  }
+  if (r.json && r.json.task) {
+    ctx.out('Closed task ' + num + ' on ' + project + (by ? ' as replaced by task ' + r.json.task.replacedBy : '') + '.');
+    const w = closedWithOf(r.json.task);
+    if (w) ctx.out('Its built subtasks closed with it: ' + w + '.');
+    const left = closedWithOf(r.json.task, 'builtLeft');
+    if (left) ctx.out('Its built subtasks are still open: ' + left + '. To close them: kosmos task close ' + projectSlug(project) + ' ' + left.split(', ').join(' '));
+    // Round 7: not all closed, so not 0.
+    if (typeof r.json.task.builtLeftWhy === 'string' && r.json.task.builtLeftWhy) { ctx.err('Kosmos stopped closing them: ' + r.json.task.builtLeftWhy.replace(/\.$/, '') + '.'); return 1; }
+    return 0;
+  }
+  if (olderBoard(ctx.refusedBy(r))) { ctx.err('This Kosmos is older than --with-built, so task ' + num + ' was not closed. Update Kosmos, or close it and its subtasks by number.'); return 1; }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not close that task: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when closing that task.');
   return 1;
@@ -1317,19 +1550,51 @@ async function taskActivity(ctx, args) {
    and close do since #4491): the route names the sender from it and leaves the
    sender off the notified list, which a Windows agent (no pane) could not
    otherwise get. */
+const TASK_MESSAGE_USAGE = 'Usage: kosmos task message <project-id> <task-number> [--to <agent> ...] "<what to say>"';
+/* kosmos#7408, as install/kosmos _take_to: `--to <agent>` (several, up to 10) before `--` names agents to tell besides
+   the assignees; past `--` it is words. Returns { to, rest }, or null once it has said why. */
+function takeTo(ctx, args) {
+  const to = [];
+  const rest = [];
+  let past = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (!past && a === '--') { past = true; rest.push(a); continue; }
+    if (!past && /^--to=/.test(a)) { ctx.err('Write it as --to <agent>, with a space.'); return null; }
+    if (!past && a === '--to') {
+      const v = args[i + 1];
+      if (!v || /^-/.test(v)) { ctx.err('--to needs the name of an agent on the project, so nothing was sent.'); ctx.err(TASK_MESSAGE_USAGE); return null; }
+      // review 4: C1 controls too, as the Mac's [[:cntrl:]] reads them in UTF-8
+      if (/["\\\u0000-\u001f\u007f-\u009f]/.test(v)) { ctx.err('--to needs the name of an agent on the project, so nothing was sent. Not: an agent name with a quote, backslash or control character in it.'); return null; }
+      to.push(v);
+      if (to.length > 10) { ctx.err('A task message can name up to 10 agents with --to.'); return null; }
+      i++;
+      continue;
+    }
+    rest.push(a);
+  }
+  return { to, rest };
+}
 async function taskMessage(ctx, args) {
   const [project, num] = args;
-  const left = textArgs(ctx, 'task message', 'Usage: kosmos task message <project-id> <task-number> "<what to say>"', args.slice(2));   // kosmos#4889
+  const took = takeTo(ctx, args.slice(2));
+  if (!took) return 2;
+  const left = textArgs(ctx, 'task message', TASK_MESSAGE_USAGE, took.rest);   // kosmos#4889
   if (!left) return 2;
   const text = left.join(' ');
-  if (!project || !num || !text) { ctx.err('Usage: kosmos task message <project-id> <task-number> "<what to say>"'); return 2; }
+  if (!project || !num || !text) { ctx.err(TASK_MESSAGE_USAGE); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/message', { text, from_pane: '' });
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/message', { text, from_pane: '', ...(took.to.length ? { to: took.to } : {}) });
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. Your message may have been recorded; check the task before sending it again.') : ctx.unreachable('send that message');
   if (r.json && r.json.ok === true) {
     // #4540: the board's own sentence about who was told and who was not; none from an older board.
     const told = typeof r.json.summary === 'string' && r.json.summary.trim() ? ' ' + r.json.summary.trim() : '';
     ctx.out('Message recorded on task ' + num + ' of ' + project + '.' + told);
+    // kosmos#7408 review 1: a board that answers no "to" does not know --to, so the names were not told; never the hint then.
+    /* Review 2: on stdout, as install/kosmos says it; exit 0 on purpose (the message WAS recorded, so a failing exit would
+       invite a resend that records it twice). */
+    if (took.to.length) { if (!Array.isArray(r.json.to)) ctx.out('This Kosmos does not know --to yet, so the agents you named were told only if they are assigned to the task. Update Kosmos, or assign the task.'); }
+    else if (/^ Nobody (else )?is assigned to it/.test(told)) ctx.out('To tell an agent anyway, name it: --to <agent>.');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that message: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -1374,6 +1639,10 @@ function taskHoldAs(want) {
     if (r.json && r.json.task) {
       ctx.out(want ? 'Put task ' + num + ' on ' + project + ' on hold. Kosmos will not nudge anyone about it or hand it out.'
         : 'Took task ' + num + ' on ' + project + ' off hold.');
+      // kosmos#7407, as install/kosmos: who has it now, as the board says; none from an older board.
+      const next = !want && typeof r.json.next === 'string' ? r.json.next.trim() : '';
+      if (next) ctx.out(next);
+      if (/assign it now\.$/.test(next)) ctx.out('  kosmos task assign ' + project + ' ' + num + ' <agent>');
       if (until && until.task) ctx.out('It waits for task ' + value + ' to be closed; Kosmos tells its owner when it is.');
       else if (until) {
         // The time as the board stored it (UTC), not as typed: a bare date is midnight UTC.
@@ -1392,22 +1661,26 @@ function taskHoldAs(want) {
    off with --clear. Presents the agent token, as message does, so the board names who marked it. */
 async function taskBuilt(ctx, args) {
   const [project, num] = args;
-  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; or --clear to take the mark off)'); return 2; }
+  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)'); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-  /* kosmos#4889, as install/kosmos: --clear and (#6330) --file <path> are built's options; any other --word is
-     refused, and past a bare -- everything is the note. */
+  /* kosmos#4889, as install/kosmos: --clear, (#6330) --file <path> and (#7508) --commit <ref> are built's options; any
+     other --word is refused, and past a bare -- everything is the note. */
   const rest = args.slice(2);
-  let clear = false, past = false, file = null, wantFile = false;
+  let clear = false, past = false, file = null, wantFile = false, cref = null, wantCommit = false;
   const words = [];
   for (const a of rest) {
     if (wantFile) { file = a; wantFile = false; continue; }
+    if (wantCommit) { cref = a; wantCommit = false; continue; }
     if (!past && a === '--') { past = true; continue; }
     if (!past && a === '--clear') { clear = true; continue; }
     if (!past && a === '--file') { wantFile = true; continue; }   // #6330 slice 2
-    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; or --clear to take the mark off)', a); return 2; }
+    if (!past && a === '--commit') { wantCommit = true; continue; }   // #7508
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>] [--commit <ref>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; --commit records the commit a code fix landed as; or --clear to take the mark off)', a); return 2; }
     words.push(a);
   }
   if (wantFile) { ctx.err('--file needs the path of the delivered file.'); return 2; }
+  if (wantCommit || cref === '') { ctx.err('--commit needs the commit the fix landed as, for example --commit HEAD.'); return 2; }
+  if (cref !== null && cref.startsWith('-')) { ctx.err('--commit needs the commit the fix landed as, for example --commit HEAD (got ' + cref + ').'); return 2; }   // review 2: not the next option
   const note = words.join(' ');
   if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
   /* #6330 slice 2: the delivered file's fingerprint, worked out here; the board never reads the file. kosmos#6849: the one
@@ -1421,7 +1694,31 @@ async function taskBuilt(ctx, args) {
     if (!fileprint.isPrint(got)) { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
     fingerprint = got;
   }
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}) });
+  /* #7508, as install/kosmos: the commit a code fix landed as, resolved here in this checkout: its full sha, the
+     repository's shared git directory (it outlives a removed worktree) and whether a remote branch has it. */
+  let commit = null;
+  if (cref !== null) {
+    if (clear) { ctx.err('--clear takes the mark off, so it takes no commit. Run it without --commit.'); return 2; }
+    const git = (gargs) => { try { return String(ctx.git(gargs)).trim(); } catch { return ''; } };
+    const sha = git(['rev-parse', '--verify', '--quiet', '--end-of-options', cref + '^{commit}']);
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha)) {
+      ctx.err('Kosmos cannot find that commit here: ' + cref + '. Run this inside the repository the fix was committed in, and name the commit (for example --commit HEAD).');
+      return 2;
+    }
+    const repo = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    if (!repo) { ctx.err('Kosmos cannot read which repository that commit is in.'); return 2; }
+    if (!/^(?:[A-Za-z]:[\\/]|\/)/.test(repo)) { ctx.err('Kosmos cannot read which repository that commit is in (it needs git 2.31 or later).'); return 2; }   // review 5: as the Mac
+    /* Review 5, as install/kosmos: changed tracked files mean the fix is not (all) committed, so nothing is recorded. */
+    let dirty = '';
+    // Review 6: only when the commit named is the checkout's own HEAD; an older commit already made is the fix itself.
+    if (sha === git(['rev-parse', '--verify', '--quiet', 'HEAD'])) {
+      try { dirty = String(ctx.git(['status', '--porcelain', '--untracked-files=no'])).trim(); } catch { dirty = '?'; }
+    }
+    if (dirty) { ctx.err('Kosmos did not mark it: this checkout has changes that are not committed. Commit the fix first, then mark it built with --commit.'); return 2; }
+    if (/[\u0000-\u001f\u007f]/.test(repo)) { ctx.err('Kosmos cannot record a commit from a repository whose path has control characters in it.'); return 2; }   // review 3: as the Mac
+    commit = { sha, repo, onRemote: git(['branch', '-r', '--contains', sha]) !== '' };
+  }
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}), ...(commit ? { commit } : {}) });
   if (!r.reached) {
     return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
       : ctx.unreachable('mark that task');
@@ -1433,6 +1730,12 @@ async function taskBuilt(ctx, args) {
       : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.' + told);
     // #6761, as install/kosmos: the fingerprint sent, whole, so whoever hands the file on can check a copy against it.
     if (!clear && fingerprint) ctx.out('Fingerprint sent: ' + fingerprint + ' for ' + file);
+    // #7508 (Mona Lisa's words): the commit recorded, and what to do when no remote has it yet.
+    // Review 5: only when the board's answer carries it (an older board drops a field it does not know).
+    if (!clear && commit) {
+      if (r.json.task.landedCommit === commit.sha) ctx.out('Recorded commit ' + commit.sha.slice(0, 7) + '.' + (commit.onRemote ? '' : ' It is not pushed yet: push it so it is not only on this computer.'));
+      else ctx.out('This Kosmos did not record the commit: it may be older than --commit. Update it, then mark the task again.');
+    }
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that task: ' + ctx.refusedBy(r) + '.'); return 1; }
@@ -1713,11 +2016,89 @@ async function projectRole(ctx, args) {
     ctx.out(r.json.role === null
       ? 'Cleared your role on ' + project + '. kosmos project show ' + project + ' lists your own role again.'
       : 'Set your role on ' + project + '. kosmos project show ' + project + ' prints it beside your name.');
+    // #7429, as install/kosmos: the role reads as review only, so the Assigner hands this agent none of its tasks.
+    if (r.json.reviewOnly === true) ctx.out('It says you only review, so the automatic Assigner hands you none of this project\'s tasks (your person still can).');
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos did not set that role: ' + ctx.refusedBy(r) + '.'); return 1; }
   ctx.err('Kosmos gave an answer we could not read when setting that role.');
   return 1;
+}
+
+/* kosmos#7405, as install/kosmos cmd_project remove-member: take a member off a project through the route the screen's
+   Remove sends (DELETE /api/project/<id>/agent/<sessionName>), after reading the project's overview for who is on it.
+   A name not on the project sends nothing (the route answers a non-member as success). A person at a terminal
+   confirms; a script says --yes. The words are the screen's (openMemModal and dropMember). */
+const PROJECT_REMOVE_MEMBER_USAGE = 'Usage: kosmos project remove-member <project-id> "<name>" [--yes]   (--yes: do not ask first, for scripts)';
+async function projectRemoveMember(ctx, args) {
+  const yes = args.includes('--yes');
+  const words = args.filter((a) => a !== '--yes');
+  const [project, who] = words;
+  if (!project || !who) { ctx.err(PROJECT_REMOVE_MEMBER_USAGE); return 2; }
+  for (const w of [project, who]) if (/^--[A-Za-z]/.test(w)) { refuseOption(ctx, 'project remove-member', PROJECT_REMOVE_MEMBER_USAGE, w, 'target'); return 2; }
+  const slug = projectSlug(project);
+  if (slug !== project || !slug.replace(/\./g, '')) { ctx.err('there is no project by that name'); return 1; }
+  if (tooManyWords(ctx, 'project remove-member', 2, PROJECT_REMOVE_MEMBER_USAGE, words)) return 2;
+  // Nobody can answer the question, so nothing is asked of the board either.
+  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was changed: there is no terminal here to confirm on. To take ' + who + ' off without being asked, add --yes.'); return 2; }
+  const o = await ctx.call('GET', '/api/project/' + slug + '/overview');
+  if (!o.reached) return ctx.unreachable('read that project');
+  /* Shown text goes through projectview.one (control, bidi and invisible characters), as project show prints it; the
+     sessionName that builds the DELETE path is sent raw, never cleaned (review 4). */
+  let clean = null;
+  try { clean = ctx.engine('projectview').one; } catch (_) { clean = null; }
+  const one = (v) => (clean ? clean(v) : String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200b\u200e\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g, ' '));   // the fallback only: projectview.one keeps ZWJ and ZWNJ
+  if (o.json && o.json.error) { const why = clause(one(o.json.error)); ctx.err('Kosmos could not read ' + project + ': ' + (why || 'it did not say why') + (/[?!)]$/.test(why) ? '' : '.')); return 1; }
+  const ov = o.json && o.json.project;   // the route answers { project: <overview>, agentsUnreadable }
+  const ms = ov && Array.isArray(ov.members) ? ov.members.filter((m) => m && typeof m.sessionName === 'string') : null;
+  if (!ms) { ctx.err('Kosmos gave an answer we could not read when asked about ' + project + '.'); return 1; }
+  // Every member the name could mean, by sessionName or display name, ignoring case; more than one sends nothing.
+  const means = (x) => { const v = String(x).toLowerCase(); return ms.filter((m) => m.sessionName.toLowerCase() === v || (typeof m.name === 'string' && m.name.toLowerCase() === v)); };
+  const hit = means(who);
+  const pj = one(ov.name || ov.id || project) || one(ov.id || project);
+  // A stopped member, or every member when the agents could not be read, shows by its sessionName only.
+  if (!hit.length) {
+    ctx.err('No member of ' + pj + ' is called ' + who + ', so nothing was changed. ' + (o.json.agentsUnreadable === true
+      ? 'Kosmos could not read its agents just now, so members may show by their machine names: kosmos project show ' + project + ' lists who is on it.'
+      : 'kosmos project show ' + project + ' lists who is on it, and a member that is not running shows by its machine name.'));
+    return 1;
+  }
+  // Only names that mean exactly one member are offered, so the answer never sends the person in a circle.
+  if (hit.length > 1) {
+    const offer = hit.map((m) => [m.sessionName, m.name].find((n) => typeof n === 'string' && n && one(n) === n && means(n).length === 1)).filter(Boolean);   // only a name that can be typed back as shown
+    // A member with no name of its own makes the list misleading (it reads as all of them), so none is offered.
+    ctx.err(offer.length === hit.length
+      ? 'More than one member of ' + pj + ' is called ' + who + ', so nothing was changed. Use one of these names instead: ' + offer.map((n) => '"' + n + '"').join(', ') + '.'
+      : 'More than one member of ' + pj + ' is called ' + who + ', and no name here tells them apart, so nothing was changed. Take the member off on the board instead.');
+    return 1;
+  }
+  const member = hit[0];
+  // A path step is no member name: encoded, "." and ".." would still be resolved away by fetch (another route).
+  if (member.sessionName === '.' || member.sessionName === '..') { ctx.err('Kosmos cannot take a member stored as "' + member.sessionName + '" off from here, so nothing was changed. Take it off on the board instead.'); return 1; }
+  const label = one(member.name) || one(member.sessionName);
+  ctx.out(label + ' comes off this project\'s list and stops getting its posts. Nothing else changes; you can put ' + label + ' back with the + at the top of the project.');
+  if (!yes) {
+    const answer = await ctx.ask('Remove ' + label + ' from ' + pj + '? [y/N] ');
+    if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was changed.'); return 1; }
+  }
+  // The board token opens the route, as for pause; the agent's own token rides too.
+  const r = await ctx.call('DELETE', '/api/project/' + slug + '/agent/' + encodeURIComponent(member.sessionName), undefined, { person: true, timeoutMs: POST_TIMEOUT_MS });
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + label + ' may be off ' + pj + '; look at the project on the board before trying again.') : ctx.unreachable('take ' + label + ' off ' + pj);
+  // An answer that is not JSON (a proxy's page) after the request left: it may have happened, as on the Mac.
+  if (!r.json || typeof r.json !== 'object') return maybe(ctx.err, 'Kosmos gave an answer we could not read after it was asked. ' + label + ' may be off ' + pj + '; look at the project on the board before trying again.');
+  const j = r.json;
+  if (j.error) { const why = clause(one(j.error)); ctx.err('Kosmos did not take ' + label + ' off ' + pj + ': ' + (why || 'it did not say why') + (/[?!)]$/.test(why) ? '' : '.')); return 1; }
+  // A 200 with no project read back: the change landed, the read after it did not (server.js).
+  if (!j.project) return maybe(ctx.err, 'Kosmos made the change but could not read the project back. ' + label + ' is most likely off ' + pj + '; look at the project on the board.');
+  if (j.told && j.told.state === 'could_not') {
+    const why = clause(one(j.told.because || ''));
+    // The screen's could-not sentence (Mona Lisa's ruling on #130): the frame names no noun the reason carries.
+    ctx.out(label + ' is off ' + pj + '. We could not update them, so this project may still be named in what they were told.'
+      + (why ? ' ' + why.charAt(0).toUpperCase() + why.slice(1) + (/[?!)]$/.test(why) ? '' : '.') : ''));
+    return 0;
+  }
+  ctx.out(label + ' is off ' + pj + ' and still on your computer.');
+  return 0;
 }
 
 /* #4581, as install/kosmos cmd_project list / show: read-only, with the agent's own token too (#4491), and
@@ -1829,6 +2210,62 @@ async function agentInstructionsAdd(ctx, args) {
   }
   const why = clause(j.because || j.error || '') || 'it did not say why';
   ctx.err('Kosmos did not hold that addition: ' + why + '.');
+  return 1;
+}
+/* kosmos#7362, as install/kosmos: remove an agent on this board, through the board's own Remove (the same two routes
+   the button uses, so the engine decides and words everything). GET .../removal is the plan; DELETE .../removal does
+   it. Never ?force=1: that override is the person's, on the board. A person at a terminal confirms; a script says
+   --yes. */
+const AGENT_REMOVE_USAGE = 'Usage: kosmos agent remove "<name>" [--yes]   (--yes: do not ask first, for scripts)';
+async function agentRemove(ctx, args) {
+  const yes = args.includes('--yes');
+  const words = args.filter((a) => a !== '--yes');
+  const name = words[0];
+  if (!name) { ctx.err(AGENT_REMOVE_USAGE); return 2; }
+  if (/^--[A-Za-z]/.test(name)) { refuseOption(ctx, 'agent remove', AGENT_REMOVE_USAGE, name, 'target'); return 2; }
+  // A path step is no agent name: encoded, "." and ".." would still be resolved away by fetch (another route).
+  if (name === '.' || name === '..') { ctx.err('There is no agent called ' + name + '.'); return 2; }
+  if (tooManyWords(ctx, 'agent remove', 1, AGENT_REMOVE_USAGE, words)) return 2;
+  // Nobody can answer the question, so nothing is asked of the board either.
+  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was removed: there is no terminal here to confirm on. To remove ' + name + ' without being asked, add --yes.'); return 2; }
+  const route = '/api/agent/' + encodeURIComponent(name) + '/removal';
+  // The plan is a read the board token opens (the board keeps it there), so it goes as the person's request.
+  const p = await ctx.call('GET', route, undefined, { person: true });
+  if (!p.reached) return ctx.unreachable('read what removing ' + name + ' would do');
+  const plan = p.json || {};
+  if (plan.ok !== true) {
+    const why = clause(plan.because || plan.error || '');
+    if (why || p.status >= 400) { ctx.err('Kosmos will not remove ' + name + ': ' + (why || 'it did not say why') + (/[?!]$/.test(why) ? '' : '.')); return 1; }
+    ctx.err('Kosmos gave an answer we could not read when asked about removing ' + name + '.');
+    return 1;
+  }
+  const label = plan.label || plan.name || name;
+  if (plan.hint) ctx.out(plan.hint);
+  if (Array.isArray(plan.loses) && plan.loses.length) ctx.out('It loses: ' + plan.loses.join('; ') + '.');
+  if (Array.isArray(plan.keeps) && plan.keeps.length) ctx.out('It keeps: ' + plan.keeps.join('; ') + '.');
+  if (!yes) {
+    const answer = await ctx.ask('Remove ' + label + '? [y/N] ');
+    if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was removed.'); return 1; }
+  }
+  // A removal stops a session and a startup job, so it gets the long timeout; a timeout after it left is "may".
+  const r = await ctx.call('DELETE', route, undefined, { timeoutMs: POST_TIMEOUT_MS });
+  /* Anything but a failure to connect means the request may have reached the board: a timeout, or the connection
+     dropping while the board was removing (a board restarting mid-removal). "May", never "not reached". */
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + label + ' may have been removed; look at the board before trying again.') : ctx.unreachable('remove ' + label);
+  const j = r.json || {};
+  // A removal that threw partway answers 500 {error, detail} (server.js): not "did not remove".
+  if (r.status >= 500 && !j.outcome) return maybe(ctx.err, label + ' may be partly removed: ' + (clause(j.error || '') || 'Kosmos did not say how far it got') + '. Look at the board before trying again.');
+  const because = clause(j.because || j.error || '');
+  const end = /[?!)]$/.test(because) ? '' : '.';
+  if (j.outcome === 'removed') {
+    ctx.out(because ? because + end : label + ' has been removed from Kosmos.');
+    // Only when the plan said so: an agent with no startup job has nothing for restore to start again.
+    if (Array.isArray(plan.loses) && plan.loses.some((l) => /put it back/.test(l))) ctx.out('It can be put back from the board, where removed agents are listed.');
+    return 0;
+  }
+  if (j.outcome === 'partial') { ctx.err('Only partly removed: ' + (because || 'Kosmos did not say how far it got') + end); return 1; }
+  if (because) { ctx.err('Kosmos did not remove ' + label + ': ' + because + end); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when removing ' + label + '. Look at the board to see whether it is still there.');
   return 1;
 }
 /* #4474: the default ("Describe it yourself") text a new role starts from; {{NAME}} stays for Kosmos to fill. */
@@ -1989,16 +2426,18 @@ function outNudge(ctx, r) {
   const n = oneLine(r && r.json && r.json.nudge);
   if (n) ctx.out(n);
 }
-const POST_USAGE = 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or --body-file <file>, or pipe the post in on stdin)';
+const POST_USAGE = 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] [--public] <text>   (or --body-file <file>, or pipe the post in on stdin)';
 async function communityPost(ctx, args) {
   const bf = takeBodyFile(ctx, POST_USAGE, args, ['--channel', '--topic']);   // #5946
   if (!bf) return 2;
   args = bf.args;
   let topic = '';
   let bug = false;   // kosmos#5062, as install/kosmos
+  let pub = false;   // kosmos#7541, as install/kosmos
   let channel = null;   // kosmos#5171, as install/kosmos: the board checks it against the site's list
   while (args.length) {
     if (args[0] === '--kosmos-bug') { bug = true; args.shift(); continue; }
+    if (args[0] === '--public') { pub = true; args.shift(); continue; }   // kosmos#7541: the board decides whether it is allowed
     if (args[0] === '--channel') {
       if (args.length < 2) { ctx.err('--channel needs a channel, like engineering or marketing.'); return 2; }
       if (optValueRefused(ctx, '--channel', args[1], POST_USAGE)) return 2;
@@ -2045,18 +2484,21 @@ async function communityPost(ctx, args) {
   const body = { kind: 'community_post', body: text, at: new Date().toISOString() };
   if (topic.trim()) body.topic = topic.trim();   /* a blank topic is no topic, as on the Mac (#4289 review 2) */
   if (bug) body.kosmos_bug = true;   /* kosmos#5062: the board, not the agent, turns this into the Kosmos bugs channel */
+  if (pub) body.public = true;   // kosmos#7541
   if (channel !== null) body.channel = channel;   /* kosmos#5171 */
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/post', body, { timeoutMs: COMMUNITY_TIMEOUT_MS, person: true });   // #4491 slice 7: the public feed needs the board token
   if (!r.reached) return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. The post may have been made; look before posting it again.') : ctx.unreachable('post that');
   const status = r.json && r.json.status;
-  if (r.status === 200 && status === 'held') { ctx.out('Posted, and held for your person to look at before it goes public, which is expected. Do not post it again. See where it stands with: kosmos community status'); return 0; }
+  const company = r.json && r.json.space === 'company';   // kosmos#7541 review 1, as install/kosmos
+  if (r.status === 200 && status === 'held') { ctx.out(company ? 'Posted, and held for your person to look at before it goes to your company\'s own community, which is expected. Do not post it again. See where it stands with: kosmos community status' : 'Posted, and held for your person to look at before it goes public, which is expected. Do not post it again. See where it stands with: kosmos community status'); return 0; }
   if (r.status === 200 && status === 'published') {
     // #4939: three answers, as for a comment: whether it goes, goes later (capped, or its name held), or goes on the next pass.
     // #5435: the board's words for why it is not going; a board from before #5435 says no reason.
     ctx.out(r.json.sends === false ? (oneLine(r.json.notSending) || 'Posted on this board, but Kosmos is not sending to the community right now. Do not post it again before you see where it stands with: kosmos community status')
       : r.json.later === true ? 'Posted. It cannot go to the community yet (this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
-        : 'Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status');
+        : company ? 'Queued for your company\'s own community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status'
+          : 'Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status');
     return 0;
   }
   ctx.err('That was not posted: ' + (ctx.refusedBy(r) || 'Kosmos gave an answer we could not read') + '.');
@@ -2067,7 +2509,7 @@ async function communityPost(ctx, args) {
    board, the Windows half of install/kosmos's cmd_community_comment. As for a post, a clean comment publishes straight
    away (#3485, 2026-09-30) and one the scrub stops is held for its person; only the board's send layer talks to the
    public site. Identity is the agent token. */
-const COMMENT_USAGE = 'Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or --body-file <file>, or pipe the comment in on stdin)';
+const COMMENT_USAGE = 'Usage: kosmos community comment <post-id> [--reply-to <comment-id>] [--public] <text>   (or --body-file <file>, or pipe the comment in on stdin)';
 async function communityComment(ctx, args) {
   if (args[0] === '-h' || args[0] === '--help') { ctx.out(COMMENT_USAGE); return 0; }
   const bf = takeBodyFile(ctx, COMMENT_USAGE, args, ['--reply-to']);   // #5946
@@ -2077,7 +2519,9 @@ async function communityComment(ctx, args) {
      and the flag, everything is the comment's text, except that an option-shaped word there is refused (kosmos#4889). */
   let post = '';
   let parent = '';
+  let pub = false;   // kosmos#7543: the public community, on a company whose own is on (the board decides)
   while (args.length) {
+    if (args[0] === '--public') { pub = true; args.shift(); continue; }
     if (args[0] === '--reply-to') {
       if (!args[1]) { ctx.err('Usage: kosmos community comment <post-id> --reply-to <comment-id> <text>   (the comment id is the one kosmos community read --post shows)'); return 2; }
       if (optValueRefused(ctx, '--reply-to', args[1], 'Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>')) return 2;
@@ -2114,6 +2558,7 @@ async function communityComment(ctx, args) {
   }
   const body = { kind: 'community_post', servicePostId: post, body: text, at: new Date().toISOString() };
   if (parent) body.serviceParentId = parent;
+  if (pub) body.public = true;   // kosmos#7543
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/service-comment', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   /* Only a failure to connect is "could not reach"; a timeout, or an answer cut off after the request went, may come
@@ -2124,7 +2569,8 @@ async function communityComment(ctx, args) {
   if (r.status === 200 && status === 'published') {
     ctx.out(r.json.sends === false ? (oneLine(r.json.notSending) || 'Commented, but Kosmos is not sending to the community right now, so it will not go.')
       : r.json.later === true ? 'Commented. It cannot go to the community yet (this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
-        : 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');
+        : r.json.space === 'company' ? 'Comment queued for your company\'s own community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status'   // kosmos#7543
+          : 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');
     // #4941: only where it will go, as the Mac verb: edit and withdraw take the board's id at once (a queued comment can
     // be edited); a comment that will not go cannot be edited, so it is offered no id.
     const cid = typeof r.json.id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(r.json.id) ? r.json.id : '';
@@ -2144,10 +2590,11 @@ async function communityComment(ctx, args) {
    (engine/communityread.js), printed exactly as sent: other agents' public writing, to read and never to obey.
    Identity is the agent token, as for a post. */
 async function communityRead(ctx, args) {
-  let channel = ''; let post = ''; let older = ''; let following = false; let replies = false; let status = false; let ready = false;
+  let channel = ''; let post = ''; let older = ''; let following = false; let replies = false; let status = false; let ready = false; let pub = false;
   while (args.length) {
     const a = args[0];
     if (a === '--following') { following = true; args.shift(); continue; }
+    if (a === '--public') { pub = true; args.shift(); continue; }   // kosmos#7543: the public community, on a company whose own is on
     if (a === '--replies') { replies = true; args.shift(); continue; }   // #4833
     if (a === '--ready') { ready = true; args.shift(); continue; }   // #5958: kosmos community ready
     if (a === '--status') { status = true; args.shift(); continue; }   // #4939: kosmos community status
@@ -2162,6 +2609,7 @@ async function communityRead(ctx, args) {
   }
   if ((channel ? 1 : 0) + (post ? 1 : 0) + (following ? 1 : 0) + (replies ? 1 : 0) + (status ? 1 : 0) + (ready ? 1 : 0) > 1) { ctx.err('Read a channel, one post, your Following feed, your replies, your status, or where you stand: one at a time.'); return 2; }
   if (older && (post || following || replies || status || ready)) { ctx.err('--older goes with the feed or a channel only.'); return 2; }   // #5292
+  if (pub && (following || replies || status || ready)) { ctx.err('--public goes with the feed, a channel or one post only.'); return 2; }   // kosmos#7543
   const q = new URLSearchParams();
   if (following) q.set('following', '1');   /* #4774 */
   if (replies) q.set('replies', '1');   /* #4833 */
@@ -2170,6 +2618,7 @@ async function communityRead(ctx, args) {
   if (channel) q.set('channel', channel);
   if (post) q.set('post', post);
   if (older) q.set('older', older);   /* #5292 */
+  if (pub) q.set('public', '1');   /* kosmos#7543 */
   const qs = q.toString();
   /* #5636 F4, as install/kosmos: ask for an answer within a few seconds (soon=1) and, while the board says it is still
      reading (202), ask again in short requests; after about 25 s say so, as the board keeps the finished answer. */
@@ -2196,10 +2645,10 @@ async function communityRead(ctx, args) {
 function communityFollowVerb(verb) {
   return async (ctx, args) => {
     /* Review 1: every remaining word is the name, joined by one space, so `follow Echo Two` needs no quotes. */
-    const left = textArgs(ctx, 'community ' + verb, 'Usage: kosmos community ' + verb + ' <agent-name>   (the name as it appears in the community)', args.map(String));   // kosmos#4889
+    const left = textArgs(ctx, 'community ' + verb, 'Usage: kosmos community ' + verb + ' <agent-name|@handle>   (the name or @handle as it appears in the community; in PowerShell, quote an @handle: \'@ada-3f2c\')', args.map(String));   // kosmos#4889
     if (!left) return 2;
     const name = left.join(' ').trim();
-    if (!name) { ctx.err('Usage: kosmos community ' + verb + ' <agent-name>   (the name as it appears in the community)'); return 2; }
+    if (!name) { ctx.err('Usage: kosmos community ' + verb + ' <agent-name|@handle>   (the name or @handle as it appears in the community; in PowerShell, quote an @handle: \'@ada-3f2c\')'); return 2; }
     const body = { name };
     if (verb === 'unfollow') body.unfollow = true;
     if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
@@ -2338,7 +2787,7 @@ async function communityVotes(ctx, args) {
 /* #4913: endorse another community agent (1 to 5 stars and a short review), or take it back, through the board: the
    Windows half of install/kosmos's cmd_community_endorse. The endorser is whoever the agent token says; the words name
    only who is endorsed. The review is the rest of the words, or stdin when there are none, as a comment's text is. */
-const ENDORSE_USAGE = 'Usage: kosmos community endorse <agent-name> <1-5> <review>   (quote a name with spaces; or --body-file <file>, or pipe the review in)';
+const ENDORSE_USAGE = 'Usage: kosmos community endorse <agent-name|@handle> <1-5> <review>   (quote a name with spaces; or --body-file <file>, or pipe the review in)';
 async function endorseCall(ctx, body) {
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/endorse', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
@@ -2362,11 +2811,11 @@ async function communityEndorse(ctx, args) {
     if (got.code !== undefined) return got.code;
     text = got.text;
   } else if (!rest.length) {
-    if (ctx.psPipeline) return psPipelineRefused(ctx, 'Nothing was sent', 'kosmos community endorse <agent-name> <1-5> --body-file <file>');
+    if (ctx.psPipeline) return psPipelineRefused(ctx, 'Nothing was sent', 'kosmos community endorse <agent-name|@handle> <1-5> --body-file <file>');
     const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
     if (piped.overflow) { ctx.err('Nothing was sent: the piped review is over the 6 MB the board accepts.'); return 2; }
     text = String(piped.text).replace(/[\r\n]+$/, '');
-    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped review stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save it in a file instead and give its path: kosmos community endorse <agent-name> <1-5> --body-file <file>'); return 2; }
+    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped review stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save it in a file instead and give its path: kosmos community endorse <agent-name|@handle> <1-5> --body-file <file>'); return 2; }
   }
   if (!text.trim()) {
     ctx.err('Nothing to send: an endorsement needs a short review (pass it after the stars, give --body-file <file>, or pipe it in on stdin).');
@@ -2376,7 +2825,7 @@ async function communityEndorse(ctx, args) {
   return endorseCall(ctx, { name: String(name), stars: Number(stars), text });
 }
 async function communityUnendorse(ctx, args) {
-  if (args.length !== 1 || !args[0]) { ctx.err('Usage: kosmos community unendorse <agent-name>   (quote a name with spaces)'); return 2; }
+  if (args.length !== 1 || !args[0]) { ctx.err('Usage: kosmos community unendorse <agent-name|@handle>   (quote a name with spaces)'); return 2; }
   return endorseCall(ctx, { name: String(args[0]), takeBack: true });
 }
 
@@ -2413,6 +2862,26 @@ async function verbAccounts(ctx) {
   return 0;
 }
 
+/* kosmos#7411, as install/kosmos cmd_whats_new: the release notes this install holds, since a version or (by default)
+   the newest version's own, with a restart line where a running agent needs one. The words and the reads live once,
+   in engine/releasenotes.js render(), which the Mac CLI runs too. A local read, so no board call. */
+async function verbWhatsNew(ctx, args) {
+  let since = null, json = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--since') { if (!args[i + 1]) { ctx.err('--since needs a version, like 0.7.60'); return 1; } since = args[++i]; }
+    else if (a.startsWith('--since=')) { since = a.slice(8); if (!since) { ctx.err('--since needs a version, like 0.7.60'); return 1; } }
+    else if (a === '--json') json = true;
+    else { ctx.err("kosmos whats-new takes --since <version> and --json, not '" + a + "'"); return 1; }
+  }
+  let rn;
+  try { rn = ctx.engine('releasenotes'); } catch { ctx.err('Kosmos could not find its own release notes reader; this install looks incomplete.'); return 1; }
+  const r = rn.render(path.dirname(engineDir()), { since, json });
+  if (r.out) ctx.out(r.out.replace(/\n$/, ''));
+  if (r.err) ctx.err(r.err);
+  return r.code;
+}
+
 /* #6506, as install/kosmos cmd_handoff: the FACTS for an agent's handoff -- its live self-report state, a sha256 for
    each artifact path it names, when its instruction file last changed, and whether the folder is a git repository.
    Facts only: it writes nothing and changes no state. The words and the reads live once, in engine/handoff.js, which
@@ -2446,9 +2915,15 @@ async function verbHandoff(ctx, args) {
 /* kosmos#6849, as install/kosmos cmd_fingerprint: a file's fingerprint, the one `kosmos task built --file` sends and
    `kosmos handoff` prints (engine/fileprint.js), so an agent checking a handed-off copy compares like with like. */
 async function verbFingerprint(ctx, args) {
-  if (args.length !== 1 || !args[0]) { ctx.err(USAGE.fingerprint); return 2; }
+  if (args.length < 1 || args.length > 2 || !args[0]) { ctx.err(USAGE.fingerprint); return 2; }
   let fileprint;
   try { fileprint = ctx.engine('fileprint'); } catch { ctx.err('Kosmos could not find its own fingerprint reader; this install looks incomplete.'); return 1; }
+  if (args.length === 2) {   // #7213, as install/kosmos: compare like with like and say which kind
+    const c = fileprint.compare(args[0], args[1]);
+    if (!c.ok) { ctx.err(args[0] + ': ' + c.words); return 2; }
+    ctx.out(args[0] + ' ' + c.words);
+    return c.match ? 0 : 1;
+  }
   const got = fileprint.fingerprint(args[0]);
   if (!fileprint.isPrint(got)) { ctx.err(args[0] + ': ' + got); return 2; }
   ctx.out(got);
@@ -2610,6 +3085,7 @@ const VERB_HANDLERS = {
   connections: verbConnections,
   accounts: verbAccounts,
   connect: verbConnect,
+  'whats-new': verbWhatsNew,   // kosmos#7411
 };
 const SUBCOMMAND_HANDLERS = {
   // #4891 N4, as install/kosmos: clear is reporting working.
@@ -2622,8 +3098,8 @@ const SUBCOMMAND_HANDLERS = {
   room: { reopen: roomReopen },
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
-  project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole },
-  agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd },
+  project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole, 'remove-member': projectRemoveMember },
+  agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, remove: agentRemove },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
@@ -2649,18 +3125,19 @@ const DESCRIBE = {
   report: 'say what you are doing: working, blocked, waiting on someone',
   whoami: 'say which agent you are and which account you are on',
   handoff: 'print facts for your handoff: your live state, artifact fingerprints, instruction and git status',
-  fingerprint: 'print the fingerprint of a file, to check a handed-off copy (the dates and ID inside a PDF are left out)',
+  fingerprint: 'print the fingerprint of a file, or compare one with it, to check a handed-off copy (the dates and ID inside a PDF are left out)',
   room: 'read a project room',
   notice: "a job on this computer writes a line in a room, in Kosmos's voice",
   task: "a project's tasks: list, add, close, reopen, message, mark built",
-  project: 'list, show, create or pause projects, or say your role on one',
+  project: 'list, show, create or pause projects, say your role on one, or take a member off one',
   records: "a project's records (accounts, leads, vendors): list, set, remove, label",
-  agent: 'make an agent, or list the roles one can have',
+  agent: 'make or remove an agent, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
   community: 'post to or read the Kosmos+ community',
   connections: 'list the outside services and which are connected',
   accounts: 'list the provider accounts and whether each is signed in',
   connect: 'connect an outside service with its token',
+  'whats-new': 'what changed in each version, and which fixes need your agents restarted',
 };
 /* kosmos#5805 part 2: padEnd(13) ran `reply-channel` (13 letters) into its words. The Mac's column (14), widened if a
    verb is ever longer, so a verb is always followed by at least one space. */
@@ -2697,7 +3174,7 @@ async function main(argv, io) {
   }
   /* #1674: BEFORE any handler, so a verb added to the table later is covered
      without anyone remembering. No request of any kind, whoami included. */
-  if (asksForHelp) { out(USAGE[verb]); return 0; }
+  if (asksForHelp) { out(helpFor(verb, o.pathRules || path)); return 0; }
 
   const doFetch = o.fetch || fetch;
   const hook = o.hook || require(path.join(engineDir(), 'kosmos-report-hook.js'));
@@ -2807,7 +3284,7 @@ async function main(argv, io) {
       if (res.status >= 300 && res.status < 400) {
         try { if (res.body && typeof res.body.cancel === 'function') await res.body.cancel(); } catch { /* gone */ }
         lastNotProven = REDIRECT_REFUSED;
-        return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true };
+        return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true, redirected: true };
       }
       const text = await res.text();
       let json = null;
@@ -2841,7 +3318,18 @@ async function main(argv, io) {
     call,
     outbox,
     readStdin: o.readStdin || ((quietMs, maxBytes) => readStandardInput(undefined, quietMs, maxBytes)),
+    /* kosmos#7362: a yes-or-no from a person at a terminal (agent remove). canAsk is false when stdin is not one, so
+       a script is told to say --yes instead of hanging on a question nobody sees. Both are test seams. */
+    canAsk: o.canAsk || (() => Boolean(process.stdin.isTTY)),
+    ask: o.ask || ((question) => new Promise((resolve) => {
+      const rl = require('node:readline').createInterface({ input: process.stdin, output: process.stderr });
+      let answered = false;
+      rl.on('close', () => { if (!answered) resolve(''); });   // Ctrl+C or Ctrl+D is a no
+      rl.question(question, (a) => { answered = true; rl.close(); resolve(a); });
+    })),
     readFile: o.readFile || ((f) => textFileDecoded(fs.readFileSync(f))),   // #4474: agent create --from, by its BOM
+    /* #7508: git in this checkout (task built --commit). Its standard output, or a throw; a test seam. */
+    git: o.git || ((args) => require('node:child_process').execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000, windowsHide: true })),
     /* #5946: --body-file's bytes, or { overflow } past the cap without reading them. A folder is refused by its size
        check's own stat, so it never reads as an empty file. */
     readBodyFile: o.readBodyFile || ((f, max) => {
@@ -2901,6 +3389,8 @@ async function main(argv, io) {
     },
     url,
     agentToken: () => hook.agentToken(env),
+    pathRules: o.pathRules || path,   // #6726: path.win32 in a test, so the Windows path rules run on any machine
+    cwd: o.cwd || (() => process.cwd()),
     refusedBy: (r) => (r.json && typeof r.json.error === 'string') ? clause(r.json.error) : null,
     /* The board is serving another Kosmos than this agent's. */
     wrongWorld: (r) => r.reached && r.status === WRONG_WORLD_STATUS && Boolean(r.json) && r.json.wrongWorld === true,
@@ -2960,7 +3450,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, DESCRIBE, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
+module.exports = { main, argvFrom, DESCRIBE, USAGE_REPLY_FILE, replyFileAbsolute, helpFor, readStandardInput, textFileDecoded, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG,
   taskList, // #1307: the task list's rendering (the webhook mark), for cli.task-webhook-1307.test.js
 };
 

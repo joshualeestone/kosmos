@@ -16,6 +16,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFile } = require('node:child_process');
+const { scaleBudget } = require('./test-support/eventually');   // #5727 Group C: scale the CLI kill budget by host load (floor 1 so CI is byte-identical)
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const TOKEN = 'ab'.repeat(16);
@@ -25,7 +26,7 @@ const envFor = (port, extra = {}) => ({ ...process.env, AGENT_WORKFORCE_DATA: DA
 
 function runCli(args, env) {
   return new Promise((resolve, reject) => {
-    const child = execFile(CLI, args, { env, timeout: 30000 }, (err, stdout, stderr) => {
+    const child = execFile(CLI, args, { env, timeout: scaleBudget(30000) }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '). ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
     });
@@ -65,7 +66,7 @@ const ID = '11111111-2222-4333-8444-555555555555';
 
 function runCliIn(args, env, input) {
   return new Promise((resolve, reject) => {
-    const child = execFile(CLI, args, { env, timeout: 30000 }, (err, stdout, stderr) => {
+    const child = execFile(CLI, args, { env, timeout: scaleBudget(30000) }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
     });

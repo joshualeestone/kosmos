@@ -165,6 +165,9 @@ connector_currency_check "$TUNNEL_BIN" "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-r
 # connector needs. KOSMOS_ALLOW_COORDINATOR_BEHIND=1 ships anyway.
 . "$REPO/tools/lib/coordinator-floor.sh"
 coordinator_floor_check "$TUNNEL_BIN" "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" "$REPO/tools/coordinator-floor" || exit 1
+# kosmos#7568: the service key set staged above must list the key the coordinator answers with (release.sh step 1d3).
+. "$REPO/tools/lib/service-keys-live.sh"
+service_keys_live_check "$REPO" || exit 1
 connector_pe_signed "$TUNNEL_BIN" || exit 1
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) _on_windows=1 ;; *) _on_windows=0 ;; esac
 _tunnel_sig="present (not verified: this build did not run on Windows)"
@@ -222,6 +225,11 @@ tr -d '\r' < "$REPO/tools/windows/kosmos.sh" > "$STAGE/bin/kosmos"
 # checks below FAIL THE BUILD rather than shipping the marker to a screen.
 _ver="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$STAGE/app/package.json" | head -1)"
 [ -n "$_ver" ] || { echo "could not read the version to bake into the page" >&2; exit 1; }
+# kosmos#7411: the release notes this build ships (nothing held, nothing newer than it, this platform's only), never
+# the pool itself.
+command -v node >/dev/null 2>&1 || { echo "writing the release notes needs node on this machine (kosmos#7411)" >&2; exit 1; }
+node "$REPO/tools/whats-new-pool.js" notes "$_ver" --platform=windows --out="$STAGE/app/release-notes.json" >/dev/null \
+  || { echo "could not write the release notes for $_ver (kosmos#7411)" >&2; exit 1; }
 sed -i '' "s/__KOSMOS_VERSION__/$_ver/" "$STAGE/app/web/index.html" 2>/dev/null \
   || sed -i "s/__KOSMOS_VERSION__/$_ver/" "$STAGE/app/web/index.html"
 if grep -q "__KOSMOS_VERSION__" "$STAGE/app/web/index.html"; then

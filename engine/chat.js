@@ -69,6 +69,7 @@ const { execFileSync } = require('node:child_process');
 
 const store = require('./store');
 const status = require('./status');
+const deliverystreak = require('./deliverystreak');   // #7212 slice 2
 const { withFileLock } = require('./filelock');
 
 /**
@@ -1002,9 +1003,16 @@ const composerReadable = (card) => !!card && String(card.runner || 'claude') ===
 /* #6256 item 1: true only when a Claude Code card's input box is read and holds nothing (roomhold's retry of posts
    held by text in the box); false for anything unread, so an unreadable box keeps its posts waiting. */
 function inputBoxEmpty(card) {
-  if (!composerReadable(card) || !card.target) return false;
+  return inputBoxReads(card) === 'empty';
+}
+/* #7212: what the box a delivery types into reads now: 'empty', 'text' (something unsent sits there), or 'unread' (no
+   Claude Code box Kosmos can read). inputBoxEmpty holds deliveries on both of the last two (the #6256 rule), and the
+   board log says which, because only 'text' is something a person or the stuck-input sweep can see and clear. */
+function inputBoxReads(card) {
+  if (!card || !composerReadable(card) || !card.target) return 'unread';
   const box = readComposer(paneTarget(card));   // review 5: the exact pane the delivery types into
-  return box.ok === true && box.text === '';
+  if (box.ok !== true) return 'unread';
+  return box.text === '' ? 'empty' : 'text';
 }
 /* After the Enter, how long the box may take to empty before it is called not sent (measured: 25 to 93 ms on 2.1.300,
    up to about a second for the first line after start on 2.1.296), and how often it is looked at. */
@@ -1143,6 +1151,7 @@ async function pressRememberedNow(target, card) {
     const mine = still && still.id === kept.id;
     if (outcome === 'sent') {
       if (mine) forgetUnsent(target);   // only the line this retry pressed
+      deliverystreak.note(name, { state: DELIVERY.PLACED });   // #7212 slice 2 round 3: a line Kosmos sent through ends the streak
       if (kept.seq != null) tellEarlierSubmitted(kept.seq);
       return 'sent';
     }
@@ -2349,7 +2358,8 @@ function typingGate(sessionName, raw, roster, envelope, trailer, at) {
 function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronousGap) {
   const at = new Date().toISOString();
   const problem = messageProblem(raw);
-  if (problem) return { state: DELIVERY.COULD_NOT, because: problem, at, paneState: null, paneNote: null };
+  // #7212 slice 2: contentRefused, so a refusal of the message itself never counts toward the agent's delivery stall.
+  if (problem) return { state: DELIVERY.COULD_NOT, because: problem, at, paneState: null, paneNote: null, contentRefused: true };
 
   /* kosmos#6436: every gate before the first keystroke, shared with the retry that presses a line left unsent. */
   const gate = typingGate(sessionName, raw, roster, envelope, trailer, at);
@@ -2386,7 +2396,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   let tail = '';
   if (typeof trailer === 'string' && trailer) {
     if (/[\r\n\u0000-\u0008\u000b-\u001f\u007f]/.test(trailer)) {
-      return { state: DELIVERY.COULD_NOT, because: 'the attached file\'s name has characters we will not type into a terminal', at, paneState: null, paneNote: null };
+      return { state: DELIVERY.COULD_NOT, because: 'the attached file\'s name has characters we will not type into a terminal', at, paneState: null, paneNote: null, contentRefused: true };
     }
     tail = trailer;
   }
@@ -2793,19 +2803,32 @@ function movedToldAfter(sessionName, m, v) {
   return v && typeof v.then === 'function' ? v.then(mark) : mark(v);
 }
 
-function deliver(sessionName, raw, roster, envelope, trailer, opts) {
-  const card = resolveCard(roster, sessionName);
-  const target = card && card.isNamedOurs === true ? paneTarget(card) : null;
-  if (target && deliveryQueues.has(target)) {
+/* #7212 slice 2: a delivery is noted under the card's own sessionName (the key its card field reads), not the name the
+   sender typed: resolveCard tolerates case, so `kosmos msg Casey` reaches casey's card and must count there. */
+function streakKey(sessionName, card) { return (card && typeof card.sessionName === 'string' && card.sessionName) || sessionName; }
+/* The verdict deliver gives when another message is still being placed in the agent's window, or null when it is not.
+   kosmos#7649: exported, so an awaited sender that must not queue behind that message (the community turn, which
+   deliverAsync would otherwise type right after it) can ask first and get the same verdict. Never throws. */
+function paneBusyVerdict(sessionName, roster) {
+  try {
+    const card = resolveCard(roster, sessionName);
+    const target = card && card.isNamedOurs === true ? paneTarget(card) : null;
+    if (!target || !deliveryQueues.has(target)) return null;
     return {
       state: DELIVERY.COULD_NOT,
       because: 'another message is still being placed in its window, so this one was not typed',
       at: new Date().toISOString(), paneState: null, paneNote: null,
       busy: true,   // #4951 review 7: the pane was busy, not unreachable; a caller counting tries need not count this one
     };
-  }
+  } catch { return null; }
+}
+function deliver(sessionName, raw, roster, envelope, trailer, opts) {
+  const card = resolveCard(roster, sessionName);
+  const busy = paneBusyVerdict(sessionName, roster);
+  if (busy) return busy;
   const m = movedNoteFor(sessionName, raw, opts, card);   // #5400 (a card that is not ours is refused before any typing)
-  return movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, false));
+  // #7212 slice 2: every verdict is noted, so an agent no line reaches for half an hour is said, whatever the cause.
+  return deliverystreak.noted(streakKey(sessionName, card), movedToldAfter(sessionName, m, deliverWithGap(sessionName, m ? m.text : raw, roster, envelope, trailer, false)));
 }
 
 /**
@@ -2830,9 +2853,10 @@ function quotaHeldVerdict(sessionName, roster, opts = {}) {
     // #4588 ask 3: the person's cap on how many Antigravity agents work at once (Settings > Automation). Not for a
     // send that follows the person's own click (opts.cap false: the restart wake and the handoff pickup).
     if (opts.cap === false) return null;
-    try { until = require('./agyquota').heldForCap(sessionName, roster, now); } catch { until = null; }
+    try { until = require('./agyquota').heldForCap(sessionName, roster, now, undefined, undefined, undefined, opts.workCap === true); } catch { until = null; }
     if (until === null) return null;
-    because = 'held: the Gemini subscription agents on this computer are at the limit you set for working at once; looking again at ' + new Date(until).toISOString();
+    // kosmos#7406: any other agent of ours is held by the per-account cap (engine/workcap-setting.js).
+    because = 'held: ' + require('./agyquota').capWords(sessionName, roster) + '; looking again at ' + new Date(until).toISOString();
   }
   return {
     state: DELIVERY.COULD_NOT, held: true, heldBy, heldUntil: new Date(until).toISOString(), because,
@@ -2907,12 +2931,27 @@ function limitHeldVerdict(sessionName, roster, now = Date.now()) {
    delivered (on Windows the supervisor even drops it). heldBy stays 'limit' so every #5805 path (the queue, its minute
    sweep, Send now anyway, the room's limit record) carries it unchanged; heldFor says why, for the words. limitReset is
    now: the queue's drop clock counts a day from the send, since a sign-in has no printed reset. heldUntil is the next
-   look. Released when the card no longer reads auth_failed (signed in again, or restarted). */
+   look. Released when the card no longer reads auth_failed (signed in again, or restarted).
+   #7369: a Claude agent is held too, but ONLY on the other class of auth_failed: the one READ (the Mac's screen line,
+   Windows' stream result; stateReported false), never the reported one. Two different clearing stories decide it:
+     - reported (StopFailure's "provider api (authentication_failed)"): nothing ever writes the report that ends it for
+       Claude (plan signedout-5948.md, "Why not Claude"), so a hold would last a day. Still refused here.
+     - read: while the card reads it, status kicks authprobe (`claude auth status` for the agent's own account, async,
+       30 s cache) and drops the auth_failed once that reads HEALTHY (reconcileReport, #1930), and a Windows turn that
+       succeeds clears it at the source. So the release needs no turn, which a held queue would never give it.
+   That second story holds only for an account authprobe can check (a Kosmos job on a Claude account, not a Qwen or
+   vendor home), so any other Claude card is not held, as before. Review 1: and only while that check POSITIVELY reads
+   signed out (status.claudeSignedOutConfirmed: authprobe EXPIRED), never on the label alone, so a re-check in flight
+   (UNCHECKED for a few seconds every 30 s) or an agent printing live 401s over a HEALTHY account holds nothing. */
 function signinHeldVerdict(sessionName, roster, now = Date.now()) {
   const card = Array.isArray(roster) ? resolveCard(roster, sessionName) : null;
-  // The REPORTED state only (the seam line): a screen-read auth_failed has no clearing writer on most runners.
-  if (!card || card.isNamedOurs !== true || card.state !== status.STATE.AUTH_FAILED || card.stateReported !== true) return null;
-  if (String(card.runner || 'claude') === 'claude') return null;   // the seam's own scope (status.reconcileReport)
+  if (!card || card.isNamedOurs !== true || card.state !== status.STATE.AUTH_FAILED) return null;
+  if (String(card.runner || 'claude') === 'claude') {
+    if (card.stateReported === true) return null;   // the reported line: never cleared for Claude (above)
+    if (status.claudeSignedOutConfirmed(card.sessionName || sessionName) !== true) return null;   // review 1: the account check must say signed out
+  } else if (card.stateReported !== true) {
+    return null;   // The REPORTED state only (the seam line): a screen-read auth_failed has no clearing writer on these runners.
+  }
   if (addressable(sessionName, roster).ok !== true) return null;
   const provider = require('./accountproblem').providerOf(card);
   return {
@@ -2957,14 +2996,14 @@ function menuHeld(sessionName, roster) {
 function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}) {
   let menuHold = null;
   try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
-  if (menuHold) return menuHold;
+  if (menuHold) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), menuHold);   // #7212 slice 2: a hold never reaches deliver
   let limitHold = null;
   try { limitHold = accountHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws (#5948: or signed out)
-  if (limitHold) return limitHold;
+  if (limitHold) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), limitHold);
   const held = quotaHeldVerdict(sessionName, roster, opts);
-  if (held) return held;
+  if (held) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), held);
   // #4588 ask 3 review 1: reserve the cap slot before the keystroke; a line that reached nothing gives it back.
-  const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now());
+  const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now(), undefined, undefined, undefined, opts.workCap === true);
   let v;
   try { v = deliver(sessionName, raw, roster, envelope, trailer); }
   catch (err) { require('./agyquota').releaseCapStart(slot); throw err; }   // review 4: a throw reached nothing either
@@ -2983,14 +3022,14 @@ function inputHold(v) {
 async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer, opts = {}) {
   let menuHold = null;
   try { menuHold = menuHeldVerdict(sessionName, roster); } catch { menuHold = null; }   // never throws (the floor still reads)
-  if (menuHold) return menuHold;
+  if (menuHold) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), menuHold);   // #7212 slice 2: a hold never reaches deliver
   let limitHold = null;
   try { limitHold = accountHeldVerdict(sessionName, roster); } catch { limitHold = null; }   // never throws (#5948: or signed out)
-  if (limitHold) return limitHold;
+  if (limitHold) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), limitHold);
   const held = quotaHeldVerdict(sessionName, roster, opts);
-  if (held) return held;
+  if (held) return deliverystreak.noted(streakKey(sessionName, resolveCard(roster, sessionName)), held);
   // Reserved synchronously, before the first await, so a parallel fan-out's next call already counts it.
-  const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now());
+  const slot = require('./agyquota').noteCapStart(sessionName, roster, Date.now(), undefined, undefined, undefined, opts.workCap === true);
   let v;
   try { v = await deliverAsync(sessionName, raw, roster, envelope, trailer); }
   catch (err) { require('./agyquota').releaseCapStart(slot); throw err; }
@@ -3001,7 +3040,7 @@ async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer
 async function deliverAsync(sessionName, raw, roster, envelope, trailer, opts) {
   const card = resolveCard(roster, sessionName);
   if (!card || card.isNamedOurs !== true) {
-    return deliverWithGap(sessionName, raw, roster, envelope, trailer, true);
+    return deliverystreak.noted(streakKey(sessionName, card), deliverWithGap(sessionName, raw, roster, envelope, trailer, true));   // #7212 slice 2
   }
   const target = paneTarget(card);
   const before = deliveryQueues.get(target) || Promise.resolve();
@@ -3012,7 +3051,7 @@ async function deliverAsync(sessionName, raw, roster, envelope, trailer, opts) {
   });
   deliveryQueues.set(target, delivery);
   try {
-    return await delivery;
+    return await deliverystreak.noted(streakKey(sessionName, card), delivery);   // #7212 slice 2
   } finally {
     if (deliveryQueues.get(target) === delivery) deliveryQueues.delete(target);
   }
@@ -5207,21 +5246,128 @@ function retryDmFinish(agent, at, text, delivery) {
       ...(delivery.state === DELIVERY.COULD_NOT ? { retryable: true } : {}) }));   // nothing typed again: it may be tried again
 }
 
+/* kosmos#7614: the person deletes one of their own messages in a direct conversation. The row leaves the thread file
+   (under the thread lock, the reactDirect pattern), so no reader sees it again. A copy still kept to type later
+   (out of usage, signed out, or held behind the input box) is taken out of the queue under its own claim, so the sweep
+   never types it. If the sweep is typing it at this moment, the claim fails: it is settled anyway, so a typing that
+   then fails leaves nothing to type again, and the note waits until that typing has finished, so the agent never reads
+   "withdrawn" before the message (review 1). It counts as given; if that typing did fail, the agent is told about a
+   message it never saw, which costs one line and misleads nobody. An agent that was
+   given it gets one line, never repeating the words, to treat it as withdrawn. A message in an earlier part of the
+   conversation is refused, as reactDirect refuses it: those files are kept as they were. Answers
+   { ok, code, error?, told }. */
+/* How long a delete waits for a kept copy the sweep is typing this moment, so the note follows it. Changed by tests. */
+const DELETE_WAIT = { pollMs: 100, capMs: 20000 };
+/* Review 3: true only when the thread reads and holds no row at that time (the person deleted it), so a row fix for it
+   has nothing to write to. Unreadable: false, so the fix is kept and retried as before. */
+function dmRowGone(agent, at) {
+  try { return !readThread(DIRECT, String(agent)).messages.some((m) => m && m.at === at); } catch { return false; }
+}
+function dmWithdrawnLine(at) {
+  const when = Number.isFinite(Date.parse(at)) ? new Date(at).toTimeString().slice(0, 5) : 'earlier';
+  return '[from Kosmos] The person deleted the message they sent you at ' + when
+    + '. Treat it as withdrawn. If you had started on it, stop and tell them what you had already done.';
+}
+async function deleteDirectAsync(agent, at, roster) {
+  const name = String(agent == null ? '' : agent).trim();
+  const when = String(at == null ? '' : at).trim();
+  if (!name || !when) return { ok: false, code: 404, error: 'there is no message of yours at that time here', told: [] };
+  let file;
+  try { file = threadFile(DIRECT, name); } catch { return { ok: false, code: 404, error: 'we could not find that conversation', told: [] }; }
+  const own = (m) => m && !m.from && m.kind !== 'kosmos' && m.kind !== 'question';
+  let held;
+  try {
+    held = withThreadLock(file, () => {
+      let thread;
+      try { thread = readThread(DIRECT, name); } catch { return { ok: false, code: 503, error: 'we cannot read this conversation right now' }; }
+      const hits = [];
+      thread.messages.forEach((m, i) => { if (m && m.at === when) hits.push(i); });
+      if (!hits.length) {
+        const earlier = thread.continues ? asideChain(DIRECT, name, true, thread.continues, thread.projectBornAt) : [];
+        if (earlier.some((a) => a.messages.some((m) => m && m.at === when && own(m)))) {
+          return { ok: false, code: 409, error: 'that message is in an earlier part of this conversation, which is kept as it was, so it cannot be deleted' };
+        }
+        return { ok: false, code: 404, gone: true, error: 'there is no message of yours at that time here' };
+      }
+      if (hits.length > 1) return { ok: false, code: 409, error: 'two messages share that time, so we could not tell which one you meant' };
+      const m = thread.messages[hits[0]];
+      if (!own(m)) return { ok: false, code: 403, error: 'you can delete only your own messages' };
+      /* Review 3: Try again (kosmos#6720) is typing it again this moment; deleting now would let those words land after
+         the delete with nothing to record them. The person tries again in a moment, once the send has finished. */
+      if (m.delivery && m.delivery.retrying === true) return { ok: false, code: 409, error: 'that message is being sent again right now, so wait a moment and try deleting it again' };
+      /* Review 5: a row in the carried head (this file's first `carried` rows, copies of the earlier file's end,
+         kosmos#5841) also lives in that earlier file, kept as it was; removing only the copy would let the chain show
+         the original again (or a row twice). It is refused as an earlier part's row is. */
+      if (Number.isInteger(thread.carried) && thread.continues && hits[0] < thread.carried) {
+        return { ok: false, code: 409, error: 'that message is in an earlier part of this conversation, which is kept as it was, so it cannot be deleted' };
+      }
+      const messages = thread.messages.slice();
+      messages.splice(hits[0], 1);
+      try { store.saveFlushed(file, JSON.stringify({ ...thread, messages }, null, 2)); }
+      catch { return { ok: false, code: 503, error: 'we could not change this conversation on this computer' }; }
+      return { ok: true, delivery: m.delivery && typeof m.delivery === 'object' ? m.delivery : null };
+    });
+  } catch { return { ok: false, code: 503, error: 'we could not change this conversation on this computer', told: [] }; }
+  // A busy lock says so (reactDirect's wording), rather than that something is wrong with this computer.
+  if (!held.ok) return { ok: false, code: 503, error: held.because || 'we could not change this conversation on this computer', told: [] };
+  const out = held.value;
+  if (!out.ok) return { ...out, told: [] };
+  const state = out.delivery && out.delivery.state;
+  let given = state === DELIVERY.PLACED || state === DELIVERY.UNCONFIRMED;
+  const limitqueue = require('./limitqueue');
+  // 'held' as a literal: DELIVERY has no HELD member; it is the state the limit queue writes on a kept row.
+  if (state === 'held') {
+    const kept = limitqueue.list(name).filter((e) => e && e.kind === 'dm' && e.at === when);
+    const inFlight = [];
+    for (const e of kept) {
+      if (limitqueue.claim(e.id)) { limitqueue.settle(name, e.id); limitqueue.release(e.id); }
+      // Being typed this moment, or held by a claim gone stale (CLAIM_STALE_MS): counted as given either way; the cost of
+      // the stale case is one "withdrawn" line about a message the agent may never have seen.
+      else { limitqueue.settle(name, e.id); inFlight.push(e.id); given = true; }
+    }
+    const until = Date.now() + DELETE_WAIT.capMs;
+    while (inFlight.some((id) => limitqueue.isTyping(id)) && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, DELETE_WAIT.pollMs));
+    }
+  }
+  /* Review 3: a kept copy the sweep already typed, whose row it could not yet mark (the fix waits for its next minute),
+     still reads "held" above with nothing left in the queue. That fix is the only record it was typed: read it first. */
+  try {
+    const fix = limitqueue.rowFixFor(name, when);
+    const fixed = fix && fix.delivery && fix.delivery.state;
+    if (fixed === DELIVERY.PLACED || fixed === DELIVERY.UNCONFIRMED) given = true;
+  } catch { /* nothing kept for it */ }
+  /* The sweep keeps a row whose new delivery it could not write and retries it every minute; this row is gone, so that
+     retry could never succeed (review 1). A fix the sweep adds after this (its typing outlived the wait) is dropped by
+     setRow itself, which sees the row is gone (dmRowGone, review 3). The note's order behind that typing comes from the
+     pane's delivery queue; the wait above bounds the row bookkeeping. */
+  try { limitqueue.forgetRow(name, when); } catch { /* nothing kept for it */ }
+  const told = [];
+  if (given) {
+    let v = null;
+    // Through the export, so a test records the note rather than typing it.
+    try { v = await module.exports.deliverAutomaticAsync(name, dmWithdrawnLine(when), roster); } catch { v = null; }
+    if (v && typeof v.state === 'string' && v.state !== DELIVERY.COULD_NOT) told.push(name);
+  }
+  return { ok: true, code: 200, told };
+}
+
 module.exports = {
   retryDmBegin, retryDmFinish,   // kosmos#6720
   setEarlierSubmittedHook,   // #6256 item 2
-  inputBoxEmpty,   // #6256 item 1
+  inputBoxReads, inputBoxEmpty,   // #6256 item 1
   updateDmDelivery,   // #5805 slice 2b
   setMovedTell,   // #5400
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
   cleanMessage, acknowledgementOnly, storeText, messageProblem, addressable, resolveCard, paneTarget,
+  deleteDirectAsync, DELETE_WAIT, dmRowGone,   // kosmos#7614
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   recoverStuckInput, setDraftSaver, withDraftRows, STUCK_INPUT_MS, stuckShrunk,   // kosmos#6717
-  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
+  deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, paneBusyVerdict, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, permissionCard, permissionRequestId, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
   threadFile, readThread, appendMessage, supersede, withThreadLock, asideChain, chainRows,

@@ -22,11 +22,11 @@ function liftSettle(env) {
 // The golden board card the browser checks use (never a hand-built one): the link names it.
 const CARD = require('./docs/browser-checks/fixtures/agent-card.json');
 function board({ present }) {
-  const env = { WANT_AGENT_GRACE_MS: 4000, WANT_AGENT: CARD.sessionName, CURRENT: null, WANT_AGENT_DONE: false, WANT_AGENT_FIRST_MISS: null, URL_TAB: 'detail',
+  const env = { WANT_AGENT_GRACE_MS: 4000, WANT_AGENT: CARD.sessionName, WANT_AGENT_SEC: null, CURRENT: null, WANT_AGENT_DONE: false, WANT_AGENT_FIRST_MISS: null, URL_TAB: 'detail',
     now: 1000, opens: 0, reveals: 0, tabs: [] };
   env.performance = { now: () => env.now };
-  env.openDetail = (who) => { env.opens += 1; if (present() && who === CARD.sessionName) env.CURRENT = CARD; };
-  env.detailRevealTalkOnPhone = () => { env.reveals += 1; };
+  env.openDetail = (who, sec) => { env.opens += 1; env.openedSec = sec; if (present() && who === CARD.sessionName) env.CURRENT = CARD; };
+  env.detailRevealTalkOnPhone = (key) => { env.reveals += 1; env.revealedKey = key; };
   env.showTab = (t) => { env.tabs.push(t); env.URL_TAB = t; };
   return env;
 }
@@ -45,10 +45,10 @@ test('the poll calls settleWantAgent, and it is the only boot open of the link',
   const tickSrc = html.slice(t0, html.indexOf('\n}\n', t0));
   assert.match(tickSrc, /\n    settleWantAgent\(\);\n/);
   assert.doesNotMatch(html, /if \(WANT_AGENT && !CURRENT\)/, 'the old every-poll open is gone');
-  const opens = html.match(/openDetail\(WANT_AGENT\)/g) || [];
+  const opens = html.match(/openDetail\(WANT_AGENT[,)]/g) || [];
   assert.equal(opens.length, 1, 'exactly one openDetail(WANT_AGENT), and it is in settleWantAgent');
   const fn = html.slice(html.indexOf('function settleWantAgent()'), html.indexOf('function settleWantAgent()') + 1200);
-  assert.match(fn, /openDetail\(WANT_AGENT\)/);
+  assert.match(fn, /openDetail\(WANT_AGENT[,)]/);
 });
 
 test('an agent on the board opens once, reveals once, and is never reopened', () => {
@@ -96,7 +96,7 @@ test('the Answer button arrival reveals it too, right after opening the agent', 
 
 test('it uses the SAME breakpoint that stacks the agent page', () => {
   assert.match(html, /@media \(max-width: 56rem\) \{\n  \.dbody \{ grid-template-columns: minmax\(0, 1fr\); \}/);
-  const fn = html.slice(html.indexOf('function detailRevealTalkOnPhone()'), html.indexOf('function detailRevealTalkOnPhone()') + 600);
+  const fn = html.slice(html.indexOf('function detailRevealTalkOnPhone('), html.indexOf('function detailRevealTalkOnPhone(') + 600);
   assert.match(fn, /matchMedia\(DETAIL_STACK_MQ\)/);
   assert.match(html, /const DETAIL_STACK_MQ = '\(max-width: 56rem\)';/);
   // The page's other side of that edge (older code) is written as 56.01rem; every min-width
@@ -108,7 +108,7 @@ test('it uses the SAME breakpoint that stacks the agent page', () => {
 });
 
 function lift(matches, talk, env = {}) {
-  const i = html.indexOf('function detailRevealTalkOnPhone()');
+  const i = html.indexOf('function detailRevealTalkOnPhone(');
   const src = html.slice(i, html.indexOf('\n}\n', i) + 2);
   const listeners = {};
   const e = Object.assign({
@@ -187,4 +187,18 @@ test('a link is spent once the person opens some other agent themselves', () => 
   assert.equal(env.WANT_AGENT_DONE, true);
   env.CURRENT = null; settle();
   assert.equal(env.opens, 1, 'never reopened to pull them away');
+});
+
+test('#7280: a link naming a section opens the agent at that section and reveals it; without one, the conversation', () => {
+  const env = board({ present: () => true });
+  env.WANT_AGENT_SEC = 'model';
+  liftSettle(env)();
+  assert.equal(env.opens, 1);
+  assert.equal(env.openedSec, 'model', 'the section reaches openDetail');
+  assert.equal(env.revealedKey, 'model', 'and the reveal is of that section');
+  // CONTROL: the same link with no section is the conversation, as before #7280.
+  const plain = board({ present: () => true });
+  liftSettle(plain)();
+  assert.equal(plain.openedSec, undefined);
+  assert.equal(plain.revealedKey, 'talk');
 });

@@ -86,6 +86,19 @@ const POSTED_ROOM_COOLDOWN_MS = 10 * 60 * 1000;
 const COOLDOWN_PRUNE_MS = POSTED_ROOM_COOLDOWN_MS;   // the longest; an entry older than this has expired for every class
 
 const file = () => path.join(remote.stateDir(), 'phone-notify.json');
+/* #7448 (after #7446: a demo board signed in to a real account pushed its made-up agents to that person's phone): a
+   computer can be marked never to send phone notices, for a demo or test install. Either the file below (made once by
+   whoever sets the install up, kept across restarts, updates and Forget computer: it sits beside remote.json, outside
+   the tunnel state dir that Forget empties, as the person's own off does) or KOSMOS_NO_PHONE_NOTICES=1 (a check run). While
+   marked: nothing is sent, the switch never turns itself on, a press is refused with the reason, and Settings says
+   why. The coordinator may still keep its own list (#7446); this is the board's half, so it holds wherever it runs. */
+const noPushFile = () => path.join(path.dirname(remote.FILE), 'no-phone-notices');
+function noPush() {
+  if (process.env.KOSMOS_NO_PHONE_NOTICES === '1') return true;
+  // Review 1: only "not there" is unmarked; any other failure to look (no permission, a broken path) counts as marked.
+  try { fs.lstatSync(noPushFile()); return true; } catch (e) { return !(e && e.code === 'ENOENT'); }
+}
+const NO_PUSH_WHY = 'this computer was set up as a demo or test install, so it never sends phone notices';   // Mona Lisa's words (#7448)
 // #6488: the person's off, kept beside remote.json and OUTSIDE the tunnel state dir, because removing this computer
 // from Kosmos+ deletes that dir (remote.forget), and a reconnect must not turn back on what the person turned off.
 // It holds only { off: true }: no token. Written by turnOff (and by ensureDefaultOn, copying an off from before
@@ -219,6 +232,8 @@ function status() {
   const offByChoice = !s.on && masterChoice() === 'off';
   // defaultBecause: why it has not turned on by itself yet (Settings says it instead of promising), or null.
   // #6488: connected means Kosmos+ is live here (signed in AND switched on), the only state anything is sent in.
+  // #7448: a computer marked never to send says so (noPush), and is shown off whatever an older file holds.
+  if (noPush()) return { available: true, on: false, connected: plusLive(), kinds: s.kinds, offByChoice: false, defaultBecause: null, noPush: true, because: NO_PUSH_WHY };
   return { available: true, on: s.on, connected: plusLive(), kinds: s.kinds, offByChoice,
     defaultBecause: !s.on && !offByChoice ? defaultBecause : null };
 }
@@ -232,6 +247,7 @@ function status() {
 let turningOn = null;
 function turnOn(opts) {
   if (!available) return Promise.resolve({ ok: false, because: 'phone notifications are not available yet' });
+  if (noPush()) return Promise.resolve({ ok: false, notSent: true, because: NO_PUSH_WHY });   // #7448
   if (!turningOn) turningOn = doTurnOn(opts || {}).finally(() => { turningOn = null; });
   return turningOn;
 }
@@ -268,6 +284,8 @@ async function doTurnOn({ quiet } = {}) {
   if (!remote.enrolled()) return { ok: false, because: 'This computer was removed from Kosmos+ while turning on.' };
   const token = minted.data && typeof minted.data.token === 'string' ? minted.data.token : '';
   if (!TOKEN_SHAPE.test(token)) return { ok: false, minted: true, because: 'Kosmos+ answered in a shape we could not use.' };
+  // #7448 review 1: the mark appeared while this turn-on was out: nothing is saved on, and the press is told why.
+  if (noPush()) return { ok: false, notSent: true, because: NO_PUSH_WHY };
   const saved = writeState({ on: true, notifyId, token, kinds: storedKinds() });
   if (!saved.ok) return { ok: false, minted: true, because: 'This setting could not be saved on this computer.' };
   writeChoice(false);   // #6488: turning on undoes the person's earlier off
@@ -315,6 +333,32 @@ function plusLive() {
   try { return remote.enrolled() === true && remote.read().on === true; } catch { return false; }
 }
 
+/* #7448 (with #7458, Ice Cream Kitty's coordinator half): the board tells the coordinator whether this computer sends phone
+   notices (signed POST /v1/mac/phone-notices { send }), so it drops a muted computer's events too and the account's
+   computer list can show it. Reported on the default-on schedule (at start, after a sign-in, then every few minutes)
+   whenever the mark differs from what the coordinator last answered 2xx for, per computer id (a Forget plus a new
+   sign-in is a new id, so it is reported again). Any failure, a 404 before the coordinator has the route included, is
+   only retried on that schedule: never read as "notices off", never blocking the board. Nothing goes to Kosmos+ while
+   it is switched off here (plusLive). */
+const PHONE_NOTICES_ROUTE = '/v1/mac/phone-notices';
+let noticesReported = null;   // { mac, send } the coordinator last confirmed
+let noticesInFlight = null;   // review 1: one report at a time; a tick during one waits for nothing
+async function reportPhoneNotices() {
+  if (noticesInFlight) return null;
+  try {
+    if (!remote.enrolled() || !plusLive()) return null;
+    const mac = remote.macIdHere();
+    const send = !noPush();
+    if (noticesReported && noticesReported.mac === mac && noticesReported.send === send) return null;
+    noticesInFlight = remote.macRequest('POST', PHONE_NOTICES_ROUTE, { send });
+    const r = await noticesInFlight;
+    // Review 1: confirmed only by the coordinator's own echo (#7458 answers { ok, send }): an old coordinator or any
+    // answer without it is a failure to retry, never a confirmation.
+    if (r && r.ok === true && r.data && r.data.send === send) { noticesReported = { mac, send }; return { ok: true, send }; }
+    return { ok: false };
+  } catch { return null; } finally { noticesInFlight = null; }
+}
+
 let defaultBecause = null;   // #6488: why the default could not turn it on, last time (the person's sentence), or null
 
 /** #6488: turn phone notifications on for a computer whose person never touched the switch, once it is connected to
@@ -323,6 +367,9 @@ let defaultBecause = null;   // #6488: why the default could not turn it on, las
     one-at-a-time guard. Resolves to turnOn's answer, or null when it did nothing. Never throws. */
 async function ensureDefaultOn() {
   try {
+    // #7448: started first, whatever the switch does, and not awaited (review 1): a slow coordinator never holds up the
+    // default turn-on. It never throws.
+    reportPhoneNotices().catch(() => {});
     if (!available) return null;
     const choice = masterChoice();
     // An off that lives only in phone-notify.json (one from before #6488: a token or notifyId held with the switch
@@ -333,6 +380,7 @@ async function ensureDefaultOn() {
     if (choice === 'off' && !choiceSaysOff() && stateSaysOff()) writeChoice(true);
     if (!remote.enrolled()) { defaultBecause = null; return null; }
     if (choice !== 'unset') { defaultBecause = null; return null; }
+    if (noPush()) { defaultBecause = null; return null; }   // #7448: a demo or test install never turns itself on
     // Signed in but Kosmos+ switched off on this computer: the person took it off Kosmos+, so nothing is minted
     // and nothing about agents goes there until they switch it back on (Settings reads it as not connected).
     if (!plusLive()) { defaultBecause = null; return null; }
@@ -473,7 +521,9 @@ const lastSent = new Map();   // "<cooldownClass>:<key>" -> when it last buzzed
 function routeFor(event) {
   const agentKey = String(event.session || event.agent || '');
   switch (event.kind) {
-    case 'needs_you': return { sw: 'needsYou', cls: 'needs_you', key: agentKey, ms: NEEDS_YOU_COOLDOWN_MS };
+    /* kosmos#7212: a delivery stall (board-side flag `stall`, never in the payload) keeps its own window, so a permission
+       prompt's buzz and a stall's do not swallow each other. How often a stall is told is deliverystreak.pushDue's. */
+    case 'needs_you': return { sw: 'needsYou', cls: event.stall === true ? 'needs_you_stall' : 'needs_you', key: agentKey, ms: NEEDS_YOU_COOLDOWN_MS };
     case 'replied': return { sw: 'replied', cls: null };
     case 'ready': return { sw: 'ready', cls: 'ready', key: agentKey, ms: READY_COOLDOWN_MS };
     case 'posted': return event.namesPerson
@@ -486,7 +536,12 @@ function routeFor(event) {
   }
 }
 
-function defaultSend(url, headers, body) {
+/* kosmos#7212 review 6: `done(ok)`, when given, is told once whether the push is settled, so a caller that counts a push
+   can take it back when a retry could still land it. Review 7: ok is false only for what a retry can fix (no answer, a
+   network error, a timeout, a 5xx or a 429); a 2xx, or a 4xx that will refuse again (a revoked token), is settled. */
+function defaultSend(url, headers, body, done = null) {
+  let said = false;
+  const tell = (ok) => { if (said || typeof done !== 'function') return; said = true; try { done(ok); } catch { /* the caller's */ } };
   const u = new URL(url);
   const req = (u.protocol === 'http:' ? http : https).request(
     { method: 'POST', hostname: u.hostname, port: u.port || undefined, path: u.pathname,
@@ -497,34 +552,57 @@ function defaultSend(url, headers, body) {
       if (res.statusCode < 200 || res.statusCode >= 300) {
         process.stderr.write('phonenotify: Kosmos+ answered ' + res.statusCode + ' to a notification\n');
       }
+      tell(res.statusCode < 500 && res.statusCode !== 429);
       res.resume();
     },
   );
   req.on('error', (err) => {
     process.stderr.write('phonenotify: could not reach Kosmos+: ' + ((err && err.code) || 'error') + '\n');
+    tell(false);
   });
   req.on('timeout', () => { try { req.destroy(); } catch { /* gone */ } });
   req.end(body);
 }
 
+/* #7210: a project's notification level, asked of the board's project store (server.js sets it; engine/projects.js
+   notifyLevel). Never set (a test, a board that has not wired it): every project reads as 'all'. */
+let projectLevel = null;
+function setProjectLevel(fn) { projectLevel = typeof fn === 'function' ? fn : null; }
+/** Whether a project's level lets this route through. 'muted' sends nothing from the project; 'mentions' keeps what is
+    addressed to the person (an agent that needs them, a post naming them, work waiting for their check) and drops any
+    other room post. An event with no project (a crash loop, an answer) belongs to an agent, never to a project. */
+function levelAllows(event, route) {
+  const pid = event.levelProjectId || event.projectId;
+  if (!pid || !projectLevel) return true;
+  let level = 'all';
+  try { level = projectLevel(String(pid)); } catch { level = 'all'; }
+  if (level === 'muted') return false;
+  if (level === 'mentions') return route.sw !== 'postedRoom';
+  return true;
+}
+
 /** Tell the coordinator something happened. Never throws, never awaited. Sends
-    only when on, connected, holding a token, and the kind is one we send. */
+    only when on, connected, holding a token, and the kind is one we send. kosmos#7212 review 2: returns true when it
+    handed a notification to the coordinator (whether the coordinator got it is not known here), false otherwise. */
 function happened(event) {
+  let sent = false;   // kosmos#7212 review 2: whether this call handed a notification to the coordinator
   try {
-    if (!available) return;
-    if (!event || !KINDS.has(event.kind)) return;
+    if (!available) return false;
+    if (!event || !KINDS.has(event.kind)) return false;
+    if (noPush()) return false;   // #7448: a demo or test install never reaches a phone
     const route = routeFor(event);
-    if (!route) return;
-    if (!sender && process.env.NODE_TEST_CONTEXT) return;
+    if (!route) return false;
+    if (!levelAllows(event, route)) return false;   // #7210, before the cooldown so a muted event spends no window
+    if (!sender && process.env.NODE_TEST_CONTEXT) return false;
     const s = readState();
-    if (!s.on || !s.token || !s.notifyId) return;
-    if (!s.kinds[route.sw]) return;   // #6254: this kind's sub-switch is off
-    if (!plusLive()) return;   // #6488: signed in is not enough; Kosmos+ switched off here sends nothing
+    if (!s.on || !s.token || !s.notifyId) return false;
+    if (!s.kinds[route.sw]) return false;   // #6254: this kind's sub-switch is off
+    if (!plusLive()) return false;   // #6488: signed in is not enough; Kosmos+ switched off here sends nothing
     if (route.cls) {
       const ckey = route.cls + ':' + route.key;
       const now = clock();
       const last = lastSent.get(ckey);
-      if (last !== undefined && now - last < route.ms) return;
+      if (last !== undefined && last <= now && now - last < route.ms) return false;   // kosmos#7212 review 6: a time from the future (a clock that went back) holds nothing
       if (lastSent.size > 500) {
         for (const [k, t] of lastSent) if (now - t >= COOLDOWN_PRUNE_MS) lastSent.delete(k);
       }
@@ -532,8 +610,21 @@ function happened(event) {
     }
     const url = coordinatorUrl(NOTIFY_ROUTE);
     const body = JSON.stringify(payload(s.notifyId, event));
-    (sender || defaultSend)(url, { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body);
+    // kosmos#7212 review 6: an event's onResult (board-side, never in the payload) hears whether Kosmos+ took it.
+    (sender || defaultSend)(url, { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body, typeof event.onResult === 'function' ? event.onResult : null);
+    sent = true;
+    // kosmos#6487: a plain lock-screen notice is explained by this line and the phonenotice line after it. The id's
+    // kind and the session only, never the words. Written after the send, so a send that throws logs nothing. The
+    // phone asks with the id AS SENT (cut to CAPS.id), so judge that one.
+    const notice = require('./phonenotice');
+    const sentId = cap(event.id, CAPS.id);
+    const can = notice.parseId(sentId) === null ? '; the phone cannot ask for its words, so it shows plain'
+      : sentId !== event.id ? '; its id was cut to fit, so the phone\'s ask finds no words and it shows plain'
+        : '; the phone can ask for its words';
+    const who = notice.logName(event.session);
+    process.stderr.write('phonenotify: sent ' + event.kind + ' (' + notice.idKind(event.id) + ') ref ' + notice.idRef(sentId) + (who ? ' for ' + who : '') + can + '\n');
   } catch { /* a notification is never a reason to fail the report it rides on */ }
+  return sent;
 }
 
-module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
+module.exports = { noPush, NO_PUSH_WHY, reportPhoneNotices, PHONE_NOTICES_ROUTE, resetNoticesReportedForTests: () => { noticesReported = null; }, whenNoticesIdle: () => (noticesInFlight || Promise.resolve()).catch(() => {}), setProjectLevel, PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };

@@ -520,6 +520,7 @@ if [ -z "$adopt" ]; then
   # runs on (CLAUDE_CONFIG_DIR for claude, CODEX_HOME for codex). Absent
   # means the default, the plist's own rule, so nothing is passed for it.
   PANE_ENV=()
+  RESTORED_WORLD=""   # kosmos#5536 4c-1: 1 when KOSMOS_WORLD is a world a restore made (set after the world block)
   ENDPOINT_ARGS=()   # #5977: set by the codex block for a Qwen account; empty means the OpenAI launch
   SECRET_ENV=()
   SECRET_ENTRY=()
@@ -549,6 +550,43 @@ if [ -z "$adopt" ]; then
     # launch costs the fleet.
     KOSMOS_AGENT_TOKEN=""
     resolve_token_engine
+    # ── kosmos#5536 4c-1: A WORLD A RESTORE MADE ────────────────────────────
+    # Its projects keep their own .git, whose core.hooksPath and core.fsmonitor run commands
+    # when the provider runs git there, and those came from the backup. engine/restoreworld.js
+    # isRestoredWorld is the one test; any doubt reads as restored (it fails closed, and so does
+    # this: a throw, no answer, or no engine or node to ask with is "1" for a named world). It runs BEFORE the world block below, while this shell's
+    # roots are still the real base: that block exports the world's roots without the marker that
+    # records the originals, so a check after it reads the world folder as the base, finds no
+    # world there and answers "not restored" (the first version did exactly that; its test caught
+    # it). Kept in a shell variable, NEVER exported: a supervisor that cold-starts the tmux server
+    # hands it this shell's environment, and an exported guard would then reach every later pane
+    # in every world. It rides only this pane's -e, below.
+    if [ -n "${KOSMOS_WORLD:-}" ] && [ "$KOSMOS_WORLD" != default ]; then
+      if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/restoreworld.js" ]; then
+        RESTORED_WORLD="$("$NODE_BIN" -e '
+          try {
+            const w = require(process.argv[1] + "/worlds.js");
+            const r = require(process.argv[1] + "/restoreworld.js");
+            const base = w.baseRoot(w.preWorldEnv(process.env));
+            process.stdout.write(r.isRestoredWorld(base, { id: process.env.KOSMOS_WORLD }) ? "1" : "0");
+          } catch (e) { process.stdout.write("1"); }
+        ' "$_eng" 2>/dev/null || true)"
+        [ "$RESTORED_WORLD" = 0 ] || RESTORED_WORLD=1
+      else
+        RESTORED_WORLD=1   # a named world this launch cannot check reads as restored (an engine or node gone)
+      fi
+    fi
+    # The mark also beside the agent's own folder: a restored agent lives at <world>/workers/<name> (finishRestoreWorld
+    # moves it there), with the mark at <world>/restored-world.json. This needs no base, so a launch whose environment
+    # names another base than the board that made the world still sees it. The name is restoreworld.js's RESTORED_MARK
+    # (a test pins the two equal).
+    # Absolute paths only (a relative one would be read from this shell's cwd), and -L too, so a mark that is a link
+    # counts as present, as isRestoredWorld's lstat does.
+    case "${WORKDIR:-}" in
+      /*) _mark="$(dirname "$(dirname "$WORKDIR")")/restored-world.json"
+          if [ "$RESTORED_WORLD" != 1 ] && { [ -e "$_mark" ] || [ -L "$_mark" ]; }; then RESTORED_WORLD=1; fi
+          unset _mark ;;
+    esac
     # ── #1704: THIS AGENT'S KOSMOS ──────────────────────────────────────────
     # The plist set KOSMOS_WORLD for a named world (absent = the default world).
     # Resolve it into this world's store roots ONCE, here, and export them, so
@@ -726,6 +764,7 @@ if [ -z "$adopt" ]; then
 
   cleanup_launch_secrets() {
     [ -n "${SECRET_FILE:-}" ] && rm -f -- "$SECRET_FILE" 2>/dev/null || true
+    [ -n "${COMPAT_TMP:-}" ] && rm -f -- "$COMPAT_TMP" 2>/dev/null || true   # #7206 review 1
     # #4530: a launch that minted and then never started its session (every `|| exit 1`
     # below, or losing the name to another launch) leaves a token no run holds.
     # ⚠️ RUN_STARTED is set by EVERY path that creates the session: launch_pane, and the
@@ -746,6 +785,13 @@ if [ -z "$adopt" ]; then
 
   launch_pane() {
     prepare_secret_entry
+    # #7206 review 2: a vendor account's key travels only as a launch secret. If that handoff could not be built, the
+    # pane would run with the vendor's address and NO key of its own, and any token in tmux's global environment would
+    # be sent to the vendor instead. Refuse rather than launch.
+    if [ "${COMPAT_KEYED:-0}" = 1 ] && [ "${#SECRET_ENTRY[@]}" -eq 0 ]; then
+      say "$SESSION: its provider key could not be handed to the agent privately; the agent was not started"
+      return 1
+    fi
     # #4530: marked started BEFORE new-session and unmarked if it fails. bash holds a trapped
     # SIGTERM until new-session returns, so marking after it would let a stop during the call
     # (long when it starts the tmux server) retire a run that now exists. Marked early, the
@@ -932,6 +978,16 @@ if [ -z "$adopt" ]; then
   PANE_ENV+=(-e "AGENT_WORKFORCE_DATA=${AGENT_WORKFORCE_DATA:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_PROJECTS=${AGENT_WORKFORCE_PROJECTS:-}")
   PANE_ENV+=(-e "AGENT_WORKFORCE_WORKERS=${AGENT_WORKFORCE_WORKERS:-}")
+  # kosmos#5536 4c-1: in a world a restore made, every git the provider runs starts with the folder's hooks and
+  # fsmonitor off (GIT_CONFIG_COUNT needs git 2.31 or later; an older git ignores it silently). ONLY those two: a restored .git/config can still run commands through keys env config cannot switch
+  # off in general (a filter driver named by .gitattributes, textconv, core.pager, core.sshCommand, a credential helper,
+  # an include). Those are for the review screen (4c-2) to show before the person enables the agent. An inherited
+  # GIT_CONFIG_COUNT is replaced, not extended: its entries are lost in this pane, which errs toward the guard. Git's environment config is command scope, so it outranks a repo's own .git/config (measured on
+  # git 2.53: a pre-commit hook and an fsmonitor command each ran once without it and not at all with it).
+  if [ "$RESTORED_WORLD" = 1 ]; then
+    PANE_ENV+=(-e "GIT_CONFIG_COUNT=2" -e "GIT_CONFIG_KEY_0=core.hooksPath" -e "GIT_CONFIG_VALUE_0=/dev/null" \
+      -e "GIT_CONFIG_KEY_1=core.fsmonitor" -e "GIT_CONFIG_VALUE_1=false")
+  fi
   # #4466: ALWAYS, so the `kosmos` CLI can tell an agent from a person and refuse an agent's
   # stop/restart of a board that answers (an agent restarted a busy board 140 times in an hour).
   # Not a secret: the session name. The token above can be absent (a failed mint), this cannot.
@@ -1456,6 +1512,62 @@ if [ -z "$adopt" ]; then
     launch_pane "$NODE_BIN" "$_eng/musefront.js" "$WORKDIR" || exit 1
     unset _MUSE_ENV _MUSE_DIR
   else
+    # #7206: an account home named for a vendor whose endpoint speaks Claude Code's API (~/.kosmos-deepseek-<label>,
+    # engine/anthropiccompat.js) points this agent at that vendor with the person's key. The one way an ANTHROPIC_*
+    # value reaches a pane today is the tmux server's global environment (nothing above forwards one or hands one in as
+    # a secret): each variable the account sets is a -e pair, which beats it, and every other launch variable is
+    # removed with env -u, so nothing inherited can send the agent or its key somewhere else. The key
+    # travels as a launch secret, never in tmux's environment. A folder named for a vendor whose settings cannot be used
+    # stops the launch with the reason: starting Claude Code against Anthropic with no sign-in would only fail later,
+    # in words about Claude.
+    COMPAT_PREFIX=()
+    case "$(basename "${EFFECTIVE_CCD:-}")" in
+      .kosmos-deepseek-?*)
+        if [ -z "${_eng:-}" ] || [ -z "${NODE_BIN:-}" ] || [ ! -f "$_eng/anthropiccompat.js" ]; then
+          say "$SESSION: Kosmos could not load its provider helper; the agent was not started"
+          exit 1
+        fi
+        _cx_file="$(mktemp)" || { say "$SESSION: could not read its provider account; the agent was not started"; exit 1; }
+        COMPAT_TMP="$_cx_file"   # review 1: it holds the key until read; the EXIT trap removes it if the launch is cut short
+        _cx_rc=0
+        "$NODE_BIN" "$_eng/anthropiccompat.js" launch-env "$EFFECTIVE_CCD" > "$_cx_file" 2>/dev/null || _cx_rc=$?
+        if [ "$_cx_rc" -ne 0 ]; then
+          _cx_why="$(head -c 300 "$_cx_file" | tr -d '\n')"
+          say "$SESSION: ${_cx_why:-Kosmos could not read this provider account}; the agent was not started"
+          rm -f -- "$_cx_file"
+          exit 1
+        fi
+        _cx_set=()
+        while IFS= read -r -d '' _cx_pair; do _cx_set+=("$_cx_pair"); done < "$_cx_file"
+        rm -f -- "$_cx_file"
+        COMPAT_TMP=""
+        if [ "${#_cx_set[@]}" -eq 0 ]; then
+          say "$SESSION: its provider account gave no launch settings; the agent was not started"
+          exit 1
+        fi
+        # Set what the account names: the key as a launch secret, the rest as -e pairs (a -e pair beats tmux's global
+        # environment). The model also goes to --model, since $MODEL would otherwise send a claude-* id to the vendor.
+        _cx_unset=(ANTHROPIC_API_KEY ANTHROPIC_CUSTOM_HEADERS ANTHROPIC_BETAS CLAUDE_CODE_USE_BEDROCK CLAUDE_CODE_USE_VERTEX CLAUDE_CODE_USE_FOUNDRY CLAUDE_CODE_OAUTH_TOKEN)
+        for _cx_pair in "${_cx_set[@]}"; do
+          case "$_cx_pair" in
+            ANTHROPIC_AUTH_TOKEN=*)
+              add_launch_secret ANTHROPIC_AUTH_TOKEN "${_cx_pair#ANTHROPIC_AUTH_TOKEN=}"
+              # Review 3: add_launch_secret can decline a value and still return 0; the key itself must be queued.
+              case " ${SECRET_ENV[*]-} " in *" ANTHROPIC_AUTH_TOKEN="*) ;; *)
+                say "$SESSION: its provider key could not be handed to the agent privately; the agent was not started"
+                exit 1 ;;
+              esac
+              COMPAT_KEYED=1 ;;
+            ANTHROPIC_MODEL=*) MODEL="${_cx_pair#ANTHROPIC_MODEL=}"; PANE_ENV+=(-e "$_cx_pair") ;;
+            ANTHROPIC_*=*|CLAUDE_CODE_*=*) PANE_ENV+=(-e "$_cx_pair") ;;
+          esac
+        done
+        # The variables the account does not set are removed outright, so a server-global value cannot reach the pane.
+        COMPAT_PREFIX=(/usr/bin/env)
+        for _cx_var in "${_cx_unset[@]}"; do COMPAT_PREFIX+=(-u "$_cx_var"); done
+        unset _cx_file _cx_rc _cx_why _cx_set _cx_pair _cx_var _cx_unset
+        ;;
+    esac
     # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
     # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs
     # THIS script, not create.js, and --dangerously-skip-permissions does NOT answer the
@@ -1500,9 +1612,9 @@ if [ -z "$adopt" ]; then
       unset _perm
     fi
     if [ -n "$MODEL" ]; then
-      launch_pane "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} ${PERM_ARGS[@]+"${PERM_ARGS[@]}"} --dangerously-skip-permissions --model "$MODEL" || exit 1
+      launch_pane ${COMPAT_PREFIX[@]+"${COMPAT_PREFIX[@]}"} "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} ${PERM_ARGS[@]+"${PERM_ARGS[@]}"} --dangerously-skip-permissions --model "$MODEL" || exit 1
     else
-      launch_pane "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} ${PERM_ARGS[@]+"${PERM_ARGS[@]}"} --dangerously-skip-permissions || exit 1
+      launch_pane ${COMPAT_PREFIX[@]+"${COMPAT_PREFIX[@]}"} "$CLAUDE" ${MCP_ARGS[@]+"${MCP_ARGS[@]}"} ${PERM_ARGS[@]+"${PERM_ARGS[@]}"} --dangerously-skip-permissions || exit 1
     fi
   fi
 fi

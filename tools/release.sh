@@ -437,11 +437,79 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # builds on). Sourced here, before the freeze, like the libs above.
 . "$REPO/tools/lib/connector-provenance.sh"
 . "$REPO/tools/lib/connector-currency.sh"
+. "$REPO/tools/lib/release-linux.sh"   # kosmos#7281: the Linux x86_64 family, in lockstep with the Mac pointer
 . "$REPO/tools/lib/coordinator-floor.sh"
+. "$REPO/tools/lib/service-keys-live.sh"   # kosmos#7568: step 1d3
 # kosmos#6620: a cut moves a release pointer, so none starts while the site is frozen (tools/pointer-freeze.sh, the
 # incident pin). Before the cut marks itself, so a frozen site refuses without registering a cut.
 . "$REPO/tools/lib/pointer-freeze.sh"
 pointer_freeze_refuse "$SITE" release.sh || exit 1
+# kosmos#7349: step 1b-ii's two What's New checks, in one function so the early run below and 1b-ii cannot drift.
+# 0 goes on; 1 stops (the tools say why on stderr). prod-check's 4 (prod could not be read) goes on; $1 = note says so,
+# and $1 = quiet keeps prod-check's reason for a 4 to itself too (it would read as an error with no "goes on" beside it).
+_whats_new_check() { node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" --platform=mac; }
+_whats_new_prod_check() { node "$REPO/tools/whats-new-pool.js" prod-check --pool="$REPO/release/whats-new-pool.json"; }
+# kosmos#7617: the committed list must still be what the pool builds for $V. A list built early (#7615: each cut builds
+# its own first) misses a pool item merged after it, and both checks above stay green. Offline is right: it compares the
+# list with the pool in the same tree, which does not depend on prod (in whats_new_gate prod-check has just run; at
+# 2b-ii it has not, on the frozen tree, and need not). Only the highlights are compared (key order aside):
+# whats-new-check has already said the file is for $V, by "version" or by "also" (#4928), and a rebuild always writes
+# "version": $V. $1 is the tree (default $REPO; 2b-ii passes the frozen $BUILD). $2 = note prints the pass.
+_whats_new_fresh_check() {
+  local dir="${1:-$REPO}" tmp berr rc=0
+  tmp="$(mktemp)" || { echo "release: the What's New freshness check (kosmos#7617) could not make a temp file" >&2; return 1; }
+  berr="$(node "$dir/tools/whats-new-pool.js" build "$V" --offline --pool="$dir/release/whats-new-pool.json" --out="$tmp" 2>&1 >/dev/null)" || rc=$?
+  if [ "$rc" != 0 ]; then
+    rm -f "$tmp"
+    printf '%s\n' "$berr" >&2
+    echo "release: the What's New pool does not build a list for $V (kosmos#7617, build exit $rc, its reason above), so web/whats-new.json cannot be checked against it. Fix release/whats-new-pool.json, then node tools/whats-new-pool.js build $V on a branch, merged to main." >&2
+    return 1
+  fi
+  # 1 = they differ; 2 = a list could not be read or parsed (its own reason, never reported as a stale list).
+  node -e 'const fs = require("fs");
+    const s = (v) => Array.isArray(v) ? v.map(s) : (v && typeof v === "object") ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, s(v[k])])) : v;
+    const f = (p) => JSON.stringify(s(JSON.parse(fs.readFileSync(p, "utf8")).highlights));
+    let a, b;
+    try { a = f(process.argv[1]); b = f(process.argv[2]); } catch (e) { process.stderr.write(String(e && e.message || e) + "\n"); process.exit(2); }
+    process.exit(a === b ? 0 : 1);' "$tmp" "$dir/web/whats-new.json" || rc=$?
+  rm -f "$tmp"
+  if [ "$rc" = 2 ]; then
+    echo "release: the What's New freshness check (kosmos#7617) could not compare web/whats-new.json with what the pool builds for $V (the reason above), so the cut stops." >&2
+    return 1
+  elif [ "$rc" != 0 ]; then
+    echo "release: web/whats-new.json is not what release/whats-new-pool.json builds for $V now (kosmos#7617: a pool item changed after the list was built). node tools/whats-new-pool.js build $V on a branch, merged to main, then cut again." >&2
+    return 1
+  fi
+  [ "${2:-}" != note ] || echo "web/whats-new.json is what release/whats-new-pool.json builds for $V (kosmos#7617)."
+}
+whats_new_gate() {
+  local pc=0 err
+  if [ "$1" = quiet ]; then   # the check's stderr only on a refusal: a pass can carry a note 1b-ii prints anyway
+    err="$(_whats_new_check 2>&1 >/dev/null)" || { printf '%s\n' "$err" >&2; return 1; }
+  else
+    _whats_new_check || return 1
+  fi
+  if [ "$1" = quiet ]; then
+    err="$(_whats_new_prod_check 2>&1 >/dev/null)" || pc=$?
+    [ "$pc" = 0 ] || [ "$pc" = 4 ] || printf '%s\n' "$err" >&2
+  else
+    _whats_new_prod_check || pc=$?
+  fi
+  case "$pc" in
+    0) ;;
+    4) [ "$1" != note ] || echo "NOTE: could not read what prod serves, so the What's New pool was not checked against it; the cut goes on." ;;
+    *) return 1 ;;   # 3: prod is newer than the pool records; anything else: the pool or the tool is broken (#5713 review 2)
+  esac
+  _whats_new_fresh_check "$REPO" "$1"
+}
+# kosmos#7349: the same checks once more HERE, before the cut marks itself, claims the machine or waits on a pre-push
+# build (up to 100 minutes below). A prod promote leaves the pool behind until someone builds it again, and 1b-ii used
+# to be where that was found, with the machine claimed. Quiet when it passes (1b-ii prints the result); 1b-ii still runs,
+# since the checkout can move during the waits. KOSMOS_CUT_NO_WHATS_NEW=1 skips both, as before.
+if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ] && ! whats_new_gate quiet >/dev/null; then
+  echo "release: stopped before marking the cut or claiming the machine (kosmos#7349): step 1b-ii's What's New check refuses $V (above). If it says prod serves a newer version than the pool records (a prod promote since the last build): node tools/whats-new-pool.js build $V on a branch, merged to main, then cut again (if that build is already on origin/main, fast-forward this checkout instead). Otherwise fix what it names, and check this checkout is an up-to-date main (step 1, which says so, comes after this check). Nothing was claimed, bumped or built." >&2
+  exit 1
+fi
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -762,17 +830,11 @@ whats_new_optout_note() {   # $1: the tree to read. Informs, never refuses.
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" = "1" ]; then
   whats_new_optout_note "$REPO"
 else
-  node "$REPO/tools/whats-new-check.js" "$V" "$REPO/web/whats-new.json" --platform=mac || exit 1
   # #5713: the pool must record what Mac PROD serves, or this What's New can re-offer highlights prod already showed (a
   # promote since the last build, or a build made --offline). Read-only; refused when prod is newer, told (never
   # refused) when prod cannot be read, as a cut that cannot reach the site has bigger problems later anyway. A broken
-  # pool or tool refuses.
-  _pc=0; node "$REPO/tools/whats-new-pool.js" prod-check --pool="$REPO/release/whats-new-pool.json" || _pc=$?
-  case "$_pc" in
-    0) ;;
-    4) echo "NOTE: could not read what prod serves, so the What's New pool was not checked against it; the cut goes on." ;;
-    *) exit 1 ;;   # 3: prod is newer than the pool records; anything else: the pool or the tool is broken (review 2)
-  esac
+  # pool or tool refuses. The checks are whats_new_gate (kosmos#7349; three since #7617), which also ran before the machine claim.
+  whats_new_gate note || exit 1
 fi
 
 step "== 1c. the signing key answers, before anything is bumped or built (#3579) =="
@@ -873,6 +935,43 @@ step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 connector_currency_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
   "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" || exit 1
 
+step "== 1d-linux. the Linux family: cut in lockstep, with a current Linux connector (kosmos#7281) =="
+# Before the bump, like 1d: a channel that already publishes a Linux pointer refuses a cut without the Linux family,
+# and the Linux connector (kosmos-relay's, built by tools/build-tunnel-release-linux.sh) must be current with relay
+# main by the same rule as the Mac one.
+release_linux_decide "$SITE" "$CUT_CHANNEL" || exit 1
+# 0.7.71 cut, 2026-10-27: the decision is CUT_LINUX from here on. Exported, the variable reached step 3's suite, and
+# every test that runs a nested release.sh tried to cut the Linux family there and stopped at 1d-linux (9 reds).
+unset KOSMOS_CUT_LINUX
+# kosmos#7363 cut_suite helpers START (lifted verbatim between these markers by tools/test-cut-suite-env-7363.sh and
+# tools/test-cut-parallel-region.sh, whose step-3 region calls them)
+# Step 3's suite runs with EVERY KOSMOS_CUT_* removed, not one variable at a time per incident. They are this cut's own
+# overrides (KOSMOS_CUT_CHANNEL at 0.7.25 and KOSMOS_CUT_LINUX at 0.7.71 each reached the suite, where tests that run a
+# nested release.sh obeyed them and the cut aborted); the suite must test the tree, not this cut's settings. Every
+# exported name with the prefix, so one added later is covered too. NOT covered: overrides without the prefix
+# (KOSMOS_ALLOW_VERSION_JUMP is unset above; KOSMOS_ALLOW_STALE_TUNNEL, KOSMOS_SETUP_FLOOR_TEST, KOSMOS_TUNNEL_BIN and
+# others still reach the suite, and the tests that run a nested release.sh drop them by name). ${a[@]+...}: bash 3.2.
+cut_suite_env() {
+  local v strip=()
+  for v in $(compgen -e); do case "$v" in KOSMOS_CUT_*) strip+=(-u "$v") ;; esac; done
+  env ${strip[@]+"${strip[@]}"} "$@"
+}
+# The same, for a subshell that runs shell functions rather than one command (step 3's isolation rerun, #2006, which
+# decides whether a red suite stops the cut): unsets them in THAT subshell only; the cut's own shell keeps them. For an
+# ordinary exported name: a readonly one, or one no shell can name, survives `unset` (env -u above has no such limit).
+cut_suite_unset() {
+  local v
+  for v in $(compgen -e); do case "$v" in KOSMOS_CUT_*) unset "$v" ;; esac; done
+}
+# kosmos#7363 cut_suite helpers END
+LINUX_TUNNEL_BIN="${KOSMOS_TUNNEL_LINUX_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel-linux-x86_64}"
+LINUX_CONNECTOR_COMMIT=""
+if [ "$CUT_LINUX" = yes ]; then
+  [ "${KOSMOS_ALLOW_STALE_TUNNEL:-}" != 1 ] || echo "   NOTE: KOSMOS_ALLOW_STALE_TUNNEL=1 covers the Linux connector too"
+  connector_currency_check "$LINUX_TUNNEL_BIN" "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" tools/build-tunnel-release-linux.sh || exit 1
+  LINUX_CONNECTOR_COMMIT="$CONNECTOR_COMMIT"
+fi
+
 step "== 1d2. the coordinator serving traffic carries what that connector needs (#5037) =="
 # Some relay changes need the coordinator deployed BEFORE a connector carrying them ships, and never
 # rolled back below them (#4869, 534f36980, is the first). 1d makes the connector match relay main, so
@@ -880,6 +979,13 @@ step "== 1d2. the coordinator serving traffic carries what that connector needs 
 # lists those commits; refused here, before the bump. KOSMOS_ALLOW_COORDINATOR_BEHIND=1 ships anyway.
 coordinator_floor_check "${KOSMOS_TUNNEL_BIN:-$HOME/work/kosmos-relay/dist/kosmos-tunnel}" \
   "${KOSMOS_RELAY_REPO:-$HOME/work/kosmos-relay}" "$REPO/tools/coordinator-floor" || exit 1
+
+step "== 1d3. the service key set this cut ships lists the live coordinator key (kosmos#7568) =="
+# Cloud boxes pin the shipped set (#7561) and Macs hand it to the connector, so a set without the key the coordinator
+# answers with stops every new box and every sign-in. No set ships: nothing asked. No override (tools/lib/service-keys-live.sh).
+# Fingerprinted BEFORE the check: a fast-forward during it then makes the frozen set differ, and it is asked again.
+_SK_PRINT="$(service_keys_fingerprint "$REPO")" || _SK_PRINT=""   # the frozen tree is asked again only if its set differs
+service_keys_live_check "$REPO" || exit 1
 
 step "== 1e. no browser-check quarantine expires at $V (#4160) =="
 # A quarantine marked `until=<version>` goes red once package.json reaches it, and main's
@@ -1015,6 +1121,9 @@ BUILD="$(release_freeze "$MAIN_REPO" "$SHA" "$BUILD_ROOT")" || { rm -rf "$BUILD_
 # The versioned pair's presence BEFORE this cut, so a failure removes only what
 # this cut created (a pair from an earlier, served cut is not ours to touch).
 _pair_had=0; [ -f "$SITE/dist/kosmos-$V-arm64.tar.gz" ] && _pair_had=1
+# kosmos#7281 review 1 (W3): the Linux pair's own record, so an aborted re-cut never removes a served Linux tarball on
+# the strength of a missing Mac one.
+_linux_pair_had=0; [ -f "$SITE/dist/kosmos-$V-linux-x64.tar.gz" ] && _linux_pair_had=1
 # #1548: whether the UNVERSIONED pointer (kosmos-arm64.tar.gz) existed before this
 # cut. Unlike the versioned pair, the pointer is overwritten just before the deploy and
 # must keep pointing at the SERVED version, so a failure restores the pre-cut copy
@@ -1032,7 +1141,7 @@ DEPLOYED=0
 # On any exit before step 8 finished, the site checkout stops claiming $V
 # (#609 review, Splinter 23:05: a failed cut left latest.json and setup.sha256
 # uncommitted at the new version, and the pair that made cut 5 refuse).
-trap '_rc=$?; [ "$_rc" != 0 ] || [ "${_REL_FINISHED:-0}" = 1 ] || { _rc=1; echo "release: the cut stopped before finishing; the cause is above. Treat the cut as FAILED (kosmos#6831)" >&2 || true; }; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"; [ "$_rc" = 0 ] || exit "$_rc"' EXIT
+trap '_rc=$?; [ "$_rc" != 0 ] || [ "${_REL_FINISHED:-0}" = 1 ] || { _rc=1; echo "release: the cut stopped before finishing; the cause is above. Treat the cut as FAILED (kosmos#6831)" >&2 || true; }; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had" "$_linux_pair_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"; [ "$_rc" = 0 ] || exit "$_rc"' EXIT
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD" "$V" "$CUT_CHANNEL"
 # kosmos#6149: the installer this cut publishes is the FROZEN tree's. Step 1a-floor checked the checkout's copy, and the
@@ -1041,6 +1150,10 @@ release_freeze_notice "$SHA" "$BUILD" "$V" "$CUT_CHANNEL"
 # Step 2's version-bump push comes BEFORE this (the freeze follows it): a refusal here, after a fast-forward brought
 # in an installer without the marker, leaves the bump on origin (a stated limit).
 kosmos_setup_floor_installer_ok "the frozen install/setup.sh this cut publishes" "$BUILD/install/setup.sh" || exit 1
+# kosmos#7568: the same for the service key set step 1d3 checked in the checkout: a fast-forward can bring in a set, or
+# change one, after 1d3. Asked again of the FROZEN tree when its set differs, with the same stated limit (the bump is
+# already pushed).
+service_keys_live_recheck "$BUILD" "$_SK_PRINT" || { echo "release: the version bump to $V is already committed (and pushed, unless step 2 said it could not be); fix the set in the tree and cut again." >&2; exit 1; }
 step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955) =="
 # The shared checkout can move between step 1 and the freeze (two cuts in a row were fast-forwarded
 # mid-run on 2026-08-24, per step 2b), so the file 1b-ii read is checked again as FROZEN. A refusal here
@@ -1048,6 +1161,8 @@ step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955)
 # under the cut, which is worth stopping for.
 if [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ]; then
   node "$BUILD/tools/whats-new-check.js" "$V" "$BUILD/web/whats-new.json" --platform=mac || exit 1
+  # kosmos#7617: and still what the frozen pool builds (a pool item merged without its rebuilt list in that window).
+  _whats_new_fresh_check "$BUILD" note || { echo "release: the version bump to $V is already committed (and pushed, unless step 2 said it could not be); rebuild the list on main and cut again." >&2; exit 1; }
 else
   whats_new_optout_note "$BUILD"   # round 12: what actually ships is said again, from the frozen tree
 fi
@@ -1085,6 +1200,7 @@ kosmos_gate_or_abort "the gated steps (the suite and the headless page layer)" |
 # its guarantee (contention makes false reds, never false greens) holds exactly as
 # in serial mode.
 # >>> #2760-P1 gated-steps region START (extracted verbatim by tools/test-cut-parallel-region.sh, which drives it under stubs to prove a red suite or red page still aborts in BOTH modes) >>>
+# (kosmos#7363: it calls cut_suite_env and cut_suite_unset, defined above between the cut_suite helpers markers.)
 _cut_parallel=0
 if kosmos_cut_parallel_ok; then _cut_parallel=1; fi
 if [ "$_cut_parallel" = 1 ]; then
@@ -1098,7 +1214,7 @@ if [ "$_cut_parallel" = 1 ]; then
   # never trips errexit; its exit is reaped by `wait` below. nice -n 19 means the
   # foreground render checks always win the scheduler, so their timing -- and thus
   # their flake-rate -- stays near-serial.
-  ( cd "$REPO" && nice -n 19 yarn test >"$_suite_log" 2>&1 ) &
+  ( cd "$REPO" && cut_suite_env nice -n 19 yarn test >"$_suite_log" 2>&1 ) &   # #7363
   _suite_bg_pid=$!
   # The render checks, foreground at NORMAL priority: the SAME command, env
   # exclusion (#2724) and strict version pin (#1708) as the serial step 3b below.
@@ -1128,7 +1244,7 @@ step "== 3. the whole suite, on the tree that ships =="
 # summary lines, and names the log a red run's detail lives in.
 _suite_log="$(mktemp)"
 _suite_exit=0
-( cd "$REPO" && yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?
+( cd "$REPO" && cut_suite_env yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?   # #7363
 fi
 grep -E '^ℹ (tests|pass|fail)' "$_suite_log" || true
 # 📌 AN AUDIT TRAIL, NOT A GUARD (Splinter, 2026-08-25 05:30; the guard reading
@@ -1169,7 +1285,7 @@ if [ "$_suite_exit" -ne 0 ]; then
   # `if VAR=$(...)` captures the verdict's exit WITHOUT tripping errexit and
   # WITHOUT a pipe -- a pipe would let a downstream exit mask the verdict's.
   echo "--- #2006: re-running the failing file(s) / the whole gate in isolation before deciding ---"
-  if _rr_out="$(kosmos_isolation_rerun_verdict "$_suite_log" "$REPO" 2>&1)"; then _rr_rc=0; else _rr_rc=$?; fi
+  if _rr_out="$(cut_suite_unset; kosmos_isolation_rerun_verdict "$_suite_log" "$REPO" 2>&1)"; then _rr_rc=0; else _rr_rc=$?; fi   # #7363
   printf '%s\n' "$_rr_out"
   if [ "$_rr_rc" -eq 0 ]; then _rr_word=contention_dismissed; else _rr_word=real_red; fi
   {
@@ -1338,6 +1454,13 @@ _tm_want="$(awk 'NR==1{print $1}' "$REPO/dist/tmux-arm64.tar.gz.sha256")"
 _tm_got="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).tmux_sha256 || ""' "$REPO/dist/kosmos-arm64.manifest.json")"
 [ -n "$_tm_want" ] && [ "$_tm_want" = "$_tm_got" ] && [ "$(shasum -a 256 < "$REPO/dist/tmux-arm64.tar.gz" | awk '{print $1}')" = "$_tm_want" ] \
   || { echo "the build's manifest does not record the tmux bundle this cut serves (#6473): manifest '${_tm_got}', pair '${_tm_want}'"; exit 1; }
+if [ "$CUT_LINUX" = yes ]; then
+  # kosmos#7281: the Linux bundle, from the same frozen tree, beside the Mac one. Its builder checks the connector
+  # (ELF x86-64, glibc's loader, the 2.35 floor, no cargo home) and node (nodejs.org's SHASUMS256); the release then
+  # refuses anything only a test build may carry, and a connector other than the one 1d-linux found current.
+  ( cd "$REPO" && KOSMOS_TUNNEL_LINUX_BIN="$LINUX_TUNNEL_BIN" bash tools/build-kosmos-linux.sh dist ) || { echo "the Linux build failed (kosmos#7281); nothing is published"; exit 1; }
+  release_linux_check_manifest "$REPO/dist/kosmos-linux-x64.manifest.json" "$LINUX_CONNECTOR_COMMIT" "$V" || exit 1
+fi
 
 step "== 4b. a real install from the bundle just built, sandboxed, before anything is served (#624) =="
 # 🛑 EVERY EARLIER CHECK MEASURED THE BYTES. Step 3 ran the suite, 9b proves
@@ -1511,6 +1634,10 @@ KM_LJ_VERSION="$V" KM_LJ_SHA="$KM_ARTIFACT_SHA" KM_LJ_SETUP_SHA="$KM_SETUP_SHA" 
 KM_LJ_ARTIFACT="kosmos-$V-arm64.tar.gz" KM_LJ_MANIFEST="kosmos-$V-arm64.manifest.json" \
   node "$(cd "$(dirname "$0")" && pwd)/lib/write-latest-pointer.js" "$SITE/dist/$POINTER_FILE"
 echo "   $POINTER_FILE ($CUT_CHANNEL) -> $(cat "$SITE/dist/$POINTER_FILE")"
+# kosmos#7281: the Linux family's versioned files and its channel pointer, at the same version (lockstep).
+if [ "$CUT_LINUX" = yes ]; then
+  release_linux_publish "$REPO/dist" "$SITE" "$V" "$KM_SETUP_SHA" "$KOSMOS_MANIFEST_KEY" || exit 1
+fi
 
 # 🛑 THE INSTALLER, SERVED FROM THE SITE ROOT AND NOT FROM dist/. Copying the
 # bundle does not carry it, and BOTH paths run it: a new install (`curl … /setup
@@ -1539,6 +1666,11 @@ let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
   console.log('   bundled version:', v);
   if(v!=='$V'){ console.error('   THE BUNDLE IS NOT $V'); process.exit(1); }
 });"
+if [ "$CUT_LINUX" = yes ]; then   # kosmos#7281: the Linux tarball too, read from the versioned name its pointer names
+  _lv="$(tar -xzOf "$SITE/dist/kosmos-$V-linux-x64.tar.gz" app/package.json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(String(JSON.parse(s).version)))')" || _lv=""
+  echo "   Linux bundled version: $_lv"
+  [ "$_lv" = "$V" ] || { echo "   THE LINUX BUNDLE IS NOT $V"; exit 1; }
+fi
 
 step "== 7. the versions page needs its entry BEFORE you deploy =="
 # 🛑 DELIBERATELY NOT RE-SOURCED HERE, AND AN EARLIER VERSION OF THIS BRANCH DID.
@@ -1670,6 +1802,7 @@ step "== 7b. the site's release files are committed and pushed BEFORE they deplo
 # is dist/latest-staging.json; dist/latest.json (prod) is deliberately NOT in the set,
 # so prod stays at its prior version until promote-channel.sh flips it.
 _site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json dist/kosmos-$V-arm64.manifest.json.sig $SETUP_FILE $SETUP_FILE.sha256 versions.html"
+[ "$CUT_LINUX" != yes ] || _site_paths="$_site_paths $(release_linux_site_paths "$V")"   # kosmos#7281
 _site_commit_msg="$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and versions entry"
 # 🛑 #2276/#2278/#2286: BUILD THE RELEASE COMMIT ON THE FRESHLY-FETCHED origin/main,
 # never on the shared local main. Agents merge chaoskosmos-site PRs through GitHub
@@ -1738,6 +1871,13 @@ for _p in $_site_paths; do
   git -C "$SITE" checkout -- "$_p" 2>/dev/null || true
 done
 rm -f "$SITE/dist/kosmos-$V-arm64.manifest.json" "$SITE/dist/kosmos-$V-arm64.manifest.json.sig"
+# kosmos#7281 review 1 (W1): and the Linux family's committed paths, untracked locally until the checkout catches up,
+# or the next pull refuses to overwrite them.
+if [ "$CUT_LINUX" = yes ]; then
+  for _p in $(release_linux_site_paths "$V"); do
+    git -C "$SITE" ls-files --error-unmatch "$_p" >/dev/null 2>&1 || rm -f "$SITE/$_p"
+  done
+fi
 # #5032: likewise a first staging cut's /setup-staging pair, untracked locally until the checkout catches up.
 for _p in "$SETUP_FILE" "$SETUP_FILE.sha256"; do
   git -C "$SITE" ls-files --error-unmatch "$_p" >/dev/null 2>&1 || rm -f "$SITE/$_p"
@@ -1785,6 +1925,11 @@ _site_export="$BUILD_ROOT/site-export"
 # it LANDING. The card that prompted both was filed by a careful reader who had
 # only this line to go on.
 site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
+# kosmos#7281 review 1 (W2): the Linux pointer is committed, its tarball is carried from the working tree; a deploy
+# without the tarball would serve a pointer that 404s. The pair must be in the export and verify there.
+if [ "$CUT_LINUX" = yes ]; then
+  release_linux_export_ok "$_site_export" "$V" || { echo "nothing was deployed"; exit 1; }
+fi
 # kosmos#6149: this deploy publishes BOTH pointers and BOTH installers at the site commit, including the prod ones a
 # staging cut does not touch: none of them may be older than the setup floor.
 # (setup-floor.sh was loaded at step 1a-floor and is not sourced again: its functions are already defined, and REPO
@@ -2121,6 +2266,11 @@ fi
 # live). Best-effort: the release already shipped, so a hook non-zero must not fail the cut.
 if [ "$CUT_CHANNEL" = prod ]; then
   echo ""
+  # kosmos#7349: a prod cut moves prod as a promote does, so the What's New pool is now behind what prod serves, and
+  # the next cut stops at its first What's New check until a fresh build merges. Said where the operator can act.
+  echo "NEXT: prod serves $V now, so node tools/whats-new-pool.js build <the next cut's version> on a branch, merged to main. It records $V's highlights as shown; until it merges, the next cut stops at its What's New check (kosmos#7349)."
+  # An opt-out cut may have shipped no What's New at all, and then the build refuses; the pool takes that as below.
+  [ "${KOSMOS_CUT_NO_WHATS_NEW:-}" != "1" ] || echo "      (this cut ran with KOSMOS_CUT_NO_WHATS_NEW=1: if $V shipped no highlights, record it first with node tools/whats-new-pool.js shown $V --promoted --none)"
   KOSMOS_RELEASE_IS_PROD=1 KOSMOS_SITE="$SITE" bash "$MAIN_REPO/tools/post-release-notes.sh" "$V" --publish \
     || echo "post-release-notes: hook returned non-zero (the release still shipped; this is best-effort)"
 fi

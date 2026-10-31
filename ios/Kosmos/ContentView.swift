@@ -29,6 +29,15 @@ struct ContentView: View {
     // kosmos#7032: a room the Projects tab should open (a tapped room notification), cleared once it is open. Outside the
     // screenshot switch: both builds read it.
     @State private var roomRequest: PushBridge.RoomTarget?
+    // kosmos#7489: the native New project form (+ on Projects), in place of the board's slow web page.
+    @State private var newProjectOpen = false
+    @State private var newAgentOpen = false   // kosmos#7488
+    @State private var newTeamBusy = false    // kosmos#7488: a team still being made, after its sheet closed
+    // kosmos#7488: new agents' projects to tell once the board's list shows them (the desktop's tell after create), kept
+    // here so closing New Agent early drops none.
+    @State private var pendingTells: [String: (host: String, projects: [String], picture: AgentPicture.Pending, at: Date)] = [:]   // by session
+    // kosmos#7418: an agent's chat a tapped notification asked for, handed to the Agents tab to open.
+    @State private var agentRequest: PushBridge.AgentTarget?
     // kosmos#7030: a signed-in launch opens on Today, native (Mona Lisa's slice 4 ruling settles #6846's open question).
     // The App Store screenshot build
     // (ios/store/shoot-app.sh) photographs board screens in the web view, opened by address, so it lights the tab
@@ -49,7 +58,7 @@ struct ContentView: View {
             // kosmos#7031: KOSMOS_SAMPLE_TAB=tasks opens the native Tasks tab's samples.
             switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TAB"] {
             case "settings": return .settings
-            case "today": return .today
+            case "today": return AppTabs.todayTab ? .today : .agents   // kosmos#7252: no Today tab to open on
             // kosmos#7032: KOSMOS_SAMPLE_TAB=projects opens the native Projects tab's samples.
             case "projects": return .projects
             case "tasks": return .tasks   // kosmos#7031 (launch with -kosmos.app.tasksTab YES so the bar offers it)
@@ -57,7 +66,8 @@ struct ContentView: View {
             }
         }
         #endif
-        return .today
+        // kosmos#7252: with Today off, a launch opens on Agents (signed out, the native sign-in shows first anyway).
+        return AppTabs.todayTab ? .today : .agents
     }()
     @State private var tab = ContentView.startTab
     #endif
@@ -112,6 +122,26 @@ struct ContentView: View {
         })
     }
 
+
+    // kosmos#7266 slice B: the Settings tab's letter disc is drawn for the scheme in use (it is an image, not tinted).
+    @Environment(\.colorScheme) private var colorScheme
+
+    // kosmos#7266 slice B: the person's picture, the board's (BoardClient.youPicture), or in a Debug sample with
+    // KOSMOS_SAMPLE_YOUPIC=1 a drawn one, so no real face is ever in a screenshot.
+    // The person's name, the board's; in a Debug sample the sample's, so a shot that opens straight on Settings (before
+    // any agents read) shows it.
+    private var youName: String? {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" { return board.youName ?? "Sam Carter" }
+        #endif
+        return board.youName
+    }
+    private var youPicture: Data? {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_YOUPIC"] == "1" { return YouFace.sample }
+        #endif
+        return board.youPicture
+    }
     var body: some View {
         Group {
             if isUnlocked && nativeSignIn {
@@ -127,15 +157,32 @@ struct ContentView: View {
                     // front, never on each poll.
                     ForEach(AppTabs.visible(tasksTab: web.tasksTab), id: \.self) { which in
                         tabPage(which)
-                            .tabItem { Label(which.title, systemImage: which.symbol) }
+                            .tabItem {
+                                // kosmos#7266: Agents draws its own icon (Font Awesome Free's user-tie, a template image).
+                                if which == .settings, let face = YouFace.tabImage(youPicture, letter: Board.youLetter(youName), dark: colorScheme == .dark) {
+                                    // kosmos#7266 slice B: Settings shows the person's picture when the computer has one.
+                                    Label { Text(which.title) } icon: { Image(uiImage: face) }
+                                } else if let asset = which.asset { Label(which.title, image: asset) } else { Label(which.title, systemImage: which.symbol) }
+                            }
                             // kosmos#7030: Today's badge is the board's one number, the Dock's (counts.waiting); none at 0 or off.
                             // kosmos#7032: Projects' is the board's unread room posts (counts.projectsUnread).
-                            .badge(which == .today ? (board.waitingCount ?? 0) : which == .projects ? (board.projectsUnread ?? 0) : 0)
+                            // kosmos#7252: with Today off, its number (agents waiting on you) is on Agents.
+                            // kosmos#7342 (Mona Lisa's rule: every tab's number is the sum of what its own list shows): Agents
+                            // shows its rows' bubbles added up; Today, like the Dock, keeps the full total.
+                            .badge(which == .today && AppTabs.todayTab ? (board.waitingCount ?? 0)
+                                   : which == .agents && !AppTabs.todayTab ? Board.agentsTabBadge(waiting: board.waitingCount, agents: board.agents, stale: board.agentsListStale)
+                                   : which == .projects ? (board.projectsUnread ?? 0) : 0)
                             .tag(which)
                     }
                 }
                 // Mona Lisa's spec: the app's tint is the board's ink, so the selected tab is not system blue.
                 .tint(Palette.primary)
+                // kosmos#7266 (Josh 10-28): the tab bar shrinks while a list scrolls down and comes back on scrolling up,
+                // the system's own behaviour on iOS 26 (Instagram-style). Earlier systems keep the bar as it is.
+                .modifier(TabBarMinimizesOnScroll())
+                // kosmos#7252: with Today off, a board page (a tapped notification, an agent's info button, the board's
+                // own Settings or sign-in) opens over the tabs, with Close back to the tab underneath.
+                .overlay { if !AppTabs.todayTab && todayBoard { boardPage } }
             } else {
                 LockView(onUnlock: unlock)
             }
@@ -143,14 +190,20 @@ struct ContentView: View {
         // A tapped notification, or an agent tapped on the Agents tab, opens on Today (the chat shows there until it is
         // native).
         .onChange(of: pushManager.boardToOpen) { request in
-            if request != nil { todayBoard = true; tab = .today }
+            if request != nil { showBoardPage() }
         }
         // kosmos#7032: a room notification from the computer this app keeps opens the room natively; from any other
         // computer it opens the board's room page under Today, as a tap always did.
         .onChange(of: pushManager.roomToOpen) { target in if let target { openRoom(target) } }
+        // kosmos#7418: an agent's notification opens its chat natively, as from the Agents list.
+        .onChange(of: pushManager.agentToOpen) { target in if let target { openAgentChat(target) } }
         // kosmos#7008: a sign-out or another account drops the chats now, not at the next visit to the tab.
         .onChange(of: pushManager.accountChanges) { _ in
             board.accountChanged(); web.sessionChanged()
+            // kosmos#7418 review 1: a chat or room a notice asked for belonged to the account that was signed in.
+            agentRequest = nil; roomRequest = nil
+            pendingTells = [:]   // kosmos#7488: a tell names a project on the computer of the account that made it
+            newAgentOpen = false   // kosmos#7488: the sheet sits above the tabs, so it never outlives the account
             // kosmos#7042 review round 5: signed out later in the launch (on the account page, a session that ended),
             // the next sign-in is the native one too, or the web page's own device key would make this iPhone a second
             // device on the Mac. Recorded gap: the Mac's "fresh sign-in" link then lands here, not on the page.
@@ -172,7 +225,7 @@ struct ContentView: View {
             if let token = signIn.lastAbandoned { web.forget(token) }
         }
         .onChange(of: signIn.step) { step in
-            if step == .done { nativeSignIn = false; todayBoard = false; tab = .today }
+            if step == .done { nativeSignIn = false; todayBoard = false; tab = AppTabs.todayTab ? .today : .agents }
         }
         // A press was answered: opened, the bar is on the tab pressed; refused (a box was up), it goes to the tab the
         // page really shows, so pressing the same tab again later is a real press.
@@ -183,8 +236,7 @@ struct ContentView: View {
             // (Projects is native, kosmos#7032), and the page stays.
             let shown = AppTabs.barTab(forPage: back, tasksTab: web.tasksTab)
             // kosmos#7030: a board page that lights Today shows under it, not behind the native screen.
-            if shown == .today { todayBoard = true }
-            tab = shown
+            if shown == .today { showBoardPage() } else { tab = shown }
         }
         // The page moved section by itself (a link in it, a swipe back): the bar follows, without pressing.
         .onChange(of: web.pageMove) { move in
@@ -193,8 +245,7 @@ struct ContentView: View {
             // was pressed and the person went back to Today) does not move the bar off it.
             if tab == .today && !todayBoard { return }
             if let next = AppTabs.follow(from: move.from, to: move.to, selected: tab, barHeld: web.barHeld, tasksTab: web.tasksTab) {
-                if next == .today { todayBoard = true }   // kosmos#7030, as above
-                tab = next
+                if next == .today { showBoardPage() } else { tab = next }   // kosmos#7030, as above; #7252
             }
         }
         // Tasks left the bar (another Mac, not yet earned there) while it was the tab showing. Only a real change of tab
@@ -202,6 +253,28 @@ struct ContentView: View {
         // kosmos#7032: with Projects native, no tab hosts the board page until Tasks is earned, so the bar also learns
         // it from the native status poll (the engine's flag; once shown it stays, so this only ever adds the tab).
         .onChange(of: board.tasksTab) { earned in if earned == true { web.earnTasks() } }
+        // A sheet shown from a tab goes with it; a tab change must not leave it set to come back by itself.
+        .onChange(of: tab) { _ in newProjectOpen = false }
+        // kosmos#7488: another computer: the sheet's roles, managers and projects were the last one's.
+        .onChange(of: board.chatEpoch) { _ in newAgentOpen = false }
+        // kosmos#7488: New Agent is shown from here, above the tabs, so a tab change (a notification's room, say) never
+        // takes it away in the middle of making a team.
+        .sheet(isPresented: $newAgentOpen) {
+            NewAgentView(client: board, opened: { session, shown in
+                // Say hello: the new agent's chat, natively, as a notification's agent opens (kosmos#7418).
+                // On Agents, as a notification's agent opens, since the tab under the sheet may have changed meanwhile.
+                if let host = board.macURL?.host {
+                    agentRequest = PushBridge.AgentTarget(host: host, session: session, name: shown)
+                    tab = .agents; todayBoard = false; web.press(.agents)
+                }
+            }, afterMade: { session, projects, picture in
+                // Kept with the computer that made it: a tell names a project there, never on another Mac.
+                guard let host = board.macURL?.host else { return }
+                pendingTells[session] = (host, projects, picture, Date())
+                sendTells(board.agents)
+            }, teamBusy: $newTeamBusy)
+        }
+        .onChange(of: board.agents) { rows in sendTells(rows) }
         .onChange(of: web.tasksTab) { shown in
             let kept = AppTabs.keep(tab, tasksTab: shown)
             guard kept != tab else { return }
@@ -209,8 +282,9 @@ struct ContentView: View {
         }
         .onAppear {
             // A notification tapped on a cold launch can set boardToOpen before the first draw, which onChange misses.
-            if pushManager.boardToOpen != nil { todayBoard = true; tab = .today }
+            if pushManager.boardToOpen != nil { showBoardPage() }
             if let target = pushManager.roomToOpen { openRoom(target) }
+            if let target = pushManager.agentToOpen { openAgentChat(target) }
             // Cold launch: onChange does not fire for scenePhase's initial value,
             // so prompt here when we start locked.
             if !isUnlocked { unlock() }
@@ -221,6 +295,8 @@ struct ContentView: View {
             if newPhase == .background { tabsBackgrounded = true }
             // kosmos#7050 slice C: here, not on the sign-in screen, so it runs even when the lock takes the screen away.
             if newPhase == .background { signIn.appLeft() }
+            // kosmos#7416 review 3: a not-answering screen left up overnight says this morning's time on the return.
+            if newPhase == .active, shell.failure == .macUnreachable { board.refreshLastSeen() }
             // kosmos#7042 review round 2: a launch before the phone's first unlock reads no session, so the sign-in may
             // be showing to someone signed in. Still on its first step, it goes once the session can be read.
             if newPhase == .active, nativeSignIn, signIn.step == .email, signIn.issued == nil,
@@ -242,6 +318,7 @@ struct ContentView: View {
                 // prompt. (App-switcher snapshot hardening - an .inactive privacy
                 // overlay - is a further enhancement, noted in the plan.)
                 isUnlocked = false
+                newAgentOpen = false   // kosmos#7488: never left over the lock (the sheet sits above it)
                 didBackground = true
                 unlockGeneration += 1
                 // The locked app keeps no page: an unlock starts a fresh web view, as before the tabs shared one,
@@ -274,36 +351,175 @@ struct ContentView: View {
     private func openRoom(_ target: PushBridge.RoomTarget) {
         let kept = Board.usableSaved(SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin)
         switch PushBridge.roomOpening(target, keptAddress: kept?.address) {
-        case .native(let t)?: roomRequest = t; tab = .projects
+        // kosmos#7252 review 2: the room shows, not under a board page left open over the tabs. Review 3: and, as Close
+        // does, the native press ends a board press still waiting, so its late answer cannot reopen the page over the room.
+        case .native(let t)?: roomRequest = t; tab = .projects; todayBoard = false; web.press(.projects)
         case .board(let url)?: pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
         case nil: break
         }
         pushManager.roomToOpen = nil
     }
 
+    // kosmos#7418: the chat in the Agents tab when the notice came from the computer the app shows, else the board's page
+    // for that agent, as a tap always did. As for a room, the native open ends a board press still waiting.
+    private func openAgentChat(_ target: PushBridge.AgentTarget) {
+        // Review 1: on a cold launch nothing is shown yet (the client starts with the first tab, and the Face ID lock
+        // draws no tab), so the computer this app keeps decides then, as for a room.
+        let kept = Board.usableSaved(SessionKeychain.macSession.load(), session: SessionKeychain.live.load(), coordinator: KosmosConfig.coordinatorOrigin)
+        switch PushBridge.agentOpening(target, shownAddress: board.switcherShown ?? kept?.address, coordinator: KosmosConfig.coordinatorOrigin) {
+        case .native(let t)?: agentRequest = t; tab = .agents; todayBoard = false; web.press(.agents)
+        case .board(let url)?: pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+        case nil: break
+        }
+        pushManager.agentToOpen = nil
+    }
+
     private func showBoardToday() {
-        todayBoard = true
-        tab = .today
+        showBoardPage()
         web.pressBoardSection(.today)
+    }
+
+    // Fire-and-forget, as the desktop, once the board can see the agent running (a tell before that is stored as
+    // could not, and the picture route refuses an agent it does not know): a failed tell is recoverable from the
+    // project's own screen, and a picture from the agent's page.
+    private func sendTells(_ rows: [Board.Agent]) {
+        let on = Set(rows.filter(\.boardSeesIt).map(\.session))
+        guard let host = board.macURL?.host else { return }
+        // Not kept for ever: an agent the board has not seen in ten minutes is told from its project's own screen.
+        pendingTells = pendingTells.filter { $0.value.at.timeIntervalSinceNow > -600 }
+        for (session, pending) in pendingTells where on.contains(session) && pending.host == host {
+            pendingTells[session] = nil
+            for id in pending.projects { Task { _ = await board.throughMac { NewAgent.tellRequest(mac: $0, project: id, session: session) } } }
+            Task { await setPicture(session, pending.picture) }
+        }
+    }
+
+    // kosmos#7488 build 14: the desktop's order (uploadPendingAvatar, tcPortrait): the chosen photo, else a team member's
+    // catalogue portrait, else the mark from the name; each sent twice at most, two seconds apart. Unlike the desktop, a
+    // portrait that will not go falls back to the mark too, so a member is never left with no picture.
+    private func setPicture(_ session: String, _ picture: AgentPicture.Pending) async {
+        // Every send goes only to the computer the agent was made on: a switch meanwhile ends it, never another Mac's
+        // agent of the same name.
+        let host = board.macURL?.host
+        // set: the board kept it; refused: it answered no, or it was never sent; unknown: sent and no answer came, so it
+        // may have been kept.
+        enum Put { case set, refused, unknown }
+        func put(_ data: Data, _ type: String) async -> Put {
+            // One the board would refuse (too big, a type it does not keep) fails at once, without the retry's wait.
+            guard let url = board.macURL, NewAgent.pictureRequest(mac: url, session: session, data: data, type: type) != nil else { return .refused }
+            var last = Put.refused
+            for i in 0..<2 {
+                if i > 0 { try? await Task.sleep(nanoseconds: 2_000_000_000) }
+                guard host != nil, board.macURL?.host == host else { return .refused }
+                var sent = false   // whether a request went out at all (no connected computer sends nothing)
+                let got = await board.throughMac({ mac -> URLRequest? in
+                    let r = NewAgent.pictureRequest(mac: mac, session: session, data: data, type: type); sent = r != nil; return r
+                })
+                if let got, (200...299).contains(got.1.statusCode) { return .set }
+                last = got == nil && sent ? .unknown : .refused
+            }
+            return last
+        }
+        if let photo = picture.photo {
+            // A photo whose answer was lost may already be the picture: the mark is not put over it (the board refused it,
+            // or it was never sent, and the mark is drawn instead).
+            if await put(photo, NewAgent.pictureType(photo)) != .refused { return }
+        }
+        guard board.macURL?.host == host else { return }   // another computer now: nothing more is fetched or drawn
+        // A portrait is asked for only for a seat the catalogue has one for; AgentPicture.portrait keeps or redraws it,
+        // off the main thread.
+        if let team = picture.team, let slot = picture.slot,
+           let got = await board.throughMac({ NewAgent.portraitRequest(mac: $0, team: team, slot: slot) }), got.1.statusCode == 200 {
+            let type = got.1.value(forHTTPHeaderField: "Content-Type")?.split(separator: ";").first.map(String.init) ?? ""
+            let raw = got.0
+            if let (data, kind) = await Task.detached(operation: { AgentPicture.portrait(raw, type: type) }).value, await put(data, kind) != .refused { return }
+        }
+        guard board.macURL?.host == host else { return }
+        let name = picture.name
+        // The mark through the same fitting when it would not fit as it is (it is far under the limit at 144 px).
+        let mark: (Data, String)? = await Task.detached(operation: {
+            guard let png = AgentPicture.mark(name)?.pngData() else { return nil }
+            return png.count <= AgentPicture.maxBytes ? (png, "image/png") : AgentPicture.fit(data: png).map { ($0, NewAgent.pictureType($0)) }
+        }).value
+        if let (data, type) = mark { _ = await put(data, type) }
+    }
+
+    // kosmos#7266: a + button: the board's own create form, over the tabs, opened through the board's door.
+    private func openCreate(_ what: AppTabs.Create) {
+        showBoardPage()
+        // Review 3: on the computer the switcher shows, loading its board first when the page is elsewhere. Review 4:
+        // board.switcherURL, not the admitted session, which is unset until that computer lets the phone in.
+        web.pressBoardSection(what == .agent ? .agents : .projects, door: what.rawValue, on: board.switcherURL)
+    }
+
+    // kosmos#7252: the board page, under the Today tab while it is on, or over the tabs while it is off.
+    private func showBoardPage() {
+        todayBoard = true
+        if AppTabs.todayTab { tab = .today }
+    }
+
+    // kosmos#7252: the board page over the tabs, with Close back to the tab underneath. The same shared web view, drawn
+    // here only, since no Today tab draws it while Today is off.
+    private var boardPage: some View {
+        VStack(spacing: 0) {
+            HStack {
+                // Review 1: closing also presses the tab underneath, which ends a section press still waiting for the
+                // page to load (PressTracker), so a late answer cannot put the page back over the tabs.
+                Button { todayBoard = false; web.press(tab) } label: {
+                    Label("Close", systemImage: "chevron.down").labelStyle(.titleAndIcon)
+                        .padding(.horizontal, 16).frame(minHeight: 44)
+                        .contentShape(Rectangle())   // the whole 44pt row is the target, not only the words
+                }
+                .foregroundColor(.white)
+                .accessibilityLabel("Close this page")
+                Spacer()
+            }
+            .background(Color(UIColor.kosmosNavy).ignoresSafeArea(edges: .top))
+            webBoard(.today, active: true)
+        }
+        .background(Color(UIColor.kosmosNavy).ignoresSafeArea())
+        // Review 1: VoiceOver stays on the page, not the tabs drawn underneath it.
+        .accessibilityAddTraits(.isModal)
     }
 
     // Agents, Projects (kosmos#7032), Tasks (kosmos#7031) and Settings are native, and Today when nothing was sent
     // under it (kosmos#7030); the rest show the board.
     @ViewBuilder private func tabPage(_ which: Tab) -> some View {
-        if which == .today && !todayBoard {
-            TodayView(client: board, openPage: { url in
+        // kosmos#7266: Today is removed from the bar (Josh, 10-26: "kill the today section altogether"); TodayView stays
+        // in the target unused until the project file drops it.
+        if which == .agents {
+            AgentsView(client: board, push: pushManager, agentRequest: $agentRequest, openChat: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, openBoard: { showBoardToday() })
-        } else if which == .agents {
-            AgentsView(client: board, push: pushManager, openChat: { url in
-                pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            }, openBoard: { showBoardToday() })
+            }, openBoard: { showBoardToday() }, create: {
+                // kosmos#7488: the native New Agent flow posts to the computer this phone is connected to; before that
+                // computer has let the phone in there is none, so the board page is used, as New project does.
+                if board.macURL != nil { newAgentOpen = true } else { openCreate(.agent) }
+            })
+            #if DEBUG
+            // Design shots only: KOSMOS_SAMPLE_NEWAGENT (any screen name) opens New Agent, since a simulator run cannot tap +.
+            .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWAGENT"].map({ !$0.isEmpty }) == true { newAgentOpen = true } }
+            #endif
         } else if which == .projects {
             // kosmos#7032: the native Projects list and a project's room; the board's own project page (the room's info
             // button) opens under Today, as an agent's chat does from Agents.
             ProjectsView(client: board, roomRequest: $roomRequest, openPage: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
+            }, create: {
+                // Review 2: the form posts to the computer this phone is connected to; before that computer has let the
+                // phone in there is none, so the board page (which waits for it) is used, as before.
+                if board.macURL != nil { newProjectOpen = true } else { openCreate(.project) }
             })
+            #if DEBUG
+            // Design shots only: KOSMOS_SAMPLE_NEWPROJECT=1 opens the New project form, since a simulator run cannot tap +.
+            .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWPROJECT"] == "1" { newProjectOpen = true } }
+            #endif
+            .sheet(isPresented: $newProjectOpen) {
+                NewProjectView(client: board) { id in
+                    // The new project's room, on the computer the list shows.
+                    // Review 2: the computer the request went to (macURL), not the switcher's, which can differ.
+                    if let host = board.macURL?.host { roomRequest = PushBridge.RoomTarget(host: host, project: id) }
+                }
+            }
         } else if which == .tasks {
             // kosmos#7031: native Tasks. A task's page is native too (kosmos#7074, TaskPageView); its info button opens
             // the board's page under Today in the board view; a press on Tasks brings the list back.
@@ -317,15 +533,15 @@ struct ContentView: View {
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
             }, openBoardSettings: {
                 // The board's own Settings, under Today (AppTabs.barTab: its Settings section lights Today).
-                todayBoard = true; tab = .today
+                showBoardPage()
                 web.pressBoardSection(.settings)
-            })
+            }, youName: youName, youPicture: youPicture)
         } else {
             webBoard(which)
         }
     }
 
-    private func webBoard(_ which: Tab) -> some View {
+    private func webBoard(_ which: Tab, active: Bool? = nil) -> some View {
         ZStack {
             // Navy behind the tab bar too, so the space below the page is the page's own colour, not a white band.
             Color(UIColor.kosmosNavy).ignoresSafeArea()
@@ -333,7 +549,7 @@ struct ContentView: View {
             // of the notch is set in makeWebView (safe areas). The keyboard is left to the web view, as before.
             WebView(
                 web: web,
-                active: tab == which,
+                active: active ?? (tab == which),
                 url: KosmosConfig.boardURL,
                 pushManager: pushManager,
                 boardToOpen: pushManager.boardToOpen,
@@ -345,7 +561,19 @@ struct ContentView: View {
                 .ignoresSafeArea(edges: .top)
                 .ignoresSafeArea(.keyboard)
             if let failure = shell.failure {
-                LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer, macName: shell.failureMac)
+                LoadFailureView(failure: failure, detail: shell.failureDetail, retrying: shell.retrying, onRetry: shell.retry, onBack: shell.back, onOtherComputer: shell.otherComputer, macName: shell.failureMac,
+                                lastHeard: board.lastHeard(address: shell.failureAddress, name: shell.failureMac))
+                    // kosmos#7416 review 3 and 4: keyed on the failure, the computer and each Try again, not on the view
+                    // appearing: this screen stays up across all three (a failed Try again shows the same failure), so
+                    // onAppear would miss them. The return to the app is below, in onChange(of: scenePhase).
+                    .task(id: "\(failure)|\(shell.failureAddress ?? "")|\(shell.retryCount)") {
+                        if failure == .macUnreachable { board.refreshLastSeen() }
+                    }
+            }
+            // kosmos#7389 (Mona Lisa): a file that takes more than a second says so, with Cancel, so a big file never looks like
+            // a tap that did nothing.
+            if let d = shell.downloading {
+                VStack { Spacer(); DownloadLine(name: d.name, cancel: d.cancel) }
             }
         }
     }
@@ -517,30 +745,46 @@ final class BoardWeb: ObservableObject {
     }
 
     // `ready` is given by a finished load (didFinish says the page is ready, whatever isLoading still reads).
-    func press(_ tab: AppTabs.Tab, ready: Bool = false, section: Bool = false) {
+    func press(_ tab: AppTabs.Tab, ready: Bool = false, section: Bool = false, door: String? = nil, host: String? = nil) {
         // The tracker decides from what the page is (PressTracker.Page); a press with no web view yet waits.
         let page: PressTracker.Page = webView.map { ready || !$0.isLoading ? .ready : .loading } ?? .noView
-        guard let run = tracker.press(tab, page: page, section: section), let webView = webView else { return }
+        guard let run = tracker.press(tab, page: page, section: section, door: door, host: host), let webView = webView else { return }
         webView.evaluateJavaScript(run.script) { [weak self] result, error in
             guard let self = self else { return }
             let answer = AppTabs.answer(result, error: error)
+            let current = self.tracker.isCurrent(run.serial)
             if answer == .refused { NSLog("[Tabs] the board refused \(tab)") }
             if let back = self.tracker.answered(serial: run.serial, answer, pageURL: webView.url) { self.answeredTab = back }
+            // kosmos#7266 review 1: a + the board turned down falls back to its section or its create page. Review 3: only
+            // for the newest press, so a late answer never loads over what the person opened since.
+            switch current ? AppTabs.createFallback(door: door, answer, pageURL: webView.url) : nil {
+            case .projects: self.press(.projects, ready: true, section: true)
+            case .load(let url): webView.load(URLRequest(url: url))
+            case nil: break
+            }
         }
     }
 
     func loadingOwnPage() { tracker.loadingOwnPage() }
+    func loadFailed(host: String?) { tracker.loadFailed(host: host) }
 
     // kosmos#7010: the board's own section for a native tab, pressed on purpose (the Settings screen's row). When the
     // shared page is a Kosmos+ page (the account page that screen opens), there is no board to press, so the board is
     // loaded first and the press waits for it (it waits on the sign-in host, then runs once the board has loaded).
-    func pressBoardSection(_ tab: AppTabs.Tab) {
-        if let webView = webView, webView.url?.host == AppTabs.signInHost {
-            webView.load(URLRequest(url: KosmosConfig.boardURL))
-            _ = tracker.press(tab, page: .loading, section: true)
+    // kosmos#7266: `door`, a create name the board's door takes instead of the section's (the + buttons).
+    func pressBoardSection(_ tab: AppTabs.Tab, door: String? = nil, on computer: URL? = nil) {
+        // kosmos#7266 review 3: a press meant for another computer's board loads that board first and waits for it.
+        if let webView = webView, let target = AppTabs.createTarget(pageURL: webView.url, shown: computer) {
+            webView.load(URLRequest(url: target))
+            _ = tracker.press(tab, page: .loading, section: true, door: door, host: target.host)
             return
         }
-        press(tab, section: true)
+        if let webView = webView, webView.url?.host == AppTabs.signInHost {
+            webView.load(URLRequest(url: KosmosConfig.boardURL))
+            _ = tracker.press(tab, page: .loading, section: true, door: door)
+            return
+        }
+        press(tab, section: true, door: door)
     }
 
 
@@ -549,7 +793,8 @@ final class BoardWeb: ObservableObject {
     func loaded() {
         // What waits is a web tab or a section pressed on purpose (a native tab's press leaves nothing waiting), so it
         // replays as a section press.
-        if let tab = tracker.pending { press(tab, ready: true, section: true) }
+        // kosmos#7266 review 5: a create meant for another computer replays only once that computer's board has loaded.
+        if let replay = tracker.replay(host: webView?.url?.host) { press(replay.tab, ready: true, section: true, door: replay.door, host: replay.host) }
         if let round = tracker.loaded(host: webView?.url?.host) { schedule(round, at: PressTracker.launchReads) }
     }
 
@@ -588,6 +833,8 @@ final class BoardWeb: ObservableObject {
         webView?.stopLoading()
         webView?.navigationDelegate = nil
         webView?.uiDelegate = nil
+        // kosmos#7389: nothing of a download outlives the lock: no file offered over the lock screen, no line left behind.
+        coordinator.tearDownDownloads()
         coordinator.web = nil
         webView?.configuration.userContentController.removeScriptMessageHandler(forName: PushNotificationManager.sessionHandlerName)
         webView?.removeFromSuperview()
@@ -738,7 +985,7 @@ struct WebView: UIViewRepresentable {
 
     // The WebView's navigation and window delegate. The decisions live in
     // ShellLogic.swift (tested); this only carries them out.
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
         // The holder, told when a page finishes (a press that waited, the Tasks flag).
         weak var web: BoardWeb?
         // The id of the last tap handed to the WebView.
@@ -792,6 +1039,18 @@ struct WebView: UIViewRepresentable {
             #if KOSMOS_STORE_SHOTS
             if KosmosConfig.isShotsBoard(url) { decisionHandler(.allow); return }
             #endif
+            // kosmos#7389: a download the page asked for (`<a download>`) is saved only from a board's own origin
+            // (Download.decideAction); anything else is refused and said, never loaded in the window instead.
+            if navigationAction.shouldPerformDownload {
+                switch Download.decideAction(target: url, page: pageURL, coordinator: KosmosConfig.coordinatorOrigin) {
+                case .save: decisionHandler(.download)
+                case .refuse(let sentence):
+                    NSLog("[Download] refused a download the page asked for")
+                    if frame.isMainFrame { say(sentence, refusal: true) }
+                    decisionHandler(.cancel)
+                }
+                return
+            }
             // A frame inside the page: https and about: only.
             guard frame.isMainFrame else {
                 decisionHandler(Shell.allowsSubframe(url) ? .allow : .cancel)
@@ -824,6 +1083,314 @@ struct WebView: UIViewRepresentable {
             return nil
         }
 
+        // MARK: kosmos#7389, a board download (the Mac's #5167 rules, Mona Lisa's design)
+
+        // The page on screen as of its last main-frame commit: what a download is judged against (webView.url moves to
+        // the new address while a navigation is still provisional). `commits` counts them, so a reload is a new page.
+        var pageURL: URL?
+        private var commits = 0
+        // A message on screen, when the last refusal was said, and how often each refusal was said on this page.
+        private var refusalLastAt: Date?
+        private var refusalsShown: (commit: Int, by: [String: Int]) = (0, [:])
+        // Each download's own folder and name, the one-second timer before "Getting <name>" shows, and the downloads the
+        // person cancelled (their Cancel says nothing).
+        private var downloadFolders: [ObjectIdentifier: URL] = [:]
+        private var downloadNames: [ObjectIdentifier: String] = [:]
+        private var lineTimers: [ObjectIdentifier: DispatchWorkItem] = [:]
+        // The lines of downloads still on their way, newest last: the newest is shown, and when it ends the one before it is.
+        private var lines: [ShellState.Downloading] = []
+        // Weak, so an entry goes with its download and a later one at the same address can never inherit it.
+        private let cancelledByPerson = NSHashTable<WKDownload>.weakObjects()
+        // The downloads on their way, so a lock can stop them (WebKit keeps a download only as long as someone holds it).
+        private var active: [ObjectIdentifier: WKDownload] = [:]
+
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            pageURL = webView.url
+            commits += 1
+        }
+
+        // A main-frame answer: shown, saved, or refused (Download.decideResponse). A frame inside the page cannot save a
+        // file just by loading.
+        func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                     decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+            guard navigationResponse.isForMainFrame else {
+                decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
+                return
+            }
+            let http = navigationResponse.response as? HTTPURLResponse
+            switch Download.decideResponse(status: http?.statusCode ?? 200, attachment: Self.isAttachment(http),
+                                           canShow: navigationResponse.canShowMIMEType, target: navigationResponse.response.url,
+                                           page: pageURL, coordinator: KosmosConfig.coordinatorOrigin) {
+            case .show: decisionHandler(navigationResponse.canShowMIMEType ? .allow : .cancel)
+            case .save: decisionHandler(.download)
+            case .refuse(let sentence):
+                NSLog("[Download] refused a response the window would have saved")
+                if let sentence { say(sentence, refusal: true) }
+                decisionHandler(.cancel)
+            }
+        }
+
+        private static func isAttachment(_ http: HTTPURLResponse?) -> Bool {
+            let disposition = http?.value(forHTTPHeaderField: "Content-Disposition") ?? ""
+            return String(disposition[..<(disposition.firstIndex(of: ";") ?? disposition.endIndex)])
+                .trimmingCharacters(in: .whitespaces).lowercased() == "attachment"
+        }
+
+        func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+            download.delegate = self
+            active[ObjectIdentifier(download)] = download
+        }
+
+        func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+            download.delegate = self
+            active[ObjectIdentifier(download)] = download
+        }
+
+        // On lock (BoardWeb.drop): every download stops, every line goes, what is on screen is dismissed and every file
+        // this kept is removed, so nothing of the board is offered over the lock or left in tmp.
+        func tearDownDownloads() {
+            for d in active.values { cancelledByPerson.add(d); d.cancel { _ in } }
+            for id in Array(active.keys) { cleanUp(id) }
+            active.removeAll()
+            lines.removeAll()
+            shell?.downloading = nil
+            for item in waiting { if case .sheet(_, let folder) = item { try? FileManager.default.removeItem(at: folder) } }
+            waiting.removeAll()
+            if let folder = currentFolder { try? FileManager.default.removeItem(at: folder) }
+            current?.dismiss(animated: false)
+            showing = false
+            current = nil
+            currentFolder = nil
+        }
+
+        // A download's redirect stays on the page's own origin; anywhere else is refused (iOS has no other check there).
+        func download(_ download: WKDownload, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
+                      decisionHandler: @escaping (WKDownload.RedirectPolicy) -> Void) {
+            // Judged against where the download started (the Mac's rule), not whichever page is on screen by now.
+            if let url = request.url, Download.isSameOrigin(url, page: download.originalRequest?.url) { decisionHandler(.allow); return }
+            NSLog("[Download] refused a download redirected to another address")
+            cancelledByPerson.add(download)   // said here: the cancel that follows is not said again
+            say(Download.redirectedElsewhere, refusal: true)
+            decisionHandler(.cancel)
+        }
+
+        // What arrived, judged before anything is kept (Download.decideDestination): every board download comes here.
+        func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String,
+                      completionHandler: @escaping (URL?) -> Void) {
+            let http = response as? HTTPURLResponse
+            switch Download.decideDestination(status: http?.statusCode, mimeType: response.mimeType,
+                                              attachment: Self.isAttachment(http), url: response.url ?? download.originalRequest?.url) {
+            case .drop(let sentence):
+                NSLog("[Download] what arrived was not the file, so nothing was kept")
+                if let sentence { say(sentence, refusal: false) }
+                cancelledByPerson.add(download)   // said here (or by the page): the cancel that follows is not
+                completionHandler(nil)
+                return
+            case .keep: break
+            }
+            Self.sweepOnce()
+            let id = ObjectIdentifier(download)
+            let name = Download.fileName(suggestedFilename)
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-" + UUID().uuidString, isDirectory: true)
+            do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) } catch {
+                say(Download.failed(error.localizedDescription), refusal: false)
+                cancelledByPerson.add(download)
+                completionHandler(nil)
+                return
+            }
+            downloadFolders[id] = folder
+            downloadNames[id] = name
+            // "Getting <name>" only for a file that takes more than a second (Mona Lisa).
+            let show = DispatchWorkItem { [weak self, weak download] in
+                guard let self, let download else { return }
+                let line = ShellState.Downloading(id: id, name: name, cancel: { [weak self, weak download] in
+                    guard let self, let download else { return }
+                    // The person's Cancel: quiet, and cleaned up now (WebKit need not report a cancel it was asked for).
+                    self.cancelledByPerson.add(download)
+                    download.cancel { _ in }
+                    self.cleanUp(id)
+                })
+                self.lines.append(line)
+                self.shell?.downloading = line
+            }
+            lineTimers[id] = show
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: show)
+            completionHandler(folder.appendingPathComponent(name))
+        }
+
+        func downloadDidFinish(_ download: WKDownload) {
+            let id = ObjectIdentifier(download)
+            active.removeValue(forKey: id)
+            endLine(id)
+            cancelledByPerson.remove(download)
+            guard let folder = downloadFolders.removeValue(forKey: id), let name = downloadNames.removeValue(forKey: id) else { return }
+            share(folder.appendingPathComponent(name), folder: folder)
+        }
+
+        func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+            let id = ObjectIdentifier(download)
+            let hadFolder = downloadFolders[id] != nil
+            cleanUp(id)
+            let quiet = cancelledByPerson.contains(download)
+            cancelledByPerson.remove(download)
+            if quiet { return }   // the person's own Cancel, or something already said
+            let e = error as NSError
+            // WebKit stopped it itself before it had anywhere to go: said, never a tap that did nothing.
+            if e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled && !hadFolder {
+                say(Download.failed(Download.stoppedBeforeItBegan), refusal: false)
+                return
+            }
+            say(Download.failed(e.localizedDescription), refusal: false)
+        }
+
+        // Folders a download left behind when the app was stopped mid-way (killed with a sheet up): gone the first time a
+        // download starts in this launch. It runs before this launch makes its first folder, so every one it finds
+        // belongs to an app that has already exited, and no age check is needed (reading file dates would be a
+        // required-reason API the privacy manifest does not declare, kosmos#7352). That holds only while every place
+        // that makes a kosmos-download- folder calls sweepOnce() first: a new one that does not could lose a live folder.
+        private static var swept = false
+        private static func sweepOnce() {
+            guard !swept else { return }
+            swept = true
+            let tmp = FileManager.default.temporaryDirectory
+            for url in (try? FileManager.default.contentsOfDirectory(at: tmp, includingPropertiesForKeys: nil)) ?? []
+            where url.lastPathComponent.hasPrefix("kosmos-download-") {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        // A download that ended without a file: its line, its folder and its name go. Safe to run twice (Cancel runs it,
+        // and so does the failure that may follow).
+        private func cleanUp(_ id: ObjectIdentifier) {
+            active.removeValue(forKey: id)
+            endLine(id)
+            downloadNames.removeValue(forKey: id)
+            if let folder = downloadFolders.removeValue(forKey: id) { try? FileManager.default.removeItem(at: folder) }
+        }
+
+        // The line goes with ITS download; another still on its way is shown again, with its own Cancel.
+        private func endLine(_ id: ObjectIdentifier) {
+            lineTimers.removeValue(forKey: id)?.cancel()
+            lines.removeAll { $0.id == id }
+            shell?.downloading = lines.last
+        }
+
+        // What the person is shown, one at a time and in order: a message, or the share sheet with a file. Nothing is
+        // dropped while another is on screen; it waits its turn (a sheet for every file that arrived, every failure).
+        private enum Shown { case message(String, refusal: Bool), sheet(URL, folder: URL) }
+        private var waiting: [Shown] = []
+        private var showing = false
+        // What is on screen now, and its file's folder when it is a sheet: if it goes without reporting back (a scene torn
+        // down, a dismiss from elsewhere), the queue notices and moves on, and the folder goes.
+        private weak var current: UIViewController?
+        // Which presentation is current: a late report from one the queue already moved past changes nothing else.
+        private var currentToken: UUID?
+        private var currentFolder: URL?
+        private var retries = 0
+
+        // The share sheet with the file (Save to Files, AirDrop, send on): the sheet is the consent, so nothing is asked
+        // first; closing it keeps nothing and says nothing. The file goes when the sheet does.
+        private func share(_ file: URL, folder: URL) {
+            waiting.append(.sheet(file, folder: folder))
+            showNext()
+        }
+
+        // A refusal (a rule said no) or a failure (the file did not arrive). A refusal as the Mac's guard allows: not
+        // while another message is up or waiting, at most twice per page, not within 10 s of the last. A failure always,
+        // in its turn.
+        func say(_ sentence: String, refusal: Bool) {
+            if refusal {
+                if refusalsShown.commit != commits { refusalsShown = (commits, [:]) }
+                guard Download.shouldSay(up: showing || !waiting.isEmpty, refusal: true, lastAt: refusalLastAt, now: Date(),
+                                         shownThisPage: refusalsShown.by[sentence, default: 0]) else { return }
+                refusalsShown.by[sentence, default: 0] += 1
+            }
+            waiting.append(.message(sentence, refusal: refusal))
+            showNext()
+        }
+
+        // Shows the next thing waiting, once nothing else is on screen. A presentation that does not happen (another is
+        // still animating in or out) is tried again shortly, never lost.
+        private func showNext() {
+            if showing, current == nil || (current?.presentingViewController == nil && current?.isBeingPresented == false) {
+                if let folder = currentFolder { try? FileManager.default.removeItem(at: folder) }
+                shownEnded(); return
+            }
+            guard !showing, let next = waiting.first else { return }
+            guard let top = Self.topController(), !top.isBeingDismissed, !top.isBeingPresented else { retryShowing(); return }
+            waiting.removeFirst()
+            showing = true
+            retries = 0
+            let token = UUID()
+            let shown: UIViewController
+            switch next {
+            case .message(let sentence, let refusal):
+                let alert = UIAlertController(title: refusal ? "Kosmos did not save that file" : "Kosmos could not save that file",
+                                              message: sentence, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+                    if refusal { self?.refusalLastAt = Date() }
+                    if self?.currentToken == token { self?.shownEnded() }
+                })
+                shown = alert
+            case .sheet(let file, let folder):
+                let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+                sheet.completionWithItemsHandler = { [weak self] _, _, _, _ in
+                    try? FileManager.default.removeItem(at: folder)   // its own file, whichever is current now
+                    if self?.currentToken == token { self?.shownEnded() }
+                }
+                currentFolder = folder
+                // An iPad shows it as a popover, which needs somewhere to point.
+                sheet.popoverPresentationController?.sourceView = top.view
+                sheet.popoverPresentationController?.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.maxY - 40, width: 1, height: 1)
+                shown = sheet
+            }
+            current = shown
+            currentToken = token
+            top.present(shown, animated: true)
+            DispatchQueue.main.async { [weak self, weak shown] in
+                guard let self, shown?.presentingViewController == nil else { return }
+                // It did not appear: back to the front of the line, and tried again.
+                self.showing = false
+                self.waiting.insert(next, at: 0)
+                self.retryShowing()
+            }
+        }
+
+        private func shownEnded() {
+            showing = false
+            current = nil
+            currentToken = nil
+            currentFolder = nil
+            showNext()
+        }
+
+        private var retryScheduled = false
+        private func retryShowing() {
+            guard !retryScheduled else { return }
+            // Bounded: after about ten seconds of nowhere to show it (no scene in front), what waits is given up, and a
+            // sheet's file with it, rather than tried for ever.
+            retries += 1
+            if retries > 20 {
+                retries = 0
+                for item in waiting { if case .sheet(_, let folder) = item { try? FileManager.default.removeItem(at: folder) } }
+                waiting.removeAll()
+                NSLog("[Download] nowhere to show the waiting files and messages; given up")
+                return
+            }
+            retryScheduled = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.retryScheduled = false
+                self?.showNext()
+            }
+        }
+        private static func topController() -> UIViewController? {
+            let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+                .first { $0.activationState == .foregroundActive } ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            var top = scene?.windows.first { $0.isKeyWindow }?.rootViewController
+            while let next = top?.presentedViewController { top = next }
+            return top
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             endRefreshing()
             failedURL = nil
@@ -849,12 +1416,15 @@ struct WebView: UIViewRepresentable {
                                                   coordinator: KosmosConfig.coordinatorOrigin) else { return }
             failedURL = failingURL
             failedProvisionally = provisional
+            // kosmos#7266 review 6: a create waiting for this computer's board ends with its failed load.
+            web?.loadFailed(host: failingURL?.host)
             // The host only: a Mac link carries the person's sign-in token in its
             // fragment (#kst=), which must never reach a log.
             NSLog("[Shell] load failed: \(e.domain) \(e.code) host=\(failedURL?.host ?? "?")")
             shell?.failureDetail = e.localizedDescription
             // kosmos#7197: name the Mac that did not answer (its address label).
             shell?.failureMac = failure == .macUnreachable ? Shell.macName(fromHost: failingURL?.host) : nil
+            shell?.failureAddress = failure == .macUnreachable ? failingURL?.host : nil
             shell?.show(failure)
         }
     }
@@ -884,5 +1454,76 @@ final class SessionMessageProxy: NSObject, WKScriptMessageHandler {
             host: origin.host,
             port: origin.port
         )
+    }
+}
+
+// kosmos#7266 slice B: the person's picture as the Settings tab draws it: a circle the size of the bar's icons, drawn as
+// it is (not tinted). With no picture, their letter on the avatar cream, as an agent with none (Mona Lisa's review: a
+// gear for everyone without a photo would bring back the cog Josh asked to replace). nil only while neither is known,
+// so the gear shows then and never a wrong letter.
+enum YouFace {
+    static let tabSide: CGFloat = 26
+    // Review 1: ContentView redraws on every 5 s agents read, and a picture can be several MB, so the decoded circle is
+    // kept and made again only when the picture's bytes change.
+    private static var lastPicture: (data: Data, image: UIImage)?
+    // Review 2 nit: the profile page's picture, decoded once per picture too (Settings redraws with the board).
+    private static var lastProfile: (data: Data, image: UIImage)?
+    static func profileImage(_ data: Data?) -> UIImage? {
+        guard let data else { return nil }
+        if let last = lastProfile, last.data == data { return last.image }
+        guard let picture = UIImage(data: data) else { return nil }
+        let image = circle(picture, side: 88 * 3)   // the page draws it at 88 pt
+        lastProfile = (data, image)
+        return image
+    }
+    static func tabImage(_ data: Data?, letter: String?, dark: Bool) -> UIImage? {
+        if let data {
+            if let last = lastPicture, last.data == data { return last.image }
+            if let picture = UIImage(data: data) {
+                let image = circle(picture, side: tabSide).withRenderingMode(.alwaysOriginal)
+                lastPicture = (data, image)
+                return image
+            }
+        }
+        guard let letter else { return nil }
+        // Palette.avatarFill / avatarLetter, light and dark (AgentsView.swift).
+        let fill = dark ? UIColor(red: 0x25 / 255.0, green: 0x25 / 255.0, blue: 0x29 / 255.0, alpha: 1) : UIColor(red: 0xec / 255.0, green: 0xe7 / 255.0, blue: 0xdd / 255.0, alpha: 1)
+        let ink = dark ? UIColor(red: 0xc7 / 255.0, green: 0xc7 / 255.0, blue: 0xcc / 255.0, alpha: 1) : UIColor(red: 0x4a / 255.0, green: 0x4f / 255.0, blue: 0x57 / 255.0, alpha: 1)
+        return UIGraphicsImageRenderer(size: CGSize(width: tabSide, height: tabSide)).image { _ in
+            fill.setFill()
+            UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: tabSide, height: tabSide)).fill()
+            let words = NSAttributedString(string: letter, attributes: [.font: UIFont.systemFont(ofSize: 13, weight: .semibold), .foregroundColor: ink])
+            let size = words.size()
+            words.draw(at: CGPoint(x: (tabSide - size.width) / 2, y: (tabSide - size.height) / 2))
+        }.withRenderingMode(.alwaysOriginal)
+    }
+    static func circle(_ picture: UIImage, side: CGFloat) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            let rect = CGRect(x: 0, y: 0, width: side, height: side)
+            UIBezierPath(ovalIn: rect).addClip()
+            // Fill the circle, cropping the longer side (aspect fill).
+            let scale = max(side / picture.size.width, side / picture.size.height)
+            let w = picture.size.width * scale, h = picture.size.height * scale
+            picture.draw(in: CGRect(x: (side - w) / 2, y: (side - h) / 2, width: w, height: h))
+        }
+    }
+    #if DEBUG
+    // A drawn stand-in for a person's photo in screenshots (no real face in a picture): initials on the agents' avatar
+    // cream (Palette.avatarFill / avatarLetter, light), so it reads as part of the app's palette (Mona Lisa's review).
+    static let sample: Data? = UIGraphicsImageRenderer(size: CGSize(width: 240, height: 240)).image { _ in
+        UIColor(red: 0xec / 255.0, green: 0xe7 / 255.0, blue: 0xdd / 255.0, alpha: 1).setFill()
+        UIBezierPath(rect: CGRect(x: 0, y: 0, width: 240, height: 240)).fill()
+        let words = NSAttributedString(string: "SC", attributes: [.font: UIFont.systemFont(ofSize: 96, weight: .semibold),
+                                                                 .foregroundColor: UIColor(red: 0x4a / 255.0, green: 0x4f / 255.0, blue: 0x57 / 255.0, alpha: 1)])
+        let size = words.size()
+        words.draw(at: CGPoint(x: (240 - size.width) / 2, y: (240 - size.height) / 2))
+    }.pngData()
+    #endif
+}
+
+// kosmos#7266: iOS 26's tab bar minimising on scroll, where the system offers it.
+private struct TabBarMinimizesOnScroll: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) { content.tabBarMinimizeBehavior(.onScrollDown) } else { content }
     }
 }

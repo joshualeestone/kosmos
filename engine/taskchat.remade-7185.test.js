@@ -23,6 +23,7 @@ const assert = require('node:assert/strict');
 const projects = require('../engine/projects');
 const tasks = require('../engine/tasks');
 const taskchat = require('../engine/taskchat');
+const projectborn = require('../engine/projectborn');
 
 const said = (id, n) => taskchat.read(id, n).filter((r) => r.kind === 'said').map((r) => r.text);
 
@@ -67,6 +68,44 @@ test('the room\'s progress count does not count the deleted project\'s steps', a
   assert.equal(taskchat.progressTimes(id).length, 1, 'its own new task counts once');
 });
 
+test('#7367: a damaged projects file shows a re-made project\'s predecessor rows, and a repaired one hides them again', async () => {
+  const id = await madeAndRemoved('Damage cycle', 'from the deleted project');
+  projects.create({ name: 'Damage cycle' });
+  const f = projects.file();
+  const good = fs.readFileSync(f);
+  assert.deepEqual(said(id, 1), [], 'CONTROL: with a good file the predecessor row is hidden');
+  fs.writeFileSync(f, Buffer.alloc(good.length + 7, 0));
+  try {
+    assert.equal(!projectborn.snapshot().ok, true, 'CONTROL: the stamps are unknown');
+    assert.deepEqual(said(id, 1), ['from the deleted project'], 'damaged: fails open, the predecessor row shows (the documented cost)');
+  } finally {
+    fs.writeFileSync(f, good);
+  }
+  assert.equal(!projectborn.snapshot().ok, false, 'repaired: the stamps are known again');
+  assert.deepEqual(said(id, 1), [], 'repaired: the predecessor row is hidden again (the failed read did not stick)');
+});
+
+test('#7367: a failed read of an unchanged projects file is tried again after a few seconds, not kept until it changes', async () => {
+  const id = await madeAndRemoved('Passing error', 'from the deleted project');
+  projects.create({ name: 'Passing error' });
+  const realReadAll = projects.readAll;
+  projects.readAll = () => { const e = new Error('held by a scanner'); e.code = 'UNREADABLE'; throw e; };
+  try {
+    assert.equal(!projectborn.snapshot().ok, true, 'CONTROL: the one failed read is seen');
+  } finally {
+    projects.readAll = realReadAll;
+  }
+  assert.equal(!projectborn.snapshot().ok, true, 'CONTROL: within the keep window the failed read is still used (the file is unchanged)');
+  const realNow = Date.now;
+  Date.now = () => realNow() + 6000;
+  try {
+    assert.equal(!projectborn.snapshot().ok, false, 'after the window it is read again, and reads');
+    assert.deepEqual(said(id, 1), [], 'and the predecessor row is hidden again');
+  } finally {
+    Date.now = realNow;
+  }
+});
+
 test('an id with no project record keeps every row (the old behaviour, so nothing that reads without a project breaks)', () => {
   assert.ok(taskchat.record('no-such-project-7185', 2, { kind: 'said', text: 'kept' }));
   assert.deepEqual(said('no-such-project-7185', 2), ['kept']);
@@ -90,7 +129,7 @@ test('a re-made project\'s room does not show the deleted project\'s room rows',
   assert.match(fs.readFileSync(messages.LOG, 'utf8'), /room line from the first project/, 'the old line is still in the log');
 });
 
-test('when the projects file cannot be read, a project\'s rows are left out rather than shown', () => {
+test('#7367: when the projects file cannot be read, a project\'s rows are still shown (fails open)', () => {
   const id = projects.create({ name: 'Unreadable ' + Math.random().toString(36).slice(2) }).id;
   const n = tasks.create(id, { sentence: 'Task' }).number;
   assert.ok(taskchat.record(id, n, { kind: 'said', text: 'private words' }));
@@ -102,9 +141,10 @@ test('when the projects file cannot be read, a project\'s rows are left out rath
   fs.writeFileSync(f, good.toString('utf8') + ' not json');   // damaged: readAll throws, so the stamps cannot be known
   try {
     assert.throws(() => projects.readAll(), /cannot make sense/, 'CONTROL: the projects file really is unreadable now');
-    assert.deepEqual(taskchat.read(id, n), [], 'unreadable: nothing is shown, so no other project\'s words can be');
-    assert.deepEqual(roomTexts(id), [], 'and nothing from the room');
-    assert.equal(messages.record().ok, false, 'and the record says it could not be read, so careful callers fail closed rather than read it as empty');
+    assert.deepEqual(said(id, n), ['private words'], 'unreadable: the task conversation still reads (one damaged file must not silence every task)');
+    assert.deepEqual(roomTexts(id), ['private room line'], 'and the room');
+    assert.equal(messages.record().ok, true, 'the record reads');
+    assert.equal(!projectborn.snapshot().ok, true, 'and says the stamps are unknown, so a receipt is not kept from it');
   } finally {
     fs.writeFileSync(f, good);
   }

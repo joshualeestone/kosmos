@@ -759,7 +759,7 @@ test('#1674: `kosmos reply --help` prints the usage and SENDS NOTHING (it used t
     const r = await run(argv, () => { throw new Error('--help sent a request'); });
     assert.equal(r.calls.length, 0, argv.join(' '));
     assert.equal(r.code, 0, argv.join(' '));
-    assert.equal(r.out, cli.USAGE[argv[0]]);
+    assert.equal(r.out, (argv[0] === 'reply' ? cli.helpFor(argv[0]) : cli.USAGE[argv[0]]));   // #6726: the other verbs' real text; reply's is pinned in tools.windows-kosmos-cli-reply-file-6726 (helpFor here is routing)
   }
   const mention = await run(['reply', 'use --help next time'], () => ({ body: { kept: true } }));
   assert.equal(mention.calls.length, 1, 'a message that only MENTIONS --help must still be sent');
@@ -947,4 +947,16 @@ test('#6849: task built --file and kosmos fingerprint give a PDF the fingerprint
   const missing = await run(['fingerprint', path.join(fix, 'nope.pdf')]);
   assert.equal(missing.code, 2);
   assert.match(missing.err, /missing \(no such file\)/);
+  // #7213, as the Mac: an approval's plain sha256 is compared with the plain bytes, and the answer names the kind.
+  assert.match(want, /^pdf-normalized:/, 'a PDF fingerprint must not be labelled sha256:');
+  const same = await run(['fingerprint', a, plain(a).slice('sha256:'.length)]);
+  assert.equal(same.code, 0, same.err);
+  assert.match(same.out, /matches the plain sha256/);
+  const diff = await run(['fingerprint', b, plain(a)]);
+  assert.equal(diff.code, 1, diff.err);
+  assert.match(diff.out, /differs from the plain sha256/);
+  const kind = await run(['fingerprint', b, want]);
+  assert.equal(kind.code, 0, kind.err);
+  assert.match(kind.out, /matches the PDF fingerprint/);
+  assert.equal((await run(['fingerprint', a, plain(a), 'extra'])).code, 2);
 });

@@ -42,6 +42,115 @@ const NOT_WIRED_UP = 'Muse Code is not wired up on this computer yet';
 const STOPPED = 'Stopped before Muse Code finished';
 /* The session is still held by a turn that is ending (#4569: the front retries a stop note on this). */
 const BUSY = 'Muse Code is still working on this agent\'s last turn';
+/* kosmos#7615 item 4 (Josh's 0.7.75 report): Meta's "429 Subscription quota exhausted", with its reset time, reached the
+   person only as COULD_NOT_RUN. Said as a quota, with Meta's words for the refusal and its reset time.
+   Review 7 changed the principle again, after six rounds each found new wordings on both sides (a rate limit read as a
+   quota; a key, path or e-mail address quoted beside the sentence). A missed quota leaves today's "could not run"; a
+   quota claimed wrongly sends the person to billing, and a line quoted whole can carry anything. So:
+   - a refusal names Meta's subscription or usage quota and the refusal word together, or is insufficient_quota;
+   - any sign of a rate limit, a notice, a fallback or a tool's limit on the line refuses it (NOT_A_REFUSAL);
+   - only the refusal's own words and a reset time are quoted, each a match of a pattern that admits letters, digits and
+     a few separators, so nothing else on the line can reach the person, however it is written.
+   Weakest premise: no capture of Muse's quota output exists, so Meta's real wording may be missed. That fails safe. */
+/* Review 4: "stopped", true whether the turn ran partway (its text is written before this) or not at all. */
+const QUOTA_HEAD = 'Meta\'s usage quota for Muse Code is used up, so Muse Code stopped';
+const QUOTA_REFUSED = new RegExp([
+  /(?<![a-z])(?:subscription|usage)(?:\s+|_)quota(?:\s+|_)(?:(?:is|has\s+been|was)\s+)?(?:exhausted|exceeded)(?![a-z_])/.source,
+  /(?<![a-z])(?:exhausted|exceeded)\s+(?:your|the)\s+(?:(?:current|monthly|daily)\s+)?(?:subscription|usage)\s+quota(?![a-z_])/.source,
+  /(?<![a-z])insufficient_quota(?![a-z_])/.source,
+].join('|'), 'i');
+/* Not a refusal, whatever else the line says (reviews 2 to 6): a negation; a false flag ("quota_exceeded": false); a
+   share below 100% or a threshold; a rate, a burst, a window or a concurrency limit; a fallback Muse moved past; a
+   tool's limit; or a quota on this computer (a disk or storage quota, EDQUOT). "0%" and "100%" are not notices, and a
+   URL's "%3A" is not a share. */
+const NOT_A_REFUSAL = new RegExp([
+  /\b(?:not|never)\s+(?:yet\s+)?(?:exhausted|exceeded)\b|n't\s+(?:yet\s+)?(?:exhausted|exceeded)\b/.source,
+  /\b(?:if|whether|when|unless|once)\b[^.;]{0,40}\b(?:exhausted|exceeded)\b/.source,   // review 8: help text, not a refusal
+  /(?:exhausted|exceeded)["']?\s*[:=]\s*["']?(?:false|0|no|null)\b(?!\s*%)/.source,
+  /\b[1-9]\d?(?:\.\d+)?\s*%(?![0-9A-Fa-f]{2})|\bpercent\b|\bthreshold\b/.source,
+  /\b(?:rate|burst|concurren\w*|parallel|throttl\w*|rpm|tpm|rps|qps)\b|\bper[\s-](?:second|minute|hour|request|key)\b/.source,
+  /\brate[\s_-]?limit|\/\s*(?:s|sec|second|min|minute|h|hr|hour)\b|\bcurrent\s+(?:second|minute|hour)\b/.source,   // review 8
+  /\b(?:requests?|tokens?|calls?)[\s-]per\b|\b(?:fall(?:ing)?\s*back|fallback|switching|continuing)\b|\btools?\b/.source,
+  /\b(?:disk|storage|file|inode|user|group)\b[^.;]{0,20}\bquota\b|\bEDQUOT\b/.source,
+].join('|'), 'i');
+/* Review 1 and 2: a stderr line that says Muse is retrying is one it may have recovered from (review 3: "retried" too). */
+const RETRYING = /\bretr(?:ied|ying)\b/i;
+/* A wait of under an hour is a rate limit's, not a quota's reset (review 6): "try again in 2s", "retry-after: 30".
+   Review 8: "after" and "resets in" too, and a wait with no number ("in a few seconds", "shortly"). A number followed by
+   "-" or ":" is a date or a clock time, never a wait. */
+const SHORT_WAIT = /\b(?:(?:try\s+again|retry|wait|resets?)(?:\s+(?:in|after))?|retry[-_]after\s*[:=]?)\s*(\d+(?:\.\d+)?)(?![\d.:-])\s*(ms|s|sec|secs|seconds?|m|mins?|minutes?|h|hrs?|hours?)?(?![a-z])/gi;
+const VAGUE_WAIT = /\b(?:in|after)\s+(?:a\s+(?:few\s+)?(?:seconds?|moments?|minutes?|bit|while)|moments?|seconds)\b|\bshortly\b/i;
+function shortWait(line) {
+  if (VAGUE_WAIT.test(line)) return true;
+  for (const m of line.matchAll(SHORT_WAIT)) {
+    const n = Number(m[1]); const u = (m[2] || 's').toLowerCase();
+    const secs = u === 'ms' ? n / 1000 : u[0] === 'm' ? n * 60 : u[0] === 'h' ? n * 3600 : n;
+    if (secs < 3600) return true;
+  }
+  return false;
+}
+/* The reset time, when the line gives one after the refusal: a date, a date and time, or a clock time, with Z or UTC. */
+const RESET_AT = /\b(?:resets?|reset\s+at|until|retry\s+(?:after|at)|try\s+again\s+(?:after|at))\b[:\s]+(?:(?:at|on)\s+)?(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?(?:\s?(?:Z|UTC))?|\d{1,2}:\d{2}(?:\s?(?:Z|UTC))?)/i;
+/* What is quoted: the refusal's own words, spaces made single, then the reset time in brackets. Nothing else. */
+// Review 8: a zone or offset the pattern does not keep ("+05:30", "PST") would make the quoted time wrong, so none is.
+const OTHER_ZONE = /^\s*(?:[+-]\d{2}:?\d{2}\b|[A-Z]{2,5}\b)/;
+function quoted(line) {
+  const m = QUOTA_REFUSED.exec(line);
+  const words = m[0].replace(/\s+/g, ' ');
+  const tail = line.slice(m.index + m[0].length);
+  const at = RESET_AT.exec(tail);
+  // Review 8: only right after the refusal, or as the next sentence's start ("... exhausted. Resets at ..."), never a
+  // later clause's "until" ("Session valid until ...").
+  const between = at ? tail.slice(0, at.index).replace(/\([^)]*\)/g, '') : '';
+  const own = at && /^[\s,.;:-]*$/.test(between) && !OTHER_ZONE.test(tail.slice(at.index + at[0].length));
+  return own ? words + ' (resets ' + at[1].replace(/\s+/g, ' ') + ')' : words;
+}
+/* What Meta said, for the LAST line of `text` that says the quota refused the run (review 1: an earlier one may be a
+   refusal Muse recovered from before failing for another reason); null when none does. `skipRetrying` for stderr only
+   (review 2: a failure event is the run's end, never a retry in progress). */
+function quotaLine(text, skipRetrying = false) {
+  let found = null;
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trim();
+    if (QUOTA_REFUSED.test(line) && !NOT_A_REFUSAL.test(line) && !shortWait(line)
+      && !(skipRetrying && RETRYING.test(line))) found = line;
+  }
+  return found === null ? null : quoted(found);
+}
+const quotaBecause = (words) => QUOTA_HEAD + '. Meta said: ' + words;
+/* The words the RUN's failure says, and only those (review 1: an allowlist). A run failure is a terminal event that did
+   not complete, or an event of exactly type run.failed or run.error: never a tool's event (review 2: run.tool.failed
+   carries a command's output). Its words are the strings `error`, `error.message`, `message` and `reason`, no deeper
+   (review 2: deeper fields carry request headers). Never the event's JSON. */
+const RUN_FAILURE_TYPES = ['run.failed', 'run.error'];
+function failureWords(jsonl) {
+  const out = [];
+  for (const l of String(jsonl || '').split('\n')) {
+    let ev; try { ev = JSON.parse(l); } catch { continue; }
+    if (!ev || typeof ev !== 'object' || typeof ev.payload_type !== 'string') continue;
+    const p = ev.payload && typeof ev.payload === 'object' ? ev.payload : {};
+    const failed = (ev.payload_type === 'run.terminal.completed' && p.terminal !== 'completed')
+      || RUN_FAILURE_TYPES.includes(ev.payload_type);
+    if (!failed) continue;
+    const e = p.error;
+    for (const v of [e, e && typeof e === 'object' ? e.message : null, p.message, p.reason]) {
+      if (typeof v === 'string' && v.trim()) out.push(v);
+    }
+  }
+  return out.join('\n');
+}
+/* Which sentence says the quota refused this turn. A run failure with words of its own is the run's own account of why it
+   ended, so only those are read; stderr is read only when there is none (review 2: an earlier stderr warning must not
+   override a failure that names another cause). */
+// Review 3: a failure whose words are only a generic code ("provider_error") names no cause, so stderr is still read.
+// Review 8: only a generic one; "context_length_exceeded" or "rate_limit_exceeded" names its cause, and stderr loses.
+const GENERIC_CODE = /^(?:provider_error|error|errored|unknown|unknown_error|failed|failure|internal_error|internal_server_error|server_error|\d{3})$/i;
+const CODES_ONLY = (said) => said.split('\n').every((l) => GENERIC_CODE.test(l.trim()));
+function quotaRefusal(stderr, stdout) {
+  const said = failureWords(stdout);
+  if (!said) return quotaLine(stderr, true);
+  return quotaLine(said) || (CODES_ONLY(said) ? quotaLine(stderr, true) : null);
+}
 
 /**
  * The arguments for one turn, or { error } when an input is not one Kosmos will hand Muse.
@@ -227,8 +336,12 @@ function runTurn(input) {
           musestatus.markSignedOut(startedAt, atStart, Date.now());
         }
         // Timed out only when Kosmos stopped it (round 1): another signal is a crash, not a timeout.
-        else if (err) because = COULD_NOT_RUN;
-        else if (!parsed.done) because = 'Muse Code stopped before finishing the turn';
+        // Review 4: never for a turn Muse says it completed.
+        else if (err) { const q = parsed.done ? null : quotaRefusal(stderr, stdout); because = q ? quotaBecause(q) : COULD_NOT_RUN; }
+        else if (!parsed.done) {
+          const q = quotaRefusal(stderr, stdout);
+          because = q ? quotaBecause(q) : 'Muse Code stopped before finishing the turn';
+        }
         // #3939 3c-1: a completed turn proves the sign-in (a terminal `muse login` is seen only this way).
         if (!err && parsed.done) musestatus.markTurnSignedIn(startedAt);
         finish({ ok: !err && parsed.done, exitCode, sessionId: parsed.sessionId, model: parsed.model, text: parsed.text, done: parsed.done, because });
@@ -253,4 +366,4 @@ function setForTests(o) {
 }
 function resetForTests() { runMuse = REAL.runMuse; turnTimeoutMs = TURN_TIMEOUT_MS; hardCapMs = TURN_HARD_CAP_MS; maxBytes = TURN_MAX_BUFFER; platform = process.platform; }
 
-module.exports = { turnArgs, parseEvents, modelWatcher, runTurn, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, STOPPED, BUSY, setForTests, resetForTests };
+module.exports = { turnArgs, parseEvents, modelWatcher, runTurn, quotaLine, failureWords, quotaRefusal, QUOTA_HEAD, APPROVAL_MODES, TURN_TIMEOUT_MS, TURN_HARD_CAP_MS, TIMED_OUT, COULD_NOT_RUN, NOT_WIRED_UP, STOPPED, BUSY, setForTests, resetForTests };

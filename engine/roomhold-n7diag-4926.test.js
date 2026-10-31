@@ -93,11 +93,12 @@ test('#4926 N7: the arrival path logs the held posts it carries (source pin)', (
   // Written with the outcome, never before typing (round 2).
   assert.match(SRC, /logCarried\('held'\);/);
   assert.match(SRC, /outcomes\[name\] = sent\.state;\n      logCarried\(sent\.state\);/);
-  assert.match(SRC, /if \(typingStarted\.has\(name\)\) logCarried\('may-have'\);\n      roomhold\.restore\(name, projectId, heldIds\);/, 'a throw after typing started is not logged');
+  // kosmos#7614 review 1: the restore goes through restoreHeld, which leaves out a post the person deleted meanwhile.
+  assert.match(SRC, /if \(typingStarted\.has\(name\)\) logCarried\('may-have'\);\n      restoreHeld\(name, projectId, heldIds\);/, 'a throw after typing started is not logged');
 });
 
 test('#4926 N7: both of the board\'s flushes (turn end and the timed retry) pass the diagnostic (source pin)', () => {
   const SRC = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const wired = SRC.split('afterOf: (p, ids, who2) => messages.memberAfter(p, ids, who2),').length - 1;
-  assert.equal(wired, 2, 'the turn-end flush and flushReleased should each pass afterOf');
+  assert.equal(wired, 3, 'the turn-end flush, flushReleased and (#7246) flushDigests should each pass afterOf');
 });

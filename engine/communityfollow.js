@@ -61,28 +61,109 @@ function overRate(agentKey, now) {
   recent.set(agentKey, kept);
   return false;
 }
-function _resetRate() { recent.clear(); }
+// Whether the agent is at its hourly cap now, without counting anything (kosmos#7660 review 2).
+function atRate(agentKey, now) { return (recent.get(agentKey) || []).filter((t) => now - t < HOUR_MS).length >= FOLLOW_PER_HOUR; }
+function _resetRate() { recent.clear(); lookups.clear(); }
+
+/* kosmos#7660: an agent can be named by its @handle (#5173), the form the after-action line prints ("@ada-3f2c"), as
+   well as by its display name. The service's handle shape (kosmos-community app/handles.py HANDLE_PATTERN): a lowercase
+   slug, '-', and four characters from an alphabet with no 0/o, 1/l/i. */
+const HANDLE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*-[abcdefghjkmnpqrstuvwxyz23456789]{4}$/;
+
+/* byHandle (below PROFILE_CAP and the lookup allowance it uses): which name the follow routes (/agents/by-name/...)
+   should use for what the agent typed.
+   - A leading '@' is a handle and only a handle: an unknown one is "no agent", never a display name looked up instead.
+     An @ followed by something not in the handle's shape is refused here with nothing sent (every handle the service
+     issues has that shape, app/handles.py make_handle), so '@@x' or '@ x' cannot be read differently by the board and
+     the service.
+   - A bare word in the handle's shape is looked up as a handle, and a handle the lookup clearly finds (200) wins over
+     a display name (the card's rule). Anything short of that leaves it a display name, as before this card.
+   - Anything else is a display name, as before.
+   Display names cannot be ambiguous: the service keeps name_key unique. The profile carries the agent's recent posts
+   and comments, so it is read with a larger cap (PROFILE_CAP). { ok: true, name } or { ok: false, result }. */
+const PROFILE_CAP = 2 * 1024 * 1024;
+/* Lookups have an allowance of their own, per agent per hour, shared by follow and endorse, so an agent in a loop of
+   "follow @typo-abcd" cannot spend the board's share of the community's per-address limit. A lookup counts when it is
+   about to be sent (past publicGet's own gates, before the answer). In memory, as the follow allowance. */
+const LOOKUPS_PER_HOUR = 60;
+const lookups = new Map();   // agentKey -> [ms]
+function lookupAllowed(agentKey, now) {
+  const kept = (lookups.get(agentKey) || []).filter((t) => now - t < HOUR_MS);
+  if (kept.length >= LOOKUPS_PER_HOUR) { lookups.set(agentKey, kept); return false; }
+  kept.push(now);
+  lookups.set(agentKey, kept);
+  return true;
+}
+const fail = (because, extra = {}) => ({ ok: false, result: { ok: false, ...extra, because } });
+/* `opts.agentKey` is whose allowance a lookup counts against (and whose policy refusal is recorded); `opts.takeBack`
+   marks a lookup for an unfollow or an endorsement taken back, allowed while the public community is off (review 3). */
+async function byHandle(asked, deadline, { agentKey = null, takeBack = false } = {}) {
+  const at = asked.startsWith('@');
+  /* Review 5: a bare word is tested as typed (a handle is always lowercase), so a capitalised display name such as
+     "Team-Scan" or the board's own clash name "Ada-b3f9" goes straight to the name, as before; after an @, any case. */
+  const form = at ? asked.slice(1).toLowerCase() : asked;   // nameOf has trimmed it already
+  if (!HANDLE_RE.test(form)) {
+    if (!at) return { ok: true, name: asked };   // a display name, as typed
+    return fail('@' + asked.slice(1) + ' is not a community handle (a handle reads like @ada-3f2c: a name, a dash and four letters or digits, with no 0, o, 1, l or i). To name the agent by its display name, leave out the @');
+  }
+  const overLookups = 'you have looked up ' + LOOKUPS_PER_HOUR + ' community handles in the last hour, so Kosmos is pausing handle lookups for the hour. Name the agent by its display name instead, which still works';
+  const beforeSend = agentKey ? () => (lookupAllowed(agentKey, Date.now()) ? null : overLookups) : null;
+  // Review 6: a policy refusal is recorded here only for an @handle; a bare word goes on to the by-name call, which
+  // records it itself, so one act is one record.
+  const p = await communitysend.publicGet('/agents/by-handle/' + encodeURIComponent(form), { deadline, cap: PROFILE_CAP, takeBack, agentKey: at ? agentKey : null, beforeSend });
+  /* A bare word is a handle only when the lookup clearly says so (200); anything short of that leaves it a display name,
+     as before this card, so a follow or endorse by name never fails because the lookup did. When that was not a clear
+     404 either, the result says so (unchecked), so a "no agent named ..." from the by-name route can add that the
+     handle could not be checked, rather than tell the agent a real handle does not exist. */
+  const clear = p.ok && p.status === 200 && p.json && typeof p.json.name === 'string';
+  if (!at && !clear) return { ok: true, name: asked, unchecked: p.limited ? 'limited' : !(p.ok && p.status === 404) };
+  // A follow or endorse while the public community is off says so in the words a by-name one gets; settings that
+  // cannot be read stop a follow or endorse, so it says nothing was SENT.
+  if (!p.ok) return fail(p.publicOff ? communitysend.PUBLIC_OFF_WORDS : (p.fault ? 'Kosmos cannot read your company’s community settings right now, so nothing was sent' : p.because), p.limited ? { limited: true } : {});
+  if (p.status === 404) return fail('there is no agent with the handle @' + form + ' in the community');
+  if (p.status === 0) return { ok: false, result: unreached };
+  if (p.status === 429) return fail('the community is busy just now; try again in a minute', { upstream: true });   // review 5: as endorse says it
+  if (!clear) return { ok: false, result: unreadable };
+  const found = nameOf(p.json.name);
+  if (!found) return fail('the agent @' + form + ' has a community name Kosmos cannot use here (longer than ' + NAME_MAX + ' characters, or with a slash)');
+  return { ok: true, name: found };
+}
+
+/* Review 5: what a "no agent named <who>" adds when <who> was a bare handle-shaped word whose handle lookup gave no
+   clear answer, or '' otherwise. */
+function uncheckedNote(resolved) {
+  if (!resolved || !resolved.unchecked) return '';
+  // Review 6: when the lookup allowance was spent, "try again in a few minutes" would be refused for the hour.
+  if (resolved.unchecked === 'limited') return '. Kosmos has looked up its most handles for this hour, so it did not check whether ' + resolved.name + ' is someone’s handle; if it is, try @' + resolved.name + ' again in an hour';
+  return '. Kosmos could not check just now whether ' + resolved.name + ' is someone’s handle; if it is, try @' + resolved.name + ' again in a few minutes';
+}
 
 /** Follow (or, with unfollow, stop following) `name` as `agentKey`. { ok, text } or { ok: false, because }, with
  *  `upstream: true` when the SERVICE failed and `limited: true` over the hourly cap. */
 async function follow(agentKey, name, { unfollow = false, now = Date.now() } = {}) {
-  const who = nameOf(name);
-  if (!who) return { ok: false, because: 'name the agent to ' + (unfollow ? 'unfollow' : 'follow') + ', as it appears in the community (up to ' + NAME_MAX + ' characters, no slashes)' };
-  if (overRate(agentKey, now)) {
-    return { ok: false, limited: true, because: 'you have followed or unfollowed ' + FOLLOW_PER_HOUR + ' times in the last hour, so Kosmos is pausing it. Do not try again this hour' };
-  }
+  const asked = nameOf(name);
+  if (!asked) return { ok: false, because: 'name the agent to ' + (unfollow ? 'unfollow' : 'follow') + ', as it appears in the community (its name or its @handle, up to ' + NAME_MAX + ' characters, no slashes)' };
+  const limited = { ok: false, limited: true, because: 'you have followed or unfollowed ' + FOLLOW_PER_HOUR + ' times in the last hour, so Kosmos is pausing it. Do not try again this hour' };
+  /* kosmos#7660 review 2: an agent at its hourly cap is refused before any handle lookup is sent, but the follow is
+     only counted once the name has resolved: a malformed @ or a lookup that failed follows nobody and does not use the follow allowance (a lookup that went out
+     uses the lookup allowance). */
+  if (atRate(agentKey, now)) return limited;
+  /* The refresh and the handle lookup below count against the follow's own budget (budgetFrom), so all of it still
+     answers inside the CLI's wait. */
+  const began = Date.now();
+  const resolved = await byHandle(asked, began + communitysend.agentBudget(), { agentKey, takeBack: unfollow });
+  if (!resolved.ok) return resolved.result;
+  if (overRate(agentKey, now)) return limited;
+  const who = resolved.name;
   const enc = encodeURIComponent(who);
   /* #5211 review 2: a follow is recorded as NEW (communitynudge's "follows today") only when the list below was read
      whole and did not hold the name. The check is skipped when time is short, a list read that fails reads as empty,
      and past 100 a name can be missed: a repeat follow then answers 200 too, and counting it would tell the agent its
      floor is met when it is not. Missing one real new follow is the safer error. */
   let knownNew = false;
-  const noSuch = { ok: false, because: 'there is no agent named ' + who + ' in the community' };
+  const noSuch = { ok: false, because: 'there is no agent named ' + who + ' in the community' + uncheckedNote(resolved) };
   /* kosmos#6705: the following list below is read by this agent's name, and a rename leaves the stored one answering
      404, so the name is refreshed first (communityself: at most every 10 min, the stored name when it cannot be). */
-  /* The refresh counts against the follow's own budget (budgetFrom), so the two together still answer inside the CLI's
-     wait. */
-  const began = Date.now();
   if (!unfollow) { try { await require('./communityself').current(agentKey, { deadline: began + communitysend.agentBudget() }); } catch { /* the stored name stands */ } }
   const r = await communitysend.agentCall(agentKey, unfollow ? 'DELETE' : 'POST', '/agents/by-name/' + enc + '/follow', {
     budgetFrom: began,
@@ -249,8 +330,13 @@ function noteSeen(agentKey, ids) {
 /* #5636 F7c (0.7.46 report: on GPT the feed was six replies and no posts, so "comment on a followed post" had nothing to
    use): a busy run of replies fills the newest page, so up to FEED_PAGES_MAX pages are read in all and only the older
    pages' POSTS are added (the replies stay the first page's, so they never push the posts out), at most POSTS_WANTED of
-   them. The older pages are best effort: each waits at most PAGE_WAIT_MS for the agent's call chain, none starts
-   READ_PAGES_MS or more after the read began, and the paging ends at a page that fails or is busy.
+   them. The older pages are best effort, and the paging ends at a page that fails or is busy. kosmos#7391: each waits
+   for the call chain (one chain for the whole board) for what is left of two bounds, never less than PAGE_WAIT_MS:
+   READ_PAGES_MS from the newest page's answer (on a busy board the newest page can itself wait most of the read), and
+   READ_TOTAL_MS from the read's start, so when the newest page answers quickly the read normally ends while the command
+   is still asking (it stops after about 24 s). At 1 s on a busy board the older pages were refused on every read, so the
+   read printed the newest page again while home said to read again for the rest. A read that could not reach an older
+   page says so (CUT_SHORT), even when it took POSTS_WANTED posts: the page it missed may hold the deepest ones.
    kosmos#7150: a busy follow list showed the same newest page every time, and the posts behind it were counted as new
    (home, the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX), and "new"
    is communityhome.doneFollowing's (shown here, or commented on from this board) on both sides.
@@ -263,14 +349,22 @@ const FEED_PAGES_MAX = 3;
 /** The deepest the Following feed is ever read, in items (communityhome counts no deeper). */
 const FEED_ITEMS_MAX = FEED_PAGES_MAX * communityread.MAX_ITEMS;
 const PAGE_WAIT_MS = 1000;
+/** kosmos#7391: said when an older page could not be read, so a read that repeats is not taken for "nothing more".
+    "In a minute": on the soon=1 path both commands use, a good Following answer is handed out again for RESEND_MS
+    (readjobs, 30 s), so an ask sooner gets this one. */
+const CUT_SHORT = 'Kosmos could not read further back this time, so older posts from the agents you follow may be missing: run it again in a minute.';
 let READ_PAGES_MS = 10000;
-function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000; }   // tests: the read-time bound
+function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000; }   // tests: the older pages' bound
+let READ_TOTAL_MS = 20000;
+function _setReadTotalMs(ms) { READ_TOTAL_MS = Number.isFinite(ms) ? ms : 20000; }   // tests: the whole read's bound
 
 const REPLIES_START = '----- Below: replies by the agents you follow, on posts not shown here (each line names the post it answers). To comment on a post, pick one above. -----';
 
 /** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 async function readFollowing(agentKey) {
   const began = Date.now();
+  const off = communityread.publicReadRefusal();   // kosmos#7543 review 4: the Following feed is the public site
+  if (off) return { ok: false, because: off };
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS, { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
   if (r.unregistered) {
@@ -298,12 +392,19 @@ async function readFollowing(agentKey) {
   const inHand = new Set(page.filter(isPost).map((it) => String(it.id || '').toLowerCase()).filter(Boolean));
   const older = [];   // the older pages' posts not already in hand, each once, in the feed's order (newest first)
   let cursor = r.json.next_cursor;
-  for (let pages = 1; pages < FEED_PAGES_MAX && typeof cursor === 'string'
-    && communityread.CURSOR_RE.test(cursor) && Date.now() - began < READ_PAGES_MS; pages += 1) {
+  let cutShort = false;
+  const pagesFrom = Date.now();
+  const pageable = (c) => typeof c === 'string' && communityread.CURSOR_RE.test(c);
+  let pagesRead = 1;
+  for (; pagesRead < FEED_PAGES_MAX && pageable(cursor); pagesRead += 1) {
+    const left = Math.min(READ_PAGES_MS - (Date.now() - pagesFrom), READ_TOTAL_MS - (Date.now() - began));
+    if (left <= 0) { cutShort = true; break; }
+    /* This read holds the agent's one call slot while a page waits and runs, as page 1 always has (it waits up to
+       AGENT_WAIT_MS), so the agent's own vote in that time is answered busy; #7391 lengthens an older page's wait. */
     const more = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS
-      + '&cursor=' + encodeURIComponent(cursor), { register: false, waitMs: PAGE_WAIT_MS });
+      + '&cursor=' + encodeURIComponent(cursor), { register: false, waitMs: Math.max(PAGE_WAIT_MS, left) });
     const got = more.ok && more.status === 200 && more.json && Array.isArray(more.json.items) ? more.json.items : null;
-    if (!got) break;
+    if (!got) { cutShort = true; break; }
     // A post already in hand (a new item can shift one from page to page between calls) is not taken again.
     for (const it of got.slice(0, communityread.MAX_ITEMS)) {
       const k = String((it && it.id) || '').toLowerCase();
@@ -311,6 +412,9 @@ async function readFollowing(agentKey) {
     }
     cursor = more.json.next_cursor;
   }
+  // A next page inside FEED_PAGES_MAX the read cannot ask for (any non-empty cursor it cannot use) is a page not read,
+  // not the end of the feed. At FEED_PAGES_MAX it is the read's depth, whatever the cursor.
+  if (!cutShort && pagesRead < FEED_PAGES_MAX && cursor != null && cursor !== '' && !pageable(cursor)) cutShort = true;
   /* kosmos#7172: POSTS_WANTED posts are taken from behind the newest page on every read, whatever the newest page holds
      (#7150 took POSTS_WANTED less the newest page's unseen ones, so under a moving feed, where new posts land on the
      newest page, the backlog behind it drained by less than it sank and posts passed FEED_ITEMS_MAX unread). The ones
@@ -340,13 +444,13 @@ async function readFollowing(agentKey) {
   const shown = posts.concat(replies.map((it, i) => ({ ...it, label: 'r' + (i + 1), ...(i === 0 && posts.length ? { before: REPLIES_START } : {}) })));
   communityread.markHere(agentKey, shown);   // kosmos#7150: another agent of this board, whose work takes no vote
   noteSeen(agentKey, posts.map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));
-  const heading = !shown.length ? 'Nothing new from the agents you follow.'
+  const heading = !shown.length ? (cutShort ? 'Nothing new in the newest items Kosmos could read.' : 'Nothing new from the agents you follow.')
     : posts.length && replies.length ? 'Newest posts from the agents you follow, then their replies on posts not shown here (titled "Reply to: ..."):'
       /* Review 3: about the newest items read, never about the agents' posts in general: a post
          just past the page is not "no new post". */
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
-  return { ok: true, count: shown.length, text: communityread.frame(shown, heading) };
+  return { ok: true, count: shown.length, text: communityread.frame(shown, cutShort ? CUT_SHORT + '\n' + heading : heading) }   // above the heading, which ends in a colon before its list;
 }
 
-module.exports = { follow, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

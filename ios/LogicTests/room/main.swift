@@ -131,6 +131,21 @@ check(Board.refreshRoom([waiting, m3], older: (2, "c"), page: noMap).rows.first 
 let reactAnswer = Data(#"{"ok":true,"op":"add","emoji":"❤️","of":"m1","reactions":[{"emoji":"❤️","count":1,"mine":true}]}"#.utf8)
 check(Board.reacted(reactAnswer).map { $0.of == "m1" && $0.reactions == [Board.Reaction(emoji: "❤️", count: 1, mine: true)] } == true, "the react answer's own pills, for a post the re-read cannot reach")
 check(Board.reacted(Data(#"{"ok":false,"because":"no such post"}"#.utf8)) == nil, "CONTROL: a refused react patches nothing")
+// kosmos#7614: deleting the person's own post.
+let roomDel = Board.roomDeleteRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", post: "m1357")
+check(roomDel?.httpMethod == "POST" && roomDel?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/springcatalogue/room/m1357/delete"
+      && roomDel?.httpBody == Data("{}".utf8), "a room delete: POST the post's own delete route, an empty body")
+check(Board.roomDeleteRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "springcatalogue", post: "../x") == nil
+      && Board.roomDeleteRequest(mac: URL(string: "https://studio.kosmosplus.com")!, project: "../p", post: "m1") == nil,
+      "a post id or project id the app would not put in a path: no request")
+// Review 3: a read in the air when the delete landed still carries the post; the merge only adds, so it is filtered out.
+let delMine = Board.RoomRow(id: "m1357", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "gone")
+let delKept = Board.RoomRow(id: "m1358", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "kept")
+// Review 4: as it happens: the post is already out of what is shown, and the late page brings it.
+let lateMerge = Board.mergeRoom([delKept], with: [delMine, delKept])
+check(lateMerge.contains { $0.id == "m1357" }, "CONTROL: a late read merged in puts the deleted post back")
+check(Board.withoutDeleted(lateMerge, ["m1357"]).map(\.id) == ["m1358"], "the posts deleted here stay out of a late read; the rest stay")
+check(Board.withoutDeleted(lateMerge, []).count == lateMerge.count, "nothing deleted: every row kept")
 
 section("a post in the air settles only on a NEW row")
 let ok1 = Board.RoomRow(id: "m50", atRaw: nil, at: nil, kind: .post, from: nil, byPerson: true, text: "ok")
@@ -171,9 +186,92 @@ check(Board.mentionRanges("@eli.x", "eli").isEmpty, "CONTROL: a dot inside a lon
 section("the request: the newest page, or the page before the computer's cursor")
 let mac = URL(string: "https://studio.kosmosplus.com")!
 let r1 = Board.roomRequest(mac: mac, project: "spring-catalogue", n: 50)
-check(r1?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50", "the newest page: \(r1?.url?.absoluteString ?? "nil")")
+check(r1?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50&archive=0", "the newest page of the live part: \(r1?.url?.absoluteString ?? "nil")")
 let r2 = Board.roomRequest(mac: mac, project: "spring-catalogue", n: 50, cursor: "2026-10-22T15:00:00.000Z|0")
-check(r2?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50&cursor=2026-10-22T15:00:00.000Z%7C0", "the cursor, escaped: \(r2?.url?.absoluteString ?? "nil")")
+check(r2?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50&archive=0&cursor=2026-10-22T15:00:00.000Z%7C0", "the cursor, escaped: \(r2?.url?.absoluteString ?? "nil")")
+// kosmos#7365 slice 3c: the archive view reads the archive, with the same cursors.
+let r3 = Board.roomRequest(mac: mac, project: "spring-catalogue", n: 50, cursor: "2026-10-01T09:00:00.000Z|2", part: .archive)
+check(r3?.url?.absoluteString == "https://studio.kosmosplus.com/api/project/spring-catalogue/room?n=50&archive=1&cursor=2026-10-01T09:00:00.000Z%7C2", "the archive's page: \(r3?.url?.absoluteString ?? "nil")")
+check(boardPage.contains("const q = 'n=' + n + '&archive=' + (archive ? '1' : '0')"), "the board's window reads send archive=0 and 1, as the phone does")
+section("the archive (kosmos#7365 slice 3c)")
+let archPage = Board.parseRoom(Data(#"{"rows":[{"kind":"post","id":"m9","text":"x","at":"2026-10-22T15:03:00.000Z"}],"olderCount":0,"olderCursor":null,"archivedCount":1234}"#.utf8))
+check(archPage?.archivedCount == 1234 && archPage?.olderCursor == nil, "a page says how many messages are archived")
+check(Board.parseRoom(Data(#"{"rows":[],"olderCount":0}"#.utf8))?.archivedCount == 0 && Board.parseRoom(Data(#"{"rows":[],"archivedCount":-3}"#.utf8))?.archivedCount == 0,
+      "a computer that does not say has nothing archived")
+check(Board.Archive.boundaryShown(olderCursor: nil, archivedCount: 3, searching: false), "the boundary row: at the start of the live part, with messages archived")
+check(!Board.Archive.boundaryShown(olderCursor: "c", archivedCount: 3, searching: false), "not while there is an earlier live page to read")
+check(!Board.Archive.boundaryShown(olderCursor: nil, archivedCount: 0, searching: false), "not when nothing is archived")
+check(!Board.Archive.boundaryShown(olderCursor: nil, archivedCount: 3, searching: true), "not while searching, as the board's pjRoomTopEdge")
+// Review 3: a move of the archived count changes the rows shown only when they reach the start of the live part.
+func archPg(_ ids: [Int], archived: Int, older: Int = 0, cursor: String? = nil) -> Board.RoomPage {
+    let rows = ids.map { #"{"kind":"post","id":"m\#($0)","text":"t\#($0)","at":"2026-10-22T15:\#(String(format: "%02d", $0)):00.000Z"}"# }.joined(separator: ",")
+    let c = cursor.map { #","olderCursor":"\#($0)""# } ?? ""
+    return Board.parseRoom(Data(#"{"rows":[\#(rows)],"olderCount":\#(older)\#(c),"archivedCount":\#(archived)}"#.utf8))!
+}
+let shownStart = archPg([1, 2, 3, 4], archived: 10).rows
+check(Board.archiveMoved(shownStart, older: (0, nil), was: nil, page: archPg([3, 4, 5], archived: 12)) == nil, "the first read is never a move")
+check(Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([3, 4, 5], archived: 10)) == nil, "the same count is no move")
+let notReached = Board.archiveMoved(shownStart, older: (5, "c"), was: 10, page: archPg([3, 4, 5], archived: 12, older: 5, cursor: "c2"))
+check(notReached?.rows.map(\.id) == ["m1", "m2", "m3", "m4", "m5"] && notReached?.older.count == 3,
+      "a move no larger than the earlier live rows still unread: nothing shown goes, 3 left unread")
+// Review 5: the archive grows past the earlier rows still unread (an "Archive older messages" on the computer): the new
+// live start falls inside the rows shown. Rows 21 to 30 shown, 5 earlier live rows unread, 10 archived.
+let deepShown = archPg(Array(21...30), archived: 10).rows
+let onPage = Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([28, 29, 30], archived: 27))
+check(onPage?.rows.map(\.id) == ["m28", "m29", "m30"] && onPage?.older.cursor == nil && onPage?.older.count == 0,
+      "the live start on the page: every row shown before it goes, and nothing earlier is left to read: \(onPage?.rows.map(\.id) ?? [])")
+// A row with no time before the live start (an older log line): found by its place, not by a time it does not have.
+let untimed = Board.parseRoom(Data(#"{"rows":[{"kind":"post","id":"m1","text":"a","at":"2026-10-22T15:01:00.000Z"},{"kind":"post","id":"mx","text":"b","at":null},{"kind":"post","id":"m3","text":"c","at":"2026-10-22T15:03:00.000Z"}],"olderCount":0,"archivedCount":10}"#.utf8))!.rows
+let untimedMoved = Board.archiveMoved(untimed, older: (0, nil), was: 10, page: archPg([3, 4], archived: 12))
+check(untimedMoved?.rows.map(\.id) == ["m3", "m4"], "a row with no time before the live start goes too: \(untimedMoved?.rows.map(\.id) ?? [])")
+// Review 6: two reads in a row. A move that stops short of the rows shown still counts down the rows unread, so the next
+// move is measured against the truth; an undo with earlier pages unread counts them up.
+let short = Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([29, 30], archived: 12, older: 8, cursor: "d"))
+check(short?.rows.map(\.id) == deepShown.map(\.id) + [] && short?.older.count == 3 && short?.older.cursor == "c",
+      "a move of 2 with 5 unread: the rows stay, 3 left unread: \(short.map { "\($0.older)" } ?? "nil")")
+if let short {
+    let second = Board.archiveMoved(short.rows, older: short.older, was: 12, page: archPg([29, 30], archived: 16, older: 4, cursor: "e"))
+    check(second?.rows.first?.id == "m22" && second?.older.cursor == nil, "then +4: the 3 unread and m21 went: \(second?.rows.first?.id ?? "nil")")
+}
+let undoUnread = Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([29, 30], archived: 5, older: 13, cursor: "d"))
+check(undoUnread?.older.count == 10 && undoUnread?.older.cursor == "c", "an undo of 5 with earlier pages unread: 10 now unread")
+let offPage = Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([29, 30], archived: 18, older: 10, cursor: "d"))
+check(offPage?.rows.first?.id == "m24" && offPage?.rows.count == 7 && offPage?.older.cursor == nil,
+      "the live start off the page: the 5 unread went first, then the first 3 shown: \(offPage?.rows.map(\.id) ?? [])")
+check(Board.archiveMoved(deepShown, older: (5, "c"), was: 10, page: archPg([28, 29, 30], archived: 8, older: 20, cursor: "u"))?.older.cursor == "c",
+      "an undo with earlier pages unread: the rows given back are read as the reader scrolls up, on the cursor held")
+let moved2 = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([3, 4, 5], archived: 12))
+check(moved2?.rows.map(\.id) == ["m3", "m4", "m5"], "two more archived: the first two shown go, the rest merge with the page: \(moved2?.rows.map(\.id) ?? [])")
+// Review 4: the page reaches the live start: the cut is its first row's time, whatever the phone did not draw.
+let byTime = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([2, 3, 4, 5], archived: 13))
+check(byTime?.rows.map(\.id) == ["m2", "m3", "m4", "m5"], "the cut is the page's first row when the page reaches the live start: \(byTime?.rows.map(\.id) ?? [])")
+// A row this phone does not draw was archived too (the count moved 1, two drawn rows went): the time cut is right where
+// a count would keep m2.
+let undrawn = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([3, 4, 5], archived: 11))
+check(undrawn?.rows.map(\.id) == ["m3", "m4", "m5"], "an undrawn archived row does not shift the cut: \(undrawn?.rows.map(\.id) ?? [])")
+let byCount = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([4, 5], archived: 12, older: 1, cursor: "z"))
+check(byCount?.rows.map(\.id) == ["m3", "m4", "m5"] && byCount?.older.cursor == nil,
+      "the live start off the page: the first k shown go, the rest merge: \(byCount?.rows.map(\.id) ?? [])")
+let allGone = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([7, 8], archived: 16, older: 3, cursor: "q"))
+check(allGone?.rows.map(\.id) == ["m7", "m8"] && allGone?.older.cursor == "q" && allGone?.older.count == 3,
+      "nothing shown still live: the page and its own cursor, so the earlier live rows stay reachable")
+let undone = Board.archiveMoved(shownStart, older: (0, nil), was: 10, page: archPg([1, 2, 3, 4, 5], archived: 4, older: 6, cursor: "k"))
+check(undone?.rows.map(\.id) == ["m1", "m2", "m3", "m4", "m5"] && undone?.older.cursor == "k" && undone?.older.count == 6,
+      "fewer archived: the page and its cursor, so the rows given back are reachable above")
+check(Board.Archive.count(1) == "1 message" && Board.Archive.count(5500) == "5,500 messages", "the count, as the board's toLocaleString")
+check(Board.Archive.showing(2) == "Showing the archive, 2 messages.", "the archive is announced as the board announces it")
+check(boardPage.contains("<span>" + Board.Archive.boundary + "</span> <button type=\"button\" class=\"linkish pj-arch-ctl\" id=\"pj-arch-open\">" + Board.Archive.view + "</button>"),
+      "the boundary row's words are the board's")
+check(boardPage.contains("'<div class=\"pj-arch-edge\">" + Board.Archive.start + "</div>'"), "the start of the room, as the board")
+for w in [Board.Archive.back, Board.Archive.couldNotOpen, Board.Archive.couldNotReadEarlier, "'" + Board.Archive.backAnnouncement + "'",
+          "<b>" + Board.Archive.title + "</b>"] {
+    check(boardPage.contains(w), "the board's words: " + w)
+}
+check(boardPage.contains(Board.Archive.readingFirst + " <button type=\"button\" class=\"linkish pj-arch-ctl\" id=\"pj-arch-note-back\">" + Board.Archive.back + "</button> " + Board.Archive.readingLast),
+      "the composer's place while the archive shows, as the board's pj-arch-note")
+check(boardPage.contains(">" + Board.Archive.nothing + "</p>"), "an empty archive, as the board")
+check(boardPage.contains("<span class=\"msg-replyto gone\">" + Board.Archive.originalMayBe + "</span>"), "a reply's original that may be archived, as the board")
+check(boardPage.contains("'Opening the archive\\u2026'") && Board.Archive.opening == "Opening the archive\u{2026}", "opening, with the board's ellipsis")
 check(Board.roomRequest(mac: mac, project: "../x", n: 50) == nil && Board.roomRequest(mac: mac, project: "Spring", n: 50) == nil, "a project id the board cannot have is refused")
 check(Board.roomRequest(mac: mac, project: "p", n: 0) == nil && Board.roomRequest(mac: mac, project: "p", n: 201) == nil, "n outside 1 to 200 is refused")
 
@@ -213,6 +311,9 @@ let a = proj(name: "beta", created: "2026-10-01T00:00:00.000Z"), b = proj(name: 
 check(Board.sortProjects([a, b, c], .newest).map { $0.name } == ["Alpha", "beta", "gamma"], "newest first; an undated project after every dated one")
 check(Board.sortProjects([a, b, c], .oldest).map { $0.name } == ["beta", "Alpha", "gamma"], "oldest first; undated still last")
 check(Board.sortProjects([a, b, c], .az).map { $0.name } == ["Alpha", "beta", "gamma"], "name A to Z, ignoring case")
+// kosmos#7421 build 11 (Mona Lisa): the Projects sort button says Sort: <order>, and looks pressed off its default only.
+check(Board.sortButtonLabel(Board.projectSortLabel(.az)) == "Sort: Name A to Z", "the Projects sort button says Sort: <order>, as Agents does")
+check(Board.projectSortDefault == .newest && Board.ProjectSort(rawValue: "") == nil, "Projects' default is Newest first, and an unknown saved order is not a ProjectSort (the view falls back to the default)")
 check(Board.sortProjects([a, b, c], .za).map { $0.name } == ["gamma", "beta", "Alpha"], "name Z to A")
 check(Board.ProjectSort.allCases.map(Board.projectSortLabel) == ["Newest first", "Oldest first", "Name A to Z", "Name Z to A"], "the board's four labels, no update order")
 let orphan = proj(name: "Orphan", parent: "gone")
@@ -222,6 +323,34 @@ check(Board.projectTree([orphan, underArchived, archivedParent], sort: .az).map 
       "a child whose parent is gone or archived sits at the top level, never disappears")
 let x = proj(name: "X", parent: "y", id: "x"), y = proj(name: "Y", parent: "x", id: "y")
 check(Board.projectTree([x, y], sort: .az).map { $0.project.name } == ["X", "Y"], "a cycle shows each project once and hides none")
+
+section("the tree's connector lines and the faces (kosmos#7269)")
+// Root has two children (the second with its own child), then a second root with none.
+let rt = proj(name: "Root", id: "rt"), k1 = proj(name: "Kid one", parent: "rt", id: "k1"), k2 = proj(name: "Kid two", parent: "rt", id: "k2")
+let gk = proj(name: "Grandkid", parent: "k2", id: "gk"), solo = proj(name: "Solo", id: "solo")
+let lined = Board.projectTree([solo, gk, k2, rt, k1], sort: .az)
+check(lined.map { "\($0.depth):\($0.project.name):\($0.lastKid ? "L" : "-")\($0.hasKids ? "K" : "-")" }
+      == ["0:Root:-K", "1:Kid one:--", "1:Kid two:LK", "2:Grandkid:L-", "0:Solo:--"],
+      "the last of each parent's children stops its line; a parent with children shown under it starts one: \(lined.map { "\($0.depth):\($0.project.name):\($0.lastKid ? "L" : "-")\($0.hasKids ? "K" : "-")" })")
+check(lined.map { $0.through } == [[], [], [], [], []], "Kid two is the last child, so no line runs past its grandchild")
+let k3 = proj(name: "Kid zed", parent: "rt", id: "k3")
+let ladder = Board.projectTree([solo, gk, k2, rt, k1, k3], sort: .az)
+check(ladder.map { "\($0.project.name):\($0.through)" } == ["Root:[]", "Kid one:[]", "Kid two:[]", "Grandkid:[1]", "Kid zed:[]", "Solo:[]"],
+      "a grandchild carries its grandparent's line on to Kid zed: \(ladder.map { "\($0.project.name):\($0.through)" })")
+// Four levels: A > B (then a later sibling B2) > C (then C2) > D. D carries level 1 (B's line to B2) and level 2 (C's line to C2).
+let la = proj(name: "A", id: "la"), lb = proj(name: "B", parent: "la", id: "lb"), lb2 = proj(name: "B2", parent: "la", id: "lb2")
+let lc = proj(name: "C", parent: "lb", id: "lc"), lc2 = proj(name: "C2", parent: "lb", id: "lc2"), ld = proj(name: "D", parent: "lc", id: "ld")
+let deep = Board.projectTree([ld, lc2, lc, lb2, lb, la], sort: .az)
+check(deep.map { "\($0.project.name):\($0.through)" } == ["A:[]", "B:[]", "C:[1]", "D:[1, 2]", "C2:[1]", "B2:[]"],
+      "every ancestor line that runs on is carried, at every depth: \(deep.map { "\($0.project.name):\($0.through)" })")
+check(Board.projectTree([orphan, underArchived, archivedParent], sort: .az).allSatisfy { !$0.lastKid && !$0.hasKids },
+      "a child lifted to the top level (parent gone or archived) draws no line and its old parent starts none")
+check(Board.projectTree([x, y], sort: .az).allSatisfy { !$0.lastKid }, "a cycle's rows, both at the top, draw no line")
+check(Board.faceBubbles(0) == (0, 0) && Board.faceBubbles(3) == (3, 0) && Board.faceBubbles(10) == (10, 0), "up to ten: every face, no +")
+check(Board.faceBubbles(12) == (9, 3) && Board.faceBubbles(15) == (9, 6) && Board.faceBubbles(11) == (9, 2), "a crowd: nine faces and the rest as +N (Josh's +3 for twelve)")
+check(Board.faceBubbles(5, room: 4) == (3, 2) && Board.faceBubbles(4, room: 4) == (4, 0) && Board.faceBubbles(3, room: 2) == (1, 2),
+      "less room (large text, a deep row): fewer faces, the +N grows, the total always adds up")
+check(Board.faceBubbles(-1) == (0, 0) && Board.faceBubbles(5, room: 0) == (0, 5), "nonsense in: never a negative or a lost member")
 
 section("posting: the board's reading of the answer")
 let pr = Board.roomPostRequest(mac: mac, project: "spring-catalogue", text: "  @dana how are pages 9 to 12?  ", replyTo: "m4")
@@ -263,6 +392,178 @@ check(PushBridge.roomOpening(studio, keptAddress: "Studio.KosmosPlus.com") == .n
 check(PushBridge.roomOpening(studio, keptAddress: "home.kosmosplus.com") == .board(URL(string: "https://studio.kosmosplus.com/?tab=projects&project=springcatalogue")!), "CONTROL: another computer: the board's room page on that computer")
 check(PushBridge.roomOpening(studio, keptAddress: nil) == .board(URL(string: "https://studio.kosmosplus.com/?tab=projects&project=springcatalogue")!), "no kept computer: the board's room page")
 check(content.contains("PushBridge.roomOpening(target, keptAddress:"), "ContentView decides through roomOpening")
+
+section("By project's key (kosmos#7421)")
+// kosmos#7342 (Mona Lisa): a Mentions-only or Muted project (the board's notify, #7210) is quiet: its row's bubble is grey,
+// since its count adds nothing to the Projects tab. "all" or none is not.
+let notifyRows = Board.parseProjects(Data(#"{"projects":[{"id":"m","name":"M","notify":"muted"},{"id":"n","name":"N","notify":"mentions"},{"id":"a","name":"A","notify":"all"},{"id":"x","name":"X"}]}"#.utf8))?.projects ?? []
+check(notifyRows.map(\.quiet) == [true, true, false, false], "a muted or mentions-only project is quiet; all and none are not")
+// kosmos#7489: the native New project form: a name is enough; one POST /api/projects; the board's answer read honestly.
+let npMac = URL(string: "https://studio.kosmosplus.com")!
+check(!NewProject.canCreate(NewProject.Draft(name: "   ")) && NewProject.canCreate(NewProject.Draft(name: "Lease")), "a name (not blank) is enough to create")
+let npReq = NewProject.request(mac: npMac, draft: NewProject.Draft(name: " Henderson lease ", description: ""))
+let npBody = npReq?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+check(npReq?.httpMethod == "POST" && npReq?.url?.path == "/api/projects" && npBody?["name"] as? String == "Henderson lease" && npBody?["description"] == nil,
+      "Create sends the trimmed name to the board's own route, and no empty description")
+check(NewProject.request(mac: npMac, draft: NewProject.Draft(name: "")) == nil, "nothing is sent without a name")
+check(NewProject.result(sent: true, status: 200, body: Data(#"{"id":"henderson-lease","project":{}}"#.utf8)) == .made(id: "henderson-lease"), "made: the new project's id")
+check(NewProject.result(sent: true, status: 400, body: Data(#"{"error":"A project with that name already exists."}"#.utf8)) == .refused("A project with that name already exists."), "a refusal is the board's own sentence")
+check(NewProject.result(sent: true, status: 0, body: nil) == .unknown && NewProject.result(sent: true, status: 502, body: nil) == .unknown, "no answer, or a server error with no sentence, may have made it: unknown")
+check(NewProject.result(sent: false, status: 0, body: nil) == .refused(NewProject.fallback), "nothing sent: certainly not made")
+let firsts = Board.firstProjects(Board.parseProjects(Data(#"{"projects":[{"id":"z","name":"Zeta","agents":[{"sessionName":"a"}]},{"id":"b","name":"beta","agents":[{"sessionName":"a"},{"sessionName":"c"}]}]}"#.utf8)))
+let agentsSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentsView.swift"), encoding: .utf8)) ?? ""
+let clientSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardClient.swift"), encoding: .utf8)) ?? ""
+// kosmos#7529: a starred star is the bright gold under a starGold outline (light), and the row's small star draws the same.
+check(agentsSrc.contains("static let starFill = pair(0xe3b341, 0xe3b341)") && agentsSrc.contains("Image(systemName: \"star.fill\").foregroundColor(Palette.starFill)") && agentsSrc.contains("Image(systemName: \"star\").foregroundColor(Palette.starGold)") && agentsSrc.contains("if starred { StarredStar().font(.caption2)"), "kosmos#7529: the starred star is filled bright gold with a deep gold outline, in the header and beside a name")
+check(!agentsSrc.contains("Section(footer:") && !agentsSrc.contains("set up on your computer"), "kosmos#7528: the Agents list has no footer line (Josh 10-28)")
+// Wiring guards (source checks, not behaviour): the order reaches the list with the person's stars, re-sorted only where
+// the list re-sorts, so starred agents stay on top and rows never move under a thumb (review 1 blocker).
+check(clientSrc.contains("Board.agentOrder(rows, sort: agentSort, projects: sortProjects, stars: known)") && clientSrc.contains("Board.agentOrder(agents, sort: sort, projects: projects, stars: shownStars)"), "kosmos#7421: the chosen order is applied with the stars, on a re-sort and when picked")
+// kosmos#7532: nothing drawn behind the arrows (SortButtonLabel's body, up to the next struct), only the heavier weight.
+let sortLabelBody = agentsSrc.components(separatedBy: "struct SortButtonLabel: View {").dropFirst().first?.components(separatedBy: "\nstruct ").first ?? ""
+check(!sortLabelBody.isEmpty && !sortLabelBody.contains(".background(") && !sortLabelBody.contains("Circle(") && sortLabelBody.contains(".font(.body.weight(pressed ? .semibold : .regular))"), "kosmos#7532: the sort button has no circle behind it; a non-default sort shows in the heavier arrows")
+check(clientSrc.contains("agents = Board.agentOrder(Board.sorted(Board.parseAgents(Data(sample.utf8)) ?? []), sort: agentSort, projects: sortProjects, stars: shownStars)"), "kosmos#7532 (Mona Lisa): the Debug sample agents come in the chosen order, as a real read does, so a shot shows the sort")
+check(agentsSrc.contains("client.setAgentSort(sortChoice, projects: projectNames)") && agentsSrc.contains("ForEach(client.agents)"), "kosmos#7421: the Agents list shows the client's order and hands it the person's pick")
+// kosmos#7034 wiring guards (source checks): the row stars by a swipe, a long press and a VoiceOver action, and shows it.
+check(agentsSrc.contains(".swipeActions(edge: .leading, allowsFullSwipe: true) { starButton(agent) }") && agentsSrc.contains(".contextMenu { starButton(agent) }") && agentsSrc.contains("starred: client.isStarred(agent.session)"),
+      "kosmos#7034: a row is starred by a swipe (VoiceOver offers it) or a long press, and shows its star")
+// kosmos#7419: the long-press sheet. The seven quick reactions in Mona Lisa's order, each one the board's own (the 80 the
+// phone keeps as ComposerExtras.emoji, PJ_EMOJI); every message long-press opens the sheet, and no reaction menu is left.
+check(Board.quickReactions == ["👍", "❤️", "🔥", "😂", "👀", "✅", "🎉"], "kosmos#7419: the sheet's seven quick reactions, Josh's three first")
+let composerLogicSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ComposerLogic.swift"), encoding: .utf8)) ?? ""
+check(!composerLogicSrc.isEmpty && Board.quickReactions.allSatisfy { composerLogicSrc.contains("\"\($0)\"") }, "kosmos#7419: each quick reaction is one of the board's 80 (More offers the same list)")
+let sheetChat = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
+// kosmos#7034 build 11 (Mona Lisa): a visible star in the chat header, outline or gold, the same save as the row swipe.
+check(sheetChat.contains("if starred { StarredStar() } else { Image(systemName: \"star\")") && sheetChat.contains("await client.toggleStar(agent.session)") && sheetChat.contains("await client.readStarsIfUnknown()") && sheetChat.contains("starred ? \"Unstar \\(shown.name)\" : \"Star \\(shown.name)\""),
+      "kosmos#7034: the chat header has a star, gold when starred, saved as the row swipe saves it")
+let sheetRoom = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
+let sheetSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ComposerExtras.swift"), encoding: .utf8)) ?? ""
+// kosmos#7530: the keyboard goes down before the sheet is set to open (a sheet opened with it up sat behind it).
+if let open = sheetSrc.range(of: ".environment(\\.openMessageActions) { t in"), let set = sheetSrc.range(of: "target = t\n", range: open.upperBound..<sheetSrc.endIndex) {
+    check(sheetSrc.range(of: "#selector(UIResponder.resignFirstResponder)", range: open.upperBound..<set.lowerBound) != nil, "kosmos#7530: a long press puts the keyboard away before it opens the sheet")
+} else { check(false, "kosmos#7530: a long press puts the keyboard away before it opens the sheet (not found)") }
+// kosmos#7419 build 11 (Mona Lisa): the pressed message stays lit above the chat's own dim (the system's is off at the
+// small height), cut out on the bubble's own shape in every bubble kind; nothing (no ring) is drawn on the bubble.
+let litSrcs = ["ChatView.swift", "ChatFiles.swift", "ChatChoices.swift", "RoomView.swift"].map { (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/" + $0), encoding: .utf8)) ?? "" }
+check(litSrcs.allSatisfy { $0.contains(".overlay(PressedBubbleMark())") }, "kosmos#7419: every bubble kind marks where it is for the lit dim")
+check(sheetSrc.contains("presentationBackgroundInteraction(voiceOver ? .disabled : .enabled(upThrough: small))") && sheetSrc.contains("transformAnchorPreference(key: PressedBubbleKey.self") && sheetSrc.contains("FillStyle(eoFill: true)") && sheetSrc.contains("close: { target = nil }"),
+      "kosmos#7419: at the small height (VoiceOver off) the chat draws its own dim with the pressed bubble cut out, the visible area joining the rows' preference, and a tap on it closes the sheet")
+check(!sheetSrc.contains("PressedRing") && litSrcs.allSatisfy { !$0.contains("PressedRing") }, "kosmos#7419: no ring is drawn on the pressed message (gold is only a reaction already the person's)")
+check(sheetChat.components(separatedBy: ".messageActions(").count - 1 == 2 && sheetRoom.components(separatedBy: ".messageActions(").count - 1 == 1,
+      "kosmos#7419: the chat bubble, the files bubble and the room's post open the sheet on a long press")
+check(!sheetChat.contains("Button(\"React with \" + e)") && !sheetRoom.contains("Button { react(\"👍\") }"), "kosmos#7419: no reaction menu is left beside the sheet")
+check(sheetSrc.contains("ForEach(ComposerExtras.emoji, id: \\.self) { e in cell(e) }") && sheetSrc.contains("count: 8)")
+      && sheetSrc.contains("\"More reactions\"") && sheetSrc.contains("\"Copy text\"") && sheetSrc.contains("highPriorityGesture(LongPressGesture(minimumDuration: 0.5)"),
+      "kosmos#7419: More shows the board's 80 eight to a row; Copy text; a half-second press that a lifted finger cannot turn into a tap")
+check(sheetChat.components(separatedBy: ".messageActionsHost()").count - 1 == 1 && sheetRoom.components(separatedBy: ".messageActionsHost()").count - 1 == 1
+      && sheetSrc.contains(".presentationDetents([small(t), .large], selection: $detent)") && sheetSrc.contains("onDismiss: { let run = afterClose"),
+      "review 1: one sheet per chat and per room; More resizes through a chosen detent; Reply runs once the sheet has gone")
+check(sheetChat.contains(".accessibilityElement(children: .ignore)\n        // kosmos#7419 review 3") && sheetChat.contains(".messageActionsAccessibility("),
+      "review 3: VoiceOver gets Message actions on the chat bubble's own element, after the one that drops its children's")
+let filesSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatFiles.swift"), encoding: .utf8)) ?? ""
+check(filesSrc.contains("if let sheet, let openSheet { Button(\"Message actions\") { openSheet(sheet) } }") && sheetChat.contains("sheet: MessageActionTarget("),
+      "review 4: on a message with files, VoiceOver offers Message actions on each card (the container's own is never offered)")
+check(firsts["a"] == "beta" && firsts["c"] == "beta" && firsts["z"] == nil, "an agent's first project is its project names A to Z, without case")
+// kosmos#7420 (shift-left): reaction rows wrap (FlowLayout), never one HStack row that can be wider than the screen and
+// widen the whole thread, pushing every bubble off its margin. Wiring guards (source checks).
+func after(_ src: String, _ marker: String) -> String { src.range(of: marker).map { String(src[$0.upperBound...].prefix(900)) } ?? "" }
+let chatPills = after(sheetChat, "struct ReactionPills: View {"), roomPills = after(sheetRoom, "private var reactions: some View {")
+check(chatPills.contains("FlowLayout(spacing: 6, trailing: trailing, rowSpacing: toggle == nil ? 6 : 0)") && !chatPills.contains("HStack(spacing: 6)") && roomPills.contains("FlowLayout(spacing: 6, trailing: mine)") && !roomPills.contains("HStack(spacing: 6)") && sheetChat.components(separatedBy: "trailing: mine)").count - 1 == 2,
+      "kosmos#7420: the chat's and the room's reactions wrap, never one row wider than the screen; under your own messages each line sits right (review 1)")
+let flowSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatChoices.swift"), encoding: .utf8)) ?? ""
+let pillsStruct = sheetChat.range(of: "struct ReactionPills: View {").map { String(sheetChat[$0.upperBound...].prefix(2500)) } ?? ""
+check(flowSrc.contains("row.y + row.height + (rowSpacing ?? spacing)") && pillsStruct.contains(".padding(.vertical, 3)\n                            .frame(minWidth: 44, minHeight: 44)"), "kosmos#7420 (Mona Lisa 10-29): tappable reaction lines touch at their 44 pt tap areas, with no gap added on top; the tap area stays 44 pt")
+check(flowSrc.contains("x + w > width + 0.5"), "kosmos#7420 review 2: a row wraps only past half a point of slack, so rounded bounds never push its last item onto an uncounted line")
+
+section("an agent's notification opens its chat natively (kosmos#7418)")
+// Josh 10-27: a message notification opened the board's old agent page. Every kind the board sends that names an agent
+// (engine/phonenotify.js KINDS: needs_you, replied, ready, and a posted one the extension could not place in a room).
+for kind in ["needs_you", "replied", "ready", "posted"] {
+    let push: [AnyHashable: Any] = ["kind": kind, "address": "Studio.KosmosPlus.com", "session": "eli", "agent": "Eli", "id": "x"]
+    check(PushBridge.agentToOpen(fromNotification: push, coordinator: coordinator) == PushBridge.AgentTarget(host: "studio.kosmosplus.com", session: "eli", name: "Eli"), "a \(kind) push names its computer and agent")
+}
+var nameless: [AnyHashable: Any] = ["kind": "replied", "address": "studio.kosmosplus.com", "session": "eli-2", "agent": "An agent"]
+check(PushBridge.agentToOpen(fromNotification: nameless, coordinator: coordinator)?.name == "Eli-2", "the board's \"An agent\" stand-in reads as the session instead")
+nameless["agent"] = nil
+check(PushBridge.agentToOpen(fromNotification: nameless, coordinator: coordinator)?.name == "Eli-2", "no name at all: the session")
+var badAgent = roomPush; badAgent["kind"] = "replied"; badAgent["session"] = "../eli"
+check(PushBridge.agentToOpen(fromNotification: badAgent, coordinator: coordinator) == nil, "a session the board cannot have opens nothing natively")
+var farAgent = roomPush; farAgent["kind"] = "replied"; farAgent["address"] = "evil.example.com"
+check(PushBridge.agentToOpen(fromNotification: farAgent, coordinator: coordinator) == nil, "an address outside Kosmos+ opens nothing")
+let eli = PushBridge.AgentTarget(host: "studio.kosmosplus.com", session: "eli", name: "Eli")
+check(PushBridge.agentOpening(eli, shownAddress: "Studio.KosmosPlus.com", coordinator: coordinator) == .native(eli), "the computer the app shows: the native chat (address without case)")
+check(PushBridge.agentOpening(eli, shownAddress: "home.kosmosplus.com", coordinator: coordinator) == .board(URL(string: "https://studio.kosmosplus.com/?tab=detail&agent=eli")!), "CONTROL: another computer: that computer's board page for the agent, as before")
+check(PushBridge.agentOpening(eli, shownAddress: nil, coordinator: coordinator) == .board(URL(string: "https://studio.kosmosplus.com/?tab=detail&agent=eli")!), "no computer shown yet: the board page")
+if let r = manager.range(of: "PushBridge.roomToOpen("), let a = manager.range(of: "PushBridge.agentToOpen("), let b = manager.range(of: "PushBridge.boardURL(") {
+    check(r.lowerBound < a.lowerBound && a.lowerBound < b.lowerBound, "the tap asks about the room, then the agent's chat, and only then the board page")
+} else { check(false, "the tap handler asks about the room, the agent and the board") }
+check(content.contains("PushBridge.agentOpening(target, shownAddress: board.switcherShown"), "ContentView decides through agentOpening, against the computer the app shows")
+let agentsSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AgentsView.swift"), encoding: .utf8)) ?? ""
+check(agentsSource.contains(".onChange(of: agentRequest) { _ in openRequested() }") && agentsSource.contains("openRequested()   // kosmos#7418"), "the Agents tab opens a request when it arrives and when the tab first shows (a cold launch)")
+// Josh 20:43: a Splinter notice must never open Shredder (neighbours by name): the session is matched whole.
+let splinterPush: [AnyHashable: Any] = ["kind": "replied", "address": "studio.kosmosplus.com", "session": "claudebot", "agent": "Splinter"]
+check(PushBridge.agentToOpen(fromNotification: splinterPush, coordinator: coordinator)?.session == "claudebot", "a notice opens exactly the agent that sent it (its session, whole)")
+check(agentsSource.contains("client.agents.first(where: { $0.session == target.session })"), "the Agents tab finds the notice's agent by its whole session, never a position or a prefix")
+// Review 2: the agentToOpen and agentOpening checks above test behaviour; the source checks below are wiring guards
+// only (that the view code still calls the tested logic the way it did), not proof of what the screen does.
+var unknownKind = roomPush; unknownKind["kind"] = "someday"; unknownKind["projectId"] = nil
+check(PushBridge.agentToOpen(fromNotification: unknownKind, coordinator: coordinator) == nil, "review 1: a kind the board does not send yet opens as before, never a chat by accident")
+check(content.contains("shownAddress: board.switcherShown ?? kept?.address"), "review 1: on a cold launch (nothing shown yet, or the Face ID lock up) the kept computer decides, so the tap still opens the chat")
+let chatSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ChatView.swift"), encoding: .utf8)) ?? ""
+// kosmos#7420 diagnostic (source checks): the record holds numbers and event names, never what was written. Every trace
+// line is checked for the fields that carry words (a message's text, a name, the draft).
+// kosmos#7420 build 16: ChatView.trace( too (SideScrollLock writes from outside the view), so no writer is missed.
+let traceLines = chatSource.components(separatedBy: "\n").filter { $0.contains("Self.trace(") || $0.contains("ChatView.trace(") }
+// Review 1: an allow-list, not a ban-list. Every value a trace line puts in the record is one of these numbers, yes/no
+// flags or fixed words; anything new (an id, a session, a name) fails here until it is judged and added.
+let allowedInTrace: Set<String> = ["atBottom", "earlier.filling", "earlier.loading", "earlier.open", "earlier.rows.count", "endSeen",
+    "endVisible", "fresh.olderCount", "fresh.rows.count", "Int(diagKeyboard)", "Int(now.height)", "Int(now.width)", "mine",
+    "personScrolling", "phase == .active ? \"active\" : phase == .background ? \"background\" : \"inactive\"", "pinned", "settledAtEnd", "why",
+    "Int(x.rounded())", "self.shifts",   // build 16: the stack's width and a sideways offset, both numbers
+    "Int(moved)"]   // kosmos#7609: how far iOS 26 moved the list when the keyboard came up (a number of points)
+var tracedValues: [String] = []
+for l in traceLines {
+    var rest = Substring(l)
+    while let open = rest.range(of: "\\(") {
+        var depth = 1, i = open.upperBound
+        while i < rest.endIndex, depth > 0 { if rest[i] == "(" { depth += 1 } else if rest[i] == ")" { depth -= 1 }; if depth > 0 { i = rest.index(after: i) } }
+        tracedValues.append(String(rest[open.upperBound..<min(i, rest.endIndex)]))
+        rest = i < rest.endIndex ? rest[rest.index(after: i)...] : ""
+    }
+}
+let strayValues = tracedValues.filter { !allowedInTrace.contains($0) }
+check(traceLines.count >= 10 && !tracedValues.isEmpty && strayValues.isEmpty,
+      "kosmos#7420: the diagnostic records only allowed numbers and flags (\(tracedValues.count) values; not allowed: \(strayValues))")
+check(!chatSource.contains("keepAnchor scrollTo \\(id)"), "review 1: no message id in the record")
+check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
+      "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
+check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
+      && !chatSource.contains(".onChange(of: onScreen.isEmpty)"), "review 1: the check runs only for the chat on screen, and never makes the chat redraw per row")
+check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("onScreen.isEmpty, !endVisible || neverDrew, !topVisible, count > 0, thread != nil") && chatSource.contains("ShareLink(item: report"),
+      "kosmos#7420: a bounded record, the blank check, and a share the person chooses (nothing sent by itself)")
+// kosmos#7420 (Josh 10-28, builds 13 to 15): the chat's list is locked against a sideways offset (every row 16 pt left).
+// kosmos#7575: it also tells the chat of each shift (the trailing closure), for the report sent to the board.
+// Review 4: the lock's own flags, which the pure decision (Board.sideShiftStep) is handed: remembered before the move
+// clears shifted, the first reading after it marked, and cleared after that reading.
+check(chatSource.contains("if window == nil { wasShifted = shifted }   // kosmos#7575 review 3: remembered across the move\n            watch = nil; shifted = false;")
+      && chatSource.contains("guard window != nil else { return }\n            resumed = true")
+      && chatSource.contains("let resumed = self.resumed; self.resumed = false")
+      && chatSource.contains("if resumed { self.wasShifted = false }")
+      && chatSource.contains("if step.event == .grew { self.onShift?(x, sv.isDragging || sv.isDecelerating, false) }"),
+      "kosmos#7575 review 4: the lock keeps wasShifted across a window move and marks the first reading after it")
+check(chatSource.contains(".background(SideScrollLock(off: Self.sampleNoLock) { x, scrolling, isNew in") && chatSource.contains("watch = scroll.observe(\\.contentOffset") && chatSource.contains("let x = sv.contentOffset.x + sv.adjustedContentInset.left") && chatSource.contains("if abs(sv.contentOffset.x - rest) > 0.5 { sv.contentOffset.x = rest }") && chatSource.contains("if self.shifts & (self.shifts - 1) == 0 {") && chatSource.contains("if sv.isDragging || sv.isDecelerating { self.putBack(sv); return }") && chatSource.contains("static let sampleNoLock = false"), "kosmos#7420: a sideways scroll of the chat is put back to its rest (minus the left inset) and recorded (the lock is on in Release)")
+check(chatSource.contains("Button { infoOpen = true } label: { title"), "kosmos#7424: the DM header's name and status open the info page, as the (i) button does")
+let roomSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
+check(roomSource.contains("let low = reduceMotion ? 0.35 : 0.45, half = (reduceMotion ? 1.6 : 1.1) / 2") && roomSource.contains(".delay(Double(i) * 0.16), value: up)") && roomSource.contains(".offset(y: up && !reduceMotion ? -4 : 0)"), "kosmos#7427: WaveDots, build 15's chat dots and now the Debug control (KOSMOS_SAMPLE_SWIFTDOTS), are the board's wave")
+// kosmos#7427 build 16: the chat's dots are drawn by layers, each a fixed phase 0.16 s behind the one before, on the board's
+// numbers (1.1 s, a 4 pt rise, .45 to 1; Reduce Motion 1.6 s, .35 to 1, no rise).
+check(roomSource.contains("let period = still ? 1.6 : 1.1, low: Float = still ? 0.35 : 0.45") && roomSource.contains("wave.timeOffset = period - Double(i) * 0.16") && roomSource.contains("rise.fromValue = 0; rise.toValue = -4; rise.duration = period / 2") && roomSource.contains("fade.fromValue = low; fade.toValue = Float(1); fade.duration = period / 2") && roomSource.contains("if !still {") && roomSource.contains("wave.duration = period / 2") && roomSource.contains("wave.autoreverses = true") && roomSource.contains(".alignmentGuide(.firstTextBaseline) { $0[.bottom] }") && roomSource.contains("if window != nil { start() }") && roomSource.contains("selector: #selector(restart), name: UIApplication.willEnterForegroundNotification"), "kosmos#7427 build 16: the chat's dots are layer-drawn, 0.16 s apart, the board's wave")
+check(roomSource.contains("withTransaction(t) { up = false }"), "kosmos#7427 review 3: WaveDots (the control) restarts when the line scrolls back into view")
+check(chatSource.contains("#else\n            LayerWaveDots()") && !chatSource.contains("repeatForever(autoreverses: true)) { bright = true }") && agentsSource.contains("WorkingDots(color: Palette.pillWord(pill))"), "kosmos#7427: the chat's working line and the Agents pill use the wave, not a pulse in unison")
+check(agentsSource.contains(".id(agent.session)"), "review 1: a notice for another agent while a chat is open starts that chat afresh, not the old one renamed")
+if let a = content.range(of: ".onChange(of: pushManager.accountChanges)"), let c = content.range(of: "agentRequest = nil; roomRequest = nil") {
+    check(a.lowerBound < c.lowerBound && content.distance(from: a.lowerBound, to: c.lowerBound) < 400, "review 1: a sign-out drops a chat or room a notice asked for")
+} else { check(false, "review 1: the account-change handler drops pending notice requests") }
 
 section("files on a room post (kosmos#7062)")
 // room-files.json is the REAL route's answer too, captured from a sandboxed board: one post with a text file and a PDF,
@@ -669,65 +970,7 @@ for phrase in ["'\">Add ' + esc(nameR)\n        + ' to this project</button>", "
     check(boardPage.contains(phrase), "the board's Add still says: \(phrase.prefix(60))")
 }
 
-section("the provider tally on a project row (kosmos#7114)")
-func member(_ s: String, _ provider: String?) -> Board.ProjectMember { Board.ProjectMember(session: s, name: s, hasAvatar: false, provider: provider) }
-let tally = Board.providerTally([member("a", "Gemini"), member("b", "Claude"), member("c", "Gemini (Google subscription)"), member("d", nil),
-                                 member("e", "zeta"), member("f", "Claude"), member("g", ""), member("h", "acme"), member("i", "OpenAI")])
-check(tally.map(\.word) == ["Claude", "GPT", "Gemini", "zeta", "acme"], "the board's order, then others as they came: \(tally.map(\.word))")
-check(tally.map(\.n) == [2, 1, 2, 1, 1], "counted per word: both Gemini families as one, members with no provider left out")
-check(tally.map(\.mark) == ["MarkClaude", "MarkOpenAI", "MarkGemini", nil, nil], "the board's marks; a chip for a provider without one")
-// Every row of the table, each with its word and mark (review 1: three rows were never exercised).
-let everyRow = Board.providerTally(Board.providerTallyOrder.reversed().map { member($0.provider, $0.provider) })
-check(everyRow.map(\.word) == ["Claude", "GPT", "Gemini", "Grok", "Meta", "Qwen"], "every provider's word, in the board's order: \(everyRow.map(\.word))")
-check(everyRow.map(\.mark) == ["MarkClaude", "MarkOpenAI", "MarkGemini", "MarkGrok", "MarkMeta", "MarkQwen"], "every provider's own mark")
-check(Board.providerTally([member("z", "Anthropic")]).first?.mark == "MarkClaude", "Anthropic wears Claude's mark, as on the board")
-check(tally.first { $0.word == "acme" }?.initial == "A", "a provider without a mark: its initial, as the board's chip")
-check(Board.providerTallySpoken(tally) == ", 2 Claude, 1 GPT, 2 Gemini, 1 zeta, 1 acme", "what VoiceOver hears after the count")
-// The wrapping layout's line breaking: an entry moves on when it and the spacing before it would pass the width.
-check(Board.flowLines([30, 30, 30], width: 100, spacing: 8) == [[0, 1], [2]], "30+8+30+8+30 = 106 over 100: the third moves on")
-check(Board.flowLines([30, 30, 24], width: 100, spacing: 8) == [[0, 1, 2]], "exactly 100: one line")
-check(Board.flowLines([120, 10], width: 100, spacing: 8) == [[0], [1]], "an entry wider than the row takes a line of its own")
-check(Board.TallyEntry(word: "  ", mark: nil, n: 1).initial == "?", "a blank provider: the board's ?")
-// The phone's pick-to-mark pairs are the board's PROVIDER_MARK_KEY (review 4).
-let markKeyName = ["MarkClaude": "claude", "MarkOpenAI": "openai", "MarkGemini": "gemini", "MarkGrok": "xai", "MarkMeta": "meta", "MarkQwen": "qwen"]
-let keyBlock = boardPage.range(of: "const PROVIDER_MARK_KEY = {").flatMap { s in boardPage.range(of: "};", range: s.upperBound..<boardPage.endIndex).map { String(boardPage[s.upperBound..<$0.lowerBound]) } } ?? ""
-// And the other way: every board key whose mark the phone carries is mapped on the phone too.
-let boardKeyPairs = keyBlock.components(separatedBy: CharacterSet(charactersIn: ",\n")).compactMap { part -> (String, String)? in
-    let bits = part.components(separatedBy: ":").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " '")) }
-    guard bits.count == 2, !bits[0].isEmpty, !bits[0].contains("/"), !bits[0].contains("*") else { return nil }
-    return (bits[0], bits[1])
-}
-let carried = Set(markKeyName.values)
-check(boardKeyPairs.filter { carried.contains($0.1) }.count == 8, "premise: the board's keys for the phone's marks were read (8)")
-for (key, mark) in boardKeyPairs where carried.contains(mark) {
-    check(markKeyName[Board.providerMarkAsset[key] ?? ""] == mark, "the board's \(key) -> \(mark) is on the phone too")
-}
-for (pick, asset) in Board.providerMarkAsset.sorted(by: { $0.key < $1.key }) {
-    check(keyBlock.contains("\(pick): '\(markKeyName[asset] ?? "?")'"), "the board's PROVIDER_MARK_KEY maps \(pick) to \(markKeyName[asset] ?? "?")")
-}
-// Breaking again at the reported width replays the same lines (review 5's measured case: fractional widths, no width).
-let fuzzCase = [26.119318709913866, 49.06327076039232, 58.943043076048966, 24.890714868242927, 79.20508911955574, 57.18406969193589, 35.76352088355623]
-let once = Board.flowLayout(fuzzCase, width: .infinity, spacing: 8)
-check(once.lines.count == 1 && Board.flowLines(fuzzCase, width: once.widths.max() ?? 0, spacing: 8) == once.lines,
-      "placed at the width it reported, the tally keeps its lines")
-let twoLines = Board.flowLayout([30, 30, 30], width: 100, spacing: 8)
-check(twoLines.widths == [68, 30] && Board.flowLines([30, 30, 30], width: twoLines.widths.max()!, spacing: 8).count >= 2,
-      "each line's width as compared")
-check(Board.flowLines([], width: 100, spacing: 8).isEmpty && Board.flowLines([5, 5], width: .infinity, spacing: 8) == [[0, 1]],
-      "nothing: no lines; no width given: one line")
-check(Board.providerTally([member("d", nil)]).isEmpty && Board.providerTallySpoken([]) == "", "nobody with a provider: no tally, nothing said")
-// The board still counts so, with these words.
-// The phone's table written as the board's PJ_TALLY rows, so any field of any row drifting fails (review 1).
-let tallyRows = Board.providerTallyOrder.map { "['\($0.provider)', '\($0.pick)', '\($0.word)']" }
-check(boardPage.contains(tallyRows[0...2].joined(separator: ", ") + ",") && boardPage.contains(tallyRows[3...6].joined(separator: ", ") + ","),
-      "the board's PJ_TALLY is the phone's order, picks and words")
-// The board's whole table, row for row (review 2: a row added to it could not fail the substring checks).
-if let start = boardPage.range(of: "const PJ_TALLY = ["), let end = boardPage.range(of: "];", range: start.upperBound..<boardPage.endIndex) {
-    let block = boardPage[start.upperBound..<end.lowerBound].replacingOccurrences(of: "\n", with: " ")
-    let boardRows = block.components(separatedBy: "[").dropFirst().map { "[" + ($0.components(separatedBy: "]").first ?? "") + "]" }
-    check(boardRows == tallyRows, "the board's PJ_TALLY, row for row: \(boardRows.count) rows")
-} else { check(false, "the board's PJ_TALLY was not found") }
-check(boardPage.contains("esc(', ' + rows.map(([word, c]) => c.n + ' ' + word).join(', '))"), "the board says it so to a screen reader")
+section("the provider marks the phone carries are the board's own (kosmos#7114; nothing draws them since #7269 until the agent page, #7267, planned)")
 // Each mark is the board's own first-run mark (the template ones drawn in the text colour, so currentColor is black).
 let markKeys = ["MarkClaude": "claude", "MarkOpenAI": "openai", "MarkGemini": "gemini", "MarkGrok": "xai", "MarkMeta": "meta", "MarkQwen": "qwen"]
 for (asset, key) in markKeys.sorted(by: { $0.key < $1.key }) {
@@ -736,10 +979,9 @@ for (asset, key) in markKeys.sorted(by: { $0.key < $1.key }) {
     let start = boardPage.range(of: "data-pmark=\"\(key)\" role=\"img\"").flatMap { boardPage.range(of: "<svg", range: $0.upperBound..<boardPage.endIndex) }
     let end = start.flatMap { boardPage.range(of: "</svg>", range: $0.lowerBound..<boardPage.endIndex) }
     let theirs = start.flatMap { s in end.map { String(boardPage[s.lowerBound..<$0.upperBound]) } } ?? "missing"
-    check(!ours.isEmpty && ours == (key == "qwen" ? theirs : theirs.replacingOccurrences(of: "currentColor", with: "#000000")),
+    check(!ours.isEmpty && ours == theirs.replacingOccurrences(of: "currentColor", with: "#000000"),
           "\(asset) is the board's \(key) mark")
 }
-check(Set(Board.providerMarkAsset.values) == Set(markKeys.keys), "every mark the tally names is in the asset catalog")
 
 section("the room's needs-you notice (kosmos#7106)")
 // projects-needs.json is a REAL projects answer, captured from a sandboxed engine and then trimmed to the fields the phone
@@ -897,6 +1139,10 @@ check(roomBody.contains("if searchMode { searchBar }\n            // kosmos#7137
       && (roomBody.range(of: sealDraw)?.lowerBound ?? roomBody.endIndex) < (roomBody.range(of: "            thread\n")?.lowerBound ?? roomBody.startIndex),
       "the room draws the line in callout and the third colour, above the conversation")
 let projectsSource = (try? String(contentsOf: here.appendingPathComponent("../../Kosmos/ProjectsView.swift"), encoding: .utf8)) ?? ""
+// kosmos#7614 review 4: post ids repeat across computers, so a switch forgets the posts deleted on the one before.
+let resetBody = projectsSource.components(separatedBy: "    func reset() {").dropFirst().first?.components(separatedBy: "\n    }").first ?? ""
+check(!resetBody.isEmpty && resetBody.contains("deletedPosts = [:]") && resetBody.contains("deleteNotes = [:]"),
+      "a switch of account or computer clears the posts deleted here and their line")
 check(projectsSource.contains("guard client.fedShown else { ownCompare[project] = nil; return }"), "the store reads own-compare only while the UI shows, and forgets it otherwise")
 check(projectsSource.contains("guard same(epoch), ownSeq[project] == seq else { return }"), "only the newest read for a project writes (the board's FED_OWN_SEQ)")
 check(projectsSource.contains("let read = answer.flatMap { (200...299).contains($0.1.statusCode) ? Board.parseOwnCompare($0.0) : nil }\n        ownCompare[project] = Board.ownCompareAfter(ownCompare[project], answer: read)"),
@@ -975,11 +1221,441 @@ if let unvAt, let wordsAt, let filesAt {
     check(wordsAt.upperBound < unvAt.lowerBound && unvAt.upperBound < filesAt.lowerBound, "the line sits under the words, before any file cards")
 }
 check(bubbleSource.components(separatedBy: "Board.unverifiedLine").count == 2, "the line is drawn in one place only")
-// Review 2: both Copy paths, VoiceOver's action and the long-press menu's, and no other pasteboard write in the bubble.
-check(bubbleSource.contains("Button(\"Copy\") { UIPasteboard.general.string = row.text }")
-      && bubbleSource.contains("Button { UIPasteboard.general.string = row.text } label: { Label(\"Copy\", systemImage: \"doc.on.doc\") }")
-      && bubbleSource.components(separatedBy: "UIPasteboard.general.string =").count == 3,
-      "both Copy paths (VoiceOver's action and the long-press menu) take the row's words, never the line")
+// Review 2: both Copy paths, VoiceOver's action and the long press's (kosmos#7419: the sheet's Copy text, handed row.text),
+// and no other pasteboard write in the bubble.
+check(bubbleSource.contains("Button(\"Copy\") { UIPasteboard.general.string = Board.roomWords(row) }")
+      // kosmos#7614: Delete is the sheet's next argument, so the call no longer ends at the words.
+      && bubbleSource.contains("reply: answerable ? reply : nil, text: Board.roomWords(row)")
+      && bubbleSource.components(separatedBy: "UIPasteboard.general.string =").count == 2,
+      "both Copy paths (VoiceOver's action and the long-press sheet) take the row's words, never the line")
+
+// kosmos#7488: the native New Agent flow. Its words are the desktop's, read from the board's own page so they cannot drift.
+for w in [NewAgent.Words.kindTitle, NewAgent.Words.roleTitle, NewAgent.Words.roleHint, NewAgent.Words.pickAnother,
+          NewAgent.Words.ownName, NewAgent.Words.ownLine, NewAgent.Words.ownFull, NewAgent.Words.maxHelpers,
+          NewAgent.Words.dailyLimit, NewAgent.Words.pauses, NewAgent.Words.hello]
+    + NewAgent.Kind.allCases.flatMap({ [NewAgent.Words.kindName($0), NewAgent.Words.kindLine($0)] }) {
+    check(boardPage.contains(w), "the desktop says it too: \(w)")
+}
+check(boardPage.contains("The lead agent brings in up to ${max} helpers when parts of a task can be done at the same time. Otherwise, it works alone.")
+      && NewAgent.Words.swarmExplain(3) == "The lead agent brings in up to 3 helpers when parts of a task can be done at the same time. Otherwise, it works alone.",
+      "the swarm explanation is the desktop's, following the helpers")
+check(boardPage.contains("'Say Hello to ' + shown") && NewAgent.Words.sayHello("Ada") == "Say Hello to Ada", "Say Hello to <name>, as the desktop")
+check(boardPage.contains("id=\"create-swarm-max\" min=\"2\" max=\"10\" step=\"1\" value=\"3\"") && NewAgent.helpersRange == 2...10 && NewAgent.helpersStart == 3, "helpers 2 to 10, starting at 3, as the desktop's slider")
+check(NewAgent.capWords(6) == "6,000,000 tokens a day", "the limit reads in tokens a day, as the desktop's token mode")
+let naRoles = Data(#"""
+{"models":[{"key":"opus","provider":"anthropic","label":"Opus","default":false},{"key":"sonnet","provider":"anthropic","label":"Sonnet","default":true},{"key":"gpt-5","provider":"openai","label":"GPT-5"}],
+ "own":{"key":"own","blurb":"An agent whose job you write yourself","instructions":"You are **{{NAME}}**, an assistant.\nDo the work."},
+ "roles":[{"key":"writer","label":"Writer","blurb":"Writes","instructions":"x","group":"Words"},
+          {"key":"pm","label":"Project Manager","blurb":"Runs","instructions":"y","group":"Running the work"},
+          {"key":"editor","label":"Editor","blurb":"Edits","instructions":"z","group":"Words"},
+          {"key":"","label":"No key"}]}
+"""#.utf8)
+let naCat = NewAgent.parseCatalogue(naRoles, swarms: false)
+check(naCat?.roles.map(\.key) == ["writer", "pm", "editor"], "menu roles as served, a keyless row dropped")
+check(naCat?.recommended?.key == "pm", "the recommended role is pm, as the desktop's buildPicker")
+check(naCat?.models.map(\.key) == ["opus", "sonnet"] && naCat?.defaultModel?.key == "sonnet", "Claude models only, the served default chosen")
+check(naCat?.groups.map(\.name) == ["Words", "Running the work"] && naCat?.groups.first?.roles.map(\.key) == ["writer", "editor"], "grouped in the catalogue's order")
+check(naCat?.own?.label == "Describe it yourself" && NewAgent.ownExample(naCat!) == "You are **your agent**, an assistant.\nDo the work.", "own starts from the example, the name read as the desktop does")
+check(NewAgent.parseCatalogue(Data("{}".utf8), swarms: false) == nil, "a reply without roles is not a catalogue")
+check(Board.swarmsOn(fromStatus: Data(#"{"swarms":true,"agents":[]}"#.utf8)) && Board.swarmsOn(fromStatus: Data(#"{"agents":[{"swarm":{}}]}"#.utf8))
+      && !Board.swarmsOn(fromStatus: Data(#"{"agents":[{"name":"a"}]}"#.utf8)), "Swarm shows when the board says so, as SWARMS_ON")
+if let c = naCat {
+    func bodyOf(_ d: NewAgent.Draft) -> [String: Any]? {
+        NewAgent.createRequest(mac: npMac, draft: d, catalogue: c).flatMap { $0.httpBody }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    }
+    var d = NewAgent.Draft(); d.roleKey = "pm"; d.name = "  Ada "; d.label = "Project Manager"; d.model = "sonnet"
+    let b1 = bodyOf(d)
+    check(b1?["name"] as? String == "Ada" && b1?["role"] as? String == "pm" && b1?["label"] == nil && b1?["model"] as? String == "sonnet"
+          && b1?["reportsTo"] == nil && b1?["kind"] == nil && b1?["notifyCreated"] as? Bool == true, "single: an unchanged label and you as manager do not travel")
+    check(NewAgent.createRequest(mac: npMac, draft: d, catalogue: c)?.url?.absoluteString == npMac.absoluteString.replacingOccurrences(of: "/$", with: "", options: .regularExpression) + "/api/agents"
+          && NewAgent.createRequest(mac: npMac, draft: d, catalogue: c)?.httpMethod == "POST", "POST /api/agents, the desktop's route")
+    d.label = "Lead"; d.reportsTo = "boss-1"
+    check(bodyOf(d)?["label"] as? String == "Lead" && bodyOf(d)?["reportsTo"] as? String == "boss-1", "a changed label and a manager travel")
+    d.name = " "
+    check(bodyOf(d) == nil && !NewAgent.canCreate(d, c), "nothing is sent without a name")
+    var o = NewAgent.Draft(); o.roleKey = "own"; o.name = "Ada"
+    check(!NewAgent.canContinueRole(o, c), "own needs words in its box")
+    o.ownWords = NewAgent.ownExample(c)
+    check(NewAgent.canContinueRole(o, c) && !NewAgent.canCreate(o, c), "own's Role label is required, as the engine requires it")
+    o.label = "Researcher"
+    check(bodyOf(o)?["label"] as? String == "Researcher" && bodyOf(o)?["instructions"] == nil, "own: the label always travels; the untouched example does not")
+    o.ownWords = "You are **your agent**, an assistant.\nRead leases."
+    check(bodyOf(o)?["instructions"] as? String == "You are **Ada**, an assistant.\nRead leases.", "own: edited words travel, with the agent's name in place")
+    var s = NewAgent.Draft(kind: .swarm); s.roleKey = "writer"; s.name = "Hive"; s.label = "Writer"; s.maxHelpers = 99; s.capMillions = 6
+    let sb = bodyOf(s)
+    check(sb?["kind"] as? String == "swarm" && sb?["maxHelpers"] as? Int == 10 && sb?["dailyTokenLimit"] as? Int == 6_000_000
+          && sb?["provider"] as? String == "anthropic", "swarm: kind, helpers (kept in range), the limit in tokens, Claude")
+}
+check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"created","name":"ada-1","shownAs":"Ada"}"#.utf8)) == .made(session: "ada-1", shownAs: "Ada"), "created: the session and its shown name")
+check(NewAgent.result(sent: true, status: 400, body: Data(#"{"outcome":"refused","because":"There is already an agent called Ada."}"#.utf8)) == .refused("There is already an agent called Ada."), "refused: the board's own sentence")
+check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"partial","because":"It could not start."}"#.utf8)) == .refused("It could not start."), "partial is rolled back by the engine: its sentence")
+check(NewAgent.result(sent: true, status: 0, body: nil) == .unknown && NewAgent.result(sent: true, status: 502, body: nil) == .unknown, "no answer may have made it")
+check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"partial"}"#.utf8)) == .refused(NewAgent.fallback), "a partial with no sentence is still rolled back: refused, never \"look for it\"")
+check(NewAgent.result(sent: true, status: 200, body: Data(#"{"outcome":"created","name":"../x"}"#.utf8)) == .unknown, "a made answer with no usable session is unknown, never guessed")
+check(NewAgent.result(sent: false, status: 0, body: nil) == .refused(NewAgent.fallback), "nothing sent is certainly not made")
+
+// kosmos#7488 slice 2: Team. The desktop's words, its project naming, its specs request and its member order.
+for w in [NewTeam.Words.title, NewTeam.Words.hint, NewTeam.Words.pick, NewTeam.Words.project, NewTeam.Words.noProject, NewTeam.Words.modelSoft] {
+    check(boardPage.contains(w), "the desktop says it too: \(w)")
+}
+check(boardPage.contains("'A new project called ' + wanted") && NewTeam.Words.newProject("Marketing") == "A new project called Marketing", "the new project's line, as the desktop's")
+check(boardPage.contains("'Create ' + n + (n === 1 ? ' agent' : ' agents')") && NewTeam.Words.create(5) == "Create 5 agents" && NewTeam.Words.create(1) == "Create 1 agent", "Create N agents, as the desktop's button")
+check(boardPage.contains("n === 1 ? 'Go to your agent' : 'Go to your team'") && NewTeam.Words.goTo(3) == "Go to your team", "Go to your team, as the desktop's")
+let ntTeams = NewTeam.parseTeams(Data(#"{"teams":[{"key":"marketing","label":"Marketing","blurb":"Gets the word out","count":4},{"key":"Bad Key","label":"x"},{"key":"ops","label":" "}]}"#.utf8))
+check(ntTeams?.map(\.key) == ["marketing"], "teams as served; a bad key or a blank label dropped")
+let ntDetailJSON = #"{"team":{"key":"marketing","label":"Marketing","purpose":"Plans and runs campaigns.","caution":null,"project":{"name":"Marketing","goal":"Grow sign-ups"},"lead":"head"},"members":[{"slot":"head","title":"Head of Marketing","name":"Maya","reportsTo":null},{"slot":"writer","title":"Copywriter","name":"Wes","reportsTo":"lead"}]}"#
+let ntDetail = NewTeam.parseDetail(Data(ntDetailJSON.utf8))
+check(ntDetail?.members.map(\.slot) == ["head", "writer"] && ntDetail?.members.map(\.isLead) == [true, false] && ntDetail?.projectGoal == "Grow sign-ups" && ntDetail?.caution == nil,
+      "a team's members, lead first (reportsTo null), and its project")
+check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""lead":"head""#, with: #""lead":"nobody""#).utf8)) == nil, "a lead that is not a member: refused, never a team with no lead first")
+check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""slot":"writer""#, with: #""slot":"head""#).utf8)) == nil, "two members in one seat: refused, never a crash")
+if let d = ntDetail {
+    check(NewTeam.newProjectName(d, taken: ["Website"]) == "Marketing" && NewTeam.newProjectName(d, taken: ["marketing", "Marketing 2"]) == "Marketing 3",
+          "the new project takes the first free name, as tcFillProjects")
+}
+let ntReq = NewTeam.specsRequest(mac: npMac, key: "marketing", names: ["head": "Maya", "writer": "Wes"], project: "mkt", model: "sonnet", check: true)
+let ntBody = ntReq?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+check(ntReq?.httpMethod == "POST" && ntReq?.url?.path == "/api/teams/seeded/marketing/specs" && (ntBody?["names"] as? [String: String]) == ["head": "Maya", "writer": "Wes"]
+      && ntBody?["project"] as? String == "mkt" && ntBody?["model"] as? String == "sonnet" && ntBody?["check"] as? Bool == true, "specs: names, project, model and check, as tcSpecs sends")
+check(NewTeam.specsRequest(mac: npMac, key: "../x", names: [:], project: nil, model: "", check: false) == nil && NewTeam.detailRequest(mac: npMac, key: "a/b") == nil, "a key the route would refuse is never sent")
+let ntSpecs = NewTeam.specsAnswer(status: 200, body: Data(#"{"team":"marketing","specs":[{"slot":"head","title":"Head","session":"maya","spec":{"name":"Maya","role":"pm","reportsTo":null}},{"slot":"writer","title":"Copywriter","session":"wes","spec":{"name":"Wes","role":"writer","reportsTo":"maya"}}]}"#.utf8))
+if case .specs(let list) = ntSpecs {
+    check(list.map(\.slot) == ["head", "writer"], "the specs in the board's order, the lead first")
+    let sent = try? JSONSerialization.jsonObject(with: NewTeam.memberRequest(mac: npMac, spec: list[1]).httpBody ?? Data()) as? [String: Any]
+    check(sent?["reportsTo"] as? String == "maya" && sent?["role"] as? String == "writer" && sent?["notifyCreated"] as? Bool == true
+          && NewTeam.memberRequest(mac: npMac, spec: list[1]).url?.path == "/api/agents", "each member is the board's own spec, through POST /api/agents")
+} else { check(false, "the specs parse") }
+check(NewTeam.specsAnswer(status: 400, body: Data(#"{"error":"give the Copywriter a name"}"#.utf8)) == .refused("Give the Copywriter a name."), "a refusal reads as a sentence, as tcSay")
+check(NewTeam.specsAnswer(status: 0, body: nil) == .unknown && NewTeam.specsAnswer(status: 200, body: Data(#"{"specs":[{"slot":"a","session":"../x","spec":{"name":"A"}}]}"#.utf8)) == .unknown,
+      "no answer, or a spec with no usable session, is unknown")
+
+// kosmos#7488 review 9: what a made agent did not get, as the desktop's team rows say it.
+check(boardPage.contains("'" + NewAgent.notAdded + "' + (pr.because ?"), "the not-added words are the desktop's")
+check(NewAgent.madeWarnings(Data(#"{"outcome":"created","steps":[{"label":"Its picture","ok":false},{"label":"Its folder","ok":true}],"projects":[{"id":"a","added":false,"because":"that project is archived"},{"id":"b","added":false},{"id":"c","added":true}]}"#.utf8))
+      == ["Its picture", "It was not added to the project: that project is archived.", "It was not added to the project."],
+      "a failed step by its label, and each project not joined with the board's reason")
+check(NewAgent.madeWarnings(Data(#"{"outcome":"created","steps":[],"projects":[]}"#.utf8)).isEmpty, "a clean create warns of nothing")
+check(NewAgent.madeWarnings(Data(#"{"projects":[{"id":"a","added":false,"because":"GitHub is not connected"}]}"#.utf8)) == ["It was not added to the project: GitHub is not connected."],
+      "the reason keeps the board's own case, as the desktop shows it")
+
+// kosmos#7488 review 7: "seen" is the desktop's boardCanSeeIt, never "listed": /api/status also lists an agent with a
+// folder or job and no session yet, which a just-made agent is first.
+let seenRows = Board.parseAgents(Data(#"{"agents":[{"sessionName":"live","isAgentSession":true,"isNamedOurs":true,"state":"idle"},{"sessionName":"offline","isAgentSession":false,"isNamedOurs":true,"running":false,"state":"stopped"},{"sessionName":"nojob","isAgentSession":false,"state":"unknown"},{"sessionName":"halted","isAgentSession":true,"isNamedOurs":true,"state":"stopped"},{"sessionName":"theirs","isAgentSession":true,"isNamedOurs":false,"state":"idle"}]}"#.utf8)) ?? []
+check(seenRows.map(\.boardSeesIt) == [true, false, false, false, false], "only a live, ours, not stopped agent counts as seen (offline, no session, stopped and not ours do not)")
+check(boardPage.contains("a.isAgentSession === true && a.isNamedOurs === true && a.state !== 'stopped'"), "the same three conditions as the desktop's boardCanSeeIt")
+
+// kosmos#7488 review 3: the caution, the project tell, the timed-out words, the project name retry, the lead.
+for w in [NewAgent.Words.labelMissing, NewAgent.Words.notUpWhy, NewAgent.Words.notUpNext] {
+    check(boardPage.contains(w), "the desktop says it too: \(w)")
+}
+check(boardPage.contains("shown + ' has not come up'") && NewAgent.Words.notUp("Ada") == "Ada has not come up"
+      && boardPage.contains("shown + ' is running'") && NewAgent.Words.running("Ada") == "Ada is running", "the made screen's heads are the desktop's")
+let lawyer = NewAgent.Role(key: "legal", label: "Legal", blurb: "", instructions: "", group: nil, caution: "Not a lawyer, and this is not legal advice.")
+let quiet = NewAgent.Role(key: "office", label: "Office", blurb: "", instructions: "", group: nil, caution: "Nothing goes out without the owner.")
+check(NewAgent.caution(quiet, kind: .single) == "Nothing goes out without the owner." && NewAgent.caution(quiet, kind: .swarm) == nil
+      && NewAgent.caution(lawyer, kind: .swarm) == "Not a lawyer, and this is not legal advice." && NewAgent.caution(nil, kind: .single) == nil,
+      "a picked role's caution shows; on a swarm only professional advice, as paintPickLimit")
+check(boardPage.contains("lawyers?|attorneys?|counsel") && NewAgent.advice.pattern.contains("lawyers?|attorneys?|counsel"), "the advice words are the desktop's")
+check(NewAgent.parseCatalogue(Data(#"{"roles":[{"key":"legal","label":"Legal","caution":"Not a lawyer."}]}"#.utf8), swarms: false)?.roles.first?.caution == "Not a lawyer.", "the caution is read from /api/roles")
+check(NewAgent.addedProjects(Data(#"{"outcome":"created","projects":[{"id":"home","added":true},{"id":"x","added":false},{"id":"../y","added":true}]}"#.utf8)) == ["home"],
+      "only the projects the create added are told")
+let tell = NewAgent.tellRequest(mac: npMac, project: "home", session: "ada")
+check(tell?.httpMethod == "POST" && tell?.url?.path == "/api/project/home/agent/ada" && NewAgent.tellRequest(mac: npMac, project: "home", session: "../a") == nil,
+      "the tell is the desktop's POST /api/project/<id>/agent/<name>, never with a name the board would refuse")
+if let c = naCat {
+    var blank = NewAgent.Draft(); blank.roleKey = "pm"; blank.name = "Ada"; blank.label = "  "
+    check(!NewAgent.canCreate(blank, c), "a blank Role is refused for a menu role too, as the desktop")
+}
+if let d = ntDetail {
+    check(NewTeam.projectNames(d, taken: ["Marketing"], count: 3) == ["Marketing 2", "Marketing 3", "Marketing 4"], "the next names to try when a folder is taken")
+}
+check(NewTeam.folderTaken(Data(#"{"error":"taken","code":"folder_taken"}"#.utf8)) && !NewTeam.folderTaken(Data(#"{"error":"x"}"#.utf8)), "folder_taken is read from the code")
+check(boardPage.contains("body.code !== 'folder_taken' || tries >= TC_PROJECT_NAME_TRIES") && boardPage.contains("const TC_PROJECT_NAME_TRIES = \(NewTeam.projectNameTries);"),
+      "the retry count is the desktop's")
+check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #","lead":"head""#, with: "").utf8)) == nil
+      && NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""reportsTo":null"#, with: #""x":1"#).utf8))?.members.first?.isLead == true,
+      "the lead is the team's own lead slot, not a guess from a missing field")
+
+// kosmos#7488 build 14: the generated mark is the desktop's, number for number. These are the desktop's own dotGlyph and
+// markFamFor (run from web/index.html with an empty letter), for five names.
+let markRef: [(String, Int, [(Double, Double, Double, UInt32)])] = [
+    ("Ada", 8, [(38.128618, 115.37908, 9.679533, 0xc4a3d9), (178.376706, 103.066609, 3.026667, 0xb289cd), (93.255063, 163.903479, 3.038945, 0x9d6fbe), (209.608709, 213.043119, 4.864524, 0xb289cd), (53.418479, 205.681031, 4.681662, 0xb289cd), (89.512766, 109.379368, 5.348784, 0xc4a3d9)]),
+    ("Maya", 12, [(185.13399, 69.92518, 3.561725, 0xd8a099), (28.703765, 179.757724, 3.441622, 0xd8a099), (29.256261, 65.977565, 3.922968, 0xbd6659), (143.080831, 36.218665, 3.225146, 0xd8a099), (231.823336, 73.491707, 7.602522, 0xd8a099), (69.011504, 47.405337, 9.15071, 0xcb847a)]),
+    ("leo", 10, [(38.048185, 60.165884, 7.478487, 0xd49dbb), (135.019997, 97.306536, 2.71333, 0xc681a8), (126.86531, 16.28877, 7.570537, 0xd49dbb), (130.726239, 189.711593, 2.608267, 0xc681a8), (220.062619, 68.629463, 2.867195, 0xb76490), (104.811565, 103.45045, 8.475486, 0xb76490)]),
+    ("Zoë Ng", 0, [(125.119024, 153.950246, 9.035226, 0xd6a62e), (146.344181, 36.886348, 8.786265, 0xd6a62e), (123.013675, 206.204523, 5.493955, 0xd6a62e), (183.63152, 138.358002, 5.744376, 0xd6a62e), (147.164371, 239.05094, 7.58513, 0xb88920), (192.151578, 37.367611, 8.420359, 0xd6a62e)]),
+    ("Project Manager", 2, [(157.783333, 229.660522, 11.830959, 0x90a249), (100.191415, 81.434444, 6.34051, 0x90a249), (148.698133, 108.815559, 3.285189, 0x90a249), (238.385012, 130.882257, 6.444931, 0x77892f), (81.814805, 136.55263, 3.324382, 0x77892f), (241.820359, 99.842757, 2.878578, 0x77892f)]),
+]
+for (name, fam, first) in markRef {
+    let got = AgentMark.dots(name: name, ink: { _, _ in false })
+    let close = zip(got, first).allSatisfy { d, e in abs(d.x - e.0) < 1e-4 && abs(d.y - e.1) < 1e-4 && abs(d.r - e.2) < 1e-4 && d.color == e.3 }
+    check(AgentMark.familyIndex(name) == fam && got.count == 240 && close, "the mark for \(name) is the desktop's: family, count and the first dots")
+}
+check(boardPage.contains("const S = 256; const C = 128; const R = \(Int(AgentMark.radius));") && boardPage.contains("while (dots.length < \(AgentMark.count) && tries < 40000)")
+      && boardPage.contains("const rad = 2.5 + rnd() * rnd() * 11;") && boardPage.contains("const clear = rad + 2;"),
+      "the mark's constants are still the desktop's (its size, radius, dot count, tries, dot sizes and clearance)")
+check(AgentMark.families.count == 14 && AgentMark.families.allSatisfy { fam in
+    boardPage.contains("[" + fam.map { "'#" + String(format: "%06x", $0) + "'" }.joined(separator: ", ") + "]")
+}, "each of the 14 families is the desktop's, colour for colour")
+// With a letter in the way (a rectangle, x 96 to 159 and y 70 to 189, run through the desktop's code the same way): the
+// clearance test and the draws a rejected dot uses are the desktop's too, to the last dot.
+let rectInk: (Int, Int) -> Bool = { x, y in x >= 96 && x < 160 && y >= 70 && y < 190 }
+let inkRef: [(String, Int, (Double, Double, Double, UInt32), (Double, Double, Double, UInt32))] = [
+    ("Ada", 240, (170.08716, 124.148504, 6.387738, 0xc4a3d9), (65.973425, 158.783798, 2.703701, 0xb289cd)),
+    ("Maya", 233, (29.256261, 65.977565, 3.922968, 0xbd6659), (212.412633, 161.55019, 2.515663, 0xd8a099)),
+]
+for (name, n, third, last) in inkRef {
+    let got = AgentMark.dots(name: name, ink: rectInk)
+    func near(_ d: AgentMark.Dot?, _ e: (Double, Double, Double, UInt32)) -> Bool {
+        guard let d else { return false }
+        return abs(d.x - e.0) < 1e-4 && abs(d.y - e.1) < 1e-4 && abs(d.r - e.2) < 1e-4 && d.color == e.3
+    }
+    check(got.count == n && near(got[safe: 2], third) && near(got.last, last), "with a letter, the mark for \(name) is still the desktop's: its count, third and last dots")
+}
+let inkAll = AgentMark.dots(name: "Ada", ink: { x, _ in x < 128 })
+// The desktop keeps a dot only when its clearance samples miss the ink; for ink at x < 128 the leftmost sample,
+// round(x - (r + 2)), must be at least 128.
+check(!inkAll.isEmpty && inkAll.allSatisfy { ($0.x - $0.r - 2 + 0.5).rounded(.down) >= 128 }, "no dot is drawn over the letter's ink, by the desktop's own clearance")
+check(AgentMark.letter("  zoë ") == "Z" && AgentMark.letter("   ") == nil, "the letter is the trimmed name's first, upper-cased")
+
+// kosmos#7488 build 14: the picture is PUT where the desktop puts it, and a team portrait read where it reads it.
+let picReq = NewAgent.pictureRequest(mac: npMac, session: "ada", data: Data([1, 2, 3]), type: "image/png")
+check(picReq?.httpMethod == "PUT" && picReq?.url?.path == "/api/agent/ada/avatar" && picReq?.value(forHTTPHeaderField: "Content-Type") == "image/png"
+      && boardPage.contains("fetch('/api/agent/' + encodeURIComponent(name) + '/avatar', {"), "the picture goes to the desktop's avatar route")
+check(NewAgent.pictureRequest(mac: npMac, session: "../x", data: Data([1]), type: "image/png") == nil
+      && NewAgent.pictureRequest(mac: npMac, session: "ada", data: Data(count: 60001), type: "image/png") == nil
+      && NewAgent.pictureRequest(mac: npMac, session: "ada", data: Data([1]), type: "image/gif") == nil, "never a bad name, an oversized picture or a type the board refuses")
+let portReq = NewAgent.portraitRequest(mac: npMac, team: "marketing", slot: "head")
+check(NewTeam.parseDetail(Data(ntDetailJSON.replacingOccurrences(of: #""name":"Maya","reportsTo":null"#, with: #""name":"Maya","reportsTo":null,"portrait":true"#).utf8))?.members.map(\.portrait) == [true, false],
+      "a seat's portrait flag is read from the team's detail")
+check(portReq?.url?.path == "/api/catalogue/portrait" && portReq?.url?.query == "team=marketing&slot=head"
+      && NewAgent.portraitRequest(mac: npMac, team: "marketing", slot: "Head of x") == nil, "a portrait only for a team and seat the route's pattern allows")
+check(boardPage.contains("PICTURE_MAX_BYTES = 60000") && NewAgent.pictureMaxBytes == 60000, "the picture limit is the desktop's")
+let pngHead = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+check(NewAgent.keepsPortrait(type: "image/png", bytes: pngHead, width: 256, height: 256, frames: 1), "a still PNG within the limits is kept as it came")
+check(!NewAgent.keepsPortrait(type: "image/jpeg", bytes: pngHead, width: 256, height: 256, frames: 1)
+      && !NewAgent.keepsPortrait(type: "image/png", bytes: pngHead + Data("eXIf".utf8), width: 256, height: 256, frames: 1)
+      && !NewAgent.keepsPortrait(type: "image/png", bytes: pngHead, width: 256, height: 256, frames: 2)
+      && !NewAgent.keepsPortrait(type: "image/png", bytes: pngHead, width: 15, height: 256, frames: 1)
+      && !NewAgent.keepsPortrait(type: "image/png", bytes: pngHead, width: 2049, height: 256, frames: 1)
+      && !NewAgent.keepsPortrait(type: "image/png", bytes: pngHead + Data(count: 60000), width: 256, height: 256, frames: 1)
+      && !NewAgent.keepsPortrait(type: "image/png", bytes: Data([0xFF, 0xD8]), width: 256, height: 256, frames: 1),
+      "anything else (JPEG, eXIf, animated, under 16 or over 2048 a side, over the limit, not a PNG) is redrawn")
+check(NewAgent.pictureType(pngHead) == "image/png" && NewAgent.pictureType(Data([0xFF, 0xD8, 0xFF])) == "image/jpeg", "a fitted picture is sent as what its bytes are")
+check(boardPage.contains("PICTURE_MIN_SIDE = 16") && boardPage.contains("PICTURE_MAX_SIDE = 2048"), "the sides are the desktop's")
+check(boardPage.contains("<h3 class=\"sform-h\">" + NewAgent.Words.identity + "</h3>") && boardPage.contains(">" + NewAgent.Words.changePicture + "</button>")
+      && boardPage.contains("aria-label=\"" + NewAgent.Words.markLabel + "\""), "Identity, Change picture and the mark's label are the desktop's own markup")
+// kosmos#7502: the provider, account and model choice (NewAgentPicker), the desktop's rules and words.
+do {
+    typealias P = NewAgentPicker
+    // Every provider's label is the desktop menu's own text, and the order is the desktop's PROVIDER_ORDER.
+    // Review 5: each label tied to its own value in the create form's own menu (the #create-provider select).
+    let createMenu: String = {
+        guard let r = boardPage.range(of: "<select id=\"create-provider\""), let e = boardPage.range(of: "</select>", range: r.upperBound..<boardPage.endIndex) else { return "" }
+        return String(boardPage[r.lowerBound..<e.upperBound])
+    }()
+    check(!createMenu.isEmpty, "the desktop's create provider menu is found")
+    for p in P.Provider.allCases where ![.meta, .deepseek].contains(p) {
+        let re = try! NSRegularExpression(pattern: "<option value=\"" + p.rawValue + "\"[^>]*>" + NSRegularExpression.escapedPattern(for: p.label) + "</option>")
+        check(re.firstMatch(in: createMenu, range: NSRange(createMenu.startIndex..., in: createMenu)) != nil, "provider label as the desktop's create menu: " + p.label)
+    }
+    // Review 5: the phone's sentences, each as the desktop writes it in its JavaScript (an apostrophe escaped there).
+    func inPage(_ w: String) -> Bool { boardPage.contains(w) || boardPage.contains(w.replacingOccurrences(of: "'", with: "\\'")) }
+    for b in ["not an api key", "no chat models", "rejected by OpenAI (401)", "cannot list models, though the key itself works",
+              "not allowed to list models (403)", "usage or billing limit (429)", "rate-limiting this account", "having trouble right now", "could not reach"] {
+        check(inPage(P.openaiNote(b)), "the OpenAI note, as the desktop's openaiNoModelsNote: " + P.openaiNote(b).prefix(40))
+    }
+    // The desktop says "on " + thisMachine() ("this computer", or "your cloud machine" on a cloud computer).
+    check(boardPage.contains("'<option value=\"\">The OpenAI sign-in on ' + (typeof thisMachine === 'function' ? thisMachine() : 'this computer')")
+          && P.Words.openaiOwn == "The OpenAI sign-in on this computer", "the OpenAI fallback account, as the desktop's on a computer of its own")
+    for w in [P.Words.agySetUp, P.Words.museSetUp, P.Words.comingSoon, P.Words.claudeOwn,
+              "Gemini (Google subscription) is not set up on this computer, so this is back on ",
+              "Meta Muse is not available on this computer, so this is back on ",
+              "Muse Code is not on this computer, so this is back on ",
+              "Meta Muse is not signed in on this computer, so this is back on "] {
+        check(inPage(w), "the desktop's words: " + w)
+    }
+    check(boardPage.contains("\\'s own ' + esc(switchKeyedWord(want)) + ' key, if one is set up") && P.Words.keyedOwn(.xai) == "This computer's own Grok key, if one is set up",
+          "a keyed provider's fallback account, as the desktop's")
+    check(boardPage.contains("const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'antigravity', 'xai', 'meta', 'alibaba', 'deepseek',"),
+          "the desktop's provider order still starts as the phone's")
+    for w in [P.Words.checking, P.Words.couldNotCheck, P.Words.connect, P.Words.agyChecking, P.Words.museSignIn, P.Words.loadingModels,
+              P.Words.openaiPicks, P.Words.openaiChoose, P.Words.unknownLive, "The Qwen account names the model.", "The DeepSeek account names the model.",
+              "If Antigravity is not signed in yet, sign in first: in Settings, AI Models, choose Add a provider, then Google Gemini.",
+              "'Swarms run on Claude for now'", "Once this account is signed in, you can pick its model here. For now it will use OpenAI\\'s default."] {
+        check(boardPage.contains(w.replacingOccurrences(of: "'s ", with: "\\'s ").replacingOccurrences(of: "\\\\'", with: "\\'")) || boardPage.contains(w),
+              "the desktop's words: " + w)
+    }
+
+    let accountsJSON = #"""
+    {"accounts":[
+     {"dir":"/h/.claude","provider":"anthropic","email":"ada@x.io","isDefault":true,"memoryShared":true,"connection":{"badge":"connected","state":"connected"}},
+     {"dir":"/h/.claude-work","provider":"anthropic","email":"ada@x.io","label":"work","memoryShared":true,"connection":{"badge":"unchecked"}},
+     {"dir":"/h/.claude-old","provider":"anthropic","email":"old@x.io","memoryShared":true,"connection":{"badge":"rejected"}},
+     {"dir":"/h/.claude-solo","provider":"anthropic","email":"solo@x.io","memoryShared":false,"connection":{"badge":"connected"}},
+     {"dir":"/h/.codex","provider":"openai","keyTail":"abcd","isDefault":true,"connection":{"state":"connected"}},
+     {"dir":"/h/.gemini","provider":"google","name":" Home ","keyTail":"9z","connection":{"badge":"signed_out"}},
+     {"dir":"/h/.grok","provider":"xai","keyTail":"1111","connection":{"badge":"connected"}},
+     {"dir":"/h/.qwen","provider":"alibaba","local":true,"baseUrl":"http://127.0.0.1:11434/v1"},
+     {"dir":"","provider":"antigravity","authMode":"antigravity"}
+    ]}
+    """#
+    let rows = P.parseAccounts(Data(accountsJSON.utf8))
+    check(rows?.count == 9, "every account row is read")
+    check(P.parseAccounts(Data(#"{"x":1}"#.utf8)) == nil, "a reply without accounts is not a list (unknown, never empty)")
+    let acc = P.Accounts(rows: rows ?? [], known: true, failed: false)
+    check(rows?.map(\.provider) == [.anthropic, .anthropic, .anthropic, .anthropic, .openai, .google, .xai, .alibaba, .antigravity], "acctProvider for each row")
+    check(P.provider(of: ["provider": "meta"]) == .meta && P.provider(of: ["authMode": "muse"]) == .meta && P.provider(of: [:]) == .anthropic,
+          "Meta Muse by provider or authMode; no provider is Claude")
+
+    // Claude: the rejected one is out, the unknown one is in and labelled, only memory-sharing ones while any exist,
+    // two rows on one email told apart by "main" and their label.
+    let claude = P.accounts(for: .anthropic, acc)
+    check(claude.choices.map(\.value) == ["/h/.claude", "/h/.claude-work"], "Claude: rejected and non-moving accounts left out")
+    check(claude.choices.map(\.label) == ["ada@x.io (main)", "ada@x.io (work) (could not check just now)"], "Claude: same email told apart, unknown labelled")
+    check(claude.chosen == "/h/.claude" && claude.show, "Claude: the default chosen, the row shown at two")
+    // OpenAI: one account, row hidden, named by its key tail.
+    let oa = P.accounts(for: .openai, acc)
+    check(oa.choices.map(\.label) == ["API key ending abcd"] && oa.chosen == "/h/.codex" && !oa.show, "OpenAI: one account, by key tail, row hidden")
+    check(P.accounts(for: .openai, P.Accounts(rows: [], known: true)).choices == [P.AccountChoice(value: "", label: "The OpenAI sign-in on this computer")],
+          "OpenAI with no account: the computer's own sign-in, nothing sent")
+    check(P.accounts(for: .alibaba, acc).choices.map(\.label) == ["Qwen on this computer"], "Qwen named by where it runs")
+    func qwen(_ url: String) -> String {
+        P.primaryName(P.Account(dir: "/q", provider: .alibaba, rawProvider: "alibaba", email: nil, name: nil, keyTail: nil, label: nil,
+                                baseUrl: url, local: false, isDefault: false, memoryShared: false, badge: nil, state: nil,
+                                hasConnection: false, offerable: true))
+    }
+    check(qwen("http://box:80/v1") == "box" && qwen("https://box:443/v1") == "box" && qwen("http://box:8080/v1") == "box:8080"
+          && qwen("http://[::1]:11434/v1") == "[::1]:11434" && qwen("HTTPS://Box.Local:443/v1") == "box.local", "a Qwen endpoint named as JavaScript's URL host names it")
+    check(P.accounts(for: .antigravity, acc) == ([], "", false), "Gemini by subscription: no account row, nothing sent")
+    check(P.accounts(for: .google, acc).choices.map(\.value) == [""], "a signed-out Gemini key is not offered")
+
+    // The provider menu.
+    let ready = P.Readiness(agy: (true, true), muse: (true, true, false), compat: false)
+    let menu = Dictionary(uniqueKeysWithValues: P.providers(acc, ready, swarm: false).map { ($0.provider, $0) })
+    check(menu[.anthropic]?.enabled == true && menu[.openai]?.enabled == true && menu[.xai]?.enabled == true && menu[.alibaba]?.enabled == true
+          && menu[.antigravity]?.enabled == true, "offered: Claude, OpenAI, Grok and Qwen (accounts), Gemini by subscription (installed)")
+    check(menu[.google]?.off == "Connect in AI Models", "Gemini with only a signed-out key: connect it")
+    check(menu[.meta]?.off == "Sign in to Meta Muse first" && menu[.deepseek]?.off == "Coming soon", "Meta needs its sign-in; DeepSeek is off here")
+    let early = Dictionary(uniqueKeysWithValues: P.providers(P.Accounts(), P.Readiness(), swarm: false).map { ($0.provider, $0) })
+    check(early[.xai]?.off == "Checking your accounts" && early[.antigravity]?.off == "Checking Antigravity" && early[.meta]?.off == "Coming soon",
+          "before the reads answer: checking, never a confident no")
+    check(P.providers(P.Accounts(rows: [], known: false, failed: true), P.Readiness(), swarm: false).first { $0.provider == .xai }?.off == "Could not check your accounts",
+          "a failed read says so")
+    check(P.providers(acc, ready, swarm: true).allSatisfy { $0.provider == .anthropic ? $0.enabled : (!$0.enabled && $0.off == "Swarms run on Claude for now") },
+          "a swarm: Claude only, the rest say why")
+
+    // The default provider, and a pick the menu no longer allows.
+    check(P.defaultProvider(acc, swarm: false) == .anthropic, "Claude when there is a Claude account")
+    let openaiOnly = P.Accounts(rows: (rows ?? []).filter { $0.provider == .openai }, known: true)
+    check(P.defaultProvider(openaiOnly, swarm: false) == .openai && P.defaultProvider(openaiOnly, swarm: true) == .anthropic,
+          "OpenAI only when it is the one there; a swarm is Claude")
+    check(P.pickGone(.xai, acc, ready, swarm: false) == nil, "a pick still allowed stands")
+    check(P.pickGone(.xai, openaiOnly, ready, swarm: false)?.back == .openai
+          && P.pickGone(.xai, openaiOnly, ready, swarm: false)?.why == "There is no Grok account connected, so this is back on OpenAI. Add one in Settings, AI Models.",
+          "a gone Grok pick goes back to the default and says why")
+    check(P.pickGone(.openai, acc, ready, swarm: true)?.why == nil, "a swarm's move to Claude is the form's and says nothing")
+    check(boardPage.contains("'There is no ' + gone + ' account connected, so this is back on ' + back + '. Add one in Settings, AI Models.'"), "the gone sentence is the desktop's")
+
+    // The model row.
+    let models = [NewAgent.Model(key: "opus", label: "Claude Opus", isDefault: false), NewAgent.Model(key: "sonnet", label: "Claude Sonnet", isDefault: true)]
+    check(P.modelRow(.anthropic, account: "/h/.claude", claude: models, lastClaude: "", openai: nil).chosen == "sonnet", "Claude: the default model")
+    check(P.modelRow(.anthropic, account: "/h/.claude", claude: models, lastClaude: "opus", openai: nil).chosen == "opus", "a Claude pick survives a round trip")
+    let xr = P.modelRow(.xai, account: "/h/.grok", claude: models, lastClaude: "", openai: nil)
+    check(!xr.shown && xr.chosen.isEmpty && xr.note == "Grok picks its own model.", "Grok: no model row, none sent, who picks said")
+    let loading = P.modelRow(.openai, account: "/h/.codex", claude: models, lastClaude: "", openai: nil)
+    check(loading.shown && !loading.enabled && loading.choices.map(\.label) == ["Loading this account's models…"], "OpenAI: loading, never a Claude model")
+    let listed = P.modelRow(.openai, account: "/h/.codex", claude: models, lastClaude: "",
+                            openai: P.parseOpenaiModels(Data(#"{"ok":true,"models":[{"key":"gpt-5","label":"GPT-5","default":true}]}"#.utf8)))
+    check(listed.enabled && listed.choices.map(\.value) == ["", "gpt-5"] && listed.chosen == "", "OpenAI listed: Let OpenAI choose first and chosen")
+    let chatgpt = P.modelRow(.openai, account: "/h/.codex", claude: models, lastClaude: "",
+                             openai: P.parseOpenaiModels(Data(#"{"ok":false,"because":"this sign-in is not an API key"}"#.utf8)))
+    check(!chatgpt.enabled && chatgpt.chosen.isEmpty && chatgpt.note?.hasPrefix("This account is signed in with ChatGPT") == true, "a ChatGPT sign-in: OpenAI picks, said why")
+    check(P.parseOpenaiModels(nil) == .notListed(because: nil) && P.parseOpenaiModels(Data(#"{"ok":true,"models":[]}"#.utf8)) == .notListed(because: nil),
+          "no answer, or an empty list, is not a list")
+    check(P.openaiNote("OpenAI rejected by OpenAI (401)").hasPrefix("OpenAI rejected this account's API key")
+          && P.openaiNote("key cannot list models, though the key itself works").contains("permissions reason")
+          && P.openaiNote("could not reach OpenAI").hasPrefix("We could not reach OpenAI"), "openaiNoModelsNote's order")
+    let mr = P.openaiModelsRequest(mac: npMac, dir: "/h/.codex a+b&c")
+    check(mr?.url?.absoluteString.hasSuffix("/api/accounts/openai/models?dir=%2Fh%2F.codex%20a%2Bb%26c") == true, "the dir is encoded as the desktop's encodeURIComponent: " + (mr?.url?.absoluteString ?? "nil"))
+    check(P.openaiModelsRequest(mac: npMac, dir: "") == nil, "no account, no request")
+    // Review 6: the characters a folder name can hold that a URL treats specially, and a non-ASCII one, as encodeURIComponent.
+    let odd = P.openaiModelsRequest(mac: npMac, dir: "/h/ö %#?.codex")?.url?.absoluteString ?? ""
+    check(odd.hasSuffix("/api/accounts/openai/models?dir=%2Fh%2F%C3%B6%20%25%23%3F.codex"), "a dir with %, #, ? and a non-ASCII letter: " + odd)
+
+    // The create body.
+    var b: [String: Any] = [:]
+    P.addChoice(to: &b, provider: .anthropic, account: "", swarm: false)
+    check(b.isEmpty, "Claude on the default account: nothing extra travels")
+    b = [:]; P.addChoice(to: &b, provider: .openai, account: "/h/.codex", swarm: false)
+    check(b["provider"] as? String == "openai" && b["account"] as? String == "/h/.codex", "OpenAI and its account travel")
+    b = [:]; P.addChoice(to: &b, provider: .antigravity, account: "/x", swarm: false)
+    check(b["provider"] as? String == "antigravity" && b["account"] == nil, "no account is sent for a provider that has none")
+    b = [:]; P.addChoice(to: &b, provider: .openai, account: "/h/.claude", swarm: true)
+    check(b["provider"] as? String == "anthropic", "a swarm travels as Claude")
+
+    // The single create's body, with the choice (slice 2), and the team's specs read.
+    if let naCat {
+        func json(_ r: URLRequest?) -> [String: Any]? { r?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } }
+        var d = NewAgent.Draft(); d.roleKey = "pm"; d.name = "Ada"; d.label = "Project Manager"; d.model = "sonnet"
+        let claudeBody = json(P.createRequest(mac: npMac, draft: d, catalogue: naCat, provider: .anthropic, account: "", model: "sonnet"))
+        check(claudeBody?["model"] as? String == "sonnet" && claudeBody?["provider"] == nil && claudeBody?["account"] == nil, "Claude on its default: the model only")
+        let oaBody = json(P.createRequest(mac: npMac, draft: d, catalogue: naCat, provider: .openai, account: "/h/.codex", model: ""))
+        check(oaBody?["provider"] as? String == "openai" && oaBody?["account"] as? String == "/h/.codex" && oaBody?["model"] == nil,
+              "OpenAI, Let OpenAI choose: no model, never the Claude one the draft still holds")
+        let grokBody = json(P.createRequest(mac: npMac, draft: d, catalogue: naCat, provider: .xai, account: "/h/.grok", model: "sonnet"))
+        check(grokBody?["provider"] as? String == "xai" && grokBody?["model"] == nil, "a vendor that picks its own gets no model")
+        var sw = d; sw.kind = .swarm
+        let swBody = json(P.createRequest(mac: npMac, draft: sw, catalogue: naCat, provider: .openai, account: "/h/.claude", model: "sonnet"))
+        check(swBody?["provider"] as? String == "anthropic" && swBody?["model"] as? String == "sonnet", "a swarm is Claude with Claude's model")
+        var nobody = d; nobody.name = ""
+        check(P.createRequest(mac: npMac, draft: nobody, catalogue: naCat, provider: .openai, account: "", model: "") == nil, "nothing is sent without a name")
+    }
+    let spec = P.specsRequest(mac: npMac, key: "launch", names: ["lead": "Ada"], project: nil, provider: .openai, account: "/h/.codex", model: "gpt-5", check: true)
+    let specBody = spec?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(spec?.url?.path == "/api/teams/seeded/launch/specs" && spec?.httpMethod == "POST", "the team's specs route, as the desktop's tcSpecs")
+    check(specBody?["provider"] as? String == "openai" && specBody?["account"] as? String == "/h/.codex" && specBody?["model"] as? String == "gpt-5"
+          && specBody?["check"] as? Bool == true && specBody?["project"] == nil, "the team's choice travels with its specs")
+    let claudeSpec = P.specsRequest(mac: npMac, key: "launch", names: [:], project: "p1", provider: .anthropic, account: "", model: "", check: false)
+        .flatMap { $0.httpBody }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check(claudeSpec?["provider"] as? String == "anthropic" && claudeSpec?["account"] == nil && claudeSpec?["model"] == nil && claudeSpec?["project"] as? String == "p1",
+          "the provider always (the desktop's menu is never empty); no account or model when there is none")
+    check(P.specsRequest(mac: npMac, key: "Bad Key", names: [:], project: nil, provider: .anthropic, account: "", model: "", check: true) == nil, "a key the route refuses is not sent")
+    check(boardPage.contains("...(provider ? { provider } : {}), ...(account ? { account } : {}), ...(model ? { model } : {})"), "the desktop's tcModel still sends the three this way")
+}
+
+// kosmos#7596 (Josh 10-29 21:28): the + panel offers Camera, Photos and Files, in that order, and nothing else, in a
+// chat and in a project room alike (one shared view).
+let attachSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AttachMenu.swift"), encoding: .utf8)) ?? ""
+let boardLogicSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardLogic.swift"), encoding: .utf8)) ?? ""
+let roomViewSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
+check(attachSrc.contains("ForEach(AttachChoice.allCases, id: \\.self)"), "kosmos#7596: the panel draws every AttachChoice (the choices are tested in LogicTests)")
+check(!attachSrc.contains("Plugins") && !attachSrc.contains("Think harder") && !boardLogicSrc.contains("Think harder"), "kosmos#7596: no Plugins and no Think harder (Josh 21:28)")
+check(chatSource.contains("AttachPlusButton(atLimit: atFileLimit") && roomViewSrc.contains("AttachPlusButton(atLimit: atFileLimit")
+      && !chatSource.contains("Label(\"Photo Library\"") && !roomViewSrc.contains("Label(\"Photo Library\""),
+      "kosmos#7596: the chat and the room both use the one panel, and the old menu is gone")
+check(attachSrc.contains(".disabled(off)") && attachSrc.contains("let off = Board.attachRowOff(choice, atLimit: atLimit, camera: camera)"),
+      "kosmos#7596: each row is disabled by Board.attachRowOff (tested in LogicTests)")
+// Review 1: the camera is wired in both screens, opened on its own host, and its photo carries the epoch it opened under.
+for (name, src) in [("chat", chatSource), ("room", roomViewSrc)] {
+    check(src.contains("onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } }") && src.contains("case .camera: if cameraEpoch == client.chatEpoch { showCamera = true }")
+          && src.contains(".background(Color.clear.fullScreenCover(isPresented: $showCamera) {")
+          && src.contains("let epoch = cameraEpoch") && src.contains("Task { await addTaken(image, epoch: epoch) }")
+          && src.contains("private func addTaken(_ image: UIImage, epoch: Int) async {")
+          && src.contains("Task.detached(operation: { image.jpegData(compressionQuality: 0.85) })"),
+          "kosmos#7596 review 1: the \(name) opens the camera on its own host, sends its photo under the epoch it opened with, and encodes it off the main thread")
+}
+check(attachSrc.contains(".onDisappear {\n                    guard let choice = chosen else { return }"),
+      "kosmos#7596 review 1: a choice is acted on once the panel has gone, never on a timer")
+check(attachSrc.contains("if granted { onChoose(.camera) } else { onCameraDenied() }")
+      && chatSource.contains("onCameraDenied: { if cameraEpoch == client.chatEpoch { client.attachLine[agent.session] = Board.cameraDeniedLine } }")
+      && roomViewSrc.contains("onCameraDenied: { if cameraEpoch == client.chatEpoch { client.attachLine[attachKey] = Board.cameraDeniedLine } }"),
+      "kosmos#7596 review 8: a Don't Allow on the camera prompt says so above the composer, in the chat and the room")
+check(attachSrc.contains("case .notAllowed: if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }")
+      && attachSrc.contains("AVCaptureDevice.requestAccess(for: .video) { granted in"),
+      "kosmos#7596 review 1 and 2: a camera Kosmos may not use opens Settings, and one not yet asked about asks before it opens")
+check(attachSrc.contains(".accessibilityHidden(true)   // the name beside it says it once"), "kosmos#7596 review 1: VoiceOver reads each choice once")
+check(attachSrc.contains("context.coordinator.done = done") && attachSrc.contains("Text(note).font(.footnote).foregroundColor(Palette.secondary) }"),
+      "kosmos#7596 review 4: the camera hands its photo to the screen as it is now, and a row's reason is never dimmed")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 

@@ -177,9 +177,10 @@ function whoProblem(who) {
  * its project (the header), so a parent stored as a bare number cannot name a task anywhere
  * else: a cross-project parent is not refused by a check that could be forgotten, it has no
  * spelling at all.
- * 🔑 NOTHING CASCADES. Closing a parent never closes its children, closing the last child
+ * 🔑 NOTHING CASCADES UNASKED. Closing a parent never closes its children, closing the last child
  * never closes the parent (the person decides; the screen offers it), and tasks are never
- * deleted. The parent's "3 of 5 done" is DERIVED from its children on every read, so it
+ * deleted. Only an explicit ask closes several: #6501's "Close them and this task", and
+ * kosmos#7514's close `withBuilt` (`kosmos task close ... --with-built`). The parent's "3 of 5 done" is DERIVED from its children on every read, so it
  * cannot drift from them.
  *
  * Refused: a parent that is not a whole number, that is not a task on this project, that is
@@ -248,7 +249,7 @@ function treeOf(p) {
   /* kosmos#5956: `built` counts the open children marked built (builtAt), so a parent can say every subtask is built
      and waiting for the person, not only every subtask closed. Marking built already asks the agent to answer the
      task's done-when checks. */
-  const isBuilt = (t) => !progressOf(t).closed && !isOnHold(t) && typeof t.builtAt === 'string' && t.builtAt !== '';   // held reads held (taskState)
+  const isBuilt = isBuiltOpen;   // held reads held (taskState); one definition, shared with kosmos#7514's closesWithParent
   const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, total: k.length }; };
   return { byNum, up, under, progress };
 }
@@ -484,6 +485,9 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
       changed = withoutBuilt(changed);
       droppedForWork = forWork && !closedNow;
     }
+    /* #7508: new work, or a task its parts reopened, is not the fix the old commit landed, so the commit goes. Not tied
+       to the built mark: a task closed by its parts has already lost that mark (review 1). */
+    if (!closedNow && (forWork || progressOf(t).closed)) changed = withoutLanded(changed);
     /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
        with the control hidden while it was closed). */
     if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; heldDropped = true; }
@@ -825,8 +829,32 @@ const NO_WRITE = Symbol('no write');
 const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote', 'builtFingerprint',
   'builtFingerprintBy'];
 /* #6330 slice 2: a built mark can carry the deliverable's fingerprint, so the next agent can check it has the exact
-   thing delivered. The CLI hashes the file; the board only checks the shape (the algorithm is named in the value). */
-const FINGERPRINT_RE = /^sha256:[0-9a-f]{64}$/;
+   thing delivered. The CLI hashes the file; the board only checks the shape (the algorithm is named in the value).
+   #7213: a PDF's fingerprint says pdf-normalized:, so it is never read as the plain sha256 an approval cites. */
+const FINGERPRINT_RE = /^(?:sha256|pdf-normalized):[0-9a-f]{64}$/;
+/* #7508: the commit a code fix landed as, from `kosmos task built --commit <ref>`. Its own fields, not built ones:
+   closing keeps them (the check on a closed task needs them), while a clear, a reopen or new work drops them. The CLI
+   resolved the ref in the agent's checkout; the board checks the shape. The repository is its shared git directory,
+   which outlives a removed worktree. */
+const LANDED_FIELDS = ['landedCommit', 'landedRepo', 'landedOnRemote', 'landedBy', 'landedAt'];
+const COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const LANDED_REPO_MAX = 1024;
+function withoutLanded(t) {
+  if (!t || !LANDED_FIELDS.some((k) => k in t)) return t;
+  const rest = { ...t };
+  for (const k of LANDED_FIELDS) delete rest[k];
+  return rest;
+}
+/** The commit a built mark sends, checked: { sha, repo, onRemote }, or null when the shape is wrong. */
+function landedValue(c) {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
+  const { sha, repo, onRemote } = c;
+  if (typeof sha !== 'string' || !COMMIT_SHA_RE.test(sha)) return null;
+  if (typeof repo !== 'string' || !repo || repo.length > LANDED_REPO_MAX || /[\u0000-\u001f\u007f]/.test(repo)) return null;
+  if (!(repo.startsWith('/') || /^[A-Za-z]:[\\/]/.test(repo))) return null;
+  if (typeof onRemote !== 'boolean') return null;
+  return { sha, repo, onRemote };
+}
 function withoutBuilt(t) {
   if (!t || !BUILT_FIELDS.some((k) => k in t)) return t;
   const rest = { ...t };
@@ -845,7 +873,7 @@ function withoutBuilt(t) {
  *   builtFreesAll          the person marked it: the Assigner frees every agent on it. Not an unnamed caller
  *                          (review round 11: that gave a caller that would not name itself more power than one that
  *                          did); an unnamed mark frees nobody, and the person can free them from the screen
- *   builtFingerprint       (#6330) the deliverable's "sha256:<hex>", from an agent's `fingerprint`
+ *   builtFingerprint       (#6330) the deliverable's "sha256:<hex>" or (#7213, a PDF) "pdf-normalized:<hex>", from an agent's `fingerprint`
  *   builtFingerprintBy     who sent it. Another named agent's mark without one (the checker's) and the person's mark
  *                          keep it; the sender's own mark without one drops it, as that is a new version sent without
  *                          its fingerprint (review 5: keeping it presented the old one as current), and so does an
@@ -854,11 +882,13 @@ function withoutBuilt(t) {
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
  */
-function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null } = {}) {
+function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null, commit = null } = {}) {
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+  const landed = commit == null ? null : landedValue(commit);
+  if (commit != null && !landed) return { ok: false, because: 'a commit is its full sha (40 or 64 lowercase hex characters), the absolute path of its repository, and whether a remote has it' };
   const print = fingerprint == null ? '' : fingerprint;
   // Only a string of the shape: String() would make ['sha256:...'] one (review 1), and '' is not one (review 3).
-  if (fingerprint != null && !(typeof print === 'string' && FINGERPRINT_RE.test(print))) return { ok: false, because: 'a fingerprint is "sha256:" followed by 64 lowercase hex characters' };
+  if (fingerprint != null && !(typeof print === 'string' && FINGERPRINT_RE.test(print))) return { ok: false, because: 'a fingerprint is "sha256:" or "pdf-normalized:" followed by 64 lowercase hex characters' };
   /* #5705 review 3: format characters (zero-width and the like) are not a note, so a note of only those is none. Checked
      on a copy (review 4): the stored note keeps them, as an emoji or a right-to-left name needs them. */
   const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
@@ -893,7 +923,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       const kept = print || (keep ? t.builtFingerprint : '');
       const keptBy = print ? who : (keep ? t.builtFingerprintBy || null : null);
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
-        && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who)) {
+        && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who)
+        && (!landed || (t.landedCommit === landed.sha && t.landedRepo === landed.repo && t.landedOnRemote === landed.onRemote))) {
         same = true; changed = t; throw NO_WRITE;
       }
       const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
@@ -904,6 +935,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
         ...(kept ? { builtFingerprint: kept, builtFingerprintBy: keptBy } : {}),
+        // #7508: a mark without --commit keeps a commit already recorded (a checker's mark is not new work).
+        ...(landed ? { landedCommit: landed.sha, landedRepo: landed.repo, landedOnRemote: landed.onRemote, landedBy: who, landedAt: new Date().toISOString() } : {}),
       };
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
@@ -935,7 +968,7 @@ function clearBuilt(projectId, n, { by = null, person = false, refusePersonMark 
       if (!t) throw new Error('there is no task by that number on this project');
       if (refusePersonMark && t.builtAt && t.builtByPerson === true) { personMark = true; throw NO_WRITE; }
       had = !!t.builtAt;
-      changed = withoutBuilt(t);
+      changed = withoutLanded(withoutBuilt(t));   // #7508: taking the mark off says the work is not done
       if (!had) throw NO_WRITE;
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
@@ -955,9 +988,73 @@ function replacedByValue(v) {
   if (!Number.isSafeInteger(n) || n < 1) throw new Error('the task that replaced it has to be a task number');
   return n;
 }
-/** Close: a record edit, never an act on an agent (see the header). */
-function close(projectId, n, { replacedBy = null } = {}) {
-  return setClosed(projectId, n, new Date().toISOString(), {}, { replacedBy: replacedByValue(replacedBy) });
+/** kosmos#7514: whether a subtask may close with its parent: open, not held, marked built ("Built but waiting", #3951,
+ * treeOf's test), and not a repeat the person set or whose reviewer they chose (theirs to end: the close route refuses
+ * it). Read before the walk and again inside each write. */
+function isBuiltOpen(t) { return !progressOf(t).closed && !isOnHold(t) && typeof t.builtAt === 'string' && t.builtAt !== ''; }
+const closesWithParent = (t) => isBuiltOpen(t) && !(t.repeat && (t.repeatByPerson === true || t.repeatReviewerByPerson === true));
+
+/** kosmos#7514: the subtasks under task `top` on project record `p` that may close with it, and theirs under them, in
+ * order. A child that may not (open, held, closed, the person's repeat) is not taken, nor anything under it. One tree for
+ * the whole walk; `seen` bounds a hand-edited store that loops. */
+function builtUnder(p, top) {
+  const tree = treeOf(p);
+  const out = [];
+  const seen = new Set([top]);
+  const walk = (parent) => {
+    for (const child of tree.under(parent)) {
+      if (seen.has(child.number)) continue;
+      seen.add(child.number);
+      if (!closesWithParent(child)) continue;
+      out.push(child.number);
+      walk(child.number);
+    }
+  };
+  walk(top);
+  return out;
+}
+
+/** Close: a record edit, never an act on an agent (see the header).
+ * kosmos#7514: `withBuilt` (asked for, never assumed: built means waiting for a check, #3951) also closes the parent's
+ * built subtasks, listed in `closedWith`. `wantLeft` asks, without closing them, which are still open (`builtLeft`), so a
+ * caller can offer the choice (the task close route asks it). Neither is read unless asked: the bulk route, the Assigner
+ * and every other caller cost what they did. A close as replaced
+ * does neither: that round's work was superseded, not done. A subtask that cannot be closed stops the rest: the parent
+ * is closed either way, and `closedWith` and `builtLeft` say how far it got. */
+function close(projectId, n, { replacedBy = null, withBuilt = false, wantLeft = false } = {}) {
+  const by = replacedByValue(replacedBy);
+  const asked = by === null && (withBuilt === true || wantLeft === true);
+  const snapshot = asked ? (projects.readAll() || []).find((x) => x && x.id === projectId) : null;   // raw: no claim join
+  const built = snapshot ? builtUnder(snapshot, Number(n)) : [];
+  const closed = setClosed(projectId, n, new Date().toISOString(), {}, { replacedBy: by });
+  // A close asked withBuilt always answers closedWith (empty when none went), so a CLI can tell a board that never read
+  // the ask (older than #6923 ignores the body and closes it as done) from one that had nothing to take (round 6).
+  const wb = by === null && withBuilt === true ? { closedWith: [] } : {};
+  if (!built.length) return { ...closed, ...wb };
+  if (withBuilt !== true) return { ...closed, builtLeft: built };
+  const closedWith = [];
+  let at = 0;
+  let why = '';   // what stopped the rest, said in the answer rather than swallowed
+  // A subtask that may no longer close (held, say, after the read) keeps everything under it open too: the list is in
+  // walk order, so its own subtasks come after it and find it here (round 7: a built task under unfinished work).
+  const kept = new Set();
+  const parentOf = (num) => { const k = byNumber(snapshot, num); return k ? k.parent : null; };
+  try {
+    for (; at < built.length; at += 1) {
+      if (kept.has(parentOf(built[at]))) { kept.add(built[at]); continue; }
+      // Re-checked inside its own write: one that may no longer close with its parent is left as it is.
+      if (setClosed(projectId, built[at], new Date().toISOString(), { via: 'parent', parent: closed.number }, { onlyIfBuilt: true })) closedWith.push(built[at]);
+      else kept.add(built[at]);
+    }
+  } catch (err) {
+    why = String((err && err.message) || err || 'it did not say why');
+    // A failure after the write (its history line, say) still closed it: count it as closed, not left.
+    const now = (projects.readAll() || []).find((x) => x && x.id === projectId);
+    const k = now ? byNumber(now, built[at]) : null;
+    if (k && progressOf(k).closed) { closedWith.push(built[at]); at += 1; }
+  }
+  const left = built.slice(at);
+  return { ...closed, closedWith, ...(left.length ? { builtLeft: left } : {}), ...(why ? { builtLeftWhy: why } : {}) };
 }
 
 /** Reopen: the undo of the one human verb. #6157: who put it back (`by`, an agent its token named; `person`, the
@@ -971,16 +1068,18 @@ function reopen(projectId, n, { by = null, person = false, why = '' } = {}) {
   return setClosed(projectId, n, null, { ...(who ? { by: who } : {}), ...(isPerson ? { person: true } : {}), ...(said ? { why: said } : {}) });
 }
 
-function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null } = {}) {
+function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyIfBuilt = false } = {}) {
   let changed;
   let replacedNew = false;   // #6923: an already-closed task newly marked replaced records that too
   // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
   let transition = 0;
   let heldDropped = false;
   let repeatDropped = false;
-  projects.mutate(projectId, (p) => {
+  let skipped = false;   // kosmos#7514: `onlyIfBuilt` and it is no longer built: left as it is, and null returned
+  try { projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
+    if (onlyIfBuilt && !closesWithParent(t)) { skipped = true; throw NO_WRITE; }   // left as it is: no write, no updatedAt
     // #992: record on the DERIVED completion state (progressOf), not the raw
     // parent closedAt. Two reasons: (1) a re-close passes a fresh timestamp, so
     // comparing closed-ness rather than the value logs no duplicate; (2) an
@@ -1011,6 +1110,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null } = {}
     if (before !== after) transition = after ? 1 : -1;
     /* #3951: closing is the person's "it is live": the built mark goes with it, and a reopen does not restore it. */
     if (after) changed = withoutBuilt(changed);
+    if (before && !after) changed = withoutLanded(changed);   // #7508: a reopen is new work, so the old commit goes
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
     if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
@@ -1019,8 +1119,11 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null } = {}
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
-  });
-  if (transition) taskchat.record(projectId, changed.number, transition > 0 ? { kind: 'closed', ...(replacedBy !== null ? { replacedBy } : {}) } : { kind: 'reopened', ...said });   // #6157, #6923
+  }); } catch (err) { if (err !== NO_WRITE) throw err; }   // kosmos#7514: NO_WRITE is the onlyIfBuilt skip
+  if (skipped) return null;
+  // kosmos#7514: a subtask closed with its parent says so (via, and which parent), as hold-cleared says via.
+  const closedBy = said.via === 'parent' && Number.isInteger(said.parent) ? { via: 'parent', parent: said.parent } : {};
+  if (transition) taskchat.record(projectId, changed.number, transition > 0 ? { kind: 'closed', ...(replacedBy !== null ? { replacedBy } : {}), ...closedBy } : { kind: 'reopened', ...said });   // #6157, #6923
   else if (replacedNew) taskchat.record(projectId, changed.number, { kind: 'replaced', replacedBy });   // #6923: closed earlier, replaced now
   if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
   if (repeatDropped) taskchat.record(projectId, changed.number, { kind: 'repeat-cleared', via: 'close' });
@@ -1484,7 +1587,7 @@ function recordRun(projectId, n, by, note, at = Date.now(), opts = {}) {
       if (said) { changed.lastChangeAt = changed.lastRunAt; changed.lastChangeNote = said; } else { delete changed.lastChangeAt; delete changed.lastChangeNote; }
     }
     /* slice 2: a run is LATE (the row says so) when it is off the schedule: more than the miss grace after the latest
-       slot since the rule was set, and not within the grace BEFORE the next slot (an early run is on time). It depends only
+       slot since the rule was set, and not within the early window BEFORE the next slot (taskrepeat.earlyWindowFor, kosmos#7413: an early run is on time). It depends only
        on the rule and the run's time, never on earlier runs.
        Review 1: the latest slot, never the oldest unanswered one, so after a missed day the next day's 09:05 run is on time.
        Review 2: a job reporting a few minutes early (08:50 for 09:00) is not late; a second runner in the same minute gets
@@ -2447,4 +2550,4 @@ module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, c
   taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

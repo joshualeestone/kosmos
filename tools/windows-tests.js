@@ -34,6 +34,17 @@
  *
  * WHAT A GREEN HERE IS NOT: a GitHub Windows runner is a Windows Server image, run as an
  * admin, with no Kosmos user setup. It is evidence about Windows, not about a user's laptop.
+ *
+ * ON YOUR OWN WINDOWS COMPUTER (#7247): `node tools/windows-tests.js` (and `npm test`, through
+ * tools/run-tests.sh) loads tools/no-schtasks-preload.cjs into every node process the run starts,
+ * so their schtasks calls do not reach the computer's real Task Scheduler, where Kosmos keeps its
+ * board and agents. It guards node only: test:shell's bash scripts never load it, and a process
+ * started with an environment that replaces NODE_OPTIONS or leaves it out runs unguarded. Most
+ * tests stub their scheduler calls; one that does not could end a live task, such as the board's.
+ * A test that needs the real scheduler sees schtasks.exe as missing (ENOENT). On
+ * CI the preload is not loaded. To run against the real scheduler on purpose, on a computer whose
+ * tasks you can lose, set KOSMOS_TESTS_REAL_SCHTASKS=1. To see every refused call, set
+ * KOSMOS_SCHTASKS_BLOCK_LOG to a file path.
  */
 
 const fs = require('node:fs');
@@ -50,6 +61,8 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   'securewrite.fsync-5434.test.js',   // #5434: its Windows-only skips (EPERM, EISDIR) run only there
   'projects.linuxopen-5881.test.js',   // #5881: its Linux arms and its Mac and Windows controls run there (the Windows one through a spy); the stand-in arm skips
   'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
+  'create.switchmem-7410.test.js',   // #7410: a switch off Claude copies its notes; its runner stand-ins carry .cmd on Windows
+  'create.switchwords-7445.test.js',   // #7445: a switch between two non-Claude runners says the conversation does not come across; stand-ins carry .cmd
   'store.fsync-5434.test.js',   // #5434 slice 4: store.js's profile, settings and picture saves, on Windows too
   'orgkeypin-5686.test.js',   // #5686 b1-mac: the company-key pin is written and checked on Windows too (its 0600 check skips there)
   'manifest-verify.recovery-6609.test.js',   // #6609, #6692: the release key list record on Windows too (hard link, rename, folder fsync, and its access list in place of 0600/0700); its read-only arm skips there
@@ -79,6 +92,7 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
   'sendertoken.prune-ended-5208.test.js',   // kosmos#5208: sealing, compacting and deleting files a reader may hold open, on Windows too
   'restoresink.test.js',   // #5536: the restore sink's Windows duties (Unicode names, link on NTFS, junction refusal) are measured here
   'restoreresume-5536.test.js',   // #5536 slice 3: resume on NTFS (case-folded names, the record and lock identity checks where O_NOFOLLOW is 0)
+  'restoreworld-5536.test.js',   // #5536 slice 4b: the restored workers and projects moved into the new Kosmos by rename on NTFS, and the sink opened on the folder made for it
   'accounts.wiredefaulthooks-5612.test.js',   // #5612: the default account's reporting hooks, wired on the real win32 platform
   'computerprint-5532.test.js',   // #5532: the computer print's real-registry arm reads this runner's registry
   'orgenroll-5531.test.js',   // #6113: its owner-only checks skip and its unreadable-id arm swaps the file for a folder on Windows
@@ -88,10 +102,15 @@ const ALSO = ['attachments-stream-6734.test.js',   // #6734: the store's stream 
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
   'test-support.remove-tree.test.js',
   'tools.cleanup-fixture-tokens-5418.test.js',   // #5418 ask 2: the cleanup tool must plan and remove the same way on Windows
-  'engine.reachable.test.js'];   // #5548: its caller keys are posix so a module is not its own caller; measured red here before
+  'engine.reachable.test.js',   // #5548: its caller keys are posix so a module is not its own caller; measured red here before
+  'tools.command-words-7262.test.js',   // #7262: the shared reader; since #7318 its tool-guard arms run here too
+  'tools.run-tests-chunks-7257.test.js'];   // #7257: npm test's node --test in chunks under Windows' command-line cap
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'engine/store.mode-hardening-1760.test.js': 'its win32 branch skips every arm: it checks POSIX file modes (the data root 0700, the message log 0600), which Windows does not have; chmod there only toggles read-only (#1760).',
+  'engine/store.chmod-retry-7554.test.js': 'its win32 branch skips every arm: it checks POSIX file modes (whether the data root is tightened to 0700 after an EBUSY, EPERM or EACCES chmod), which Windows does not have (#7554)',
+  'server.builtcommit-7508.test.js': 'its win32 branches only skip the Mac CLI arms (install/kosmos is a bash script, which a Windows runner does not run); the Windows CLI arms of the same file drive tools/windows/kosmos-cli.js through its own entry point with real git, and run on every host (#7508)',
   'engine/loginadvlog-7194.test.js': 'its win32 branch only skips the real `ps -o comm=` capture (Windows has no ps, and the login-notice log reads tmux panes, which Kosmos does not run there); every other arm is string parsing that runs the same on the Mac',
   'engine/tmux-kill-helper-6857.test.js': 'its win32 branches skip every arm that needs tmux or a uid: killServerAt ends a tmux server by its socket path, and Kosmos runs no tmux on Windows; its fake tmux is a /bin/sh script. The one arm with no tmux (an empty socket path throws) runs everywhere',
   'server.attachment-stream-6734.test.js': 'it counts open descriptors through /dev/fd, which Windows does not have, and its win32 branches skip the FIFO and file-mode arms (no FIFOs or POSIX modes there); the stream lifecycle it covers that matters on Windows is run there by engine/attachments-stream-6734.test.js (#6734)',
@@ -277,6 +296,36 @@ function failureDetail(output, expected = []) {
   return out;
 }
 
+/* #7247: the environment each test file runs with. On a Windows computer that is not CI, NODE_OPTIONS gains
+   `--require tools/no-schtasks-preload.cjs`, so the file, and every process it starts that keeps NODE_OPTIONS, is
+   kept off the live Task Scheduler, where one test that reaches it could end the board's own task. CI's runner is throwaway and its real
+   scheduler is part of what this job measures, so it is left as it was; KOSMOS_TESTS_REAL_SCHTASKS=1 asks for the
+   real scheduler on a Windows computer too. tools/run-tests.sh reads this same rule (it runs childEnv), so the two
+   runners cannot disagree. */
+const PRELOAD = path.join(__dirname, 'no-schtasks-preload.cjs');
+/* CI as the runners set it (CI=true on GitHub). CI=false or CI=0, which some shells export, is not CI. */
+function onCi(env) { return !!env.CI && !/^(false|0)$/i.test(String(env.CI)); }
+function guardsScheduler(env = process.env, platform = process.platform) {
+  return platform === 'win32' && !onCi(env) && env.KOSMOS_TESTS_REAL_SCHTASKS !== '1';
+}
+function childEnv(env = process.env, platform = process.platform) {
+  if (!guardsScheduler(env, platform)) return env;
+  /* Quoted, as the checkout's path may hold a space, and with forward slashes: NODE_OPTIONS reads a backslash inside
+     quotes as an escape, so C:\Users\... fails to load (measured on the Windows box), while C:/Users/... loads. */
+  const require_ = `--require "${PRELOAD.replace(/\\/g, '/')}"`;
+  const prior = env.NODE_OPTIONS || '';
+  /* Not added twice; a different copy of a preload already there (an older one kept outside the repo) does not count,
+     so this checkout's own is always loaded. Matched by its exact spelling on purpose: a second load of the same
+     preload only wraps wrappers that already refuse the same calls, so a missed match costs nothing. */
+  return { ...env, NODE_OPTIONS: prior.includes(require_) ? prior : (prior ? prior + ' ' : '') + require_ };
+}
+/* The one line a run prints about the scheduler on a Windows computer, guarded or not. */
+function schedulerLine(env = process.env, platform = process.platform) {
+  if (platform !== 'win32') return null;
+  if (guardsScheduler(env, platform)) return 'schtasks calls are refused in every test (#7247); KOSMOS_TESTS_REAL_SCHTASKS=1 allows the real scheduler';
+  return 'schtasks calls reach this computer\'s REAL Task Scheduler (' + (onCi(env) ? 'CI is set' : 'KOSMOS_TESTS_REAL_SCHTASKS=1') + ', #7247)';
+}
+
 function count(output, label) {
   const m = String(output).match(new RegExp('^ℹ ' + label + ' (\\d+)$', 'm'));
   return m ? Number(m[1]) : null;
@@ -286,6 +335,9 @@ function main() {
   const root = path.join(__dirname, '..');
   const files = selectFiles(fs.readdirSync(path.join(root, 'engine')), fs.readdirSync(root));
   console.log(`windows-tests: ${files.length} files, node ${process.version}, ${process.platform}`);
+  const env = childEnv();
+  const line = schedulerLine();
+  if (line) console.log('windows-tests: ' + line);
   // A selection that finds nothing would pass having run nothing.
   if (files.length === 0) { console.log('windows-tests: no test files selected; refusing to report green'); return 1; }
   const began = Date.now();
@@ -297,7 +349,7 @@ function main() {
     // can outlive it on Windows. A hang is rare enough that the next files sharing the runner with
     // an orphan is accepted, and the hang itself is still reported red.
     const run = cp.spawnSync(process.execPath, ['--test', `--test-timeout=${PER_TEST_TIMEOUT_MS}`, file], {
-      cwd: root, stdio: ['ignore', 'pipe', 'pipe'], timeout: PER_FILE_TIMEOUT_MS, encoding: 'utf8',
+      cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'], timeout: PER_FILE_TIMEOUT_MS, encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });
     const output = `${run.stdout || ''}\n${run.stderr || ''}`;
@@ -341,6 +393,6 @@ function main() {
   return failed.length || blocking ? 1 : 0;
 }
 
-module.exports = { selectFiles, failingTests, failureDetail, judge, staleBlocks, FLAKY, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
+module.exports = { childEnv, guardsScheduler, schedulerLine, PRELOAD, selectFiles, failingTests, failureDetail, judge, staleBlocks, FLAKY, ALSO, ALSO_ROOT, HOST_BRANCH_EXCLUDED, ALL_SKIP_OK, KNOWN_RED, PER_FILE_TIMEOUT_MS, START_BUDGET_MS };
 
 if (require.main === module) process.exitCode = main();

@@ -60,16 +60,36 @@ test('the server stamps the page with ITS platform, per request, and leaves an u
   const fnAt = SERVER.indexOf('function stampServedPlatform(');
   assert.ok(marker && fnAt > -1, 'the stamp moved out of server.js');
   const fnSrc = SERVER.slice(fnAt, SERVER.indexOf('\n}\n', fnAt) + 2);
-  const stampWith = (platform) => new Function('platformGate', 'const PAGE_PLATFORM_MARKER = ' + JSON.stringify(marker[1]) + ';\n'
-    + fnSrc + '\nreturn stampServedPlatform;')({ describe: () => ({ platform }) });
+  const stampWith = (platform, cloud = false) => new Function('platformGate', 'cloudMachine', 'const PAGE_PLATFORM_MARKER = ' + JSON.stringify(marker[1]) + ';\n'
+    + fnSrc + '\nreturn stampServedPlatform;')({ describe: () => ({ platform }) }, { isCloudMachine: () => cloud });
   const buf = Buffer.from(PAGE.slice(0, PAGE.indexOf('</head>')));
   assert.match(stampWith('win32')(buf), /<meta name="kosmos-platform" content="win32">/);
   assert.match(stampWith('darwin')(buf), /<meta name="kosmos-platform" content="darwin">/);
+  // kosmos#4903 S5: the cloud-machine fact is stamped beside it, "1" only when the board says so.
+  assert.match(stampWith('linux', true)(buf), /<meta name="kosmos-cloud-machine" content="1">/);
+  assert.match(stampWith('linux', false)(buf), /<meta name="kosmos-cloud-machine" content="0">/, 'CONTROL');
   const unmarked = Buffer.from('<html>no marker</html>');
   assert.equal(stampWith('win32')(unmarked), unmarked, 'a page without the marker was rewritten');
-  assert.ok(SERVER.includes('res.end(stampServedPlatform(buf));'), 'the page route no longer stamps what it serves');
+  // kosmos#7490: the stamped page is what the route sends (compressed or not, engine/pagecompress.js).
+  assert.match(SERVER, /const page = stampServedPlatform\(buf\);\s*pageCompress\.sendPage\([\s\S]*?Buffer\.isBuffer\(page\) \? page : Buffer\.from\(page, 'utf8'\), compressedPage\);/,
+    'the page route no longer stamps what it serves');
   assert.match(PAGE, /<meta name="kosmos-platform" content="__KOSMOS_PLATFORM__">/, 'the marker left the page head');
   assert.ok(PAGE.indexOf('name="kosmos-platform"') < PAGE.indexOf('</head>'));
+});
+
+test('kosmos#4903 S5 review 1: the page\'s REAL onCloudMachine says yes only for a stamped "1"', () => {
+  // The page's own function, run against a document whose cloud-machine meta holds `content` (or no meta at all).
+  const read = (content) => new Function('document', page.lift(SCRIPT, 'onCloudMachine') + '\nreturn onCloudMachine();')({
+    querySelector: (q) => (q === 'meta[name="kosmos-cloud-machine"]' && content !== undefined ? { getAttribute: () => content } : null),
+  });
+  assert.equal(read('1'), true);
+  assert.equal(read('0'), false, 'a board that is not a cloud machine read as one');
+  assert.equal(read('__KOSMOS_CLOUD_MACHINE__'), false, 'the UNSTAMPED marker (file://, a harness) read as a cloud machine');
+  assert.equal(read(''), false);
+  assert.equal(read(undefined), false, 'a page with no meta read as a cloud machine');
+  assert.equal(new Function('document', page.lift(SCRIPT, 'onCloudMachine') + '\nreturn onCloudMachine();')(undefined), false, 'no document');
+  // And the page head carries the marker the server stamps.
+  assert.match(PAGE, /<meta name="kosmos-cloud-machine" content="__KOSMOS_CLOUD_MACHINE__">/);
 });
 
 test('servedPlatform: unstamped is not Windows, win32 is, and a payload\'s own platform wins', () => {
@@ -705,10 +725,12 @@ test('#4408: a refused restart promises no remedy it cannot keep, on any platfor
 const sentence = (platform, name) => runPage(platform, [], '(() => { ' + page.liftConst(SCRIPT, name) + ' return ' + name + '; })()');
 function remoteNote(platform, deviceIsOffline) {
   const slot = { dataset: {}, innerHTML: '' };
-  runPage(platform, ['bakedVersion', 'kplusRemote', 'offlineRemoteView', 'paintOfflineNote'],
+  runPage(platform, ['bakedVersion', 'kplusRemote', 'offlineRemoteView', 'lastHeardSentence', 'lastHeardTrusted', 'paintOfflineNote'],
     'paintOfflineNote(true, ' + (deviceIsOffline ? 'true' : 'false') + ')', {
       esc, location: { host: 'box.kosmosplus.com', hostname: 'box.kosmosplus.com' }, __byId: { 'uoffline-slot': slot },
       MAC_ASLEEP_SENTENCE: sentence(platform, 'MAC_ASLEEP_SENTENCE'),   // the page's constant, chosen for this platform
+      LAST_STATUS_OK_AT: Date.now() - 1000,   // kosmos#7416: the page heard from it a moment ago, so the splice runs on the real sentence
+      STATUS_FIRST_MISS_AT: Date.now(), HEARD_GAP_MS: 2 * 60 * 1000,   // the real trust rule (lastHeardTrusted): asking up to the outage
     });
   return slot.innerHTML;
 }
@@ -716,7 +738,7 @@ const SENTENCES = ['MAC_ASLEEP_SENTENCE', 'OFFLINE_SENTENCE', 'SIGNED_OUT_SENTEN
 
 test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos", never "your Mac"', () => {
   const asleep = remoteNote('linux', false);
-  assert.ok(asleep.includes('<b>The computer running Kosmos is not answering</b>'), asleep);
+  assert.ok(asleep.includes('<b>The computer running Kosmos isn\'t answering</b>'), asleep);
   assert.ok(asleep.includes('Make sure it is on, then run kosmos restart in a terminal on it'), asleep);
   assert.ok(asleep.includes('Nothing answered at box.kosmosplus.com.'), 'premise: this is the remote arm: ' + asleep);
   const offline = remoteNote('linux', true);
@@ -735,9 +757,12 @@ test('#5865: a Linux board seen from elsewhere is "the computer running Kosmos",
   }
   assert.match(sentence('win32', 'SIGNED_OUT_SENTENCE'), /Your PC and your agents are fine\./);
   // CONTROL: the same source on a Mac says "your Mac", as before.
-  assert.ok(remoteNote('darwin', false).includes('<b>Your Mac is not answering</b>'));
+  assert.ok(remoteNote('darwin', false).includes('<b>Your Mac isn\'t answering</b>'));
+  // kosmos#7416 review 1: the time goes after the real first sentence, on every platform's own words.
+  assert.match(remoteNote('darwin', false), /<small>It may be asleep, off or offline\. We last heard from it [^<]*?\. Wake it/);
+  assert.match(remoteNote('linux', false), /<small>It may be turned off, or Kosmos may have stopped on it\. We last heard from it [^<]*?\. Make sure it is on/);
   assert.ok(remoteNote('darwin', true).includes('so it cannot reach your Mac.</small>'));
-  assert.match(sentence('darwin', 'MAC_ASLEEP_SENTENCE'), /^It may be asleep or turned off\. Wake it/);
+  assert.match(sentence('darwin', 'MAC_ASLEEP_SENTENCE'), /^It may be asleep, off or offline\. Wake it/);   // kosmos#7416, Mona Lisa's words
   for (const name of ['SIGNED_OUT_SENTENCE', 'ORG_SIGNED_OUT_SENTENCE']) {   // #6537: OFFLINE_SENTENCE names no machine
     assert.match(sentence('darwin', name), /your Mac|Your Mac/, name + ' lost the Mac words on a Mac');
   }

@@ -100,12 +100,19 @@ kosmos_setup_floor_pointer_ok() {
   esac
   v=$(printf '%s' "$json" | LC_ALL=C sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p')
   art=$(printf '%s' "$json" | LC_ALL=C sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p')
+  # kosmos#7281 review 3: a pointer that names its build in "versioned" (the Linux family's, as the Windows pair does)
+  # is checked on that name; "artifact" may then be an unversioned alias. A Mac pointer has no "versioned".
+  _fv=$(printf '%s' "$json" | LC_ALL=C sed -n 's/.*"versioned":[[:space:]]*"\([^"]*\)".*/\1/p')
+  [ -z "$_fv" ] || art="$_fv"
   kosmos_setup_floor_ok "$label" "$v" || return 1
   [ -n "$art" ] || {
     echo "setup floor (kosmos#6149): $label names no artifact, so what it installs cannot be checked -- refusing" >&2
     return 1
   }
-  av=$(printf '%s' "$art" | LC_ALL=C sed -n 's/^kosmos-\(.*\)-[a-z0-9_][a-z0-9_]*\.tar\.gz$/\1/p')
+  # kosmos#7281: the version has no hyphen and the arch may (linux-x64), so the version is the part up to the FIRST
+  # hyphen after "kosmos-"; a greedy match read kosmos-0.7.80-linux-x64.tar.gz as version 0.7.80-linux.
+  # Review 2: the archs a release publishes, listed, so "-rc-arm64" or "-arm64-evil" cannot ride under a clean version.
+  av=$(printf '%s' "$art" | LC_ALL=C sed -En 's/^kosmos-([^-]+)-(arm64|x64|linux-x64)\.tar\.gz$/\1/p')
   if [ -z "$av" ] || [ "$av" != "$v" ]; then
     echo "setup floor (kosmos#6149): $label says version $v but names artifact $art -- refusing (the tarball is what installs)" >&2
     return 1

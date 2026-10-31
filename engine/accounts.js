@@ -313,77 +313,83 @@ function list() {
  * would repeat the mistake `subscription.js`'s own file-cache header warns
  * against, worse. This function exists ONLY for the on-demand `GET
  * /api/accounts` route -- opened deliberately (Settings > Accounts), never
- * ticked -- where paying a real check's cost is the entire point.
+ * ticked -- where paying a real check's cost is the entire point. (#7212 slice
+ * 3: checkRowLive below also serves engine/stallsignin.js's one check of a
+ * stuck agent's account, at most once per account and hour, never on the tick.)
  *
  * Parallel, not serial: one account's live check taking the full timeout
  * must not make every other account's row wait behind it.
  */
 async function listLiveNow() {
+  return Promise.all(list().map(checkRowLive));
+}
+
+/* One row of list(), its connection live-checked: listLiveNow's check, and #7212 slice 3's one check of a stuck agent's
+   own account (engine/stallsignin.js), so the two can never disagree about what signed out means. Never rejects. */
+async function checkRowLive(row) {
   // Lazy require, matching subscription.js's own `require('./accounts')`
   // inside check() -- these two modules require each other, and a
   // top-level require on either side would deadlock on load order.
   const subscription = require('./subscription');
-  // #2420: the live-badge reader for an api-key Claude row. Lazy, same load-order
-  // reason as the require in `apiKeyStored`; cached, so this costs nothing after
-  // the first call.
-  const claudeaccounts = require('./claudeaccounts');
-  const rows = list();
-  const checked = await Promise.all(rows.map(async (row) => {
-    try {
-      /* 🛑 THE DEFAULT ROW IS NOT `configDir: row.dir`. Measured directly,
-         not assumed: `configFile()` above already special-cases the
-         default account's config as `<HOME>/.claude.json`, a file
-         BESIDE `<HOME>/.claude`, not inside it -- and confirmed live on
-         this machine, `CLAUDE_CONFIG_DIR=<HOME>/.claude` makes the real
-         `claude` binary read `<HOME>/.claude/.claude.json` instead (a
-         stale, near-empty decoy file here, 464 bytes, next to the real
-         132KB one `check()` already knows to read at the sibling path).
-         Passing row.dir for the default account would make the single
-         most common install ALWAYS read as not-signed-in -- exactly the
-         "tell a paying customer they are not connected" failure this
-         whole feature exists to prevent, reintroduced by the fix meant
-         to catch it. Omitting configDir for the default row lets `claude
-         auth status` use its own built-in default resolution instead,
-         which this machine confirms lands on the real account. */
-      let connection;
-      if (row.isDefault) {
-        connection = await subscription.checkLive();
-      } else if (row.apiKey) {
-        /* #2420: an api-key account has no OAuth subscription to query -- its
-           liveness is whether the STORED KEY still authenticates. checkLive
-           reads the mode-600 key file and asks Anthropic, keeping the same
-           asymmetry every reader here keeps: only a positive rejection is NONE,
-           unreachable is UNKNOWN. Shape-matched with `plan: null` so every row's
-           connection carries the same fields (the subscription arm and the catch
-           arm below both do), and the badge overlay in server.js reads one
-           vocabulary regardless of how the row was checked. `plan: null` is
-           written AFTER the spread on purpose: an api-key account has no
-           subscription plan, so plan is null regardless of anything checkLive
-           might one day return. */
-        const c = await claudeaccounts.checkLive(row.dir);
-        connection = { ...c, plan: null };
-      } else {
-        connection = await subscription.checkLive({ configDir: row.dir });
-      }
-      return { ...row, connection };
-    } catch {
-      // ⚠️ ONE ACCOUNT'S CHECK FAILING NEVER SINKS THE WHOLE LIST. `unknown`,
-      // never `none` -- the same asymmetry subscription.js is built on.
-      // ⚠️ NO RAW err.message HERE EITHER (same rule, same challenge-loop
-      // pass that fixed subscription.js's own catch): checkLive() never
-      // rejects by contract, so this is defense in depth against that
-      // contract regressing, not a path that fires today -- but the
-      // sentence still has to be hand-written for the day it does.
-      return {
-        ...row,
-        connection: {
-          state: subscription.STATE.UNKNOWN, plan: null, checkedLive: true,
-          because: 'we could not check this account just now',
-        },
-      };
+  try {
+    // #2420: the live-badge reader for an api-key Claude row. Lazy, same load-order
+    // reason as the require in `apiKeyStored`; cached, so this costs nothing after
+    // the first call. Inside the try (#7212 slice 3 review 1), so this never rejects.
+    const claudeaccounts = require('./claudeaccounts');
+    /* 🛑 THE DEFAULT ROW IS NOT `configDir: row.dir`. Measured directly,
+       not assumed: `configFile()` above already special-cases the
+       default account's config as `<HOME>/.claude.json`, a file
+       BESIDE `<HOME>/.claude`, not inside it -- and confirmed live on
+       this machine, `CLAUDE_CONFIG_DIR=<HOME>/.claude` makes the real
+       `claude` binary read `<HOME>/.claude/.claude.json` instead (a
+       stale, near-empty decoy file here, 464 bytes, next to the real
+       132KB one `check()` already knows to read at the sibling path).
+       Passing row.dir for the default account would make the single
+       most common install ALWAYS read as not-signed-in -- exactly the
+       "tell a paying customer they are not connected" failure this
+       whole feature exists to prevent, reintroduced by the fix meant
+       to catch it. Omitting configDir for the default row lets `claude
+       auth status` use its own built-in default resolution instead,
+       which this machine confirms lands on the real account. */
+    let connection;
+    if (row.isDefault) {
+      connection = await subscription.checkLive();
+    } else if (row.apiKey) {
+      /* #2420: an api-key account has no OAuth subscription to query -- its
+         liveness is whether the STORED KEY still authenticates. checkLive
+         reads the mode-600 key file and asks Anthropic, keeping the same
+         asymmetry every reader here keeps: only a positive rejection is NONE,
+         unreachable is UNKNOWN. Shape-matched with `plan: null` so every row's
+         connection carries the same fields (the subscription arm and the catch
+         arm below both do), and the badge overlay in server.js reads one
+         vocabulary regardless of how the row was checked. `plan: null` is
+         written AFTER the spread on purpose: an api-key account has no
+         subscription plan, so plan is null regardless of anything checkLive
+         might one day return. */
+      const c = await claudeaccounts.checkLive(row.dir);
+      connection = { ...c, plan: null };
+    } else {
+      connection = await subscription.checkLive({ configDir: row.dir });
     }
-  }));
-  return checked;
+    /* #7212 slice 3: a connected answer clears a stuck agent's "signed out" on this account at once (stallsignin). */
+    try { require('./stallsignin').heard(row, connection && connection.state, undefined, { fromRow: true }); } catch { /* the next check clears it */ }
+    return { ...row, connection };
+  } catch {
+    // ⚠️ ONE ACCOUNT'S CHECK FAILING NEVER SINKS THE WHOLE LIST. `unknown`,
+    // never `none` -- the same asymmetry subscription.js is built on.
+    // ⚠️ NO RAW err.message HERE EITHER (same rule, same challenge-loop
+    // pass that fixed subscription.js's own catch): checkLive() never
+    // rejects by contract, so this is defense in depth against that
+    // contract regressing, not a path that fires today -- but the
+    // sentence still has to be hand-written for the day it does.
+    return {
+      ...row,
+      connection: {
+        state: subscription.STATE.UNKNOWN, plan: null, checkedLive: true,
+        because: 'we could not check this account just now',
+      },
+    };
+  }
 }
 
 /**
@@ -1007,5 +1013,5 @@ function removeAccount(dir, usedBy) {
   return { ok: true, removed: true, because: null };
 }
 
-module.exports = { homeDir, wireDefaultHooks, claudeVersionForFolder, defaultFolderClaudeVersion, list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+module.exports = { homeDir, wireDefaultHooks, claudeVersionForFolder, defaultFolderClaudeVersion, list, listLive, checkRowLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };

@@ -10,12 +10,17 @@ final class ShellState: ObservableObject {
     @Published var failureDetail: String = ""
     // kosmos#7197: the failing Mac's name, for a Mac that is not answering (nil otherwise).
     @Published var failureMac: String? = nil
+    // kosmos#7416 slice 2: that Mac's address (the failed page's host), to find when it was last heard from.
+    @Published var failureAddress: String? = nil
     // Bumped to ask the WebView to reload; the WebView remembers the last value it acted on.
     @Published var retryCount = 0
     // True from Try again until the page loads or fails again, so the button answers.
     @Published var retrying = false
     // Bumped to ask the WebView to leave the failed page.
     @Published var backCount = 0
+    // kosmos#7389: a file on its way from the board (shown after a second), and how to stop it.
+    struct Downloading { let id: ObjectIdentifier; let name: String; let cancel: () -> Void }
+    @Published var downloading: Downloading?
     // Whether this failure has already had its one immediate automatic retry.
     private var autoRetried = false
 
@@ -82,6 +87,8 @@ struct LoadFailureView: View {
     var onOtherComputer: (() -> Void)? = nil
     // kosmos#7197: the Mac that is not answering, by name, when it is known.
     var macName: String? = nil
+    // kosmos#7416 slice 2: when it was last heard from (unix seconds, Board.lastHeard), when known.
+    var lastHeard: Double? = nil
 
     private var title: String {
         switch failure {
@@ -100,11 +107,11 @@ struct LoadFailureView: View {
         }
     }
 
-    private var message: String {
+    private func message(at now: Date) -> String {
         switch failure {
         case .offline: return "Kosmos opens again as soon as your phone is back online."
         case .unreachable: return "Your phone is online, but Kosmos+ didn't reply. Try again in a moment."
-        case .macUnreachable: return Shell.macUnreachableMessage(macName)
+        case .macUnreachable: return Shell.macUnreachableMessage(macName, lastSeen: lastHeard, now: now)
         case .other: return detail.isEmpty ? "Something stopped the page from loading." : detail
         }
     }
@@ -120,11 +127,14 @@ struct LoadFailureView: View {
                 Text(title)
                     .font(.title3.weight(.semibold))
                     .foregroundColor(KosmosColor.ink)
-                Text(message)
-                    .font(.body)
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(KosmosColor.muted)
-                    .fixedSize(horizontal: false, vertical: true)
+                // kosmos#7416 review 1: redrawn each minute, so a screen left up over midnight says "yesterday at".
+                TimelineView(.everyMinute) { context in
+                    Text(message(at: context.date))
+                        .font(.body)
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(KosmosColor.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Button(action: onRetry) {
                     HStack(spacing: 8) {
                         if retrying { ProgressView().tint(.white) }
@@ -158,5 +168,24 @@ struct LoadFailureView: View {
             .padding(.horizontal, 32)
             .frame(maxWidth: 420)
         }
+    }
+}
+
+// kosmos#7389 (Mona Lisa's design): "Getting report.pdf" with Cancel at the bottom while a board file arrives.
+struct DownloadLine: View {
+    let name: String
+    let cancel: () -> Void
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+            Text(Download.getting(name)).font(.subheadline).lineLimit(1).truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Button("Cancel", action: cancel).font(.subheadline.weight(.semibold))
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .padding(.horizontal, 12).padding(.bottom, 12)
+        // Contain, not combine: Cancel stays a button VoiceOver can reach on its own.
+        .accessibilityElement(children: .contain)
     }
 }

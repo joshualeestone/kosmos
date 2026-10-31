@@ -416,6 +416,9 @@ const SAY = Object.freeze({
   org_consent_changed: 'Your company changed its terms just now. Nothing was joined. Press Connect Account again.',
   // kosmos#6239: a family joins only after its words are read here; an automatic accept never says they were.
   org_family_words_unseen: 'A family joins only after a parent or guardian reads and accepts its words on this computer. Nothing was joined. Press Connect Account to read them.',
+  /* kosmos#5537 slice G: the coordinator refuses a change whose audit row cannot be written, and changes nothing. A
+     member moving the work Kosmos here heard the join fallback ("Nothing was joined"), which names the wrong act. */
+  audit_unavailable: 'Your company could not record this just now, so nothing changed. Try again in a minute.',
 });
 /* kosmos#6251: the sentences a family hears instead, where this board knows the org is a family (its record, or the
    previewed org). Every other code is said as above. */
@@ -425,6 +428,7 @@ const FAMILY_SAY = Object.freeze({
   org_bad_world: 'This Kosmos could not be named to your family. Try again.',
   org_already_member: 'You are already in this family. Press Connect Account again to make this Kosmos the family\'s Kosmos on this computer.',
   org_consent_changed: 'The family\'s words changed just now. Nothing was joined. Press Connect Account to read them again.',
+  audit_unavailable: 'Your family account could not record this just now, so nothing changed. Try again in a minute.',
 });
 /* kosmos#6251: what this board knows of an org's kind. Anything but a family (none, an older coordinator) is a
    company's, as the coordinator reads it. */
@@ -441,7 +445,10 @@ function inKind(kind, text) {
 /* A public code's sentence in the org's kind. */
 function sayCode(c, kind) { return (kindOf(kind) === 'family' && FAMILY_SAY[c]) || SAY[c]; }
 /* Only the PUBLIC codes count: a field such as org_id elsewhere in the line must not be read as the error. */
-const CODES = Object.freeze(Object.keys(SAY).concat(['org_not_accepted']));
+/* kosmos#7404: a personal backup's refusal codes (engine/personalbackup.js says them in its own words). Known here, so a
+   coded personal refusal is a refusal, never read as a lost answer (personalswitch-7404 code review 2). */
+const PERSONAL_CODES = ['personal_backup_off', 'personal_backup_in_org', 'personal_backup_raced', 'personal_backup_words_unseen'];
+const CODES = Object.freeze(Object.keys(SAY).concat(['org_not_accepted'], PERSONAL_CODES));
 function codeOf(because) {
   const text = String(because || '');
   for (const c of CODES) if (new RegExp('\\b' + c + '\\b').test(text)) return c;
@@ -613,7 +620,8 @@ async function enrollNow(code, accepted, opts) {
   const asReview = !!(opts && opts.review === true && code == null);
   if (asReview && !(held && held.world === readWorldId(opts))) return { ok: false, code: 'org_not_here', because: inKind(KIND, 'This Kosmos is no longer your work Kosmos, so nothing was sent.') };   // kosmos#6567
   const world = worldId(opts);
-  if (!world) return { ok: false, because: "This Kosmos's data folder cannot be written, so nothing was sent." };
+  // kosmos#7404: `reason` lets a caller (personalbackup.js) say this in its own words without matching the sentence.
+  if (!world) return { ok: false, reason: 'no_folder', because: "This Kosmos's data folder cannot be written, so nothing was sent." };
   const body = { world, accepted: true };
   /* v1.4: opts.consentHash is the hash the COMPANY served with the words the person accepted. It is the one option for
      that fact: sent here and recorded below, so what is recorded is always what was sent (consenthash review 3). The
@@ -712,7 +720,7 @@ async function enrollNow(code, accepted, opts) {
   if (!org || !role || !en || en.world !== world || en.thisComputer !== true || otherOrg) {
     const NOCONFIRM = 'Your company did not confirm this Kosmos, so it is not your work Kosmos.';
     if (review) return { ok: false, because: inKind(KIND, 'Your company did not confirm this Kosmos, so nothing changed. Kosmos tries again on its own.') };
-    if (move) return { ok: false, because: inKind(KIND, NOCONFIRM + ' Press Connect Account again in a minute.') };
+    if (move) return { ok: false, reason: 'not_confirmed', because: inKind(KIND, NOCONFIRM + ' Press Connect Account again in a minute.') };
     return undoFirstJoin(NOCONFIRM, Object.assign({}, opts, { printSent: !!body.computerPrint, orgKind: KIND }));
   }
   // A review's Accept is not a new enrollment: it keeps the date this Kosmos joined (orgreview review 1).
@@ -745,7 +753,7 @@ async function enrollNow(code, accepted, opts) {
          leave would end that membership too (review 13). Each says only what actually happened. */
       const NOWRITE = "This Kosmos's data folder could not be written.";
       if (review) return { ok: false, because: inKind(KIND, NOWRITE + ' Your company has your acceptance, but this Kosmos could not record it, so it is still not reporting. Fix the folder; Kosmos then tries again on its own.') };
-      if (move) return { ok: false, because: inKind(KIND, NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Connect Account again.') };
+      if (move) return { ok: false, reason: 'not_recorded', because: inKind(KIND, NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Connect Account again.') };
       return undoFirstJoin(NOWRITE, Object.assign({}, opts, { printSent: !!body.computerPrint, orgKind: KIND }));
     }
   }
@@ -1192,7 +1200,7 @@ function applyPolicy(token, opts, orgId) {
 
 module.exports = {
   onEnrollmentEnded,   // #6232 review 10
-  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindStrict, kindNow, kindOf, codeOf,
+  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, JOIN_UNKNOWN_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindStrict, kindNow, kindOf, codeOf,
   cleanReviewerGrants, MAX_REVIEWER_GRANTS, // kosmos#6752
   worldId, siblingId, SIBLING_ID_FILE, STOPPED_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, stoppedKind, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, memberCheck, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };

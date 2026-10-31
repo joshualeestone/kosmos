@@ -117,14 +117,14 @@ function chk(ok, label, extra) {
     // #4358 (Josh): the four emoji together, then Reply LAST with a small arrow, and a bright gold outline on hover.
     const bar = await p.evaluate(() => {
       const q = document.querySelector('#pj-room .rxns .rxn-quick');
-      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-ref') ? 'ref' : k.classList.contains('rxn-copy') ? 'copy' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?') : [];
+      const kids = q ? [...q.children].map((k) => k.classList.contains('rxn-reply') ? 'reply' : k.classList.contains('rxn-speak') ? 'speak' : k.classList.contains('rxn-dots') ? 'dots' : k.classList.contains('rxn-div') ? 'div' : k.classList.contains('rxn-more') ? 'more' : k.classList.contains('rxn-pick') ? 'pick' : '?') : [];
       const you = !!(q && q.closest('.msg') && q.closest('.msg').classList.contains('you'));   // #4409: read-aloud is on an agent's post only
       const r = q && q.querySelector('.rxn-reply');
       const ico = r && r.firstElementChild;
       return { you, kids: kids.join(','), arrowFirst: !!ico && ico.tagName.toLowerCase() === 'svg' && ico.classList.contains('rxn-reply-ico'),
         word: r ? r.textContent.trim() : null };
     });
-    chk(bar.kids === (bar.you ? 'copy,ref,pick,pick,pick,more,reply' : 'copy,ref,pick,pick,pick,more,speak,reply'), 'the hover bar reads Copy message and Copy message id (#5312), the three quick emoji, the smiley, (on an agent\'s post, read-aloud, #4409), then Reply last', JSON.stringify({ you: bar.you, kids: bar.kids }));
+    chk(bar.kids === (bar.you ? 'pick,pick,pick,div,more,reply,dots' : 'pick,pick,pick,div,more,speak,reply,dots'), 'the hover bar reads the three quick emoji, a divider, the smiley, (on an agent\'s post, read-aloud, #4409), Reply, then "..." (kosmos#7614: the copies moved into its menu)', JSON.stringify({ you: bar.you, kids: bar.kids }));
     chk(bar.arrowFirst && bar.word === 'Reply', 'Reply carries a small arrow icon before the word', JSON.stringify(bar));
     const rests = {};
     for (const scheme of ['light', 'dark']) {
@@ -521,7 +521,8 @@ function chk(ok, label, extra) {
     await p.evaluate(() => { document.getElementById('pj-room-msg').textContent = ''; });
 
     // A jump to a post the search is hiding says so on screen, not only to a screen reader.
-    await p.fill('#pj-room-search', 'Friday works');
+    // Starting a search reads the whole room and paints when that read lands (kosmos#7365), so wait for the read.
+    await Promise.all([p.waitForResponse((r) => /\/api\/project\/[^/]+\/room$/.test(r.url()) && r.request().method() === 'GET'), p.fill('#pj-room-search', 'Friday works')]);
     await p.waitForFunction(() => !document.querySelector('#pj-room').textContent.includes('The launch moves to Friday.\n') && document.querySelector('#pj-room .msg-replyto[data-jump]'), null, { timeout: 15000 }).catch(() => {});
     const hiddenJump = await p.evaluate(() => {
       const origShown = [...document.querySelectorAll('#pj-room .msg')].some((r) => !r.querySelector('.msg-replyto') && r.textContent.includes('The launch moves to Friday.'));
@@ -543,7 +544,12 @@ function chk(ok, label, extra) {
       const hits = [...q.querySelectorAll('button')].map((b) => { const r = b.getBoundingClientRect(); const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!(h && (h === b || b.contains(h))); });
       return { inside: Q.left >= R.left && Q.right <= R.right + 1, bar: [Math.round(Q.left), Math.round(Q.right)], room: [Math.round(R.left), Math.round(R.right)], hits };
     });
-    await p.fill('#pj-room-search', '');   // an earlier arm leaves a search in the box
+    // An earlier arm leaves a search in the box. Ending a search re-reads the room's newest page (kosmos#7365), and that
+    // read would paint over the row added below, so wait for it to land first.
+    if (await p.inputValue('#pj-room-search')) {
+      await Promise.all([p.waitForResponse((r) => /\/api\/project\/[^/]+\/room\?/.test(r.url())), p.fill('#pj-room-search', '')]);
+      await p.waitForTimeout(100);
+    }
     await p.evaluate(() => {
       const box = document.getElementById('pj-room');
       box.__lastBody.rows.push({ kind: 'post', id: 'm999900', from: 'roomer', to: [], text: 'ok', at: new Date().toISOString(), outcomes: {} });
@@ -558,7 +564,7 @@ function chk(ok, label, extra) {
     await p.mouse.move(shortBox.x, shortBox.y);
     await p.waitForTimeout(300);
     const shortBar = await measureShort();
-    chk(shortBar.inside && shortBar.hits.length === 8 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (with Copy message and Copy message id, #5312, read-aloud, #4409, and Reply) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
+    chk(shortBar.inside && shortBar.hits.length === 7 && shortBar.hits.every(Boolean), 'on a one-word agent post the bar (three emoji, the smiley, read-aloud, #4409, Reply and "...", kosmos#7614) stays inside the thread and every button takes its click', JSON.stringify(shortBar));
     // The hovered row itself changes in the repaint (its words are edited here; in life a reaction lands), so
     // the page draws a NEW element without the measured class. Read in the same moment as the repaint:
     // Chromium re-sends a hover to a still mouse shortly after, which would mend it by accident.

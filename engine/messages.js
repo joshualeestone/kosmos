@@ -778,9 +778,10 @@ function externalPost(projectId, { from, fromKind, text, member, unverified }) {
    and cuts them), which is never more than fedseats charged live (the raw words
    plus the cut name, and a refused row is charged but never stored). So a
    restart can only give back bytes that were never kept: what is stored stays
-   within the day. null when the log cannot be read, and (#7185) when the projects
-   file cannot be read (the caller then counts from zero for that day, the send
-   path's fail-open trade; its own live count still charges every post after). */
+   within the day. null when the log cannot be read (the caller then counts from
+   zero for that day, the send path's fail-open trade; its own live count still
+   charges every post after). #7367: with the projects file unreadable the count
+   keeps every row, so it can only be higher, which charges more, never less. */
 function externalKeptOn(projectId, day) {
   const r = record();
   if (!r.ok) return null;
@@ -905,7 +906,7 @@ let FILTERED = null;   // #7185: the last filtered rows, for the cache state and
 function record() {
   let st;
   try { st = fs.statSync(LOG); } catch (err) {
-    if (err && err.code === 'ENOENT') { READ_CACHE = null; return { ok: true, rows: [], parsed: [] }; }
+    if (err && err.code === 'ENOENT') { READ_CACHE = null; return { ok: true, stampsUnknown: false, rows: [], parsed: [] }; }   // #7367: no rows to filter
     return { ok: false, rows: [], parsed: [] };
   }
   let cache = READ_CACHE;
@@ -960,19 +961,21 @@ function record() {
   if (cache.fragment) parseLinesInto(cache.fragment, fragRows, fragParsed);
   /* #7185: a room row stamped before its project's createdAt was written by an earlier project of that name (ids come
      from names). It stays in the log, and in `parsed` so its id stays reserved, but no reader is given it. When the
-     projects file cannot be read the stamps are unknown: every project-tagged row is left out and the answer is ok:
-     false, the "could not read" every careful caller already handles (a misroute guard, an unread count). The rows are
-     then PARTIAL (direct messages, which carry no project, stay: the send path reads them unchecked for its valve and
-     dedupe); a few display-only readers use them unchecked too (reactions and claims on the page, the phone notice) and
-     show nothing for a room then rather than "unknown", which leaks nothing. The filtered
+     projects file cannot be read the stamps are unknown and every row is kept (#7367: fails open, engine/projectborn.js;
+     failing closed hid every room and refused every post, so one damaged file silenced every agent). stampsUnknown says
+     so, for a reader that keeps what it works out; the room itself reads and posts as before #7185. The filtered
      rows are kept until the log or the projects file changes, so a reader called N+1 times per sweep filters once. */
   const born = require('./projectborn').snapshot();
   const key = cache.size + ':' + cache.mtimeMs + ':' + cache.offset + ':' + cache.fragment;
   if (!(FILTERED && FILTERED.cache === cache && FILTERED.key === key && FILTERED.stamp === born.stamp)) {
-    const rows = cache.rows.concat(fragRows).filter((r) => !(r && typeof r.project === 'string' && born.earlier(r.project, r.at)));
+    const gone = deletedPostKeys(cache.parsed.concat(fragParsed));
+    const rows = cache.rows.concat(fragRows).filter((r) => !(r && typeof r.project === 'string' && born.earlier(r.project, r.at))
+      // kosmos#7614: a deleted post, and the reactions to it, are given to no reader.
+      && !(gone.size && r && typeof r.project === 'string'
+        && ((r.kind === 'post' && gone.has(r.project + '\u0000' + r.id)) || (r.kind === 'reaction' && gone.has(r.project + '\u0000' + r.of)))));
     FILTERED = { cache, key, stamp: born.stamp, rows };
   }
-  return { ok: born.ok, stampsUnknown: !born.ok, stamp: born.stamp, rows: FILTERED.rows.slice(), parsed: cache.parsed.concat(fragParsed) };
+  return { ok: true, stampsUnknown: !born.ok, stamp: born.stamp, rows: FILTERED.rows.slice(), parsed: cache.parsed.concat(fragParsed) };
 }
 
 /* #6341: when a project's room last had a post (an agent's, the person's, or one from outside), as epoch ms; null when
@@ -1005,8 +1008,7 @@ function lastPostAt(projectId) {
   if (t && (!best || t > best)) best = t;
   /* #7185: the map is kept over the RAW rows (scanned once), so the answer is filtered here: when the newest post is
      older than the project, every post is an earlier project's, and this room has had none. */
-  const born = require('./projectborn').snapshot();
-  if (!born.ok) return undefined;   // the stamps went unknown since record() above: could not read, not "no post"
+  const born = require('./projectborn').snapshot();   // #7367: stamps unknown, earlier() keeps every post
   if (best && born.earlier(String(projectId), new Date(best).toISOString())) best = null;
   return best;
 }
@@ -1113,21 +1115,55 @@ function rowShaped(m) {
       && (m.op === 'add' || m.op === 'remove')
       && (m.operator === true || str(m.from));
   }
+  /* kosmos#7614: the person deleted their own post. Never handed to a reader: record() reads it from the parsed rows and
+     drops the post it names (and that post's reactions) from every reader's rows. */
+  /* kosmos#7614: a deletion row is no reader's. It carries `of`, never `id`, so it reserves no id; the deleted post's own
+     row stays in `parsed`, which keeps ITS id reserved, so a number is never reissued. */
+  if (m.kind === 'post-deleted') return false;
   return true;
+}
+
+/* kosmos#7614: the posts the person has deleted, as project NUL id, from the parse-only rows (a deletion row is never
+   in `rows`). Only the person's own deletion of a post counts; deletePost writes nothing else. */
+function deletedPostKeys(parsed) {
+  const keys = new Set();
+  for (const m of parsed) {
+    if (m && m.kind === 'post-deleted' && m.operator === true && typeof m.project === 'string' && typeof m.of === 'string') {
+      keys.add(m.project + '\u0000' + m.of);
+    }
+  }
+  return keys;
+}
+
+/* kosmos#7614 review 1: held posts a flush took and could not type go back on hold, except one the person deleted while
+   it was being typed, so a later "while you were away" line never names a post the room no longer shows. A log that
+   cannot be read puts them all back, as before. */
+function restoreHeld(name, projectId, ids) {
+  let gone = null;
+  try { const read = record(); gone = read && read.ok !== false ? deletedPostKeys(read.parsed || []) : null; } catch { gone = null; }
+  const keep = gone ? ids.filter((x) => !gone.has(projectId + '\u0000' + roomhold.plainId(x))) : ids;
+  return roomhold.restore(name, projectId, keep);
 }
 
 /* The send path keeps the old contract on purpose: an unreadable log
    fails OPEN there (the valve cannot count; ids restart only on a board that has minted none since it started) rather than
    blocking every send on a read error -- a RECORDED trade, revisit when
-   retention lands. #7185 keeps it: a room post, a reaction and a freed claim refuse only when the PROJECTS file
-   cannot be read (record()'s stampsUnknown), because then the room's own rows are hidden, not merely unread. */
+   retention lands. #7367: an unreadable PROJECTS file fails open too (every row is kept, record()'s stampsUnknown),
+   so a room post, a reaction and a freed claim go through on it, as before #7185. */
 function readLog() {
   return record().rows;
 }
 
+/* #1760: a log made before appendLog created it 0600 (an upgraded install) is tightened at board start. A link is
+   left alone. Best-effort. */
+function secureLog() {
+  try { if (fs.lstatSync(LOG).isFile()) fs.chmodSync(LOG, 0o600); } catch { /* none yet, or not ours to change */ }
+}
+
 function appendLog(entry) {
   fs.mkdirSync(path.dirname(LOG), { recursive: true });
-  fs.appendFileSync(LOG, JSON.stringify(entry) + '\n');
+  // #1760: the message log holds conversation content, so it is created owner-only (an existing log keeps its mode).
+  fs.appendFileSync(LOG, JSON.stringify(entry) + '\n', { mode: 0o600 });
 }
 
 function pairKey(a, b) {
@@ -1334,7 +1370,8 @@ function staleHeld(projectId, ids, log, now, member) {
        reply followed such a read, the rule's premise): the
        ROOM_READ_ROWS - 1 rows before X, less one for each row after X and before that reply, of the kinds the read
        shows, in the order it shows them (server.js). Outside rows count as full slots; the read skips outside rows past
-       its cap, so it reaches further back than that, never less far. */
+       its cap, so it reaches further back than that, never less far, except that it stops at the room's archive
+       (kosmos#7365), whose posts that same read drops from the member's held list. */
     const covered = new Set();
     const firstReply = new Map();
     if (answered.size && rows.some((r) => r && r.kind === 'post' && r.project === projectId && want.has(r.id))) {
@@ -1384,13 +1421,29 @@ function staleHeld(projectId, ids, log, now, member) {
   return out;
 }
 
+/* kosmos#7246 slice 2 (round 7): who a row asked by name: its @-names (`mentioned`) and the header names an agent's post
+   addressed (`addressed`, which never holds @all). For the readers that decide who was asked (the claim guard, the
+   #6608 owner rule, who an answer's quote goes to); owed answers and the #185 nudge keep to @-names. */
+function namedIn(row) {
+  const out = new Set();
+  for (const k of ['mentioned', 'addressed']) if (row && Array.isArray(row[k])) for (const n of row[k]) if (typeof n === 'string' && n) out.add(n);
+  return [...out];
+}
+/* kosmos#7246 slice 2: the arrivals a post charged against the room's valve: its `to`, less the members it left quiet
+   (in the room, never typed). A post that woke no one costs the valve nothing. */
+function reachedCount(m) {
+  if (!m || !Array.isArray(m.to)) return 0;
+  const oc = m.outcomes && typeof m.outcomes === 'object' ? m.outcomes : null;
+  return oc ? m.to.filter((n) => oc[n] !== roomhold.QUIET).length : m.to.length;
+}
 /* One rule for a post's summary state, used by a fresh post and by its folded twin: every recipient placed
    (or nobody to deliver to) is placed; anything else is unconfirmed.
    #4624: a held post is kept and its member will be told, so it counts as placed for the sender, and so does
    the folded retry of one (it reports the first copy's outcomes). */
 function aggregateState(outcomes) {
   const states = Object.values(outcomes || {});
-  return states.every((v) => v === chat.DELIVERY.PLACED || v === roomhold.HELD) ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
+  // kosmos#7246 slice 2: a quiet member (the post did not address it) is placed too: the post is in the room.
+  return states.every((v) => v === chat.DELIVERY.PLACED || v === roomhold.HELD || v === roomhold.QUIET) ? chat.DELIVERY.PLACED : chat.DELIVERY.UNCONFIRMED;
 }
 /* A retry follows its first copy with nothing new in that conversation; a real second answer usually comes after
    the other side spoke, or after the sender said something else ("yes", "wait", "yes" is a change of mind). So a
@@ -2125,6 +2178,94 @@ function mentionedMembers(cleaned, recipients, roster) {
   }
   return { mentioned, ambiguous, ambiguousWords, shown, namedAt };
 }
+/* kosmos#7246 slice 2 (round 3): the fleet's header, read by hand from the post's first line, as the room writes it:
+   "Mona Lisa -> Renet, #7365 room archive: ...", "Ada -> Angel (re: #12): ...", "Baron to Kitty, heads-up ...: ...",
+   "Renet for Baron: ...", "**Ada -> Basil:** ...". The header ends at the first ':' outside parentheses; the sender is a
+   name of at most three words ("Ice Cream Kitty"), so a sentence that mentions an arrow is not a header; the connector
+   is "->", "→", or the word "to" or "for" (`word`, and then the sender must name the poster, since "Thanks to Angel:"
+   is a sentence). Targets split on ',', ';', '&', '/', '+' and ' and ' (round 8: the last four too), with anything in parentheses dropped first.
+   Round 5: the word form can be read more than one way ("Ada to Basil for review"), so every split whose sender is a
+   name of at most three words is offered, in order, and the caller takes the first whose sender names the poster.
+   Returns the readings ([] when the post has no header). */
+function postHeader(text) {
+  const line = String(text || '').replace(/^\s+/, '').replace(/^\*{1,2}/, '').split('\n')[0].slice(0, 400);
+  let depth = 0;
+  let colon = -1;
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line[i];
+    if (c === '(') depth += 1;
+    else if (c === ')') depth = Math.max(0, depth - 1);
+    else if (c === ':' && depth === 0) { colon = i; break; }
+  }
+  if (colon < 0) return [];
+  const head = line.slice(0, colon).replace(/\*+\s*$/, '');
+  const targetsOf = (rest) => rest.replace(/\([^)]*\)/g, ' ').split(/[,;&/+]|[ \t]+and[ \t]+/).map((p) => p.trim()).filter(Boolean);
+  // Round 8: the sender is optional before an arrow ("-> all:"); the arrow alone marks a header.
+  const arrow = head.match(/^(?:([A-Za-z0-9][\w.'-]*(?:[ \t]+[A-Za-z0-9][\w.'-]*){0,2})[ \t]*)?(?:->|\u2192)[ \t]*(.+)$/);
+  if (arrow) return [{ sender: arrow[1] || '', targets: targetsOf(arrow[2]), word: false }];
+  const out = [];
+  for (const m of head.matchAll(/[ \t]+(?:to|for)[ \t]+/g)) {
+    const sender = head.slice(0, m.index);
+    const rest = head.slice(m.index + m[0].length);
+    if (/^[A-Za-z0-9][\w.'-]*(?:[ \t]+[A-Za-z0-9][\w.'-]*){0,2}$/.test(sender) && rest.trim()) out.push({ sender, targets: targetsOf(rest), word: true });
+  }
+  return out;
+}
+/* Round 5: a target part is its longest leading run of one to three words that names a member, so the words after a
+   name ("Mona Lisa on m702", "Angel re #12", "Angel about the cut") do not lose the name. [] when no run names one. */
+function targetResolves(part, members, roster) {
+  const words = String(part).split(/\s+/).filter(Boolean);
+  for (let k = Math.min(3, words.length); k >= 1; k -= 1) {
+    const hit = nameResolves(words.slice(0, k).join(' '), members, roster);
+    if (hit.length) return hit;
+  }
+  return [];
+}
+/* The members a header name means: by the @ rule (mentionedMembers on "@" + its key: a session name or a whole display
+   name, "Mona Lisa" is monalisa), or, for a one-word name, the one member whose display name has that word ("Renet" is
+   Renet Tilley, "Kitty" is Ice Cream Kitty). Two members sharing the word: neither, as with an ambiguous @. */
+function nameResolves(name, members, roster) {
+  const nameKey = require('./agentnames').nameKey;
+  const key = nameKey(name);
+  if (key.length < 2) return [];
+  const exact = [...mentionedMembers('@' + key, members, roster).mentioned];
+  if (exact.length || /\s/.test(String(name).trim())) return exact;
+  const hits = new Set();
+  for (const card of Array.isArray(roster) ? roster : []) {
+    if (!card || !members.includes(card.sessionName) || typeof card.name !== 'string') continue;
+    if (card.name.split(/\s+/).some((w) => nameKey(w) === key)) hits.add(card.sessionName);
+  }
+  return hits.size === 1 ? [...hits] : [];
+}
+/* kosmos#7246 slice 2: the members a post ADDRESSES, which is who an agent's post wakes (sendPostWithDelivery). Its
+   @-names (`atNamed`, from mentionedMembers), plus:
+   - the fleet's header (postHeader): a post that STARTS "Sender -> Name[, Name]:" (or "Sender to Name:") addresses each
+     listed name, each resolved by nameResolves, so "Mona Lisa" and "Renet" reach their members and a name that is not
+     a member addresses no one;
+   - @all or @everyone: every member but the sender.
+   A Set. Never throws (on a fault it is the @-names alone). */
+function addressedMembers(cleaned, recipients, roster, atNamed, from, { all = true, raw } = {}) {
+  const out = new Set(atNamed || []);
+  try {
+    const text = String(cleaned || '');
+    const list = Array.isArray(recipients) ? recipients : [];
+    // Round 1: an @all inside `code` is quoted, not a broadcast.
+    if (all && /(^|[^A-Za-z0-9._-])@(all|everyone)(?![A-Za-z0-9_-])/i.test(text.replace(/`[^`]*`/g, ' '))) {   // round 2: @all-hands is a word, not a broadcast
+      for (const m of list) if (m !== from) out.add(m);
+    }
+    const poster = from === undefined || from === null ? [] : [String(from)];
+    // Round 7: the header is read from the post as written (`raw`): cleanMessage joins every line into one.
+    const head = postHeader(typeof raw === 'string' ? raw : text).find((h) => !h.word || nameResolves(h.sender, poster, roster).length);
+    if (head) {
+      for (const part of head.targets) {
+        // Round 4: "Ada -> all:" or "-> everyone:" is the header's @all (and, like @all, not with { all: false }).
+        if (/^(all|everyone)$/i.test(part)) { if (all) for (const m of list) if (m !== from) out.add(m); continue; }
+        for (const m of targetResolves(part, list, roster)) out.add(m);
+      }
+    }
+  } catch { /* the @-names alone */ }
+  return out;
+}
 
 /* #4653: the sentence that tells a sender an @-word named more than one member, so it asked none of them
    (or, when the post also named one exactly, not the others). One sentence per word, built here so the
@@ -2322,11 +2463,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      at the first quote. */
   /* #4580: the fold runs BEFORE the which-room ask below: a retry of a post that was already delivered must not be
      held back to ask which room it meant, which would read as "not posted". */
-  const rec = record();
-  /* #7185: with the projects file unreadable the room's rows are left out, so the fold, the reply check and the valve
-     below would all read an empty room. Say so rather than post on that. Only for that case (stampsUnknown): an
-     unreadable LOG still fails open here, the recorded trade above readLog. */
-  if (rec.stampsUnknown) return { state: chat.DELIVERY.COULD_NOT, because: 'we could not read this room right now, so nothing was posted; try again in a moment', id: null, at, outcomes: null };
+  const rec = record();   // #7367: with the projects file unreadable every row is kept, so the room reads whole here
   const log = rec.rows;
   /* #3745: the post this one answers, when it names a post IN THIS ROOM (the routes check first and
      refuse otherwise; here a stray id simply records nothing rather than pointing at another room). */
@@ -2455,7 +2592,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   // thirty-nine is over the budget, not under it.
   const arrivals = log.filter((m) => m && m.kind === 'post' && !m.operator && m.closing !== true   // #6920: not charged
     && m.project === projectId && Date.parse(m.at) >= countFrom)
-    .reduce((n, m) => n + (Array.isArray(m.to) ? m.to.length : 0), 0);
+    .reduce((n, m) => n + reachedCount(m), 0);
   const cleaned = chat.cleanMessage(text);
   /* Addressed is an @mention naming a member. The TOKENIZER carries two
      boundary rules the charset alone gets wrong: a left boundary, because
@@ -2485,16 +2622,44 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      ("Johnny Cage") is reachable as `@JohnnyCage`, never as `@Johnny`. The
      page (web/index.html pjMentionResolve) paints blue by this same rule, and
      web.mention-parity-4642.test.js runs one set of fixtures through both. */
-  const { mentioned, ambiguous, ambiguousWords, shown, namedAt } = mentionedMembers(cleaned, recipients, roster);
-  const note4653 = ambiguous.size ? ambiguousNote(ambiguous, mentioned, shown) : '';
+  const atNamed = mentionedMembers(cleaned, recipients, roster);
+  const { ambiguous, ambiguousWords, shown, namedAt } = atNamed;
+  /* kosmos#7246 slice 2: who the post addresses: its @-names, plus the fleet's leading `Sender -> Name:` header and @all
+     (addressedMembers). The page's @ highlight keeps to mentionedMembers. */
+  /* A person's post keeps its @-names alone, as before (round 1): the header and @all are for agents' posts. */
+  const mentioned = operator === true ? atNamed.mentioned : addressedMembers(cleaned, recipients, roster, atNamed.mentioned, from, { raw: text });
+  /* Round 1: @all is a broadcast, not a request to each member, so a swarm switched off here still needs its own name. */
+  const namedHere = operator === true ? atNamed.mentioned : addressedMembers(cleaned, recipients, roster, atNamed.mentioned, from, { all: false, raw: text });
+  const note4653 = ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '';
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
   /* #3564: a swarm switched OFF in this project is not woken by the room, unless the
      post @-names it. It stays a member, but a post it was not sent is not logged as
      sent to it, so an @-name later tells it what it missed. */
-  const offHere = new Set(recipients.filter((n) => !mentioned.has(n) && offInProject.has(String(n))));
-  /* #3564: the post is charged for the members it is sent to. */
-  const charged = recipients.length - offHere.size;
+  const offHere = new Set(recipients.filter((n) => !namedHere.has(n) && offInProject.has(String(n))));
+  /* B: a reply wakes its author only when the post it answers asked someone something (a person's post, or a post that
+     addressed at least one member), so an acknowledgement of a post that asked nothing wakes no one. */
+  /* Round 1: asked THIS replier (the person's post, or one that addressed the sender), so a bystander's +1 wakes no one. */
+  const answeredAddressed = answered && Array.isArray(answered.addressed) ? answered.addressed : (answered && Array.isArray(answered.mentioned) ? answered.mentioned : []);   // rows before slice 2 have no `addressed`
+  const answeredAsked = Boolean(answered && (answered.operator === true || answeredAddressed.includes(from)));
+  /* C, decided once per post (round 1): the whole post is quiet or none of it, so an @all never stops partway. */
+  const loopPaused = operator !== true && require('./roomloop').paused(projectId);
+  const asksMember = (name) => mentioned.has(name) || Boolean(answeredAsked && answered.operator !== true && answered.from === name);
+  /* kosmos#7461: while paused, a post asking exactly ONE member still wakes it (a handoff; a summary to one member),
+     within the pair's and the project's budget for this pause (engine/roomloop.js pairCan; spent with the wake count,
+     below). Decided once per post, as the pause itself is. One is counted before switched-off members are set aside, so
+     an @all to a room where all but one are switched off is still an @all (review 1). In a room of two, an @all asks the
+     one other member and goes through as a handoff would: accepted, it is one wake, within the same caps. */
+  const askedHere = operator === true ? [] : recipients.filter((n) => !offHere.has(n) && asksMember(n));
+  const askedAll = operator === true ? 0 : recipients.filter((n) => asksMember(n)).length;
+  const oneThrough = loopPaused && askedAll === 1 && askedHere.length === 1 && require('./roomloop').pairCan(projectId, from, askedHere[0]);
+  const loopQuiet = loopPaused && !oneThrough;
+  /* #3564: the post is charged for the members it is sent to. kosmos#7246 slice 2 (round 3): an agent's post is charged
+     only for the members it will wake (addressed, not switched off here, the project not paused, or kosmos#7461 a one-member
+     post the pause lets through), as reachedCount
+     counts it once logged, so a post that addresses one member is not held as if it reached the whole room. */
+  const charged = operator === true ? recipients.length - offHere.size
+    : (loopQuiet ? 0 : askedHere.length);
   /* #4786: WORK MOVING EARNS MORE ROOM, BOUNDED. A pipeline of agents handing tasks along fills the budget as fast
      as a loop does, and was held until the person stepped in (daily feedback, 2026-09-30). So each first-time step
      forward in this project since countFrom (engine/taskchat.js progressTimes: a task made, a part added, a first
@@ -2618,7 +2783,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         if (!said && !chat.acknowledgementOnly(m.text)) said = m;
         if (said && (owed || spokeSince)) break;
       }
-      const named = said && Array.isArray(said.mentioned) ? said.mentioned : [];
+      const named = said ? namedIn(said) : [];   // kosmos#7246 round 7: a header name names an owner too
       // Review 4: an @-word that named two members (ambiguousMentions) may have meant someone else, so not one owner.
       const unclear = said && Array.isArray(said.ambiguousMentions) && said.ambiguousMentions.length > 0;
       // Review 4: an outside row's `from` is a display name, not a local session, so it never makes a local agent the author.
@@ -2784,7 +2949,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      one this reply @-names is being asked to act on it and needs them. The others still learn which
      post and whose. */
   const originalAudience = answered && answered.operator !== true
-    ? new Set([answered.from, ...(Array.isArray(answered.mentioned) ? answered.mentioned : [])]) : null;   // `to` is everyone it reached; `mentioned` is who it addressed
+    ? new Set([answered.from, ...namedIn(answered)]) : null;   // `to` is everyone it reached; who it named is who it addressed (round 7: header names too)
   const quoteFor = (name) => ((operator !== true && answered && answered.operator === true)
     || (originalAudience && !originalAudience.has(name) && !mentioned.has(name)) ? '' : replied.quote);
   const outcomes = {};
@@ -2792,13 +2957,26 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      reader can say "held until <time>" rather than read HELD as delivered. Present only when something was held. */
   const heldUntil = {};   // #4588 ask 3: for a Gemini cap hold this is the next look (a minute ahead), not a release time
   let reached = 0;
+  let loopPausedHere = false;
   const typingStarted = new Set();   // #4926 review 2: members whose typing path was entered (a throw there may have pasted)
   const takenHeld = {};   // #4926 review 6: each member's held ids taken for this arrival's line
   const deliverOne = (name) => {
     if (offHere.has(name)) return null;
+    /* kosmos#7246 slice 2 (A, C): an agent's post wakes only the members it addresses, and none while the project's
+       agent-wake cap is used up (engine/roomloop.js). A person's post is never quiet. */
+    if (operator !== true) {
+      const asked = asksMember(name);
+      if (asked && loopQuiet) loopPausedHere = true;
+      /* Members this agent post did not address (or the project's agent-wake cap paused, kosmos#7461: unless it asks
+         this one member alone) are left quiet: not typed, not held, the post in the room for them to read. */
+      if (!asked || loopQuiet) { outcomes[name] = roomhold.QUIET; return null; }
+    }
     /* #4624: a colleague's post that does not name this member, arriving mid-turn or while it waits (a hook's idle),
        is held rather than typed (engine/roomhold.js says who and why). A post that cannot be held is typed as before. */
-    if (roomhold.shouldHold({ name, operator, mentioned, answersAuthor: answered && answered.operator !== true ? answered.from : null,
+    /* Round 7 (reverting round 5): an @all is typed at once, like an @-name. Held instead, it waited for a turn end that
+       an idle agent with the turn-end hook never has, and a plain held id is dropped after two hours: an ask lost, which
+       is worse than interrupting a busy member with a broadcast its sender chose. */
+    if (roomhold.shouldHold({ name, operator, mentioned, answersAuthor: answeredAsked && answered.operator !== true ? answered.from : null,
       reachable: chat.addressable(name, roster).ok === true, readReport: (n) => require('./selfreport').read(n),
       now: Date.now(), decayMs: require('./status').REPORT_WORKING_DECAY_MS, env: process.env })
       && roomhold.hold(name, projectId, id)) {
@@ -2862,9 +3040,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const answerClause = replyExpected === false
       ? ' \u00b7 FYI, no reply requested'
       : ' \u00b7 to answer, run: kosmos post --in-reply-to ' + id + ' ' + projectId;
+    /* kosmos#7246 slice 2 (round 7): an author woken by rule B (an answer to the post it asked) gets the colleague form,
+       never "not addressed to you", which told it to disregard the one line it was woken for. It is not invited to
+       reply unless it was named too, so the answer does not start another round. */
+    const askedHere = operator !== true && asksMember(name);
     const answer = operator === true
       ? answerClause
-      : (mentioned.has(name) ? answerClause : '');
+      : (mentioned.has(name) ? answerClause : askedHere ? ' \u00b7 FYI, no reply requested' : '');
     /* #3311: in a shared project the agent is told, on the post it would answer,
        that its answer leaves this computer. */
     const shownProjectAs = shownProject + (federated ? ' \u00b7 shared outside this computer, what you post here leaves it' : '');
@@ -2872,7 +3054,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       ? (mentioned.has(name)
         ? '[message from your operator \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
         : '[from your operator in project ' + shownProjectAs + ' \u00b7 ' + id + answers + ' \u00b7 for the whole room' + answer + ']')
-      : (mentioned.has(name)
+      : (askedHere
         ? '[message from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
         /* No answer line on background: it is explicitly not addressed to you,
            and inviting a reply is the unaddressed-steering the room prevents. */
@@ -2893,8 +3075,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        received do not count as missed. */
     const missed = log.filter((m) => m && m.kind === 'post' && m.project === projectId
       && Date.parse(m.at) >= windowFrom && m.from !== name
-      && Array.isArray(m.to) && !m.to.includes(name)).length;
-    const catchUp = mentioned.has(name) && missed > 0
+      && Array.isArray(m.to) && (!m.to.includes(name) || (m.outcomes && m.outcomes[name] === roomhold.QUIET))).length;   // #7246 slice 2: a quiet post did not reach it either
+    const catchUp = asksMember(name) && missed > 0   // round 6: a member woken by rule B (an answer to its post) too
       ? ' [This room has been talking without you: ' + missed + ' earlier post'
         + (missed === 1 ? '' : 's') + ' this hour did not reach you.'
         + ' Read the room with: kosmos room ' + projectId + ']'
@@ -2924,7 +3106,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       const spill = spillInto(name, id, cleaned);
       if (!spill.file) {
         outcomes[name] = chat.DELIVERY.COULD_NOT;
-        if (heldIds.length) { try { roomhold.restore(name, projectId, heldIds); } catch { /* best effort */ } }
+        if (heldIds.length) { try { restoreHeld(name, projectId, heldIds); } catch { /* best effort */ } }
         return null;
       }
       spilled[name] = spill.file;
@@ -2932,7 +3114,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       /* Review 10: a question is quoted to every reader the post is to: the union of who gets the answer line (an
          operator post, a named member) and whom the hold treats as asked (asksIt: a named member, or the author of
          the post this replies to); never to a background member. */
-      const isTo = operator === true || mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
+      const isTo = operator === true || asksMember(name);
       envelope = fitOrBare(wrap(spillLine(cleaned, spill.file, { namedAt: namedAt.get(name) || [], questions: isTo })),   // #5706
         () => wrap(spillLine(cleaned, spill.file, { namedAt: [], questions: false })), catchUp + heldLine);
     }
@@ -2943,12 +3125,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          reached, as before. Only deliverAutomatic(Async) answers held: true, and under the room brake typeInto uses
          chat.deliver(Async), which never does, so this branch is not reached then. */
       if (sent && sent.held === true) {
-        roomhold.restore(name, projectId, heldIds);
+        restoreHeld(name, projectId, heldIds);
         unspill(spilled[name]);
         /* #4926 review 1 (Opus): an answer to this member's OWN post (--in-reply-to, no @) asks for its attention too, so it
            is kept marked like an @: a stale-post drop at the flush never removes it (and its line says it is asked). */
-        const asksIt = mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
-        /* #4588 ask 3 (review 13): a post the Gemini cap held is marked too, so roomhold.flushReleased retries it once the
+        const asksIt = asksMember(name);
+        /* #4588 ask 3 (review 13): a post the Gemini cap (kosmos#7406: or the per-account cap) held is marked too, so roomhold.flushReleased retries it once the
            cap lets the member through (a cap hold has no wake coming); an unmarked one waits for the next wake. */
         if (roomhold.hold(name, projectId, asksIt ? roomhold.addressedId(id) : sent.heldBy === 'cap' ? roomhold.cappedId(id) : id)) {
           outcomes[name] = roomhold.HELD;
@@ -2956,6 +3138,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
           // #5805: for withoutStale's day rule, every ask this arrival put back, not only the new post.
           if (sent.heldBy === 'limit') roomhold.noteLimit(name, projectId, [...(asksIt ? [id] : []), ...heldIds.filter(roomhold.isAddressed)], sent.limitReset);
           if (sent.heldBy === 'input') roomhold.noteInput(name, projectId, id);   // #6256 item 1: told once its box reads empty
+          // kosmos#7406: told once the per-account cap frees. Review 4: the older held posts restored above are noted too, so
+          // a retry that read the file while they were taken out cannot have dropped their notes for good.
+          if (sent.heldBy === 'cap' && !roomhold.agyCard(name, roster)) for (const x of [id, ...heldIds]) roomhold.noteCap(name, projectId, x);
           reached += 1;
         } else outcomes[name] = chat.DELIVERY.COULD_NOT;
         logCarried('held');   // #4926 N7: put back, so not told
@@ -2965,7 +3150,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       logCarried(sent.state);   // #4926 N7: told unless COULD_NOT (then put back below)
       if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
       else {
-        roomhold.restore(name, projectId, heldIds);
+        restoreHeld(name, projectId, heldIds);
         unspill(spilled[name]);   // #4447: nothing left for a member it never reached
       }
       return sent;
@@ -2974,7 +3159,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const putBack = (err) => {
       // #4926 N7 (round 3): typing started and threw, so the held posts may have been pasted; they go back regardless.
       if (typingStarted.has(name)) logCarried('may-have');
-      roomhold.restore(name, projectId, heldIds);
+      restoreHeld(name, projectId, heldIds);
       throw err;
     };
     /* #4588 PR B: the person's own post is typed at once (never held); a colleague's post, addressed or not, is an
@@ -2987,7 +3172,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       ? deliverToPane : (deliverAutomaticToPane || deliverToPane);
     let sent;
     typingStarted.add(name);
-    try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined); }
+    // kosmos#7406: an agent's room post asks for the per-account cap (a person's goes through deliverToPane, ungated).
+    try { sent = typeInto(name, envelope + catchUp + heldLine, roster, undefined, typeof trailer === 'string' ? trailer : undefined, typeInto === deliverToPane ? undefined : { workCap: true }); }
     catch (err) { putBack(err); }
     return sent && typeof sent.then === 'function' ? sent.then(finish, putBack) : finish(sent);
   };
@@ -3006,7 +3192,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         outcomes[name] = chat.DELIVERY.COULD_NOT; unspill(spilled[name]);   // review 3: no inbox file for a post it never got
         // Review 6 (Sonnet): its held ids were taken for a line it never got; put them back (putBack covers a throw
         // inside the typing path).
-        if (Array.isArray(takenHeld[name]) && takenHeld[name].length) { try { roomhold.restore(name, projectId, takenHeld[name]); } catch { /* best effort */ } }
+        if (Array.isArray(takenHeld[name]) && takenHeld[name].length) { try { restoreHeld(name, projectId, takenHeld[name]); } catch { /* best effort */ } }
       }
     }
     // Review 8 (Sonnet): the error's CODE only, never its message (a tmux error can echo the pasted text).
@@ -3022,15 +3208,27 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
    * were recipients and none took it, and wrong when there were none to try.
    * The person reads the room from the record, and the record is written below.
    */
-  if (!reached && charged > 0) {
+  /* kosmos#7246 slice 2: quiet members were never to be typed into; a post that addressed nobody is recorded, not refused. */
+  if (loopPausedHere) {
+    const note = require('./roomloop').pauseNote(projectId);
+    if (note) {
+      roomNote(projectId, note);
+      try { process.stdout.write('room-loop: ' + projectId + ' paused agent-to-agent wake-ups (' + require('./roomloop').liveCap() + ' in an hour)\n'); } catch { /* the note stands */ }
+    }
+  }
+  if (!reached && charged > 0) {   // round 3: `charged` is already the members this post was to wake
     /* Reaching NOBODY is a failed post, not a quieter success: nothing
        was typed anywhere, so nothing is logged (send()'s typed-only
        rule). */
     /* #4447: every member's spill was removed as its delivery failed (above), so none is left here. */
     const failed = refuse('we could not get this post to anybody on ' + shownProject);
     failed.outcomes = outcomes;
+    if (oneThrough) require('./roomloop').pairRefund(projectId, from, askedHere[0]);   // kosmos#7461: no wake, so no slot
     return failed;
   }
+  /* Round 3: the person is here, so the agents' count starts over. Round 6: only once the post reached the room (a refused
+     one above, which reached nobody, is not the person being there). */
+  if (operator === true) require('./roomloop').clear(projectId);
 
   // #460: what in this post is another author's earlier words, decided once
   // here against the record as it stored, and persisted; never re-derived.
@@ -3053,7 +3251,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          The unanswered state keys on WHO WAS ASKED, and re-deriving that at
          render time would be a second tokenizer that can drift from this
          one. */
-      ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
+      /* kosmos#7246 slice 2 (round 2): the row keeps its @-names in `mentioned`, as before, for every reader of it (the
+         claim guard, the owner rule, owed answers and the #185 nudge, which would otherwise wake every member owed an
+         answer for an @all). Who the post addressed for waking is its own field, `addressed`, read by rule B. */
+      ...(atNamed.mentioned.size ? { mentioned: [...atNamed.mentioned] } : {}),
+      /* Round 6: without @all (namedHere), so an @all's answers do not each wake its author: rule B reads this, and a
+         broadcast asked no one in particular. */
+      ...(operator !== true && namedHere.size ? { addressed: [...namedHere] } : {}),
       /* #4642: an @-word that named two members addressed neither; kept so the dropped request is findable. */
       ...(ambiguousWords.size ? { ambiguousMentions: [...ambiguousWords] } : {}),
       ...(operator === true ? { operator: true } : {}),
@@ -3071,7 +3275,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
   } catch (err) {
     try { process.stderr.write('room post ' + id + ': delivered but not recorded (' + String((err && err.message) || err).split('\n')[0].slice(0, 80) + ')\n'); } catch { /* never breaks the post */ }
-    const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
+    const unrecorded = { state: chat.DELIVERY.UNCONFIRMED, because: 'it reached the room but could not be recorded', unrecorded: true, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored };
     /* Review 2: an agent's retry folds. Review 4 (Sonnet): NOT the person's. Folded, the page says "Posted." again for a
        post the room never shows, so the person's every repeat vanished until the window passed; a second delivery in
        this rare case (the record could not be written) is the lesser harm. */
@@ -3087,7 +3291,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   const state = aggregateState(outcomes);
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
-    return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
+    return { state, because: loopPausedHere ? require('./roomloop').senderNote(projectId) : null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
       ...(closing ? { closing: true } : {}),   // #6920: landed as this member's one post through a held room
       /* #6254: whether this post answers one the PERSON wrote (operator), the one signal the phone-notify
          `posted` seam needs from here (the route has no other way to know; the person is never an @mention).
@@ -3097,6 +3301,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          the LAST key: kosmos post reads it anchored on the end of the answer. */
       ...(note4653 ? { ambiguousNote: note4653 } : {}) };
   };
+
+  /* C: one per post that wakes anyone (round 1), counted here, once and synchronously, before any member is typed
+     (round 4): the async route types members over several turns of the event loop, and a count taken after them let
+     posts started meanwhile all read "not paused" and run past the cap. `charged` is the members this post wakes. A post
+     that then reaches nobody still counts: the cap is a backstop, and it errs toward quiet. */
+  if (operator !== true && !loopPaused && charged > 0) require('./roomloop').noteWake(projectId);
+  if (oneThrough) require('./roomloop').pairTake(projectId, from, askedHere[0]);   // kosmos#7461: spent only by a post that got this far
 
   if (asynchronousDelivery) {
     /* #4765: every member AT ONCE, not one after another. Most of a delivery is a wait (the paste-to-Enter gap,
@@ -3276,6 +3487,9 @@ function unanswered(projectId, now) {
   const at = Number.isFinite(now) ? now : Date.now();
   const rec = record();
   if (!rec.ok) return {};
+  /* #7367: with the stamps unknown the rows include a deleted project's asks; the sweep acts on this answer (a nudge
+     and its at-most-once row), and checks its own read too, but the stamps can go unknown between the two reads. */
+  if (rec.stampsUnknown) return {};
   const rows = rec.rows.filter((m) => m && m.project === projectId);
   const out = {};
   for (const p of rows) {
@@ -3333,6 +3547,10 @@ function sweepUnanswered(roster, now) {
      card's own condition was the sweep pinned unchanged. */
   const rec = record();
   if (!rec.ok) return { ok: false, nudged: [] };
+  /* #7367: with the projects file unreadable every row is kept, a deleted project's never-answered asks included, and
+     this sweep ACTS on what it reads (it types a nudge and writes a row). It waits for the stamps instead; the rooms
+     themselves still read and post. */
+  if (rec.stampsUnknown) return { ok: false, nudged: [] };
   /* #2442: the nudge is a pane write into agents, so it must also respect removal
      -- a removed agent gets NO room traffic, not even a nudge for an ask that
      predates its removal. A killed removed agent is already skipped below (no
@@ -3653,9 +3871,7 @@ function freeClaim({ project, of, by, members }) {
   if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };
   if (!postId) return { ok: false, because: 'we could not tell which post to free' };
   if (!shown) return { ok: false, because: 'we could not tell whose claim to free' };
-  const rec = record();
-  if (rec.stampsUnknown) return { ok: false, because: 'we could not read this room right now, so the claim was not changed' };   // #7185
-  const rows = rec.rows;
+  const rows = record().rows;   // #7367: with the projects file unreadable every row is kept
   const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
   if (!post) return { ok: false, because: 'there is no post by that id in this room' };
   const room = claimMembers(members);
@@ -3833,8 +4049,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
       return { ok: false, because: 'you are not on that project, so this room is not yours to react in' + (members.includes(reactor) ? '' : NOT_ON_PROJECT_FIX) };
     }
   }
-  const rec = record();
-  if (rec.stampsUnknown) return { ok: false, because: 'we could not read this room right now, so the reaction was not changed' };   // #7185
+  const rec = record();   // #7367: with the projects file unreadable every row is kept
   const rows = rec.rows;
   const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
   if (!post) return { ok: false, because: 'there is no post by that id in this room' };
@@ -3908,7 +4123,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     return CLAIM_ROOM_ASK.test(t) || (!names && CLAIM_GROUP_ASK.test(t));
   };
   const askedSet = new Set();
-  const named = Array.isArray(post.mentioned) ? post.mentioned.filter((n) => typeof n === 'string' && n) : [];
+  const named = namedIn(post);   // kosmos#7246 round 7: a header name is asked, as an @-name is
   const unclear = Array.isArray(post.ambiguousMentions) && post.ambiguousMentions.length > 0;
   if (named.length) {
     if (!unclear && !asksRoom(post.text, true)) for (const n of named) askedSet.add(n);
@@ -3985,6 +4200,7 @@ function reopenRoom(project, at) {
   }
   const when = typeof at === 'string' && Number.isFinite(Date.parse(at)) ? at : new Date().toISOString();
   appendLog({ kind: 'reopen', from: 'you', to: projectId, project: projectId, operator: true, at: when });
+  require('./roomloop').clear(projectId);   // kosmos#7246 round 7: the person pressed Reopen, so the agents' count starts over
   return { ok: true, at: when };
 }
 
@@ -4010,6 +4226,7 @@ function reopenForOwnPost(projectId, row) {
   const t = typeof row.at === 'string' ? Date.parse(row.at) : NaN;
   const when = Number.isFinite(t) && t <= Date.now() ? row.at : new Date().toISOString();
   appendLog({ kind: 'reopen', from: 'you', to: id, project: id, operator: true, at: when, post: row.id, reason: 'own-computer' });
+  require('./roomloop').clear(id);   // kosmos#7246 round 7: the person posted from their other computer
   return { ok: true, at: when };
 }
 
@@ -4076,7 +4293,7 @@ function roomHeldRead(projectId, at, lim, rows, charge, progressFrom, roomRecipi
     const t = Date.parse(m.at);
     if (!Number.isFinite(t) || t > at || t < countFrom) continue;
     if (m.kind === 'valve' && (!band || t >= band.t)) band = { t, at: m.at, because: m.because || null };
-    else if (m.kind === 'post' && !m.operator && m.closing !== true) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
+    else if (m.kind === 'post' && !m.operator && m.closing !== true) counted.push({ t, n: reachedCount(m) });
   }
   counted.sort((a, b) => a.t - b.t);
   const size = Number.isInteger(charge) && charge > 0 ? charge : Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
@@ -4297,11 +4514,74 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
 }
 function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 
+/* kosmos#7614: the person deletes one of their own room posts. It leaves the room for everyone (record() drops it, and
+   its reactions, from every reader), a copy still held for a busy member is never delivered, a long post's spill file
+   goes, and a member that was already given it is told, in one line that never repeats the words, to treat it as
+   withdrawn. That note is the only way a deletion can matter to an agent that has read it; it cannot undo what the
+   agent did, and the board's confirm says so. Answers { ok, code, error?, told }. */
+function withdrawnLine(post, roster) {
+  const when = Number.isFinite(Date.parse(post.at)) ? new Date(post.at).toTimeString().slice(0, 5) : 'earlier';
+  /* Review 3: the project's name, as the room shows it, with its id (what `kosmos post` takes). Lazy: projects requires
+     this module. A project that cannot be read is named by its id alone. */
+  let shown = post.project;
+  try { const p = require('./projects').get(post.project, roster || []); if (p && typeof p.name === 'string' && p.name.trim()) shown = p.name.trim() + ' (' + post.project + ')'; } catch { /* its id */ }
+  return '[from Kosmos] The person deleted their post ' + post.id + ' in project ' + shown + ' (sent ' + when
+    + '). Treat it as withdrawn. If you had started on it, stop and say in the room what you had already done.';
+}
+function unspillFor(name, id) {
+  try {
+    const dir = require('./dmfiles').ownDir(name, INBOX);
+    if (!dir) return;
+    const marker = path.join(dir, '.gitignore');
+    const m = fs.lstatSync(marker);
+    if (!m.isFile() || fs.readFileSync(marker, 'utf8') !== INBOX_MARK) return;   // only an Inbox Kosmos made
+    const file = path.join(dir, id + '.txt');
+    if (fs.lstatSync(file).isFile()) unspill(file);
+  } catch { /* nothing spilled for this member, or not ours: left as it is */ }
+}
+async function deletePostAsync({ projectId, id, roster } = {}) {
+  if (typeof projectId !== 'string' || !projectId || typeof id !== 'string' || !/^m[0-9]+$/.test(id)) {
+    return { ok: false, code: 404, error: 'there is no message by that number here', told: [] };
+  }
+  const read = record();
+  if (!read.ok) return { ok: false, code: 503, error: 'we could not read the room just now', told: [] };
+  const post = read.rows.find((m) => m && m.kind === 'post' && m.project === projectId && m.id === id);
+  if (!post) return { ok: false, code: 404, gone: true, error: 'there is no message by that number here', told: [] };   // review 5: gone, said apart from a missing project
+  if (post.operator !== true) return { ok: false, code: 403, error: 'you can delete only your own messages', told: [] };
+  appendLog({ kind: 'post-deleted', project: projectId, of: id, at: new Date().toISOString(), operator: true });
+  const outcomes = post.outcomes && typeof post.outcomes === 'object' ? post.outcomes : {};
+  const given = [];
+  for (const name of Array.isArray(post.to) ? post.to : []) {
+    if (typeof name !== 'string' || !name) continue;
+    const dropped = roomhold.dropShown(name, projectId, [id]);
+    /* Review 3: dropShown answers 0 both for "nothing held" and for a held file it could not write. Still held (the
+       write failed): it was never given, so the member is not told; it stays in the file, and a flush finds no such
+       post in the room, which no longer has it. */
+    const stillHeld = !dropped && (() => { try { return roomhold.heldIn(name, projectId).map(roomhold.plainId).includes(id); } catch { return false; } })();
+    unspillFor(name, id);
+    const was = outcomes[name];
+    /* Typed to it, or held and since told to it (its hold is gone): it may have read the post. Still held: dropped above,
+       never delivered. Quiet or refused: never typed to it, so it is not told; a quiet member may still have read the post
+       through `kosmos room`, which records no read here, and the plan's rule stands (a delete cannot undo a read). */
+    if (was === chat.DELIVERY.PLACED || was === chat.DELIVERY.UNCONFIRMED || (was === roomhold.HELD && !dropped && !stillHeld)) given.push(name);
+  }
+  const told = [];
+  const line = withdrawnLine(post, roster);
+  for (const name of given) {
+    let v = null;
+    try { v = await chat.deliverAutomaticAsync(name, line, roster); } catch { v = null; }
+    /* Typed, or kept to type later (an agent out of usage gets it when it is back): either way it will have it. */
+    if (v && typeof v.state === 'string' && v.state !== chat.DELIVERY.COULD_NOT) told.push(name);
+  }
+  return { ok: true, code: 200, told };
+}
+
 module.exports = {
   lastPostAt, recommenderNoted,   // #6341
   spillLimit,   // #6065: the longest line typed whole
   spillLine, requestIn, fitOrBare,   // #6065 N1: the shortened line, its request, and the re-measure (tests)
   HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a
+  secureLog,   // #1760
   keepTaskLine, tellTaskLineDropped, recordTaskLineOutcome,   // kosmos#5805: task messages; #5842: their outcome on the task
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2
   logRoomRefusal,       // kosmos#5752 slice 3
@@ -4314,12 +4594,14 @@ module.exports = {
   _sendWithDelivery: sendWithDelivery,
   _nextIdForTests: nextIdForTests, // #4888
   _sendPostWithDelivery: sendPostWithDelivery,
+  _restoreHeld: restoreHeld,   // kosmos#7614 review 1
   roomCap,   // #6420: the room's budget, scaled to its size (the browser check fills it)
   roomRecipientsOf,   // #6420: the room route and the browser check size a room as the valve does
   setSenderTextFilter, filteredText, // #3769
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   projectOfPost, owedElsewhere,
+  deletePostAsync,   // kosmos#7614
   react, reactionsFor, normalizeReactionEmoji, claimOf, claimMembers, claimAge, isClaimEmoji, freeClaim,
   messageIdOf, // #4631
   operatorDirect, dmAnsweredParts, operatorNowLabel, validTimeZone, roomClock,
@@ -4329,5 +4611,5 @@ module.exports = {
   suspectedMisrouteCount, confirmedNewPostCount,
   resolveSender, paneSession, paneClaim, send, sendAsync, logRefusedSend, sendPost, sendPostAsync, reopenRoom, roomHeld, list, pairCount, readLog, record, roomNote, NOTE_AUDIENCE_AGENTS, externalPost, externalKeptOn, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
-  setRunner, resetForTests, mentionedMembers, ambiguousNote,
+  setRunner, resetForTests, mentionedMembers, addressedMembers, reachedCount, ambiguousNote,
 };

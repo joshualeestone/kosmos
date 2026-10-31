@@ -25,7 +25,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { execFile, spawn } = require('node:child_process');
-const { eventually } = require('./test-support/eventually');
+const { eventually, scaleBudget } = require('./test-support/eventually');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const SCRATCH_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-4466-scratch-'));
@@ -35,7 +35,7 @@ const PAGE = '<title>Kosmos</title>Agent Workforce';
 function runCli(args, env, timeout = 40000, input) {   // input: written to the CLI's stdin, for --stdin arms
   const t0 = Date.now();
   return new Promise((resolve, reject) => {
-    const child = execFile(CLI, args, { env, timeout }, (err, stdout, stderr) => {
+    const child = execFile(CLI, args, { env, timeout: scaleBudget(timeout) }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + (err.signal || err.code) + '): killed by the harness timeout, over the output buffer, or never started. ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '', ms: Date.now() - t0 });
     });
@@ -44,7 +44,7 @@ function runCli(args, env, timeout = 40000, input) {   // input: written to the 
 }
 function bash(script, env, timeout = 40000) {
   return new Promise((resolve, reject) => {
-    execFile('/bin/bash', ['-c', script], { env, timeout }, (err, stdout, stderr) => {
+    execFile('/bin/bash', ['-c', script], { env, timeout: scaleBudget(timeout) }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('bash gave no exit code (' + (err.signal || err.code) + ') ' + (stderr || ''))); return; }
       resolve({ code: err ? err.code : 0, stdout: stdout || '', stderr: stderr || '' });
     });

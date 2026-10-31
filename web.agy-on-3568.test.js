@@ -79,7 +79,7 @@ test('#3568: the option turns on only when agy is installed, and says why when i
 test('#3568: an Antigravity agent is on antigravity, and the switch words name Gemini by subscription', () => {
   const at = PAGE.indexOf('const providerOf = (a) =>');
   const end = PAGE.indexOf("'anthropic');", at);
-  assert.ok(end > at && end - at < 400, 'providerOf moved or changed shape; re-anchor');
+  assert.ok(end > at && end - at < 700, 'providerOf moved or changed shape; re-anchor');   // #7206: one more arm (DeepSeek)
   const src = PAGE.slice(at, end + "'anthropic');".length);
   // eslint-disable-next-line no-new-func
   const f = new Function(src + '\n' + grab('function switchKeyedWord(') + '\nreturn { providerOf, switchKeyedWord };')();

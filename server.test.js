@@ -406,7 +406,7 @@ test('#4468: status answers during a 25-recipient post, and concurrent posts nev
   });
   let postSettled = false;
   const post = postJson('/api/post', {
-    project: project.id, text: 'status must stay responsive', from_pane: '%4468',
+    project: project.id, text: '@all status must stay responsive', from_pane: '%4468',   // kosmos#7246 slice 2: an agent post reaches only whom it addresses
   }).then((answer) => { postSettled = true; return answer; });
   await firstGap;
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -441,10 +441,10 @@ test('#4468: status answers during a 25-recipient post, and concurrent posts nev
 
   paneEvents.clear();
   const firstPost = postJson('/api/post', {
-    project: project.id, text: 'first concurrent post', from_pane: '%4468',
+    project: project.id, text: '@all first concurrent post', from_pane: '%4468',
   });
   const secondPost = postJson('/api/post', {
-    project: project.id, text: 'second concurrent post', from_pane: '%4468',
+    project: project.id, text: '@all second concurrent post', from_pane: '%4468',
   });
   const both = await Promise.all([firstPost, secondPost]);
   assert.ok(both.every((answer) => JSON.parse(answer.body).delivery.state === chat.DELIVERY.PLACED));
@@ -7068,10 +7068,11 @@ test('the post route resolves the project, derives the member list, and fans out
     assert.equal(r.status, 200);
     const verdict = JSON.parse(r.body).delivery;
     assert.equal(verdict.state, 'placed', 'the route did not deliver: ' + (verdict.because || ''));
-    assert.deepEqual(verdict.outcomes, { mara: 'placed', april: 'placed' },
+    // kosmos#7246 slice 2: april is still on the derived member list, but an agent post reaches only whom it addresses.
+    assert.deepEqual(verdict.outcomes, { mara: 'placed', april: 'quiet' },
       'the member list was not derived off the project record');
     const typed = pastedChunks(sends).filter((t) => t.startsWith('['));
-    assert.equal(typed.length, 2);
+    assert.equal(typed.length, 1);
     /* 🛑 THE ENVELOPE SAYS THE NAME, THE RECORD KEEPS THE ID. The project is
        created as "Route room" and stored as `routeroom`; an agent handed the
        slug looks it up among the projects its instructions list BY NAME, finds

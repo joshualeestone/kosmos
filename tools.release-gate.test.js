@@ -121,6 +121,9 @@ function sandboxEnv(dir, extra) {
      the sandbox inherited it, so step 1f (#5032, the site's /setup-staging headers) ran against a sandbox site with no
      origin and refused. An arm that wants a channel passes it in `extra`. */
   delete env.KOSMOS_CUT_CHANNEL;
+  /* 0.7.71 cut, 2026-10-27: the same for KOSMOS_CUT_LINUX=1 (kosmos#7281), which sent every arm meant to get past the
+     guards to step 1d-linux's refusal. release.sh unsets it before its suite too; this keeps the file safe run by hand. */
+  delete env.KOSMOS_CUT_LINUX;
   /* #5934: step 1c refuses a cut while KOSMOS_TEST_PART (anything but all) or KOSMOS_TEST_PART_LOCAL is set, and CI
      exports KOSMOS_TEST_PART (and KOSMOS_SHELL_SHARD) for its own part, so every arm meant to get past 1c would stop there. */
   delete env.KOSMOS_TEST_PART;
@@ -490,7 +493,7 @@ function versions_entry(version, minutesStale = 0) {
   return `<article id="v${version.replace(/\./g, '-')}"><span class="rel-d">${when}</span></article>\n`;
 }
 
-function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
+function git_sandbox(version, { diverge = 'none', whatsNewFor = null, whatsNewPoolExtra = null, whatsNewAlso = null, serviceKeys = null } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-'));
   const git = (...a) => {
     const r = spawnSync('git', ['-C', dir, ...a], { encoding: 'utf8' });
@@ -518,7 +521,12 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
      it, read through KOSMOS_PROD_POINTER_URL as a file:// URL: no network, and the check passes in place. */
   fs.copyFileSync(path.join(__dirname, 'tools', 'whats-new-pool.js'), path.join(dir, 'tools', 'whats-new-pool.js'));
   fs.mkdirSync(path.join(dir, 'release'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'release', 'whats-new-pool.json'), JSON.stringify({ lastProd: version, items: [] }));
+  /* kosmos#7617: 1b-ii also checks web/whats-new.json is what this pool builds, so the pool holds the one highlight
+     the file below carries (whatsNewPoolExtra adds one merged AFTER the list was built: the arm that must refuse). */
+  fs.writeFileSync(path.join(dir, 'release', 'whats-new-pool.json'), JSON.stringify({ lastProd: version, items: [
+    { icon: 'spark', title: 'A sandbox highlight', line: 'Here so the cut reaches the step under test.', rank: 10, since: version, status: 'pending' },
+    ...(whatsNewPoolExtra ? [whatsNewPoolExtra] : []),
+  ] }));
   fs.mkdirSync(path.join(dir, 'engine'), { recursive: true });
   fs.copyFileSync(path.join(__dirname, 'engine', 'whatsnew.js'), path.join(dir, 'engine', 'whatsnew.js'));
   /* #4160: step 1e runs browser-checks-quarantine-guard.test.js against docs/browser-checks, so the
@@ -537,7 +545,7 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
   parts[parts.length - 1] = String(Number(last) + 1).padStart(last.length, '0');
   const cutVersion = parts.join('.');
   // whatsNewFor: a file for another version (round 9: the arm that proves the real script refuses it).
-  fs.writeFileSync(path.join(dir, 'web', 'whats-new.json'), JSON.stringify({ version: whatsNewFor || cutVersion,
+  fs.writeFileSync(path.join(dir, 'web', 'whats-new.json'), JSON.stringify({ version: whatsNewFor || cutVersion, ...(whatsNewAlso ? { also: whatsNewAlso } : {}),
     highlights: [{ icon: 'spark', title: 'A sandbox highlight', line: 'Here so the cut reaches the step under test.' }] }));
   /* The site check runs before the guard, so the arms need one to get past it.
      ⚠️ IT LIVES OUTSIDE THE REPO, which is both what the real thing is (a
@@ -562,6 +570,15 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
      A PENDING FILE refuses at step 1 on "main is dirty". A hand-stamped cut leaves no
      such file and is unaffected -- an earlier version of this comment said "every cut",
      which is broader than true. */
+  /* kosmos#7568: serviceKeys (a list of SPKI keys) commits engine/service-keys.json listing them, with the check and the
+     board code it compares with, so step 1d3 asks the coordinator (KOSMOS_COORDINATOR_URL, a file:// meta the arm
+     passes). Without it no set ships and 1d3 asks nothing, as on main today. */
+  if (serviceKeys) {
+    fs.copyFileSync(path.join(__dirname, 'tools', 'check-service-keys-live.js'), path.join(dir, 'tools', 'check-service-keys-live.js'));
+    for (const f of ['servicekeys.js', 'manifest-verify.js']) fs.copyFileSync(path.join(__dirname, 'engine', f), path.join(dir, 'engine', f));
+    fs.writeFileSync(path.join(dir, 'engine', 'service-keys.json'), JSON.stringify({ type: 'kosmos-service-keys',
+      service_keys: serviceKeys.map((pub, i) => ({ kid: 'k' + i, pub, role: 'current' })), seq: 1, issued: '2026-10-29' }));
+  }
   spawnSync('git', ['init', '-b', 'main', dir], { encoding: 'utf8' });
   fs.writeFileSync(path.join(dir, '.gitignore'), '.release-entry.html\n');
   git('config', 'user.email', 'gate@example.invalid');
@@ -670,6 +687,8 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_ENTRY_FILE: undefined,
       /* 0.7.25 cut: a staging cut exports KOSMOS_CUT_CHANNEL=staging, which turned on step 1f here (see sandboxEnv). */
       KOSMOS_CUT_CHANNEL: undefined,
+      /* 0.7.71 cut: the same for KOSMOS_CUT_LINUX=1 (see sandboxEnv); release.sh unsets it before step 3 as well. */
+      KOSMOS_CUT_LINUX: undefined,
       /* #6149: these arms cut 0.6.x, below the setup floor. Under KOSMOS_ALLOW_VERSION_JUMP=1 release.sh checks the cut's
          own version against the floor, so a shell that exported it (an operator's; release.sh itself unsets it before
          step 3, so a cut never passes it here) would stop every arm past step 1 at 1a-floor: measured, 17 red. The
@@ -893,6 +912,40 @@ test('a clean tree in step with origin gets past the guard', () => {
   fs.rmSync(site, { recursive: true, force: true });
 });
 
+/* kosmos#7568: step 1d3 refuses a cut whose service key set lacks the key the coordinator answers with, before the
+   bump; the same sandbox with the key listed reaches step 2 (the control, so the refusal is the set and not the
+   fixture). The coordinator's /v1/meta is a file:// URL: no network. Its own arms: tools/test-service-keys-live-7568.sh. */
+function coordinatorMeta(key) {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-coord-'));
+  fs.mkdirSync(path.join(d, 'v1'));
+  fs.writeFileSync(path.join(d, 'v1', 'meta'), JSON.stringify({ build: 'bfdf80be3', coordinator_pubkey: key }));
+  return d;
+}
+const edKey = () => {
+  const der = require('node:crypto').generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'der' });
+  return { spki: der.toString('base64'), raw: der.subarray(12).toString('base64url') };
+};
+for (const listed of [false, true]) {
+  test(`#7568: a cut whose service key set ${listed ? 'lists' : 'lacks'} the live coordinator key ${listed ? 'gets past step 1d3' : 'is refused at step 1d3, before the bump'}`, () => {
+    const live = edKey();
+    const other = edKey();
+    const { dir, home, site } = git_sandbox('0.6.02', { serviceKeys: listed ? [other.spki, live.spki] : [other.spki] });
+    const coord = coordinatorMeta(live.raw);
+    const r = run_git(dir, '0.6.03', home, site, { env: { KOSMOS_COORDINATOR_URL: 'file://' + coord, KOSMOS_COORDINATOR_RETRIES: '0' } });
+    assert.match(r.said, /== 1d3\. the service key set this cut ships lists the live coordinator key/, 'it never reached step 1d3:\n' + r.said.slice(-600));
+    if (listed) {
+      assert.match(r.said, /is listed/, r.said.slice(-600));
+      assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not get past step 1d3');
+    } else {
+      assert.equal(r.status, 1, 'a set without the live key was not refused');
+      assert.match(r.said, new RegExp('the live coordinator key ' + live.raw + ' is NOT on the set'));
+      assert.ok(!/== 2\. the version, in one place ==/.test(r.said), 'it reached step 2 before refusing');
+      assert.equal(r.touched, false, 'it edited the version before refusing');
+    }
+    for (const d of [dir, site, coord]) fs.rmSync(d, { recursive: true, force: true });
+  });
+}
+
 /* #6149: under KOSMOS_ALLOW_VERSION_JUMP (which turns #4075's forward-only rule off) a cut naming a version below the
    setup floor is refused at step 1a-floor, before anything is bumped; without the override #4075 stands in for it, and
    the arm above (0.6.03, no override) is the control that the floor does not refuse the fixtures' own versions. */
@@ -1087,10 +1140,13 @@ test('#1455: a MALFORMED pending entry is refused at step 1, not after the build
 
 // #3955 round 9: the highlights check, driven through the REAL release.sh (the text of the call sites
 // is pinned in tools.whats-new-check-3955.test.js; these prove the script stops on the answer).
-test('#3955: a highlights file for another version stops the cut at 1b-ii, before anything is bumped', () => {
+/* kosmos#7349: since the same checks run before the cut marks itself, a refusal that is true from the start stops there,
+   not at 1b-ii. These two arms prove that stop; the '#7349' arm below reaches 1b-ii itself. */
+test('#3955: a highlights file for another version stops the cut before it marks itself (kosmos#7349), before anything is bumped', () => {
   const { dir, home, site } = git_sandbox('0.6.02', { whatsNewFor: '0.6.02' });
   const r = run_git(dir, '0.6.03', home, site);
   assert.match(r.said, /not ready for 0\.6\.03/, r.said.slice(0, 800));
+  assert.match(r.said, /stopped before marking the cut or claiming the machine \(kosmos#7349\)/, 'the refusal did not come from the early check');
   assert.doesNotMatch(r.said, /== 2\. the version, in one place ==/, 'a cut with last release\'s highlights reached step 2');
   assert.equal(r.touched, false, 'the version was bumped before the refusal');
   fs.rmSync(dir, { recursive: true, force: true });
@@ -1116,16 +1172,100 @@ test('#3955 round 11: with the opt-out set and a real highlights file for the ve
 });
 
 // #5713: step 1b-ii's prod-check, through the REAL release.sh: the pool must record what Mac prod serves.
-test('#5713: prod newer than the pool records stops the cut at 1b-ii, before anything is bumped', () => {
+test('#5713: prod newer than the pool records stops the cut before it marks itself (kosmos#7349), before anything is bumped', () => {
   const { dir, home, site } = git_sandbox('0.6.02');   // the pool records prod 0.6.02
   fs.writeFileSync(path.join(site, 'dist', 'latest.json'), JSON.stringify({ version: '0.6.05', manifest: 'kosmos-0.6.05-arm64.manifest.json' }));
   fs.writeFileSync(path.join(site, 'dist', 'kosmos-0.6.05-arm64.manifest.json'), JSON.stringify({ version: '0.6.05', app: { commit: 'b'.repeat(40) } }));
   const r = run_git(dir, '0.6.03', home, site);
   assert.match(r.said, /prod serves 0\.6\.05 but the pool records 0\.6\.02/, r.said.slice(0, 1200));
+  assert.match(r.said, /stopped before marking the cut or claiming the machine \(kosmos#7349\)/, 'the refusal did not come from the early check');
   assert.doesNotMatch(r.said, /== 2\. the version, in one place ==/, 'a cut with a stale pool reached step 2');
   assert.equal(r.touched, false, 'the version was bumped before the refusal');
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(site, { recursive: true, force: true });
+});
+
+/* kosmos#7617: a pool item merged after the list was built. The file is for the cut version and prod matches the pool, so
+   both older checks pass; only the list no longer being what the pool builds can stop it. Every other arm here is the
+   control: its file IS what its pool builds, and it gets past this check. */
+test('#7617: a list that is no longer what the pool builds stops the cut before it marks itself, before anything is bumped', (t) => {
+  const { dir, home, site } = git_sandbox('0.6.02', { whatsNewPoolExtra:
+    { icon: 'chat', title: 'Merged after the list', line: 'A pool item that landed after web/whats-new.json was built.', rank: 1, since: '0.6.02', status: 'pending' } });
+  t.after(() => { for (const d of [dir, site]) fs.rmSync(d, { recursive: true, force: true }); });
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.match(r.said, /web\/whats-new\.json is not what release\/whats-new-pool\.json builds for 0\.6\.03 now \(kosmos#7617/, r.said.slice(0, 1200));
+  assert.match(r.said, /stopped before marking the cut or claiming the machine \(kosmos#7349\)/, 'the refusal did not come from the early check');
+  assert.doesNotMatch(r.said, /not ready for 0\.6\.03|prod serves .* but the pool records/, 'CONTROL: an older check refused, so this proves nothing about #7617');
+  assert.doesNotMatch(r.said, /does not build a list for 0\.6\.03/, 'CONTROL: the build failed, so this did not compare a list');
+  assert.doesNotMatch(r.said, /== 2\. the version, in one place ==/, 'a stale list reached step 2');
+  assert.equal(r.touched, false, 'the version was bumped before the refusal');
+});
+
+test('#7617: a pool that does not build says so, not that the list is stale, before anything is bumped', (t) => {
+  const { dir, home, site } = git_sandbox('0.6.02', { whatsNewPoolExtra:
+    // Loads (so prod-check, which reads the pool too, passes), but the window cannot show it, so build exits 3.
+    { icon: 'chat', title: 'An item with no line', line: '', rank: 1, since: '0.6.02', status: 'pending' } });
+  t.after(() => { for (const d of [dir, site]) fs.rmSync(d, { recursive: true, force: true }); });
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.match(r.said, /the What's New pool does not build a list for 0\.6\.03 \(kosmos#7617, build exit [1-9]/, r.said.slice(0, 1200));
+  assert.match(r.said, /"An item with no line" is not one the window can show/, 'the build\'s own reason was not shown');
+  assert.doesNotMatch(r.said, /is not what release\/whats-new-pool\.json builds/, 'a build failure was reported as a stale list');
+  assert.doesNotMatch(r.said, /== 2\. the version, in one place ==/, 'a pool that does not build reached step 2');
+  assert.equal(r.touched, false, 'the version was bumped before the refusal');
+});
+
+/* The positive control for "also" (#4928): a file for another version that names the cut version in "also" passes
+   whats-new-check, and its highlights are still what the pool builds, so the freshness check must not refuse it for its
+   "version" field. It reaches 1b-ii, says the list is fresh there, and goes on. */
+test('#7617: a list shared through "also" that matches the pool goes through, and 1b-ii says it is fresh', (t) => {
+  const { dir, home, site } = git_sandbox('0.6.02', { whatsNewFor: '0.6.02', whatsNewAlso: ['0.6.03'] });
+  t.after(() => { for (const d of [dir, site]) fs.rmSync(d, { recursive: true, force: true }); });
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.doesNotMatch(r.said, /kosmos#7617, build exit|is not what release\/whats-new-pool\.json builds/, r.said.slice(0, 1200));
+  assert.match(r.said, /web\/whats-new\.json is what release\/whats-new-pool\.json builds for 0\.6\.03 \(kosmos#7617\)/, r.said.slice(0, 2000));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'a fresh "also" list did not get past the check');
+});
+
+test('#7617: the same stale list goes through with KOSMOS_CUT_NO_WHATS_NEW=1, as the opt-out skips every What\'s New check', (t) => {
+  const { dir, home, site } = git_sandbox('0.6.02', { whatsNewPoolExtra:
+    { icon: 'chat', title: 'Merged after the list', line: 'A pool item that landed after web/whats-new.json was built.', rank: 1, since: '0.6.02', status: 'pending' } });
+  t.after(() => { for (const d of [dir, site]) fs.rmSync(d, { recursive: true, force: true }); });
+  const r = run_git(dir, '0.6.03', home, site, { noWhatsNew: true });
+  assert.doesNotMatch(r.said, /kosmos#7617/, r.said.slice(0, 800));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'the opt-out did not get past the check');
+});
+
+/* kosmos#7349: 1b-ii still refuses on its own, for a pool that falls behind AFTER the early check (a promote deployed
+   while the cut waited on the machine). A stand-in curl, first on PATH, answers the prod pointer's URL with the
+   recorded prod on its first read and a newer one after; every other URL goes to the real curl. */
+test('#7349: prod moving on after the early check still stops the cut AT 1b-ii, before anything is bumped', (t) => {
+  const { dir, home, site } = git_sandbox('0.6.02');   // the pool records prod 0.6.02, and the site serves it
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-curlstub-'));
+  t.after(() => { for (const d of [dir, site, bin]) fs.rmSync(d, { recursive: true, force: true }); });   // a red arm too
+  const url = 'file://' + path.join(site, 'dist', 'latest.json');
+  fs.writeFileSync(path.join(bin, 'later.json'), JSON.stringify({ version: '0.6.05', manifest: 'kosmos-0.6.05-arm64.manifest.json' }));
+  const realCurl = spawnSync('/bin/sh', ['-c', 'command -v curl'], { encoding: 'utf8' }).stdout.trim();
+  assert.ok(realCurl, 'no curl on PATH to fall back to');
+  fs.writeFileSync(path.join(bin, 'curl'), [
+    '#!/bin/sh',
+    'for a in "$@"; do',
+    `  if [ "$a" = '${url}' ]; then`,
+    `    n=$(cat '${bin}/n' 2>/dev/null || echo 0); echo $((n + 1)) > '${bin}/n'`,
+    `    if [ "$n" = 0 ]; then exec '${realCurl}' "$@"; fi`,
+    `    cat '${bin}/later.json'; exit 0`,
+    '  fi',
+    'done',
+    `exec '${realCurl}' "$@"`,
+    '',
+  ].join('\n'), { mode: 0o755 });
+  const r = run_git(dir, '0.6.03', home, site, { env: { PATH: bin + ':' + process.env.PATH } });
+  const reads = fs.existsSync(path.join(bin, 'n')) ? Number(fs.readFileSync(path.join(bin, 'n'), 'utf8')) : 0;
+  assert.equal(reads, 2, 'the prod pointer was not read once early and once at 1b-ii: ' + reads + '\n' + r.said.slice(-800));
+  assert.doesNotMatch(r.said, /stopped before marking the cut/, 'CONTROL: the early check refused, so this did not reach 1b-ii');
+  assert.match(r.said, /== 1b-ii\. the What's new highlights are for this version/, r.said.slice(-1200));
+  assert.match(r.said, /prod serves 0\.6\.05 but the pool records 0\.6\.02/, r.said.slice(-1200));
+  assert.doesNotMatch(r.said, /== 1c\./, 'a pool that fell behind reached step 1c');
+  assert.equal(r.touched, false, 'the version was bumped before the refusal');
 });
 
 test('#5713: prod that cannot be read is a NOTE, and the cut goes on; CONTROL: a pool that records prod says nothing', () => {

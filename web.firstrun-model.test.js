@@ -465,13 +465,14 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
      The reassurance clause is unformatted and unique to the Settings warning
      (first run carries no such promise, asserted just below), so it still counts
      the warning exactly once and survives the formatting change. */
-  const settingsWarning = page.match(/It stays on this computer with the OpenAI runner[^<]*/g) || [];
+  // kosmos#7640: "this computer" sits in a data-cloud-copy span (a cloud machine says "your cloud machine").
+  const settingsWarning = page.match(/It stays on <span data-cloud-copy="thisMachine">this computer<\/span> with the OpenAI runner[^<]*/g) || [];
   assert.equal(settingsWarning.length, 1,
     'Settings should carry exactly one key warning, and it is missing or duplicated');
 
   const firstRunFlow = page.match(/id="fr-openai-flow"[\s\S]*?<div class="frow">\s*<input/);
   assert.ok(firstRunFlow, 'could not find the first-run key step to check it makes no promise');
-  assert.ok(!/It stays on this computer/.test(firstRunFlow[0]),
+  assert.ok(!/It stays on (?:<span[^>]*>)?this computer/.test(firstRunFlow[0]),   // kosmos#7640: the span form too, or this could never fail
     'first run makes a promise about the key again; Josh removed that line deliberately (#1207)');
   assert.match(els['fr-openai-msg'].innerHTML, /is connected/, 'the connected box should still say it is connected');
   assert.match(els['fr-openai-msg'].innerHTML, /cd34/, 'the connected box names the key tail it read');
@@ -734,7 +735,7 @@ test('no button whose whole label is "Connect" goes unnamed', () => {
 /* #5856 (Josh set the Play audience to 13+): Claude's terms are 18+, so the model step tells a teen who
    they can pick instead, and asks no age. The list names Meta Muse only where a person can pick it. */
 test('#5856: the model step says Claude is 18+ and names who an under-18 can choose', () => {
-  assert.match(STEP, /<p class="fr-age" id="fr-age">Claude and Gemini need you to be 18 or over, and so do API keys\. If you are under 18, choose <span id="fr-age-list">OpenAI or Grok<\/span> and sign in with your own account, with a parent's permission\. Age rules vary by country\.<\/p>/,
+  assert.match(STEP, /<p class="fr-age" id="fr-age"(?: data-cloud-hide)?>Claude and Gemini need you to be 18 or over, and so do API keys\. If you are under 18, choose <span id="fr-age-list">OpenAI or Grok<\/span> and sign in with your own account, with a parent's permission\. Age rules vary by country\.<\/p>/,
     'the under-18 sentence is not on the model step as written');
   assert.doesNotMatch(STEP, /\b(how old|your age|date of birth|birthday)\b/i, 'the model step asks an age, which #5856 ruled out');
 });

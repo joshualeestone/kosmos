@@ -1,0 +1,115 @@
+# kosmos#7281 slice E: a STOCK Ubuntu 24.04 installs the Linux x86_64 family from the SERVED installer and pointer,
+# and Kosmos runs on what it brought: its own node and its own Plus connector, with no system node to lean on.
+#
+# Different from test-linux-setup-4920.yml, which installs THIS checkout (KOSMOS_SRC, the portable bundle and a system
+# node): this one runs `curl <site>/setup-staging | sh` exactly as a person or a Kosmos cloud machine does, so it tests
+# what a cut published (the tarball, its signed manifest, the pointer and the installer together).
+#
+# RUN BY HAND, after a staging cut that published the Linux family (KOSMOS_CUT_LINUX=1):
+#     gh workflow run linux-family-install-7281.yml -f channel=staging
+# Not on pull requests: it reads the live site, so a PR cannot change what it tests. Until the first Linux cut there is
+# no Linux pointer and the installer keeps the portable bundle; the first step then says so and stops red on purpose.
+
+name: linux-family-install
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'staging or prod'
+        required: true
+        default: staging
+      site:
+        description: 'the site to install from'
+        required: true
+        default: https://installkosmos.com
+
+permissions:
+  contents: read
+
+# kosmos#6742 / #5519: this board must not count as an install. Only AGENT_WORKFORCE_CREATED_URL reaches a board systemd
+# runs (engine/linuxboard.js puts it in the unit; asserted below); the other two cover anything started from a step.
+env:
+  AGENT_WORKFORCE_CREATED_URL: http://127.0.0.1:9/api/created
+  AGENT_WORKFORCE_FEEDBACK_URL: http://127.0.0.1:9/api/feedback
+  AGENT_WORKFORCE_COMMUNITY_URL: http://127.0.0.1:9
+  KOSMOS_NO_OPEN: '1'
+  KOSMOS_PORT: '16180'
+
+jobs:
+  install:
+    # The stock image the Linux family is built for (glibc 2.39; the family's floor is 2.35).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: The channel publishes the Linux family
+        run: |
+          case "${{ inputs.channel }}" in staging) P=latest-linux-staging.json; S=setup-staging ;; prod) P=latest-linux.json; S=setup ;; *) echo "channel must be staging or prod" >&2; exit 1 ;; esac
+          echo "PTR=$P" >> "$GITHUB_ENV"; echo "SETUP=$S" >> "$GITHUB_ENV"
+          body="$(curl -fsS -m 30 "${{ inputs.site }}/dist/$P")" || { echo "no $P is served: the Linux family has not been cut on this channel yet (KOSMOS_CUT_LINUX=1)" >&2; exit 1; }
+          echo "$body"
+          V="$(printf '%s' "$body" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' | head -1)"   # setup.sh's own read
+          test -n "$V"
+          echo "WANT_VERSION=$V" >> "$GITHUB_ENV"
+
+      - name: Hide every system node, so the install must bring its own
+        run: |
+          # The hosted image has node on PATH (and in the tool cache); a Linux-family install must not need it.
+          for n in $( (which -a node nodejs 2>/dev/null || true) | sort -u); do sudo mv "$n" "$n.hidden-7281" && echo "$n" >> "$RUNNER_TEMP/hidden-nodes-7281"; done
+          if command -v node >/dev/null 2>&1; then echo "FAIL: a system node is still on PATH: $(command -v node)" >&2; exit 1; fi
+          echo "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" >> "$GITHUB_ENV"
+
+      - name: Prepare the systemd user session (as a person's login has)
+        run: |
+          sudo loginctl enable-linger "$USER" || true
+          sudo systemctl start user@"$(id -u)".service || true
+          mkdir -p "/run/user/$(id -u)"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+
+      - name: Install from the served installer, as a person does
+        # sh, not bash: on Ubuntu sh is dash, the shell `curl ... | sh` really meets.
+        run: |
+          if [ "${{ inputs.channel }}" = staging ]; then export KOSMOS_UPDATE_CHANNEL=staging; fi
+          # Review 1: the bytes come from the same site as the pointer checked above (setup.sh defaults to installkosmos.com).
+          export KOSMOS_RELEASE_BASE="${{ inputs.site }}/dist"
+          curl -fsSL "${{ inputs.site }}/$SETUP" | sh
+
+      - name: It installed the Linux family, and runs on its own pieces
+        run: |
+          K="$HOME/.local/share/kosmos"
+          # Its own node: a regular file (the portable bundle links a system one in), an ELF for x86-64, and it runs.
+          test -f "$K/runtime/bin/node"
+          test ! -L "$K/runtime/bin/node"
+          file -b "$K/runtime/bin/node" | grep -q 'ELF 64-bit.*x86-64'
+          "$K/runtime/bin/node" --version
+          # Its own Plus connector, Linux x86-64, and it starts.
+          test -x "$K/app/bin/kosmos-tunnel"
+          file -b "$K/app/bin/kosmos-tunnel" | grep -q 'ELF 64-bit.*x86-64'
+          "$K/app/bin/kosmos-tunnel" --help >/dev/null 2>&1 || "$K/app/bin/kosmos-tunnel" --version
+          # The version the pointer named.
+          got="$("$K/runtime/bin/node" -p 'require(process.argv[1]).version' "$K/app/package.json")"
+          echo "installed $got, pointer $WANT_VERSION"
+          test "$got" = "$WANT_VERSION"
+          # The installer stamped the channel it was given (#7281 review 2 of slice B fixed a staging install stamped prod).
+          grep -qx "${{ inputs.channel }}" "$HOME/Library/Application Support/Kosmos/source-channel"
+
+      - name: The board serves
+        run: |
+          K="$HOME/.local/share/kosmos"
+          ok=""; for i in $(seq 1 30); do curl -fsS -m 5 "http://127.0.0.1:$KOSMOS_PORT/" >/dev/null && { ok=1; break; }; sleep 2; done
+          "$K/bin/kosmos" status || true
+          if [ -z "$ok" ]; then echo "FAIL: the board did not answer on $KOSMOS_PORT" >&2; systemctl --user status kosmos-board.service || true; exit 1; fi
+          # Review 1: systemd runs it (not a loose board setup.sh started itself), as test-linux-setup-4920.yml asserts.
+          test "$(systemctl --user is-active kosmos-board.service)" = active
+          # And this install does not count: the unit, and the board systemd runs, carry the dead beacon address.
+          UNIT_FILE="$HOME/.config/systemd/user/kosmos-board.service"
+          grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$UNIT_FILE"
+          BPID="$(systemctl --user show -p MainPID --value kosmos-board.service)"
+          if [ -z "$BPID" ] || [ "$BPID" = 0 ]; then echo "FAIL: systemd reports no running board" >&2; exit 1; fi
+          BENV="$(tr '\0' '\n' < "/proc/$BPID/environ")"
+          grep -qxF "AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" <<< "$BENV"
+
+      - name: Put the system node back (the runner is discarded, but say so plainly)
+        if: always()
+        # Review 2: from the list the hide step wrote (PATH was reset after hiding, so scanning it would miss some).
+        run: if [ -f "$RUNNER_TEMP/hidden-nodes-7281" ]; then while read -r n; do sudo mv "$n.hidden-7281" "$n" || true; done < "$RUNNER_TEMP/hidden-nodes-7281"; fi

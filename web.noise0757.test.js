@@ -21,6 +21,9 @@ function paragraphById(id) {
 }
 
 const SUBSCRIPTION_SENTENCE = 'Your agents then run on your own subscription, on this computer.';
+/* kosmos#7640: "this computer" in these sentences sits in a data-cloud-copy span (a cloud machine says "your cloud
+   machine"), so the sentence is counted as a person reads it: the page with that one span's tags taken out. */
+const READ = PAGE.replace(/<span data-cloud-copy="thisMachine">this computer<\/span>/g, 'this computer');
 
 test('#6517: the subscription bar says its one fact and no idle count', () => {
   assert.ok(PAGE.includes("'Kosmos cannot reach a Claude subscription on this computer.'"), 'CONTROL: the bar lost its first sentence');
@@ -58,7 +61,7 @@ test('#6520: the not-yet-expired login notice has no sentence beside Refresh log
 });
 
 test('#6521: the first-run sign-in panels do not repeat the Model step lead; Settings keeps the sentence', () => {
-  assert.ok(PAGE.includes('<p>Your agents run on your own subscription, on this computer.</p>'), 'CONTROL: the step lead is gone');
+  assert.ok(READ.includes('<p>Your agents run on your own subscription, on this computer.</p>'), 'CONTROL: the step lead is gone');
   for (const id of ['fr-openai-sub-t', 'fr-gemini-sub-t', 'fr-grok-sub-t']) {
     const p = paragraphById(id);
     assert.match(p, /Sign in with your/, 'CONTROL: ' + id + ' is not the sign-in panel');
@@ -68,7 +71,7 @@ test('#6521: the first-run sign-in panels do not repeat the Model step lead; Set
   assert.ok(windowsFirstRun, 'the Windows first-run copy is gone');
   assert.ok(!windowsFirstRun[1].includes('own subscription'), 'the Windows first-run copy still repeats the step lead');
   // Settings > AI Models has no lead above its panels, so its three panels and the Windows Settings copy keep it.
-  assert.equal(PAGE.split(SUBSCRIPTION_SENTENCE).length - 1, 4, 'CONTROL: the Settings sentence count changed');
+  assert.equal(READ.split(SUBSCRIPTION_SENTENCE).length - 1, 4, 'CONTROL: the Settings sentence count changed');
 });
 
 test('#6522: add a computer says each thing once', () => {

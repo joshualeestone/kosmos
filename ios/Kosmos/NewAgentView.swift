@@ -1,0 +1,1231 @@
+import PhotosUI
+import SwiftUI
+
+// kosmos#7488: + on Agents opens this full-height sheet, Mona Lisa's phone design of the desktop's New Agent (#4554):
+// What would you like to create? -> What should this agent do? -> Set up your agent -> Making it -> Say hello. Cancel is
+// top left on the first screen, Back on the others, and each screen's one action is a full-width button pinned at the
+// bottom. The lists come from the board (NewAgent.rolesRequest); the request is the desktop's (NewAgent.createRequest).
+// Team is native too (NewTeam): a ready-made team, its project and model, then each member made, the lead first.
+struct NewAgentView: View {
+    @ObservedObject var client: BoardClient
+    let opened: (_ session: String, _ shownAs: String) -> Void   // Say hello: the new agent's chat (a team's lead)
+    // The projects a new agent was put on, told by the app once the board sees it, so leaving this sheet early loses none.
+    // A made agent's projects to tell and picture to set, both done by the app once the board sees the agent, so
+    // leaving this sheet early loses neither.
+    let afterMade: (_ session: String, _ projects: [String], _ picture: AgentPicture.Pending) -> Void
+    // A team run outlives this sheet; held by the app so a sheet opened meanwhile does not start the same team again.
+    @Binding var teamBusy: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    enum Step: Hashable { case role, otherRoles, setup, made, team, teamMade }
+    @State private var path: [Step] = []
+    @State private var draft = NewAgent.Draft()
+    @State private var catalogue: NewAgent.Catalogue?
+    @State private var loading = false
+    @State private var loadFailed = false
+    @State private var sending = false
+    @State private var message: String?
+    @State private var made: (session: String, shownAs: String)?
+    @State private var seen = false
+    @State private var timedOut = false          // 30 s and the board still cannot see it (the desktop's "has not come up")
+    @State private var madeWarnings: [String] = []      // what the single agent did not get (NewAgent.madeWarnings)
+    @State private var memberWarnings: [String: [String]] = [:]   // the same, per team member
+    @State private var helloTimer: Task<Void, Never>?   // started by the create, not by the screen, so a redraw cannot restart it
+    @State private var leadTimedOut = false             // the team's lead made, and 30 s on the board still cannot see it
+    @State private var leadTimer: Task<Void, Never>?
+    @State private var unsureName: String?              // a create with no answer under this name: not sent again as it is
+    @State private var lastLabel = ""     // the role title the Role field was last filled with (still untouched if equal)
+    // The Team path (NewTeam).
+    @State private var teams: [NewTeam.Team]?
+    @State private var teamsFailed = false
+    @State private var teamKey: String?
+    @State private var detail: NewTeam.Detail?
+    @State private var detailFailed = false
+    @State private var names: [String: String] = [:]
+    @State private var projects: [Board.ProjectRow] = []
+    @State private var projectChoice: NewTeam.ProjectChoice = .new
+    @State private var newProjectName = ""
+    @State private var madeProject: String?      // the project this team's run made, kept for a Try again
+    @State private var teamStarted = false       // the desktop's TC.started: the names were checked and making began
+    @State private var states: [String: NewTeam.State] = [:]
+    @State private var teamRunning = false
+    @State private var teamMessage: String?
+    @State private var maybeMade: [String: String] = [:]   // slot: the session a create with no answer may have made
+    @State private var loadingTeams = false
+    @State private var gone = false
+    @State private var photoPick: PhotosPickerItem?
+    @FocusState private var nameFocus: String?       // the team member whose name has the cursor
+    @State private var markImage: UIImage?           // the mark for markName, drawn once per name, not per redraw
+    @State private var markName = ""
+    @State private var photoLoad = 0                 // the newest pick: an older one finishing late is not used
+    @State private var photoImage: UIImage?          // the chosen picture, decoded once
+    @State private var photoLoading = false          // a pick still being fitted: Create waits, or it would go without it
+    @State private var photoMessage: String?         // why a pick could not be used, said beside the picture
+    @State private var markTask: Task<Void, Never>?
+    #if DEBUG
+    @State private var sampleBottom = false          // design shots: the team screen scrolled to its foot
+    @State private var sampleModelTop = false        // kosmos#7502 design shots: the team's Model group at the top
+    #endif
+    @State private var projectUnsure = false         // a new project's create got no answer: look before making another
+    @State private var teamProject: String?            // the project this run's members go on, for a member adopted later
+    @State private var checkedNames: [String: String] = [:]   // the names the board checked free, by slot
+    // kosmos#7502: the provider, account and model choice (NewAgentPicker), from the board's reads.
+    @State private var pickAccounts = NewAgentPicker.Accounts()
+    @State private var pickReady = NewAgentPicker.Readiness()
+    @State private var provider: NewAgentPicker.Provider = .anthropic
+    @State private var providerTouched = false        // the desktop's CREATE_PROVIDER_TOUCHED: a pick, not the default
+    // Review 1: the account chosen per provider, and the OpenAI model chosen per account, so a change of either never
+    // carries a pick made for another (the desktop repaints to "Let OpenAI choose" on an account change), and a pick
+    // still offered survives a later read or a visit to another step (tcApplyLateAccounts keeps it).
+    @State private var accountFor: [NewAgentPicker.Provider: String] = [:]
+    @State private var openaiModelsFor: [String: NewAgentPicker.OpenaiModels] = [:]   // by account dir, as read
+    @State private var openaiModelFor: [String: String] = [:]                        // by account dir; "" is Let OpenAI choose
+    @State private var openaiRead = 0                 // the newest models read: an older one landing late is dropped
+    @State private var openaiReading: String?         // review 3: the account whose list is being read now
+    @State private var pickGoneWhy: String?           // a pick the menu no longer allows, put back and said
+    @State private var accountsSettled = false
+    @State private var pickerOnTeam = false            // review 8: which screen's .task last read the picker        // review 1: /api/accounts answered or failed, or 5 s went by
+    // Review 1: the team's choice as its first run made members on it (the desktop's TC.model); Try again uses it.
+    @State private var teamChoice: (provider: NewAgentPicker.Provider, account: String, model: String)?
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            kindScreen
+                .navigationTitle("")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+                .navigationDestination(for: Step.self) { step in
+                    switch step {
+                    case .role: roleScreen
+                    case .otherRoles: otherRolesScreen
+                    case .setup: setupScreen
+                    case .made: madeScreen
+                    case .team: teamScreen
+                    case .teamMade: teamMadeScreen
+                    }
+                }
+        }
+        // The app's ink, as the tabs have it: this sheet is shown above them, so it does not inherit their tint.
+        .tint(Palette.primary)
+        .textCase(nil)   // the desktop's sentences as headers, not capitals
+        .interactiveDismissDisabled(sending || (made != nil && !seen && !timedOut) || teamRunning)
+        .onChange(of: client.agents) { rows in agentsChanged(rows) }
+        // As the desktop's refillDetails: another role starts from the mark again, not a photo chosen for the last one.
+        // Here, on the sheet, because the role is changed on a screen before Set up.
+        .onChange(of: draft.roleKey) { _ in
+            photoLoad += 1; photoLoading = false   // a photo still being fitted was for the last role
+            draft.photo = nil; photoImage = nil; photoMessage = nil; markName = ""; markImage = nil
+            redrawMark()
+        }
+        // A team run is not cancelled: the person asked for the whole team, so it finishes off screen (the lock closes
+        // this sheet), and its project tells go through the app. Only the timers stop.
+        .onDisappear { helloTimer?.cancel(); leadTimer?.cancel(); gone = true }
+        .onAppear { gone = false }
+        .task {
+            #if DEBUG
+            if showSample() { return }
+            #endif
+            await loadCatalogue()
+        }
+    }
+
+    #if DEBUG
+    // Design shots only: KOSMOS_SAMPLE_NEWAGENT=kind|role|own|setup|swarm|made|notup|team|teambottom|teammade opens that screen on a sample catalogue,
+    // since a simulator run has no board to read the roles from.
+    private func showSample() -> Bool {
+        guard let at = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWAGENT"], !at.isEmpty else { return false }
+        let json = #"""
+        {"models":[{"key":"opus","provider":"anthropic","label":"Claude Opus","default":false},{"key":"sonnet","provider":"anthropic","label":"Claude Sonnet","default":true}],
+         "own":{"key":"own","instructions":"You are **{{NAME}}**, an assistant.\n\nYou take on what they hand you and work it through to something they can use."},
+         "roles":[{"key":"pm","label":"Project Manager","blurb":"Breaks down work, assigns tasks, and briefs your other agents","group":"Running the work"},
+                  {"key":"writer","label":"Writer","blurb":"Drafts posts, pages and emails","group":"Words"},
+                  {"key":"editor","label":"Editor","blurb":"Tightens and checks what others wrote","group":"Words"},
+                  {"key":"researcher","label":"Researcher","blurb":"Finds and sums up what is known","group":"Finding things out"}]}
+        """#
+        guard let c = NewAgent.parseCatalogue(Data(json.utf8), swarms: true) else { return false }
+        catalogue = c
+        draft.model = c.defaultModel?.key ?? ""
+        switch at {
+        case "role": draft.roleKey = "pm"; path = [.role]
+        case "own": draft.roleKey = "own"; draft.ownWords = NewAgent.ownExample(c); path = [.role]
+        case "setup", "setupbottom": sampleBottom = at == "setupbottom"; draft.roleKey = "pm"; draft.name = "Ada"; draft.label = "Project Manager"; lastLabel = draft.label; path = [.role, .setup]
+        case "swarm": draft.kind = .swarm; draft.roleKey = "researcher"; draft.name = "Finch"; draft.label = "Researcher"; lastLabel = draft.label; path = [.role, .setup]
+        case "made": draft.name = "Ada"; made = ("ada", "Ada"); seen = true; path = [.role, .setup, .made]
+        case "notup": draft.name = "Ada"; made = ("ada", "Ada"); timedOut = true; path = [.role, .setup, .made]
+        case "team", "teammade", "teambottom", "teammodel":
+            sampleBottom = at == "teambottom" || at == "teammodel"
+            sampleModelTop = at == "teammodel"
+            teams = NewTeam.parseTeams(Data(#"{"teams":[{"key":"marketing","label":"Marketing","blurb":"Plans and runs your campaigns","count":3},{"key":"support","label":"Customer Support","blurb":"Answers your customers","count":3}]}"#.utf8))
+            detail = NewTeam.parseDetail(Data(#"{"team":{"key":"marketing","label":"Marketing","purpose":"A lead who plans the campaigns, and two who make them.","project":{"name":"Marketing"},"lead":"head"},"members":[{"slot":"head","title":"Head of Marketing","name":"Maya","reportsTo":null},{"slot":"writer","title":"Copywriter","name":"Wes","reportsTo":"lead"},{"slot":"social","title":"Social Media Manager","name":"Sol","reportsTo":"lead"}]}"#.utf8))
+            teamKey = "marketing"
+            names = ["head": "Maya", "writer": "Wes", "social": "Sol"]
+            newProjectName = "Marketing"
+            if at == "teammade" {
+                states = ["head": .made(session: "maya", shownAs: "Maya"), "writer": .making, "social": .waiting]
+                path = [.team, .teamMade]
+            } else { path = [.team] }
+        default: break
+        }
+        return true
+    }
+    #endif
+
+    // MARK: 1. What would you like to create?
+
+    private var kinds: [NewAgent.Kind] { client.swarmsOn || catalogue?.swarms == true ? [.single, .team, .swarm] : [.single, .team] }
+
+    private var kindScreen: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(NewAgent.Words.kindTitle).font(.title2.weight(.semibold)).foregroundColor(Palette.primary)
+                    .padding(.bottom, 4).accessibilityAddTraits(.isHeader)
+                ForEach(kinds) { kind in
+                    Button { choose(kind) } label: { KindCard(kind: kind) }
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(16)
+        }
+        .background(Palette.ground.ignoresSafeArea())
+    }
+
+    private func choose(_ kind: NewAgent.Kind) {
+        if kind == .team {
+            draft.kind = .single   // a team is never a swarm; only its model is read from the draft
+            path = [.team]
+            if teams == nil { Task { await loadTeams() } }
+            return
+        }
+        if draft.kind != kind {
+            draft.kind = kind
+            // Josh: a recommended Project Manager makes no sense for a swarm, so a swarm starts with nothing picked.
+            if kind == .swarm, draft.roleKey == catalogue?.recommended?.key { draft.roleKey = nil }
+        }
+        if draft.roleKey == nil, kind == .single { draft.roleKey = catalogue?.recommended?.key }
+        path = [.role]
+    }
+
+    // MARK: 2. What should this agent do?
+
+    private var roleScreen: some View {
+        List {
+            Section {
+                Text(NewAgent.Words.roleHint).font(.subheadline).foregroundColor(Palette.secondary)
+                    .listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 4, trailing: 4))
+            }
+            if let c = catalogue {
+                Section {
+                    if draft.kind != .swarm, let rec = c.recommended {
+                        pickRow(title: rec.label, line: nil, picked: draft.roleKey == rec.key) { draft.roleKey = rec.key }
+                    }
+                    let other = otherPicked(c)
+                    NavigationLink(value: Step.otherRoles) {
+                        pickLabel(title: NewAgent.Words.pickAnother, line: other?.label, picked: other != nil)
+                    }
+                    .accessibilityAddTraits(other != nil ? [.isSelected] : [])
+                    if let caution = NewAgent.caution(other, kind: draft.kind) {
+                        Text(caution).font(.footnote).foregroundColor(Palette.askedWord)
+                    }
+                    if c.own != nil {
+                        pickRow(title: NewAgent.Words.ownName, line: NewAgent.Words.ownLine, picked: draft.roleKey == "own") {
+                            draft.roleKey = "own"
+                            if NewProject.trimmed(draft.ownWords).isEmpty { draft.ownWords = NewAgent.ownExample(c) }
+                        }
+                        if draft.roleKey == "own" {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(NewAgent.Words.ownFull).font(.footnote).foregroundColor(Palette.secondary)
+                                TextEditor(text: $draft.ownWords)
+                                    .frame(minHeight: 160)
+                                    .accessibilityLabel(NewAgent.Words.ownLine)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Section { loadingRow }
+            }
+        }
+        .navigationTitle(NewAgent.Words.roleTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom) {
+            pinned(NewAgent.Words.continueWord, enabled: catalogue.map { NewAgent.canContinueRole(draft, $0) } ?? false) {
+                fillLabel()
+                path.append(.setup)
+            }
+        }
+    }
+
+    private func otherPicked(_ c: NewAgent.Catalogue) -> NewAgent.Role? {
+        guard let key = draft.roleKey, key != "own" else { return nil }
+        if draft.kind != .swarm, key == c.recommended?.key { return nil }
+        return c.role(key)
+    }
+
+    // The Role field starts as the picked role's title, and follows a new pick until the person has typed their own.
+    private func fillLabel() {
+        guard let c = catalogue, let role = c.role(draft.roleKey) else { return }
+        let title = role.key == "own" ? "" : role.label
+        if draft.label.isEmpty || draft.label == lastLabel { draft.label = title; lastLabel = title }
+    }
+
+    private var otherRolesScreen: some View {
+        List {
+            if let c = catalogue {
+                ForEach(c.groups, id: \.name) { group in
+                    Section(group.name) {
+                        ForEach(group.roles.filter { draft.kind == .swarm || $0.key != c.recommended?.key }) { role in
+                            pickRow(title: role.label, line: role.blurb.isEmpty ? nil : role.blurb, picked: draft.roleKey == role.key) {
+                                draft.roleKey = role.key
+                                path.removeLast()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(NewAgent.Words.pickAnother)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: 2b. Create a Team of Agents
+
+    private var teamScreen: some View {
+        ScrollViewReader { proxy in
+        Form {
+            Section {
+                Text(NewTeam.Words.hint).font(.subheadline).foregroundColor(Palette.secondary)
+                    .listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 4, trailing: 4))
+            }
+            Section(NewTeam.Words.pick) {
+                if let teams {
+                    if teams.isEmpty { Text(NewTeam.Words.none).foregroundColor(Palette.secondary) }
+                    ForEach(teams) { t in
+                        pickRow(title: t.label, line: t.blurb.isEmpty ? nil : t.blurb, picked: teamKey == t.key) {
+                            guard !teamLocked, madeProject == nil, teamKey != t.key else { return }
+                            teamKey = t.key
+                            Task { await loadDetail(t.key) }
+                        }
+                    }
+                } else if teamsFailed {
+                    HStack { Text(NewTeam.Words.teamsUnread).foregroundColor(Palette.secondary); Spacer()
+                        Button(NewTeam.Words.tryAgain) { Task { await loadTeams() } } }
+                } else {
+                    ProgressView()
+                }
+            }
+            if let detail, detail.key == teamKey {
+                Section {
+                    if !detail.purpose.isEmpty { Text(detail.purpose).font(.footnote).foregroundColor(Palette.secondary) }
+                    if let caution = detail.caution { Text(caution).font(.footnote).foregroundColor(Palette.askedWord) }
+                    ForEach(detail.members) { m in
+                        nameField(m, editable: !teamLocked,
+                                  line: NewTeam.Words.reportsTo(m.title, m.isLead ? NewAgent.Words.you : leadName(detail)))
+                            .disabled(teamLocked)
+                    }
+                } header: { Text(detail.label) }
+                Section(NewTeam.Words.project) {
+                    Picker(NewTeam.Words.project, selection: $projectChoice) {
+                        Text(NewTeam.Words.newProject(newProjectName)).tag(NewTeam.ProjectChoice.new)
+                        Text(NewTeam.Words.noProject).tag(NewTeam.ProjectChoice.none)
+                        ForEach(projects.filter { !$0.archived }) { p in Text(p.name).tag(NewTeam.ProjectChoice.existing(p.id)) }
+                    }
+                    .labelsHidden()
+                    .disabled(teamLocked || madeProject != nil)   // a made project is the team's; it is not left empty
+                }
+                // kosmos#7502: the same choice for the whole team (the desktop's tc-provider, tc-account, tc-model).
+                modelChoice(soft: NewTeam.Words.modelSoft, locked: teamChoiceFixed)
+                    .id("teamModel")
+                if catalogue == nil { Section { loadingRow } }   // the models come with the roles: Try again is here too
+            } else if teamKey != nil {
+                Section {
+                    if detailFailed {
+                        HStack { Text(NewTeam.Words.teamsUnread).foregroundColor(Palette.secondary); Spacer()
+                            Button(NewTeam.Words.tryAgain) { if let k = teamKey { Task { await loadDetail(k) } } } }
+                    } else { ProgressView() }
+                }
+            }
+            if let teamMessage {
+                Section { Text(teamMessage).foregroundColor(Palette.dangerWord) }
+            }
+            if teamBusy && !teamRunning {
+                Section { Text(NewTeam.Words.stillMaking).foregroundColor(Palette.secondary) }
+            }
+        }
+        #if DEBUG
+        // Design shots only: the sample's team screen scrolled to its foot (Project and Model).
+        .onAppear { if sampleBottom { DispatchQueue.main.asyncAfter(deadline: .now() + (sampleModelTop ? 1.5 : 0.6)) { proxy.scrollTo("teamModel", anchor: sampleModelTop ? .top : .bottom) } } }
+        #endif
+        }
+        .navigationTitle(NewTeam.Words.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(teamRunning)
+        .safeAreaInset(edge: .bottom) {
+            let n = detail?.members.count ?? 0
+            let named = detail.map { $0.key == teamKey && $0.members.allSatisfy { !NewProject.trimmed(names[$0.slot] ?? "").isEmpty } } ?? false
+            pinned(n > 0 ? NewTeam.Words.create(n) : NewAgent.Words.create, enabled: !teamRunning && !teamBusy && n > 0 && named && pickerReady,
+                   busy: teamRunning || teamBusy) {
+                runTeam()
+            }
+        }
+        .task { await loadPicker(team: true) }   // kosmos#7502: the team's provider and account menus read as the create form's
+    }
+
+    private func loadTeams() async {
+        guard !loadingTeams else { return }
+        loadingTeams = true
+        defer { loadingTeams = false }
+        teamsFailed = false
+        let got = await client.throughMac { NewTeam.teamsRequest(mac: $0) }
+        if let got, (200...299).contains(got.1.statusCode), let list = NewTeam.parseTeams(got.0) { teams = list } else { teamsFailed = true }
+        // The project menu's existing projects, and the names a new one must not take. A team opened before they
+        // arrived has its new project's name worked out again.
+        let pj = await client.throughMac { Board.projectsRequest(mac: $0) }
+        if let pj, (200...299).contains(pj.1.statusCode), let list = Board.parseProjects(pj.0) {
+            projects = list.projects
+            if let detail, !teamStarted, madeProject == nil { newProjectName = NewTeam.newProjectName(detail, taken: projects.map(\.name)) }
+        }
+    }
+
+    // The desktop locks the team's choices from the click on (its review 27); a member that failed is renamed on the
+    // Made screen instead.
+    private var teamLocked: Bool { teamRunning || teamStarted }
+    // kosmos#7502 review 7: the provider, account and model are fixed only while a run is going or once a member exists
+    // (the desktop's tcChoiceFixed: busy, running, or tcMemberExists). A lead refused for the choice leaves it open, so
+    // the person can change it and try again; the names stay as teamLocked keeps them.
+    private var teamChoiceFixed: Bool { teamRunning || teamMemberExists }
+    // A member made, or one whose create got no answer and may have been (the desktop's tcMemberExists).
+    private var teamMemberExists: Bool { (detail?.members.contains { isMade($0.slot) } ?? false) || !maybeMade.isEmpty }
+
+    // Mona Lisa (build 14): a name that can be changed looks it, with a pencil while it can.
+    // The name field takes its own taps; the pencil, beside it, puts the cursor in the name too.
+    // Mona Lisa (build 15): the name and its line below it stay together, and the pencil is centred on the whole row.
+    private func nameField(_ m: NewTeam.Member, editable: Bool = true, line: String? = nil) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                TextField(m.title, text: Binding(get: { names[m.slot] ?? "" }, set: { names[m.slot] = $0 }))
+                    .textInputAutocapitalization(.words)
+                    .focused($nameFocus, equals: m.slot)
+                    .accessibilityLabel(m.title + ", " + NewAgent.Words.name)
+                if let line { Text(line).font(.footnote).foregroundColor(Palette.secondary) }
+            }
+            if editable {
+                Image(systemName: "pencil").foregroundColor(Palette.secondary).accessibilityHidden(true)
+                    .frame(minWidth: 44, minHeight: 44)   // a tap target, not just the glyph
+                    .contentShape(Rectangle())
+                    .onTapGesture { nameFocus = m.slot }
+            }
+        }
+    }
+
+    private func leadName(_ d: NewTeam.Detail) -> String {
+        guard let lead = d.members.first(where: \.isLead) else { return "" }
+        let typed = NewProject.trimmed(names[lead.slot] ?? "")
+        return typed.isEmpty ? lead.title : typed
+    }
+
+    private func loadDetail(_ key: String) async {
+        detailFailed = false
+        detail = nil
+        teamMessage = nil
+        let got = await client.throughMac { NewTeam.detailRequest(mac: $0, key: key) }
+        guard teamKey == key else { return }   // another team picked meanwhile
+        if let got, (200...299).contains(got.1.statusCode), let d = NewTeam.parseDetail(got.0) {
+            detail = d
+            names = Dictionary(d.members.map { ($0.slot, $0.name) }, uniquingKeysWith: { first, _ in first })
+            newProjectName = NewTeam.newProjectName(d, taken: projects.map(\.name))
+            projectChoice = .new
+            madeProject = nil
+            teamStarted = false
+            teamChoice = nil   // kosmos#7502 review 1: another team chooses afresh
+            checkedNames = [:]
+            memberWarnings = [:]
+            maybeMade = [:]
+            states = [:]
+        } else {
+            detailFailed = true
+        }
+    }
+
+    // The desktop's tcMake: names checked with nothing made, then the project, then the members, the lead first.
+    // Started only by runTeam, which has already set teamRunning.
+    private func makeTeam() async {
+        defer { teamRunning = false }
+        guard let d = detail else { return }
+        teamMessage = nil
+        let epoch = client.chatEpoch
+        let typed = names.mapValues { NewProject.trimmed($0) }
+        // kosmos#7502: the choice as it stands when making starts; every member is made on it (the desktop's TC.model).
+        // Review 1: fixed from the first run; Try again makes the rest on what the first members were made on.
+        // Review 2: only once making has begun (teamStarted); a refused name check leaves the choice open, so the next
+        // press takes what the screen shows.
+        // Not teamChoiceFixed: runTeam sets teamRunning before this runs, and a run with no member yet reads the menus.
+        let choice = (teamMemberExists ? teamChoice : nil) ?? (onProvider, NewAgentPicker.accounts(for: onProvider, pickAccounts).choices.contains { $0.value == account } ? account : "", chosenModel)
+        teamChoice = choice
+        let model = choice.model
+        let teamProvider = choice.provider
+        let teamAccount = choice.account
+        // 1. The names, checked against this computer, before anything is made. Only before: on Try again the members
+        // already made hold their own names, which the check would refuse (the desktop's tcRunOnce reads without it).
+        if !teamStarted {
+            let check = await client.throughMac { NewAgentPicker.specsRequest(mac: $0, key: d.key, names: typed, project: nil, provider: teamProvider, account: teamAccount, model: model, check: true) }
+            guard epoch == client.chatEpoch else { return }
+            switch NewTeam.specsAnswer(status: check?.1.statusCode ?? 0, body: check?.0) {
+            case .refused(let why): say(why); return
+            case .unknown: say(NewTeam.Words.unreachable); return   // this read makes nothing
+            case .specs: checkedNames = typed
+            }
+        }
+        // 2. The project.
+        var project: String?
+        switch projectChoice {
+        case .none: project = nil
+        case .existing(let id): project = id
+        case .new:
+            if let made = madeProject { project = made; break }
+            // After a create with no answer, the projects are read again: if it landed, it is this team's.
+            if projectUnsure {
+                let pj = await client.throughMac { Board.projectsRequest(mac: $0) }
+                guard epoch == client.chatEpoch else { return }
+                if let pj, (200...299).contains(pj.1.statusCode), let list = Board.parseProjects(pj.0) {
+                    projects = list.projects
+                    projectUnsure = false
+                    if let landed = projects.first(where: { $0.name == newProjectName && !$0.archived }) { madeProject = landed.id }
+                }
+                // Could not look: making another now could leave the first one empty beside it.
+                if projectUnsure { say(NewProject.unsureWords); return }
+            }
+        }
+        // The free name, then the next ones while the board answers folder_taken (the desktop's tc-go retry).
+        if projectChoice == .new, madeProject == nil {
+            let candidates = NewTeam.projectNames(d, taken: projects.map(\.name), count: NewTeam.projectNameTries + 1)
+            for (i, want) in candidates.enumerated() {
+                let draftProject = NewProject.Draft(name: want, description: d.projectGoal ?? "")
+                var built = false
+                let got = await client.throughMac { mac -> URLRequest? in let r = NewProject.request(mac: mac, draft: draftProject); built = r != nil; return r }
+                guard epoch == client.chatEpoch else { return }
+                if NewTeam.folderTaken(got?.0), i + 1 < candidates.count { continue }
+                switch NewProject.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
+                case .made(let id): project = id; madeProject = id; newProjectName = want
+                case .refused(let why): say(NewTeam.sentence(why)); return
+                case .unknown: projectUnsure = true; newProjectName = want; say(NewProject.unsureWords); return   // looked for by this name
+                }
+                break
+            }
+        }
+        if projectChoice == .new { project = madeProject }
+        // 3. The members, with the project, the lead first; the rest only once it is made.
+        let read = await client.throughMac { NewAgentPicker.specsRequest(mac: $0, key: d.key, names: typed, project: project, provider: teamProvider, account: teamAccount, model: model, check: false) }
+        guard epoch == client.chatEpoch else { return }
+        let specs: [NewTeam.Spec]
+        switch NewTeam.specsAnswer(status: read?.1.statusCode ?? 0, body: read?.0) {
+        case .specs(let list): specs = list
+        case .refused(let why): say(why); return   // this read makes nothing, so a refusal is only that
+        case .unknown: say(NewTeam.Words.unreachable); return
+        }
+        teamProject = project
+        for s in specs where states[s.slot].map({ if case .made = $0 { return false } else { return true } }) ?? true { states[s.slot] = .waiting }
+        if path.last != .teamMade { path.append(.teamMade) }
+        teamStarted = true
+        let lead = d.members.first?.slot
+        // The run's own record of the lead, so the order never rests on the sheet's state once the sheet has gone.
+        var leadMade = lead.map(isMade) ?? false
+        for s in specs {
+            if case .made = states[s.slot] { continue }
+            if s.slot != lead, !leadMade { states[s.slot] = .afterLead; continue }
+            // A create whose answer was lost may have landed: once that agent is on the board, it is this member (the
+            // desktop's maybeMade, checked against the board's list).
+            if maybeMade[s.slot] == s.session, client.agents.contains(where: { $0.session == s.session && $0.boardSeesIt }) {
+                states[s.slot] = .made(session: s.session, shownAs: s.name)
+                maybeMade[s.slot] = nil
+                tellLater(s.session, teamProject.map { [$0] } ?? [], portraitFor(s.slot, name: s.name, team: d))
+                if s.slot == lead { leadMade = true }
+                continue
+            }
+            states[s.slot] = .making
+            var built = false
+            let got = await client.throughMac { mac -> URLRequest? in built = true; return NewTeam.memberRequest(mac: mac, spec: s) }
+            guard epoch == client.chatEpoch else { return }
+            switch NewAgent.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
+            case .made(let session, let shown):
+                if s.slot == lead { leadMade = true }
+                states[s.slot] = .made(session: session, shownAs: shown)
+                memberWarnings[s.slot] = NewAgent.madeWarnings(got?.0)
+                maybeMade[s.slot] = nil
+                tellLater(session, NewAgent.addedProjects(got?.0), portraitFor(s.slot, name: shown, team: d))
+                announce(shown + ": " + NewTeam.Words.made)
+            case .refused(let why):
+                states[s.slot] = .failed(NewTeam.sentence(why))
+                announce(s.name + ": " + NewTeam.sentence(why))
+            case .unknown:
+                // Sent, and no answer: it may be on the board soon. Only a name checked free can be taken as this member
+                // when it turns up (the desktop's firstName rule); a renamed one may be someone else's agent.
+                if s.name == checkedNames[s.slot] { maybeMade[s.slot] = s.session }
+                states[s.slot] = .failed(NewAgent.unsureWords)
+                announce(s.name + ": " + NewAgent.unsureWords)
+            }
+        }
+    }
+
+    // The board's list moved: take a lost create that turned up as made, and mark a single agent seen.
+    private func agentsChanged(_ rows: [Board.Agent]) {
+        let on = Set(rows.filter(\.boardSeesIt).map(\.session))   // the desktop's boardCanSeeIt
+        for (slot, session) in maybeMade where on.contains(session) {
+            // Only a row still failed is taken; a row being made again keeps its mark until its own answer lands.
+            guard case .failed = states[slot] else { continue }
+            let shown = NewProject.trimmed(names[slot] ?? session)
+            states[slot] = .made(session: session, shownAs: shown)
+            tellLater(session, teamProject.map { [$0] } ?? [], detail.map { portraitFor(slot, name: shown, team: $0) } ?? .init(name: shown))
+            maybeMade[slot] = nil
+        }
+        if let made, !seen, on.contains(made.session) { seen = true; helloTimer?.cancel() }
+        // A manager no longer listed goes back to you; an empty list (a failed read, a change of account) changes nothing.
+        if !rows.isEmpty, !draft.reportsTo.isEmpty, !rows.contains(where: { $0.session == draft.reportsTo }) { draft.reportsTo = "" }
+    }
+
+    // A team member's picture: the catalogue's portrait only for a seat that has one, else the mark.
+    private func portraitFor(_ slot: String, name: String, team d: NewTeam.Detail) -> AgentPicture.Pending {
+        d.members.first(where: { $0.slot == slot })?.portrait == true ? .init(name: name, team: d.key, slot: slot) : .init(name: name)
+    }
+
+    private func tellLater(_ session: String, _ projects: [String], _ picture: AgentPicture.Pending) {
+        afterMade(session, projects, picture)
+    }
+
+    // Not once the sheet has gone: a team still being made would speak its names over the lock.
+    private func announce(_ words: String) { if !gone { UIAccessibility.post(notification: .announcement, argument: words) } }
+
+    // teamRunning is set here, before the task starts, so a second tap in between starts nothing.
+    private func runTeam() {
+        guard !teamRunning, !teamBusy else { return }
+        teamRunning = true
+        teamBusy = true
+        Task { @MainActor in
+            await makeTeam()
+            teamBusy = false
+        }
+    }
+
+    private func isMade(_ slot: String) -> Bool { if case .made = states[slot] { return true }; return false }
+
+    private func say(_ why: String) {
+        teamMessage = why
+        announce(why)
+    }
+
+    // The members as they are made; Try again makes the ones not made yet; the lead's chat once it is made.
+    private var teamMadeScreen: some View {
+        let members = detail?.members ?? []
+        let allMade = !members.isEmpty && members.allSatisfy { isMade($0.slot) }
+        return List {
+            Section {
+                ForEach(members) { m in
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            if renamable(m) {
+                                nameField(m)   // the desktop lets a failed row be renamed before Try again
+                            } else {
+                                Text(NewProject.trimmed(names[m.slot] ?? m.name)).foregroundColor(Palette.primary)
+                            }
+                            Text(m.title).font(.footnote).foregroundColor(Palette.secondary)
+                            if case .failed(let why) = states[m.slot] { Text(why).font(.footnote).foregroundColor(Palette.dangerWord) }
+                            ForEach(memberWarnings[m.slot] ?? [], id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
+                            if states[m.slot] == .afterLead { Text(NewTeam.Words.afterLead).font(.footnote).foregroundColor(Palette.secondary) }
+                        }
+                        Spacer(minLength: 8)
+                        switch states[m.slot] ?? .waiting {
+                        case .making: ProgressView().accessibilityLabel(NewTeam.Words.making)
+                        case .made: Image(systemName: "checkmark").foregroundColor(Palette.ringOk).accessibilityLabel(NewTeam.Words.made)
+                        case .failed: Image(systemName: "exclamationmark.circle").foregroundColor(Palette.dangerWord).accessibilityHidden(true)
+                        default: Text(NewTeam.Words.waiting).font(.footnote).foregroundColor(Palette.secondary)
+                        }
+                    }
+                    // A row with a name field keeps it reachable: combined, VoiceOver could not edit it.
+                    .accessibilityElement(children: renamable(m) ? .contain : .combine)
+                }
+            } header: { Text(allMade ? (detail?.label ?? "") : detail.map { NewAgent.Words.makingNamed($0.label) } ?? NewAgent.Words.making) }
+            if let teamMessage { Section { Text(teamMessage).foregroundColor(Palette.dangerWord) } }
+            // All made and the lead not seen yet: say what the screen is waiting for, then the desktop's words.
+            if allMade && !leadSeen(members) {
+                Section {
+                    if leadTimedOut {
+                        Text(NewAgent.Words.notUp(leadShown(members))).font(.headline)
+                        Text(NewAgent.Words.notUpWhy + " " + NewAgent.Words.notUpNext).font(.footnote).foregroundColor(Palette.secondary)
+                    } else {
+                        HStack(spacing: 8) { ProgressView(); Text(NewAgent.Words.makingNamed(leadShown(members))) }
+                    }
+                }
+            }
+        }
+        .navigationTitle(NewTeam.Words.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .safeAreaInset(edge: .bottom) {
+            // As Say hello: the lead's chat once the board can see the lead running.
+            if allMade, let lead = members.first, case .made(let session, let shown) = states[lead.slot],
+               client.agents.contains(where: { $0.session == session && $0.boardSeesIt }) {
+                pinned(NewTeam.Words.goTo(members.count), enabled: true) { dismiss(); opened(session, shown) }
+            } else if !teamRunning && !allMade {
+                pinned(NewTeam.Words.tryAgain, enabled: members.allSatisfy { isMade($0.slot) || !NewProject.trimmed(names[$0.slot] ?? "").isEmpty }) { runTeam() }
+            }
+        }
+        .toolbar {
+            // A way out when the rest is not wanted: the members made stay made.
+            if !teamRunning { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+        }
+        .onChange(of: allMade) { done in
+            guard done else { return }
+            leadTimedOut = false
+            leadTimer?.cancel()
+            leadTimer = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                if !Task.isCancelled, !leadSeen(members) { leadTimedOut = true; announce(NewAgent.Words.notUp(leadShown(members))) }
+            }
+        }
+    }
+
+    private func leadSeen(_ members: [NewTeam.Member]) -> Bool {
+        guard let lead = members.first, case .made(let session, _) = states[lead.slot] else { return false }
+        return client.agents.contains { $0.session == session && $0.boardSeesIt }
+    }
+    private func leadShown(_ members: [NewTeam.Member]) -> String {
+        guard let lead = members.first, case .made(_, let shown) = states[lead.slot] else { return "" }
+        return shown
+    }
+
+    // Not a row whose create may have landed: a new name would make a second agent for it.
+    private func renamable(_ m: NewTeam.Member) -> Bool {
+        if case .failed = states[m.slot] { return !teamRunning && maybeMade[m.slot] == nil }
+        return false
+    }
+
+    // MARK: 3. Set up your agent
+
+    private var setupScreen: some View {
+        ScrollViewReader { proxy in setupForm
+            #if DEBUG
+            // kosmos#7502 design shots: KOSMOS_SAMPLE_NEWAGENT=setupbottom scrolls to the Model group, as teambottom does.
+            // Debug only, as sampleBottom is (a Release build has neither: CI's Release build caught the first version).
+            .onAppear { if sampleBottom { DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { proxy.scrollTo("setupModel", anchor: .top) } } }
+            #endif
+        }
+    }
+    private var setupForm: some View {
+        Form {
+            Section(NewAgent.Words.identity) {
+                // Side by side, or stacked when the text is too large for the row.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) { picturePreview.frame(width: 72, height: 72); pictureButton }
+                    VStack(alignment: .leading, spacing: 12) { picturePreview.frame(width: 72, height: 72); pictureButton }
+                }
+                if let photoMessage { Text(photoMessage).font(.footnote).foregroundColor(Palette.dangerWord) }
+            }
+            Section {
+                TextField(NewAgent.Words.name, text: $draft.name)
+                    .textInputAutocapitalization(.words)
+                    .accessibilityLabel(NewAgent.Words.name)
+            } header: { Text(NewAgent.Words.name) }
+            Section {
+                TextField(NewAgent.Words.role, text: $draft.label)
+                    .accessibilityLabel(NewAgent.Words.role)
+            } header: { Text(NewAgent.Words.role) } footer: {
+                // Why Create is off when the Role is blank ("Describe it yourself" leaves it blank on purpose).
+                if NewProject.trimmed(draft.label).isEmpty { Text(NewAgent.Words.labelMissing) }
+            }
+            Section {
+                Picker(NewAgent.Words.reportsTo, selection: $draft.reportsTo) {
+                    Text(NewAgent.Words.you).tag("")
+                    ForEach(client.agents.filter { !$0.isGuide }) { a in Text(a.name).tag(a.session) }   // as the desktop's menu
+                }
+            }
+            modelChoice.id("setupModel")
+            if draft.kind == .swarm { swarmSection }
+            if let message {
+                Section { Text(message).foregroundColor(Palette.dangerWord) }
+            }
+        }
+        // Create is off from the moment of the pick, not from when the load starts.
+        .onChange(of: photoPick) { item in
+            guard item != nil else { return }
+            photoLoad += 1
+            let mine = photoLoad
+            photoLoading = true
+            Task { @MainActor in await loadPhoto(item, mine: mine) }
+        }
+        .onChange(of: draft.name) { _ in redrawMark() }
+        .onAppear { redrawMark() }
+        .navigationTitle(NewAgent.Words.setupTitle)
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(sending)
+        .onAppear { if draft.model.isEmpty { draft.model = catalogue?.defaultModel?.key ?? "" } }
+        .task { await loadPicker() }
+        .safeAreaInset(edge: .bottom) {
+            // Not while a photo is still being fitted (photoLoading): the create would go without it.
+            pinned(NewAgent.Words.create, enabled: !sending && !photoLoading && NewProject.trimmed(draft.name) != unsureName
+                   && pickerReady && (catalogue.map { NewAgent.canCreate(draft, $0) } ?? false), busy: sending) {
+                Task { await create() }
+            }
+        }
+    }
+
+    // kosmos#7502: the desktop's Model group (provider, account at two or more, the model row and its note).
+    private var modelChoice: some View { modelChoice(soft: NewAgent.Words.modelSoft, locked: false) }
+    // The provider the choice is on: a swarm is Claude, whatever was picked for an agent (kept for the way back, as the
+    // desktop's swarmProviderGate keeps swarmWasValue).
+    private var onProvider: NewAgentPicker.Provider { draft.kind == .swarm ? .anthropic : provider }
+    // The account for a provider: the one chosen for it while still offered, else the default.
+    private func accountOf(_ p: NewAgentPicker.Provider) -> String {
+        let accts = NewAgentPicker.accounts(for: p, pickAccounts)
+        if let a = accountFor[p], accts.choices.contains(where: { $0.value == a }) { return a }
+        return accts.chosen
+    }
+    private var account: String { accountOf(onProvider) }
+    private var openaiModels: NewAgentPicker.OpenaiModels? { openaiModelsFor[account] }
+    // The OpenAI model to send: the pick for this account, and only while this account's own list offers it.
+    private var openaiModel: String {
+        guard case .listed(let ms)? = openaiModels, let m = openaiModelFor[account], ms.contains(where: { $0.key == m }) else { return "" }
+        return m
+    }
+    // What the model row has to send now: Claude's pick, the OpenAI account's, or none where the vendor picks.
+    private var chosenModel: String { onProvider == .openai ? openaiModel : onProvider == .anthropic ? draft.model : "" }
+    // The desktop's tcIsModelLoading: an OpenAI account's list still on its way holds Create, or the team would be made
+    // on OpenAI's default without anyone choosing it.
+    private var modelLoading: Bool { onProvider == .openai && !account.isEmpty && openaiModels == nil }
+    // Review 1: Create waits for the account list (the desktop's tcFillProviderNow waits up to 5 s), so an OpenAI-only
+    // person is not made a Claude agent or team before the default can move.
+    private var pickerReady: Bool { accountsSettled && !modelLoading }
+    private func modelChoice(soft: String, locked: Bool) -> some View {
+        let p = onProvider
+        let options = NewAgentPicker.providers(pickAccounts, pickReady, swarm: draft.kind == .swarm)
+        let accts = NewAgentPicker.accounts(for: p, pickAccounts)
+        let row = NewAgentPicker.modelRow(p, account: account, claude: catalogue?.models ?? [], lastClaude: draft.model, openai: openaiModels)
+        let accountBinding = Binding<String>(get: { accountOf(p) }, set: { v in guard v != accountOf(p) else { return }; accountFor[p] = v; if p == .openai { Task { await readOpenaiModels() } } })
+        let openaiBinding = Binding<String>(get: { openaiModel }, set: { openaiModelFor[account] = $0 })
+        return Section {
+            Menu {
+                ForEach(options) { o in
+                    Button { pick(o.provider) } label: {
+                        // Review 1: the current one ticked; one that cannot be chosen says why.
+                        if o.provider == p { Label(o.provider.label, systemImage: "checkmark").accessibilityAddTraits(.isSelected) }
+                        else if let off = o.off { Text(o.provider.label + " \u{00b7} " + off) }
+                        else { Text(o.provider.label) }
+                    }
+                    .disabled(!o.enabled)
+                }
+            } label: {
+                HStack {
+                    Text(NewAgentPicker.Words.provider).foregroundColor(Palette.primary)
+                    Spacer()
+                    Text(p.label).foregroundColor(Palette.secondary)
+                }
+                .frame(minHeight: 44).contentShape(Rectangle())
+            }
+            .disabled(locked)
+            .accessibilityLabel(NewAgentPicker.Words.provider)
+            .accessibilityValue(p.label)
+            if accts.show {
+                Picker(NewAgentPicker.Words.account, selection: accountBinding) {
+                    ForEach(accts.choices) { a in Text(a.label).tag(a.value) }
+                }
+                .disabled(locked)
+            }
+            if row.shown && !row.choices.isEmpty {
+                // Mona Lisa (#7488 build 14): the heading says Model; the row shows only the choice.
+                if p == .openai {
+                    Picker(NewAgent.Words.model, selection: openaiBinding) {
+                        ForEach(row.choices) { m in Text(m.label).tag(m.value) }
+                    }
+                    .labelsHidden()
+                    .disabled(!row.enabled || locked)
+                } else {
+                    Picker(NewAgent.Words.model, selection: $draft.model) {
+                        ForEach(row.choices) { m in Text(m.label).tag(m.value) }
+                    }
+                    .labelsHidden()
+                    .disabled(locked)
+                }
+            }
+        } header: { Text(NewAgent.Words.model + " " + soft) } footer: {
+            // Review 1: both, the undone pick's sentence and the row's own note, never one hiding the other.
+            let lines = [pickGoneWhy, row.note].compactMap { $0 }
+            if !lines.isEmpty { Text(lines.joined(separator: " ")) }
+        }
+    }
+
+    private func pick(_ p: NewAgentPicker.Provider) {
+        providerTouched = true
+        pickGoneWhy = nil
+        provider = p
+        if p == .openai { Task { await readOpenaiModels() } }
+    }
+    // The menus follow what has answered: a pick no longer offered is put back and said; an untouched one follows the
+    // default. Never while a team is being made: its choice is fixed (the desktop's tcChoiceFixed).
+    private func settlePicker() {
+        // Review 8: held only on the team step, once a member exists. A run with no member yet took its choice at the
+        // press, so a late account read may still settle the menus a refused lead reopens; the single screen never waits
+        // on a team's state.
+        guard !(pickerOnTeam && teamMemberExists) else { return }
+        // Review 3: the agent's default settles on a swarm too (onProvider shows Claude there), so going back to Agent
+        // opens on it, as the desktop's resetCreateProvider does from the list it holds. Only a touched pick's undoing
+        // (and its sentence) waits for the agent's own screen.
+        if !providerTouched {
+            provider = NewAgentPicker.defaultProvider(pickAccounts, swarm: false)
+        } else if draft.kind != .swarm, let gone = NewAgentPicker.pickGone(provider, pickAccounts, pickReady, swarm: false) {
+            provider = gone.back; pickGoneWhy = gone.why
+        }
+        if onProvider == .openai && openaiModels == nil { Task { await readOpenaiModels() } }
+    }
+    // Review 1: each read applies as it lands (the desktop's painters do), and a failed read keeps the last good answer:
+    // never a confident "not here" from a read that did not answer (museCreateAsk, agyAsk).
+    private func loadPicker(team: Bool = false) async {
+        pickerOnTeam = team
+        #if DEBUG
+        // kosmos#7502: design shots (KOSMOS_SAMPLE_NEWAGENT) draw the picker from sample accounts, as there is no board:
+        // two Claude accounts on one email (so the Account row shows) and an OpenAI key; KOSMOS_SAMPLE_PROVIDER=openai
+        // opens on OpenAI with a listed model.
+        if let _ = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWAGENT"] {
+            let json = #"{"accounts":[{"dir":"/s/.claude","provider":"anthropic","email":"you@example.com","isDefault":true,"memoryShared":true,"connection":{"badge":"connected"}},{"dir":"/s/.claude-work","provider":"anthropic","email":"you@example.com","label":"work","memoryShared":true,"connection":{"badge":"connected"}},{"dir":"/s/.codex","provider":"openai","keyTail":"4f2a","isDefault":true,"connection":{"state":"connected"}}]}"#
+            pickAccounts = .init(rows: NewAgentPicker.parseAccounts(Data(json.utf8)) ?? [], known: true, failed: false)
+            pickReady = .init(agy: (true, false), muse: (false, false, false), compat: false)
+            accountsSettled = true
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PROVIDER"] == "openai" {
+                provider = .openai; providerTouched = true
+                openaiModelsFor["/s/.codex"] = .listed([NewAgent.Model(key: "gpt-5", label: "GPT-5", isDefault: true)])
+            }
+            return
+        }
+        #endif
+        let epoch = client.chatEpoch
+        pickGoneWhy = nil   // review 5: an undone pick is said on the screen it happened on, not carried to the next
+        let ok = { (x: (Data, HTTPURLResponse)?) -> Data? in x.flatMap { (200...299).contains($0.1.statusCode) ? $0.0 : nil } }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if epoch == client.chatEpoch { accountsSettled = true }
+        }
+        await withTaskGroup(of: Void.self) { g in
+            g.addTask { @MainActor in
+                let a = await client.throughMac { NewAgentPicker.accountsRequest(mac: $0) }
+                // Review 2: a read cancelled with the screen is no answer: neither a failure nor settled.
+                guard epoch == client.chatEpoch, !Task.isCancelled else { return }
+                if let rows = ok(a).flatMap(NewAgentPicker.parseAccounts) { pickAccounts = .init(rows: rows, known: true, failed: false) }
+                else if !pickAccounts.known { pickAccounts.failed = true }
+                accountsSettled = true
+                settlePicker()
+            }
+            g.addTask { @MainActor in
+                let g2 = await client.throughMac { NewAgentPicker.agyRequest(mac: $0) }
+                guard epoch == client.chatEpoch else { return }
+                if let v = ok(g2).flatMap(NewAgentPicker.parseAgy) { pickReady.agy = v; settlePicker() }
+            }
+            g.addTask { @MainActor in
+                let m = await client.throughMac { NewAgentPicker.museRequest(mac: $0) }
+                guard epoch == client.chatEpoch else { return }
+                if let v = ok(m).flatMap(NewAgentPicker.parseMuse) { pickReady.muse = v; settlePicker() }
+            }
+            g.addTask { @MainActor in
+                let k = await client.throughMac { NewAgentPicker.compatRequest(mac: $0) }
+                guard epoch == client.chatEpoch else { return }
+                if let v = ok(k).flatMap(NewAgentPicker.parseCompat) { pickReady.compat = v; settlePicker() }
+            }
+        }
+    }
+    private func readOpenaiModels() async {
+        let dir = account
+        guard !dir.isEmpty, onProvider == .openai else { return }   // review 2: before the count, so it never stales a live read
+        // Review 3: one read per account at a time (every landing read settles the picker, and would start another).
+        guard openaiReading != dir else { return }
+        openaiReading = dir
+        openaiRead += 1
+        let read = openaiRead
+        defer { if openaiReading == dir && read == openaiRead { openaiReading = nil } }   // review 4: only its own read's
+        let before = openaiModelsFor[dir]
+        openaiModelsFor[dir] = nil
+        let epoch = client.chatEpoch
+        let got = await client.throughMac { NewAgentPicker.openaiModelsRequest(mac: $0, dir: dir) }
+        guard epoch == client.chatEpoch, read == openaiRead else { return }
+        // Review 2: no answer is not "not signed in": the list held before, else the could-not-reach note.
+        guard let got, (200...299).contains(got.1.statusCode) else {
+            openaiModelsFor[dir] = before ?? .notListed(because: "could not reach OpenAI"); return
+        }
+        openaiModelsFor[dir] = NewAgentPicker.parseOpenaiModels(got.0)
+    }
+
+    private var swarmSection: some View {
+        Group {
+            Section {
+                Stepper(value: $draft.maxHelpers, in: NewAgent.helpersRange) {
+                    HStack { Text(NewAgent.Words.maxHelpers); Spacer(); Text("\(draft.maxHelpers)").foregroundColor(Palette.secondary) }
+                }
+                .accessibilityValue("\(draft.maxHelpers) helpers at most")
+                Text(NewAgent.Words.swarmExplain(draft.maxHelpers)).font(.footnote).foregroundColor(Palette.secondary)
+                Text(NewAgent.Words.swarmWarn(draft.maxHelpers)).font(.footnote).foregroundColor(Palette.askedWord)
+            }
+            Section {
+                Text(NewAgent.Words.dailyLimit)
+                Slider(value: Binding(get: { Double(draft.capMillions) }, set: { draft.capMillions = Int($0.rounded()) }),
+                       in: Double(NewAgent.capRange.lowerBound)...Double(NewAgent.capRange.upperBound), step: 1)
+                    .accessibilityLabel(NewAgent.Words.dailyLimit)
+                    .accessibilityValue(NewAgent.capWords(draft.capMillions))
+                Text(NewAgent.capWords(draft.capMillions)).foregroundColor(Palette.secondary)
+            } footer: { Text(NewAgent.Words.pauses) }
+        }
+    }
+
+    private func create() async {
+        guard !sending, let c = catalogue, NewAgent.canCreate(draft, c) else { return }
+        sending = true
+        message = nil
+        let sent = draft
+        let sentProvider = onProvider
+        let sentAccount = NewAgentPicker.accounts(for: sentProvider, pickAccounts).choices.contains { $0.value == account } ? account : ""
+        let sentModel = chosenModel
+        let epoch = client.chatEpoch   // another account or Mac meanwhile: the answer is not this sheet's
+        var built = false
+        let got = await client.throughMac { mac in
+            let r = NewAgentPicker.createRequest(mac: mac, draft: sent, catalogue: c, provider: sentProvider,
+                                                 account: sentAccount, model: sentModel)
+            built = r != nil
+            return r
+        }
+        sending = false
+        guard epoch == client.chatEpoch else { return }
+        switch NewAgent.result(sent: built, status: got?.1.statusCode ?? 0, body: got?.0) {
+        case .made(let session, let shown):
+            made = (session, shown)
+            madeWarnings = NewAgent.madeWarnings(got?.0)
+            seen = client.agents.contains { $0.session == session && $0.boardSeesIt }
+            timedOut = false
+            helloTimer?.cancel()
+            helloTimer = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                if !Task.isCancelled && !seen { timedOut = true }
+            }
+            path.append(.made)
+            tellLater(session, NewAgent.addedProjects(got?.0), .init(photo: sent.photo, name: sent.name))
+        case .refused(let why):
+            message = NewTeam.sentence(why)
+            announce(NewTeam.sentence(why))
+        case .unknown:
+            // It may have been made: the same name is not sent again until it is changed (a second agent otherwise).
+            unsureName = NewProject.trimmed(sent.name)
+            message = NewAgent.unsureWords
+            announce(NewAgent.unsureWords)
+        }
+    }
+
+    // MARK: 4. Making it, then Say hello
+
+    // The desktop's watch: Say hello once the board sees the agent (the phone's list is the board's, read every 5 s);
+    // after 30 s unseen, its "has not come up" words and no hello. The list keeps being watched after that.
+    private var madeScreen: some View {
+        let shown = made?.shownAs ?? ""
+        return VStack(spacing: 16) {
+            Spacer()
+            if seen {
+                Text(NewAgent.Words.running(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
+                Text(NewAgent.Words.hello).font(.body).foregroundColor(Palette.primary)
+                ForEach(madeWarnings, id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
+            } else if timedOut {
+                Text(NewAgent.Words.notUp(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
+                Text(NewAgent.Words.notUpWhy + " " + NewAgent.Words.notUpNext).font(.body).foregroundColor(Palette.secondary)
+                ForEach(madeWarnings, id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
+            } else {
+                ProgressView().controlSize(.large)
+                Text(NewAgent.Words.makingNamed(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
+            }
+            Spacer()
+        }
+        .multilineTextAlignment(.center)
+        .padding(24)
+        .frame(maxWidth: .infinity)
+        .background(Palette.ground.ignoresSafeArea())
+        .navigationBarBackButtonHidden(true)
+        .onChange(of: seen) { now in if now { announce(NewAgent.Words.running(shown)) } }
+        .onChange(of: timedOut) { now in if now && !seen { announce(NewAgent.Words.notUp(shown)) } }
+        .safeAreaInset(edge: .bottom) {
+            if seen, let made {
+                pinned(NewAgent.Words.sayHello(made.shownAs), enabled: true) {
+                    dismiss()
+                    opened(made.session, made.shownAs)
+                }
+            } else if timedOut {
+                pinned(NewAgent.Words.done, enabled: true) { dismiss() }
+            }
+        }
+    }
+
+    private var pictureButton: some View {
+        HStack(spacing: 12) {
+            PhotosPicker(selection: $photoPick, matching: .images) { Text(NewAgent.Words.changePicture) }
+                .buttonStyle(.bordered)
+                .disabled(sending)   // a picture chosen once Create has gone would never be used
+            if photoLoading { ProgressView().accessibilityLabel(NewAgent.Words.readingPicture) }
+        }
+    }
+
+    // The chosen picture, else the mark from the name as it is typed, else the desktop's empty ring.
+    @ViewBuilder private var picturePreview: some View {
+        if draft.photo != nil, let img = photoImage {
+            Image(uiImage: img).resizable().scaledToFill().clipShape(Circle())
+                .accessibilityLabel(NewAgent.Words.chosenPicture)
+        } else if let mark = markImage, !NewProject.trimmed(draft.name).isEmpty {
+            Image(uiImage: mark).resizable().scaledToFit().clipShape(Circle())
+                .accessibilityLabel(NewAgent.Words.markLabel)
+        } else {
+            Circle().stroke(Palette.separator, lineWidth: 2).accessibilityHidden(true)
+        }
+    }
+
+    // `mine` is the pick's own number, taken at the pick, so a role change in between makes it stale.
+    private func loadPhoto(_ item: PhotosPickerItem?, mine: Int) async {
+        guard let item, mine == photoLoad else { return }
+        defer { if mine == photoLoad { photoLoading = false } }
+        photoPick = nil   // so choosing the same photo again is a new choice
+        let data = try? await item.loadTransferable(type: Data.self)
+        // Read, cut and shrunk off the main thread: a large photo would hold the sheet still.
+        let fitted: Data? = await Task.detached(operation: { data.flatMap { AgentPicture.fit(data: $0) } }).value
+        guard mine == photoLoad else { return }
+        if let fitted {
+            draft.photo = fitted
+            photoImage = UIImage(data: fitted)
+            photoMessage = nil
+            announce(NewAgent.Words.pictureChosen)
+        } else {
+            // Said for what will happen: an earlier chosen picture is still the one that goes.
+            let said = draft.photo == nil ? NewAgent.Words.pictureUnusable : NewAgent.Words.pictureKept
+            photoMessage = said
+            announce(said)
+        }
+    }
+
+    // The mark follows the name as it is typed: drawn off the main thread once typing pauses (a quarter second), so a
+    // name typed past is never drawn at all, and only the newest name's picture is shown.
+    private func redrawMark() {
+        let name = NewProject.trimmed(draft.name)
+        guard name != markName, draft.photo == nil else { return }   // no mark drawn that a chosen photo hides
+        markTask?.cancel()
+        markTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            let image = await Task.detached(operation: { AgentPicture.mark(name) }).value
+            // Recorded only once drawn, so a draw that never finished is drawn again on the next look.
+            if !Task.isCancelled, NewProject.trimmed(draft.name) == name { markImage = image; markName = name }
+        }
+    }
+
+    // MARK: pieces
+
+    private var loadingRow: some View {
+        HStack {
+            if loadFailed {
+                Text(NewAgent.Words.rolesUnread).foregroundColor(Palette.secondary)
+                Spacer()
+                Button(NewTeam.Words.tryAgain) { Task { await loadCatalogue() } }.disabled(loading)
+            } else {
+                ProgressView()
+            }
+        }
+    }
+
+    private func loadCatalogue() async {
+        guard !loading else { return }
+        loading = true
+        loadFailed = false
+        let got = await client.throughMac { NewAgent.rolesRequest(mac: $0) }
+        loading = false
+        if let got, (200...299).contains(got.1.statusCode), let c = NewAgent.parseCatalogue(got.0, swarms: client.swarmsOn) {
+            catalogue = c
+            if draft.kind == .single, draft.roleKey == nil { draft.roleKey = c.recommended?.key }
+            if draft.model.isEmpty { draft.model = c.defaultModel?.key ?? "" }
+        } else {
+            loadFailed = true
+        }
+    }
+
+    private func pickRow(title: String, line: String?, picked: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) { pickLabel(title: title, line: line, picked: picked) }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(picked ? [.isSelected] : [])
+    }
+
+    private func pickLabel(title: String, line: String?, picked: Bool) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).foregroundColor(Palette.primary)
+                if let line { Text(line).font(.footnote).foregroundColor(Palette.secondary) }
+            }
+            Spacer(minLength: 8)
+            if picked { Image(systemName: "checkmark").foregroundColor(Palette.built).accessibilityHidden(true) }
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func pinned(_ title: String, enabled: Bool, busy: Bool = false, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            ZStack {
+                // The label in the card colour, as the app's other prominent buttons (build 13 shots: unreadable in dark).
+                Text(title).font(.headline).foregroundColor(enabled ? Palette.card : Palette.secondary).opacity(busy ? 0 : 1)
+                if busy { ProgressView().tint(Palette.secondary) }
+            }
+            .frame(maxWidth: .infinity, minHeight: 50)
+        }
+        .accessibilityLabel(busy ? NewAgent.Words.making : title)   // the hidden title is not what is happening
+        .buttonStyle(.borderedProminent)
+        .disabled(!enabled)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+}
+
+// One of the first screen's three cards: the desktop's line art (its 278 x 90 drawing, nak-art), title and line,
+// stacked full width.
+private struct KindCard: View {
+    let kind: NewAgent.Kind
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            KindArt(kind: kind).frame(height: 54).frame(maxWidth: .infinity)
+            Text(NewAgent.Words.kindName(kind)).font(.headline).foregroundColor(Palette.primary)
+            Text(NewAgent.Words.kindLine(kind)).font(.subheadline).foregroundColor(Palette.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Palette.card))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Palette.separator))
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct KindArt: View {
+    let kind: NewAgent.Kind
+
+    var body: some View {
+        Canvas { ctx, size in
+            let s = min(size.width / 278, size.height / 90)
+            ctx.translateBy(x: (size.width - 278 * s) / 2, y: (size.height - 90 * s) / 2)
+            ctx.scaleBy(x: s, y: s)
+            func dot(_ x: CGFloat, _ y: CGFloat, _ r: CGFloat) -> Path { Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)) }
+            let line = StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+            switch kind {
+            case .single:
+                ctx.stroke(dot(139, 45, 30), with: .color(Palette.secondary), style: line)
+                ctx.fill(dot(139, 45, 13), with: .color(Palette.starGold))
+            case .team:
+                var p = Path()
+                p.move(to: CGPoint(x: 139, y: 26)); p.addLine(to: CGPoint(x: 139, y: 45))
+                p.move(to: CGPoint(x: 76, y: 45)); p.addLine(to: CGPoint(x: 202, y: 45))
+                for x: CGFloat in [76, 118, 160, 202] { p.move(to: CGPoint(x: x, y: 45)); p.addLine(to: CGPoint(x: x, y: 62)) }
+                ctx.stroke(p, with: .color(Palette.secondary), style: line)
+                ctx.fill(dot(139, 17, 11), with: .color(Palette.starGold))
+                for x: CGFloat in [76, 118, 160, 202] { ctx.fill(dot(x, 72, 9), with: .color(Palette.starGold)) }
+            case .swarm:
+                ctx.stroke(dot(139, 45, 38), with: .color(Palette.secondary), style: line)
+                for (x, y, r) in [(139, 45, 11), (113, 30, 8), (166, 30, 8), (110, 60, 8), (168, 60, 8), (139, 17, 6), (139, 73, 6)] as [(CGFloat, CGFloat, CGFloat)] {
+                    ctx.fill(dot(x, y, r), with: .color(Palette.starGold))
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}

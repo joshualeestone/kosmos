@@ -136,7 +136,7 @@ test('the provider rows read Claude, GPT, Gemini', () => {
      single unclosed open. Between two SIBLINGS every tag that opens also
      closes, so the net is zero; a positive net means the second row sits
      inside something the first one did not. */
-  const rowRe = (id) => new RegExp('<div class="llm[^"]*"><span class="llm-m[^"]*" data-pmark="' + id + '"');
+  const rowRe = (id) => new RegExp('<div (?:data-cloud-hide )?class="llm[^"]*"><span class="llm-m[^"]*" data-pmark="' + id + '"');
   const gpt = PAGE.search(rowRe('openai'));
   const gem = PAGE.search(rowRe('gemini'));
   assert.ok(gpt > 0 && gem > gpt, 'could not locate the GPT and Gemini ROWS in order; this guard is measuring nothing');

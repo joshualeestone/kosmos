@@ -10,6 +10,7 @@ render-adopt-1531
 render-boot-no-flash
 render-catalogue-fetch-4632
 render-community-delete-4313
+render-community-index-7211
 render-community-industry-4375
 render-community-ready-5958
 render-community-switch-4288
@@ -36,6 +37,7 @@ render-reboot-note-5359
 render-refusedbody-6192
 render-reload-toast
 render-rename-say
+render-restart-line-7411
 render-restart-timedout-2019
 render-role-limit
 render-role-order

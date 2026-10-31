@@ -44,6 +44,8 @@ test('provider rows say only what the cards know: never "Working", and a stated 
   assert.ok(week.length > soon.length, 'six days or more away also names the date: ' + week + ' vs ' + soon);
   assert.equal(B.wvProviderLine(row({ provider: 'codex', state: 'some_paused', paused: 1, agents: 3 })), 'OpenAI Codex: 1 of 3 agents paused');
   assert.equal(B.wvProviderLine(row({ provider: 'gemini', state: 'stopped', agents: 0, stopped: 2 })), 'Gemini: Stopped');
+  // #7206: the overview's own word for a DeepSeek row (the route tags a claude card on a DeepSeek account), never its id.
+  assert.equal(B.wvProviderLine(row({ provider: 'deepseek', state: 'paused', paused: 1, until: null })), 'DeepSeek: Paused');
   assert.equal(B.wvProviderLine(row({ signInFailed: 1 })), 'Claude: Not paused. 1 agent could not sign in');
   // An unknown runner is shown by its own name, not dropped.
   assert.equal(B.wvProviderLine(row({ provider: 'newrunner' })), 'newrunner: Not paused');

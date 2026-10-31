@@ -233,8 +233,16 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
    the next scheduled time. Due again (so open work, nudged and counted) once a scheduled time after its last run (or,
    with no run yet, after it was made) has passed. A task that does not repeat is never waiting. */
 const RUN_GRACE_MS = 10 * 60 * 1000;
+/* kosmos#7413 (an outside user's report: a run at 06:15 for a 06:45 slot was taken as not done, and the agent nagged):
+   for slots at least two hours apart the nudge uses the same early window as the missed line (earlyWindowFor: up to 30
+   minutes), so the two never disagree about whether a run answered its slot (review 1: with two daily times the nudge's
+   gap/30 was 24 minutes and still nagged). Closer slots keep the small share of the gap, so an hourly job keeps its 2
+   minutes and a late 09:55 run still leaves 10:00 due (review 3 of #4787). */
+const EARLY_NUDGE_FROM_GAP_MS = 2 * 60 * 60 * 1000;
 function graceFor(rule) {
-  return Math.min(RUN_GRACE_MS, Math.floor(gapOf(rule) / 30));
+  const gap = gapOf(rule);
+  if (gap >= EARLY_NUDGE_FROM_GAP_MS) return earlyWindowFor(rule);
+  return Math.min(RUN_GRACE_MS, Math.floor(gap / 30));
 }
 /* The scheduled slot this task is due for next: the first slot after its last run (or after the rule was set), or null
    when there is no time to measure from (no rule, no stamp, or a run stamped in the future). Shared by
@@ -250,7 +258,8 @@ function dueSlot(t, now = Date.now()) {
   if (raw > now + 60 * 1000) return null;
   /* review 3: the grace is for a RUN reported early, never for the moment the task was made (a task made at 08:55 for
      09:00 must be due at 09:00), and it is a small share of the period: at most 10 minutes, 2 for an hourly job, so a
-     late run at 09:55 for the 09:00 slot still leaves 10:00 due. */
+     late run at 09:55 for the 09:00 slot still leaves 10:00 due; kosmos#7413: for slots two hours apart or more, the
+     early window, up to 30 minutes. */
   /* review 5: never before the rule itself: a slot that passed before the rule was set or changed is not missed. */
   const ruleFrom = Date.parse(t.repeatSetAt || t.createdAt || '');
   /* slice 2 review 2: a run made before the rule was set or changed answers nothing under it (its early grace would
@@ -304,17 +313,26 @@ function latestAtOrBefore(rule, from, ms) {
   return last;
 }
 /* slice 2: the ONE rule for which slot a run answers, shared by missedRuns and runIsLate so a row never says two
-   contradictory things (review 4): the next slot when the run is at most the miss grace before it (a job that started
+   contradictory things (review 4): the next slot when the run is at most the early window before it (a job that started
    at 08:50 for 09:00), otherwise the latest slot at or before the run. `firstSlot` is the rule's first slot. */
-function answersEarly(rule, runAt, slot) { return slot !== null && runAt < slot && slot - runAt <= missGraceFor(rule); }
+/* kosmos#7413: how far BEFORE a slot a run still answers it: the smaller of 30 minutes and a quarter of the period, the
+   miss grace's share with a 30-minute cap. An hourly job keeps 15 minutes, as before; a daily or weekly job's run up to
+   30 minutes early answers that slot, so it is neither late for the one before nor followed by a missed run. The late
+   mark after a slot keeps the miss grace (15 minutes). One window for answeredSlot and firstUnanswered, so the late
+   mark and the missed line still agree. */
+const EARLY_ANSWER_MS = 30 * 60 * 1000;
+function earlyWindowFor(rule) {
+  return Math.min(EARLY_ANSWER_MS, Math.floor(gapOf(rule) / 4));
+}
+function answersEarly(rule, runAt, slot) { return slot !== null && runAt < slot && slot - runAt <= earlyWindowFor(rule); }
 function answeredSlot(rule, firstSlot, at) {
   const next = nextAfter(rule, at);
   if (answersEarly(rule, at, next)) return next;
   return latestAtOrBefore(rule, firstSlot, at);
 }
-/* slice 2: is a run at `at` LATE? Late when the slot it answers had passed by more than the miss grace. A run more
-   than the grace before a slot answers the slot before it, so a weekly job run a day early is late for last week's
-   run, and the next slot shows as missed if nobody runs it: the two agree. Before the rule's first slot (strictly
+/* slice 2: is a run at `at` LATE? Late when the slot it answers had passed by more than the miss grace. A run more than
+   the early window (kosmos#7413) before a slot answers the slot before it, so a weekly job run a day early is late for
+   last week's run, and the next slot shows as missed if nobody runs it: the two agree. Before the rule's first slot (strictly
    after the rule was set, as in dueSlot) a run is never late. */
 function runIsLate(t, at) {
   if (!t || !t.repeat) return false;
@@ -328,8 +346,8 @@ function runIsLate(t, at) {
    recovering run records can never start from different slots. */
 function firstUnanswered(t, now) {
   let slot = dueSlot(t, now);
-  /* review 1: a run reported up to the miss grace BEFORE its slot answers that slot (a job that started at 08:50 for
-     09:00 ran; dueSlot's own early grace is smaller, for the nudge), so it is never called missed. */
+  /* review 1: a run reported up to the early window BEFORE its slot answers that slot (a job that started at 08:50 for
+     09:00 ran; kosmos#7413: up to 30 minutes for a daily job), so it is never called missed. */
   /* review 2: only a run made under THIS rule (at or after it was set) answers its first slot early. */
   const lastRun = Date.parse(t.lastRunAt || '');
   const ruleFrom = Date.parse(t.repeatSetAt || t.createdAt || '');
@@ -369,14 +387,15 @@ function skippedBefore(t, at) {
 }
 
 /* kosmos#5920 reviews 1 and 2: the time a run due at `at` must be recorded BEFORE so it answers `at`: the next slot less
-   the miss grace (a record inside that grace answers the next slot early, which would count this run as missed),
+   the early window (a record inside it answers the next slot early, which would count this run as missed; kosmos#7413:
+   the window answersEarly uses, so the two never disagree),
    rounded down to the minute, so "before 9:22am" can be read to the minute and is never past the real limit (09:22:30
    for runs at 09:00 and 09:30). null with no next slot, when that time has already passed at `now` (no deadline is left
    to meet), and when it is not after the due slot itself (two times a minute apart: the floor lands on the due slot). */
 function recordBy(rule, at, now = Date.now()) {
   const next = nextAfter(rule, at);
   if (next === null) return null;
-  const by = Math.floor((next - missGraceFor(rule)) / 60000) * 60000;
+  const by = Math.floor((next - earlyWindowFor(rule)) / 60000) * 60000;
   return by > now && by > at ? by : null;
 }
 
@@ -434,4 +453,4 @@ function roomRunLine(prev, after, said) {
   return { text: 'Task #' + after.number + ', "' + roomPlain(after.sentence || '', ROOM_SENTENCE_MAX) + '" (' + describe(after.repeat) + '): ' + parts.join('; '), note, reading };
 }
 
-module.exports = { roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
+module.exports = { roomRunLine, sameWords, VALUE_MAX, valueProblem, normValue, EVERY, DAY_NAMES, NOTE_MAX, repeatProblem, normalise, nextAfter, describe, noteProblem, fromWords, waitingForNextRun, whenWords, fieldsOf, dueSlot, missedRuns, skippedBefore, recordBy, missGraceFor, earlyWindowFor, latestAtOrBefore, runIsLate, answeredSlot, MISSED_CAP };
