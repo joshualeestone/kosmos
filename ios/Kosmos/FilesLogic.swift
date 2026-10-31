@@ -46,15 +46,16 @@ extension Board {
     // The project list reads up to the route's own bound, as the board's Documents view does (limit=500).
     static let projectFilesCap = 500
 
-    // The board's words (checked against web/index.html), except filesCannotRead (the agent page's own unread line),
-    // filesTooBig and filesMore, which the board has no need of.
+    // The board's words (checked against web/index.html by ios/LogicTests/files), except filesCannotRead (the app's own
+    // unread line, used on the Files screen), filesTooBig and filesMore, which the board has no need of.
     static let filesAgentEmpty = "This agent has no files yet."
     static let filesFolderEmpty = "This folder is empty."
     static let filesProjectEmpty = "Nothing here yet. Files you or your agents put in this project\u{2019}s folder show up here."
     static let filesDidNotOpen = "That file did not open."
     static let filesCannotRead = "We cannot read this right now."
     static let filesTitle = "Files"
-    static let filesAll = "All files"
+    static let filesAll = "View All"
+    static let filesAgentUnread = "We could not read this agent\u{2019}s files just now."
     // Review 2: a file is read whole into memory to open it, so one past this is not fetched (a 3 GB recording would get
     // the app killed, or run for minutes over cellular). It stays in Files on the computer.
     static let filesMaxOpenBytes = 100 * 1024 * 1024
@@ -191,6 +192,22 @@ extension Board {
         var line = parts.joined(separator: " \u{00B7} ")
         if let by = f.changedBy { line += (line.isEmpty ? "" : " \u{00B7} ") + "changed by " + by }
         return line
+    }
+
+    // Review 4: the agent page's section, as the board's paintAgentFiles decides it (#3757, Josh 0.6.94: an agent with no
+    // files shows no Files section at all). Hidden while it loads, on a 404 (no folder of its own), or with no files;
+    // a refusal says the route's reason, or the board's line; otherwise the rows, and View All (#3994: whenever there is
+    // a file, even one).
+    enum FilesSectionState: Equatable { case hidden, message(String), rows([ListedFile]) }
+    static func filesSection(status: Int, body: Data?) -> FilesSectionState {
+        if status == 404 { return .hidden }
+        switch filesResult(status: status, body: body) {
+        case .page(let p): return p.files.isEmpty ? .hidden : .rows(p.files)
+        case .refused(let why):
+            let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            return .message((obj?["because"] as? String).map { sentence($0) } ?? (why == filesCannotRead ? filesAgentUnread : why))
+        case .noAnswer: return .message(filesAgentUnread)
+        }
     }
 
     // The empty line, as the board's: a folder inside, the agent's top, or the project's list.

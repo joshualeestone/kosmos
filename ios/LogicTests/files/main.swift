@@ -77,6 +77,16 @@ let cut = Board.FilesPage(dir: "", dirs: [], files: [dots, inSub], missing: fals
 check(Board.filesMore(cut, owner: .agent("c")) == "Showing the first 2. The rest are in Files on your computer.", "a list the route cut short says so (review 1)")
 check(Board.filesMore(cut, owner: .project("p")) == "Showing the first 2. The rest are in the project\u{2019}s folder on your computer.", "a project's says the project's folder (review 3)")
 check(Board.filesTooBig(.project("p")) == "This file is too big to open on the phone. It is in the project\u{2019}s folder on your computer.", "too big, by owner")
+section("the agent page's section (the board's paintAgentFiles, #3757 and #3994)")
+func sec(_ s: String, _ st: Int = 200) -> Board.FilesSectionState { Board.filesSection(status: st, body: Data(s.utf8)) }
+check(sec(#"{"ok":true,"missing":true,"total":0,"files":[]}"#) == .hidden && sec(#"{"ok":true,"total":0,"files":[]}"#) == .hidden, "no files, no section")
+check(sec(#"{"ok":false,"because":"no agent by that name"}"#, 404) == .hidden, "a 404, no section")
+check(sec(#"{"ok":false,"because":"its Files is a link, so it is not listed","files":[]}"#) == .message("Its Files is a link, so it is not listed."), "a refusal says the route's reason")
+check(Board.filesSection(status: 0, body: nil) == .message("We could not read this agent\u{2019}s files just now.") && sec("<html>sign in</html>") == .message("We could not read this agent\u{2019}s files just now."), "no answer, or the gate's page: the board's line")
+if case .rows(let r) = sec(#"{"ok":true,"total":1,"files":[{"name":"a.pdf","size":1}]}"#) { check(r.map(\.name) == ["a.pdf"], "a file: the rows") } else { check(false, "a file: the rows") }
+check(boardPage.contains("if ((ok && !files.length) || status === 404) {") && boardPage.contains("'We could not read this agent\u{2019}s files just now.'")
+      && boardPage.contains(">View All</button>") && Board.filesAll == "View All", "the board's section rule and words still")
+check(boardPage.contains("(PJ_DOCS_TOTAL === 1 ? ' file' : ' files')"), "the board's project file count still")
 let crumbs = Board.filesCrumbs("Covers/Spring")
 check(crumbs.map(\.name) == ["Files", "Covers", "Spring"] && crumbs.map(\.path) == ["", "Covers", "Covers/Spring"], "breadcrumbs from Files down")
 
