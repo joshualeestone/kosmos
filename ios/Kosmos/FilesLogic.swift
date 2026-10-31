@@ -205,7 +205,7 @@ extension Board {
         case .page(let p): return p.files.isEmpty ? .hidden : .rows(p.files)
         case .refused(let why):
             let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-            return .message((obj?["because"] as? String).map { sentence($0) } ?? (why == filesCannotRead ? filesAgentUnread : why))
+            return .message((obj?["because"] as? String).flatMap { $0.isEmpty ? nil : sentence($0) } ?? (why == filesCannotRead ? filesAgentUnread : why))
         case .noAnswer: return .message(filesAgentUnread)
         }
     }

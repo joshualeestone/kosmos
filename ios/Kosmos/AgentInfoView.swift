@@ -304,7 +304,8 @@ struct AgentInfoView: View {
         skills = k.flatMap { $0.1.statusCode == 200 ? Board.parseSkills($0.0) : nil } ?? skills
         readFailed = d == nil || instructions == nil || skills == nil
         // Review 2: a refresh that gets no answer keeps the list it had, as instructions and skills keep theirs; a
-        // refusal or a new list replaces it.
+        // refusal or a new list replaces it. (A deliberate difference from the board, which says it could not read: a
+        // phone loses its connection far more than a desk page does, and the rows it had are still the agent's.)
         let newFiles = await files
         if newFiles == .message(Board.filesAgentUnread), case .rows = filesRead {} else { filesRead = newFiles }
     }
