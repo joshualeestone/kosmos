@@ -898,19 +898,19 @@ struct ChatView: View {
             }
             rebuilds.append(now)
             Self.trace("diag: empty within the content at the newest, list rebuilt (\(rebuilds.count) this chat open)")
-            // The new list opens on the end anchor (its own open, goNewest on appear, is outside the rebuilt part and does not
-            // run again: with no anchor a rebuilt long list opened at its top, measured 10-31). On iOS 27 the anchor alone
-            // showed the end and lost it, so the end is also asked for by scroll once the new list exists, and once more
-            // after its first layout, unless the person has started scrolling.
+            // As a chat opens (measured 10-31, iOS 26.5 and 27): the new list starts with no anchor, so its first rows are
+            // drawn, and the end is asked for once it exists, as goNewest does on a chat's open (which is outside the rebuilt
+            // part and does not run again). Created already anchored on "end", a long list on iOS 27 opened on rows it had
+            // only estimated and stayed empty; with no anchor and no ask it stayed at its top. Asked again after its first
+            // layout, unless the person has started scrolling.
             anchorLetGo = false; rowTops.reset(); endSeen = false; endVisible = true
-            if Self.idAnchor { positionId = "end" }
+            positionId = nil
             listEpoch &+= 1
             let epoch = listEpoch
             for at in [0.05, 0.4] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + at) {
                     guard listEpoch == epoch, !personScrolling, !scrollBox.underFinger else { return }
-                    proxy.scrollTo("end", anchor: .bottom)
-                    if Self.idAnchor { positionId = "end" }
+                    goNewest(proxy)
                 }
             }
             return
