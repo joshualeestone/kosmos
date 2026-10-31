@@ -35,6 +35,10 @@ struct RoomView: View {
     // kosmos#7654 round 3: the person is scrolling (iOS 18 and later); their first touch cancels goEnd's pending retries.
     @State private var roomScrolling = false
     @State private var roomPosition: String?   // EXPERIMENT #7654 part 2: the id anchor, as the DM's
+    // EXPERIMENT #7654 part 2 (traced 10-31 on iOS 26.5): as the keyboard starts to show, iOS shows the end marker for ~20 ms,
+    // which set atBottom and stood the hold down. The hold reads its own "at the end": the marker still showing 0.1 s later.
+    @State private var endShown = false
+    @State private var holdAtEnd = true
     @State private var rowTops = RowTops()   // EXPERIMENT #7654 part 2: the DM's keyboard hold reads the reader's row by this
     // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
     // never marked seen.
@@ -723,17 +727,18 @@ struct RoomView: View {
                     }
                     Color.clear.frame(height: 1).id("bottom")
                         .onAppear {
-                            atBottom = true
+                            atBottom = true; endShown = true; ChatView.trace("room: EXPERIMENT end marker appeared")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { if endShown { holdAtEnd = true } }
                             // The end of the room is really on screen: only now may the top ask for older pages (the
                             // spinner at the top has had its chance to leave the screen in the same layout).
                             if !settledAtBottom && !rows.isEmpty { DispatchQueue.main.async { settledAtBottom = true } }
                         }
-                        .onDisappear { atBottom = false }
+                        .onDisappear { atBottom = false; endShown = false; holdAtEnd = false; ChatView.trace("room: EXPERIMENT end marker left") }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 // EXPERIMENT #7654 part 2: the DM's keyboard hold (kosmos#7609/#7645): with the anchor holding the bottom edge, a reader
                 // higher up lost their row off the top when the keyboard came up. Put back, then the anchor lets go of a row id.
-                .background(KeyboardHold(hold: visible && !atBottom && !searchMode, above: rows.count, moves: "\(endJumps)|\(searchMode)", rows: rowTops) {
+                .background(KeyboardHold(hold: visible && !holdAtEnd && !searchMode, above: store.older[project.id]?.count ?? 0, moves: "\(endJumps)|\(searchMode)", rows: rowTops) {
                     if ChatView.idAnchor, Board.letGoAfterPutBack(roomPosition), roomPosition != "bottom" { roomPosition = nil; ChatView.trace("room keyboard hold: anchor let go") }
                 })
                 .modifier(PositionTargets(on: ChatView.idAnchor))   // EXPERIMENT #7654 part 2

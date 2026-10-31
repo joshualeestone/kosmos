@@ -30,7 +30,7 @@ final class RoomKeyboardUITests: XCTestCase {
 
     // KOSMOS_SAMPLE_ROOM_SCROLLUP moves the reader up the room 3 s after opening, as a reader's own scroll does.
     func testRoomReadHigherUpStaysWhereItWas() throws {
-        let app = Self.launch(["KOSMOS_SAMPLE_ROOM_SCROLLUP": "40"])
+        let app = Self.launch(["KOSMOS_SAMPLE_ROOM_SCROLLUP": "40", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         let rows = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'"))
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15), "no sample posts")

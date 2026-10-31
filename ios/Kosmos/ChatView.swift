@@ -2338,12 +2338,12 @@ struct KeyboardHold: UIViewRepresentable {
 
     final class Probe: UIView {
         // Review 1: a reading taken while `hold` was true is dropped the moment it turns false (the reader reached the newest).
-        var hold = false { didSet { if !hold { standDown() } } }
+        var hold = false { didSet { if !hold { if saved != nil || guarding != nil { ChatView.trace("keyboard hold: EXPERIMENT stand down, hold off") }; standDown() } } }
         var above = 0
         var moves = ""
         var rows: RowTops?
         var onPutBack: () -> Void = {}
-        func standDown() { saved = nil; endGuard() }
+        func standDown() { if saved != nil || guarding != nil { ChatView.trace("keyboard hold: EXPERIMENT stand down") }; saved = nil; endGuard() }
         // The reader's row, its place in the content and the scroll offset when the keyboard started to show, the rows above
         // and the width, and when (review 1: a will-show with no did-show, an iPad's floating keyboard say, must not leave a
         // reading for a later one).
