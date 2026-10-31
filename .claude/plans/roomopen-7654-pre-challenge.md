@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: roomopen-7654
-diff_hash: 29960a288ce166bd01638f35c6f282db2cacd6a77f6d73ac3d611727130b42cd
+diff_hash: e1b89fc6393758b693ea2585c7ba5ad2de03b490da3b4906ae9c329955ad6895
 validation: failed (fleet load; every failing file green alone; CI runs the full suite before merge)
 subdir_audit: passed
 timestamp: 2026-10-31T01:24:09Z
@@ -36,6 +36,12 @@ line; both kept. This run reviews the rebased diff.
 - Subdir CLAUDE.md audit: clean.
 Weakest premise: a real regression that only shows under load would look like this. None of the failing tests touches
 what this branch changes, which is why it is read as contention.
+
+### After the review (stated so the hash is not read as covering a reviewed diff)
+CI on PR #7665 could not type-check sampleLongRoom's mixed-type dictionary literal in reasonable time (Xcode 26.6,
+ProjectsView.swift:628), so nothing built. Commit "build the long sample room a field at a time" splits it into typed
+pieces: same rows, Debug-only, no behaviour change. Built locally with -warn-long-expression-type-checking=200: no
+expression in the app over 200 ms. Not re-reviewed by the loop; the hash above includes it.
 
 ### Per-Iteration Breakdown
 
