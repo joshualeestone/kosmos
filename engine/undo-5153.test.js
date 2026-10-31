@@ -22,6 +22,9 @@ const store = require('./store');
 
 const T = (hhmm) => `2026-10-01T${hhmm}:00.000Z`;
 const ms = (hhmm) => Date.parse(T(hhmm));
+// The fixtures are dated 1 October 2026, so a plan must be asked on that day too: asked on the real clock it is past
+// KEEP_DAYS and every hold reads as incomplete (this file went red at 10:00 UTC on 31 October 2026).
+const NOW = ms('12:00');
 let pn = 0;
 function activity(project, number, rows) {
   const file = taskchat.taskChatFile(project, number);
@@ -66,7 +69,7 @@ test('undo puts an edited file back to the copy before the FIRST edit in the tas
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'ann' }, { at: '11:00', kind: 'closed' }]);
   edit(f, 'FIRST EDIT', '10:10', ann);
   edit(f, 'SECOND EDIT', '10:20', ann);
-  const plan = undo.plan(project, task());
+  const plan = undo.plan(project, task(), { now: NOW });
   assert.deepEqual(plan.files.map((x) => [path.basename(x.path), x.action, x.ok]), [['notes.md', 'restore', true]]);
   const r = undo.apply(project, task(), [f], { now: ms('12:00') });
   assert.deepEqual(r.done, [f]);
@@ -83,7 +86,7 @@ test('a file the agent created is moved aside, never deleted', () => {
   const f = path.join(bo, 'new.md');
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'bo' }, { at: '11:00', kind: 'closed' }]);
   edit(f, 'MADE BY THE AGENT', '10:10', bo);
-  assert.equal(undo.plan(project, task()).files[0].action, 'move-aside');
+  assert.equal(undo.plan(project, task(), { now: NOW }).files[0].action, 'move-aside');
   const r = undo.apply(project, task(), [f], { now: ms('12:00') });
   assert.equal(fs.existsSync(f), false);
   const moved = fs.readdirSync(r.savedIn).filter((n) => n.endsWith('-new.md'));
@@ -100,7 +103,7 @@ test('a file changed after the task closed is listed and never overwritten', () 
   edit(f, 'AGENT', '10:10', cy);
   fs.writeFileSync(f, 'THE PERSON, LATER');
   const later = new Date(ms('11:30')); fs.utimesSync(f, later, later);
-  assert.deepEqual(undo.plan(project, task()).files.map((x) => [x.ok, x.why]), [[false, 'changed-since']]);
+  assert.deepEqual(undo.plan(project, task(), { now: NOW }).files.map((x) => [x.ok, x.why]), [[false, 'changed-since']]);
   const r = undo.apply(project, task(), [f], { now: ms('12:00') });
   assert.deepEqual([r.done, r.skipped], [[], [{ path: f, why: 'changed-since' }]]);
   assert.equal(fs.readFileSync(f, 'utf8'), 'THE PERSON, LATER');
@@ -116,7 +119,7 @@ test('only the agent\'s own folder and holds count; another agent\'s edit of the
   edit(f, 'BEFORE THE TASK', '09:00', di);   // a copy from before the hold: not this task's
   edit(f, 'DI', '10:10', di);
   edit(f, 'ED', '10:30', ed);                // another agent, not on this task, edits the same file meanwhile
-  const p = undo.plan(project, task()).files[0];
+  const p = undo.plan(project, task(), { now: NOW }).files[0];
   assert.deepEqual([p.ok, p.why], [false, 'shared']);
   assert.equal(undo.apply(project, task(), [], { now: ms('12:00') }).done.length, 0, 'nothing chosen, nothing done');
   const r = undo.apply(project, task(), [f], { now: ms('12:00') });
@@ -155,7 +158,7 @@ test('a file swapped for a link after its copy is never written through: listed,
   fs.rmSync(f);
   try { fs.symlinkSync(target, f); } catch { t.skip('links cannot be made here'); return; }
   const old = new Date(ms('10:30')); fs.lutimesSync(f, old, old);
-  assert.deepEqual(undo.plan(project, task()).files.map((x) => [x.ok, x.why]), [[false, 'not-a-file']]);
+  assert.deepEqual(undo.plan(project, task(), { now: NOW }).files.map((x) => [x.ok, x.why]), [[false, 'not-a-file']]);
   const r = undo.apply(project, task(), [f], { now: ms('12:00') });
   assert.deepEqual(r.done, []);
   assert.equal(fs.readFileSync(target, 'utf8'), 'PRECIOUS', 'the undo wrote through the link');
@@ -169,7 +172,7 @@ test('a file deleted after the task closed is not brought back', () => {
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'hu' }, { at: '11:00', kind: 'closed' }]);
   edit(f, 'AGENT', '10:10', hu);
   fs.rmSync(f);
-  assert.deepEqual(undo.plan(project, task()).files.map((x) => [x.ok, x.why]), [[false, 'gone']]);
+  assert.deepEqual(undo.plan(project, task(), { now: NOW }).files.map((x) => [x.ok, x.why]), [[false, 'gone']]);
   assert.deepEqual(undo.apply(project, task(), [f], { now: ms('12:00') }).done, []);
   assert.equal(fs.existsSync(f), false);
 });
@@ -185,7 +188,7 @@ test('the same agent on two overlapping tasks: an edit inside the other task is 
   activity(project, 1, [{ at: '10:00', kind: 'created', who: 'io' }, { at: '11:00', kind: 'closed' }]);
   activity(project, 2, [{ at: '10:00', kind: 'created', who: 'io' }, { at: '11:00', kind: 'closed' }]);
   edit(f, 'IO', '10:10', io);
-  assert.deepEqual(undo.plan(project, { number: 1, closedAt: T('11:00') }).files.map((x) => [x.ok, x.why]), [[false, 'other-task']]);
+  assert.deepEqual(undo.plan(project, { number: 1, closedAt: T('11:00') }, { now: NOW }).files.map((x) => [x.ok, x.why]), [[false, 'other-task']]);
 });
 
 test('turned on after the agent began: its history is incomplete, so a file is flagged, not "before this task"', () => {
@@ -195,7 +198,7 @@ test('turned on after the agent began: its history is incomplete, so a file is f
   original(f, 'ORIGINAL');
   activity(project, 1, [{ at: '07:00', kind: 'created', who: 'ju' }, { at: '11:00', kind: 'closed' }]);   // began before 08:00
   edit(f, 'AGENT', '10:10', ju);
-  assert.deepEqual(undo.plan(project, task()).files.map((x) => [x.ok, x.why]), [[false, 'incomplete']]);
+  assert.deepEqual(undo.plan(project, task(), { now: NOW }).files.map((x) => [x.ok, x.why]), [[false, 'incomplete']]);
 });
 
 test('copies are private (0600 files, 0700 folders); the sweep drops old ones; turning off deletes them all', () => {
@@ -216,7 +219,7 @@ test('copies are private (0600 files, 0700 folders); the sweep drops old ones; t
 });
 
 test('an open task has nothing to undo', () => {
-  assert.deepEqual(undo.plan('px', { number: 1, closedAt: null }), { ready: false, because: 'open', files: [] });
+  assert.deepEqual(undo.plan('px', { number: 1, closedAt: null }, { now: NOW }), { ready: false, because: 'open', files: [] });
 });
 
 test('turning the switch off deletes the copies, never what an undo saved or moved aside', () => {
@@ -244,7 +247,7 @@ test('a file created in a new folder: if that folder is later a link to elsewher
   const old = new Date(ms('10:30')); fs.utimesSync(path.join(elsewhere, 'x.md'), old, old);
   fs.rmSync(sub, { recursive: true });
   try { fs.symlinkSync(elsewhere, sub); } catch { t.skip('links cannot be made here'); return; }
-  assert.deepEqual(undo.plan(project, task()).files.map((x) => [x.ok, x.why]), [[false, 'moved']]);
+  assert.deepEqual(undo.plan(project, task(), { now: NOW }).files.map((x) => [x.ok, x.why]), [[false, 'moved']]);
   assert.deepEqual(undo.apply(project, task(), [f], { now: ms('12:00') }).done, []);
   assert.equal(fs.readFileSync(path.join(elsewhere, 'x.md'), 'utf8'), 'NOT YOURS');
 });
@@ -257,7 +260,7 @@ test('a first copy made after the file had already changed inside the hold is ma
   fs.writeFileSync(f, 'CHANGED BY A COMMAND');
   const t5 = new Date(ms('10:05')); fs.utimesSync(f, t5, t5);   // inside the hold, before any copy
   edit(f, 'AGENT', '10:10', nu);
-  assert.deepEqual(undo.plan(project, task()).files.map((x) => [x.ok, x.why]), [[false, 'incomplete']]);
+  assert.deepEqual(undo.plan(project, task(), { now: NOW }).files.map((x) => [x.ok, x.why]), [[false, 'incomplete']]);
 });
 
 test('moving aside across disks copies, checks and then removes; a failed restore leaves no temp file behind', (t) => {
@@ -311,16 +314,16 @@ test('#7367: with the projects file damaged no undo is planned or applied (task 
   const pf = require('./projects').file();
   fs.mkdirSync(path.dirname(pf), { recursive: true });
   fs.writeFileSync(pf, '[]');
-  assert.equal(undo.plan(project, task()).ready, true, 'CONTROL: with a good projects file the undo is planned');
+  assert.equal(undo.plan(project, task(), { now: NOW }).ready, true, 'CONTROL: with a good projects file the undo is planned');
   fs.writeFileSync(pf, Buffer.alloc(16, 0));
   try {
-    assert.deepEqual(undo.plan(project, task()), { ready: false, because: 'stamps-unknown', files: [] }, 'damaged: nothing planned');
+    assert.deepEqual(undo.plan(project, task(), { now: NOW }), { ready: false, because: 'stamps-unknown', files: [] }, 'damaged: nothing planned');
     assert.equal(undo.apply(project, task(), [f], { now: ms('12:00') }).because, 'stamps-unknown', 'damaged: nothing applied');
     assert.equal(fs.readFileSync(f, 'utf8'), 'EDITED', 'damaged: the file is untouched');
   } finally {
     fs.writeFileSync(pf, '[]');
   }
-  assert.equal(undo.plan(project, task()).ready, true, 'repaired: planned again');
+  assert.equal(undo.plan(project, task(), { now: NOW }).ready, true, 'repaired: planned again');
 });
 
 test('#7367: the stamps going unknown DURING the read is caught by the check after it (no undo planned)', () => {
@@ -334,11 +337,11 @@ test('#7367: the stamps going unknown DURING the read is caught by the check aft
   const pf = require('./projects').file();
   fs.mkdirSync(path.dirname(pf), { recursive: true });
   fs.writeFileSync(pf, '[]');
-  assert.equal(undo.plan(project, task()).ready, true, 'CONTROL: with a good projects file the undo is planned');
+  assert.equal(undo.plan(project, task(), { now: NOW }).ready, true, 'CONTROL: with a good projects file the undo is planned');
   const realRead = taskchat.read;
   taskchat.read = (...a) => { const rows = realRead(...a); fs.writeFileSync(pf, Buffer.alloc(16, 0)); return rows; };   // damaged mid-read
   let p;
-  try { p = undo.plan(project, task()); } finally { taskchat.read = realRead; fs.writeFileSync(pf, '[]'); }
+  try { p = undo.plan(project, task(), { now: NOW }); } finally { taskchat.read = realRead; fs.writeFileSync(pf, '[]'); }
   assert.deepEqual(p, { ready: false, because: 'stamps-unknown', files: [] }, 'the check after the read caught it');
 });
 
@@ -356,7 +359,7 @@ test('#7367: stamps unknown at entry and the file repaired DURING the read is ca
   const realRead = taskchat.read;
   taskchat.read = (...a) => { fs.writeFileSync(pf, '[]'); return realRead(...a); };   // repaired mid-read
   let p;
-  try { p = undo.plan(project, task()); } finally { taskchat.read = realRead; fs.writeFileSync(pf, '[]'); }
+  try { p = undo.plan(project, task(), { now: NOW }); } finally { taskchat.read = realRead; fs.writeFileSync(pf, '[]'); }
   assert.deepEqual(p, { ready: false, because: 'stamps-unknown', files: [] }, 'unknown at entry: nothing planned');
-  assert.equal(undo.plan(project, task()).ready, true, 'CONTROL: with the file good throughout it is planned');
+  assert.equal(undo.plan(project, task(), { now: NOW }).ready, true, 'CONTROL: with the file good throughout it is planned');
 });
