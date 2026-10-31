@@ -195,7 +195,7 @@ function startTick(deps) {
       } else state.blind = 0;
       if (r.refusal && r.refusal.code === 'backup_off') state.pausedUntil = now() + DAY;
       else if (r.overAllowance) state.pausedUntil = nextWeekStart(now());
-      const act = r.refusedState ? 'refusedState' : r.missing ? 'missing' : r.unreadableKeyFile ? 'unreadableKeyFile' : r.orgKeyRefused ? 'orgKeyRefused' : r.overAllowance ? 'overAllowance' : r.personActs ? 'personActs' : null;
+      const act = r.refusedState ? 'refusedState' : r.missing ? 'missing' : r.unreadableKeyFile ? 'unreadableKeyFile' : r.orgKeyRefused ? 'orgKeyRefused' : r.overAllowance ? 'overAllowance' : r.personActs ? `personActs:${r.because}` : null;
       // Cleared by any run that ends without a reason a person acts on (review 7), so one that comes back is said again.
       if (r.ok || !act) state.said = null;
       else if (act && state.said !== act) { state.said = act; say(typeof r.because === 'string' && r.because ? r.because : 'it did not run, and did not say why'); }

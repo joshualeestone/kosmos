@@ -193,6 +193,47 @@ test('a company\'s left-over pointer, lost epoch and bad state file never touch 
   assert.equal(control.refusedState, true, 'control: the company\'s run reads that file');
 });
 
+test('a real snapshot refused by Kosmos+ for the words comes back as that refusal, end to end', async () => {
+  const crypto = require('node:crypto');
+  const pair = newPair();
+  const { row } = keyed(pair);
+  fs.rmSync(path.join(require('./store').ROOT, 'backupstate', 'current-personal.json'), { force: true });
+  const folder = fs.mkdtempSync(path.join(SANDBOX, 'real-'));
+  fs.writeFileSync(path.join(folder, 'a.txt'), 'hello');
+  const { privateKey } = crypto.generateKeyPairSync('ed25519');
+  const routes = [];
+  const macRequest = async (m, route) => {
+    routes.push(route);
+    if (route === pk.MINE_ROUTE) return { ok: true, data: { ...pair, keys: [row] } };
+    return { ok: false, because: `coordinator refused (HTTP 409 on ${route}, code org_consent_changed)`, refusal: { status: 409, code: 'org_consent_changed' } };
+  };
+  const runBackup = (input, deps) => backuprun.runBackup(input, Object.assign({}, deps, { deviceKey: () => ({ ok: true, privateKey }), macRequest }));
+  const a = jobOpts(pair, { macRequest, runBackup });
+  const r = await pb.runJob({ roots: [{ name: 'workers', path: fs.realpathSync(folder) }] }, a.opts);
+  assert.ok(routes.some((x) => /backup\/grant/.test(x)), 'the real snapshot reached the grant: ' + routes.join(' '));
+  assert.equal(r.ok, false);
+  assert.equal(r.personActs, true, JSON.stringify(r));
+  assert.deepEqual(a.withdrawn, ['cd'.repeat(32)]);
+});
+
+test('no keys here and a key on Kosmos+: the person is told off then on, and setUp then asks for the code', async () => {
+  const none = newPair();
+  const { row } = keyed(newPair());
+  const r = await pk.setUpPersonalKey({ macRequest: kosmosPlus({ ...none, keys: [row] }).macRequest });
+  assert.equal(r.code, 'already_set_up', JSON.stringify(r));
+});
+
+test('a different reason is said, even with the last one unresolved', async () => {
+  const said = [];
+  const why = ['first reason', 'first reason', 'second reason'];
+  const stop = tick.startTick({
+    enrolled: () => true, roots: () => [{ name: 'workers', path: SANDBOX }], label: 'personal backup',
+    runBackup: async () => ({ ok: false, personActs: true, because: why.shift() }), say: (t) => said.push(t), setInterval: () => 1, clearInterval: () => {}, now: () => 1000,
+  });
+  for (let i = 0; i < 3; i++) await stop.tick();
+  assert.deepEqual(said, ['personal backup: first reason', 'personal backup: second reason']);
+});
+
 test('words accepted during a run stay: the hash withdrawn is the one the run started under', async () => {
   const pair = newPair();
   const a = jobOpts(pair);
