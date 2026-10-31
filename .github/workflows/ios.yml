@@ -216,8 +216,8 @@ jobs:
 
   # kosmos#7609: the UI tests that need no account (sample agents, a Debug build) on a fresh simulator, so a change that
   # breaks the + panel, the room title, the keyboard keeping the newest message above the box (in a DM and in a long room,
-  # #7690), or a long room opening on its newest post (#7654) goes red here instead of only when someone runs the UI tests by hand. Its own job, beside the
-  # build, so neither waits on the other.
+  # #7690), or a long room opening on its newest post (#7654) goes red here instead of only when someone runs the UI
+  # tests by hand. Its own job, beside the build, so neither waits on the other.
   # The runner's simulator is usually an older iOS than the one the tests were written on, which is a check in itself
   # (#7609 item 1). ui-sample.sh passes only when every expected test ran (a filter matching nothing also exits 0).
   ui:

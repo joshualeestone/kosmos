@@ -2,7 +2,8 @@
 # kosmos#7609: the sample-board UI tests (no account, a Debug build) a CI runner can run, on one fresh simulator: the +
 # panel (AttachMenuUITests), the room title check (RoomTitleUITests), the keyboard (KeyboardSlideUITests), a long
 # room opening on its newest post (RoomOpensAtNewestUITests, #7654) and the keyboard in that long room
-# (RoomKeyboardUITests, #7690). Run by the ios workflow's "ui tests (sample board)" job and by hand. Prints PASS, or FAIL with the failing check's own words.
+# (RoomKeyboardUITests, #7690). Run by the ios workflow's "ui tests (sample board)" job and by hand. Prints PASS, or
+# FAIL with the failing check's own words.
 #
 #
 #   ios/tools/ui-sample.sh [--keep]
@@ -17,7 +18,8 @@ keep=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=1; shift ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    # The header comment, however long it grows (#7690: a fixed line range cut its last line once).
+    -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) echo "ui-sample: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -28,7 +30,8 @@ classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:3 RoomOpens
 #   TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/ChatOpensAtNewestUITests
 # KeyboardSlideUITests' third check (read higher up) used to wait on a clock and flake under load; Mona Lisa's #7627
 # (kbrested-7609) replaced the wait with a marker, so all three run here again. It records the chat's scroll events
-# (KOSMOS_SAMPLE_TRACE=1): when it fails, the last of them are printed below while the simulator still exists.
+# (KOSMOS_SAMPLE_TRACE=1): when it fails, the last of them are printed below while the simulator still exists. So does
+# RoomKeyboardUITests' read-higher-up check (#7690); the dump does not say which check wrote the events it shows.
 skip=""
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
   echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
