@@ -7,8 +7,9 @@
  *   price: KOSMOS_PERSONAL_BACKUP_PRICE when it is in the shape Stripe prices come in ("$5/month", engine/remote.js
  *          PRICE_SHAPE); anything else, or unset, is null. Never a made-up figure.
  *
- * The price is Josh's decision (#7404). This reader is a placeholder until it is set; when it is, the price should come
- * from the coordinator's own answer, as address prices do, and this is what gets replaced.
+ * The price is Josh's decision (#7404). This is the figure the screen SHOWS; it is bound to what Kosmos+ bills by
+ * personalbackup.js (#7681 item 1): Kosmos+'s preview answer must carry the same price, or nothing goes past the
+ * preview. Kosmos+ bills no personal backup yet and sends no price, so a price set here turns nothing on until it does.
  */
 const { PRICE_SHAPE } = require('./remote');
 
