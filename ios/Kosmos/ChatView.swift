@@ -547,7 +547,11 @@ struct ChatView: View {
                         // nil). "end" stays: it is the keep on the newest message, not a reader's place. Until the reader
                         // scrolls again, which sets a new one, the list is held by its offset alone, as on iOS 16 (and a page
                         // landing above is kept by keepAnchor).
-                        if Self.idAnchor, positionId != nil, positionId != "end" { positionId = nil; Self.trace("keyboard hold: anchor let go") }
+                        if Self.idAnchor, positionId != nil, positionId != "end" {
+                            positionId = nil; Self.trace("keyboard hold: anchor let go")
+                            // Whether SwiftUI names a row again by itself (not measured yet): the record says.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { Self.trace("keyboard hold: anchor after let go " + (positionId == nil ? "none" : "a message")) }
+                        }
                         // Review 3: iOS 26's jump may have shown the end (atBottom true) before it was put back; the end's
                         // disappearance clears atBottom only under a person's scroll, so the reader's place is read again.
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { if atBottom && !endVisible { atBottom = false; Self.trace("keyboard hold: not at the newest after all") } }
@@ -632,7 +636,8 @@ struct ChatView: View {
                 .onChange(of: keepAnchor) { id in
                     guard let id else { return }
                     // The id anchor already keeps the reader's message in place as a page lands above (kosmos#7265). Once a
-                    // keyboard put-back has let it go (kosmos#7645) there is none, so the row is kept as on iOS 16.
+                    // keyboard put-back has let it go (kosmos#7645) there is none, so the row is kept as on iOS 16 (any nil
+                    // anchor gets this, not only a let-go one).
                     if Self.idAnchor, positionId != nil { keepAnchor = nil; return }
                     Self.trace("keepAnchor scrollTo a message")   // kosmos#7420 review 1: no message id in the record
                     proxy.scrollTo(id, anchor: .top)
