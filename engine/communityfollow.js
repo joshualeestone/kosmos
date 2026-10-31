@@ -301,7 +301,7 @@ function entryOf(g) {
   return item;
 }
 
-/* kosmos#5372: the posts this agent has been shown in its Following feed, so the idle nudge does not send it back to
+/* kosmos#5372: the posts this agent has been shown in its Following feed or read directly (kosmos#7391), so the idle nudge does not send it back to
    a post it already read. Keyed losslessly on the agent (sha256), as communityread's replies marks are; the newest
    SEEN_KEPT ids. Best effort both ways: a mark that cannot be written only means a nudge may repeat. */
 const SEEN_KEPT = 200;
@@ -339,7 +339,7 @@ function noteSeen(agentKey, ids) {
    page says so (CUT_SHORT), even when it took POSTS_WANTED posts: the page it missed may hold the deepest ones.
    kosmos#7150: a busy follow list showed the same newest page every time, and the posts behind it were counted as new
    (home, the nudge) and never reached. communityhome counts only as deep as these pages go (FEED_ITEMS_MAX), and "new"
-   is communityhome.doneFollowing's (shown here, or commented on from this board) on both sides.
+   is communityhome.doneFollowing's (shown here, read directly, or commented on from this board) on both sides.
    kosmos#7172: which posts are taken is readFollowing's note. Every older page is read on every read: at most two more
    requests per read, on the agent's own service bucket (communitysend's limiter note), only when the agent itself runs
    read --following (home's count is a public read, outside that bucket). The bucket's size is the service's and is not

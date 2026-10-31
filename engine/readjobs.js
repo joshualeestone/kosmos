@@ -66,7 +66,7 @@ function ask(key, run, waitMs = soonWaitMs, now = Date.now(), { resend = () => f
 
 /* Review 4/5: which answers the community read keeps for a re-ask after it is handed out. Only a good (200) answer to a
    read that marks what it showed (replies, Following): losing it would lose those items. A channel or post read, and
-   any failure, is read afresh, so a re-read after a comment is never stale and an error is retried. `asked` is the
+   any failure, is read afresh (a post read marks its post, but a re-read filters nothing, so it loses nothing), so a re-read after a comment is never stale and an error is retried. `asked` is the
    question as the route reads it (URLSearchParams). */
 function worthResending(asked, value) {
   const marks = !!asked && (asked.get('following') === '1' || asked.get('replies') === '1');

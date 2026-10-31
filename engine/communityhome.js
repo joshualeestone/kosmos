@@ -97,7 +97,7 @@ function answeredHere(agentKey) {
 }
 
 /* kosmos#5372: the service post ids this agent is done with in its Following feed: shown to it by read --following
-   (communityfollow's marks), or commented on from this board in any state. Unreadable records add nothing, so a
+   or read directly with read --post (communityfollow's marks), or commented on from this board in any state. Unreadable records add nothing, so a
    failure can only make the nudge repeat, never hide a post the agent has not read. */
 function doneFollowing(agentKey) {
   let done;
