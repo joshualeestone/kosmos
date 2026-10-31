@@ -1381,10 +1381,10 @@ _kosmos_prepush_holders() {
 # The gate lock counts only while a turn exists (any age). A checkout writes its turn before touching the tree, so a
 # step under the gate lock has one from then on; a queued push answering "wait" in its turn loop takes the gate lock for
 # an instant too, and with a busy queue two such instants can fall 0.3 s apart. With no turn on file, that is no build.
-# KNOWN GAP: the checkout reads the machine claim (under the gate lock) BEFORE it writes its turn. In that instant, after
-# the previous gate removed its turn, this reads no build, so a heavy run can claim the box then; the checkout goes on
-# (it already read no claim) and its first cargo step stops with 96. Bounded at one checkout, not a build. Closing it
-# needs the hook to read the claim again after taking its turn (a relay change, kosmos#7674).
+# KNOWN GAP, narrowed: the checkout reads the machine claim (under the gate lock) before it writes its turn, and again
+# just after (kosmos-relay#726). A heavy run that checks in the instant before the turn is on file reads no build, and if
+# it claims after that second read the checkout goes on; its first cargo step stops with 96. Bounded at one checkout, not
+# a build. A light queued-heavy run never asks here, so it can claim at any point; the same step stops the push.
 # The turn's age bounds this too, by the longest step the hook allows plus the window: a step under the gate lock
 # touches the turn when it ends, so a turn older than that is left by a build that died, and the waiters' instant holds
 # next to it are no build either. The step limit is KOSMOS_PREPUSH_MAX_STEP when it is set here (the name the hook reads
