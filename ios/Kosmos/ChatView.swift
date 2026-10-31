@@ -634,8 +634,8 @@ struct ChatView: View {
                     }
                     #endif
                 }
-                // The place kept after a page lands above: the row that was first stays at the top.
                 .onChange(of: positionId) { id in if id != nil { anchorLetGo = false } }   // kosmos#7645: a row named again ends the let-go
+                // The place kept after a page lands above: the row that was first stays at the top.
                 .onChange(of: keepAnchor) { id in
                     guard let id else { return }
                     // The id anchor already keeps the reader's message in place as a page lands above (kosmos#7265). Once a
