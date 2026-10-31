@@ -68,3 +68,7 @@ scroll put past the end" no row and no end marker ever left the screen, so the l
 "end" or by UIKit) before anything saw it empty. So on the simulator an offset past the end does NOT reproduce Josh's empty
 chat, which weakens this branch's leading reading; the new report line is what will say where his scroll actually was. The
 clamp stays (harmless when within), the UI check was dropped because it could not exercise the recovery.
+- The report is built at the first (0.5 s) check and its after-the-try line at 0.6 s; the same tick's 1.5 s check can make
+  a second, silent recovery (past the end only) that the shared report does not show.
+- KeyboardHold is being reworked in #7645 (it will hold the reader's row, not the offset); this branch's note about a
+  recovery inside the hold's window should be re-read once that merges.
