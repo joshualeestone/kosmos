@@ -37,11 +37,11 @@ struct ChatView: View {
     // kosmos#7265 (iOS 17+, idAnchor): the message the list is anchored on; "end" keeps the newest in view.
     @State private var positionId: String?
     // kosmos#7420 (build 24): the list's identity; a new value rebuilds it, opened at its end (recoverEmpty's .rebuild). At
-    // most `rebuildsMax` a chat open and 2 s apart, so a list that stays empty cannot rebuild itself in a loop.
+    // most `rebuildsMax` a chat open and Board.rebuildSpacing (2 s) apart, so a list that stays empty cannot rebuild itself in a loop.
     @State private var listEpoch = 0
     @State private var rebuilds: [Date] = []
     static let rebuildsMax = 3
-    static let rebuildGrace: TimeInterval = 1.5
+    static let rebuildGrace: TimeInterval = Board.rebuildGrace   // kosmos#7688: the timing lives in Board, checked together
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
     @State private var anchorLetGo = false
     // kosmos#7645: where each drawn row is on the screen (iOS 26 and later), for the keyboard hold.
@@ -632,7 +632,7 @@ struct ChatView: View {
                 // Review 1: driven by a tick bumped only when the last row leaves (row()), never by reading onScreen here,
                 // which would redraw the whole chat on every row that scrolls in or out. Checked at 0.5 s and again at 1.5 s.
                 .onChange(of: diagTick) { _ in
-                    for wait in [0.5, 1.5] { DispatchQueue.main.asyncAfter(deadline: .now() + wait) { diagCheck(proxy, count: items.count) } }
+                    for wait in Board.diagCheckWaits { DispatchQueue.main.asyncAfter(deadline: .now() + wait) { diagCheck(proxy, count: items.count) } }
                 }
                 // Review 1: a row wider than the list, measured in one pass (diagContentWidth carries the list's width beside it)
                 // and still so 0.3 s later, so a rotation or resize between two readers cannot fire it.
@@ -913,7 +913,7 @@ struct ChatView: View {
         case .none: return
         case .rebuild:
             let now = Date()
-            if rebuilds.count >= Self.rebuildsMax || rebuilds.last.map({ now.timeIntervalSince($0) < 2 }) == true {
+            if rebuilds.count >= Self.rebuildsMax || rebuilds.last.map({ now.timeIntervalSince($0) < Board.rebuildSpacing }) == true {
                 Self.trace("diag: empty within the content, not rebuilt again (\(rebuilds.count) this chat open)")
                 if !later { goNewest(proxy) }
                 return
@@ -937,7 +937,7 @@ struct ChatView: View {
                 }
             }
             // A new list that draws no row never has a row leave, so nothing would check it: one check once the grace is over.
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.rebuildGrace + 0.3) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.rebuildGrace + Board.rebuildCheckBump) {
                 if listEpoch == listAt, epoch == chatAt { diagTick &+= 1 }
             }
             return
