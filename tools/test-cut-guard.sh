@@ -1329,8 +1329,9 @@ out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all")"
 { has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
   && pass "#4498 a run-tests.sh inside a test does not queue behind a waiting suite" \
   || fail "#4498 a run-tests.sh fixture queued ($(printf '%s' "$out" | tail -2))"
-case "$(ps -ww -o command= -p "$wp" 2>/dev/null)" in perl*) true ;; *) false ;; esac && pass "#5914 FIXTURE: the run-tests.sh arms' stand-in waiter was alive for all of them" \
-  || fail "#5914 FIXTURE: the stand-in waiter $wp exited before the run-tests.sh arms finished, so a green above may mean there was nothing to queue behind"
+{ case "$(ps -ww -o command= -p "$wp" 2>/dev/null)" in perl*) true ;; *) false ;; esac && [ -e "$W/markers/suitewait.$wp" ]; } \
+  && pass "#5914 FIXTURE: the run-tests.sh arms' stand-in waiter and its marker lasted for all of them" \
+  || fail "#5914 FIXTURE: the stand-in waiter $wp or its marker was gone before the run-tests.sh arms finished, so a green above may mean there was nothing to queue behind"
 kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; WP_LIVE=""; rm -f "$W/markers/suitewait.$wp"
 
 # A cut that claims the box while a suite waits holds it (Kano's review, Liu Kang m3015): the stand-in suite is live
