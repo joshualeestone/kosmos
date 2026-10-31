@@ -415,7 +415,8 @@ test('#7404 review 3 blocker 1: bound on another computer: the preview is refuse
   fs.writeFileSync(path.join(own, oe.WORLD_ID_FILE), 'b'.repeat(32) + '\n');
   assert.equal((await pb.preview({ root: own, remote: c2 })).ok, true);
   // ...and the same binding seen from another Kosmos on this Mac (no world id of its own) is elsewhere.
-  assert.equal((await pb.preview({ root: fresh(t), remote: c2 })).code, 'personal_on_elsewhere');
+  // kosmos#7661: said as the other Kosmos on THIS computer, as Kosmos+ says it at the move.
+  assert.equal((await pb.preview({ root: fresh(t), remote: c2 })).code, 'org_bound_other_world');
 });
 
 test('#7404 review 3 blocker 1: bound on another computer after the preview: switchOn sends no enroll', async (t) => {
