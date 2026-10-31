@@ -79,3 +79,14 @@ Weakest premise: that a late move is the cause. If the next run fails with no "m
 lost some other way (the scroll view's frame, not its offset).
 The logic job's one failure on that run ("the read in the air landed while the pull waited", a stars re-sort timing check
 in LogicTests/main.swift) is not this change's code; it passed on this branch's earlier CI run and locally.
+
+## Round 4 (22:5x CDT): CI on 6ed2de8046 (run 41164781377), measurement only
+Measured: one put-back (658), the anchor let go and stayed none, NO "moved after the window" line and no second put-back in
+the 1.5 s window, and still the row was off the screen. So after the put-back nothing moved the offset, yet the row was
+gone: either the reading taken at will-show had already moved without the shrink showing in bounds less insets, or the
+offset is right and the rows under it were laid out again (estimated heights, the #7265 drift). My understanding of the
+mechanism was wrong, so this round changes no behaviour: it records the scroll's offset, content height and showing height
+at will-show (with the last reading's y), right after each put-back, and when the window ends ("keyboard hold: will-show /
+now / window ended y N, content N, showing N"). If will-show's y differs from the last reading's y by about the move, the
+reading was late; if the y matches and the content height changed, the rows were re-laid.
+Results: ui-keyboard 3 of 3 on 6ed2de8046 (22:52 CDT); every LogicTests suite PASS.
