@@ -45,3 +45,7 @@ text changed, plus the 5-minute CCD read. A failed list answers "could not see" 
 
 ## What would change my mind
 A real stall with /api/health still missing with this in place means the other callers matter and need their own step.
+
+## After review round 4 (the last; the bound set for this branch)
+Fixed: the age clock now starts after the list, so a slow list cannot make fresh captures read as old; a failed gather logs its real
+error; the colour read spends the same budget; a Windows row keeps a held note. The route test is still a source match.

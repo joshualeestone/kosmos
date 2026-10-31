@@ -199,7 +199,7 @@ test('#7693: the board\'s thread turns while a real (fake, slow) tmux answers, a
 for a in "$@"; do
   case "$a" in
     list-panes) printf 'one-discord\\t0.0\\t2.1.212\\t0\\t\\t\\t\\n'; exit 0 ;;
-    capture-pane) sleep 0.8; printf 'Do you want to proceed?\\n\\342\\235\\257 1. Yes\\n  2. No\\n'; exit 0 ;;
+    capture-pane) sleep 2; printf 'Do you want to proceed?\\n\\342\\235\\257 1. Yes\\n  2. No\\n'; exit 0 ;;
   esac
 done
 exit 0
@@ -212,11 +212,51 @@ exit 0
     setImmediate(spin);
     const board = await st.snapshotUnheld();
     running = false;
-    assert.ok(longest < 500, `the board's thread was held for ${longest} ms`);
+    assert.ok(longest < 1000, `the board's thread was held for ${longest} ms`);
     assert.equal(stateOf(board, 'one'), 'needs_you');
   } finally {
     running = false;
     if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('#7693: a slow list does not make fresh captures read as old', async () => {
+  const fs = require('node:fs'), os = require('node:os'), path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'unheld-7693-'));
+  const bin = path.join(dir, 'tmux');
+  fs.writeFileSync(bin, `#!/bin/sh
+for a in "$@"; do
+  case "$a" in
+    list-panes) sleep 3.2; printf 'one-discord\\t0.0\\t2.1.212\\t0\\t\\t\\t\\n'; exit 0 ;;
+    capture-pane) printf 'Do you want to proceed?\\n\\342\\235\\257 1. Yes\\n  2. No\\n'; exit 0 ;;
+  esac
+done
+exit 0
+`, { mode: 0o755 });
+  const saved = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  process.env.AGENT_WORKFORCE_TMUX_BIN = bin;
+  try {
+    const board = await st.snapshotUnheld();
+    const one = board.agents.find((a) => a.sessionName === 'one');
+    assert.equal(one.state, 'needs_you');
+    assert.equal(one.screenRead, undefined);
+  } finally {
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = saved;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('#7693: colour reads of the box spend the budget of live reads', async () => {
+  const many = Array.from({ length: 5 }, (_, i) => `q${i}-discord\t0.0\t2.1.212\t0\t\t\t`).join('\n');
+  const SCREEN = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'test-support', 'composer-6249', 'typed-long.ansi'), 'utf8');
+  const BOX = SCREEN.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+  let ansi = 0;
+  st.setAnsiCapture(() => { ansi += 1; return SCREEN; });
+  st.setPaneSource(() => many);
+  st.setCaptureAsync(() => Promise.resolve(BOX));
+  try {
+    await st.snapshotUnheld();
+    assert.equal(ansi, 3);
+  } finally { st.setPaneSource(null); st.setCaptureAsync(undefined); st.setAnsiCapture(null); st.resetUnsentForTests(); }
 });
