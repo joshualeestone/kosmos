@@ -2447,8 +2447,9 @@ struct KeyboardHold: UIViewRepresentable {
                     if let self, self.generation == mine {
                         if let sv = self.scroll {
                             ChatView.trace("keyboard hold: window ended \(Self.numbers(sv))")
-                            // A move the row's readings never reported would leave it off its place: the record says by how much.
-                            if let r = rows.y[kept.row] {
+                            // A move the row's readings never reported would leave it off its place: the record says by how much. Only
+                            // while still held: a hold that stood down (a finger, the app's own move) left the place on purpose.
+                            if self.guarding != nil, let r = rows.y[kept.row] {
                                 let i = sv.adjustedContentInset
                                 let place = Board.holdTarget(offset: Double(kept.offset), content: r.content, keptContent: Double(kept.content),
                                                              insetTop: Double(i.top), insetBottom: Double(i.bottom),

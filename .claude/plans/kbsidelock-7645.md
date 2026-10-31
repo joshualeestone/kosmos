@@ -18,7 +18,7 @@ The decisions live in Board (BoardLogic.swift: letGoAfterPutBack, keepPageByScro
 no longer pulls the list back to that message. Trace lines "keyboard hold: anchor let go" and, 0.2 s later, "keyboard hold: anchor after let go <none|top|end|a message>".
 
 ## Trade-off, accepted
-Until the reader scrolls again (which sets a new anchor) the list is held by its offset alone, as on iOS 16. kosmos#7265 measured that drifting by tens of points as reads re-estimate rows above, so a reader who opens the keyboard and types without scrolling may drift that way. Re-anchoring on a real row was rejected: the anchor is .bottom, so naming any row scrolls the list to it, the very move being undone. A page of earlier messages landing above meanwhile is kept by keepAnchor (scrollTo the row that was topmost), which the iOS 17+ path always skipped and now runs only while the anchor is nil after a let-go (anchorLetGo, cleared when any row or "end" is named again, and with a fresh chat). That scrollTo on lazily drawn rows is unmeasured on iOS 17+ (kosmos#7265 measured offset holding there, not scrollTo, and the same proxy.scrollTo already takes the newest message there); the alternative, no keep at all, moves the reader a whole page. "end" is never let go: it is the keep on the newest message. Whether SwiftUI writes the binding back by itself after the nil is not known; the CI trace answers it (see Change my mind). Follow-up if drift shows: a check that lands reads after the let-go (noted in the PR).
+Until the reader scrolls again (which sets a new anchor) the list is held by its offset alone, as on iOS 16. kosmos#7265 measured that drifting by tens of points as reads re-estimate rows above, so a reader who opens the keyboard and types without scrolling may drift that way. Re-anchoring on a real row was rejected: the anchor is .bottom, so naming any row scrolls the list to it, the very move being undone. A page of earlier messages landing above meanwhile is kept by keepAnchor (scrollTo the row that was topmost), which the iOS 17+ path always skipped and now runs only while the anchor is nil after a let-go (anchorLetGo, cleared when any row or "end" is named again, and with a fresh chat). That scrollTo on lazily drawn rows is unmeasured on iOS 17+ (kosmos#7265 measured offset holding there, not scrollTo, and the same proxy.scrollTo already takes the newest message there); the alternative, no keep at all, moves the reader a whole page. "end" is never let go: it is the keep on the newest message. Whether SwiftUI writes the binding back by itself after the nil: measured in round 2, it does not (the anchor stays none). Follow-up if drift shows: a check that lands reads after the let-go (noted in the PR).
 
 ## Rejected
 - Widening the 0.8 s window: prolongs the fight, does not end it. (Reversed in round 3: with the anchor let go there is no
@@ -37,7 +37,7 @@ A CI trace on this branch still showing put back 499 after "anchor let go".
 
 ## Not tested
 - The wiring in ChatView (the idAnchor guard, setting anchorLetGo, clearing it on a named row) is covered only by the CI UI check,
-  which drives the put-back itself; the LogicTests checks cover the five decisions alone.
+  which drives the put-back itself; the LogicTests checks cover the decisions alone (letGoAfterPutBack, keepPageByScroll, anchorKind, readerRow, holdTarget).
 - A page landing above while the anchor is let go (the keepAnchor scroll on iOS 17+) has no check at all.
 
 (Rounds 2 to 4, round 5's first change and iteration 14's reading describe code that later work replaced; iteration 15 and
@@ -165,3 +165,5 @@ that commit. The commits after it are review fixes and get their own CI run befo
 Iteration 21: the window-end check uses Board.holdTarget (the clamped place the hold writes), so a hold at either end of the
 conversation is not reported as a missed move; after a let-go, the page-keep scroll is followed by "keepAnchor: anchor after
 <kind>" 0.2 s later, so the record shows whether SwiftUI named a row again beside it.
+Iteration 22: the "window ended off the row's place" line runs only while the hold is still active, so a hold that stood
+down on purpose (a finger, an app move, earlier messages landing) is never reported as a missed move.
