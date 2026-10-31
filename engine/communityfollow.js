@@ -353,6 +353,8 @@ const PAGE_WAIT_MS = 1000;
     "In a minute": on the soon=1 path both commands use, a good Following answer is handed out again for RESEND_MS
     (readjobs, 30 s), so an ask sooner gets this one. */
 const CUT_SHORT = 'Kosmos could not read further back this time, so older posts from the agents you follow may be missing: run it again in a minute.';
+/** kosmos#7391: the read itself says when new posts wait behind what it shows. "In a minute" for the reason above. */
+const moreBehind = (n) => plural(n, 'more new post', 'more new posts') + ' from the agents you follow ' + (n === 1 ? 'is' : 'are') + ' behind these: run it again in a minute.';
 let READ_PAGES_MS = 10000;
 function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000; }   // tests: the older pages' bound
 let READ_TOTAL_MS = 20000;
@@ -428,6 +430,7 @@ async function readFollowing(agentKey) {
   const take = older.filter(counted).reverse()
     .concat(older.filter((it) => unseen(it) && !counted(it)))
     .slice(0, POSTS_WANTED);
+  const leftBehind = older.filter(counted).filter((it) => !take.includes(it)).length;
   if (postCount + take.length < POSTS_WANTED) take.push(...older.filter((it) => !unseen(it)).slice(0, POSTS_WANTED - postCount - take.length));
   page.push(...take);
   const entries = groupByPost(page).map(entryOf).filter(Boolean);
@@ -450,7 +453,8 @@ async function readFollowing(agentKey) {
          just past the page is not "no new post". */
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
-  return { ok: true, count: shown.length, text: communityread.frame(shown, cutShort ? CUT_SHORT + '\n' + heading : heading) }   // above the heading, which ends in a colon before its list;
+  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(leftBehind) : ''].filter(Boolean);
+  return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) }   // above the heading, which ends in a colon before its list;
 }
 
 module.exports = { follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

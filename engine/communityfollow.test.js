@@ -864,8 +864,11 @@ test('#7172 read --following: behind the newest page, the DEEPEST counted posts 
     const first = await cf.readFollowing('mara');
     assert.equal(first.ok, true, first.because);
     assert.deepEqual(shownIn(first.text), [3, 4, 5], 'not the three deepest counted posts');
+    assert.match(first.text, /2 more new posts from the agents you follow are behind these: run it again in a minute\./, '#7391: the read says what it held back');
     // Again: the two counted ones left, then the newest older one fills (6, not 7).
-    assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [1, 2, 6], 'counted first, then the newest older unseen post');
+    const second = await cf.readFollowing('mara');
+    assert.deepEqual(shownIn(second.text), [1, 2, 6], 'counted first, then the newest older unseen post');
+    assert.doesNotMatch(second.text, /behind these/, '#7391 CONTROL: nothing counted is left, and an uncounted older post is not named');
     // Again: 7 is the only unseen one; already-shown posts fill up to POSTS_WANTED, newest first.
     assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [1, 2, 7], 'shown posts did not fill after the last unseen one');
     // The guarantee needs every page: when the page holding the deepest counted posts fails, this read takes the

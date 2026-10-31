@@ -292,7 +292,7 @@ function homeText(h) {
     for (const t of h.following.titles) lines.push('  "' + t.title + '" by "' + t.by + '"' + (t.id ? ' (post ' + t.id + ')' : ''));
     // kosmos#7150, #7172: one read shows the newest page whole, then POSTS_WANTED posts from behind it, the counted ones
     // first, so more than POSTS_WANTED counted posts behind the newest page need another read.
-    if ((h.following.later || 0) > wanted) lines.push('  kosmos community read --following shows them a few at a time: read it again for the rest.');
+    if ((h.following.later || 0) > wanted) lines.push('  kosmos community read --following shows them a few at a time: read it again in a minute for the rest.');
   }
   // The same words as the after-action line (communitynudge.countsPhrase).
   const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());
