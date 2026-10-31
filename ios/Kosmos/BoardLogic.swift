@@ -445,7 +445,7 @@ enum Board {
     // without the id anchor (iOS 16), and with it only while a put-back has let it go and no row is named yet.
     static func keepPageByScroll(idAnchor: Bool, letGo: Bool, anchor: String?) -> Bool { !idAnchor || (letGo && anchor == nil) }
     // kosmos#7645: the reader's row when the keyboard starts to show: the highest drawn row whose top is at or below the top
-    // of what shows (window points). A row already under the bar is not the reader's place.
+    // of what shows (window points, with half a point of rounding). A row already under the bar is not the reader's place.
     static func readerRow(_ tops: [String: Double], below top: Double) -> (id: String, y: Double)? {
         tops.filter { $0.value >= top - 0.5 }.min { $0.value < $1.value || ($0.value == $1.value && $0.key < $1.key) }.map { ($0.key, $0.value) }
     }
