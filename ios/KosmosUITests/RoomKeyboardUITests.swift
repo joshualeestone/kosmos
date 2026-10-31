@@ -3,20 +3,14 @@ import XCTest
 // kosmos#7645: KeyboardSlideUITests' two long-chat checks on a project room. With the room at its newest post, bringing the
 // keyboard up keeps that post visible above the message box; a room read higher up stays where it was (iOS 26 moved a DM
 // read higher up, #7609). Sample room (a Debug build), Spring catalogue made long (KOSMOS_SAMPLE_ROOM_LONG, 220 posts).
-// Not in ios/tools/ui-sample.sh: testRoomNewestStaysAboveTheBox fails on iOS 26 until a person's scroll can reach the end
-// of a long room (#7654 part 2). Run it by hand with -only-testing:KosmosUITests/RoomKeyboardUITests.
+// #7654 part 2 made both pass on iOS 27 and 26.5 (measured on this Mac, one run of each per system). Still not in
+// ios/tools/ui-sample.sh: CI's slower runner stopped this 220-post room short once already (#7654 round 3), and one run
+// each is not yet evidence it holds there. Run it by hand with -only-testing:KosmosUITests/RoomKeyboardUITests.
 final class RoomKeyboardUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
     // The swipes past the end are a person's scroll coming to rest at the newest post (KeyboardSlideUITests' long check).
     func testRoomNewestStaysAboveTheBox() throws {
-        // Only the known part-2 failures are expected; any other failure in this test still shows.
-        let known = XCTExpectedFailure.Options()
-        known.isStrict = false
-        // The swipes stopping short shows as either assertion, or as a failed lookup of Post 220 inside a helper (measured 10-31).
-        known.issueMatcher = { i in
-            ["did not reach the newest post", "was not above the box", "Post 220 of 220."].contains { i.compactDescription.contains($0) }
-        }
         let app = Self.launch([:])
         let box = Self.box(app)
         for _ in 0..<6 { app.swipeUp(velocity: .fast) }
