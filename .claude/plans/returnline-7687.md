@@ -44,3 +44,10 @@ Card: kosmos#7687 (Josh 10-31 11:57, Discord's composer). Reverses #7346's no-ar
   0.4 s of dictation ending is refused. Logic checks for both.
 - W: the UI check covered the chat only. Added the room (Post), and the button has an identifier (composer-send).
 - NIT taken: the "sent" check now proves the box emptied and a bubble holds both lines.
+
+## Review round 3 (10-31): no BLOCKER, 1 warning, fixed
+- W: the room UI check waited for the post to appear, but the sample room keeps no post (RoomStore.post drops it in
+  sample mode), so it could never pass. It now checks what the sample build shows: the box empties and the microphone
+  comes back. The chat case still checks the sent bubble with both lines.
+- NIT taken: a source check that stop() records endedAt, and before clearing finishing (composer 61/61).
+- NIT left: a tap refused within 0.4 s of dictation ending says nothing (the window is short; a second tap sends).

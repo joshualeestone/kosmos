@@ -74,8 +74,11 @@ final class ComposerSendUITests: XCTestCase {
         XCTAssertTrue(value.contains("Room one\nRoom two"), "Return did not add a new line in the room (the box reads \(value.debugDescription))")
         shot(app, "room, two lines, Post button")
         post.tap()
-        let posted = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "Room one", "Room two")).firstMatch
-        XCTAssertTrue(posted.waitForExistence(timeout: 5), "the post, with both lines, is not in the room")
+        // Review 3: the sample room keeps no post (RoomStore.post drops it in sample mode), so what can be seen is the post
+        // being taken: the box empties and the microphone comes back. The chat case checks the sent bubble itself.
+        XCTAssertTrue(app.buttons["Dictate a message"].waitForExistence(timeout: 5), "after Post the room box did not go back to the microphone")
+        let left = (field.value as? String) ?? ""
+        XCTAssertFalse(left.contains("Room"), "the room box still holds the words after Post (it reads \(left.debugDescription))")
         shot(app, "room, posted")
     }
 
