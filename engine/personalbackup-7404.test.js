@@ -829,3 +829,35 @@ test('#7681 restore: a turn-off during the restore itself writes no key-ready ma
   assert.equal((await pb.restore('CODE', { root: root2, remote: c, personalbackupkey: taken })).ok, true);
   assert.equal(pb.state({ root: root2, personalbackupkey: taken }), 'on');
 });
+
+/* #7681 item 1: the price shown must be the price Kosmos+ bills. Kosmos+'s preview answer has to carry the same figure,
+   or nothing goes past the preview; and a ticket whose confirmed price the screen no longer shows binds nothing. */
+test('#7681 price: no price from Kosmos+, or a different one, stops at the preview; the same one proceeds', async (t) => {
+  const answer = (price) => ({ ok: true, data: Object.assign({ org: ORG, role: 'member', consent: WORDS, consentHash: HASH, computerSalt: SALT }, price === undefined ? {} : { price }) });
+  for (const [label, price] of [['no price', undefined], ['a different price', '$6/month'], ['a price in no Stripe shape', 'five dollars']]) {
+    const root = fresh(t);
+    const r = await pb.preview({ root, remote: coordinator({ preview: answer(price) }), shownPrice: '$5/month' });
+    assert.deepEqual([r.ok, r.code], [false, 'price_unconfirmed'], label + ': ' + JSON.stringify(r));
+    assert.equal(r.ticket, undefined, label + ': a ticket was issued');
+  }
+  // CONTROL: Kosmos+ confirms the same figure, so the words are served.
+  const ok = await pb.preview({ root: fresh(t), remote: coordinator({ preview: answer('$5/month') }), shownPrice: '$5/month' });
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  assert.equal(typeof ok.ticket, 'string');
+});
+
+test('#7681 price: the screen\'s price changed after the preview, so switchOn binds nothing', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c, shownPrice: null });
+  assert.equal(p.ok, true, 'premise: the preview served words (no price on either side)');
+  const r = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK, shownPrice: '$5/month' });
+  assert.deepEqual([r.ok, r.code], [false, 'price_unconfirmed'], JSON.stringify(r));
+  assert.equal(c.sent.filter((x) => x.route === oe.ROUTES.enroll).length, 0, 'it enrolled this computer anyway');
+  assert.equal(pb.isOn({ root }), false);
+  // CONTROL: the same price as the preview binds.
+  const root2 = fresh(t);
+  const c2 = coordinator();
+  const p2 = await pb.preview({ root: root2, remote: c2, shownPrice: null });
+  assert.equal((await pb.switchOn(p2.ticket, true, { root: root2, remote: c2, personalbackupkey: KEY_OK, shownPrice: null })).ok, true);
+});
