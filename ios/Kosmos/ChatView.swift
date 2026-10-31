@@ -2386,22 +2386,29 @@ struct KeyboardHold: UIViewRepresentable {
         var onRowLost: ((String, CGFloat) -> Void)?
         private var keptScreenTop: CGFloat = 0
         // A settle waiting its 0.1 s is dropped by anything that ends the hold's claim on the list: a stand-down (the app's
-        // own move, the reader at the newest), the keyboard going, the chat leaving the window, or the next keyboard.
+        // own move, the reader at the newest), the keyboard going, the chat leaving the window, or the next keyboard starting
+        // to show.
         private var settleToken = 0
         // kosmos#7654: 0.1 s later, the row's fresh place on the screen against where it was at will-show; the offset takes up
         // the difference, inside what can be scrolled to (Board.settleOffset). Not under a finger, and not once earlier messages
         // landed or the width changed since the reading (putBack's own stand-downs). While the hold still guards the row, its
         // kept offset moves by the same amount, so the row watch's next put-back keeps the settled place. Then the chat reads
         // again whether the reader is at the newest (onPutBack).
-        // `rearm`: after a placing by id the hold had ended; it guards the settled row again until then (iOS 26 moves the list
-        // more than once after did-show). One more turn of the main queue first, so a put-back the row watch queued lands before
-        // the settle reads the row, never between.
-        private func settleOnScreen(_ id: String, above: Int, width: CGFloat, rearm: Date? = nil) {
+        // `rearm`: after a placing by id the hold had ended; it guards the settled row again until then, and ends at that time
+        // (iOS 26 moves the list more than once after did-show). A row placed by id but not drawn yet is tried once more 0.1 s
+        // later. One more turn of the main queue first, so a put-back the row watch queued lands before the settle reads the
+        // row, never between. The chat reads its newest again after every settle, a skipped one too (the move by id may have
+        // shown the end without one).
+        private func settleOnScreen(_ id: String, above: Int, width: CGFloat, rearm: Date? = nil, retried: Bool = false) {
             let want = keptScreenTop, token = settleToken
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in DispatchQueue.main.async { [weak self] in
                 guard let self, token == self.settleToken, let sv = self.scroll else { return }
                 defer { self.onPutBack() }
-                guard let r = self.rows?.y[id] else { ChatView.trace("keyboard hold: settle, row not drawn"); return }
+                guard let r = self.rows?.y[id] else {
+                    ChatView.trace("keyboard hold: settle, row not drawn")
+                    if rearm != nil, !retried { self.settleOnScreen(id, above: above, width: width, rearm: rearm, retried: true) }
+                    return
+                }
                 if sv.isTracking || sv.isDragging || sv.isDecelerating { ChatView.trace("keyboard hold: settle skipped, a finger"); return }
                 if self.above != above || abs(sv.bounds.width - width) > 0.5 { ChatView.trace("keyboard hold: settle skipped, the list changed"); return }
                 let moved = CGFloat(r.top) - want
@@ -2419,6 +2426,12 @@ struct KeyboardHold: UIViewRepresentable {
                     self.guarding = ((id, CGFloat(r.content), sv.contentOffset.y, above, width, Date()), until)
                     self.watchRow(id, last: CGFloat(r.content))
                     ChatView.trace("keyboard hold: guarding again after the placing")
+                    let mine = self.generation
+                    DispatchQueue.main.asyncAfter(deadline: .now() + until.timeIntervalSinceNow + 0.05) { [weak self] in
+                        guard let self, self.generation == mine, self.guarding != nil else { return }
+                        if let sv = self.scroll { ChatView.trace("keyboard hold: window ended \(Self.numbers(sv))") }
+                        self.endGuard()
+                    }
                 }
             } }
         }
@@ -2497,6 +2510,7 @@ struct KeyboardHold: UIViewRepresentable {
             let nc = NotificationCenter.default
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self, let sv = self.scroll else { return }
+                self.settleToken &+= 1   // a settle still waiting belongs to the keyboard before this one
                 // A keyboard already up (a second will-show, say for the emoji panel) keeps the first reading.
                 guard self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating else { return }
                 ChatView.trace("keyboard hold: will-show \(Self.numbers(sv))")
