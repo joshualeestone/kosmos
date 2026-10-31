@@ -444,15 +444,10 @@ enum Board {
     // kosmos#7645: a page landing above is kept by scrolling to the row that was topmost, where no id anchor keeps it: always
     // without the id anchor (iOS 16), and with it only while a put-back has let it go and no row is named yet.
     static func keepPageByScroll(idAnchor: Bool, letGo: Bool, anchor: String?) -> Bool { !idAnchor || (letGo && anchor == nil) }
-    // kosmos#7645: the keyboard hold's reading from before the list shrank. It is kept fresh while no keyboard is up, except
-    // in the half second after a shrink (so the move that follows the shrink is not taken as the reader's place).
-    static func keepPreShrinkReading(keyboardUp: Bool, shrankAgo: Double?) -> Bool { !keyboardUp && (shrankAgo.map { $0 > 0.5 } ?? true) }
-    // Will-show uses it only with no keyboard already up, a shrink in the last half second, a reading at the same width,
-    // and nobody having scrolled since that shrink (a drag, a track or a fling seen at an offset change; any shrink counts,
-    // not only the keyboard's, and the reading from before it is still the reader's place).
-    static func usePreShrinkReading(keyboardUp: Bool, shrankAgo: Double?, haveReading: Bool, sameWidth: Bool, scrolledSince: Bool) -> Bool {
-        guard !keyboardUp, let a = shrankAgo, a < 0.5, haveReading, sameWidth, !scrolledSince else { return false }
-        return true
+    // kosmos#7645: the reader's row when the keyboard starts to show: the highest drawn row whose top is at or below the top
+    // of what shows (window points). A row already under the bar is not the reader's place.
+    static func readerRow(_ tops: [String: Double], below top: Double) -> (id: String, y: Double)? {
+        tops.filter { $0.value >= top - 0.5 }.min { $0.value < $1.value || ($0.value == $1.value && $0.key < $1.key) }.map { ($0.key, $0.value) }
     }
 
     // kosmos#7575: the chat's running count and when it goes. The count always runs (a shift before the chat's onAppear
