@@ -54,13 +54,13 @@ struct ChatView: View {
     // kosmos#7609: set only by the DEBUG sample scroll-up once it has told the chat where the reader is; checks wait on it.
     @State private var sampleScrollRested = false
     @State private var sampleRebuilt = false   // kosmos#7420: KOSMOS_SAMPLE_REBUILD's marker, shown once the rebuild has settled
-    static var sampleRebuildDone = false       // once a launch: the hook below runs again on the rebuilt list's appear
-    // kosmos#7420: KOSMOS_SAMPLE_NOREBUILD=1 (Debug) is the control: the recovery never rebuilds.
+    static var sampleRebuildDone = false       // once a launch, so the hook never runs twice whatever the list's appear does
+    #endif
+    // kosmos#7420: KOSMOS_SAMPLE_NOREBUILD=1 (Debug) is the control: the recovery never rebuilds. Release reads false.
     #if DEBUG
     static let sampleNoRebuild = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOREBUILD"] == "1"
     #else
     static let sampleNoRebuild = false
-    #endif
     #endif
     // kosmos#7265 (Josh 10-27): the id of the first eager row, fixed when the conversation is first drawn (eagerStart).
     @State private var eagerFrom: String?
@@ -481,12 +481,16 @@ struct ChatView: View {
 
     // One row of the conversation, with what the thread needs to know about it.
     private func row(_ item: Board.ChatItem) -> some View {
-        itemView(item).id(item.id)
+        let epochAtDraw = listEpoch
+        return itemView(item).id(item.id)
             .modifier(RowTop(id: item.id, rows: rowTops))   // kosmos#7645: the keyboard hold reads the reader's row by this
             // Which rows are on screen, so a page landing above keeps the one the reader is on. The eager rows all
             // appear and go together (kosmos#7265), so they count as on screen while any of them shows.
-            .onAppear { onScreen.insert(item.id); if !diagEverDrew { diagEverDrew = true } }
+            // kosmos#7420: a row of a list since rebuilt (listEpoch) counts no more: the new list's rows have the same ids, and
+            // an old row leaving after its new twin appeared would take the twin out of onScreen.
+            .onAppear { if epochAtDraw == listEpoch { onScreen.insert(item.id); if !diagEverDrew { diagEverDrew = true } } }
             .onDisappear {
+                guard epochAtDraw == listEpoch else { return }
                 onScreen.remove(item.id)
                 if onScreen.isEmpty { diagTick &+= 1 }   // kosmos#7420: the diagnostic's check, only when the last row leaves
             }
@@ -899,17 +903,18 @@ struct ChatView: View {
             rebuilds.append(now)
             Self.trace("diag: empty within the content at the newest, list rebuilt (\(rebuilds.count) this chat open)")
             // As a chat opens (measured 10-31, iOS 26.5 and 27): the new list starts with no anchor, so its first rows are
-            // drawn, and the end is asked for once it exists, as goNewest does on a chat's open (which is outside the rebuilt
-            // part and does not run again). Created already anchored on "end", a long list on iOS 27 opened on rows it had
-            // only estimated and stayed empty; with no anchor and no ask it stayed at its top. Asked again after its first
-            // layout, unless the person has started scrolling.
-            anchorLetGo = false; rowTops.reset(); endSeen = false; endVisible = true
+            // drawn, and the end is asked for once it exists (goNewest), since without that ask it stayed at its top (the
+            // chat open's own goNewest did not move it). Created already anchored on "end", a long list on iOS 27 opened on
+            // rows it had only estimated and stayed empty. Asked again after its first layout, unless the person has started
+            // scrolling or another chat opened. Nothing of the new list is drawn yet: no row counted, the end not shown (so a
+            // new list that also stays empty is checked again), and no earlier page asked for by its top (settledAtEnd).
+            anchorLetGo = false; rowTops.reset(); endSeen = false; endVisible = false; onScreen = []; settledAtEnd = false
             positionId = nil
             listEpoch &+= 1
-            let epoch = listEpoch
+            let listAt = listEpoch, chatAt = epoch
             for at in [0.05, 0.4] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + at) {
-                    guard listEpoch == epoch, !personScrolling, !scrollBox.underFinger else { return }
+                    guard listEpoch == listAt, epoch == chatAt, !personScrolling, !scrollBox.underFinger else { return }
                     goNewest(proxy)
                 }
             }
