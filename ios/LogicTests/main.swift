@@ -2095,6 +2095,7 @@ let testAvatars = FileManager.default.temporaryDirectory.appendingPathComponent(
 
 @MainActor
 func boardLoopTests() async {
+    defer { try? FileManager.default.removeItem(at: testAvatars) }   // kosmos#7677 review 2: every client's picture folder
     // kosmos#7677: every client keeps pictures in a folder of its own (a fresh one unless `avatars` names one, as a relaunch
     // of the same phone would), never in this Mac's caches folder.
     func make(_ session: String?, kept: String? = nil, avatars: URL? = nil) -> (BoardClient, FakeBoardWorld, MemoryStore, MemoryStore) {

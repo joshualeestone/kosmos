@@ -39,3 +39,13 @@ fetches each picture one at a time after the first agents read. The board alread
 - NITs left: disk work on the main thread (about 20 small files, once per computer per run); a non-image file is kept
   for a day (skipped only when empty); folder names can collide for host:8080 vs host_8080 (not real addresses); test
   folders now removed by the tests that make them.
+
+## Review round 2 (10-31): no BLOCKER, one warning, fixed
+- W1 fixed: a picture answer is taken only if the agent is still listed with a picture at the same version, so a request
+  out while the Mac dropped the picture cannot bring it back past the prune memo. Not covered by a test: the fake world
+  answers at once, so a list change mid-request cannot be staged. Named, reasoned from the code.
+- NIT fixed: no prune on an empty list (a board just restarted can answer one). A hasAvatar flip while a pane is untied
+  can still drop kept files; the cost is one re-fetch.
+- NIT fixed: boardLoopTests removes its whole picture folder when it ends (the round-1 line above was wider than the code).
+- Left: session names outside PushBridge.isAgentSession (lowercase, digits, - and _) are not kept on disk, so those agents
+  fetch as before; a killed atomic write's temp file is not pruned (caches folder, removed on sign-out).
