@@ -12166,7 +12166,11 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .pb-saved-row { margin-top: 24px; }
 #s-sec-plus .pb-codein { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; text-transform: uppercase; }   /* shown as the code was shown; the value stays as typed (the engine reads either case) */
 #s-sec-plus .pb-codein::placeholder { text-transform: none; }
-@media (max-width: 480px) { #s-sec-plus .pb-codein { letter-spacing: 0; padding-left: 10px; padding-right: 10px; } }   /* 32 characters at the 16px a phone needs to not zoom */
+#s-sec-plus textarea.pb-codein { display: block; width: 100%; box-sizing: border-box; resize: none; height: 46px; line-height: 1.5; overflow: hidden; }
+@media (max-width: 480px) { #s-sec-plus textarea.pb-codein { height: 76px; } }   /* review 3: two rows; the code wraps after a hyphen at 16px */
+/* Review 3: the Kosmos+ field error colour (#E8705E, the --danger the dark field sets, #plus-org .tk-inp), not a new red. */
+#s-sec-plus #pb-restore-msg { color: #E8705E; margin-top: var(--space-3); }
+#s-sec-plus #pb-restore-msg:empty { min-height: 0; margin-top: 0; }
 #s-sec-plus #pb-restore-open { display: block; margin-top: 8px; text-align: left; }
 #s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
 #s-sec-plus .plus-org-outhead { display: flex; justify-content: flex-end; }
@@ -20483,9 +20487,13 @@ window.kosmosMeasureScrollbarWidth();
           <!-- Restore review 4: said before Restore, and only what is true today: restoring puts the backup key here (engine
                restorePersonalKey); no files come back until the backup job exists, and nothing here is changed. -->
           <p class="fhint">This puts your backup key on this computer. Nothing already on this computer is changed or removed.</p>
+          <!-- Restore review 1-2: no autocorrect or half-capitalising on a phone; the code's own face and shape. Review 3: a
+               text area, so at the 16px a phone needs the code wraps after a hyphen and is seen whole; Enter submits
+               (pbRestoreKey) and a newline is dropped with the spaces and hyphens (engine recoveryCodeBytes). -->
+          <textarea class="tk-inp pb-codein" id="pb-restore-code" rows="1" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="64" aria-label="Your recovery code" aria-describedby="pb-restore-msg" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX"></textarea>
+          <!-- Review 3: the refusal is about the field, so it sits under it, above the buttons, in the field error colour. -->
+          <p class="fmsg" id="pb-restore-msg" role="alert" aria-live="assertive"></p>
           <div class="frow">
-            <!-- Restore review 1-2: no autocorrect or half-capitalising on a phone; the code's own face and shape. -->
-            <input type="text" class="tk-inp pb-codein" id="pb-restore-code" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="64" aria-label="Your recovery code" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX">
             <button class="btn uprime" type="button" id="pb-restore-go">Restore</button>
             <button class="btn" type="button" id="pb-restore-no">Cancel</button>
           </div>
@@ -55739,15 +55747,24 @@ function pbRestoreSay(r) {
   if (!b) return 'Nothing was restored. Try again.';
   return b.charAt(0).toUpperCase() + b.slice(1) + (/[.!?]$/.test(b) ? '' : '.');
 }
+function pbRestoreBad(text) {
+  document.getElementById('pb-restore-msg').textContent = text || '';
+  document.getElementById('pb-restore-code').classList.toggle('bad', !!text);
+}
+function pbRestoreKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); pbRestore(); }
+}
 async function pbRestore() {
   if (PB.busy) return;
   const code = document.getElementById('pb-restore-code').value.trim();
-  if (!code) { pbMsg('Enter your recovery code.'); return; }
+  if (!code) { pbRestoreBad('Enter your recovery code.'); return; }
   PB.busy = true; pbMsg('');
   try {
     const r = await pbPost('restore', { code });
-    // Restore review: a wrong code keeps what was typed, so one group can be fixed rather than all of it retyped.
-    if (!(r && r.ok)) { pbMsg(pbRestoreSay(r)); return; }
+    // Restore review: a wrong code keeps what was typed, so one group can be fixed rather than all of it retyped; the
+    // sentence goes under the field and the field is marked (review 3).
+    if (!(r && r.ok)) { pbRestoreBad(pbRestoreSay(r)); return; }
+    pbRestoreBad('');
     document.getElementById('pb-restore-code').value = '';
     PB.view = null; PB.at = 0; pbMsg('Your backup key is restored on this computer.');
   } finally { PB.busy = false; pbMaybe(); }
@@ -55762,8 +55779,10 @@ document.getElementById('pb-off-btn').addEventListener('click', () => pbOffArm(t
 document.getElementById('pb-off-no').addEventListener('click', () => pbOffArm(false));
 document.getElementById('pb-off-yes').addEventListener('click', pbOff);
 document.getElementById('pb-restore-open').addEventListener('click', () => { pbMsg(''); PB.view = 'restore'; pbPaint(); document.getElementById('pb-restore-code').focus(); });
-document.getElementById('pb-restore-no').addEventListener('click', () => { pbMsg(''); PB.view = null; pbPaint(); });
+document.getElementById('pb-restore-no').addEventListener('click', () => { pbMsg(''); pbRestoreBad(''); PB.view = null; pbPaint(); });
 document.getElementById('pb-restore-go').addEventListener('click', pbRestore);
+document.getElementById('pb-restore-code').addEventListener('keydown', pbRestoreKey);
+document.getElementById('pb-restore-code').addEventListener('input', () => { if (document.getElementById('pb-restore-code').classList.contains('bad')) pbRestoreBad(''); });
 /* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
    code; the person checks they match, presses Allow on the other computer and "The codes match" here. The pill above
    still says "Waiting to be allowed"; this block replaces the coordinator's sentence under it while held. */

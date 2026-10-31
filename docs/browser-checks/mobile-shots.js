@@ -1745,7 +1745,7 @@ const SCREENS = [
       body: JSON.stringify({ ok: false, code: 'wrong_code', because: 'that recovery code is not the one for this backup' }) }));
     await page.click('#pb-restore-open'); await page.waitForSelector('#pb-restore', { state: 'visible', timeout: 10000 });
     await page.fill('#pb-restore-code', 'k7qd-3mxa-9vpe-h2nw-4tbr-6yc8-jg'); await page.click('#pb-restore-go');
-    await page.waitForFunction(() => /not the recovery code/.test(document.getElementById('pb-msg').textContent), null, { timeout: 10000 });
+    await page.waitForFunction(() => /not the recovery code/.test(document.getElementById('pb-restore-msg').textContent), null, { timeout: 10000 });
     await pbTop(page); } },
   /* kosmos#6752: the joined view listing reviewer grants of the last 30 days, one of each kind: pending (made an hour
      ago), in effect (made three days ago) and removed. Times are made from now; the names are samples. */
