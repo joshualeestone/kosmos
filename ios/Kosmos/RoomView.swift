@@ -1150,12 +1150,22 @@ struct RoomView: View {
             HStack(spacing: 6) {
                 if uploadingHere > 0 {
                     HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text(uploadingHere == 1 ? "Adding a file\u{2026}" : "Adding \(uploadingHere) files\u{2026}")
-                            .font(.footnote).foregroundColor(Palette.secondary)
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text(uploadingHere == 1 ? "Adding a file\u{2026}" : "Adding \(uploadingHere) files\u{2026}")
+                                .font(.footnote).foregroundColor(Palette.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                        // kosmos#7682: a way out of an add that hangs, as in an agent's chat.
+                        Button { client.cancelAdding(for: attachKey) } label: {
+                            Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundColor(Palette.secondary)
+                                .frame(width: 44, height: 44).contentShape(Rectangle()).padding(-12)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(uploadingHere == 1 ? "Stop adding the file" : "Stop adding the files")
+                        .accessibilityIdentifier("stopAdding")
                     }
                     .padding(.horizontal, 6)
-                    .accessibilityElement(children: .combine)
                 }
                 ForEach(attachedHere) { a in
                     FileChip(name: a.name, remove: { client.unattach(a.id, for: attachKey) })
@@ -1170,9 +1180,11 @@ struct RoomView: View {
     // One at a time, in the order picked, as the chat adds them (its comments say why).
     private func addPhotos(_ picks: [PhotosPickerItem]) async {
         let epoch = client.chatEpoch
+        let generation = client.addGenerationNow(for: attachKey)
         let at = Date()
         client.attachLine[attachKey] = nil
         for (i, item) in picks.enumerated() {
+            if client.addingCancelled(for: attachKey, since: generation) { return }   // kosmos#7682
             await store.attach(.photo(load: {
                 guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
                 let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
@@ -1193,8 +1205,12 @@ struct RoomView: View {
 
     private func addFiles(_ urls: [URL]) async {
         let epoch = client.chatEpoch
+        let generation = client.addGenerationNow(for: attachKey)
         client.attachLine[attachKey] = nil
-        for url in urls { await store.attach(.file(url), epoch: epoch, to: project.id) }
+        for url in urls {
+            if client.addingCancelled(for: attachKey, since: generation) { return }   // kosmos#7682
+            await store.attach(.file(url), epoch: epoch, to: project.id)
+        }
     }
 
     private var composer: some View {

@@ -680,6 +680,8 @@ final class BoardClient: ObservableObject {
     // kosmos#7093: a project's room keeps its own under Board.roomAttachKey(project), which no agent's name can be.
     @Published private(set) var attached: [String: [Board.Attached]] = [:]
     @Published private(set) var uploading: [String: Int] = [:]
+    // kosmos#7682: moved on by cancelAdding, per chat, so an add from before a cancel neither counts nor lands.
+    private var addGeneration: [String: Int] = [:]
     @Published var attachLine: [String: String] = [:]
 
     // What was picked: a file from Files (the person's own, never removed: the client copies it first), or a photo,
@@ -714,6 +716,14 @@ final class BoardClient: ObservableObject {
             return
         }
         uploading[session, default: 0] += 1
+        // kosmos#7682: the count comes back down on EVERY way out, not only the last line, unless this chat's adds were
+        // cancelled meanwhile (cancelAdding already set it to none, and a later add may be counting).
+        let generation = addGeneration[session, default: 0]
+        defer {
+            if addGeneration[session, default: 0] == generation {
+                uploading[session] = max(0, uploading[session, default: 0] - 1)
+            }
+        }
         let root = env.uploads
         let prepared: Board.Prepared
         switch pick {
@@ -727,8 +737,9 @@ final class BoardClient: ObservableObject {
             }
         }
         defer { if case .ready(let file, _, _, _) = prepared { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) } }
-        // The chats were forgotten meanwhile (another account or Mac): the pick belongs to the one before.
-        guard epoch == chatEpoch else { return }
+        // The chats were forgotten meanwhile (another account or Mac): the pick belongs to the one before. Or the person
+        // cancelled this chat's adds (kosmos#7682): the pick is dropped.
+        guard epoch == chatEpoch, addGeneration[session, default: 0] == generation else { return }
         let result: Board.UploadResult
         switch prepared {
         case .refused(let why):
@@ -744,8 +755,7 @@ final class BoardClient: ObservableObject {
                 result = Board.uploadResult(status: 0, body: nil, name: name, size: size)
             }
         }
-        guard epoch == chatEpoch else { return }
-        uploading[session] = max(0, uploading[session, default: 0] - 1)
+        guard epoch == chatEpoch, addGeneration[session, default: 0] == generation else { return }
         switch result {
         case .added(let a):
             if attached[session]?.contains(where: { $0.id == a.id }) != true { attached[session, default: []].append(a) }
@@ -760,6 +770,25 @@ final class BoardClient: ObservableObject {
         await withCheckedContinuation { done in
             DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: work()) }
         }
+    }
+
+    // kosmos#7682: the x on "Adding a file...": this chat's adds stop counting at once and anything they answer later is
+    // dropped. A photo still loading or an upload still going is not stopped (a load can ignore cancellation, and the
+    // upload's own timeout ends it); a file that reaches the Mac meanwhile stays there, as with the board's x.
+    func cancelAdding(for session: String) {
+        addGeneration[session, default: 0] += 1
+        uploading[session] = nil
+        attachLine[session] = nil
+    }
+
+    /// kosmos#7682: whether this chat's adds were cancelled since `generation` (a picker's batch stops then).
+    func addingCancelled(for session: String, since generation: Int) -> Bool {
+        addGeneration[session, default: 0] != generation
+    }
+
+    /// kosmos#7682: this chat's current add generation, taken when a batch of picks starts.
+    func addGenerationNow(for session: String) -> Int {
+        addGeneration[session, default: 0]
     }
 
     // Taken off the composer. The Mac keeps the file it was sent (nothing there removes a stored one), as with the
@@ -1070,6 +1099,8 @@ final class BoardClient: ObservableObject {
         try? FileManager.default.removeItem(at: env.files)
         drafts = [:]
         attached = [:]
+        // kosmos#7682: an add still in flight from before must not take a later add's count down when it ends.
+        for session in uploading.keys { addGeneration[session, default: 0] += 1 }
         uploading = [:]
         attachLine = [:]
         // Picked files still waiting to go are not left on the phone either.
