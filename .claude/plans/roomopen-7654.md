@@ -20,6 +20,7 @@ reopened after new posts arrived) is reasoned, not measured.
 - Cause: RoomView jumps once (proxy.scrollTo("bottom")) in a LazyVStack whose rows above are estimated; the DM's #7265.
 
 ## Change
+(Round 3 changed the retry schedule and added the person's cancel: see "Round 3" at the end.)
 - ios/Kosmos/RoomView.swift: goEnd(proxy) replaces the single jump on the two opening paths (the first page in
   onChange(of: rows.last?.id), and the thread's onAppear for a room opened again). It jumps, then retries at 0.05, 0.15,
   0.3 and 0.5 s while the room is visible, not searching and not in the archive (review 7: not gated on atBottom, which
@@ -31,7 +32,7 @@ reopened after new posts arrived) is reasoned, not measured.
   guard on reopening, NOT proof of goEnd there: a control with the retries removed only from the onAppear path passes it
   (a reopened room appears with its posts already loaded, and its single jump lands at 220 posts on iOS 26.5). The box
   is pinned by app.textFields and its placeholder.
-- ios/tools/ui-sample.sh: the new class, 3 tests, in the CI run's class list and header (--help range bumped to 2,13
+- ios/tools/ui-sample.sh: the new class, 4 tests since round 3, in the CI run's class list and header (--help range bumped to 2,13
   for the extra header line). .github/workflows/ios.yml: the ui job's comment names what it now guards.
 
 ## Verified
@@ -40,6 +41,8 @@ reopened after new posts arrived) is reasoned, not measured.
 - Screenshots: 150 and 220 open on their newest with the change.
 
 ## Known trade-off
+(Round 3: on iOS 18 and later the window is up to 2.3 s, ended by the person's scroll (PersonScroll: tracking, interacting or
+decelerating) but not by a tap, a long-press or, probably, a VoiceOver scroll (not measured). The text below is round 1's.)
 A person who flicks up within half a second of opening a long room is pulled back to the end. The thread's onAppear also
 runs on coming back from a member's chat or another tab: it jumped to the end before this branch, and now repeats that
 jump for half a second.
@@ -72,3 +75,9 @@ pulled back for longer than today.
 Rejected: retrying until the end marker shows (it can show while rows above are still being measured, then move away).
 Weakest premise: that 2.3 s covers CI's runner. If the 220 checks still fail, the record of when the end marker last moved
 is the next thing to add.
+Round 3 review 1: the Debug scroll-up hook (KOSMOS_SAMPLE_ROOM_SCROLLUP, 3 s after opening) now ends the retries as a
+person's scroll would (a programmatic scroll reports no scroll phase), and no retry lands while the person is already
+scrolling (`!roomScrolling`, for a goEnd that began mid-scroll). New check: testRoomOf220ScrolledUpAtOnceIsNotPulledBack
+(drag toward older posts as soon as a post shows, wait 3.5 s, the newest must not be on screen); ui-sample's class count is
+4. Results: pending (ui-sample picks the newest runtime, iOS 27, where the opening jump already lands; the room checks are
+run on the iOS 26.5 simulator by hand, both arms).

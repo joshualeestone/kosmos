@@ -32,6 +32,22 @@ final class RoomOpensAtNewestUITests: XCTestCase {
         Self.assertOnNewest(app, 220, shot: "room-220-opened-again", test: self)
     }
 
+    // kosmos#7654 round 3: a person's scroll during the opening ends its retries (iOS 18 and later, where they run to 2.3 s).
+    // The room is dragged toward older posts as soon as a post shows, then left alone past the last retry: it must not be
+    // pulled back to its newest post. The control (the cancel removed from RoomView) fails here.
+    func testRoomOf220ScrolledUpAtOnceIsNotPulledBack() throws {
+        let app = Self.launch(220)
+        XCTAssertTrue(Self.box(app).waitForExistence(timeout: 30), "no message box")
+        let any = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'")).firstMatch
+        XCTAssertTrue(any.waitForExistence(timeout: 15), "no posts of the 220-post room")
+        any.swipeDown(velocity: .fast)
+        any.swipeDown(velocity: .fast)
+        Thread.sleep(forTimeInterval: 3.5)   // past the last retry (2.3 s after the opening jump)
+        let newest = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Post 220 of 220.'")).firstMatch
+        let a = XCTAttachment(screenshot: app.screenshot()); a.name = "room-220-scrolled-up-at-once"; a.lifetime = .keepAlways; add(a)
+        XCTAssertFalse(newest.exists && newest.isHittable, "the room pulled the reader back to its newest post after their own scroll")
+    }
+
     private static func launch(_ n: Int) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue",

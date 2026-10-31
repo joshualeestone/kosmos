@@ -22,7 +22,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 # Each class and how many tests it holds: a filter that matches nothing also exits 0, so the count is what proves a run.
-classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:3 RoomOpensAtNewestUITests:3"
+classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:3 RoomOpensAtNewestUITests:4"
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest
 # "Timed out while evaluating UI query" on both CI runs, iOS 26.5, while it passes here). Run it alone on a Mac:
 #   TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/ChatOpensAtNewestUITests
