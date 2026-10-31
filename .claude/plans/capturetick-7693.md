@@ -8,22 +8,27 @@ thread was in blocking child processes under Array.map; 120 of 132 sampled child
 `tmux capture-pane` per agent on every `/api/status` and every `safeRoster()` (165 call sites), uncached.
 
 ## Finished looks like
-- When a round of captures was slow, the next snapshots read kept pane text and a background round (execFile, a few at a time)
-  refreshes it, so the event loop is not held by the fan-out.
-- On a computer where captures are quick nothing changes: every capture is the same blocking read as today.
-- A pane with no kept text, or text past the age limit, still gets the blocking read. Windows panes and test seams (setPaneCapture) are untouched.
-- Unit tests prove: quick stays live; slow switches to kept text with no blocking call; age limit falls back; it goes back to live
-  when rounds are quick again; a background failure keeps the last text only until the age limit.
+- GET /api/status gathers its pane captures with execFile, then builds that one snapshot from them, so the event loop answers
+  other requests (and /api/health) while tmux is slow.
+- Every other snapshot() is unchanged: a live blocking read, because those callers act on what they read.
+- Nothing is kept: gathered text lives only for the one synchronous snapshot built from it. Text whose capture was asked for over
+  3 s ago, a failed capture, or a pane the gather did not see gets the live read.
+- A second status request during a gather shares it.
+- Tests: built from the gathered text; plain snapshot() untouched (control); no text outlives its snapshot; too-old text not used;
+  failure falls back; requests share; a capture seam bypasses it; the route uses it.
 
 ## Decided
-- Keep `snapshot()` synchronous. Rejected: making it async (165 callers, many on gates).
-- Adaptive, not always on. Rejected: always kept (changes every install and every real-tmux test for a problem seen under load).
-- The roster (`listPanes`) stays live, so gates keep fresh names.
-- Lazy background round, no timer: an idle board spawns nothing.
+- Round 1's design is REJECTED and removed: an adaptive keep of pane text up to 4 s old, for every snapshot(). Review found a
+  BLOCKER that met this plan's own test: kept text is not marked remembered, so code that acts on snapshot() could release held
+  lines into a capped session, or type onto a trust dialog after a restart. Marking it would have stalled the acting sweeps. Reading
+  it as a design error, not a patch.
+- Only this route, because it was 521 of 585 slow lines and its output is a display. Rejected: all 165 safeRoster() callers.
+- All captures start together, so they are all equally young. Rejected: a small pool, which ages the first panes past the limit.
 
 ## Weakest premise
-That a few seconds of older pane text is harmless to classification under load. It lags a card by at most the age limit (4 s), only
-on a computer already slow, where the same card was already seconds late.
+Two. Snapshot has side effects (the disruption self-heal, limit rows) that now see text up to 3 s old on this route; today's text is
+about 0 s old at its classify. And this relieves only this route: safeRoster() callers still hold the thread, so a health miss
+can shrink rather than end. Not yet measured on a real stall.
 
 ## What would change my mind
-A slow computer where a state shown from kept text causes a wrong action, not just a late card.
+A real stall with /api/health still missing with this in place means the other callers matter and need their own step.

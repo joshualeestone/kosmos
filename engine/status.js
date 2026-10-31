@@ -1688,21 +1688,43 @@ function capturePane(target, lines = 40) {
      📌 LATENT, NOT LIVE, at the time of writing: all 18 panes on this Mac are 80
      columns and the observed prompts are 22-29 chars. It becomes live the moment
      a pane is split or a prompt is longer than its pane. */
-  return sh(tmuxBin(), ['capture-pane', '-p', '-J', '-t', target, '-S', `-${lines}`]);
+  return sh(tmuxBin(), captureArgs(target, lines));
 }
+function captureArgs(target, lines) { return ['capture-pane', '-p', '-J', '-t', target, '-S', `-${lines}`]; }
 
 /* ── #6249: text left in a Claude Code agent's input box ─────────────────── */
-/* kosmos#7693: snapshot()'s captures only, so its fan-out does not hold the board's one thread on a busy computer: after a slow
-   round they read text kept by a background round (engine/capturekeep.js). capturePane itself stays a live read, because its
-   other callers act on what it says right after typing. A test seam (setPaneCapture) or a Windows pane goes straight to it. */
-const captureKeep = require('./capturekeep').makeKeep({
-  blocking: (target, lines) => capturePane(target, lines),
-  background: (target, lines, done) => {
-    shDetailAsync(tmuxBin(), ['capture-pane', '-p', '-J', '-t', target, '-S', `-${lines}`])
-      .then((got) => done(got.ran && got.status === 0 ? got.out : null), () => done(null));
-  },
-});
-function snapshotCapture(target) { return paneCapture ? capturePane(target) : captureKeep.read(target, 40); }
+/* kosmos#7693: one blocking capture per agent held the board's only thread for seconds on a busy computer, long enough that
+   /api/health went unanswered for 30 s (10-31), and GET /api/status was 521 of 585 slow-request lines. So that route gathers its
+   captures without blocking and then builds its snapshot from them. Nothing else changes: every other snapshot() is as live as
+   it was, because those callers act on what they read. No text outlives its snapshot, and text older than
+   GATHERED_MAX_AGE_MS (its capture was asked for that long ago) is read live instead. They all start together so that they are
+   all as young: tmux answers them in turn. A second request while a gather runs shares it. */
+const GATHERED_MAX_AGE_MS = 3000;
+let gathered = null;         // target -> { text, at }, only while snapshotUnheld builds its snapshot
+let gathering = null;
+let captureAsync = (target, lines) => shDetailAsync(tmuxBin(), captureArgs(target, lines)).then((got) => (got.ran && got.status === 0 ? got.out : null));
+const liveCaptureAsync = captureAsync;
+function setCaptureAsync(fn) { captureAsync = typeof fn === 'function' ? fn : liveCaptureAsync; }   // the tests' seam
+function snapshotCapture(target) {
+  const g = gathered && gathered.get(target);
+  if (g && g.text !== null && g.text !== undefined && Date.now() - g.at <= GATHERED_MAX_AGE_MS) return g.text;
+  return capturePane(target);
+}
+async function gatherCaptures() {
+  const out = paneSource ? paneSource() : await tmuxPanesAsync();
+  if (out === null || out === undefined) return null;
+  const panes = onePanePerSession(readPanes(out).panes);
+  const at = Date.now();
+  const got = await Promise.all(panes.map((pane) => Promise.resolve().then(() => captureAsync(pane.target, 40)).catch(() => null)));
+  return new Map(panes.map((pane, i) => [pane.target, { text: got[i], at }]));
+}
+async function snapshotUnheld() {
+  if (paneCapture) return snapshot();   // a test seam, or a Windows board's own capture
+  if (!gathering) gathering = gatherCaptures().catch(() => null).finally(() => { gathering = null; });
+  const texts = await gathering;
+  gathered = texts;
+  try { return snapshot(); } finally { gathered = null; }
+}
 
 /* The reader of the live input box in an ANSI capture (capture-pane -e); engine/chat.js uses it to confirm a line was
    submitted, and the card below to show text left there. The screen it reads is described in chat.js (#6249). */
@@ -9190,7 +9212,6 @@ function snapshot() {
   // not make every limit row read late).
   if (panes.length) limitCaptureSweep(panes.map((pane) => pane.name));
   if (panes.length) unsentSweep(panes.map((pane) => pane.name));   // #6249 round 1 (not on an empty read, as above)
-  captureKeep.begin();   // #7693
   const agents = panes.map((pane) => {
     const text = snapshotCapture(pane.target);
     /* #5949: a Windows agent's state can be its LAST GOOD reading, held through a short gap in
@@ -9856,8 +9877,6 @@ function snapshot() {
       swarm: tied ? swarmField(rowProfile, pane.name, pane.session) : null,
     };
   });
-  captureKeep.end();   // #7693
-  if (panes.length) captureKeep.forgetExcept();   // not on an empty read, as the sweeps above
 
   /* ⭐ THE ROSTER CAN NOW HOLD AN AGENT WITH NO PANE (#1112 phase 1).
      Merged HERE, in the one function that derives the fleet, rather than in
@@ -10209,7 +10228,7 @@ module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, split
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
   swarmField,   // #3564: exported so the meter's owner test is tested through the real folder search
-  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, paneRosterAsync, sessionStartedAtFromTmuxAsync, sessionStartsAsync, readPanes, isParseable, classify, isNamedOurs,
+  countAgents, needsPerson, projectsUnreadTotal, snapshot, snapshotUnheld, setCaptureAsync, paneRoster, paneRosterAsync, sessionStartedAtFromTmuxAsync, sessionStartsAsync, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
   rank, paneOrder, modelDisplayName, readGeminiSession, readIdentity, transcriptFor, readCodexContext, readCodexSession, claudeAccountDirOf, ownsFor,
