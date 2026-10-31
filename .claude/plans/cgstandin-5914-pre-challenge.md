@@ -25,65 +25,65 @@ converged: true
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 4 WARNINGs, 0 CONVENTIONs, 2 NITs
 **Self-generated:** 0 of the above (no loop commit yet)
-- [WARNING] tools/test-cut-guard.sh:1254 — a second long-span 60 s stand-in (before the run-tests.sh arms); dead early, the last arm passes for the wrong reason; plan "Not changed" wrong --> FIXED (commit 4bae2d8459)
-- [WARNING] tools/test-cut-guard.sh:663 — a 600 s orphan after an aborted run; reuse the RP_LIVE pattern --> FIXED (4bae2d8459: WP_LIVE in the active EXIT traps, emptied at the kill)
-- [WARNING] tools/test-cut-guard.sh:669 / plan — "idle box" and "load 30" disagree --> FIXED (4bae2d8459)
-- [WARNING] tools/test-cut-guard.sh:669 — the #7512 arms also read the stand-in --> FIXED (4bae2d8459)
+- [WARNING] tools/test-cut-guard.sh:1254: a second long-span 60 s stand-in (before the run-tests.sh arms); dead early, the last arm passes for the wrong reason; plan "Not changed" wrong --> FIXED (commit 4bae2d8459)
+- [WARNING] tools/test-cut-guard.sh:663: a 600 s orphan after an aborted run; reuse the RP_LIVE pattern --> FIXED (4bae2d8459: WP_LIVE in the active EXIT traps, emptied at the kill)
+- [WARNING] tools/test-cut-guard.sh:669 / plan: "idle box" and "load 30" disagree --> FIXED (4bae2d8459)
+- [WARNING] tools/test-cut-guard.sh:669: the #7512 arms also read the stand-in --> FIXED (4bae2d8459)
 - [NIT] wording "not as the queue" overstated (fixed); [NIT] kill -0 not start-time exact (no action)
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs
 **Self-generated:** 1 of the above
-- [WARNING] tools/test-cut-guard.sh:1001,1332 — kill -0 passes for a zombie or a reused pid --> FIXED (commit 8063467b68: match the command line, as q_ready does)
+- [WARNING] tools/test-cut-guard.sh:1001,1332: kill -0 passes for a zombie or a reused pid --> FIXED (commit 8063467b68: match the command line, as q_ready does)
 
 #### Iteration 3
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 1 WARNING, 2 CONVENTIONs, 2 NITs
 **Self-generated:** 3 of the above
-- [WARNING] tools/test-cut-guard.sh:1332 — the second FIXTURE arm ignores the once-written marker, which a failed ps read can drop --> FIXED (commit 1d0208a862, rebased as 7a7c6a8a7b: requires the marker too)
-- [CONVENTION] plan:24 — "measured ... fails too" was not measured --> FIXED (claim deleted)
-- [CONVENTION] plan:20 — "a reused pid is never signalled" overclaims --> FIXED (claim deleted)
+- [WARNING] tools/test-cut-guard.sh:1332: the second FIXTURE arm ignores the once-written marker, which a failed ps read can drop --> FIXED (commit 1d0208a862, rebased as 7a7c6a8a7b: requires the marker too)
+- [CONVENTION] plan:24: "measured ... fails too" was not measured --> FIXED (claim deleted)
+- [CONVENTION] plan:20: "a reused pid is never signalled" overclaims --> FIXED (claim deleted)
 
 #### Iteration 4
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 2 NITs
 **Self-generated:** 2 of the above
-- [WARNING] tools/test-cut-guard.sh:1001 — the first FIXTURE arm does not check the marker --> DEFERRED: every arm in that span writes its marker just before reading it (lwait, cw), so a check after the last lwait only proves lwait wrote it and cannot fail
-- [WARNING] plan:25 — the 2 s control is not in the suite --> FIXED (commit 63781a304f: the plan records the hand-run controls and their commit)
+- [WARNING] tools/test-cut-guard.sh:1001: the first FIXTURE arm does not check the marker --> DEFERRED: every arm in that span writes its marker just before reading it (lwait, cw), so a check after the last lwait only proves lwait wrote it and cannot fail
+- [WARNING] plan:25: the 2 s control is not in the suite --> FIXED (commit 63781a304f: the plan records the hand-run controls and their commit)
 
 #### Iteration 5
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 2 NITs
 **Self-generated:** 1 of the above
-- [CONVENTION] plan:31 — "the two above hold several arms" was not counted --> FIXED (commit d7a7cc4e7d: claim deleted)
+- [CONVENTION] plan:31: "the two above hold several arms" was not counted --> FIXED (commit d7a7cc4e7d: claim deleted)
 
 #### Iteration 6
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 1 WARNING (after dedup), 0 CONVENTIONs, 2 NITs
 **Self-generated:** 1 of the above
 **Duplicates of prior findings:** 1 (the first FIXTURE marker check, #9)
-- [WARNING] tools/test-cut-guard.sh:1001,1333 — the pass messages claimed "alive for every arm"; one check after the last arm shows "still alive after the last" --> FIXED (commit d997eb765c)
+- [WARNING] tools/test-cut-guard.sh:1001,1333: the pass messages claimed "alive for every arm"; one check after the last arm shows "still alive after the last" --> FIXED (commit d997eb765c)
 
 #### Iteration 7
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 1 WARNING (after dedup), 0 CONVENTIONs, 4 NITs
 **Self-generated:** 1 of the above
 **Duplicates of prior findings:** 1 (#9)
-- [WARNING] plan:3 — the goal's "on any box load" overclaims (the second FIXTURE arm goes red on purpose when a live waiter's marker is dropped) --> FIXED (commit 6f81dc7ec9: phrase deleted; two NIT phrasings fixed too)
+- [WARNING] plan:3: the goal's "on any box load" overclaims (the second FIXTURE arm goes red on purpose when a live waiter's marker is dropped) --> FIXED (commit 6f81dc7ec9: phrase deleted; two NIT phrasings fixed too)
 
 #### Iteration 8
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 1 WARNING (after dedup), 0 CONVENTIONs, 2 NITs
 **Self-generated:** 0 acted on as SELF prose
 **Duplicates of prior findings:** 1 (the by-hand control, #10)
-- [WARNING] tools/test-cut-guard.sh:661,1254 — a SIGKILL leaves the 600 s stand-in up to 10 min --> DEFERRED: SIGKILL cannot be trapped; the file's 3600 s SUITE stand-ins have the same exposure; an idle perl select whose marker is only in the test's temp dir affects nothing
+- [WARNING] tools/test-cut-guard.sh:661,1254: a SIGKILL leaves the 600 s stand-in up to 10 min --> DEFERRED: SIGKILL cannot be trapped; the file's 3600 s SUITE stand-ins have the same exposure; an idle perl select whose marker is only in the test's temp dir affects nothing
 
 #### Iteration 9
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
-**Converged** — no new actionable findings.
+**Converged**: no new actionable findings.
 
 After convergence the branch was rebased onto origin/main (range-diff 8/8 identical); the plan's control commit was updated to the rebased sha 55bb1c5bb1, where the file passed (205, 0 fail) and both 2 s controls failed their FIXTURE arm by name.
 
