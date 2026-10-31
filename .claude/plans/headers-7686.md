@@ -47,8 +47,8 @@ Every `res.writeHead(` in server.js was read in context (40 on main; 39 on this 
   guard that rests on one runtime's behaviour is the wrong kind of guard.
 
 ## Test
-`server.headers-twice-7686.test.js`, twelve tests. Unhandled rejections are recorded (each test reads only its own) rather
-than left to end the test process.
+`server.headers-twice-7686.test.js`, twelve tests. Unhandled rejections and uncaught exceptions (an fs callback's throw is the second) are recorded (each test reads only
+its own) rather than left to end the test process.
 - **The 10-31 crash path, end to end:** a throw after the preview's head, from outside sendFileStream's own catch,
   reaches the route's `.catch(() => sendJson(...))`. Asserted: the guard's log line, no rejection, a cut response, and
   the board answering 200 after. Without the sendJson guard, `ERR_HTTP_HEADERS_SENT` escapes the route.
