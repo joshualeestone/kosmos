@@ -39,6 +39,7 @@ struct RoomView: View {
     // which set atBottom and stood the hold down. The hold reads its own "at the end": the marker still showing 0.1 s later.
     @State private var endShown = false
     @State private var holdAtEnd = true
+    @State private var keepNewestOnKeyboard = false   // EXPERIMENT #7654: as the DM's keepNewestInView
     @State private var rowTops = RowTops()   // EXPERIMENT #7654 part 2: the DM's keyboard hold reads the reader's row by this
     // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
     // never marked seen.
@@ -828,8 +829,20 @@ struct RoomView: View {
                 guard done && olderShowing else { return }
                 if archiveShown != nil { loadArchiveOlder(proxy) } else { loadOlder(proxy) }   // review 2: the part on screen
             }
+            // EXPERIMENT kosmos#7654 (iOS 27, measured 10-31): a reader at the newest post stays there when the keyboard comes up,
+            // as the DM's keepNewestInView: read before the keyboard shrinks the room (holdAtEnd, which iOS 26's ~20 ms end-marker
+            // flash does not set), acted on once it is up. Not animated under the anchor, as the DM.
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                keepNewestOnKeyboard = visible && holdAtEnd && !searchMode
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                guard keepNewestOnKeyboard, visible else { return }
+                keepNewestOnKeyboard = false
+                ChatView.trace("room: keyboard shown, to the newest")
+                if ChatView.idAnchor { proxy.scrollTo("bottom", anchor: .bottom); roomPosition = "bottom" } else { toEnd(proxy) }
+            }
             // The magnifier opened the row over a reader at the newest post: back there once the keyboard is up too (the
-            // room has no other keyboard rule; the chat's keepNewestInView does this there).
+            // chat's keepNewestInView does this there).
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                 // Once, for the open: a reader who scrolls up afterwards is not pulled back by a later keyboard.
                 if visible && searchFocused && openedAtNewest && !searching {
