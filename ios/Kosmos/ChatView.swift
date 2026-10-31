@@ -319,6 +319,7 @@ struct ChatView: View {
             // kosmos#7420 review 1 and 2: the record starts with this chat's first showing (a return from the info page keeps
             // what came before), and a list blank from its first draw is checked too, since no row ever leaves it.
             if !diagShownOnce { diagShownOnce = true; Self.diagRing = []; Self.trace("chat shown") } else { Self.trace("chat back") }
+            rebuilds = []   // kosmos#7420: the rebuild budget is per showing, so a chat kept alive under another tab gets it again
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { diagTick &+= 1 }
             epoch = client.chatEpoch
             // kosmos#7420: this conversation gets no banner while it shows.
@@ -675,7 +676,8 @@ struct ChatView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + (n == 1 ? 3 : n)) {
                             Self.trace("debug rebuild: atBottom \(atBottom)")
                             recoverEmpty(proxy, later: true)
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { sampleRebuilt = rebuilds.count == 1 }   // rebuilt, and only once
+                            // rebuilt, and only once: read after the checks the rebuild schedules (2.3 s and 3.3 s after it)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 4.2) { sampleRebuilt = rebuilds.count == 1 }
                         }
                     }
                     if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SCROLLTOP"] == "1" {

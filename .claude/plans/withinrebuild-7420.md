@@ -11,9 +11,11 @@ the message box growing a line at a time (412 -> 390 -> 368 -> 346). Long (144 m
   keep #7669's arms.
 - The chat's list gets an identity (`listEpoch`); `.rebuild` gives it a new one. The new list starts as a chat's open does:
   no anchor (its first rows drawn), then goNewest 0.05 s and 0.4 s later, unless the person has started scrolling.
-- At most 3 rebuilds a chat open (per open, not per episode), 2 s apart, and the empty check ignores the 1.5 s after a
-  rebuild (the new list's own moment without rows read as empty and rebuilt itself three times on iOS 27, traced); one
-  check is scheduled just after that grace, since a new list that draws no row never has a row leave to set one off.
+- At most 3 rebuilds each time the chat is shown (reset on its appear, so a chat kept alive under another tab gets the
+  budget again), 2 s apart, and the empty check ignores the 1.5 s after a
+  rebuild (the new list's own moment without rows read as empty and rebuilt itself three times on iOS 27, traced); the
+  rebuild bumps the check 1.8 s after it (its checks then run 2.3 s and 3.3 s after the rebuild), since a new list that
+  draws no row never has a row leave to set one off.
 - Rows and the top and end markers count only for the list they were drawn in (listEpoch), so the old list's teardown
   cannot clear the new one's state.
 - A later empty reading can now rebuild (it used to do nothing within the content). It is reached only through
@@ -31,6 +33,8 @@ the message box growing a line at a time (412 -> 390 -> 368 -> 346). Long (144 m
   and no ask it stayed at its top. The rebuilt list's own empty moment rebuilt it again without the grace.
 
 ## Not in scope, named
+- iOS 16 and 17: the end leaving clears atBottom there (no scroll phase), so an empty-within list after the end was shown
+  reads as a reader higher up and is not rebuilt. The phone reports are iOS 26; the recovery is effectively iOS 18 and later.
 - The cause on the phone (rows not drawn within the content after the shown height changes) is not reproduced on the
   simulator; the rebuild is the recovery, checked through the debug hook. Josh's next report on a build with this decides.
 - The newest message ending behind a grown message box (seen while checking the composer case) is a separate fault, noted
