@@ -60,3 +60,15 @@ xcodebuild's "0 failures" summary does not count that. Part 2 removes the XCTExp
 ## Weakest premise
 That 0.5 s of retries and the 220-post query both hold on a slower CI runner. If either flakes, widen endRetries, or drop
 the room to 150 posts in CI.
+
+## Round 3 (01:0x CDT 10-31): CI's runner (run 41156064258) stopped the 220-post room short
+Measured: the 150-post check passed on CI; both 220-post checks failed ("did not open on its newest post"); local iOS 26.5
+passes all three. #7645 showed the cause on the same runner: rows above are measured again for well over half a second
+there (will-show to did-show took 1.3 s), so goEnd's last retry at 0.5 s landed before the room's height settled.
+Change: PersonScroll (the DM's iOS 18+ scroll-phase reader) on the room's list; the person's first touch bumps endJumps,
+cancelling every pending retry. Where that cancel exists (iOS 18 and later, ChatView.followsScrollPhase) the retries run to
+2.3 s (0.05, 0.15, 0.3, 0.5, 0.8, 1.2, 1.7, 2.3); below it they stop at 0.5 s as before, so a flick on iOS 16 or 17 is never
+pulled back for longer than today.
+Rejected: retrying until the end marker shows (it can show while rows above are still being measured, then move away).
+Weakest premise: that 2.3 s covers CI's runner. If the 220 checks still fail, the record of when the end marker last moved
+is the next thing to add.

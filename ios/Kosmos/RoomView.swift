@@ -32,6 +32,8 @@ struct RoomView: View {
     @State private var sampleScrollRested = false
     // kosmos#7654: the latest opening jump to the end (goEnd); a newer one, or none, stops an older one's retries.
     @State private var endJumps = 0
+    // kosmos#7654 round 3: the person is scrolling (iOS 18 and later); their first touch cancels goEnd's pending retries.
+    @State private var roomScrolling = false
     // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
     // never marked seen.
     @State private var visible = false
@@ -748,6 +750,8 @@ struct RoomView: View {
                 }
             }
             #endif
+            .modifier(PersonScroll(scrolling: $roomScrolling) {})
+            .onChange(of: roomScrolling) { s in if s { endJumps &+= 1 } }   // kosmos#7654: the person's scroll ends the opening retries
             .onChange(of: rows.last?.id) { _ in
                 if rowsPart != (archiveShown != nil) { rowsPart = archiveShown != nil; return }   // the archive's handler places the reader
                 if !settledAtBottom {
@@ -864,7 +868,11 @@ struct RoomView: View {
     // kosmos#7654: on iOS 26 one jump to the end of a long room fell short (rows above have estimated heights), so the
     // opening jump is repeated at each of endRetries while the room is on screen and neither search nor the archive is
     // showing (RoomOpensAtNewestUITests). Not gated on atBottom: it starts true before the end marker is ever drawn.
-    static let endRetries: [Double] = [0.05, 0.15, 0.3, 0.5]
+    // kosmos#7654 round 3 (CI, 10-30): on CI's slower runner the rows above were still being measured after half a second
+    // (the same runner took 1.3 s from will-show to did-show, #7645), and the 220-post room stopped short. Where the person's
+    // scroll can cancel the retries (iOS 18 and later, PersonScroll), they run to 2.3 s; below that they stop at 0.5 s, as
+    // before, so a flick on iOS 16 or 17 is never pulled back for longer than it was.
+    static let endRetries: [Double] = ChatView.followsScrollPhase ? [0.05, 0.15, 0.3, 0.5, 0.8, 1.2, 1.7, 2.3] : [0.05, 0.15, 0.3, 0.5]
     private func goEnd(_ proxy: ScrollViewProxy) {
         proxy.scrollTo("bottom", anchor: .bottom)
         endJumps &+= 1
