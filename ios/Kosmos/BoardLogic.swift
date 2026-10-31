@@ -490,6 +490,7 @@ enum Board {
     // rebuilt (.rebuild): the scroll is where the newest messages are and none is drawn there, so moving the scroll cannot
     // help (the one try moved it and the list stayed empty), but a new list opened at its end can. Never while the person
     // scrolls, and never for a reader higher up, who would lose their place.
+    // On iOS 16 and 17 the chat clears atNewest when its end leaves the screen, so there this arm is effectively unreachable.
     enum EmptyRecovery: Equatable { case none, newest, backInsideThenNewest, rebuild }
     static func emptyRecovery(later: Bool, place: String?, scrolling: Bool, atNewest: Bool = false) -> EmptyRecovery {
         if !scrolling && atNewest && place == "within" { return .rebuild }
