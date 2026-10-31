@@ -4967,12 +4967,13 @@ do {
           "with a row named again, or no let-go, the id anchor keeps the page (no scroll)")
     check(Board.keepPageByScroll(idAnchor: false, letGo: false, anchor: nil), "without the id anchor (iOS 16) the page is always kept by scrolling")
     check([nil, "end", "top", "m1"].map(Board.anchorKind) == ["none", "end", "top", "a message"], "the record names the anchor's kind, never a message's id")
-    // kosmos#7645 round 5: the reader's row is the highest one wholly below the bar, by its own top on the screen.
-    check(Board.readerRow(["a": 80, "b": 140, "c": 30, "d": 300], below: 100)! == ("b", 140), "the highest row whose top is below the bar")
-    check(Board.readerRow(["a": 100, "b": 99.7, "c": 99], below: 100)! == ("b", 99.7), "a row at the bar's edge counts; one a point behind the bar does not")
-    check(Board.readerRow(["a": 50, "b": -400], below: 100)! == ("a", 50), "no row top below the bar (one long message): the row the reader is inside")
-    check(Board.readerRow([:], below: 100) == nil, "none drawn: nothing to hold")
-    check(Board.readerRow(["m2": 140, "m1": 140], below: 100)! == ("m1", 140), "a tie is broken the same way every time")
+    // kosmos#7645 round 5: the reader's row is the highest one whose top is in what shows, by its own top on the screen.
+    check(Board.readerRow(["a": 80, "b": 140, "c": 30, "d": 300], below: 100, above: 600)! == ("b", 140), "the highest row whose top is below the bar")
+    check(Board.readerRow(["a": 100, "b": 99.7, "c": 99], below: 100, above: 600)! == ("b", 99.7), "a row at the bar's edge counts; one a point behind the bar does not")
+    check(Board.readerRow(["a": 50, "b": -400], below: 100, above: 600)! == ("a", 50), "no row top below the bar (one long message): the row the reader is inside")
+    check(Board.readerRow(["a": 50, "next": 700], below: 100, above: 600)! == ("a", 50), "a row laid out below the screen is never the reader's: the long message is")
+    check(Board.readerRow(["next": 700], below: 100, above: 600) == nil && Board.readerRow([:], below: 100, above: 600) == nil, "only rows below the screen, or none drawn: nothing to hold")
+    check(Board.readerRow(["m2": 140, "m1": 140], below: 100, above: 600)! == ("m1", 140), "a tie is broken the same way every time")
 
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")

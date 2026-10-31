@@ -377,7 +377,7 @@ struct ChatView: View {
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
-            positionId = nil; anchorLetGo = false; rowTops.y = [:]; rowTops.last = [:]; rowTops.watch = nil; personScrolling = false; endVisible = true   // kosmos#7265 review: a fresh chat's anchor
+            positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true   // kosmos#7265 review: a fresh chat's anchor
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             replying = nil
@@ -2404,7 +2404,8 @@ struct KeyboardHold: UIViewRepresentable {
                 // The top of what shows, below the top inset (the bar), in window points: the same space as RowTop's .global for
                 // a full-screen window (an iPhone); elsewhere only which row is chosen could differ, not the put-back.
                 let top = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.adjustedContentInset.top), to: nil).y
-                guard let rows = self.rows, let r = Board.readerRow(rows.tops(), below: Double(top)), let reading = rows.y[r.id] else {
+                let bottom = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.bounds.height - sv.adjustedContentInset.bottom), to: nil).y
+                guard let rows = self.rows, let r = Board.readerRow(rows.tops(), below: Double(top), above: Double(bottom)), let reading = rows.y[r.id] else {
                     ChatView.trace("keyboard hold: no row on the screen to hold"); return
                 }
                 self.saved = (r.id, CGFloat(reading.content), sv.contentOffset.y, self.above, sv.bounds.width, Date())
@@ -2419,12 +2420,12 @@ struct KeyboardHold: UIViewRepresentable {
                 self.generation &+= 1
                 let mine = self.generation
                 self.guarding = (kept, Date().addingTimeInterval(Self.window))
-                // The reader's row no longer drawn (iOS moved it far off): put back once by its last place in the content, read after
-                // will-show; with no reading newer than will-show's, nothing is written (the will-show offset may now be another place).
+                // The reader's row no longer drawn (iOS moved it far off): put back once by its last known place in the content (it
+                // stops being read when it leaves, so rows above measured again after that are not seen), then the hold ends. The same
+                // rule when it leaves while held, below.
                 guard let r = rows.y[kept.row] else {
                     ChatView.trace("keyboard hold: the row was not drawn at did-show")
-                    if let c = rows.last[kept.row], c != Double(kept.content) { self.putBack(CGFloat(c)) }
-                    self.endGuard(); return
+                    self.putBack(CGFloat(rows.last[kept.row] ?? Double(kept.content))); self.endGuard(); return
                 }
                 self.putBack(CGFloat(r.content))
                 var last = CGFloat(r.content)
@@ -2475,6 +2476,7 @@ final class RowTops {
         if let w = watch, w.id == id { w.seen(r) }
     }
     func tops() -> [String: Double] { y.mapValues(\.top) }
+    func reset() { y = [:]; last = [:]; watch = nil }   // a fresh chat
 }
 
 struct ContentSpace: ViewModifier {
