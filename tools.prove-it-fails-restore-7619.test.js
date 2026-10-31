@@ -44,9 +44,18 @@ async function waitFor(cond) { for (const end = Date.now() + START_WAIT_MS; Date
 /* Review 5: the live tree under a pid, read before anything is killed (children read one level at a time with pgrep -P,
    each read at once). A failed arm walks the tool's own tree, so its subshell, the test, its runner and anything they
    started are all ended, not only the pids the arm happened to record. */
+/* Review 8: one ps read for the whole tree, walked in memory. One pgrep per process took long enough under load for the
+   forker arm's signal to land on a finished tree, so that arm stopped testing the race it is named for. */
 function treeOf(pid) {
+  const kids = new Map();
+  try {
+    for (const line of execFileSync('/bin/ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' }).split('\n')) {
+      const [c, pp] = line.trim().split(/\s+/).map(Number);
+      if (c > 0 && pp > 0) { if (!kids.has(pp)) kids.set(pp, []); kids.get(pp).push(c); }
+    }
+  } catch { return []; }
   const out = [];
-  const walk = (p) => { let kids = []; try { kids = execFileSync('/usr/bin/pgrep', ['-P', String(p)], { encoding: 'utf8' }).split('\n').filter(Boolean).map(Number); } catch { /* none */ } for (const k of kids) { out.push(k); walk(k); } };
+  const walk = (p) => { for (const k of kids.get(p) || []) { out.push(k); walk(k); } };
   walk(pid);
   return out;
 }
@@ -291,7 +300,11 @@ test('#7629 B1 review 2: a child that keeps forking leaves nothing behind (the t
   // Review (10-31 mutant): the tool must end at once, not after its test does. Without this a broken kill passed:
   // the tool waited out the test, its children had ended by themselves, and the left-running check read clean.
   // Anything that escaped sleeps 300 s, so it is still alive when the wait ends; a slow death under load is not an escape.
-  const left = await waitGone(read());
-  assert.deepEqual(left, [], 'forked processes left running: ' + left.length);
+  // Review 8: the forker itself too (a tool that misses it leaves it forking), and the list read again once it is gone, so
+  // a sleep it forked after the first read is checked as well.
+  const left = await waitGone([forkerPid(), ...read()].filter(Boolean));
+  assert.deepEqual(left, [], 'forked processes (or the forker) left running: ' + left.length);
+  const late = await waitGone(read());
+  assert.deepEqual(late, [], 'processes forked after the first read left running: ' + late.length);
   passed = true;
 });
