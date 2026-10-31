@@ -1728,6 +1728,10 @@ const ownerUnlinkAgentAt = new Map(); // endpointDir + agentKey -> ms: this one 
 const ownerUnlinkLogged = new Map();  // endpointDir (+ agentKey) -> the reason last logged (once per reason)
 // A link this computer made, or one whose POST got no answer and so may have landed (ownerLinkMaybe).
 const ownerLinkThrough = (k, mac) => [k.ownerLinked, k.ownerLinkMaybe].some((m) => typeof m === 'string' && m.startsWith(mac + ':'));
+// Only the markers naming this computer go: a link through another one (made since, or maybe made) is cleared by its own note.
+function dropLinkThrough(k, mac) {
+  for (const f of ['ownerLinked', 'ownerLinkMaybe']) if (typeof k[f] === 'string' && k[f].startsWith(mac + ':')) delete k[f];
+}
 /* The site's DELETE /agents/me/owner {mac} (contract on kosmos-relay#614): 204 whether it cleared the link or found
    nothing naming this mac, so 204 drops the markers either way. It runs whatever the Community switch and Kosmos+ say,
    as the industry clear and the owner's deletes do: taking something back must not wait for a switch, and after such a
@@ -1756,15 +1760,20 @@ async function sweepOwnerUnlink(keys) {
       for (const [agentKey, k] of Object.entries(keys)) {
         if (!k || !ownerLinkThrough(k, mac)) continue;
         // A key the site refused was rotated or revoked there, and the site cleared its link when it did.
-        if (k.refused) { delete k.ownerLinked; delete k.ownerLinkMaybe; marks = true; continue; }
+        if (k.refused) { dropLinkThrough(k, mac); marks = true; continue; }
         if (Date.now() > until) { left = true; stopped = true; break; }   // the rest go with the next sweep
         if ((ownerUnlinkAgentAt.get(ep + '\n' + agentKey) || 0) > Date.now()) { left = true; continue; }
         if ((limiterPauseUntil.get(agentKey) || 0) > Date.now()) { left = true; continue; }
         const r = await asAgent(agentKey, keys, 'DELETE', '/agents/me/owner', { mac });
-        if (r.status === 204 || k.refused) { delete k.ownerLinked; delete k.ownerLinkMaybe; marks = true; continue; }
+        if (r.status === 204 || k.refused) {
+          dropLinkThrough(k, mac); marks = true;
+          ownerUnlinkAgentAt.delete(ep + '\n' + agentKey); ownerUnlinkLogged.delete(ep + '\n' + agentKey);
+          continue;
+        }
         left = true;
         if (r.status === 429 && r.json && r.json.error === 'rate_limit_exceeded') { limiterPauseUntil.set(agentKey, shortPause(r, Date.now())); continue; }
-        const agentRefusal = r.status >= 400 && r.status < 500 && ![401, 404, 405, 408, 413, 429].includes(r.status);
+        // A 401 is about this agent's own token (a fresh login could not settle it), so it is that agent's refusal here.
+        const agentRefusal = r.status >= 400 && r.status < 500 && ![404, 405, 408, 413, 429].includes(r.status);
         if (agentRefusal) refusedInPass += 1;
         if (agentRefusal && refusedInPass < 2) {
           ownerUnlinkAgentAt.set(ep + '\n' + agentKey, Date.now() + OWNER_LINK_RETRY_MS);
