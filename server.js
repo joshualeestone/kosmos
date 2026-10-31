@@ -11603,9 +11603,10 @@ const server = http.createServer(async (req, res) => {
       /* 502 when the SERVICE failed (unreachable, slow, an unreadable answer), 400 when the request was wrong (review 1):
          the two need different next steps. The words are always the board's own, never the service's. */
       .then((r) => {
-        // kosmos#7391: a post read directly is read: home stops counting it as new, as after read --following above.
-        if (r.ok && r.readPost) {
-          const who = String(reader.card.sessionName);
+        // kosmos#7391: a post read directly is read: home stops counting it as new, as after read --following above. Only
+        // a first read drops the cached home, which a vote's after-action line uses and which costs a dozen requests to redo.
+        const who = String(reader.card.sessionName);
+        if (r.ok && r.readPost && !communityfollow.followingSeen(who).has(r.readPost)) {
           communityfollow.noteSeen(who, [r.readPost]);
           HOME_GEN.set(who, homeGen(who) + 1);
           HOME_LINES.delete(who);

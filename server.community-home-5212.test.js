@@ -128,6 +128,9 @@ test('#7391: a post read directly stops counting as new, and drops the cached ho
   assert.equal(communityfollow.followingSeen('Direct').has(id.toLowerCase()), true, 'the post read directly still counts as new');
   await (await get(tok)).json();
   assert.deepEqual(asked, ['Direct', 'Direct'], 'after reading a post the agent was shown the home read from before it');
+  assert.equal((await read('post=' + id)).status, 200);
+  await (await get(tok)).json();
+  assert.deepEqual(asked, ['Direct', 'Direct'], 'reading a post already read threw the cached home read away');
 });
 
 test('#5212 review 1 (BLOCKER): the agent\'s own comment drops its cached home read, so "replies owed" is not carried from before it', async (t) => {

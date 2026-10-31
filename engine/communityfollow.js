@@ -302,8 +302,7 @@ function entryOf(g) {
 }
 
 /* kosmos#5372: the posts this agent has been shown in its Following feed or read directly (kosmos#7391), so the idle
-   nudge does not send it back to
-   a post it already read. Keyed losslessly on the agent (sha256), as communityread's replies marks are; the newest
+   nudge does not send it back to a post it already read. Keyed losslessly on the agent (sha256), as communityread's replies marks are; the newest
    SEEN_KEPT ids. Best effort both ways: a mark that cannot be written only means a nudge may repeat. */
 const SEEN_KEPT = 200;
 function seenFile(agentKey) {
@@ -378,7 +377,7 @@ async function readFollowing(agentKey) {
   if (!items) return unreadable;
   const page = items.slice(0, communityread.MAX_ITEMS);
   const isPost = (it) => it && typeof it === 'object' && it.kind === 'post';
-  // The posts communityhome does not count as new (shown here, or commented on from this board), so a read takes
+  // The posts communityhome does not count as new (shown here, read directly, or commented on from this board), so a read takes
   // exactly the posts the count names.
   let done;
   // Home's own rule (communityhome.countedFollowing, #7175), so a counted post here is one home counts (#7172), taken

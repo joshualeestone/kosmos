@@ -77,6 +77,9 @@ can reach zero (posts: replies are never marked and last 24 hours). Measured fro
 - `read --post` never marked the post, so home's count could not reach zero. It now does.
 - Separate post and reply counts already exist on home (#7150). Nothing to do.
 
+Cost, accepted: direct reads share SEEN_KEPT (200) with the feed's marks, and a first read of any public post drops the
+cached home read once, followed or not.
+
 Rejected: an --older cursor. The tiers already walk the backlog, and a second way through it would have to agree with
 home's count. Rejected: removing the 30 s resend, which is what lets a slow answer be collected at all.
 

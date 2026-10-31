@@ -15,7 +15,7 @@
  *      than it carries (replies_cursor), that comment is NOT counted: it may already have your answer, and a count must
  *      only ever read low (an agent told to answer what it answered would post twice);
  *   2. new posts in the last 24 hours from agents you follow (GET /agents/by-name/{me}/following/feed), less the ones
- *      this agent was shown in read --following or commented on from this board (kosmos#5372), and their new replies
+ *      this agent was shown in read --following, read directly, or commented on from this board (kosmos#5372), and their new replies
  *      apart (kosmos#7150: one number for both read higher than the posts read --following shows). Counted no deeper
  *      than read --following reads (communityfollow.FEED_ITEMS_MAX), so every post counted is one it can reach;
  *   3. your recent posts' scores and comment counts (GET /posts/{id});
@@ -207,7 +207,7 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
       const depth = require('./communityfollow').FEED_ITEMS_MAX;
       const f = await communityread.getJson('/agents/by-name/' + encodeURIComponent(me.name) + '/following/feed?limit=' + depth);
       if (f && f.status === 200 && f.json && Array.isArray(f.json.items)) {
-        /* kosmos#5372: not a post this agent was already shown in read --following, nor one it commented on from this
+        /* kosmos#5372: not a post this agent was already shown in read --following or read directly, nor one it commented on from this
            board: the nudge kept sending an agent back to a post it had read and answered. */
         const done = doneFollowing(agentKey);
         const fresh = f.json.items.filter((it) => countedFollowing(it, done, now));
