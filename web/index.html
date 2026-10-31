@@ -12253,6 +12253,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 /* kosmos#7404: the personal backup restore field is the same dark field (it takes the recovery code). Its own rules, so the
    sign-in fields above are untouched. */
 #pb .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
+  caret-color: #E6EBF7; border: 1px solid #5c78a6; border-radius: 10px; }
 #pb .tk-inp::placeholder { color: #8fa0c4; -webkit-text-fill-color: #8fa0c4; opacity: 1; }
 #pb .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #16223e inset; }
 #pb .tk-inp:focus { outline: 2px solid #7ea0f0; outline-offset: 1px; border-color: #7ea0f0; }
@@ -55103,7 +55104,7 @@ async function paintPlus() {
       for (const id of ['plus-forget-ask', 'plus-forget-kept']) { const e = document.getElementById(id); if (e) e.hidden = true; }   // review 1
     } }
   { const og = document.getElementById('plus-org'); if (og) { og.hidden = r.enrolled !== true; if (!og.hidden) plusOrgMaybe(); } }   // #5531
-  { const pb = document.getElementById('pb'); if (pb) { if (r.enrolled === true) pbMaybe(); else pb.hidden = true; } }   // kosmos#7404
+  { const pb = document.getElementById('pb'); if (pb) { if (r.enrolled === true) pbMaybe(); else if (!pb.hidden) { PB.st = null; pbPaint(); } } }   // kosmos#7404: hidden, and the code dropped
   paintDevices();
 }
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
@@ -55626,7 +55627,7 @@ function pbPaint() {
   const box = document.getElementById('pb');
   if (!box) return;
   box.hidden = st.shown !== true;
-  if (box.hidden) return;
+  if (box.hidden) { PB.code = null; PB.who = null; PB.view = null; document.getElementById('pb-code-text').textContent = ''; return; }
   // The step the person opened wins over the engine's state, except that 'on' closes the words and restore.
   let v = PB.view;
   if (!v || (st.state === 'on' && (v === 'words' || v === 'restore'))) v = st.state === 'on' ? 'on' : st.state === 'needs-key' ? 'needs-key' : st.state === 'pending' ? 'pending' : 'off';
@@ -55643,7 +55644,10 @@ function pbPaint() {
   say.textContent = v === 'pending' ? 'Kosmos is checking with Kosmos+ whether personal backup is on for this computer. This takes a few minutes.'
     : v === 'needs-key' ? 'Personal backup is on for this computer, but its recovery code is not saved yet. Press Show my recovery code to finish.'
     : 'Personal backup is on for this computer.';
-  document.getElementById('pb-off-row').hidden = v === 'pending';
+  // An open Turn off confirm survives the 5-second repaint; it closes when the view is no longer one it belongs to.
+  const ask = document.getElementById('pb-off-ask');
+  if (!(v === 'on' || v === 'needs-key')) ask.hidden = true;
+  document.getElementById('pb-off-row').hidden = v === 'pending' || !ask.hidden;
   let fin = document.getElementById('pb-finish');
   if (v === 'needs-key' && !fin) {
     fin = document.createElement('button'); fin.className = 'btn uprime'; fin.type = 'button'; fin.id = 'pb-finish'; fin.textContent = 'Show my recovery code';

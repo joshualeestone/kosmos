@@ -5200,9 +5200,11 @@ const REMOTE_STEP_UP_EXACT = new Set([
   // Joining a company or family: it applies that org's policy here and starts reporting this computer's activity to
   // it. Previewing a code and leaving are not gated (one reads, the other takes away).
   'POST /api/org/enroll',
-  // kosmos#7404: turning personal backup on or off, showing its recovery code again, or restoring with one each moves a
-  // backup key or ends a membership. Preview (reads) and saved (deletes this computer's copy of a code) are not gated.
+  // kosmos#7404: turning personal backup on or off, showing its recovery code again, restoring with one, and confirming it
+  // saved (which deletes this computer's copy, until written down the only copy anywhere) each move a key, end a
+  // membership or destroy a secret. Preview only reads, and is not gated.
   'POST /api/personal-backup/on', 'POST /api/personal-backup/key', 'POST /api/personal-backup/restore', 'POST /api/personal-backup/off',
+  'POST /api/personal-backup/saved',
   // Resetting the account's second factor: from a stolen session it would let the thief enrol their own, and then
   // pass this very step-up. At the computer it needs nothing more.
   'POST /api/remote/second-reset',

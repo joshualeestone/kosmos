@@ -111,8 +111,32 @@ test('#7404: from the screen, a decline turns nothing on; a bad code restores no
   assert.equal(fs.existsSync(path.join(store.ROOT, 'personal-backup', 'enrollment.json')), false);
 });
 
-test('#7404: the steps that move a key or end a membership need a step-up; preview and saved do not', () => {
-  for (const k of ['on', 'key', 'restore', 'off']) assert.equal(needsRemoteStepUp('/api/personal-backup/' + k, 'POST'), true, k);
-  for (const k of ['preview', 'saved']) assert.equal(needsRemoteStepUp('/api/personal-backup/' + k, 'POST'), false, k);
+test('#7404: every step but preview needs a step-up (saved deletes what may be the only copy of the code)', () => {
+  for (const k of ['on', 'key', 'restore', 'off', 'saved']) assert.equal(needsRemoteStepUp('/api/personal-backup/' + k, 'POST'), true, k);
+  assert.equal(needsRemoteStepUp('/api/personal-backup/preview', 'POST'), false);
   assert.equal(needsRemoteStepUp('/api/personal-backup', 'GET'), false);
+});
+
+/* Challenge round 1: the answer the screen needs passes through the route's named-field list, and nothing else does.
+   The engine modules are shared objects (the route requires them per call), so their functions are swapped here and put
+   back after. */
+test('#7404: on and key pass the recovery code, org and member to the screen; unlisted fields are dropped', async (t) => {
+  offerOn(t, '$5/month');
+  const pb = require('./engine/personalbackup');
+  const pk = require('./engine/personalbackupkey');
+  const was = { switchOn: pb.switchOn, setUpKey: pb.setUpKey, saved: pk.confirmRecoveryCodeSaved };
+  t.after(() => { pb.switchOn = was.switchOn; pb.setUpKey = was.setUpKey; pk.confirmRecoveryCodeSaved = was.saved; });
+  const made = { ok: true, code: 'K7QD-3MXA-9VPE-H2NW-4TBR-6YC8-JF', org: 'org_x', member: 'm_x', epoch: 1, secretKey: 'never', path: '/never' };
+  let gotOn = null; let gotSaved = null;
+  pb.switchOn = async (ticket, accepted) => { gotOn = { ticket, accepted }; return made; };
+  pb.setUpKey = async () => made;
+  pk.confirmRecoveryCodeSaved = async (who) => { gotSaved = who; return { ok: true, deleted: 1, extra: 'never' }; };
+  for (const k of ['on', 'key']) {
+    const r = await call('/api/personal-backup/' + k, { body: { ticket: 't1', accepted: true }, headers: SCREEN });
+    assert.deepEqual(r.json, { ok: true, code: made.code, org: 'org_x', member: 'm_x' }, k + ': ' + JSON.stringify(r.json));
+  }
+  assert.deepEqual(gotOn, { ticket: 't1', accepted: true });
+  const s = await call('/api/personal-backup/saved', { body: { org: 'org_x', member: 'm_x' }, headers: SCREEN });
+  assert.deepEqual(s.json, { ok: true, deleted: 1 });
+  assert.deepEqual(gotSaved, { org: 'org_x', member: 'm_x' });
 });

@@ -8,8 +8,8 @@ Kosmos+ cannot read it. Price is Josh's: read from config, a placeholder until h
 - [x] 2. Sketch + /design-shots, design review BEFORE building past the sketch
 - [x] 3. Board-side switch and price reader (engine/personalbackupoffer.js)
 - [x] 4. Server routes
-- [ ] 5. Settings panel, full
-- [ ] 6. Tests (engine, routes), the five full-suite-only guards, browser checks
+- [x] 5. Settings panel, full (reviewed: Mona Lisa, #7404 comments 6543885328, 6543996951, 6544056036)
+- [x] 6. Tests (engine, routes), the five full-suite-only guards, browser checks
 - [ ] 7. challenge-loop, PR
 
 ## Board-side switch and price
