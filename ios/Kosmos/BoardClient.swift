@@ -759,6 +759,7 @@ final class BoardClient: ObservableObject {
                 uploadTasks[session, default: [:]][id] = task
                 let answer = await task.value
                 uploadTasks[session]?[id] = nil
+                if uploadTasks[session]?.isEmpty == true { uploadTasks[session] = nil }   // review 2: no empty entry left
                 result = Board.uploadResult(status: answer?.1.statusCode ?? 0, body: answer?.0, name: name, size: size)
             } else {
                 result = Board.uploadResult(status: 0, body: nil, name: name, size: size)
@@ -794,8 +795,9 @@ final class BoardClient: ObservableObject {
         uploadTasks[session] = nil
     }
 
-    /// kosmos#7682 review 1: a multi-file pick, one at a time in the order picked; the x stops the rest of it. The
-    /// views build the picks and call this, so the loop is the client's (and tested).
+    /// kosmos#7682 review 1: a multi-file pick in an agent's chat, one at a time in the order picked; the x stops the
+    /// rest of it. ChatView calls this (tested in LogicTests); a project room keeps its own loop in RoomView, with the
+    /// same check, because its picks go through RoomStore's own count first.
     func attachAll(_ picks: [Pick], epoch: Int, to agent: Board.Agent) async {
         let generation = addGenerationNow(for: agent.session)
         for pick in picks {
