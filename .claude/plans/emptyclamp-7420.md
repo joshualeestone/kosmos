@@ -22,14 +22,15 @@ offset or the content height, so this has not been checkable.
 - Board.scrollPlace (tested in LogicTests): within / past the end / before the top, with the top and end offsets.
 - The report gains a line "scroll y, content, view, insets: <place>", and its after-the-try line reports the same measured
   place (plus "rows said to appear N", named as what it is) instead of "messages on screen again".
-- Recovery (recoverEmpty): at the first (reported) empty list, as before, go to the newest message, after first putting a
-  scroll that is outside its content back at its end. A later empty list in the same chat (and the 1.5 s check after the
-  first) is put right ONLY when its scroll is outside its content: a false empty reading (onScreen counts onAppear) never
-  pulls a resting reader to the newest message. Never while the person scrolls (personScrolling on iOS 18+, and
-  ScrollBox.underFinger, UIKit's tracking, dragging or decelerating, on every iOS). After going to the newest message,
-  "end" is named again on the next turn in case the direct offset write made SwiftUI write a row into the binding, unless
-  the person is scrolling by then. The repeat path leaves a trace line only in the Debug trace file; no shared report
-  carries repeats (the report is built once). The room suite checks this wiring by its source text.
+- Recovery (recoverEmpty), decided by Board.emptyRecovery (tested in LogicTests): the first (reported) empty list goes to
+  the newest message as before, first putting a scroll outside its content (past the end or before the top) back at its
+  end unless the person is scrolling. A later empty list in the same chat (and the 1.5 s check after the first) is put
+  right ONLY when its scroll is past the content's end and nobody is scrolling: before the top may be a bounce, and a false
+  empty reading (onScreen counts onAppear) must never pull a resting reader to the newest message. "Scrolling" is
+  personScrolling (iOS 18+) or ScrollBox.underFinger (UIKit's tracking, dragging or decelerating, every iOS). After going
+  to the newest message, "end" is named again on the next turn (queued after goNewest's own put-back) in case the direct
+  offset write made SwiftUI write a row into the binding, unless the person is scrolling by then. Repeats leave a trace
+  only in the Debug trace file; no shared report carries them. The room suite checks the wiring by its source text.
 
 ## Rejected
 - Changing the side lock's write now: the record shows it firing, but #7575's report found it was not the cause on 10-29,

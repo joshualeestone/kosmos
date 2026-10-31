@@ -808,17 +808,14 @@ struct ChatView: View {
     }
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
-    // and where the scroll was after it. Later empty lists in the same chat are put right without a report.
+    // and where the scroll was after it. Later empty lists in the same chat are put right (past the end only) without a report.
     // Nothing leaves the phone unless the person shares it.
     private func diagCapture(_ proxy: ScrollViewProxy, why: String, count: Int, recover: Bool = true) {
         guard visible, scenePhase == .active else { return }
         // kosmos#7420 (build 22, 10-30): reported once per chat. A later empty list (or the same one at the 1.5 s check) is
-        // put right only when its scroll is outside its content, the case the evidence points at, so a false empty reading
+        // put right only as Board.emptyRecovery says (past the content's end, nobody scrolling), so a false empty reading
         // (onScreen counts onAppear) never pulls a resting reader to the newest message.
-        if recover, diagDone {
-            if !personScrolling, !scrollBox.underFinger { recoverEmpty(proxy, onlyIfOutside: true) }
-            return
-        }
+        if recover, diagDone { recoverEmpty(proxy, reported: true); return }
         guard recover || !diagWideDone else { return }
         if recover { diagDone = true } else { diagWideDone = true }
         let info = Bundle.main.infoDictionary
@@ -842,12 +839,17 @@ struct ChatView: View {
         }
     }
 
-    // kosmos#7420: an empty list's scroll put back inside its content when it is outside, then the newest message
-    // (onlyIfOutside: nothing at all unless it was outside).
-    private func recoverEmpty(_ proxy: ScrollViewProxy, onlyIfOutside: Bool = false) {
-        if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") } else if onlyIfOutside { return }
+    // kosmos#7420: an empty list put right as Board.emptyRecovery decides.
+    private func recoverEmpty(_ proxy: ScrollViewProxy, reported: Bool = false) {
+        let scrolling = personScrolling || scrollBox.underFinger
+        switch Board.emptyRecovery(reported: reported, place: scrollBox.reading()?.place, scrolling: scrolling) {
+        case .none: return
+        case .backInsideThenNewest: if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") }
+        case .newest: break
+        }
         goNewest(proxy)
-        // The move above may have made SwiftUI name a row in the binding, which goNewest's own put-back leaves alone.
+        // The move above may have made SwiftUI name a row in the binding, which goNewest's own put-back leaves alone. Queued
+        // after goNewest's own async put-back (main-queue order), so it sees what that left.
         if Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
     }
 
@@ -2560,7 +2562,7 @@ final class ScrollBox {
                 p.place, p.end)
     }
     // Outside either way it goes to the end, since the newest message follows. The end is read from the content's size now,
-    // which for lazy rows is an estimate; goNewest corrects it on the next turn. Never under a finger. True when it moved it.
+    // which for lazy rows is an estimate; goNewest then goes to the newest message. Never under a finger. True when it moved it.
     func backInside() -> Bool {
         guard let sv = view, !underFinger, let r = reading(), r.place != "within" else { return false }
         sv.contentOffset = CGPoint(x: -sv.adjustedContentInset.left, y: CGFloat(r.end))

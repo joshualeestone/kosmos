@@ -469,6 +469,14 @@ enum Board {
         if offset < top - 1 { return ("before the top", top, end) }
         return ("within", top, end)
     }
+    // kosmos#7420: what an empty list's recovery does. The first (reported) one goes to the newest message as before, after
+    // putting a scroll outside its content back at its end unless a finger is on it. A later one acts only on a scroll past
+    // the content's end (the case the evidence points at; before the top may be a bounce), and never while the person scrolls.
+    enum EmptyRecovery: Equatable { case none, newest, backInsideThenNewest }
+    static func emptyRecovery(reported: Bool, place: String?, scrolling: Bool) -> EmptyRecovery {
+        if reported { return !scrolling && place == "past the end" ? .backInsideThenNewest : .none }
+        return !scrolling && (place == "past the end" || place == "before the top") ? .backInsideThenNewest : .newest
+    }
 
     // kosmos#7575: the chat's running count and when it goes. The count always runs (a shift before the chat's onAppear
     // is kept, review 3); flush() sends what was counted, if anything, and starts the next count at once. attach() gives
