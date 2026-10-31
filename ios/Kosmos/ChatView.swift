@@ -41,7 +41,6 @@ struct ChatView: View {
     @State private var listEpoch = 0
     @State private var rebuilds: [Date] = []
     static let rebuildsMax = 3
-    static let rebuildGrace: TimeInterval = Board.rebuildGrace   // kosmos#7688: the timing lives in Board, checked together
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
     @State private var anchorLetGo = false
     // kosmos#7645: where each drawn row is on the screen (iOS 26 and later), for the keyboard hold.
@@ -686,7 +685,10 @@ struct ChatView: View {
                             func whenStill(_ left: Int) {
                                 if left > 0 && (personScrolling || scrollBox.underFinger) {
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { whenStill(left - 1) }
-                                } else { sampleRebuild(proxy) }
+                                } else {
+                                    if left == 0 { Self.trace("debug rebuild: still scrolling after 4 s, ran anyway") }   // review 2
+                                    sampleRebuild(proxy)
+                                }
                             }
                             seen = NotificationCenter.default.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { _ in
                                 if let s = seen { NotificationCenter.default.removeObserver(s); seen = nil }
@@ -875,7 +877,7 @@ struct ChatView: View {
         guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible || neverDrew, !topVisible, count > 0, thread != nil else { return }
         // kosmos#7420: a list just rebuilt has no rows for a moment while the new one lays out; that is not an empty list
         // (measured on iOS 27: without this the rebuild's own gap read as empty and rebuilt it again, three times).
-        if let at = rebuilds.last, Date().timeIntervalSince(at) < Self.rebuildGrace { return }
+        if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
         diagCapture(proxy, why: "no message on screen", count: count)
     }
 
@@ -912,7 +914,12 @@ struct ChatView: View {
         let chatAt = epoch, clientAt = client.chatEpoch
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
             // Review 1: still this chat, on screen (another account, computer or chat in the wait writes nothing).
-            guard visible, epoch == chatAt, client.chatEpoch == clientAt else { return }
+            guard visible, epoch == chatAt, client.chatEpoch == clientAt else {
+                // Review 2: left (the info page, another tab) under the same account: the next empty check may capture again,
+                // so this open chat's report is not lost.
+                if epoch == chatAt && client.chatEpoch == clientAt { diagDone = false }
+                return
+            }
             // kosmos#7420 (10-29): onScreen counts rows SwiftUI said appeared, not rows drawn; the scroll's place is measured.
             lines.append("after one try\(rebuilt ? " (list rebuilt)" : ""): " + (scrollBox.reading()?.line ?? "scroll: no scroll view found") + "; rows said to appear \(onScreen.count)")
             diagRebuilt = rebuilt
@@ -969,7 +976,7 @@ struct ChatView: View {
                 }
             }
             // A new list that draws no row never has a row leave, so nothing would check it: one check once the grace is over.
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.rebuildGrace + Board.rebuildCheckBump) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Board.rebuildGrace + Board.rebuildCheckBump) {
                 if listEpoch == listAt, epoch == chatAt { diagTick &+= 1 }
             }
             return
