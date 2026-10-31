@@ -13,6 +13,12 @@ const { spawn, execFileSync } = require('node:child_process');
 const SCRIPT = path.join(__dirname, 'tools', 'prove-it-fails.sh');
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// How long a killed process may take to go before it counts as left running. A full suite at load 12 to 24 took about
+// 11 s here (PigeonPete, 10-30), past the old 10 s; so 60 s. Every process the tool should kill is made to outlive
+// this on its own (a 120 s test hold, a 300 s sleep), so one that was NOT killed is still alive when the wait ends
+// and the arm goes red: the margin never lets a missed kill pass.
+const DIE_WAIT_MS = 60000;
+async function waitGone(pids) { for (const end = Date.now() + DIE_WAIT_MS; Date.now() < end && pids.some(alive);) await sleep(50); return pids.filter(alive); }
 
 function sandbox(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pif-7619-'));
@@ -21,10 +27,10 @@ function sandbox(t) {
   fs.copyFileSync(SCRIPT, path.join(dir, 'tools', 'prove-it-fails.sh'));
   fs.writeFileSync(path.join(dir, 'a.js'), 'const x = 1;\n');
   fs.writeFileSync(path.join(dir, 'b.js'), 'const y = 1;\n');   // a colleague's file, edited during one run
-  // The test the tool runs: it records its pid, then holds for 30 s, far past the point the signal arrives.
+  // The test the tool runs: it records its pid, then holds for 120 s, past the signal and past DIE_WAIT_MS.
   fs.writeFileSync(path.join(dir, 'slow.test.js'),
     "require('node:fs').writeFileSync(__dirname + '/test.pid', String(process.pid));\n" +
-    "require('node:test')('slow', () => new Promise((r) => setTimeout(r, 30000)));\n");
+    "require('node:test')('slow', () => new Promise((r) => setTimeout(r, 120000)));\n");
   const git = (...a) => execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', ...a], { stdio: 'ignore' });
   git('init', '-q'); git('add', '-A'); git('commit', '-q', '-m', 'base');
   return dir;
@@ -60,9 +66,8 @@ for (const [sig, want, colleague] of [['SIGTERM', 143, false], ['SIGHUP', 129, f
     assert.equal(code, want, 'exit status: ' + out);
     assert.match(out, /interrupted: restored \(clean\)/);
     assert.ok(Date.now() - started < 20000, 'it waited for the 30 s test instead of restoring at once');
-    // Up to 10 s: on a loaded machine the per-file test process can take a while to go (a 2 s bound flaked).
-    for (let i = 0; i < 200 && alive(testPid); i++) await sleep(50);
-    assert.equal(alive(testPid), false, 'the test it was running was left going');
+    // Up to DIE_WAIT_MS: on a loaded machine the per-file test process can take a while to go (2 s and then 10 s flaked).
+    assert.deepEqual(await waitGone([testPid]), [], 'the test it was running was left going');
   });
 }
 
@@ -129,9 +134,9 @@ test('#7629 B1: a signal also ends what the test itself started (a child it spaw
   // A test that starts a long-running child of its own (as a test server would), records its pid, then holds.
   fs.writeFileSync(path.join(dir, 'kids.test.js'),
     "const { spawn } = require('node:child_process');\n" +
-    "const k = spawn('/bin/sleep', ['60'], { stdio: 'ignore' });\n" +
+    "const k = spawn('/bin/sleep', ['300'], { stdio: 'ignore' });\n" +
     "require('node:fs').writeFileSync(__dirname + '/kid.pid', String(k.pid));\n" +
-    "require('node:test')('holds', () => new Promise((r) => setTimeout(r, 30000)));\n");
+    "require('node:test')('holds', () => new Promise((r) => setTimeout(r, 120000)));\n");
   execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A'], { stdio: 'ignore' });
   execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'kids'], { stdio: 'ignore' });
   const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
@@ -144,24 +149,30 @@ test('#7629 B1: a signal also ends what the test itself started (a child it spaw
   const kid = Number(fs.readFileSync(kidFile, 'utf8'));
   t.after(() => { if (alive(kid)) process.kill(kid); });   // never leave it behind, even when the arm fails
   assert.ok(alive(kid), 'premise: the child is running');
+  const signalled = Date.now();
   child.kill('SIGTERM');
   assert.equal(await exited, 143);
-  for (let i = 0; i < 200 && alive(kid); i++) await sleep(50);
-  assert.equal(alive(kid), false, 'the child the test started was left running');
+  // Review (10-31 mutant): the tool must end at once, not after its test does. Without this a broken kill passed:
+  // the tool waited out the test, its children had ended by themselves, and the left-running check read clean.
+  assert.ok(Date.now() - signalled < 20000, "the tool waited for its test instead of ending it at once");
+  assert.deepEqual(await waitGone([kid]), [], 'the child the test started was left running');
   assert.equal(fs.readFileSync(path.join(dir, 'a.js'), 'utf8'), 'const x = 1;\n');
 });
 
 test('#7629 B1 review 2: a child that keeps forking leaves nothing behind (the tree is stopped as it is read)', async (t) => {
   const dir = sandbox(t);
   // A child that forks a new long sleeper every 10 ms and records each pid: without the STOP, the ones it forks
-  // between the handler's read and its kill would escape.
+  // between the handler's read and its kill would escape. 🛑 CAPPED at 50, then it waits holding them (exiting would
+  // orphan them out of the tree the tool kills). Uncapped, a tool whose kill is broken lets this fork until the test
+  // ends: on 10-31 a mutant did exactly that, about 3,300 sleeps, and the shared Mac hit its per-user process limit
+  // and other agents' runs failed to fork. The signal lands at 20, so the cap still leaves it forking mid-read.
   fs.writeFileSync(path.join(dir, 'forker.sh'),
-    '#!/bin/bash\nwhile :; do /bin/sleep 60 & echo $! >> "$1"; /bin/sleep 0.01; done\n');
+    '#!/bin/bash\nn=0; while [ $n -lt 50 ]; do /bin/sleep 300 & echo $! >> "$1"; n=$((n + 1)); /bin/sleep 0.01; done; wait\n');
   fs.chmodSync(path.join(dir, 'forker.sh'), 0o755);
   fs.writeFileSync(path.join(dir, 'fork.test.js'),
     "const { spawn } = require('node:child_process');\n" +
     "spawn(__dirname + '/forker.sh', [__dirname + '/forked.pids'], { stdio: 'ignore' });\n" +
-    "require('node:test')('holds', () => new Promise((r) => setTimeout(r, 30000)));\n");
+    "require('node:test')('holds', () => new Promise((r) => setTimeout(r, 120000)));\n");
   execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A'], { stdio: 'ignore' });
   execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'forker'], { stdio: 'ignore' });
   const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
@@ -173,9 +184,13 @@ test('#7629 B1 review 2: a child that keeps forking leaves nothing behind (the t
   t.after(() => { for (const p of read()) { if (alive(p)) process.kill(p); } });   // never leave sleepers behind
   for (let i = 0; i < 200 && read().length < 20; i++) await sleep(50);
   assert.ok(read().length >= 20, 'premise: the forker is forking');
+  const signalled = Date.now();
   child.kill('SIGTERM');
   assert.equal(await exited, 143);
-  await sleep(300);   // anything that escaped would still be alive now
-  const left = read().filter(alive);
+  // Review (10-31 mutant): the tool must end at once, not after its test does. Without this a broken kill passed:
+  // the tool waited out the test, its children had ended by themselves, and the left-running check read clean.
+  assert.ok(Date.now() - signalled < 20000, "the tool waited for its test instead of ending it at once");
+  // Anything that escaped sleeps 300 s, so it is still alive when the wait ends; a slow death under load is not an escape.
+  const left = await waitGone(read());
   assert.deepEqual(left, [], 'forked processes left running: ' + left.length);
 });
