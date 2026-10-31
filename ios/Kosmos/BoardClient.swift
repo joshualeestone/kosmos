@@ -1278,6 +1278,10 @@ final class BoardClient: ObservableObject {
             let result = await env.send(request)
             guard gen == generation, !Task.isCancelled else { return }
             guard let (data, answer) = result else { continue }   // no answer: tried again on the next read
+            // kosmos#7677 review 2: the list may have changed while this request was out (the picture removed, the agent
+            // gone, a newer version): only an agent still listed with a picture, at this version, takes the answer. Else a
+            // dropped picture came back, and the prune, seeing the same list, never dropped it again.
+            guard agents.contains(where: { $0.session == agent.session && $0.hasAvatar && $0.avatarVer == agent.avatarVer }) else { continue }
             let isImage = (answer.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("image/")
             if (200...299).contains(answer.statusCode) && isImage && !data.isEmpty {
                 pictures[agent.session] = data
@@ -1334,6 +1338,9 @@ final class BoardClient: ObservableObject {
     // and the folder holds only this computer's current agents. Only on a list that was read, never on a failed read.
     private var prunedFor: (address: String, sessions: Set<String>)?   // the last prune's list: the same list is not pruned again
     private func dropPicturesNotListed() {
+        // Review 2: not on an empty list (a board just restarted can answer one): the kept pictures would all go, and the
+        // next launch would be the slow one this card removes. A real removal shows on the next list that names agents.
+        if agents.isEmpty { return }
         let withPicture = Set(agents.filter(\.hasAvatar).map(\.session))
         if let done = prunedFor, done.address == picturesLoadedFor, done.sessions == withPicture { return }
         prunedFor = picturesLoadedFor.map { ($0, withPicture) }
