@@ -38,7 +38,7 @@ struct ChatView: View {
     @State private var positionId: String?
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
     @State private var anchorLetGo = false
-    // kosmos#7645: where each drawn row is on the screen (iOS 26 only), for the keyboard hold.
+    // kosmos#7645: where each drawn row is on the screen (iOS 26 and later), for the keyboard hold.
     @State private var rowTops = RowTops()
     // kosmos#7609 review 2: the moves the chat makes on purpose (to the newest message: a send, New messages, an arrival),
     // so the keyboard hold stands down for them.
@@ -377,7 +377,7 @@ struct ChatView: View {
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
-            positionId = nil; anchorLetGo = false; rowTops.y = [:]; rowTops.watch = nil; personScrolling = false; endVisible = true   // kosmos#7265 review: a fresh chat's anchor
+            positionId = nil; anchorLetGo = false; rowTops.y = [:]; rowTops.last = [:]; rowTops.watch = nil; personScrolling = false; endVisible = true   // kosmos#7265 review: a fresh chat's anchor
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             replying = nil
@@ -559,7 +559,7 @@ struct ChatView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { if atBottom && !endVisible { atBottom = false; Self.trace("keyboard hold: not at the newest after all") } }
                     })
                     .modifier(PositionTargets(on: Self.idAnchor))
-                    .modifier(ContentSpace())   // kosmos#7645: rows read their place in the content by this (iOS 26)
+                    .modifier(ContentSpace())   // kosmos#7645: rows read their place in the content by this (iOS 26 and later)
                 }
                 .modifier(PositionById(on: Self.idAnchor, id: $positionId))
                 .scrollDismissesKeyboard(.interactively)
@@ -2318,7 +2318,7 @@ struct KeyboardHold: UIViewRepresentable {
     // the hold stands down (in the same update, before that scroll is applied). A status-bar tap to the top has no such
     // signal: one inside the 1.5 s window is put back (known, narrow).
     let moves: String
-    // kosmos#7645: where each drawn row is on the screen (iOS 26 only, RowTop), read for the reader's row.
+    // kosmos#7645: where each drawn row is on the screen (iOS 26 and later, RowTop), read for the reader's row.
     let rows: RowTops
     // Review 3: told after each put-back, so the chat can read again whether the newest message is on screen.
     var onPutBack: () -> Void = {}
@@ -2367,7 +2367,8 @@ struct KeyboardHold: UIViewRepresentable {
             if sv.isTracking || sv.isDragging || sv.isDecelerating { ChatView.trace("keyboard hold: skipped, a finger"); endGuard(); return }
             if above != g.kept.above { ChatView.trace("keyboard hold: skipped, earlier messages landed"); endGuard(); return }
             if abs(sv.bounds.width - g.kept.width) > 0.5 { ChatView.trace("keyboard hold: skipped, the width changed"); endGuard(); return }
-            let target = g.kept.offset + (content - g.kept.content)
+            let i = sv.adjustedContentInset   // never past either end of what can be scrolled to
+            let target = min(max(g.kept.offset + (content - g.kept.content), -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height))
             let moved = sv.contentOffset.y - target   // how far the row is from its place on the screen, the number the record keeps
             guard abs(moved) > 1 else { return }
             ChatView.trace("keyboard hold: put back \(Int(moved))")
@@ -2417,9 +2418,12 @@ struct KeyboardHold: UIViewRepresentable {
                 self.generation &+= 1
                 let mine = self.generation
                 self.guarding = (kept, Date().addingTimeInterval(Self.window))
-                // The reader's row no longer drawn (iOS moved it far off): put back by its last known place in the content, once.
+                // The reader's row no longer drawn (iOS moved it far off): put back once by its last place in the content, read after
+                // will-show; with no reading newer than will-show's, nothing is written (the will-show offset may now be another place).
                 guard let r = rows.y[kept.row] else {
-                    ChatView.trace("keyboard hold: the row was not drawn at did-show"); self.putBack(kept.content); self.endGuard(); return
+                    ChatView.trace("keyboard hold: the row was not drawn at did-show")
+                    if let c = rows.last[kept.row], c != Double(kept.content) { self.putBack(CGFloat(c)) }
+                    self.endGuard(); return
                 }
                 self.putBack(CGFloat(r.content))
                 var last = CGFloat(r.content)
@@ -2447,17 +2451,19 @@ struct KeyboardHold: UIViewRepresentable {
     }
 }
 
-// kosmos#7645: where each drawn row of the chat is, kept by RowTop on iOS 26 only (where KeyboardHold runs): its top on the
+// kosmos#7645: where each drawn row of the chat is, kept by RowTop on iOS 26 and later (where KeyboardHold runs): its top on the
 // screen (window points, to choose the reader's row) and in the content (ContentSpace), which moves only when rows above it
 // are measured again. A class, so a reading redraws nothing. `watch` hands one row's fresh readings to the hold, and says
 // when that row stops being drawn (nil).
 struct RowReading: Equatable { let top: Double, content: Double }
 final class RowTops {
     var y: [String: RowReading] = [:]
+    var last: [String: Double] = [:]   // each row's last place in the content, kept after it stops being drawn
     var watch: (id: String, seen: (RowReading?) -> Void)?
     func set(_ id: String, _ r: RowReading?) {
         if KeyboardHold.Probe.off { return }   // the hold is off (below iOS 26, or the Debug control): nothing reads these
         y[id] = r
+        if let r { last[id] = r.content }
         if let w = watch, w.id == id { w.seen(r) }
     }
     func tops() -> [String: Double] { y.mapValues(\.top) }

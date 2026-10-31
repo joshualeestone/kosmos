@@ -11,6 +11,8 @@ never caught what gave the shift): the paired 16 pt sideways shift is the id anc
 keyboard-shrunk view (the check itself sets that id, KOSMOS_SAMPLE_SCROLLUP; a reader's own scroll sets it the same way), not the side lock writing a stale y (candidate a: its write reads y in the same change). Whether the anchor or iOS 26 makes the FIRST move is not settled by this; only the repeats are claimed.
 
 ## Change
+(What ships, in short: after a put-back the id anchor is let go; the keyboard hold keeps the reader's row by its place in the
+content, putting the offset at the will-show offset plus how far that row moved in the content. Details: iteration 15 on.)
 The decisions live in Board (BoardLogic.swift: letGoAfterPutBack, keepPageByScroll, anchorKind), tested in ios/LogicTests. ChatView: in KeyboardHold's onPutBack, when the id anchor holds a reader's place (a message or "top"; not nil, not "end"), set positionId = nil, so the anchor
 no longer pulls the list back to that message. Trace lines "keyboard hold: anchor let go" and, 0.2 s later, "keyboard hold: anchor after let go <none|top|end|a message>".
 
@@ -137,3 +139,7 @@ redrawn. (2) The let-go stays: round 1 measured the id anchor re-applying itself
 writes the offset.
 Results on the shipping design: ios/LogicTests run.sh PASS 1734/1734, run-room.sh PASS 741/741 (beb6612fe8 and after);
 the local keyboard checks and CI's UI job on the final head are recorded in the PR.
+Iteration 17: a row's last place in the content is kept after it stops being drawn (RowTops.last), and the not-drawn-at-
+did-show fallback writes only a reading newer than will-show's (writing the will-show offset unchanged was round 4's
+failure). The written offset is kept between the two ends of what can be scrolled to. The record's numbers are pinned by a
+room source check. Comments say iOS 26 and later (the hold runs on 27 too, as a no-op there).
