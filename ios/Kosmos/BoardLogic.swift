@@ -444,6 +444,15 @@ enum Board {
     // kosmos#7645: a page landing above is kept by scrolling to the row that was topmost, where no id anchor keeps it: always
     // without the id anchor (iOS 16), and with it only while a put-back has let it go and no row is named yet.
     static func keepPageByScroll(idAnchor: Bool, letGo: Bool, anchor: String?) -> Bool { !idAnchor || (letGo && anchor == nil) }
+    // kosmos#7645: the keyboard hold's reading from before the list shrank. It is kept fresh while no keyboard is up, except
+    // in the half second after a shrink (so the move that follows the shrink is not taken as the reader's place).
+    static func keepPreShrinkReading(keyboardUp: Bool, shrankAgo: Double?) -> Bool { !keyboardUp && (shrankAgo.map { $0 > 0.5 } ?? true) }
+    // Will-show uses it only with no keyboard already up, a shrink in the last half second, a reading at the same width,
+    // and nobody having scrolled since that shrink (a reply bar or the search bar shrinks the list too).
+    static func usePreShrinkReading(keyboardUp: Bool, shrankAgo: Double?, haveReading: Bool, sameWidth: Bool, scrolledSince: Bool) -> Bool {
+        guard !keyboardUp, let a = shrankAgo, a < 0.5, haveReading, sameWidth, !scrolledSince else { return false }
+        return true
+    }
 
     // kosmos#7575: the chat's running count and when it goes. The count always runs (a shift before the chat's onAppear
     // is kept, review 3); flush() sends what was counted, if anything, and starts the next count at once. attach() gives

@@ -53,3 +53,11 @@ earlier); a running "tallest height" (it goes stale when a long draft grows the 
 Weakest premise: that the shrink is visible as a smaller bounds-less-insets at the first offset change after it. If SwiftUI
 moves the offset in the same pass before the height changes, the reading is taken after the move and this does nothing.
 Change my mind: a CI trace with "keyboard up" after the viewport line and no "read from before the list shrank".
+
+Round 2 review (iteration 9) changes: the decisions moved into Board (keepPreShrinkReading, usePreShrinkReading) with
+LogicTests checks (PASS 1734/1734); a reader's scroll after a shrink (a reply bar or the search bar shrinks the list too)
+drops the pre-shrink reading; the "read from before" trace fires only when the offset moved more than a point; and a
+will-show that finds the list shorter with no shrink seen says so ("shorter at will-show with no shrink seen"), so the CI
+record can tell a missed shrink from no shrink. A shrink is seen only at an offset change (a known limit; UIKit's bounds
+are not reliably observable).
+Results, round 2: ios/tools/ui-keyboard.sh 3 of 3 on b7d556fca8 (22:08 CDT); every ios/LogicTests suite PASS on b7d556fca8.
