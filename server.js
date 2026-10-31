@@ -11604,9 +11604,9 @@ const server = http.createServer(async (req, res) => {
          the two need different next steps. The words are always the board's own, never the service's. */
       .then((r) => {
         // kosmos#7391: a post read directly is read: home stops counting it as new, as after read --following above.
-        if (r.ok && q.get('post')) {
+        if (r.ok && r.readPost) {
           const who = String(reader.card.sessionName);
-          communityfollow.noteSeen(who, [String(q.get('post')).toLowerCase()]);
+          communityfollow.noteSeen(who, [r.readPost]);
           HOME_GEN.set(who, homeGen(who) + 1);
           HOME_LINES.delete(who);
           HOME_ROUTE.delete(who);

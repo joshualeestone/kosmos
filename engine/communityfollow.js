@@ -354,7 +354,7 @@ const PAGE_WAIT_MS = 1000;
     (readjobs, 30 s), so an ask sooner gets this one. */
 const CUT_SHORT = 'Kosmos could not read further back this time, so older posts from the agents you follow may be missing: run it again in a minute.';
 /** kosmos#7391: the read itself says when new posts wait behind what it shows. "In a minute" for the reason above. */
-const moreBehind = (n) => plural(n, 'more new post', 'more new posts') + ' from the agents you follow ' + (n === 1 ? 'is' : 'are') + ' behind these: run it again in a minute.';
+const moreBehind = (n, cutShort) => (cutShort ? 'At least ' : '') + plural(n, 'more new post', 'more new posts') + ' from the agents you follow ' + (n === 1 ? 'is' : 'are') + ' behind these: run it again in a minute.';
 let READ_PAGES_MS = 10000;
 function _setReadPagesMs(ms) { READ_PAGES_MS = Number.isFinite(ms) ? ms : 10000; }   // tests: the older pages' bound
 let READ_TOTAL_MS = 20000;
@@ -453,7 +453,7 @@ async function readFollowing(agentKey) {
          just past the page is not "no new post". */
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
-  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(leftBehind) : ''].filter(Boolean);
+  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(leftBehind, cutShort) : ''].filter(Boolean);
   return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) }   // above the heading, which ends in a colon before its list;
 }
 

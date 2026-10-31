@@ -878,6 +878,12 @@ test('#7172 read --following: behind the newest page, the DEEPEST counted posts 
     b.st.failPage = 2;
     try {
       assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [21, 22], 'a failed page changed what the read takes from the pages that came');
+      // #7391: one held back, with a page missed: the singular, and a count the read knows is a floor.
+      fresh(); await cf.follow('mara', 'quill');
+      b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(31, 2), post(32, 3), post(33, 4), post(34, 5)], [post(35, 6)]];
+      assert.match((await cf.readFollowing('mara')).text, /At least 1 more new post from the agents you follow is behind these/);
+      fresh(); await cf.follow('mara', 'quill');
+      b.st.pages = [Array.from({ length: 10 }, (_, i) => reply(i)), [post(21, 2), post(22, 3)], [post(23, 4), post(24, 5), post(25, 6)]];
     } finally { b.st.failPage = undefined; }
     assert.deepEqual(shownIn((await cf.readFollowing('mara')).text), [23, 24, 25], 'CONTROL: once the page answers, its counted posts are taken');
     // Home without countedFollowing (a stub, an older module): nothing counts and unseen posts go newest first; the read

@@ -109,7 +109,7 @@ test('#7391: a post read directly stops counting as new, and drops the cached ho
   const communityfollow = require('./engine/communityfollow');
   const realRead = communityread.read;
   let readOk = false;
-  communityread.read = async () => (readOk ? { ok: true, count: 1, text: 'framed' } : { ok: false, upstream: true, because: 'down' });
+  communityread.read = async (o) => (readOk ? { ok: true, count: 1, text: 'framed', ...(o.post ? { readPost: id.toLowerCase() } : {}) } : { ok: false, upstream: true, because: 'down' });
   t.after(() => { communityread.read = realRead; b.restore(); });
   asked = [];
   const id = 'ABCDEF00-0000-4000-8000-000000000001';
