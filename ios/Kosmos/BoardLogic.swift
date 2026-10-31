@@ -436,6 +436,15 @@ enum Board {
         return (true, abs(x), .new)
     }
 
+    // kosmos#7645: the chat's id anchor (ChatView.positionId) as the record names it; never a message's id.
+    static func anchorKind(_ id: String?) -> String { id == nil ? "none" : id == "end" ? "end" : id == "top" ? "top" : "a message" }
+    // kosmos#7645: a keyboard put-back lets the anchor go when it holds a reader's place (a message, or "top"); "end", the
+    // keep on the newest message, stays.
+    static func letGoAfterPutBack(_ id: String?) -> Bool { id != nil && id != "end" }
+    // kosmos#7645: a page landing above is kept by scrolling to the row that was topmost, where no id anchor keeps it: always
+    // without the id anchor (iOS 16), and with it only while a put-back has let it go and no row is named yet.
+    static func keepPageByScroll(idAnchor: Bool, letGo: Bool, anchor: String?) -> Bool { !idAnchor || (letGo && anchor == nil) }
+
     // kosmos#7575: the chat's running count and when it goes. The count always runs (a shift before the chat's onAppear
     // is kept, review 3); flush() sends what was counted, if anything, and starts the next count at once. attach() gives
     // the sender (the chat showing on this computer); reset() drops the count (another computer: never sent elsewhere).

@@ -4959,6 +4959,15 @@ do {
     check(step(10, resumed: true, was: true) == .none && st.peak == 16, "review 4: one that shrank is the same shift, not a new one")
     check(Board.sideShiftStep(x: 0.4, shifted: true, wasShifted: false, resumed: false, peak: 16) == (false, 0, .none), "back at rest clears the shift and its peak")
 
+    // kosmos#7645: the keyboard put-back's anchor decisions.
+    check(Board.letGoAfterPutBack("m1") && Board.letGoAfterPutBack("top"), "a reader's place (a message, or the top) is let go after a put-back")
+    check(!Board.letGoAfterPutBack("end") && !Board.letGoAfterPutBack(nil), "the keep on the newest message stays, and nothing is let go twice")
+    check(Board.keepPageByScroll(idAnchor: true, letGo: true, anchor: nil), "after a let-go, a page landing above is kept by scrolling to its row")
+    check(!Board.keepPageByScroll(idAnchor: true, letGo: true, anchor: "m2") && !Board.keepPageByScroll(idAnchor: true, letGo: false, anchor: nil),
+          "with a row named again, or no let-go, the id anchor keeps the page (no scroll)")
+    check(Board.keepPageByScroll(idAnchor: false, letGo: false, anchor: nil), "CONTROL: without the id anchor (iOS 16) the page is always kept by scrolling")
+    check([nil, "end", "top", "m1"].map(Board.anchorKind) == ["none", "end", "top", "a message"], "the record names the anchor's kind, never a message's id")
+
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
     check(Board.cameraState(available: true, auth: .authorized) == .ready && Board.cameraState(available: true, auth: .notDetermined) == .notAsked,

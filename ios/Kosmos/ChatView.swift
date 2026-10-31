@@ -542,17 +542,13 @@ struct ChatView: View {
                     // Exactly when the keyboard handler below does not keep the newest message in view.
                     .background(KeyboardHold(hold: visible && !(atBottom || (searchOpen && openedAtNewest && !searching)), above: earlier.rows.count,
                                               moves: "\(appMoves)|\(query)") {
-                        // kosmos#7645 (CI's runner, 10-30): after a put-back the list was moved again by the same 499 pt, each
-                        // time with a fresh 16 pt sideways shift, which looks like the id anchor's .bottom scroll (see
-                        // SideScrollLock), until the window ended: the anchor still held its id and re-applied it at the bottom
-                        // of the shorter view. So it is let go ("top" too, which is also a reader's place; repeat calls find it
-                        // nil). "end" stays: it is the keep on the newest message, not a reader's place. Until the reader
-                        // scrolls again, which sets a new one, the list is held by its offset alone, as on iOS 16 (and a page
-                        // landing above is kept by keepAnchor).
-                        if Self.idAnchor, positionId != nil, positionId != "end" {
+                        // kosmos#7645: on CI's runner the list was moved again after each put-back while the id anchor still
+                        // held its id, so a reader's place is let go here (Board.letGoAfterPutBack). Until a row is named again
+                        // the list is held by its offset, and a page landing above by keepAnchor. Why: the branch's plan.
+                        if Self.idAnchor, Board.letGoAfterPutBack(positionId) {
                             positionId = nil; anchorLetGo = true; Self.trace("keyboard hold: anchor let go")
                             // Whether SwiftUI names a row again by itself (not measured yet): the record says.
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { Self.trace("keyboard hold: anchor after let go " + (positionId == nil ? "none" : positionId == "top" ? "top" : positionId == "end" ? "end" : "a message")) }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { Self.trace("keyboard hold: anchor after let go " + Board.anchorKind(positionId)) }
                         }
                         // Review 3: iOS 26's jump may have shown the end (atBottom true) before it was put back; the end's
                         // disappearance clears atBottom only under a person's scroll, so the reader's place is read again.
@@ -640,7 +636,7 @@ struct ChatView: View {
                     guard let id else { return }
                     // The id anchor already keeps the reader's message in place as a page lands above (kosmos#7265). Once a
                     // keyboard put-back has let it go (kosmos#7645) there is none, so the row is kept as on iOS 16.
-                    if Self.idAnchor, !(anchorLetGo && positionId == nil) { keepAnchor = nil; return }
+                    if !Board.keepPageByScroll(idAnchor: Self.idAnchor, letGo: anchorLetGo, anchor: positionId) { keepAnchor = nil; return }
                     Self.trace("keepAnchor scrollTo a message")   // kosmos#7420 review 1: no message id in the record
                     proxy.scrollTo(id, anchor: .top)
                     keepAnchor = nil
@@ -805,7 +801,7 @@ struct ChatView: View {
         guard visible, scenePhase == .active, recover ? !diagDone : !diagWideDone else { return }
         if recover { diagDone = true } else { diagWideDone = true }
         let info = Bundle.main.infoDictionary
-        let anchor = positionId == nil ? "none" : positionId == "end" ? "end" : positionId == "top" ? "top" : "a message"
+        let anchor = Board.anchorKind(positionId)
         var lines = ["Kosmos iPhone chat diagnostic (kosmos#7420)",
                      "what: \(why)",
                      "app \(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?")), iOS \(UIDevice.current.systemVersion)",
