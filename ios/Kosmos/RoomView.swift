@@ -212,7 +212,7 @@ struct RoomView: View {
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button { openBoardPage() } label: { Image(systemName: "info.circle") }
-                    .accessibilityLabel("Members, files and tasks, on your computer's board")
+                    .accessibilityLabel("Members and tasks, on your computer's board")   // kosmos#7679: files are on the phone now
             }
         }
         .background(

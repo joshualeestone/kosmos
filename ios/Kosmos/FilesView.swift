@@ -41,8 +41,11 @@ struct FilesView: View {
                         }
                         ForEach(page.files) { f in FilesRow(file: f, shownName: rowName(f), opening: opener.opening == f.name) { opener.open(f, owner: owner, client: client, openOnBoard: openOnBoard) } }
                     } footer: {
-                        if case .project = owner {
-                            Text(page.total == 1 ? "1 file" : "\(page.total) files").foregroundColor(Palette.secondary)
+                        VStack(alignment: .leading, spacing: 4) {
+                            if case .project = owner {
+                                Text(page.total == 1 ? "1 file" : "\(page.total) files").foregroundColor(Palette.secondary)
+                            }
+                            if let more = Board.filesMore(page) { Text(more).foregroundColor(Palette.secondary) }
                         }
                     }
                 }
@@ -132,17 +135,21 @@ struct FilesRow: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Opens the file")
+        // Review 1: a page or markup file opens on the board instead, so the hint says where it opens.
+        .accessibilityHint(Board.isWebDocument(name: file.name, type: "") ? "Opens on your computer\u{2019}s board" : "Opens the file")
     }
 }
 
 // The agent page's Files section: the newest few (the board's agent panel), then All files, which opens the browser.
+// Review 1: no modifiers of its own. In a List a Section's modifiers land on every row, so a task here ran once per row
+// and a row scrolled away could set the opener invisible mid-fetch; AgentInfoView owns the read and the opener and
+// applies them once, to its List (FilesView does the same on its own List).
 struct FilesSection: View {
     @ObservedObject var client: BoardClient
     let session: String
+    let read: Board.FilesRead?
+    @ObservedObject var opener: FileOpener
     let openOnBoard: () -> Void
-    @State private var read: Board.FilesRead?
-    @StateObject private var opener = FileOpener()
 
     var body: some View {
         Section {
@@ -154,7 +161,7 @@ struct FilesSection: View {
             case .refused(let why)?:
                 Text(why).foregroundColor(Palette.secondary)
             case .page(let page)?:
-                if page.files.isEmpty && page.dirs.isEmpty {
+                if page.files.isEmpty {
                     Text(Board.filesAgentEmpty).foregroundColor(Palette.secondary)
                 } else {
                     ForEach(page.files) { f in
@@ -174,19 +181,18 @@ struct FilesSection: View {
         } header: {
             Text(Board.filesTitle).font(.footnote.weight(.semibold)).foregroundColor(Palette.secondary).textCase(nil)
         }
-        .filesQuickLook(opener, client: client)
-        .task(id: client.chatEpoch) { opener.failed = nil; await load() }
     }
 
-    private func load() async {
+    // The section's read (the newest few), for AgentInfoView's load.
+    static func read(client: BoardClient, session: String) async -> Board.FilesRead {
         #if DEBUG
         if let sample = FilesView.sample(owner: .agent(session), dir: "") {
-            if case .page(let p) = sample { read = .page(Board.FilesPage(dir: "", dirs: [], files: p.files, missing: false, truncated: false, total: p.total)) } else { read = sample }
-            return
+            if case .page(let p) = sample { return .page(Board.FilesPage(dir: "", dirs: [], files: p.files, missing: false, truncated: false, total: p.total)) }
+            return sample
         }
         #endif
         let res = await client.throughMac { Board.filesRequest(mac: $0, owner: .agent(session)) }
-        read = Board.filesResult(status: res?.1.statusCode ?? 0, body: res?.0)
+        return Board.filesResult(status: res?.1.statusCode ?? 0, body: res?.0)
     }
 }
 
