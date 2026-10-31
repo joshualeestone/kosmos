@@ -812,9 +812,11 @@ struct ChatView: View {
     // Nothing leaves the phone unless the person shares it.
     private func diagCapture(_ proxy: ScrollViewProxy, why: String, count: Int, recover: Bool = true) {
         guard visible, scenePhase == .active else { return }
-        // kosmos#7420 (build 22, 10-30): reported once per chat, but an empty list is put right every time it is found.
+        // kosmos#7420 (build 22, 10-30): reported once per chat. A later empty list (or the same one at the 1.5 s check) is
+        // put right only when its scroll is outside its content, the case the evidence points at, so a false empty reading
+        // (onScreen counts onAppear) never pulls a resting reader to the newest message.
         if recover, diagDone {
-            if !personScrolling, !scrollBox.underFinger { Self.trace("diag: empty again, put right"); recoverEmpty(proxy) }
+            if !personScrolling, !scrollBox.underFinger { recoverEmpty(proxy, onlyIfOutside: true) }
             return
         }
         guard recover || !diagWideDone else { return }
@@ -840,12 +842,13 @@ struct ChatView: View {
         }
     }
 
-    // kosmos#7420: an empty list's scroll put back inside its content when it is outside, then the newest message.
-    private func recoverEmpty(_ proxy: ScrollViewProxy) {
-        if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") }
+    // kosmos#7420: an empty list's scroll put back inside its content when it is outside, then the newest message
+    // (onlyIfOutside: nothing at all unless it was outside).
+    private func recoverEmpty(_ proxy: ScrollViewProxy, onlyIfOutside: Bool = false) {
+        if scrollBox.backInside() { Self.trace("diag: the scroll was outside its content, put back at its end") } else if onlyIfOutside { return }
         goNewest(proxy)
         // The move above may have made SwiftUI name a row in the binding, which goNewest's own put-back leaves alone.
-        if Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !scrollBox.underFinger { positionId = "end" } } }
+        if Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
     }
 
     // kosmos#7575: when this chat open had a sideways shift, one report to the person's board (numbers and kind words,
