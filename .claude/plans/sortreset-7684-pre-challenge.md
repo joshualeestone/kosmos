@@ -20,7 +20,7 @@ green. CI on the PR runs against current main and decides the merge.
 ## Review record
 
 **Round 1 (fresh reviewer, before this proof).** No BLOCKER, no WARNING. NITs only.
-- Fixed: the LogicTests used shared defaults; they now use fixed test suites, emptied before and after (0742ac763c after rebase).
+- [NIT] (fixed) the LogicTests used shared defaults; they now use fixed test suites, emptied before and after (0742ac763c after rebase).
 - The other NITs were left. Their text was not kept in the handoff, so they are not itemised here.
 
 ## What the change rests on
