@@ -451,6 +451,18 @@ enum Board {
         let top = -insetTop, end = max(top, contentHeight + insetBottom - viewHeight)
         return min(max(offset + (content - keptContent), top), end)
     }
+    // kosmos#7609: where a row's top sits in the band that shows, as a share from its top (0) to its bottom (1), held to that
+    // range; an empty band is 0.
+    static func bandFraction(_ y: Double, bandTop: Double, bandBottom: Double) -> Double {
+        bandBottom > bandTop ? min(1, max(0, (y - bandTop) / (bandBottom - bandTop))) : 0
+    }
+    // kosmos#7609: the offset that moves a row by `moved` points on the screen, never past either end of what can be scrolled
+    // to (the same ends as holdTarget).
+    static func settleOffset(offset: Double, moved: Double, insetTop: Double, insetBottom: Double, contentHeight: Double,
+                             viewHeight: Double) -> Double {
+        let top = -insetTop, end = max(top, contentHeight + insetBottom - viewHeight)
+        return min(max(offset + moved, top), end)
+    }
     // kosmos#7645: the reader's row when the keyboard starts to show: the highest drawn row whose top is between the top of what
     // shows and its bottom (window points, with half a point of rounding at the top). With none (one long message fills the
     // screen), the row the reader is inside: the lowest whose top is above what shows. Rows laid out below the screen never count.

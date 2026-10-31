@@ -5009,6 +5009,18 @@ do {
           && Board.emptyRecovery(later: false, place: "before the top", scrolling: true) == .newest,
           "and the word for before the top too; under a finger the first one only goes to the newest")
     check(Board.emptyRecovery(later: false, place: nil, scrolling: true) == .newest, "the first one with no scroll view while someone scrolls still goes to the newest, as before")
+    // kosmos#7609: where a reader's row is placed again, and how far a settle may move the list.
+    check(Board.bandFraction(150, bandTop: 100, bandBottom: 300) == 0.25, "a row a quarter of the way down the band")
+    check(Board.bandFraction(100, bandTop: 100, bandBottom: 300) == 0 && Board.bandFraction(300, bandTop: 100, bandBottom: 300) == 1, "the band's top is 0, its bottom 1")
+    check(Board.bandFraction(40, bandTop: 100, bandBottom: 300) == 0 && Board.bandFraction(700, bandTop: 100, bandBottom: 300) == 1, "a row above or below the band is held to its edge")
+    check(Board.bandFraction(150, bandTop: 300, bandBottom: 300) == 0 && Board.bandFraction(150, bandTop: 300, bandBottom: 100) == 0, "an empty band is 0, never a division by nothing")
+    func settle(_ offset: Double, _ moved: Double) -> Double {
+        Board.settleOffset(offset: offset, moved: moved, insetTop: 100, insetBottom: 80, contentHeight: 15249, viewHeight: 346)
+    }
+    check(settle(10534, 1241) == 11775 && settle(10534, -23) == 10511, "inside the content the offset moves by exactly what the row is off")
+    check(settle(14900, 1241) == 14983, "never past the end (content plus the bottom inset, less the view): the 1,241 pt case at the end")
+    check(settle(-50, -400) == -100, "never above the top (minus the top inset)")
+    check(Board.settleOffset(offset: 0, moved: 500, insetTop: 0, insetBottom: 0, contentHeight: 100, viewHeight: 346) == 0, "content shorter than the view: its end is its top")
 
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")

@@ -17,8 +17,12 @@ message landed off the screen. Locally the same path runs, but the content grows
 - The DM's KeyboardSlide checks pass locally, and the read-higher-up check passes on CI.
 
 ## Measured
+- The DM on this branch, iOS 26.5 simulator (iPhone 17e), first commit (c4e6181d41): read-higher-up 5/5 traced, every run
+  through the new path (row not drawn at did-show, placed by id, settled by 7 pt); KeyboardSlideUITests 3/3.
+- After review 1 (the lost path's stand-downs, the settle's token and bounds, the watch kept in step, the at-the-newest
+  re-check, Board.bandFraction and Board.settleOffset with LogicTests): see the commit after it for the re-run.
 - The same mechanism in the room (#7654 part 2, branch roomhold-7654): read-higher-up 5/5 traced, the nine room and DM
-  checks 9/9 on iOS 26.5 and 27.
+  checks 9/9 on iOS 26.5 and 27. That is the room's evidence, not this branch's.
 
 ## Decided
 - The fix that was measured on the room, not a longer hold window (the reading is wrong, not late) and not eager rows.
