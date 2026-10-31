@@ -548,7 +548,7 @@ struct ChatView: View {
                         if Self.idAnchor, Board.letGoAfterPutBack(positionId) {
                             positionId = nil; anchorLetGo = true; Self.trace("keyboard hold: anchor let go")
                             // Whether SwiftUI names a row again by itself (not measured yet): the record says.
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { Self.trace("keyboard hold: anchor after let go " + Board.anchorKind(positionId)) }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { Self.trace("keyboard hold: anchor after let go \(Board.anchorKind(positionId))") }
                         }
                         // Review 3: iOS 26's jump may have shown the end (atBottom true) before it was put back; the end's
                         // disappearance clears atBottom only under a person's scroll, so the reader's place is read again.
@@ -2342,7 +2342,8 @@ struct KeyboardHold: UIViewRepresentable {
         // kosmos#7645 (CI's runner, 10-30): the list shrank to the keyboard (viewport 390x346) 70 ms BEFORE will-show reached
         // here, so the offset read then had already moved, and the put-back restored the moved place. So each offset change
         // notes whether the list just got shorter (bounds less insets) and keeps a reading from before a shrink; will-show
-        // uses it as Board.usePreShrinkReading says. A shrink is seen only at an offset change.
+        // uses it as Board.usePreShrinkReading says. A shrink is seen only at an offset change, so it is dated by the first
+        // offset change after it; a later move with no finger in that half second (rows re-measured) is then undone (known, narrow).
         private var lastShowing: CGFloat = 0, shrankAt: Date?, scrolledSinceShrink = false
         private var beforeShrink: (y: CGFloat, above: Int, width: CGFloat, at: Date)?
         private var shown = false   // a keyboard is up (did-show until will-hide): no reading is kept then
@@ -2401,13 +2402,14 @@ struct KeyboardHold: UIViewRepresentable {
                 // A keyboard already up (a second will-show, say for the emoji panel) keeps the first reading.
                 if self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating {
                     var y = sv.contentOffset.y, above = self.above
-                    if let b = self.beforeShrink, Board.usePreShrinkReading(keyboardUp: self.shown, shrankAgo: self.shrankAt.map { Date().timeIntervalSince($0) },
-                                                                      haveReading: true, sameWidth: abs(b.width - sv.bounds.width) < 0.5,
-                                                                      scrolledSince: self.scrolledSinceShrink) {
+                    let b = self.beforeShrink
+                    if Board.usePreShrinkReading(keyboardUp: self.shown, shrankAgo: self.shrankAt.map { Date().timeIntervalSince($0) },
+                                                 haveReading: b != nil, sameWidth: b.map { abs($0.width - sv.bounds.width) < 0.5 } ?? false,
+                                                 scrolledSince: self.scrolledSinceShrink), let b {
                         let moved = sv.contentOffset.y - b.y
                         if abs(moved) > 1 { ChatView.trace("keyboard hold: read from before the list shrank, moved \(Int(moved))") }
                         (y, above) = (b.y, b.above)
-                    } else if Self.showing(sv) < self.lastShowing - 1 {
+                    } else if !self.shown, Self.showing(sv) < self.lastShowing - 1 {
                         ChatView.trace("keyboard hold: shorter at will-show with no shrink seen, offset as it is")
                     }
                     self.saved = (y, above, sv.bounds.width, Date())
