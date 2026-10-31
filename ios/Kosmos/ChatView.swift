@@ -541,10 +541,12 @@ struct ChatView: View {
                     .background(KeyboardHold(hold: visible && !(atBottom || (searchOpen && openedAtNewest && !searching)), above: earlier.rows.count,
                                               moves: "\(appMoves)|\(query)") {
                         // kosmos#7645 (CI's runner, 10-30): after a put-back the list was moved again by the same 499 pt, each
-                        // time with a fresh 16 pt sideways shift, which is the id anchor's .bottom scroll (see SideScrollLock),
-                        // until the window ended: the anchor still held its id and re-applied it at the bottom of the shorter
-                        // view. So it is let go ("top" too, which is also a reader's place; repeat calls find it nil). Until the
-                        // reader scrolls again, which sets a new one, the list is held by its offset alone, as on iOS 16.
+                        // time with a fresh 16 pt sideways shift, which looks like the id anchor's .bottom scroll (see
+                        // SideScrollLock), until the window ended: the anchor still held its id and re-applied it at the bottom
+                        // of the shorter view. So it is let go ("top" too, which is also a reader's place; repeat calls find it
+                        // nil). "end" stays: it is the keep on the newest message, not a reader's place. Until the reader
+                        // scrolls again, which sets a new one, the list is held by its offset alone, as on iOS 16 (and a page
+                        // landing above is kept by keepAnchor).
                         if Self.idAnchor, positionId != nil, positionId != "end" { positionId = nil; Self.trace("keyboard hold: anchor let go") }
                         // Review 3: iOS 26's jump may have shown the end (atBottom true) before it was put back; the end's
                         // disappearance clears atBottom only under a person's scroll, so the reader's place is read again.
@@ -629,8 +631,9 @@ struct ChatView: View {
                 // The place kept after a page lands above: the row that was first stays at the top.
                 .onChange(of: keepAnchor) { id in
                     guard let id else { return }
-                    // The id anchor already keeps the reader's message in place as a page lands above (kosmos#7265).
-                    if Self.idAnchor { keepAnchor = nil; return }
+                    // The id anchor already keeps the reader's message in place as a page lands above (kosmos#7265). Once a
+                    // keyboard put-back has let it go (kosmos#7645) there is none, so the row is kept as on iOS 16.
+                    if Self.idAnchor, positionId != nil { keepAnchor = nil; return }
                     Self.trace("keepAnchor scrollTo a message")   // kosmos#7420 review 1: no message id in the record
                     proxy.scrollTo(id, anchor: .top)
                     keepAnchor = nil
