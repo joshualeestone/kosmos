@@ -162,11 +162,11 @@ kosmos_prepush_build_live && fail "10 CONTROL: no lock held and no turn reads as
 printf 'abc123.4567.1793450000\n' > "$TURNF"
 kosmos_prepush_build_live && pass "10 a fresh turn with no lock held is a build (between steps)" || fail "10 a fresh turn reads as no build"
 out="$(kosmos_refuse_if_prepush_build_live "a heavy run" "KOSMOS_CUT_IGNORE_PREPUSH=1 cuts anyway" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && has "$out" "between two of its steps" && has "$out" "s ago" && has "$out" "lapses within 180s" && has "$out" "KOSMOS_CUT_IGNORE_PREPUSH=1 cuts anyway." \
+[ "$rc" = 1 ] && has "$out" "between two of its steps" && has "$out" "s ago" && has "$out" "(window 180s)" && has "$out" "KOSMOS_CUT_IGNORE_PREPUSH=1 cuts anyway." \
   && pass "10 refused between steps, saying so, how long ago the turn was used, the window, and the override" || fail "10 between-steps refusal: rc=$rc $out"
 for bad in abc 0 007 ""; do
   out="$(KOSMOS_PREPUSH_TURN_LIVE_S="$bad" kosmos_refuse_if_prepush_build_live "a heavy run" 2>&1)"; rc=$?
-  [ "$rc" = 1 ] && has "$out" "lapses within 180s" && pass "10 a window of '$bad' falls back to 180 s (the turn still counts, and the message says 180)" || fail "10 window '$bad': rc=$rc $out"
+  [ "$rc" = 1 ] && has "$out" "(window 180s)" && pass "10 a window of '$bad' falls back to 180 s (the turn still counts, and the message says 180)" || fail "10 window '$bad': rc=$rc $out"
 done
 # The build lock held AND a fresh turn: the lock's own message (a cargo step), not the between-steps one.
 hold || exit 1
@@ -185,6 +185,15 @@ out="$(kosmos_refuse_if_prepush_build_live "a heavy run" 2>&1)"; rc=$?
 mv "$TURNF" "$TURNF.aside"
 kosmos_prepush_build_live && fail "10 a gate lock held with no turn (a queued push's wait) reads as a build" || pass "10 a gate lock held with no turn on file is not a build (a queued push answering wait)"
 mv "$TURNF.aside" "$TURNF"
+# The same held gate lock beside a turn FAR older than any step (3 h: past the hook's 2400 s step limit plus the window):
+# a build that died left it, and the gate lock's holder is then a waiter, not a build.
+touch -A -030000 "$TURNF"   # BSD touch -A: 3 hours earlier (the fleet's Macs; this file's lock arms are Mac-only)
+kosmos_prepush_build_live && fail "10 a gate lock beside a turn older than any step reads as a build" || pass "10 a gate lock beside a turn older than any step (a dead build's) is not a build"
+# The same held gate lock with a FRESH turn: a step is running, so the refusal names the step, not a gap between steps.
+printf 'abc123.4567.1793450000\n' > "$TURNF"
+out="$(kosmos_refuse_if_prepush_build_live "a heavy run" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "running a step" && ! has "$out" "between two of its steps" && pass "10 gate lock held with a fresh turn: the refusal names the step, not the gap" || fail "10 gate lock + fresh turn: rc=$rc $out"
+touch -A -0400 "$TURNF"
 for c in $(pgrep -P "$G" 2>/dev/null); do kill "$c" 2>/dev/null; done; wait "$G" 2>/dev/null
 kosmos_prepush_build_live && fail "10 CONTROL: the gate lock let go and the turn old still reads as a build" || pass "10 CONTROL: gate lock let go and the turn old: no build"
 printf 'abc123.4567.1793450000\n' > "$TURNF"
@@ -196,6 +205,9 @@ rm -f "$(_kosmos_machine_claim_file)"
 KOSMOS_PREPUSH_TURN_LIVE_S=123456789012345678901234 kosmos_prepush_build_live && pass "10 an over-long window value falls back to 180 s (no arithmetic overflow reading as no build)" || fail "10 an over-long window read as no build"
 touch -A -0400 "$TURNF"   # used 4 minutes ago: past the 180 s window
 kosmos_prepush_build_live && fail "10 a turn unused past the window still reads as a build" || pass "10 a turn unused past the window is not a build (a build that went away)"
+for bad in 0 007 abc 123456789; do
+  KOSMOS_PREPUSH_TURN_GRACE="$bad" kosmos_prepush_build_live && fail "10 a hook grace of '$bad' widened the window (the 4-minute turn read as live)" || pass "10 a hook grace of '$bad' is ignored: the window stays 180 s, so the 4-minute turn is no build"
+done
 KOSMOS_PREPUSH_TURN_GRACE=300 kosmos_prepush_build_live && pass "10 a raised hook grace (300 s) widens the window with it (360 s)" || fail "10 KOSMOS_PREPUSH_TURN_GRACE=300 did not widen the window"
 KOSMOS_PREPUSH_TURN_GRACE=300 KOSMOS_PREPUSH_TURN_LIVE_S=100 kosmos_prepush_build_live && fail "10 an explicit window lost to the grace" || pass "10 an explicit KOSMOS_PREPUSH_TURN_LIVE_S wins over the grace"
 KOSMOS_PREPUSH_TURN_LIVE_S=600 kosmos_prepush_build_live && pass "10 CONTROL: the same turn within a wider window is a build (the age, not the file, decides)" || fail "10 CONTROL: a wider window did not count it"

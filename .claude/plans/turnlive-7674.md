@@ -6,8 +6,10 @@ step. Between two steps the build held no lock, so a queued heavy run (`_qh_clea
 and the build stopped at its next step ("Mortals is now claimed ... stopping", 96), after the builder's whole wait.
 
 ## Design (option (d) on #7674, held for Sonya's agreement on #6756)
-- Live = the lock held (as before) OR the build's gate turn file, `prepush.gate.turn` beside the lock, touched within
-  `KOSMOS_PREPUSH_TURN_LIVE_S` (180 s: the hook's 120 s grace plus a margin). The hook touches the turn at every step
+- Live = the build lock held (as before), OR the gate lock (`prepush.gate.lock`, held for every step, its checkout
+  included) held while a turn younger than the hook's longest step plus the window is on file, OR the build's gate turn
+  (`prepush.gate.turn`, beside the lock) touched within the window: `KOSMOS_PREPUSH_TURN_LIVE_S`, else the hook's grace
+  plus 60 when `KOSMOS_PREPUSH_TURN_GRACE` is set, else 180 s (its default 120 s grace plus a margin). The hook touches the turn at every step
   boundary and removes it when its gate ends or on any red.
 - The turn path is derived from the lock path, so one seam moves both (tests; run-tests.sh's /dev/null path).
 - `kosmos_refuse_if_prepush_build_live` says "between two of its steps" and the turn's age when only the turn is live.

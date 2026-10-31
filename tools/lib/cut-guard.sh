@@ -1379,11 +1379,17 @@ _kosmos_prepush_holders() {
 # the previous gate removed its turn, this reads no build, so a heavy run can claim the box then; the checkout goes on
 # (it already read no claim) and its first cargo step stops with 96. Bounded at one checkout, not a build. Closing it
 # needs the hook to read the claim again after taking its turn (a relay change, kosmos#7674).
-_kosmos_prepush_gate_held() { [ -s "$(_kosmos_prepush_turn_file)" ] && _kosmos_prepush_held "$(_kosmos_prepush_gate_lock_file)"; }
-# _kosmos_prepush_turn_fresh: 0, printing the turn's age in seconds, while the turn was touched within the window.
+# The turn's age bounds this too, by the longest step the hook allows (its KOSMOS_PREPUSH_MAX_STEP, 2400 s by default)
+# plus the window: a step under the gate lock touches the turn when it ends, so a turn older than that is left by a
+# build that died, and the waiters' instant holds next to it are no build either.
+_kosmos_prepush_gate_held() {
+  _kosmos_prepush_turn_fresh $(( 2400 + $(_kosmos_prepush_turn_window) )) >/dev/null && _kosmos_prepush_held "$(_kosmos_prepush_gate_lock_file)"
+}
+# _kosmos_prepush_turn_fresh [window]: 0, printing the turn's age in seconds, while the turn was touched within the
+# window (_kosmos_prepush_turn_window when none is given).
 _kosmos_prepush_turn_fresh() {
-  local f m now age lim
-  lim="$(_kosmos_prepush_turn_window)"
+  local f m now age lim="${1:-}"
+  [ -n "$lim" ] || lim="$(_kosmos_prepush_turn_window)"
   f="$(_kosmos_prepush_turn_file)"
   [ -s "$f" ] || return 1   # no turn, or an empty one: no build holds it
   # macOS stat (where the hook runs); GNU stat's -f means something else, so it is asked only off macOS.
@@ -1412,11 +1418,11 @@ kosmos_refuse_if_prepush_build_live() {
   fi
   if _kosmos_prepush_gate_held; then
     f="$(_kosmos_prepush_gate_lock_file)"; holder="$(_kosmos_prepush_holders "$f")"
-    echo "a relay pre-push build is running a step on this machine (${holder:-holder not readable}), holding $f (its checkout, or a step about to take the build lock); $what would share the box with it. It ends on its own, and once the machine is claimed the hook starts no further step.${override:+ $override.}" >&2
+    echo "a relay pre-push build is running a step on this machine (${holder:-holder not readable} has $f open; a queued push waiting on it shows there too), holding it for its checkout, or a step about to take the build lock; $what would share the box with it. It ends on its own, and once the machine is claimed the hook starts no further step.${override:+ $override.}" >&2
     return 1
   fi
   age="$(_kosmos_prepush_turn_fresh)" || return 0
-  echo "a relay pre-push build is between two of its steps on this machine (its gate turn, $(_kosmos_prepush_turn_file), was used ${age}s ago); $what would start in that gap. Its next step starts soon, or stops at once if the machine is claimed; its turn lapses within $(_kosmos_prepush_turn_window)s if the build went away.${override:+ $override.}" >&2
+  echo "a relay pre-push build is between two of its steps on this machine (its gate turn, $(_kosmos_prepush_turn_file), was used ${age}s ago); $what would start in that gap. Its next step starts soon, or stops at once if the machine is claimed; if the build went away, its turn lapses in $(( $(_kosmos_prepush_turn_window) - age ))s at most (window $(_kosmos_prepush_turn_window)s).${override:+ $override.}" >&2
   return 1
 }
 
