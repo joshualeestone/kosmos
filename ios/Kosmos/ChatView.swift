@@ -1653,7 +1653,11 @@ struct ChatView: View {
                         .accessibilityElement(children: .combine)
                         // kosmos#7682: a way out of an add that hangs (a photo that never loads, an upload that
                         // stalls). The same x and 44 pt place to tap as a waiting file's chip.
-                        Button { client.cancelAdding(for: agent.session) } label: {
+                        Button {
+                            client.cancelAdding(for: agent.session)
+                            // Review 1: the line goes from under VoiceOver's focus; say what happened.
+                            UIAccessibility.post(notification: .announcement, argument: "Stopped adding")
+                        } label: {
                             Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundColor(Palette.secondary)
                                 .frame(width: 44, height: 44).contentShape(Rectangle()).padding(-12)
                         }
@@ -1680,18 +1684,16 @@ struct ChatView: View {
     // The photos of one pick share one time, numbered after the first, so no two carry the same name.
     private func addPhotos(_ picks: [PhotosPickerItem]) async {
         let epoch = client.chatEpoch
-        let generation = client.addGenerationNow(for: agent.session)
         let at = Date()
         client.attachLine[agent.session] = nil
-        for (i, item) in picks.enumerated() {
-            // kosmos#7682: the x stops the rest of the pick, not only the one going up.
-            if client.addingCancelled(for: agent.session, since: generation) { return }
-            await client.attach(.photo(load: {
+        // kosmos#7682: the client's loop, so the x stops the rest of the pick, not only the one going up.
+        await client.attachAll(picks.enumerated().map { i, item in
+            .photo(load: {
                 guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
                 let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
                 return (Board.photoName(at: at, ext: Board.imageExtension(data) ?? type.preferredFilenameExtension ?? "jpg", number: i + 1), data)
-            }), epoch: epoch, to: agent)
-        }
+            })
+        }, epoch: epoch, to: agent)
     }
 
     // Encoded inside the load, off the main thread, as a picked photo is read.
@@ -1706,13 +1708,8 @@ struct ChatView: View {
 
     private func addFiles(_ urls: [URL]) async {
         let epoch = client.chatEpoch
-        let generation = client.addGenerationNow(for: agent.session)
         client.attachLine[agent.session] = nil
-        for url in urls {
-            // kosmos#7682: the x stops the rest of the pick, not only the one going up.
-            if client.addingCancelled(for: agent.session, since: generation) { return }
-            await client.attach(.file(url), epoch: epoch, to: agent)
-        }
+        await client.attachAll(urls.map { .file($0) }, epoch: epoch, to: agent)   // kosmos#7682: stops on the x
     }
 
     // kosmos#7268: the emoji face and the microphone inside the box, at its trailing end, as the project room's; the

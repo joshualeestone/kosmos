@@ -682,6 +682,8 @@ final class BoardClient: ObservableObject {
     @Published private(set) var uploading: [String: Int] = [:]
     // kosmos#7682: moved on by cancelAdding, per chat, so an add from before a cancel neither counts nor lands.
     private var addGeneration: [String: Int] = [:]
+    // kosmos#7682 review 1: each chat's uploads still going, so the x can cancel them.
+    private var uploadTasks: [String: [UUID: Task<(Data, HTTPURLResponse)?, Never>]] = [:]
     @Published var attachLine: [String: String] = [:]
 
     // What was picked: a file from Files (the person's own, never removed: the client copies it first), or a photo,
@@ -749,7 +751,14 @@ final class BoardClient: ObservableObject {
                 // The sample chats (a Debug build only): added at once, so a screenshot never shows a real Mac's file.
                 result = .added(Board.Attached(id: String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(24)), name: name))
             } else if let held = admitted, let request = request(held.url, name, type) {
-                let answer = await env.upload(request, file)
+                // kosmos#7682 review 1: the upload runs as its own task, kept per chat, so the x CANCELS it (its
+                // connection and the copy go), rather than only ignoring what it answers.
+                let upload = env.upload
+                let task = Task { await upload(request, file) }
+                let id = UUID()
+                uploadTasks[session, default: [:]][id] = task
+                let answer = await task.value
+                uploadTasks[session]?[id] = nil
                 result = Board.uploadResult(status: answer?.1.statusCode ?? 0, body: answer?.0, name: name, size: size)
             } else {
                 result = Board.uploadResult(status: 0, body: nil, name: name, size: size)
@@ -772,13 +781,27 @@ final class BoardClient: ObservableObject {
         }
     }
 
-    // kosmos#7682: the x on "Adding a file...": this chat's adds stop counting at once and anything they answer later is
-    // dropped. A photo still loading or an upload still going is not stopped (a load can ignore cancellation, and the
-    // upload's own timeout ends it); a file that reaches the Mac meanwhile stays there, as with the board's x.
+    // kosmos#7682: the x on "Adding a file...": this chat's adds stop counting at once, its uploads still going are
+    // cancelled, and anything they answer later is dropped. A photo still loading is not stopped (a load can ignore
+    // cancellation); its add ends at the next check and sends nothing. A file that reached the Mac before the cancel
+    // stays there, as with the board's x.
     func cancelAdding(for session: String) {
         addGeneration[session, default: 0] += 1
         uploading[session] = nil
-        attachLine[session] = nil
+        // Review 1: the uploads still going are cancelled. The line under the composer is left as it is: it can be an
+        // earlier file's refusal from the same pick, which must stay.
+        for task in (uploadTasks[session] ?? [:]).values { task.cancel() }
+        uploadTasks[session] = nil
+    }
+
+    /// kosmos#7682 review 1: a multi-file pick, one at a time in the order picked; the x stops the rest of it. The
+    /// views build the picks and call this, so the loop is the client's (and tested).
+    func attachAll(_ picks: [Pick], epoch: Int, to agent: Board.Agent) async {
+        let generation = addGenerationNow(for: agent.session)
+        for pick in picks {
+            if addingCancelled(for: agent.session, since: generation) { return }
+            await attach(pick, epoch: epoch, to: agent)
+        }
     }
 
     /// kosmos#7682: whether this chat's adds were cancelled since `generation` (a picker's batch stops then).
@@ -1101,6 +1124,8 @@ final class BoardClient: ObservableObject {
         attached = [:]
         // kosmos#7682: an add still in flight from before must not take a later add's count down when it ends.
         for session in uploading.keys { addGeneration[session, default: 0] += 1 }
+        for tasks in uploadTasks.values { for task in tasks.values { task.cancel() } }   // the account before's
+        uploadTasks = [:]
         uploading = [:]
         attachLine = [:]
         // Picked files still waiting to go are not left on the phone either.

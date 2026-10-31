@@ -1973,6 +1973,8 @@ final class FakeBoardWorld {
     var uploadQueue: [(Int, String)?] = []
     var uploads: [(path: String, type: String, name: String, bytes: Data, file: String)] = []
     var uploadYields = 0
+    var uploadsCancelled = 0   // kosmos#7682
+    var uploadsStarted = 0     // kosmos#7682
     var postedAttachments: [[String]] = []
     // kosmos#7083: each post's reply_to ("" when none), and each reaction asked for ("at|emoji") with its answer.
     var postedReplies: [String] = []
@@ -2127,7 +2129,12 @@ func boardLoopTests() async {
                                             defaults: defaults,
                                             files: testFiles,
                                             upload: { r, file in
-                                                for _ in 0..<world.uploadYields { await Task.yield() }
+                                                world.uploadsStarted += 1   // kosmos#7682
+                                                for _ in 0..<world.uploadYields {
+                                                    // kosmos#7682: a cancelled upload ends here, as URLSession's does.
+                                                    if Task.isCancelled { world.uploadsCancelled += 1; return nil }
+                                                    await Task.yield()
+                                                }
                                                 return world.upload(r, file)
                                             },
                                             uploads: testUploads,
@@ -3037,6 +3044,7 @@ section("native board loop: connecting")
         c.stop()
     }
 
+    final class Gate7682: @unchecked Sendable { var open = false }
     section("native chat: an add that hangs can be stopped, and only in its own chat (kosmos#7682)")
     do {
         let (c, w, _, _) = make("kst1")
@@ -3052,15 +3060,20 @@ section("native board loop: connecting")
         }
         // A stalled upload: the x clears it at once, and its late answer lands nothing.
         w.uploadYields = 400
+        let started = w.uploadsStarted
         let stuck = Task { await c.attach(.file(picked("stuck.pdf")), epoch: c.chatEpoch, to: dana) }
-        _ = await settle { c.uploading["dana"] == 1 }
+        _ = await settle { c.uploading["dana"] == 1 && w.uploadsStarted > started }   // the upload itself is going
         check(c.uploading["dana"] == 1 && (c.uploading["eli"] ?? 0) == 0, "premise: dana's add is going, eli's chat shows none")
+        c.attachLine["dana"] = "an earlier file's refusal"
+        let cancelledBefore = w.uploadsCancelled
         c.cancelAdding(for: "dana")
-        check((c.uploading["dana"] ?? 0) == 0 && c.attachLine["dana"] == nil, "the x clears the line at once")
+        check((c.uploading["dana"] ?? 0) == 0, "the x clears the adding line at once")
+        check(c.attachLine["dana"] == "an earlier file's refusal", "review 1: and leaves an earlier file's refusal under the composer")
         // A new add after the x is counted on its own, and the cancelled one ending does not take it down.
         let fresh = Task { await c.attach(.file(picked("fresh.pdf")), epoch: c.chatEpoch, to: dana) }
         _ = await settle { c.uploading["dana"] == 1 }
         await stuck.value
+        check(w.uploadsCancelled == cancelledBefore + 1, "review 1: the x CANCELS the upload going, not only ignores it")
         check(c.uploading["dana"] == 1, "the cancelled add ending leaves the new add's count alone")
         check(!(c.attached["dana"] ?? []).contains { $0.name == "stuck.pdf" }, "and lands nothing")
         w.uploadYields = 0
@@ -3083,6 +3096,32 @@ section("native board loop: connecting")
         c.cancelAdding(for: "dana")
         check(c.addingCancelled(for: "dana", since: gen) && !c.addingCancelled(for: "eli", since: c.addGenerationNow(for: "eli")),
               "a batch sees its own chat's x, not another's")
+        // Review 1: a photo still loading when the x is tapped sends nothing once it loads (the first guard).
+        let gate = Gate7682()
+        let uploadsBefore = w.uploads.count
+        let loading = Task {
+            await c.attach(.photo(load: {
+                while !gate.open { await Task.yield() }
+                return ("held.jpg", Data([0xFF, 0xD8, 0xFF, 0xE0]))
+            }), epoch: c.chatEpoch, to: dana)
+        }
+        _ = await settle { c.uploading["dana"] == 1 }
+        c.cancelAdding(for: "dana")
+        gate.open = true
+        await loading.value
+        check(w.uploads.count == uploadsBefore && !(c.attached["dana"] ?? []).contains { $0.name == "held.jpg" },
+              "a photo that finishes loading after the x is never sent")
+        // Review 1: a multi-file pick stops at the next file once the x is tapped during the first.
+        w.uploadYields = 400
+        let batchBefore = w.uploads.count
+        let batch = Task { await c.attachAll([.file(picked("b1.pdf")), .file(picked("b2.pdf")), .file(picked("b3.pdf"))],
+                                             epoch: c.chatEpoch, to: dana) }
+        _ = await settle { c.uploading["dana"] == 1 }
+        c.cancelAdding(for: "dana")
+        w.uploadYields = 0
+        await batch.value
+        check(w.uploads.count == batchBefore && (c.attached["dana"] ?? []).allSatisfy { !$0.name.hasPrefix("b") },
+              "the rest of the pick is never sent once the x is tapped")
         // A sign-out with an add in flight, then a new add: the old one ending does not take the new count down.
         w.uploadYields = 400
         let before = Task { await c.attach(.file(picked("before.pdf")), epoch: c.chatEpoch, to: dana) }
