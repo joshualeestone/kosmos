@@ -738,7 +738,8 @@ struct RoomView: View {
             .onAppear {
                 guard RoomStore.sample, let up = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ROOM_SCROLLUP"].flatMap(Int.init), up > 0 else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                    if items.count > up { proxy.scrollTo(items[items.count - up].id, anchor: .top) }
+                    // kosmos#7654: as a person's scroll would, it ends goEnd's retries (a programmatic scroll reports no scroll phase).
+                    if items.count > up { endJumps &+= 1; proxy.scrollTo(items[items.count - up].id, anchor: .top) }
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { sampleScrollRested = true }
             }
@@ -879,7 +880,8 @@ struct RoomView: View {
         let jump = endJumps
         for at in Self.endRetries {
             DispatchQueue.main.asyncAfter(deadline: .now() + at) {
-                if jump == endJumps && visible && !searchMode && archiveShown == nil { proxy.scrollTo("bottom", anchor: .bottom) }
+                // Not while the person is scrolling (already scrolling when goEnd began, so no new touch cancelled it).
+                if jump == endJumps && visible && !searchMode && archiveShown == nil && !roomScrolling { proxy.scrollTo("bottom", anchor: .bottom) }
             }
         }
     }
