@@ -833,7 +833,7 @@ struct ChatView: View {
         recoverEmpty(proxy)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             // kosmos#7420 (10-29): onScreen counts rows SwiftUI said appeared, not rows drawn; the scroll's place is measured.
-            lines.append("after one try: " + (scrollBox.reading()?.line ?? "no scroll view") + "; rows said to appear \(onScreen.count)")
+            lines.append("after one try: " + (scrollBox.reading()?.line ?? "scroll: no scroll view found") + "; rows said to appear \(onScreen.count)")
             diagReport = lines.joined(separator: "\n")
             announceDiag()
         }

@@ -5008,6 +5008,7 @@ do {
     check(Board.emptyRecovery(later: false, place: Board.scrollPlace(offset: -150, content: 2000, view: 700, insetTop: 100, insetBottom: 0).place, scrolling: false) == .backInsideThenNewest
           && Board.emptyRecovery(later: false, place: "before the top", scrolling: true) == .newest,
           "and the word for before the top too; under a finger the first one only goes to the newest")
+    check(Board.emptyRecovery(later: false, place: nil, scrolling: true) == .newest, "the first one with no scroll view while someone scrolls still goes to the newest, as before")
 
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
