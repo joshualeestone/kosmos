@@ -522,7 +522,7 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID="$
 # command line, so a real suite can show as several candidates).
 perl -e 'select(undef, undef, undef, 3600)' </dev/null >/dev/null 2>&1 & SUITE2=$!
 bash -c 'perl -e "select(undef, undef, undef, 3600)" </dev/null >/dev/null 2>&1 & wait' </dev/null >/dev/null 2>&1 & PAIRP=$!
-trap 'kill "${SUITE:-}" "${SUITE2:-}" "${PAIRP:-}" "${PAIRC:-}" 2>/dev/null; rm -rf "$T" "$FR"' EXIT
+trap 'kill "${SUITE:-}" "${SUITE2:-}" "${PAIRP:-}" "${PAIRC:-}" ${WP_LIVE:-} 2>/dev/null; rm -rf "$T" "$FR"' EXIT
 q_ready "$SUITE2"; q_ready "$PAIRP" 'bash*'
 PAIRC=""; for _i in $(seq 1 30); do PAIRC="$(pgrep -P "$PAIRP" | head -1)"; [ -n "$PAIRC" ] && break; sleep 0.1; done
 [ -n "$PAIRC" ] || { fail "FIXTURE: the #6334 parent stand-in never started its child"; kill $(pgrep -P "$PAIRP") 2>/dev/null; }
@@ -654,13 +654,11 @@ out="$(KOSMOS_WAIT_SLEEP=false kosmos_wait_until_clear "a test run" wcheck 2>&1)
   || fail "#4498 a clear box did not start quietly (rc=$rc, $out)"
 
 # A waiting suite is not a live suite. The stand-in waiter is a real process of ours, stopped by pid.
-# #5914: it is the waiter for every queue-order arm from here to its kill below (#4498, #4609, #4911, #5272), about 23 s
-# on an idle box. With a 60 s life it exited mid-section on a loaded one: the lib then dropped its marker as stale and
-# eight order arms went red at once (measured: the same eight, with a 2 s life). It lives 600 s and is checked alive
-# before its kill, so a box that slow again fails by name as a fixture, not as the queue. It is not added to the EXIT
-# trap: $wp outlives its kill below, and a reused pid would then be someone else's process. A run that dies mid-way
-# leaves it idle until it ends on its own.
-perl -e 'select(undef, undef, undef, 600)' & wp=$!
+# #5914: it is the waiter for every arm from here to its kill below that reads it (#4498, #4609, #4911, #5272, #7512).
+# With a 60 s life it could exit mid-section on a loaded box: the lib then dropped its marker as stale and the order
+# arms went red together. It lives 600 s, and the #5914 FIXTURE arm before its kill also fails if it did not last.
+# WP_LIVE holds it for the EXIT trap only while it is ours, emptied at its kill (as RP_LIVE is below).
+perl -e 'select(undef, undef, undef, 600)' & wp=$!; WP_LIVE="$wp"
 q_ready "$wp"
 printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 printf '#!/bin/sh\nprintf "%s bash tools/run-tests.sh\\n"\n' "$wp" > "$T/sprobe-waiter"; chmod +x "$T/sprobe-waiter"
@@ -1000,9 +998,9 @@ KOSMOS_QUEUE_CLASS=bogus kosmos_mark_suite_waiting $((NOW - 30))
   || fail "#4609 an unknown class was recorded as $(sed -n '5p' "$W/markers/suitewait.$$")"
 kosmos_unmark_suite_waiting
 lwait 100
-kill -0 "$wp" 2>/dev/null && pass "#5914 FIXTURE: the queue arms' stand-in waiter was alive for all of them" \
-  || fail "#5914 FIXTURE: the stand-in waiter $wp exited before the queue arms finished, so their reds above say nothing about the queue"
-kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null
+kill -0 "$wp" 2>/dev/null && pass "#5914 FIXTURE: the stand-in waiter was alive for every arm that read it" \
+  || fail "#5914 FIXTURE: the stand-in waiter $wp exited before the arms that read it finished, so their reds above may be the fixture, not the queue"
+kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; WP_LIVE=""
 out="$(kosmos_refuse_if_earlier_suite_waiter "this test run" 2>&1)"; rc=$?
 { [ "$rc" -eq 0 ] && [ ! -e "$W/markers/suitewait.$wp" ]; } && pass "#4498 a dead waiter holds no place and its marker is removed" \
   || fail "#4498 a dead waiter still held the queue (rc=$rc, $out)"
@@ -1248,10 +1246,12 @@ out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test r
 # run-tests.sh in a scratch tree with one stray test file stops at its coverage check, the first thing after the
 # guard, so "COVERAGE MISMATCH" means the guard let it through and nothing ran. The tree is rooted under /tmp by
 # name (not $T, which may sit in the kt sandbox and would make every run here a fixture).
-RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; RP_LIVE=""; trap 'kill "${SUITE:-}" "${SUITE2:-}" "${PAIRP:-}" "${PAIRC:-}" ${RP_LIVE:-} 2>/dev/null; type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$FR" "$RT" ${RT2:+"$RT2"}' EXIT
+RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; RP_LIVE=""; trap 'kill "${SUITE:-}" "${SUITE2:-}" "${PAIRP:-}" "${PAIRC:-}" ${RP_LIVE:-} ${WP_LIVE:-} 2>/dev/null; type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$FR" "$RT" ${RT2:+"$RT2"}' EXIT
 mkdir -p "$RT/tools/lib" "$RT/sub"; cp "$HERE/run-tests.sh" "$RT/tools/"; cp "$HERE"/lib/*.sh "$RT/tools/lib/"
 : > "$RT/sub/stray.test.js"
-perl -e 'select(undef, undef, undef, 60)' & wp=$!
+# #5914: the waiter the run-tests.sh arms below queue behind, to its kill after them. It lives 600 s and is checked
+# alive before its kill: dead early, the last arm would go green for the wrong reason (nothing to queue behind).
+perl -e 'select(undef, undef, undef, 600)' & wp=$!; WP_LIVE="$wp"
 q_ready "$wp"
 printf '100 %s\n%s\n%s\n%s\n' "$wp" "$(ps -ww -o command= -p "$wp")" "$(_kosmos_pid_started_local "$wp")" "$(_kosmos_pid_started "$wp")" > "$W/markers/suitewait.$wp"
 # The caller reads as a fixture (a node --test ancestor), except the stand-in pids $DEAD and $SUITE (see the wiring test below).
@@ -1329,7 +1329,9 @@ out="$(rt_run KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-all")"
 { has "$out" "COVERAGE MISMATCH" && ! has "$out" "waiting for the box longer"; } \
   && pass "#4498 a run-tests.sh inside a test does not queue behind a waiting suite" \
   || fail "#4498 a run-tests.sh fixture queued ($(printf '%s' "$out" | tail -2))"
-kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; rm -f "$W/markers/suitewait.$wp"
+kill -0 "$wp" 2>/dev/null && pass "#5914 FIXTURE: the run-tests.sh arms' stand-in waiter was alive for all of them" \
+  || fail "#5914 FIXTURE: the stand-in waiter $wp exited before the run-tests.sh arms finished, so a green above may mean there was nothing to queue behind"
+kill "$wp" 2>/dev/null; wait "$wp" 2>/dev/null; WP_LIVE=""; rm -f "$W/markers/suitewait.$wp"
 
 # A cut that claims the box while a suite waits holds it (Kano's review, Liu Kang m3015): the stand-in suite is live
 # on the first ask, and that ask also writes a foreign, live, unexpired claim; after it the suite is gone. A run that
