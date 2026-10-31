@@ -69,6 +69,19 @@ function coordinator(over = {}) {
 const HOUR_MS = 60 * 60 * 1000;
 const KEY_OK = { setUpPersonalKey: async () => ({ ok: true, code: 'TEST-CODE', epoch: 1 }) };
 
+test('pbjob-7404: words accepted through the real enroll open the job only when they name something backed up', async (t) => {
+  for (const [backsUp, want] of [[['your project folders'], true], [[], false]]) {
+    const root = fresh(t);
+    const consent = { ...WORDS, backsUp };
+    const c = coordinator({ preexisting: true, preview: { ok: true, data: { org: ORG, role: 'member', consent, consentHash: HASH, computerSalt: SALT } } });
+    const p = await pb.preview({ root, remote: c });
+    assert.equal(p.ok, true, JSON.stringify(p));
+    const on = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK });
+    assert.equal(on.ok, true, JSON.stringify(on));
+    assert.equal(pb.mayBackUp({ root, remote: c, offer: () => ({ shown: true }), personalbackupkey: { hasPendingCode: () => false } }), want, JSON.stringify(backsUp));
+  }
+});
+
 function fresh(t) {
   pb._TICKETS.clear();   // each test starts as a board just started: no ticket from an earlier test is live
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-personalswitch-7404-root-'));

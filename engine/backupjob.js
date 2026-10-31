@@ -116,7 +116,7 @@ function fromAnswer(st, r, named, now) {
       isEpoch(r.pendingEpoch) ? { pendingEpoch: r.pendingEpoch } : {});
   }
   return Object.assign({ ok: false, because: (r && typeof r.because === 'string' && r.because) || 'the backup key could not be set up on this computer', state: keep },
-    r && r.unreadableKeyFile === true ? { unreadableKeyFile: true } : {}, r && r.orgKeyRefused === true ? { orgKeyRefused: true } : {}, r && r.refusal && typeof r.refusal === 'object' ? { refusal: r.refusal } : {});
+    r && r.unreadableKeyFile === true ? { unreadableKeyFile: true } : {}, r && r.orgKeyRefused === true ? { orgKeyRefused: true } : {}, r && r.personActs === true ? { personActs: true } : {}, r && r.refusal && typeof r.refusal === 'object' ? { refusal: r.refusal } : {});
 }
 
 /* The state after a snapshot taken under `key`. A refusal naming a later epoch marks the key lost; anything else

@@ -1,7 +1,7 @@
 'use strict';
 /**
- * kosmos#7404 (personalswitch-7404): turning a personal backup on, and off, on this computer. The engine only: no
- * screen calls it yet (the next slice); the board starts only its follow-up timer, idle while nothing is here.
+ * kosmos#7404 (personalswitch-7404): turning a personal backup on, and off, on this computer. Settings calls it through
+ * server.js; the board starts its follow-up timer and its backup tick, both idle while nothing is here.
  *
  * A personal backup is an account's own org of one on Kosmos+ (kosmos-relay #691). Turning it on is three steps:
  *   1. preview(): POST /v1/mac/personal-backup makes the account's personal org and membership and answers the words to
@@ -12,7 +12,7 @@
  *      state sit with the company path's, per (org, member), so nothing here reads another org's.
  *
  * Kept apart from the company enrollment ON PURPOSE (the plan's option C): every orgenroll call here runs under this
- * module's own data root, so the company readers (rollups, agent events, company policy, the hourly refresh), which read
+ * module's own data root (but mayBackUp's one read of whether a company is enrolled), so the company readers (rollups, agent events, company policy, the hourly refresh), which read
  * store.ROOT, never see a personal backup. The conditions that make that hold (design review 1):
  *   - orgenroll's policy calls do not follow `root`, so every call passes INERT_POLICY (a personal backup applies no
  *     policy, and must never clear or replace a company's);
@@ -429,8 +429,8 @@ function state(opts = {}) {
 }
 
 /* pbjob-7404: may the backup job upload now? All of: the board offers it; on, with its key here and its code confirmed;
-   the words accepted here, and they name something backed up (words that say nothing goes up can never upload); and no
-   company backup here, so the two never run side by side. Asked when a run starts, as the company's mayBackUp is. */
+   the words accepted here, and they name something backed up; and no company enrollment on this world's store.ROOT,
+   joined, joining or leaving. Asked when a run starts, as the company's mayBackUp is. */
 function mayBackUp(opts = {}) {
   try {
     if (!(opts.offer || require('./personalbackupoffer').offer)().shown) return false;
@@ -440,7 +440,7 @@ function mayBackUp(opts = {}) {
     if (oe.mayReport(eo) !== true) return false;
     const words = oe.acceptedConsent(eo);
     if (!words || !Array.isArray(words.backsUp) || !words.backsUp.length) return false;
-    return oe.mayReport() !== true;
+    return oe.holdsEnrollment() !== true;
   } catch { return false; }
 }
 /* backuprun's ensureMemberKey for this backup: the key step reads, for this record's org only. */
@@ -452,18 +452,17 @@ function jobKey(opts = {}) {
     return pk.personalKeyForJob(rec.org.id, { lostEpoch: o.lostEpoch, macRequest: opts.macRequest });
   };
 }
-/* One run under this backup's key. Kosmos+ refusing the words (they changed): the hash here goes, so mayBackUp is false
-   and no later run walks every file to be refused the same way; the person accepts again from the panel. */
+/* One run under this backup's key. Kosmos+ refusing the words: the hash the run started under goes (read before the run,
+   so words accepted during it stay), mayBackUp turns false, and no later run walks every file to be refused the same way. */
 async function runJob(input, opts = {}) {
   const run = opts.runBackup || require('./backuprun').runBackup;
+  const before = record(opts);
+  const hash = before && before.consentHash;
   const r = await run(input, { ensureMemberKey: jobKey(opts) });
-  if (r && !r.ok && typeof r.because === 'string' && /\borg_consent_changed\b/.test(r.because)) {
-    const oe = opts.orgenroll || require('./orgenroll');
-    const eo = enrollOpts(opts);
-    const rec = record(opts);
-    try { if (rec && rec.consentHash) await oe.consentWithdrawn(eo, rec.consentHash); } catch { /* asked again next run */ }
-  }
-  return r;
+  if (!(r && !r.ok && typeof r.because === 'string' && /\borg_consent_changed\b/.test(r.because))) return r;
+  const oe = opts.orgenroll || require('./orgenroll');
+  try { if (hash) await oe.consentWithdrawn(enrollOpts(opts), hash); } catch { /* asked again next run */ }
+  return Object.assign({}, r, { personActs: true, because: 'what a personal backup does changed, so backups stopped. Turn it off here, then on again, to read the new words' });
 }
 
 /** Whether this computer holds a personal backup's enrollment, from this module's own record only. */

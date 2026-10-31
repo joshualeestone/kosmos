@@ -270,21 +270,22 @@ async function restoreNow(code, opts) {
     for a personal org for good). It only reads: the newest epoch Kosmos+ lists for `orgId`, answered when this computer
     holds that same registered key. It never registers and never starts an epoch, because a new epoch has to be wrapped
     to the person's recovery code, which this computer does not keep. Sealing needs the public key alone.
-    { ok: true, epoch, publicKey, org, member }, or { ok: false, because, unreadableKeyFile?, refusal? }. */
+    { ok: true, epoch, publicKey, org, member }, or { ok: false, because, personActs?, unreadableKeyFile?, refusal? }. */
 function personalKeyForJob(orgId, opts = {}) { return serial(() => jobKeyNow(orgId, opts)); }
+const actOn = (because) => ({ ok: false, personActs: true, because });
 async function jobKeyNow(orgId, opts) {
   try {
     const read = await readContext(macRequestOf(opts));
     if (!read.ok) return Object.assign({ ok: false, because: read.because }, read.code ? { refusal: { code: read.code } } : {});
     const { org, member, rows } = read.ctx;
-    if (typeof orgId !== 'string' || org !== orgId) return refused('this account is no longer in the personal backup on this computer, so nothing was backed up');
+    if (typeof orgId !== 'string' || org !== orgId) return actOn('this account is no longer in the personal backup on this computer, so nothing was backed up');
     const row = rows.reduce((a, b) => (!a || b.epoch > a.epoch ? b : a), null);
-    if (!row) return refused('this backup has no key on Kosmos+ yet, so nothing was backed up');
+    if (!row) return actOn('this backup has no key on Kosmos+ yet, so nothing was backed up');
     const kept = memberkeys.readKeys(org, member);
     if (!kept.ok) return { ok: false, unreadableKeyFile: true, because: 'the backup key file on this computer could not be read; it was left as it is' };
     const k = kept.keys[String(row.epoch)];
-    if (!k || !k.registered || !k.pk.equals(row.memberPk)) return refused('this computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Restore it with your recovery code');
-    if (opts.lostEpoch === row.epoch) return refused('Kosmos+ asked for a newer key than this backup lists, so nothing was backed up');
+    if (!k || !k.registered || !k.pk.equals(row.memberPk)) return actOn('this computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Turn personal backup off here, then on again, and enter your recovery code');
+    if (Number.isSafeInteger(opts.lostEpoch) && opts.lostEpoch >= row.epoch) return actOn('Kosmos+ asked for a newer key than this backup lists, so nothing was backed up');
     return { ok: true, epoch: row.epoch, publicKey: row.memberPk, org, member };
   } catch { return refused('the backup key could not be read on this computer'); }
 }
