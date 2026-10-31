@@ -12163,6 +12163,14 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-org-open { display: inline-flex; align-items: center; gap: 6px; }
 #s-sec-plus .pb-codebox { color: var(--k-ink); font: 600 20px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; padding: 12px 14px; border: 1px solid var(--border-strong); background: var(--bg-sunken); border-radius: 8px; user-select: all; margin: 8px 0; }   /* kosmos#7404 */
 #s-sec-plus .pb-codebox span { display: inline-block; white-space: nowrap; }   /* review 1: breaks only between groups, the hyphen kept with the group before it */
+/* kosmos#7681 item 2: Print prints THIS page with only the code on it, while body.pb-printing is set (pbPrint). A hidden
+   0x0 frame printed the parent page in some browsers (Safari, some Firefox), so the person got Settings with no code. */
+#pb-printout { display: none; }
+@media print {
+  body.pb-printing > *:not(#pb-printout) { display: none !important; }
+  body.pb-printing #pb-printout { display: block !important; color: #000; background: #fff; }
+  body.pb-printing #pb-printout .pb-printcode { font: 600 22px ui-monospace, monospace; letter-spacing: .08em; }
+}
 #s-sec-plus .pb-saved-row { margin-top: 24px; }
 #s-sec-plus #pb-restore-hint { margin-top: 12px; }   /* its own line, not a caption on Turn on */
 #s-sec-plus .pb-codein { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; text-transform: uppercase; }   /* shown as the code was shown; the value stays as typed (the engine reads either case) */
@@ -55758,23 +55766,21 @@ function pbCopy() {
 }
 function pbPrint() {
   if (!PB.code) return;
-  /* A hidden frame, printed and then removed, rather than a second window: no other browsing context keeps the code
-     after the print dialog closes (challenge round 2). */
-  const f = document.createElement('iframe');
-  f.setAttribute('aria-hidden', 'true'); f.tabIndex = -1;
-  f.style.cssText = 'position:fixed;width:0;height:0;border:0;left:-9999px;top:0;';
-  document.body.appendChild(f);
-  const w = f.contentWindow; const d = w && w.document;
-  if (!d) { f.remove(); pbMsg('It could not be printed. Write the code down instead.'); return; }
-  d.title = 'Kosmos recovery code';
-  const h = d.createElement('h1'); h.textContent = 'Kosmos personal backup recovery code';
-  const p = d.createElement('p'); p.style.cssText = 'font: 600 22px ui-monospace, monospace; letter-spacing: .08em;'; p.textContent = PB.code;
-  const n = d.createElement('p'); n.textContent = 'Kosmos+ never sees this code, so it cannot get it back for you. Keep it somewhere safe.';
-  d.body.append(h, p, n);
-  const done = () => { try { f.remove(); } catch { /* gone */ } };
-  w.addEventListener('afterprint', done, { once: true });
-  setTimeout(done, 60000);   // a browser that sends no afterprint still drops the frame
-  w.focus(); w.print();
+  /* kosmos#7681 item 2: this page prints itself with only the code on it (#pb-printout, shown by the print rule while
+     body.pb-printing is set). It was a hidden 0x0 frame, which some browsers (Safari, some Firefox) print as the parent
+     page: Settings with no code and no error. Still no other browsing context holds the code (challenge round 2), and
+     the printout is emptied again the moment printing ends. */
+  const out = document.getElementById('pb-printout');
+  if (!out || typeof window.print !== 'function') { pbMsg('It could not be printed. Write the code down instead.'); return; }
+  const h = document.createElement('h1'); h.textContent = 'Kosmos personal backup recovery code';
+  const p = document.createElement('p'); p.className = 'pb-printcode'; p.textContent = PB.code;
+  const n = document.createElement('p'); n.textContent = 'Kosmos+ never sees this code, so it cannot get it back for you. Keep it somewhere safe.';
+  out.textContent = ''; out.append(h, p, n);
+  const done = () => { document.body.classList.remove('pb-printing'); out.textContent = ''; };
+  window.addEventListener('afterprint', done, { once: true });
+  setTimeout(done, 60000);   // a browser that sends no afterprint still empties it
+  document.body.classList.add('pb-printing');
+  window.print();
 }
 function pbOffArm(on) {
   document.getElementById('pb-off-ask').hidden = !on;
@@ -92596,5 +92602,6 @@ setInterval(ageCheckedStamp, 1000);
   }
 })();
 </script>
+<div id="pb-printout"></div><!-- kosmos#7681 item 2: what Print prints, filled only while printing (pbPrint) -->
 </body>
 </html>
