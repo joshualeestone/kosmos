@@ -167,3 +167,7 @@ conversation is not reported as a missed move; after a let-go, the page-keep scr
 <kind>" 0.2 s later, so the record shows whether SwiftUI named a row again beside it.
 Iteration 22: the "window ended off the row's place" line runs only while the hold is still active, so a hold that stood
 down on purpose (a finger, an app move, earlier messages landing) is never reported as a missed move.
+Iteration 23: not tested, and now traced: whether the reader's own scroll names a row again after a let-go (which ends the
+let-go); if it does not, the let-go would last until something names "end", and the record shows "anchor after a scroll
+while let go <kind>" at each scroll rest meanwhile. Assumed, not measured: no row reading arrives after that row's onDisappear (a
+stray one could only offer a row outside what shows, which readerRow never picks).

@@ -4982,6 +4982,8 @@ do {
     check(Board.readerRow(["a": 100, "b": 99.7, "c": 99], below: 100, above: 600)! == ("b", 99.7), "a row at the bar's edge counts; one a point behind the bar does not")
     check(Board.readerRow(["a": 50, "b": -400], below: 100, above: 600)! == ("a", 50), "no row top below the bar (one long message): the row the reader is inside")
     check(Board.readerRow(["a": 50, "next": 700], below: 100, above: 600)! == ("a", 50), "a row laid out below the screen is never the reader's: the long message is")
+    check(Board.readerRow(["a": 50, "edge": 600], below: 100, above: 600)! == ("a", 50) && Board.readerRow(["a": 50, "in": 599.5], below: 100, above: 600)! == ("in", 599.5),
+          "a top exactly at the bottom of what shows is below the screen; one just above it counts")
     check(Board.readerRow(["next": 700], below: 100, above: 600) == nil && Board.readerRow([:], below: 100, above: 600) == nil, "only rows below the screen, or none drawn: nothing to hold")
     check(Board.readerRow(["m2": 140, "m1": 140], below: 100, above: 600)! == ("m1", 140), "a tie is broken the same way every time")
 

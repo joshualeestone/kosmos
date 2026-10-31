@@ -551,7 +551,7 @@ struct ChatView: View {
                         // was left, and a page landing above is kept by keepAnchor. Why: .claude/plans/kbsidelock-7645.md.
                         if Self.idAnchor, Board.letGoAfterPutBack(positionId) {
                             positionId = nil; anchorLetGo = true; Self.trace("keyboard hold: anchor let go")
-                            // Whether SwiftUI names a row again by itself (not measured yet): the record says.
+                            // Whether SwiftUI names a row again by itself (round 2 on CI: it did not); kept so the record keeps saying.
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { Self.trace("keyboard hold: anchor after let go \(Board.anchorKind(positionId))") }
                         }
                         // Review 3: iOS 26's jump may have shown the end (atBottom true) before it was put back; the end's
@@ -568,6 +568,8 @@ struct ChatView: View {
                     atBottom = endVisible
                     if endVisible { unseenNew = false }
                     Self.trace("person scroll rested, atBottom \(endVisible)")
+                    // kosmos#7645: whether the reader's own scroll names a row again after a let-go (it ends the let-go) is not measured.
+                    if anchorLetGo { Self.trace("anchor after a scroll while let go \(Board.anchorKind(positionId))") }
                 })
                 // While a page loads the line floats over the thread's top edge and takes no room, so nothing moves
                 // (the board's paintOlderLine).
@@ -2308,8 +2310,8 @@ struct PersonScroll: ViewModifier {
 // anchor each switched off, so it is iOS 26's own keyboard handling; iOS 27 keeps the row where it was. Not caused here,
 // so not prevented here: undone. When the keyboard starts to show while the reader is not at the newest message (`hold`),
 // the reader's row (Board.readerRow: the highest whose top shows, or the one the reader is inside), its place in the
-// content and the scroll offset are kept; once the keyboard is up the offset is put at that offset plus how far the row moved in the content, so
-// the row is where it was on the screen, if nobody is scrolling. At the newest message the chat's
+// content and the scroll offset are kept; once the keyboard is up the offset is put at that offset plus how far the row
+// moved in the content, so the row is where it was on the screen, if nobody is scrolling. At the newest message the chat's
 // own keep (keepNewestInView) moves it on purpose, so nothing is held then. KOSMOS_SAMPLE_NOKBHOLD=1 (Debug) is the control.
 // kosmos#7645 (CI round 4, 10-30): the hold used to keep the scroll OFFSET, and on CI's runner the rows above were measured
 // again as the keyboard rose (content 14008 to 15249 pt): the same offset was then another place, and putting it back moved
@@ -2433,14 +2435,13 @@ struct KeyboardHold: UIViewRepresentable {
                     self.putBack(CGFloat(rows.last[kept.row] ?? Double(kept.content))); self.endGuard(); return
                 }
                 self.putBack(CGFloat(r.content))
-                var last = CGFloat(r.content)
                 // Deferred to the next turn of the main queue, so a move made inside a layout pass is answered after it.
                 rows.watch = (kept.row, { [weak self] r in
                     guard let r else {
                         ChatView.trace("keyboard hold: the row left the drawn rows while held")
-                        let at = last; DispatchQueue.main.async { self?.putBack(at); self?.endGuard() }; return
+                        let at = CGFloat(rows.last[kept.row] ?? Double(kept.content))
+                        DispatchQueue.main.async { self?.putBack(at); self?.endGuard() }; return
                     }
-                    last = CGFloat(r.content)
                     DispatchQueue.main.async { self?.putBack(CGFloat(r.content)) }
                 })
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.window + 0.05) { [weak self] in
@@ -2473,7 +2474,8 @@ struct KeyboardHold: UIViewRepresentable {
 // kosmos#7645: where each drawn row of the chat is, kept by RowTop on iOS 26 and later (where KeyboardHold runs): its top on the
 // screen (window points, to choose the reader's row) and in the content (ContentSpace), which moves only when rows above it
 // are measured again. A class, so a reading redraws nothing. `watch` hands one row's fresh readings to the hold, and says
-// when that row stops being drawn (nil).
+// when that row stops being drawn (nil). Assumed, not measured: no reading arrives after a row's onDisappear; a stray one
+// would at worst offer a row outside what shows, which Board.readerRow never picks.
 struct RowReading: Equatable { let top: Double, content: Double }
 final class RowTops {
     var y: [String: RowReading] = [:]
