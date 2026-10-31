@@ -60,7 +60,8 @@ final class ComposerSendUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
         app.launch()
-        let field = app.textFields.matching(NSPredicate(format: "placeholderValue == 'Message Spring catalogue'")).firstMatch
+        // By its label: the placeholder goes once the box holds words, so a placeholder query finds nothing after the first typing.
+        let field = app.textFields.matching(NSPredicate(format: "label == 'Post to everyone on this project'")).firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 30), "no room message box")
         field.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "no on-screen keyboard")
