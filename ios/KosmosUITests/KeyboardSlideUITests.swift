@@ -35,14 +35,14 @@ final class KeyboardSlideUITests: XCTestCase {
     }
 
     // kosmos#7420 (build 24): a list found empty within its content at the newest message is rebuilt, opened at its end.
-    // KOSMOS_SAMPLE_REBUILD runs that recovery 3 s after opening (its marker shows only if the list was rebuilt exactly once); the cause
+    // KOSMOS_SAMPLE_REBUILD runs that recovery 3 s after opening (its marker carries how many rebuilds there were); the cause
     // (rows not drawn within the content, on a phone) is not reproduced here. After it, the chat still opens at its newest
     // message above the box, and keeps it there when the keyboard comes up.
     func testRebuiltListShowsTheNewestMessage() throws {
         let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_REBUILD": "1", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         let rebuilt = app.descendants(matching: .any).matching(identifier: "sample-rebuilt").firstMatch
-        XCTAssertTrue(rebuilt.waitForExistence(timeout: 30), "the list was not rebuilt exactly once (never, or its own gap read as empty again)")
+        Self.assertRebuiltOnce(rebuilt, "the list")
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(newest.waitForExistence(timeout: 10) && newest.isHittable, "the rebuilt list did not show the newest message")
         Self.settle(newest)
@@ -57,7 +57,7 @@ final class KeyboardSlideUITests: XCTestCase {
         let app = Self.launch(["KOSMOS_SAMPLE_REBUILD": "1", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         let rebuilt = app.descendants(matching: .any).matching(identifier: "sample-rebuilt").firstMatch
-        XCTAssertTrue(rebuilt.waitForExistence(timeout: 30), "the short chat was not rebuilt exactly once")
+        Self.assertRebuiltOnce(rebuilt, "the short chat")
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Pages 9 to 12 need the new photos'")).firstMatch
         XCTAssertTrue(newest.waitForExistence(timeout: 10) && newest.isHittable, "the rebuilt short chat did not show its newest message")
         Self.settle(newest)
@@ -84,7 +84,7 @@ final class KeyboardSlideUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [down], timeout: 5), .completed, "the keyboard did not go down")
         let rebuilt = app.descendants(matching: .any).matching(identifier: "sample-rebuilt").firstMatch
         XCTAssertFalse(rebuilt.exists, "the rebuild marker showed before the keyboard was down (the order this check is about was not kept)")
-        XCTAssertTrue(rebuilt.waitForExistence(timeout: 30), "the chat was not rebuilt exactly once after the keyboard went down")
+        Self.assertRebuiltOnce(rebuilt, "the chat after the keyboard went down")
         XCTAssertTrue(newest.waitForExistence(timeout: 10) && newest.isHittable, "the rebuilt chat did not show its newest message")
         Self.settle(newest)
         XCTAssertLessThanOrEqual(newest.frame.maxY, box.frame.minY, "the newest message was not above the box after the rebuild")
@@ -152,6 +152,13 @@ final class KeyboardSlideUITests: XCTestCase {
     }
 
     // The message box by its own label (ChatView's composer), whatever kind of element it is drawn as.
+    // kosmos#7420: exactly one rebuild. The marker says how many, so none (the recovery did not run) and two (the rebuild's
+    // own gap read as empty) read differently on a CI failure.
+    private static func assertRebuiltOnce(_ marker: XCUIElement, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(marker.waitForExistence(timeout: 30), "\(what): the rebuild marker never showed", file: file, line: line)
+        XCTAssertEqual(marker.label, "sample rebuilt 1", "\(what): not rebuilt exactly once", file: file, line: line)
+    }
+
     private static func box(_ app: XCUIApplication) -> XCUIElement {
         let box = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Message Dana'")).firstMatch
         XCTAssertTrue(box.waitForExistence(timeout: 30), "no message box")
