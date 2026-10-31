@@ -6,6 +6,11 @@ import PhotosUI
 // the conversation with a sender on every row, the board's words for Kosmos's lines, reactions, replies, the
 // silence line, the grouped working line, and the board's composer (its placeholder, the gold Post, a reply strip).
 struct RoomView: View {
+    // kosmos#7654 part 2 review 2: the room anchors on a post id only where the keyboard hold runs (iOS 26 and later,
+    // KeyboardHold.Probe.off), which is also where it was measured. iOS 17 to 25 keep main's room (position retries): the
+    // anchor without the hold keeps the bottom row at the bottom edge as the keyboard rises, and a reader higher up would
+    // lose their top row. The DM anchors from iOS 17 (#7265); that is not changed here.
+    static let idAnchor: Bool = { if #available(iOS 26.0, *) { return ChatView.idAnchor } else { return false } }()
     @ObservedObject var store: RoomStore
     // kosmos#7062: the client that fetches a post's files and their pictures (the chat's), watched so a picture shows
     // when it arrives.
@@ -42,6 +47,8 @@ struct RoomView: View {
     // kosmos#7654 part 2 (traced 10-31 on iOS 26.5): as the keyboard starts to show, iOS shows the end marker for ~20 ms,
     // which set atBottom and stood the hold down. The hold reads its own "at the end": the marker still showing 0.1 s later.
     @State private var endShown = false
+    // Review 2 (NIT 2): which showing of the end marker a 0.1 s check is for, so a flash away and back cannot confirm early.
+    @State private var endShows = 0
     @State private var holdAtEnd = true
     @State private var keepNewestOnKeyboard = false   // kosmos#7654: as the DM's keepNewestInView
     @State private var rowTops = RowTops()   // kosmos#7654 part 2: the DM's keyboard hold reads the reader's row by this
@@ -733,38 +740,40 @@ struct RoomView: View {
                     Color.clear.frame(height: 1).id("bottom")
                         .onAppear {
                             atBottom = true; endShown = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { if endShown { holdAtEnd = true } }
+                            endShows &+= 1
+                            let shows = endShows
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { if endShown && endShows == shows { holdAtEnd = true } }
                             // The end of the room is really on screen: only now may the top ask for older pages (the
                             // spinner at the top has had its chance to leave the screen in the same layout).
                             if !settledAtBottom && !rows.isEmpty { DispatchQueue.main.async { settledAtBottom = true } }
                         }
-                        .onDisappear { atBottom = false; endShown = false; holdAtEnd = false }
+                        .onDisappear { atBottom = false; endShown = false; holdAtEnd = false; endShows &+= 1 }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 // kosmos#7654 part 2: the DM's keyboard hold (kosmos#7609/#7645): with the anchor holding the bottom edge, a reader
                 // higher up lost their row off the top when the keyboard came up. Put back, then the anchor lets go of a row id.
                 .background(KeyboardHold(hold: visible && !holdAtEnd && !searchMode, above: store.older[project.id]?.count ?? 0, moves: "\(endJumps)|\(appMoves)|\(searchMode)", rows: rowTops) {
-                    if ChatView.idAnchor, Board.letGoAfterPutBack(roomPosition), roomPosition != "bottom" { roomPosition = nil; ChatView.trace("room keyboard hold: anchor let go") }
+                    if RoomView.idAnchor, Board.letGoAfterPutBack(roomPosition), roomPosition != "bottom" { roomPosition = nil; ChatView.trace("room keyboard hold: anchor let go") }
                 } onRowLost: { id, f in
                     // kosmos#7654 part 2: the anchor let go first, so the scroll position does not pull it elsewhere.
-                    if ChatView.idAnchor { roomPosition = nil }
+                    if RoomView.idAnchor { roomPosition = nil }
                     DispatchQueue.main.async { proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: f)); ChatView.trace("room keyboard hold: placed by id") }
                 })
-                .modifier(PositionTargets(on: ChatView.idAnchor))   // kosmos#7654 part 2
+                .modifier(PositionTargets(on: RoomView.idAnchor))   // kosmos#7654 part 2
                 .modifier(ContentSpace())   // kosmos#7654 part 2
             }
             .kosmosTopFade(ground: Palette.chatGround)   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
-            .modifier(PositionById(on: ChatView.idAnchor, id: $roomPosition))   // kosmos#7654 part 2
+            .modifier(PositionById(on: RoomView.idAnchor, id: $roomPosition))   // kosmos#7654 part 2
             #if DEBUG
             // kosmos#7645, KOSMOS_SAMPLE_ROOM_SCROLLUP=<n> (with the room samples): 3 s after opening, the n-th row from the
-            // end leaves the end, as a reader scrolled up would (nothing in the simulator can drag here; on iOS 17 and later the id
-            // anchor holds it at the BOTTOM of the screen, iOS 16 puts it at the top), then a marker
+            // end leaves the end, as a reader scrolled up would (nothing in the simulator can drag here; on iOS 26 and later the id
+            // anchor holds it at the BOTTOM of the screen, earlier ones put it at the top), then a marker
             // shows once the room has read where the reader is (ChatView's KOSMOS_SAMPLE_SCROLLUP).
             .onAppear {
                 guard RoomStore.sample, let up = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ROOM_SCROLLUP"].flatMap(Int.init), up > 0 else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     // kosmos#7654: as a person's scroll would, it ends goEnd's retries (a programmatic scroll reports no scroll phase).
-                    if items.count > up { endJumps &+= 1; if ChatView.idAnchor { roomPosition = items[items.count - up].id } else { proxy.scrollTo(items[items.count - up].id, anchor: .top) } }   // kosmos#7654 part 2: with the id anchor a scrollTo alone would not move it (as the DM sample)
+                    if items.count > up { endJumps &+= 1; if RoomView.idAnchor { roomPosition = items[items.count - up].id } else { proxy.scrollTo(items[items.count - up].id, anchor: .top) } }   // kosmos#7654 part 2: with the id anchor a scrollTo alone would not move it (as the DM sample)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { sampleScrollRested = true }
             }
@@ -792,7 +801,7 @@ struct RoomView: View {
             }
             // kosmos#7080 review 4: the working line sits below the thread, so its coming, going or growing changes the
             // thread's height; a reader at the end stays at the end (the board's holdFloorOnResize, #1037). Read before
-            // the layout moves the end marker, scrolled once it has. Animated on iOS 16 (#7654 part 2: from iOS 17 toEnd moves the
+            // the layout moves the end marker, scrolled once it has. Animated before iOS 26 (#7654 part 2: from iOS 26 toEnd moves the
             // id anchor, which does not animate), as the new-row scroll above is: a reply
             // usually lands in the same update that takes its writer off the line (review 5: a plain scroll cut it short).
             .onChange(of: Board.workingLine(workingNow)) { _ in
@@ -845,7 +854,7 @@ struct RoomView: View {
                 guard keepNewestOnKeyboard, visible else { return }
                 keepNewestOnKeyboard = false
                 ChatView.trace("room: keyboard shown, to the newest")
-                if ChatView.idAnchor { proxy.scrollTo("bottom", anchor: .bottom); roomPosition = "bottom" } else { toEnd(proxy) }
+                if RoomView.idAnchor { proxy.scrollTo("bottom", anchor: .bottom); roomPosition = "bottom" } else { toEnd(proxy) }
             }
             // The magnifier opened the row over a reader at the newest post: back there once the keyboard is up too (the
             // chat's keepNewestInView does this there).
@@ -913,15 +922,15 @@ struct RoomView: View {
     // scroll can cancel the retries (iOS 18 and later, PersonScroll), they run to 2.3 s; below that they stop at 0.5 s (main made
     // one jump: there this adds a half-second window with no cancel). Held back while the person scrolls; ended by a newer
     // goEnd, a reply jump, loadOlder, the archive showing or the person's scroll (endJumps).
-    // #7654 part 2: from iOS 17 (ChatView.idAnchor) goEnd sets the id anchor and makes none of these retries; everything above
-    // describes iOS 16, and the iOS 18 timings apply only with the id anchor switched off (KOSMOS_SAMPLE_NOPOSID, Debug).
+    // #7654 part 2: from iOS 26 (RoomView.idAnchor) goEnd sets the id anchor and makes none of these retries; everything above
+    // describes iOS 16 to 25 (and iOS 26 and later with the id anchor switched off, KOSMOS_SAMPLE_NOPOSID, Debug).
     static let endRetries: [Double] = ChatView.followsScrollPhase ? [0.05, 0.15, 0.3, 0.5, 0.8, 1.2, 1.7, 2.3] : [0.05, 0.15, 0.3, 0.5]
     private func goEnd(_ proxy: ScrollViewProxy) {
         endJumps &+= 1
         // kosmos#7654 part 2: under the id anchor, go to the end the DM's way (goNewest): set the anchor to the end
         // marker, through nil so a repeat is seen, and no position retries to fight it.
-        if ChatView.idAnchor {
-            if roomPosition == "bottom" { roomPosition = nil; DispatchQueue.main.async { if roomPosition == nil { roomPosition = "bottom" } } } else { roomPosition = "bottom" }
+        if RoomView.idAnchor {
+            if roomPosition == "bottom" { roomPosition = nil; let m = appMoves; DispatchQueue.main.async { if roomPosition == nil && appMoves == m { roomPosition = "bottom" } } } else { roomPosition = "bottom" }
             return
         }
         proxy.scrollTo("bottom", anchor: .bottom)
@@ -934,12 +943,13 @@ struct RoomView: View {
             }
         }
     }
+    // Review 2 (NIT 1): the queued re-set to the end checks appMoves, so a toRow in that one turn is not undone by it.
     // kosmos#7654 part 2: under the id anchor the room moves the anchor, as the DM's goNewest does; a jump by
-    // position alone is undone by the anchor (measured with the debug scroll-up). iOS 16 scrolls as before.
+    // position alone is undone by the anchor (measured with the debug scroll-up). Before iOS 26 the room scrolls as before.
     private func toEnd(_ proxy: ScrollViewProxy, animated: Bool = true) {
         appMoves &+= 1
-        if ChatView.idAnchor {
-            if roomPosition == "bottom" { roomPosition = nil; DispatchQueue.main.async { if roomPosition == nil { roomPosition = "bottom" } } } else { roomPosition = "bottom" }
+        if RoomView.idAnchor {
+            if roomPosition == "bottom" { roomPosition = nil; let m = appMoves; DispatchQueue.main.async { if roomPosition == nil && appMoves == m { roomPosition = "bottom" } } } else { roomPosition = "bottom" }
             return
         }
         if animated { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } else { proxy.scrollTo("bottom", anchor: .bottom) }
@@ -948,7 +958,7 @@ struct RoomView: View {
     private func toRow(_ proxy: ScrollViewProxy, _ id: String, anchor: UnitPoint, animated: Bool) {
         appMoves &+= 1
         let go = { if animated { withAnimation { proxy.scrollTo(id, anchor: anchor) } } else { proxy.scrollTo(id, anchor: anchor) } }
-        if ChatView.idAnchor { roomPosition = nil; DispatchQueue.main.async { go() } } else { go() }
+        if RoomView.idAnchor { roomPosition = nil; DispatchQueue.main.async { go() } } else { go() }
     }
 
     #if DEBUG
