@@ -5842,13 +5842,16 @@ const DIAG_REUSE_MS = 5000;
 const DIAG_FAILED = 'Kosmos could not make the diagnostics file just now';
 function sendDiagnostics(res, file, now) {
   const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;   // the person's day, not UTC's
+  // #7689: serialised BEFORE the head, so a file that cannot be written throws with no head out and the route's catch
+  // answers DIAG_FAILED (a refusal), never a cut download.
+  const body = JSON.stringify(file, null, 2) + '\n';
   res.writeHead(200, {
     'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store',
     // As the other download route: never sniffed, never run as a page on the board's origin.
     'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox",
     'content-disposition': `attachment; filename="kosmos-diagnostics-${day}.json"`,
   });
-  res.end(JSON.stringify(file, null, 2) + '\n');
+  res.end(body);
 }
 function isDownloadCheck(req) {
   try { return new URL(req.url, ROUTING_BASE).searchParams.get('check') === '1'; } catch { return false; }
@@ -18313,11 +18316,13 @@ const server = http.createServer(async (req, res) => {
         };
       });
       if (!asText) { sendJson(res, 200, { ok: true, messages: rows, later, nextAt }); return; }
-      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      /* #7689: the head goes out with the finished text, never before it: a throw while the rows were built used to
+         reach this catch's fail(500) with a 200 head already out. Now the catch answers with no head out. */
+      const sendTextBody = (t) => { res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(t); };
       if (!rows.length) {
-        if (unanswered) { res.end('Nothing unanswered from the person' + (since !== null ? ' since then' : '') + '.\n'); return; }
-        if (since !== null) { res.end('No messages between you and the person since then.\n'); return; }
-        res.end('No messages between you and the person yet.\n'); return;
+        if (unanswered) { sendTextBody('Nothing unanswered from the person' + (since !== null ? ' since then' : '') + '.\n'); return; }
+        if (since !== null) { sendTextBody('No messages between you and the person since then.\n'); return; }
+        sendTextBody('No messages between you and the person yet.\n'); return;
       }
       /* One row per message; a message's own further lines are INDENTED, so text a person typed can never read
          as another row ("<time> you: ...") in the agent's context. */
@@ -18344,7 +18349,7 @@ const server = http.createServer(async (req, res) => {
         + ((stuck || !nextAt) ? (limit < 50 ? ': add --limit 50 to see more.' : '.')
           : nextAt ? ': run kosmos inbox' + (unanswered ? ' --unanswered' : '') + (limit !== 10 ? ' --limit ' + limit : '')
           + ' --since ' + nextAt + ' to see ' + (later === 1 ? 'it' : 'them') + '.' : '.')] : [];
-      res.end(lines.concat(more).join('\n') + '\n');
+      sendTextBody(lines.concat(more).join('\n') + '\n');
     } catch (err) {
       fail(500, 'Kosmos could not read your messages just now');
     }
@@ -24633,8 +24638,12 @@ const server = http.createServer(async (req, res) => {
       if (!asText) { sendJson(res, 200, out); return; }
       let name = null;
       try { const p = projects.readAll().find((x) => x.id === id); name = p ? p.name : null; } catch { name = null; }
+      // #7689: rendered BEFORE the head. A throw from the render after it was an unhandled rejection with a head out
+      // (no catch here, and none around the request handler), which ended the board; now it is this route's 500.
+      let text;
+      try { text = recordsEngine.renderList(out, { projectId: id, projectName: name }) + '\n'; } catch (err) { failed(err, 'we could not show its records as text'); return; }
       res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
-      res.end(recordsEngine.renderList(out, { projectId: id, projectName: name }) + '\n');
+      res.end(text);
       return;
     }
     if (req.method !== 'POST') { sendJson(res, 405, { error: recordsAt[2] ? 'use POST for that' : 'use GET to read them or POST to change one' }); return; }

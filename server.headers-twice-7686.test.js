@@ -186,11 +186,11 @@ test('#7686: refuseDownload after the head, on a browser download, ends the resp
   assert.equal(destroyed(), 1, 'the broken response was not ended');
 });
 
-test('#7686: the diagnostics download that fails after its head ends that response, and the board keeps answering', async () => {
+test('#7686 and #7689: a diagnostics download that cannot be serialised is refused with no head out, and the board keeps answering', async () => {
   const realStringify = JSON.stringify;
   let thrown = 0;
-  /* sendDiagnostics writes its head, then serialises with an indent of 2: fail exactly that call, once, and only when
-     sendDiagnostics is the caller, so a pretty-printing writer elsewhere cannot take the throw (review 2). */
+  /* sendDiagnostics serialises with an indent of 2 (since #7689, before its head): fail exactly that call, once, and
+     only when sendDiagnostics is the caller, so a pretty-printing writer elsewhere cannot take the throw (review 2). */
   JSON.stringify = function (v, r, indent) {
     if (thrown === 0 && indent === 2 && /sendDiagnostics/.test(new Error().stack)) {
       thrown += 1;
@@ -209,7 +209,9 @@ test('#7686: the diagnostics download that fails after its head ends that respon
     assert.fail('CONTROL: the diagnostics route never serialised, so this test proves nothing (answered ' + first + ')');
   }
   assert.deepEqual(unhandled.slice(before).map((e) => String(e && (e.code || e.message))), [], 'a rejection escaped the diagnostics route');
-  assert.equal(first, 'cut', 'the diagnostics response after the failure was ' + first + ', not ended');
+  // #7689: no head was out when it threw, so the route's catch refuses it: a browser download gets 204 (nothing to
+  // save), never a cut file. (refuseDownload's own late-head guard stays pinned by the unit test above.)
+  assert.equal(first, 204, 'the diagnostics download that could not be serialised answered ' + first + ', not the 204 refusal');
   const rec = attachments.save('agent', 'ava', { name: 'alive.png', type: 'image/png', bytes: Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), crypto.randomBytes(1024)]) });
   assert.equal(await get(`/api/attachment/${rec.id}/preview`), 200, 'the board stopped answering after the diagnostics failure');
 });
