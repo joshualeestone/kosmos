@@ -11,9 +11,9 @@
  *   3. the backup job: mayBackUp and runJob below, driven hourly by engine/backuptick.js startPersonal. Its keys and its
  *      state are files per (org, member) beside the company path's, under its own pointer.
  *
- * Kept apart from the company enrollment ON PURPOSE (the plan's option C): every orgenroll call here but one runs under
- * this module's own data root (mayBackUp's company check is the one), so the company readers (rollups, agent events, company policy, the hourly refresh), which read
- * store.ROOT, never see a personal backup. The conditions that make that hold (design review 1):
+ * Kept apart from the company enrollment ON PURPOSE (the plan's option C). Every orgenroll call here runs under this
+ * module's own data root but one: mayBackUp reads store.ROOT to ask whether a company is enrolled. So the company readers
+ * (rollups, agent events, company policy, the hourly refresh), which read store.ROOT, never see a personal backup. The conditions that make that hold (design review 1):
  *   - orgenroll's policy calls do not follow `root`, so every call passes INERT_POLICY (a personal backup applies no
  *     policy, and must never clear or replace a company's);
  *   - the words and their hash are this module's own: orgenroll's consent helpers refuse words that report nothing, and
