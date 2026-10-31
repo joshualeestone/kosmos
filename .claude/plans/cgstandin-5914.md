@@ -14,15 +14,15 @@ a stand-in recorded before it showed as itself.
 
 ## Change
 - Both long-span stand-ins (`wp` before the queue-order arms, and `wp` before the run-tests.sh arms) live 600 s.
-- Each has a #5914 FIXTURE arm before its kill: it must still be alive. For the second, that matters most: dead
+- Each has a #5914 FIXTURE arm before its kill: it must still be alive (by its command line, as q_ready reads it),
+  and for the second its marker must still be there. For the second, that matters most: dead
   early, its last arm would pass for the wrong reason.
 - `WP_LIVE` holds the live stand-in for the EXIT traps active during each span and is emptied at its kill, the
-  pattern RP_LIVE already uses, so an interrupted run does not leave it behind and a reused pid is never signalled.
+  pattern RP_LIVE already uses.
 
 ## Done when
 1. The file passes on main's lib.
-2. With a 2 s life the FIXTURE arm fails by name (control). Measured for the first stand-in on f61c60d977 (its
-   check was kill -0 then; now it matches the command line, as q_ready does, so a zombie or a reused pid fails too).
+2. With a 2 s life the FIXTURE arm fails by name (control).
 3. PR open, CI green by name.
 
 ## Not changed
