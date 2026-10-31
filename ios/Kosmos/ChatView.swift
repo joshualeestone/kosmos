@@ -2310,7 +2310,7 @@ struct KeyboardHold: UIViewRepresentable {
     let above: Int
     // Review 2: the chat's own moves and its search words; a change means the app moved or refiltered the list itself, so
     // the hold stands down (in the same update, before that scroll is applied). A status-bar tap to the top has no such
-    // signal: one inside the 0.8 s window is put back (known, narrow).
+    // signal: one inside the 1.5 s window is put back (known, narrow).
     let moves: String
     // Review 3: told after each put-back, so the chat can read again whether the newest message is on screen.
     var onPutBack: () -> Void = {}
@@ -2337,7 +2337,9 @@ struct KeyboardHold: UIViewRepresentable {
         private var guarding: (kept: (y: CGFloat, above: Int, width: CGFloat, at: Date), until: Date)?
         private var generation = 0   // review 2: a timer from an earlier keyboard never ends a later guard
         private var offsetWatch: NSKeyValueObservation?
-        static let window: TimeInterval = 0.8
+        // kosmos#7645: 1.5 s, not 0.8: on CI's runner did-show came 1.3 s after will-show, and with the anchor let go nothing
+        // fights a longer window (a finger or the app's own move still ends it).
+        static let window: TimeInterval = 1.5
         private func endGuard() { guarding = nil; offsetWatch = nil }
         // kosmos#7645 (CI's runner, 10-30): the list shrank to the keyboard (viewport 390x346) 70 ms BEFORE will-show reached
         // here, so the offset read then had already moved, and the put-back restored the moved place. So each offset change
@@ -2345,6 +2347,7 @@ struct KeyboardHold: UIViewRepresentable {
         // uses it as Board.usePreShrinkReading says. A shrink is seen only at an offset change, so it is dated by the first
         // offset change after it; a later move with no finger in that half second (rows re-measured) is then undone (known, narrow).
         private var lastShowing: CGFloat = 0, shrankAt: Date?, scrolledSinceShrink = false
+        private var lastY: CGFloat = 0, shownAt: Date?   // kosmos#7645: a move in the 3 s after did-show, outside the window, is traced
         private var beforeShrink: (y: CGFloat, above: Int, width: CGFloat, at: Date)?
         private var shown = false   // a keyboard is up (did-show until will-hide): no reading is kept then
         private var fullWatch: NSKeyValueObservation?
@@ -2354,6 +2357,10 @@ struct KeyboardHold: UIViewRepresentable {
             let finger = sv.isTracking || sv.isDragging || sv.isDecelerating
             if h < lastShowing - 1 { shrankAt = Date(); scrolledSinceShrink = finger } else if finger { scrolledSinceShrink = true }
             lastShowing = h
+            let moved = sv.contentOffset.y - lastY; lastY = sv.contentOffset.y
+            if shown, guarding == nil, !finger, abs(moved) > 40, let at = shownAt, Date().timeIntervalSince(at) < 3 {
+                ChatView.trace("keyboard hold: moved after the window \(Int(moved))")
+            }
             if Board.keepPreShrinkReading(keyboardUp: shown, shrankAgo: shrankAt.map { Date().timeIntervalSince($0) }) {
                 beforeShrink = (sv.contentOffset.y, above, sv.bounds.width, Date())
             }
@@ -2387,7 +2394,7 @@ struct KeyboardHold: UIViewRepresentable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             observers.forEach(NotificationCenter.default.removeObserver); observers = []; saved = nil; endGuard()
-            lastShowing = 0; shrankAt = nil; beforeShrink = nil; shown = false; fullWatch = nil
+            lastShowing = 0; shrankAt = nil; beforeShrink = nil; shown = false; fullWatch = nil; lastY = 0; shownAt = nil
             guard window != nil, !Self.off else { return }
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
@@ -2417,7 +2424,7 @@ struct KeyboardHold: UIViewRepresentable {
             })
             observers.append(nc.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self else { return }
-                self.shown = true
+                self.shown = true; self.shownAt = Date()
                 guard let kept = self.saved, let sv = self.scroll else { return }
                 self.saved = nil
                 guard Date().timeIntervalSince(kept.at) < 1.5 else { ChatView.trace("keyboard hold: skipped, stale"); return }   // a stale reading is not this keyboard's
