@@ -39,3 +39,14 @@ the agent's pane and a later prompt to that agent is then read as pane-busy and 
   that agent is read as pane-busy and dropped, and a late refusal leaves its task booked: the idle sweep's choice,
   bounded by a delivery stuck for over three minutes, now stated in the code. The chain is pinned by source text;
   the race it closes is shown in engine/communitytaskdone.test.js.
+- Round 2 (Sonnet, the branch on top of #7611): no BLOCKER; it confirmed no double prompt, no lost entry, no lasting
+  stop, the busy check and send in one turn, roster and book read at the prompt's turn. Fixed:
+  - N the close route still built a full roster snapshot after its 200 (the event-loop cost this card removes), which
+    the prompt then read again at its turn: the route no longer passes one.
+  - N the built route's comment named the old synchronous keystroke.
+  Decided, not changed:
+  - W one chain for every agent: a stalled delivery delays every later prompt by up to the 3-minute deadline. Delayed,
+    never lost, and each prompt re-runs its gates at its turn. A chain per agent would still need the book serialised.
+  - W a restart between typing and booking (up to the deadline) leaves a prompt that reached the pane unbooked, so a
+    later mark on that task can prompt once more; the idle sweep accepts the same trade.
+  - N pane-busy is asked before the sender's own holds, so a pane both busy and held is logged pane-busy (neither books).

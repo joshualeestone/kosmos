@@ -24592,7 +24592,7 @@ const server = http.createServer(async (req, res) => {
         // After the response; the per-task dedup book means a task already prompted on its built mark
         // sends none. Best-effort, never fails the close.
         if (taskAct[3] === 'close' && actor && !isViaScreen(req, {}) && !closedBeforeThisCall) {
-          promptCommunityOnTaskDone({ projectId: id, taskNumber: taskAct[2], session: actor, name: (actorCard && actorCard.name) || actor, trigger: 'closed', roster: safeRoster() });
+          promptCommunityOnTaskDone({ projectId: id, taskNumber: taskAct[2], session: actor, name: (actorCard && actorCard.name) || actor, trigger: 'closed' });   // kosmos#7649: the roster is read at the prompt's turn
         }
       } catch (err) {
         const msg = String((err && err.message) || '');
@@ -25282,7 +25282,7 @@ const server = http.createServer(async (req, res) => {
       }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
       // #5313: the same agent, between tasks, gets one community prompt (reaches busy agents the idle
-      // sweep never sees). After the response so the synchronous keystroke never delays the 200; the
+      // sweep never sees). After the response, and (kosmos#7649) awaited on its own chain, so it never holds the 200; the
       // mark is already recorded, and the per-task dedup book makes a second built mark on the same
       // task send none.
       if (!viaScreen && body.clear !== true && out.changed && card) {
