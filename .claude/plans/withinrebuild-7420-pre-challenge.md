@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: withinrebuild-7420
-diff_hash: ad446d02403167edb000bc40dd745a895792b2c1df0f92b766b66e1764f3fa56
+diff_hash: 2c52827f742151a7d80c26d4aabd4a51f18d728553fa14e418d7e809449bda60
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-31T19:27:30Z
+timestamp: 2026-10-31T19:49:40Z
 iterations: 4
 converged: false
 ---
@@ -57,3 +57,11 @@ Notes, stated plainly:
 - [WARNING] a rebuilt list whose scroll view is not found again cannot rebuild again -> #7688 item 3 (decided out of scope there).
 - [WARNING] testRebuiltAfterTheKeyboardWentDown leaned on a fixed 14 s delay -> #7688 item 4.
 - [WARNING] testComposerGrowingKeepsMessagesDrawn is a regression guard only -> #7688 item 5.
+
+Second CI red, 19:36Z, after the rebase: ui-sample 19 of 19 ran, 1 failed on iOS 26.5, testRebuiltListShowsTheNewestMessage
+(the rebuild marker never showed). The previous CI run passed all 7 of that class. The run kept no log, so the cause is
+reasoned, not measured: the hook fired at a fixed 3 s and a long chat on a loaded runner may not yet be at the newest. The
+hook now waits for the newest (up to 15 s) and the marker carries the rebuild count, so none and two differ on a recurrence.
+Weakest premise: if the real cause was a second rebuild, this does not fix it, and the next red will say "sample rebuilt 2".
+After the change: iOS LogicTests 1770/1770 and room 744/744, Debug and Release typechecks clean. Test hook and test only;
+no Release behaviour changed. The UI run itself is CI's.
