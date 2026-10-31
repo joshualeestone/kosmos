@@ -2418,8 +2418,9 @@ struct KeyboardHold: UIViewRepresentable {
                 self.saved = (r.id, CGFloat(reading.content), sv.contentOffset.y, self.above, sv.bounds.width, Date())
             })
             observers.append(nc.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
-                guard let self, let kept = self.saved, let rows = self.rows else { return }
+                guard let self, let kept = self.saved else { return }
                 self.saved = nil
+                guard let rows = self.rows else { return }
                 // 3 s: on CI's runner did-show came 1.3 s after will-show (kosmos#7645); a reading older than that is another keyboard's.
                 guard Date().timeIntervalSince(kept.at) < 3 else { ChatView.trace("keyboard hold: skipped, stale"); return }
                 // 10-30 measured: iOS 26 moves it more than once after did-show, so for a short window every move of the
@@ -2431,8 +2432,10 @@ struct KeyboardHold: UIViewRepresentable {
                 // stops being read when it leaves, so rows above measured again after that are not seen), then the hold ends. The same
                 // rule when it leaves while held, below.
                 guard let r = rows.y[kept.row] else {
-                    ChatView.trace("keyboard hold: the row was not drawn at did-show" + (rows.last[kept.row] == nil ? ", put back by will-show" : ", put back by its last reading"))
-                    self.putBack(CGFloat(rows.last[kept.row] ?? Double(kept.content))); self.endGuard(); return
+                    // No last reading at all means the readings were cleared (a fresh chat opened): nothing of this chat to put back.
+                    ChatView.trace("keyboard hold: the row was not drawn at did-show" + (rows.last[kept.row] == nil ? ", nothing put back" : ", put back by its last reading"))
+                    if let c = rows.last[kept.row] { self.putBack(CGFloat(c)) }
+                    self.endGuard(); return
                 }
                 self.putBack(CGFloat(r.content))
                 // Deferred to the next turn of the main queue, so a move made inside a layout pass is answered after it.
