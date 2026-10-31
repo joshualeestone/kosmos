@@ -37,7 +37,7 @@ process.on('exit', () => {
 const unhandled = [];
 process.on('unhandledRejection', (e) => { unhandled.push(e); });
 
-const { start, server, _sendJsonForTest: sendJson, _refuseDownloadForTest: refuseDownload } = require('./server');
+const { start, server, _sendJsonForTest: sendJson, _sendTextForTest: sendText, _refuseDownloadForTest: refuseDownload } = require('./server');
 const attachments = require('./engine/attachments');
 
 test.before(async () => { await start(0); });
@@ -131,6 +131,14 @@ test('#7686: sendJson after the head ends the response and never writes a second
   assert.doesNotMatch(logged[0], /secret/, 'the log line leaked a token');
 });
 
+test('#7686: sendText (the as=text routes\' failures) after the head ends the response too', () => {
+  const { res, destroyed } = sentResponse();
+  const realErr = console.error;
+  console.error = () => {};
+  try { sendText(res, 500, 'late\n'); } finally { console.error = realErr; }
+  assert.equal(destroyed(), 1, 'the broken response was not ended');
+});
+
 test('#7686: refuseDownload after the head, on a browser download, ends the response too', () => {
   const { res, destroyed } = sentResponse();
   const req = { method: 'GET', url: '/api/diagnostics', headers: { 'sec-fetch-mode': 'navigate' } };
@@ -143,9 +151,10 @@ test('#7686: refuseDownload after the head, on a browser download, ends the resp
 test('#7686: the diagnostics download that fails after its head ends that response, and the board keeps answering', async () => {
   const realStringify = JSON.stringify;
   let thrown = 0;
-  // sendDiagnostics writes its head, then serialises with an indent of 2: fail exactly that call, once.
+  /* sendDiagnostics writes its head, then serialises with an indent of 2: fail exactly that call, once, and only when
+     sendDiagnostics is the caller, so a pretty-printing writer elsewhere cannot take the throw (review 2). */
   JSON.stringify = function (v, r, indent) {
-    if (thrown === 0 && indent === 2 && v && typeof v === 'object' && !Array.isArray(v)) {
+    if (thrown === 0 && indent === 2 && /sendDiagnostics/.test(new Error().stack)) {
       thrown += 1;
       throw new RangeError('Invalid string length');
     }
@@ -170,7 +179,7 @@ test('#7686: the diagnostics download that fails after its head ends that respon
     assert.fail('CONTROL: the diagnostics route never serialised, so this test proves nothing (answered ' + first + ')');
   }
   assert.deepEqual(unhandled.map((e) => String(e && (e.code || e.message))), [], 'a rejection escaped the diagnostics route');
-  assert.notEqual(first, 'hung', 'the diagnostics response was left open');
+  assert.equal(first, 'cut', 'the diagnostics response after the failure was ' + first + ', not ended');
   const again = await fetch(`http://127.0.0.1:${port()}/api/attachment/none/preview`);
   assert.ok(again.status >= 200, 'the board stopped answering after the diagnostics failure');
 });

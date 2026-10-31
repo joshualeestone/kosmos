@@ -4333,6 +4333,12 @@ function answeredAlready(res, what) {
   if (!res.writableEnded) res.destroy();
   return true;
 }
+/* #7686 review 2: a plain-text answer (the CLI's `as=text` routes), with the same guard as sendJson. */
+function sendText(res, code, text) {
+  if (answeredAlready(res, 'sendText ' + code)) return;
+  res.writeHead(code, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+  res.end(text);
+}
 function sendJson(res, code, obj) {
   if (answeredAlready(res, 'sendJson ' + code)) return;
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -18195,7 +18201,7 @@ const server = http.createServer(async (req, res) => {
       sinceRaw = q.has('since') ? q.get('since') : null;
     } catch { asText = false; fromPane = null; }
     const fail = (status, msg) => {
-      if (asText) { res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(msg + '\n'); }
+      if (asText) sendText(res, status, msg + '\n');   // #7686 review 2: this route's 200 head can already be out
       else sendJson(res, status, { ok: false, because: msg });
     };
     const since = sinceRaw === null ? null : inboxSince(sinceRaw);
@@ -18340,7 +18346,7 @@ const server = http.createServer(async (req, res) => {
        returns 200 because ITS cli parses the body instead -- a different reader,
        so a different convention). needs a matching text line for the bash arm. */
     const fail = (status, msg) => {
-      if (asText) { res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(msg + '\n'); }
+      if (asText) sendText(res, status, msg + '\n');   // #7686 review 2: this route's 200 head can already be out
       else sendJson(res, status, { ok: false, because: msg });
     };
     /* Wrapped, like the POST sibling's readBody().then().catch(): a synchronous
@@ -28910,7 +28916,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
   _setDownloadStallForTest, // kosmos#6734: the download's stall timeout, for its test
   parseByteRange, // kosmos#6805: the Range parser, for its test
-  _sendJsonForTest: sendJson, _refuseDownloadForTest: refuseDownload, // kosmos#7686: never a second head, for its test
+  _sendJsonForTest: sendJson, _sendTextForTest: sendText, _refuseDownloadForTest: refuseDownload, // kosmos#7686: never a second head, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616, #7625
