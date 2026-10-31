@@ -3825,6 +3825,9 @@ section("native board loop: connecting")
         w2.statusDefault = (200, status)
         w2.clock = w1.clock
         c2.start()
+        // Review 3: the first moment the list is there, the kept picture is already there with it (loaded before, not after).
+        let listed = await settle { !c2.agents.isEmpty }
+        check(listed && c2.pictures["dana"] != nil, "the kept picture is in place when the first list is")
         let shown = await settle { c2.pictures["dana"] != nil }
         check(shown && w2.count("/api/agent/dana/avatar") == 0, "a relaunch shows the kept picture with no picture request")
         let polls = w2.count("/api/status")
@@ -3860,6 +3863,22 @@ section("native board loop: connecting")
         check(shown5 && c5.pictures["dana"] == w4.pictureBytes && w5.count("/api/agent/dana/avatar") == 0,
               "the next launch shows the new version's picture from the phone, with no picture request")
         c5.stop()
+        // Review 3: a list that comes back empty (a board just restarted) keeps the kept pictures: the launch after it,
+        // with the Mac's picture route failing, still shows dana's from the phone.
+        let (ce, we, _, _) = make("kst1", avatars: kept)
+        we.statusDefault = (200, #"{"agents":[]}"#)
+        we.clock = w4.clock
+        ce.start()
+        let answered = await settle { we.count("/api/status") >= 2 }
+        ce.stop()
+        let (cf, wf, _, _) = make("kst1", avatars: kept)
+        wf.statusDefault = (200, v2)
+        wf.pictureAsPage = true
+        wf.clock = w4.clock
+        cf.start()
+        _ = await settle { isLive(cf) }
+        check(answered && cf.pictures["dana"] == w4.pictureBytes, "an empty list leaves the kept pictures for the next launch")
+        cf.stop()
         // Review 1 (W1): the Mac drops the picture (hasAvatar false): it goes from memory and from the phone, and the
         // launch after that shows none.
         let none = #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working","hasAvatar":false,"avatarVer":3}]}"#
@@ -3905,6 +3924,22 @@ section("native board loop: connecting")
         c3.accountChanged()
         check(!FileManager.default.fileExists(atPath: kept.path), "a sign-out or another account deletes the kept pictures")
         try? FileManager.default.removeItem(at: kept)
+    }
+    // kosmos#7677 review 3: another computer never shows this one's picture under the same agent name. The second computer
+    // lists dana with a picture and cannot send one, so a picture shown there could only be the first computer's.
+    do {
+        let status = #"{"agents":[{"sessionName":"dana","name":"Dana","state":"working","hasAvatar":true,"avatarVer":1}]}"#
+        let (c, w, _, _) = make("kst1")
+        w.statusDefault = (200, status)
+        w.macsBody = #"{"macs":[{"name":"Studio","address":"studio.kosmosplus.com","last_seen":100},{"name":"Laptop","address":"laptop.kosmosplus.com","last_seen":90}]}"#
+        c.start()
+        let first = await settle { c.pictures["dana"] != nil }
+        w.pictureAsPage = true
+        c.showMac(address: "laptop.kosmosplus.com")
+        func onLaptop() -> Bool { if case .live(let mac) = c.phase, !c.agents.isEmpty { return mac.address == "laptop.kosmosplus.com" }; return false }
+        let moved = await settle { onLaptop() }
+        check(first && moved && c.pictures["dana"] == nil, "switching computers never shows the first computer's picture of a same-named agent")
+        c.stop()
     }
     do {
         let (c, w, _, _) = make("kst1")

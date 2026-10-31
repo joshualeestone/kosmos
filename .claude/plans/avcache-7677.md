@@ -49,3 +49,16 @@ fetches each picture one at a time after the first agents read. The board alread
 - NIT fixed: boardLoopTests removes its whole picture folder when it ends (the round-1 line above was wider than the code).
 - Left: session names outside PushBridge.isAgentSession (lowercase, digits, - and _) are not kept on disk, so those agents
   fetch as before; a killed atomic write's temp file is not pruned (caches folder, removed on sign-out).
+
+## Review round 3 (10-31): no BLOCKER, one warning, fixed
+- W1 fixed: loadKeptPictures itself clears the pictures in memory when the computer it loads for differs from the last
+  one, so keeping computers apart no longer rests only on the three callers that clear first. Test: a same-named agent on
+  a second computer that cannot send a picture shows none.
+- NITs fixed with tests: an empty list keeps the kept pictures for the next launch; the kept picture is in place the
+  first moment the list is (loaded before, not after).
+- Control (a copy with the empty-list guard, the new clear AND showMac's own clear removed): exactly those two checks
+  fail; 1781/1781 with them. The switch check alone does not isolate the new clear (showMac clears too); it guards the
+  end behaviour.
+- Left: the round-2 in-flight check is still untested (it needs a fake that holds a picture answer); pictures written
+  without file protection (low sensitivity, a locked read costs one fetch); after three failures of one version, the next
+  day's retry of that same version gives up after one failure.

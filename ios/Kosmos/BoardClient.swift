@@ -1315,6 +1315,11 @@ final class BoardClient: ObservableObject {
         env.avatars.appendingPathComponent(Board.avatarFolder(address: address), isDirectory: true)
     }
     private func loadKeptPictures(_ address: String) {
+        // Review 3: another computer's pictures never stay under this one's names, whichever path reached here (today the
+        // computer switch clears them first; this does not rely on it).
+        if let was = picturesLoadedFor, was != address.lowercased() {
+            pictures = [:]; pictureVersions = [:]; pictureFetchedAt = [:]; prunedFor = nil
+        }
         picturesLoadedFor = address.lowercased()
         let dir = keptFolder(address)
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: dir.path) else { return }
