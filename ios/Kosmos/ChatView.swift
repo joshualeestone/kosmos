@@ -2350,8 +2350,8 @@ struct KeyboardHold: UIViewRepresentable {
         private static func showing(_ sv: UIScrollView) -> CGFloat { sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom }
         private func noteOffset(_ sv: UIScrollView) {
             let h = Self.showing(sv)
-            if h < lastShowing - 1 { shrankAt = Date(); scrolledSinceShrink = false }
-            else if sv.isTracking || sv.isDragging || sv.isDecelerating { scrolledSinceShrink = true }
+            let finger = sv.isTracking || sv.isDragging || sv.isDecelerating
+            if h < lastShowing - 1 { shrankAt = Date(); scrolledSinceShrink = finger } else if finger { scrolledSinceShrink = true }
             lastShowing = h
             if Board.keepPreShrinkReading(keyboardUp: shown, shrankAgo: shrankAt.map { Date().timeIntervalSince($0) }) {
                 beforeShrink = (sv.contentOffset.y, above, sv.bounds.width, Date())

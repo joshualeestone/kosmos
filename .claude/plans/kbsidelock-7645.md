@@ -33,7 +33,7 @@ A CI trace on this branch still showing put back 499 after "anchor let go".
 
 ## Not tested
 - The wiring in ChatView (the idAnchor guard, setting anchorLetGo, clearing it on a named row) is covered only by the CI UI check,
-  which drives the put-back itself; the LogicTests checks cover the three decisions alone.
+  which drives the put-back itself; the LogicTests checks cover the five decisions alone.
 - A page landing above while the anchor is let go (the keepAnchor scroll on iOS 17+) has no check at all.
 
 ## Round 2 (21:59 CDT): CI on PR #7666 (run 41161105224)
@@ -55,9 +55,10 @@ moves the offset in the same pass before the height changes, the reading is take
 Change my mind: a CI trace with "keyboard up" after the viewport line and no "read from before the list shrank".
 
 Round 2 review (iteration 9) changes: the decisions moved into Board (keepPreShrinkReading, usePreShrinkReading) with
-LogicTests checks (PASS 1734/1734); a reader's scroll after a shrink (a reply bar or the search bar shrinks the list too)
-drops the pre-shrink reading; the "read from before" trace fires only when the offset moved more than a point; and a
+LogicTests checks (PASS 1734/1734); a reader's scroll after a shrink (any shrink, not only the
+keyboard's; the reading from before it is still the reader's place) drops the pre-shrink reading; the "read from before" trace fires only when the offset moved more than a point; and a
 will-show that finds the list shorter with no shrink seen says so ("shorter at will-show with no shrink seen"), so the CI
 record can tell a missed shrink from no shrink. A shrink is seen only at an offset change (a known limit; UIKit's bounds
 are not reliably observable).
 Results, round 2: ios/tools/ui-keyboard.sh 3 of 3 on b7d556fca8 (22:08 CDT); every ios/LogicTests suite PASS on b7d556fca8.
+Results, iteration 9 code: ios/tools/ui-keyboard.sh 3 of 3 on 19817a21f5 (22:17 CDT).
