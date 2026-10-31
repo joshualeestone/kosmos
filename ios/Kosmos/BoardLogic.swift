@@ -448,7 +448,8 @@ enum Board {
     // in the half second after a shrink (so the move that follows the shrink is not taken as the reader's place).
     static func keepPreShrinkReading(keyboardUp: Bool, shrankAgo: Double?) -> Bool { !keyboardUp && (shrankAgo.map { $0 > 0.5 } ?? true) }
     // Will-show uses it only with no keyboard already up, a shrink in the last half second, a reading at the same width,
-    // and nobody having scrolled since that shrink (a reply bar or the search bar shrinks the list too).
+    // and nobody having scrolled since that shrink (a drag, a track or a fling seen at an offset change; any shrink counts,
+    // not only the keyboard's, and the reading from before it is still the reader's place).
     static func usePreShrinkReading(keyboardUp: Bool, shrankAgo: Double?, haveReading: Bool, sameWidth: Bool, scrolledSince: Bool) -> Bool {
         guard !keyboardUp, let a = shrankAgo, a < 0.5, haveReading, sameWidth, !scrolledSince else { return false }
         return true
