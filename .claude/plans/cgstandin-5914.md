@@ -1,8 +1,7 @@
 # cgstandin-5914: the queue arms' stand-in waiters outlive the arms (kosmos#5914, second cause)
 
 ## Goal
-tools/test-cut-guard.sh's arms that read a stand-in waiter must not go red (or green) because that waiter exited, on
-any box load.
+tools/test-cut-guard.sh's arms that read a stand-in waiter must not go red (or green) because that waiter exited.
 
 ## Cause (measured 2026-10-31)
 The stand-in `wp` (perl, 60 s life) is the waiter for every arm from its start to its kill that reads it (#4498,
@@ -15,8 +14,8 @@ a stand-in recorded before it showed as itself.
 ## Change
 - Both long-span stand-ins (`wp` before the queue-order arms, and `wp` before the run-tests.sh arms) live 600 s.
 - Each has a #5914 FIXTURE arm before its kill: it must still be alive (by its command line, as q_ready reads it),
-  and for the second its marker must still be there. For the second, that matters most: dead
-  early, its last arm would pass for the wrong reason.
+  and for the second its marker must still be there: dead early, its last arm would pass for the wrong
+  reason.
 - `WP_LIVE` holds the live stand-in for the EXIT traps active during each span and is emptied at its kill, the
   pattern RP_LIVE already uses.
 
@@ -28,5 +27,5 @@ a stand-in recorded before it showed as itself.
 3. PR open, CI green by name.
 
 ## Not changed
-The other timed stand-ins (30 to 300 s lives) were not measured. The `wp` for the #4498 "a clear box still waits behind an older waiting suite" arm keeps its 60 s life:
+The other timed stand-ins were not measured. The `wp` for the #4498 "a clear box still waits behind an older waiting suite" arm keeps its 60 s life:
 it serves one assertion, with KOSMOS_NO_WAIT=1, so its span is one call.
