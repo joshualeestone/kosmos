@@ -140,7 +140,7 @@ read on every scroll frame on iOS 26, because the readings must already exist at
 redrawn. (2) The let-go stays: round 1 measured the id anchor re-applying itself after each offset write, and this hold still
 writes the offset.
 Results on the shipping design: ios/LogicTests run.sh PASS 1734/1734, run-room.sh PASS 741/741 (beb6612fe8 and after);
-(superseded: LogicTests are now 1742/1742 and room 742/742; see the latest iteration lines)
+(superseded: see "Final results" at the end)
 Iteration 17: a row's last place in the content is kept after it stops being drawn (RowTops.last), and the not-drawn-at-
 did-show fallback writes only a reading newer than will-show's (writing the will-show offset unchanged was round 4's
 failure). The written offset is kept between the two ends of what can be scrolled to. The record's numbers are pinned by a
@@ -158,7 +158,7 @@ too, so a row laid out below the screen is never the reader's; the long-message 
 RowTops.reset() for a fresh chat. LogicTests run.sh PASS 1735/1735, run-room.sh 742/742.
 Iteration 20: the hold's arithmetic is Board.holdTarget (will-show offset plus the row's move in the content, clamped to
 the scrollable range), with LogicTests checks for both directions of the row's move, an offset-only move, both clamps, and
-short content; the CI run 4 numbers are the fixture. LogicTests run.sh PASS 1741/1741, run-room.sh 742/742.
+short content; the CI run 4 numbers are the fixture. LogicTests run.sh PASS 1741/1741, run-room.sh 742/742 (at iteration 20; final counts at the end).
 MEASURED GREEN (23:59 CDT 10-30): CI run 41169452211 on 589b99fbf7 (the content-based hold, iteration 16) passed all 11
 sample-board UI checks, KeyboardSlideUITests.testReadHigherUpStaysWhereItWas included: the finish line's CI half, met on
 that commit. The commits after it are review fixes and get their own CI run before the merge.
@@ -175,3 +175,9 @@ Iteration 24: the watch closure holds the row store weakly (no cycle while a hol
 says whether it put back by the row's last reading or by will-show's.
 Iteration 25: with no last reading of the row at did-show (a fresh chat cleared the readings mid-hold), nothing is written
 (it used to write the old chat's will-show offset). `saved` is cleared before any other guard in did-show.
+
+## Final results (review loop converged at iteration 26)
+- ios/LogicTests: run.sh PASS 1742/1742, run-room.sh 742/742, composer 65/65, actions 99/99, agentinfo 83/83, newtask
+  108/108, settings 42/42, taskpage 109/109, tasks 103/103.
+- CI UI job green on 589b99fbf7 (the content-based hold); the final head's CI run, full validation and local keyboard run are
+  recorded in the PR.
