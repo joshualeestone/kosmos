@@ -82,6 +82,7 @@ func sec(_ s: String, _ st: Int = 200) -> Board.FilesSectionState { Board.filesS
 check(sec(#"{"ok":true,"missing":true,"total":0,"files":[]}"#) == .hidden && sec(#"{"ok":true,"total":0,"files":[]}"#) == .hidden, "no files, no section")
 check(sec(#"{"ok":false,"because":"no agent by that name"}"#, 404) == .hidden, "a 404, no section")
 check(sec(#"{"ok":false,"because":"its Files is a link, so it is not listed","files":[]}"#) == .message("Its Files is a link, so it is not listed."), "a refusal says the route's reason")
+check(sec(#"{"ok":false,"because":""}"#) == .message("We could not read this agent\u{2019}s files just now."), "an empty reason falls back to the board's line (review 5)")
 check(Board.filesSection(status: 0, body: nil) == .message("We could not read this agent\u{2019}s files just now.") && sec("<html>sign in</html>") == .message("We could not read this agent\u{2019}s files just now."), "no answer, or the gate's page: the board's line")
 if case .rows(let r) = sec(#"{"ok":true,"total":1,"files":[{"name":"a.pdf","size":1}]}"#) { check(r.map(\.name) == ["a.pdf"], "a file: the rows") } else { check(false, "a file: the rows") }
 check(boardPage.contains("if ((ok && !files.length) || status === 404) {") && boardPage.contains("'We could not read this agent\u{2019}s files just now.'")

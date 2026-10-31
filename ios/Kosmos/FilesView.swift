@@ -44,11 +44,14 @@ struct FilesView: View {
                         }
                         ForEach(page.files) { f in FilesRow(file: f, shownName: rowName(f), opening: opener.opening == f.name) { opener.open(f, owner: owner, client: client, openOnBoard: openOnBoard) } }
                     } footer: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            if case .project = owner {
-                                Text(page.total == 1 ? "1 file" : "\(page.total) files").foregroundColor(Palette.secondary)
+                        // Only when it says something (review 5: an empty footer still takes space).
+                        let count: String? = { if case .project = owner { return page.total == 1 ? "1 file" : "\(page.total) files" }; return nil }()
+                        let more = Board.filesMore(page, owner: owner)
+                        if count != nil || more != nil {
+                            VStack(alignment: .leading, spacing: 4) {
+                                if let count { Text(count).foregroundColor(Palette.secondary) }
+                                if let more { Text(more).foregroundColor(Palette.secondary) }
                             }
-                            if let more = Board.filesMore(page, owner: owner) { Text(more).foregroundColor(Palette.secondary) }
                         }
                     }
                 }
@@ -151,7 +154,7 @@ struct FilesRow: View {
     }
 }
 
-// The agent page's Files section: the newest few (the board's agent panel), then All files, which opens the browser.
+// The agent page's Files section: the newest few (the board's agent panel), then View All, which opens the browser.
 // Review 1: no modifiers of its own. In a List a Section's modifiers land on every row, so a task here ran once per row
 // and a row scrolled away could set the opener invisible mid-fetch; AgentInfoView owns the read and the opener and
 // applies them once, to its List (FilesView does the same on its own List).
