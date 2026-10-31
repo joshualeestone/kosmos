@@ -152,7 +152,10 @@ const KNOWN_NATIVE_SLIDERS = ['d-swarm-max', 'd-swarm-cap', 'create-swarm-max', 
 /* kosmos#6596 step 8: the key-changed panel's secondary button (Accept the new key) sits on the same navy card, so it is
    skipped here by name for the same reason. What covers it on its real ground: render-plus-signin-3478's WIZ_SEP
    measures every secondary button in the card (face and stroke) against the navy, in both engines and themes. */
-const PLUS_WIZARD_FIELDS = new Set(['#plus-signin-email', '#plus-si-code-in', '#plus-si-second-in', '#plus-si-phone', '#plus-si-secret', '#plus-si-enrol-code', '#plus-si-name', '#plus-org-code', '#plus-si-company-name', '#plus-si-company-second', '#plus-si-computer']);   // field loop keys carry '#'
+/* kosmos#7404: personal backup's restore field (#pb-restore-code) is the same always-dark field on the same navy card,
+   so it is skipped here by name for the same reason. What covers it on its real ground: render-plus-blue-1615 pins its
+   dark fill (pbField, red without the #pb rule). */
+const PLUS_WIZARD_FIELDS = new Set(['#pb-restore-code', '#plus-signin-email', '#plus-si-code-in', '#plus-si-second-in', '#plus-si-phone', '#plus-si-secret', '#plus-si-enrol-code', '#plus-si-name', '#plus-org-code', '#plus-si-company-name', '#plus-si-company-second', '#plus-si-computer']);   // field loop keys carry '#'
 const PLUS_WIZARD_BUTTONS = new Set(['plus-si-enrol-sms', 'plus-signin-company', 'plus-si-company-resend', 'plus-si-keychanged-accept']);   // the button loop compares BARE ids
 const FIELDS = 'input:not([type=button]):not([type=file]):not([type=checkbox]):not([type=radio]):not([type=submit]), textarea, select';
 /* ⚠️ BUTTONS TOO, and their absence was a hole shaped exactly like the defect

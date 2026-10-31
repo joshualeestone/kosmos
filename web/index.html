@@ -11991,13 +11991,17 @@ body.plus-active .utoast.login-adv.urgent { --utone: #ff8c82; }
 body.plus-active :is(.svc-door, .dmoff, .msg-valve, .rst-list li, .rolelimit, .note, .pj-warn,
   .pj-folder-state.bad, .pj-question, .pj-msg.unsure, #d-untied, #d-withdrawn) {
   --warn-bg: rgba(255,190,60,0.12); --warn-border: rgba(255,190,60,0.32); --border-strong: rgba(255,255,255,0.26); }
+/* kosmos#7404 (Mona Lisa's review 1): an outline button on the Kosmos+ page read its light-mode hairline on navy and lost
+   its border in light mode (Join Company or Family Account, Copy, Print, Not now). Scoped like #3692, to this page's
+   buttons only, so every other user of the token is unchanged. */
+body.plus-active #s-sec-plus .btn { --border-strong: rgba(255,255,255,0.26); }
 /* The roadmap needs-you ring is a hard-coded red, so it is pinned to the dark ring here too. */
 body.plus-active:not(.consolidated).pj-roadmap #pj-list:not(.asgrid) .pj-row.attn { box-shadow: inset 0 0 0 1px rgba(255,140,130,.55); }
 /* The section is the positioning context for the ambient star field, which sits
    behind everything else in the pane. Every direct child is lifted above it. */
 #s-sec-plus { position: relative; }
 @media (max-width: 600px) {
-  #s-sec-plus #plus-org-code { min-height: 44px; }
+  #s-sec-plus #plus-org-code, #s-sec-plus #pb-restore-code { min-height: 44px; }   /* kosmos#7404: the restore field too */
 }
 #plus-stars { position: absolute; inset: 0; width: 100%; height: 100%;
   display: block; z-index: 0; pointer-events: none; }
@@ -12157,6 +12161,17 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* #5791: Join Corporate Account (kosmos#6380: Join Company or Family Account), an outlined button with a tiny building icon; X Cancel at the top right of the entry
    pane; Lost your phone? under the devices list. */
 #s-sec-plus .plus-org-open { display: inline-flex; align-items: center; gap: 6px; }
+#s-sec-plus .pb-codebox { color: var(--k-ink); font: 600 20px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .06em; padding: 12px 14px; border: 1px solid var(--border-strong); background: var(--bg-sunken); border-radius: 8px; user-select: all; margin: 8px 0; }   /* kosmos#7404 */
+#s-sec-plus .pb-codebox span { display: inline-block; white-space: nowrap; }   /* review 1: breaks only between groups, the hyphen kept with the group before it */
+#s-sec-plus .pb-saved-row { margin-top: 24px; }
+#s-sec-plus #pb-restore-hint { margin-top: 12px; }   /* its own line, not a caption on Turn on */
+#s-sec-plus .pb-codein { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; text-transform: uppercase; }   /* shown as the code was shown; the value stays as typed (the engine reads either case) */
+#s-sec-plus .pb-codein::placeholder { text-transform: none; }
+#s-sec-plus textarea.pb-codein { display: block; width: 100%; box-sizing: border-box; resize: none; height: 46px; line-height: 1.5; overflow: hidden; }
+@media (max-width: 480px) { #s-sec-plus textarea.pb-codein { height: 76px; } }   /* review 3: two rows; the code wraps after a hyphen at 16px */
+/* Review 3: the Kosmos+ field error colour (#E8705E, the --danger the dark field sets, #plus-org .tk-inp), not a new red. */
+#s-sec-plus #pb-restore-msg { color: #E8705E; margin-top: var(--space-3); }
+#s-sec-plus #pb-restore-msg:empty { min-height: 0; margin-top: 0; }
 #s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
 #s-sec-plus .plus-org-outhead { display: flex; justify-content: flex-end; }
 #s-sec-plus #plus-devices #plus-lost-open { display: block; margin-top: 8px; }
@@ -12235,6 +12250,13 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 .tk-inp::placeholder, #plus-org .tk-inp::placeholder { color: #8fa0c4; -webkit-text-fill-color: #8fa0c4; opacity: 1; }
 #plus-state2 .tk-inp:-webkit-autofill, #plus-org .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #16223e inset; }
 #plus-state2 .tk-inp:focus, #plus-org .tk-inp:focus { outline: 2px solid #7ea0f0; outline-offset: 1px; border-color: #7ea0f0; }
+/* kosmos#7404: the personal backup restore field is the same dark field (it takes the recovery code). Its own rules, so the
+   sign-in fields above are untouched. */
+#pb .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
+  caret-color: #E6EBF7; border: 1px solid #5c78a6; border-radius: 10px; }
+#pb .tk-inp::placeholder { color: #8fa0c4; -webkit-text-fill-color: #8fa0c4; opacity: 1; }
+#pb .tk-inp:-webkit-autofill { -webkit-box-shadow: 0 0 0 1000px #16223e inset; }
+#pb .tk-inp:focus { outline: 2px solid #7ea0f0; outline-offset: 1px; border-color: #7ea0f0; }
 #plus-state2 .plus-si-wide { width: 75%; min-width: min(100%, 15rem); }
 /* The plain field look below is what a code field shows until the script draws its boxes (#3942,
    .otp-boxes further down), and what it keeps if the boxes are ever not drawn. Inside the boxes
@@ -20413,6 +20435,78 @@ window.kosmosMeasureScrollbarWidth();
           </div>
         </div>
         <p class="fmsg" id="plus-org-msg" role="alert" aria-live="assertive"></p>
+      </div>
+      <!-- kosmos#7404: personal backup, an account's own backup on Kosmos+ (an org of one). Shown only when this board's
+           switch is on (GET /api/personal-backup answers shown). The recovery code is made on this computer and shown
+           ONCE, in the answer that made it; Kosmos+ never holds it, so nobody can recover it for the person. -->
+      <div id="pb" hidden style="margin-top:16px;">
+        <p class="setname">Personal backup</p>
+        <div id="pb-off" hidden>
+          <p class="fhint">Back up this computer's Kosmos files to Kosmos+, locked with a recovery code only you hold.</p>
+          <p class="fhint" id="pb-price"></p>
+          <!-- Mona Lisa's review 1: no price, nothing to agree to, so no Turn on and no "price to be set" line (pbPaint). -->
+          <div class="frow" id="pb-on-row"><button class="btn uprime" type="button" id="pb-on">Turn on personal backup</button></div>
+          <!-- Challenge round 5: a restore needs personal backup on here first (the engine checks Kosmos+ names this
+               computer's own personal backup), so this says how, and the restore field opens when turning on finds the
+               backup set up on another computer. -->
+          <p class="fhint" id="pb-restore-hint">Moving from another computer? Turn it on here, then enter your recovery code when asked.</p>
+        </div>
+        <div id="pb-words" role="group" aria-label="What personal backup does" hidden>
+          <p class="fhint" id="pb-words-lead" tabindex="-1">Before you turn it on:</p>
+          <p class="fhint" id="pb-backsup-head">Backed up from this computer:</p>
+          <ul class="fhint" id="pb-backsup"></ul>
+          <!-- Review 1: one sentence, not a list of one. The words are the coordinator's (their hash binds what was shown). -->
+          <p class="fhint" id="pb-readers"></p>
+          <p class="fhint" id="pb-never"></p>
+          <p class="fhint" id="pb-words-price"></p>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="pb-accept">Accept and turn on</button>
+            <button class="btn" type="button" id="pb-no">Not now</button>
+          </div>
+        </div>
+        <div id="pb-code" role="group" aria-label="Your recovery code" hidden>
+          <p class="fhint" id="pb-code-lead" tabindex="-1">This is your recovery code. It is shown once.</p>
+          <p class="pb-codebox" id="pb-code-text"></p>
+          <p class="fhint">Kosmos+ never sees this code, so it cannot get it back for you. Keep it somewhere safe: without it, a new computer cannot open your backup.</p>
+          <div class="frow">
+            <button class="btn" type="button" id="pb-copy">Copy</button>
+            <button class="btn" type="button" id="pb-print">Print</button>
+          </div>
+          <!-- Review 1: its own row, apart from the tools, saying what it promises. The only way out of this screen. -->
+          <div class="frow pb-saved-row"><button class="btn uprime" type="button" id="pb-saved">I saved my recovery code</button></div>
+        </div>
+        <div id="pb-onview" hidden>
+          <p class="fhint" id="pb-on-say">Personal backup is on for this computer.</p>
+          <div class="frow" id="pb-off-row"><button class="btn uprime" type="button" id="pb-finish" hidden>Finish setting up</button><button class="btn" type="button" id="pb-off-btn">Turn off personal backup</button></div>
+          <div id="pb-off-ask" hidden>
+            <!-- Only what is true: the coordinator ends the membership (org.rs mac_leave). What it then keeps of a personal
+                 backup is not settled anywhere yet, so this promises nothing about it. -->
+            <p class="fhint">Turn off personal backup on this computer? Nothing more from it is backed up.</p>
+            <div class="frow">
+              <button class="btn danger-btn" type="button" id="pb-off-yes">Turn off</button>
+              <button class="btn" type="button" id="pb-off-no">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <div id="pb-restore" hidden>
+          <!-- Mona Lisa, comment 6544459750: why this screen appeared comes first. It opens only when turning on finds the
+               backup set up from another computer (setUpKey code 'restore'). -->
+          <p class="fhint" id="pb-restore-lead" tabindex="-1">Personal backup is already set up from another computer. Enter the recovery code you saved then.</p>
+          <p class="fhint">This puts your backup key on this computer. None of your files here are changed.</p>
+          <!-- Restore review 1-2: no autocorrect or half-capitalising on a phone; the code's own face and shape. Review 3: a
+               text area, so at the 16px a phone needs the code wraps after a hyphen and is seen whole; Enter submits
+               (pbRestoreKey) and a newline is dropped with the spaces and hyphens (engine recoveryCodeBytes). -->
+          <textarea class="tk-inp pb-codein" id="pb-restore-code" rows="1" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="64" aria-label="Your recovery code" aria-describedby="pb-restore-msg" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX"></textarea>
+          <!-- Review 3: the refusal is about the field, so it sits under it, above the buttons, in the field error colour. -->
+          <p class="fmsg" id="pb-restore-msg" role="alert" aria-live="assertive"></p>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="pb-restore-go">Restore</button>
+            <button class="btn" type="button" id="pb-restore-no">Not now</button>
+          </div>
+          <!-- Mona Lisa 3: leaving here is not an undo. Personal backup stays on for this computer without its key. -->
+          <p class="fhint" id="pb-restore-later">Personal backup stays on here without its key until you restore it. Finish later from this panel.</p>
+        </div>
+        <p class="fmsg" id="pb-msg" role="alert" aria-live="assertive"></p>
       </div>
       <!-- #4079, named "Remove this computer" by Josh's design (#4080, 22:22). (Josh, 22:03: "Is there a way to disconnect my computer running Kosmos from this Kosmos Plus
            account somehow?"): the engine's Forget (#793, /api/remote/forget) finally has a button. The switch
@@ -55015,6 +55109,7 @@ async function paintPlus() {
       for (const id of ['plus-forget-ask', 'plus-forget-kept']) { const e = document.getElementById(id); if (e) e.hidden = true; }   // review 1
     } }
   { const og = document.getElementById('plus-org'); if (og) { og.hidden = r.enrolled !== true; if (!og.hidden) plusOrgMaybe(); } }   // #5531
+  { const pb = document.getElementById('pb'); if (pb) { if (r.enrolled === true) pbMaybe(); else if (!pb.hidden) { PB.st = null; pbPaint(); } } }   // kosmos#7404: hidden, and the code dropped
   paintDevices();
 }
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
@@ -55511,6 +55606,238 @@ document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if
 document.getElementById('plus-org-leave').addEventListener('click', () => plusOrgLeaveArm(true));
 document.getElementById('plus-org-leave-no').addEventListener('click', () => plusOrgLeaveArm(false));
 document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgLeave);
+/* ---- kosmos#7404: personal backup (Settings, Kosmos+). The views follow the engine's state (engine/personalbackup.js
+   state(): off, pending, needs-key, on); the words, the code and restore are steps the person opens here. The recovery
+   code is held only in PB.code while it is on screen, and dropped once "I saved it" is confirmed or the view changes. */
+var PB = { at: 0, busy: false, st: null, view: null, ticket: null, words: null, code: null, who: null, seq: 0 };
+function pbMsg(t) { const m = document.getElementById('pb-msg'); if (m) m.textContent = t ? asSentence(t) : ''; }   // engine refusals are fragments
+function pbMaybe() {
+  if (PB.busy) return;
+  if (Date.now() - PB.at < 60000) { if (PB.st) pbPaint(); return; }
+  PB.at = Date.now();
+  const seq = ++PB.seq;   // a read that started before this page last set the state answers nothing
+  fetch('/api/personal-backup').then((res) => res.ok ? res.json() : null).then((j) => {
+    // Challenge round 6: a failed read (a 500, a passing 403) says nothing about the panel, so the last state stands;
+    // replacing it with null hid the box and dropped a recovery code still on screen.
+    if (seq !== PB.seq || !j || typeof j !== 'object') return;
+    PB.st = j; pbPaint();
+  }).catch(() => { /* the next minute tries again */ });
+}
+function pbPrice(st) {
+  const said = typeof plusSiAddPrice === 'function' && st && st.price ? plusSiAddPrice(st.price) : '';
+  return said ? 'Personal backup is ' + said + ', billed to your Kosmos+ account.' : '';   // review 1: never a "to be set" line
+}
+function pbList(id, items) {
+  const ul = document.getElementById(id); ul.textContent = '';
+  for (const t of Array.isArray(items) ? items : []) { const li = document.createElement('li'); li.textContent = String(t); ul.appendChild(li); }
+  ul.hidden = !ul.firstChild;
+  const head = document.getElementById(id + '-head'); if (head) head.hidden = ul.hidden;
+}
+function pbPaint() {
+  const st = PB.st || {};
+  const box = document.getElementById('pb');
+  if (!box) return;
+  box.hidden = st.shown !== true;
+  if (box.hidden) { PB.code = null; PB.who = null; PB.view = null; document.getElementById('pb-code-text').textContent = ''; document.getElementById('pb-restore-code').value = ''; return; }
+  // The step the person opened wins over the engine's state, except that 'on' closes the words and restore.
+  let v = PB.view;
+  if (!v || (st.state === 'on' && (v === 'words' || v === 'restore'))) v = st.state === 'on' ? 'on' : st.state === 'needs-key' ? 'needs-key' : st.state === 'pending' ? 'pending' : 'off';
+  document.getElementById('pb-off').hidden = !(v === 'off');
+  document.getElementById('pb-words').hidden = v !== 'words';
+  document.getElementById('pb-code').hidden = v !== 'code';
+  document.getElementById('pb-onview').hidden = !(v === 'on' || v === 'pending' || v === 'needs-key');
+  document.getElementById('pb-restore').hidden = v !== 'restore';
+  const price = pbPrice(st);
+  document.getElementById('pb-price').textContent = price; document.getElementById('pb-price').hidden = !price;
+  document.getElementById('pb-on-row').hidden = !price;   // no price, nothing to agree to (the server refuses preview too)
+  document.getElementById('pb-restore-hint').hidden = !price;   // Mona Lisa 1: the hint points at Turn on, so it goes with it
+  document.getElementById('pb-words-price').textContent = price;
+  const say = document.getElementById('pb-on-say');
+  say.textContent = v === 'pending' ? 'Kosmos is checking with Kosmos+ whether personal backup is on for this computer. This takes a few minutes.'
+    : v === 'needs-key' ? 'Personal backup is on for this computer, but its backup key is not set up here yet, so nothing is being backed up.'
+    : 'Personal backup is on for this computer.';
+  // An open Turn off confirm survives the 5-second repaint; it closes when the view is no longer one it belongs to.
+  const ask = document.getElementById('pb-off-ask');
+  if (!(v === 'on' || v === 'needs-key')) ask.hidden = true;
+  document.getElementById('pb-off-row').hidden = v === 'pending' || !ask.hidden;
+  document.getElementById('pb-finish').hidden = v !== 'needs-key';
+  if (v !== 'code') {
+    if (PB.code) pbMsg('');   // a "Copied" line belongs to the code view and leaves with it
+    PB.code = null; document.getElementById('pb-code-text').textContent = '';
+  }
+}
+/* One literal fetch per step, as plusOrgPost does, so web.api-routes-3957 reads each path and checks it has a route. */
+async function pbPost(kind, body) {
+  const init = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) };
+  let res;
+  try {
+    res = kind === 'preview' ? await fetch('/api/personal-backup/preview', init)
+      : kind === 'on' ? await fetch('/api/personal-backup/on', init)
+      : kind === 'key' ? await fetch('/api/personal-backup/key', init)
+      : kind === 'saved' ? await fetch('/api/personal-backup/saved', init)
+      : kind === 'restore' ? await fetch('/api/personal-backup/restore', init)
+      : kind === 'off' ? await fetch('/api/personal-backup/off', init) : null;
+  } catch { res = null; }
+  if (!res) return { ok: false, because: 'This Kosmos could not be reached. Try again.' };
+  let b = null;
+  try { b = await res.json(); } catch { return { ok: false, because: 'This Kosmos could not read the answer. Try again.' }; }
+  /* Challenge round 3: from a remote session a gated step answers 403 { code: 'remote_step_up...', error } with no
+     `because`; the board's own sentence says what to do, as the other panels show it (stepUpSays). */
+  if (!res.ok && b && /^remote_step_up/.test(String(b.code || '')) && typeof b.error === 'string') return { ok: false, stepUp: true, code: b.code, because: b.error };
+  if (!res.ok && b && typeof b.because !== 'string') return { ok: false, because: typeof b.error === 'string' ? asSentence(b.error) : 'This Kosmos refused that. Nothing changed.' };
+  return b;
+}
+/* Review 1: one span per group, the hyphen inside the group before it, so a line breaks only between groups. */
+function pbCodeText(code) {
+  const box = document.getElementById('pb-code-text'); box.textContent = '';
+  const groups = String(code || '').split('-');
+  groups.forEach((g, i) => { const sp = document.createElement('span'); sp.textContent = g + (i < groups.length - 1 ? '-' : ''); box.appendChild(sp); });   // no hidden characters: a copied selection restores as typed
+}
+function pbShowCode(r) {
+  PB.code = r.recoveryCode; PB.who = { org: r.org, member: r.member }; PB.view = 'code';
+  pbCodeText(r.recoveryCode);
+  pbPaint();
+  const lead = document.getElementById('pb-code-lead'); if (lead) lead.focus();
+}
+async function pbOpen() {
+  if (PB.busy) return; PB.busy = true; pbMsg('');
+  try {
+    const r = await pbPost('preview');
+    if (!r || !r.ok) { pbMsg((r && r.because) || 'Kosmos+ could not be reached just now. Try again in a minute.'); return; }
+    PB.ticket = r.ticket; PB.words = r.words || {}; PB.view = 'words';
+    pbList('pb-backsup', PB.words.backsUp);
+    const rd = Array.isArray(PB.words.readers) ? PB.words.readers.map(String).filter(Boolean) : [];
+    document.getElementById('pb-readers').textContent = rd.length ? 'Who can read it: ' + rd.join('; ') + '.' : '';
+    document.getElementById('pb-never').textContent = Array.isArray(PB.words.never) && PB.words.never.length ? 'Never backed up: ' + PB.words.never.join('; ') + '.' : '';
+    pbPaint();
+    const lead = document.getElementById('pb-words-lead'); if (lead) lead.focus();
+  } finally { PB.busy = false; }
+}
+async function pbAccept(yes) {
+  if (PB.busy) return; PB.busy = true; pbMsg('');
+  const ticket = PB.ticket; PB.ticket = null;
+  /* Not now is decided here: nothing is sent (challenge round 3: the decline went to a step-up-gated, price-gated route).
+     The ticket is dropped on this page and expires on the board in ten minutes. */
+  if (yes !== true) { PB.busy = false; PB.view = null; pbPaint(); return; }
+  try {
+    const r = await pbPost('on', { ticket, accepted: true });
+    if (r && r.ok && r.recoveryCode) { PB.at = 0; pbShowCode(r); return; }
+    // Challenge round 5: the backup was set up on another computer, so this one restores it with the code.
+    if (r && r.code === 'restore') { PB.at = 0; pbOpenRestore(); return; }
+    PB.view = null; PB.at = 0;
+    if (!(r && r.ok)) pbMsg((r && r.because) || 'Nothing was turned on. Try again in a minute.');
+  } finally { PB.busy = false; if (PB.view !== 'code') pbMaybe(); }
+}
+async function pbFinish() {
+  if (PB.busy) return; PB.busy = true; pbMsg('');
+  try {
+    const r = await pbPost('key');
+    if (r && r.ok && r.recoveryCode) { pbShowCode(r); return; }
+    if (r && r.ok) { PB.at = 0; return; }
+    pbMsg((r && r.because) || 'The recovery code could not be shown just now. Try again in a minute.');
+    if (r && r.code === 'restore') pbOpenRestore();
+  } finally { PB.busy = false; if (PB.view !== 'code') pbMaybe(); }
+}
+async function pbSaved() {
+  if (PB.busy || !PB.who) return; PB.busy = true; pbMsg('');
+  try {
+    const r = await pbPost('saved', PB.who);
+    if (!(r && r.ok)) { pbMsg((r && r.because) || 'That could not be recorded. Try again.'); return; }
+    PB.view = null; PB.who = null; PB.at = 0;
+    if (PB.st) PB.st.state = 'on';   // the code is gone from the screen now, not when the next read lands
+    PB.seq++;
+    pbPaint();
+  } finally { PB.busy = false; pbMaybe(); }
+}
+function pbCopy() {
+  if (!PB.code) return;
+  if (!navigator.clipboard) { pbMsg('It could not be copied. Write it down instead.'); return; }
+  navigator.clipboard.writeText(PB.code).then(() => pbMsg('Copied. Keep it somewhere other than this computer.'), () => pbMsg('It could not be copied. Write it down instead.'));
+}
+function pbPrint() {
+  if (!PB.code) return;
+  /* A hidden frame, printed and then removed, rather than a second window: no other browsing context keeps the code
+     after the print dialog closes (challenge round 2). */
+  const f = document.createElement('iframe');
+  f.setAttribute('aria-hidden', 'true'); f.tabIndex = -1;
+  f.style.cssText = 'position:fixed;width:0;height:0;border:0;left:-9999px;top:0;';
+  document.body.appendChild(f);
+  const w = f.contentWindow; const d = w && w.document;
+  if (!d) { f.remove(); pbMsg('It could not be printed. Write the code down instead.'); return; }
+  d.title = 'Kosmos recovery code';
+  const h = d.createElement('h1'); h.textContent = 'Kosmos personal backup recovery code';
+  const p = d.createElement('p'); p.style.cssText = 'font: 600 22px ui-monospace, monospace; letter-spacing: .08em;'; p.textContent = PB.code;
+  const n = d.createElement('p'); n.textContent = 'Kosmos+ never sees this code, so it cannot get it back for you. Keep it somewhere safe.';
+  d.body.append(h, p, n);
+  const done = () => { try { f.remove(); } catch { /* gone */ } };
+  w.addEventListener('afterprint', done, { once: true });
+  setTimeout(done, 60000);   // a browser that sends no afterprint still drops the frame
+  w.focus(); w.print();
+}
+function pbOffArm(on) {
+  document.getElementById('pb-off-ask').hidden = !on;
+  document.getElementById('pb-off-row').hidden = on || (PB.st && PB.st.state === 'pending');
+}
+async function pbOff() {
+  if (PB.busy) return; PB.busy = true; pbMsg('');
+  try {
+    const r = await pbPost('off');
+    pbOffArm(false);
+    if (!(r && r.ok)) pbMsg((r && r.because) || 'Kosmos+ could not be reached just now. Personal backup is still on; try again in a minute.');
+    PB.view = null; PB.at = 0;
+  } finally { PB.busy = false; pbMaybe(); }
+}
+/* The engine's refusals are fragments ("that recovery code is not the one for this backup"); the page says them whole. */
+function pbRestoreSay(r) {
+  const c = r && r.code;
+  if (c === 'wrong_code') return 'That is not the recovery code for this backup. Check it group by group and try again.';
+  if (c === 'not_a_code') return 'That is not a recovery code. It has 26 letters and digits, in groups of four.';
+  if (c === 'no_keys') return 'This backup has no key yet, so there is nothing to restore.';
+  return asSentence(r && r.because) || 'Nothing was restored. Try again.';
+}
+function pbOpenRestore() {
+  // The reason is the screen's own first line (pb-restore-lead), so nothing is said under the buttons.
+  PB.view = 'restore'; pbPaint(); pbMsg('');
+  document.getElementById('pb-restore-code').focus();
+}
+function pbRestoreBad(text) {
+  document.getElementById('pb-restore-msg').textContent = text || '';
+  document.getElementById('pb-restore-code').classList.toggle('bad', !!text);
+}
+function pbRestoreKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); pbRestore(); }
+}
+async function pbRestore() {
+  if (PB.busy) return;
+  const code = document.getElementById('pb-restore-code').value.trim();
+  if (!code) { pbRestoreBad('Enter your recovery code.'); return; }
+  PB.busy = true; pbMsg('');
+  try {
+    const r = await pbPost('restore', { code });
+    // Restore review: a wrong code keeps what was typed, so one group can be fixed rather than all of it retyped; the
+    // sentence goes under the field and the field is marked (review 3).
+    if (r && r.stepUp) { pbMsg(r.because); return; }   // not the code's fault: the field is not marked
+    if (!(r && r.ok)) { pbRestoreBad(pbRestoreSay(r)); return; }
+    pbRestoreBad('');
+    document.getElementById('pb-restore-code').value = '';
+    PB.view = null; PB.at = 0; PB.seq++; if (PB.st) PB.st.state = 'on';
+    pbPaint(); pbMsg('Your backup key is restored on this computer. Personal backup is on.');
+  } finally { PB.busy = false; pbMaybe(); }
+}
+document.getElementById('pb-on').addEventListener('click', pbOpen);
+document.getElementById('pb-finish').addEventListener('click', pbFinish);
+document.getElementById('pb-accept').addEventListener('click', () => pbAccept(true));
+document.getElementById('pb-no').addEventListener('click', () => pbAccept(false));
+document.getElementById('pb-copy').addEventListener('click', pbCopy);
+document.getElementById('pb-print').addEventListener('click', pbPrint);
+document.getElementById('pb-saved').addEventListener('click', pbSaved);
+document.getElementById('pb-off-btn').addEventListener('click', () => pbOffArm(true));
+document.getElementById('pb-off-no').addEventListener('click', () => pbOffArm(false));
+document.getElementById('pb-off-yes').addEventListener('click', pbOff);
+document.getElementById('pb-restore-no').addEventListener('click', () => { pbMsg(''); pbRestoreBad(''); PB.view = null; pbPaint(); });
+document.getElementById('pb-restore-go').addEventListener('click', pbRestore);
+document.getElementById('pb-restore-code').addEventListener('keydown', pbRestoreKey);
+document.getElementById('pb-restore-code').addEventListener('input', () => { if (document.getElementById('pb-restore-code').classList.contains('bad')) pbRestoreBad(''); });
 /* ---- kosmos#4794 slice 1: this computer JOINING (Mona Lisa's design, 2026-10-03). Both computers show one six-digit
    code; the person checks they match, presses Allow on the other computer and "The codes match" here. The pill above
    still says "Waiting to be allowed"; this block replaces the coordinator's sentence under it while held. */

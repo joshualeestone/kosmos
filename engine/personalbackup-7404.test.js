@@ -712,3 +712,74 @@ test('#7404/#7661: the enroll sends onlyIfFree, and a bound-elsewhere refusal is
   }
 });
 
+
+/* backupscreens-7404 challenge round 5: restore acts only on this computer's own personal backup, and a restore that
+   worked reads 'on' (it writes the key-ready marker, as the key step does). */
+test('#7404 restore: refused before any key is touched unless personal backup is on here and Kosmos+ names it', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  let called = 0;
+  const keys = { setUpPersonalKey: KEY_OK.setUpPersonalKey, hasPendingCode: () => false,
+    restorePersonalKey: async () => { called++; return { ok: true, epochs: [1] }; } };
+  const off = await pb.restore('CODE', { root, remote: c, personalbackupkey: keys });
+  assert.equal(off.code, 'not_on'); assert.equal(called, 0, 'restored with personal backup off here');
+  const p = await pb.preview({ root, remote: c });
+  // Turned on here, but the key step found the backup set up elsewhere: needs-key, the one state a restore is for.
+  const taken = Object.assign({}, keys, { setUpPersonalKey: async () => ({ ok: false, code: 'already_set_up', because: 'set up elsewhere' }) });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: taken })).code, 'restore');
+  const real = c.macRequest;
+  c.macRequest = async (m, route, body) => (route === oe.ROUTES.status ? { ok: true, data: { member: true, org: { id: 'acme', kind: 'company' }, enrolled: { computer: 'c1', world: 'w', thisComputer: true } } } : real(m, route, body));
+  const company = await pb.restore('CODE', { root, remote: c, personalbackupkey: keys });
+  assert.equal(company.code, 'not_on'); assert.equal(called, 0, 'restored against a company membership');
+  c.macRequest = real;
+  const ok = await pb.restore('CODE', { root, remote: c, personalbackupkey: keys });
+  assert.deepEqual(ok, { ok: true, epochs: [1] }, 'CONTROL: this binding named, the restore runs');
+  assert.equal(called, 1);
+});
+
+test('#7404 restore: a restore that worked reads on; a refused one leaves the state as it was', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  // The key step refused: another computer already set this backup up (the move to a new computer).
+  const taken = { setUpPersonalKey: async () => ({ ok: false, code: 'already_set_up', because: 'set up elsewhere' }), hasPendingCode: () => false,
+    restorePersonalKey: async () => ({ ok: false, code: 'wrong_code', because: 'that recovery code is not the one for this backup' }) };
+  const on = await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: taken });
+  assert.equal(on.code, 'restore', JSON.stringify(on));
+  assert.equal(pb.state({ root, personalbackupkey: taken }), 'needs-key');
+  const wrong = await pb.restore('CODE', { root, remote: c, personalbackupkey: taken });
+  assert.equal(wrong.code, 'wrong_code');
+  assert.equal(pb.state({ root, personalbackupkey: taken }), 'needs-key', 'a refused restore wrote the marker');
+  const right = Object.assign({}, taken, { restorePersonalKey: async () => ({ ok: true, epochs: [1, 2] }) });
+  assert.equal((await pb.restore('CODE', { root, remote: c, personalbackupkey: right })).ok, true);
+  assert.equal(pb.state({ root, personalbackupkey: right }), 'on');
+});
+
+test('#7404 restore: refused once the key is set up here (it would drop a code still waiting to be shown)', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  let called = 0;
+  const keys = { setUpPersonalKey: KEY_OK.setUpPersonalKey, hasPendingCode: () => false,
+    restorePersonalKey: async () => { called++; return { ok: true, epochs: [1] }; } };
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: keys })).ok, true);
+  assert.equal(pb.state({ root, personalbackupkey: keys }), 'on');
+  const r = await pb.restore('CODE', { root, remote: c, personalbackupkey: keys });
+  assert.equal(r.code, 'not_needed', JSON.stringify(r)); assert.equal(called, 0);
+});
+
+test('#7404 restore: refused while a recovery code made here waits to be saved (needs-key from a pending code)', async (t) => {
+  const root = fresh(t);
+  const c = coordinator();
+  let called = 0; let pending = true;
+  const keys = { setUpPersonalKey: async () => ({ ok: true, code: 'MADE-HERE', epoch: 1, org: 'korg', member: 'kmem' }),
+    hasPendingCode: (o, m) => pending && o === 'korg' && m === 'kmem',
+    restorePersonalKey: async () => { called++; return { ok: true, epochs: [1] }; } };
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: keys })).ok, true);
+  assert.equal(pb.state({ root, personalbackupkey: keys }), 'needs-key', 'the code made here is not confirmed yet');
+  const r = await pb.restore('CODE', { root, remote: c, personalbackupkey: keys });
+  assert.equal(r.code, 'code_waiting', JSON.stringify(r)); assert.equal(called, 0, 'a restore would have dropped the code');
+  pending = false;   // CONTROL: confirmed, so state reads on and the restore is refused as not needed instead
+  assert.equal((await pb.restore('CODE', { root, remote: c, personalbackupkey: keys })).code, 'not_needed');
+});
