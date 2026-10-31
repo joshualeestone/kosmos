@@ -41,12 +41,11 @@ reopened after new posts arrived) is reasoned, not measured.
 - Screenshots: 150 and 220 open on their newest with the change.
 
 ## Known trade-off
-(Round 3: on iOS 18 and later the window is up to 2.3 s, ended by the person's scroll (PersonScroll: tracking, interacting or
-decelerating) but not by a tap, a long-press, a status-bar tap to the top (it scrolls in the animating phase) or, probably, a
-VoiceOver scroll (not measured). The text below is round 1's.)
-A person who flicks up within half a second of opening a long room is pulled back to the end. The thread's onAppear also
-runs on coming back from a member's chat or another tab: it jumped to the end before this branch, and now repeats that
-jump for half a second.
+For a moment after a long room opens (and when it shows again, coming back from a member's chat or another tab, where
+main made one jump), the room keeps going back to its newest post: up to 2.3 s on iOS 18 and later, 0.5 s below. On 18 and
+later the person's scroll ends that (PersonScroll: tracking, interacting or decelerating), and a person already scrolling
+when it starts gets only the one jump; a tap, a long-press, a status-bar tap to the top (animating phase) and, probably, a
+VoiceOver scroll (not measured) do not end it. Below 18 nothing ends it early: a flick within half a second is pulled back.
 
 ## Not this branch (part 2 of #7654)
 A person's own scroll to the end of a long room stops short on iOS 26 (six swipes: 212 to 218 of 220, with and
