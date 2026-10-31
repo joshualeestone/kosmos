@@ -461,7 +461,7 @@ async function runJob(input, opts = {}) {
   const before = record(opts);
   const hash = before && before.consentHash;
   const r = await run(input, { ensureMemberKey: jobKey(opts), pointerName: JOB_POINTER });
-  if (!(r && !r.ok && typeof r.because === 'string' && /\borg_consent_changed\b/.test(r.because))) return r;
+  if (!(r && !r.ok && typeof r.because === 'string' && /\bcode org_consent_changed\b/.test(r.because))) return r;
   const oe = opts.orgenroll || require('./orgenroll');
   try { if (hash) await oe.consentWithdrawn(enrollOpts(opts), hash); } catch { /* asked again next run */ }
   return Object.assign({}, r, { personActs: true, because: 'what a personal backup does changed, so backups stopped. Turn it off here, then on again, to read the new words' });
