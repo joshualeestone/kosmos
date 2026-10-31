@@ -58,15 +58,22 @@ extension Board {
     // Review 2: a file is read whole into memory to open it, so one past this is not fetched (a 3 GB recording would get
     // the app killed, or run for minutes over cellular). It stays in Files on the computer.
     static let filesMaxOpenBytes = 100 * 1024 * 1024
-    static let filesTooBig = "This file is too big to open on the phone. It is in Files on your computer."
+    // Review 3: where it is, by owner: an agent's Files folder, or the project's folder.
+    static func filesTooBig(_ owner: FilesOwner) -> String { "This file is too big to open on the phone. " + filesStillThere(owner, "It is") }
+    static func filesStillThere(_ owner: FilesOwner, _ lead: String) -> String {
+        switch owner {
+        case .agent: return lead + " in Files on your computer."
+        case .project: return lead + " in the project\u{2019}s folder on your computer."
+        }
+    }
     static func filesTooBigToOpen(_ f: ListedFile) -> Bool { (f.size ?? 0) > filesMaxOpenBytes }
 
     // Review 1: a list cut short says so (the route stops at 500 project files, or 1000 entries in one agent folder), so
     // a missing file is never read as not there.
-    static func filesMore(_ page: FilesPage) -> String? {
+    static func filesMore(_ page: FilesPage, owner: FilesOwner) -> String? {
         guard page.truncated || page.total > page.files.count + page.dirs.count else { return nil }
         let shown = page.files.count + page.dirs.count
-        return "Showing the first \(shown). The rest are in Files on your computer."
+        return "Showing the first \(shown). " + filesStillThere(owner, "The rest are")
     }
 
     // The read for a list. Agent: with no `dir`, the newest `limit` (the section); with one ("" is the top), that folder
