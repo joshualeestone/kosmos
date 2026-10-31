@@ -123,8 +123,9 @@ struct ChatView: View {
     @State private var scrollBox = ScrollBox()
     @State private var diagContentWidth: CGFloat = 0
     @State private var diagReport: String?
-    // kosmos#7688 (2): the rebuild brought messages back, so the line says that rather than "did not draw properly".
-    @State private var diagRedrawn = false
+    // kosmos#7688 (2), review 1: the list was rebuilt, so the line says that rather than "did not draw properly". Words that
+    // stay true whatever happens after (rows can "appear" while the list stays black, and can leave again).
+    @State private var diagRebuilt = false
     @State private var diagDone = false   // once per open chat, even after the line is dismissed
     @State private var diagWideDone = false   // review 2: a width finding has its own once, so it cannot use up the blank one
     @State private var diagShownOnce = false   // review 2: the record starts at the chat's first showing, not each return
@@ -389,7 +390,7 @@ struct ChatView: View {
         .onChange(of: earlier) { _ in recomputeHiddenHeads() }
         // Signed out, another account or another Mac: what this chat shows belongs to the one before, so it goes.
         .onChange(of: client.chatEpoch) { now in
-            diagDone = false; diagWideDone = false; diagReport = nil; diagRedrawn = false   // kosmos#7420 review 1: another account or computer is a new chat
+            diagDone = false; diagWideDone = false; diagReport = nil; diagRebuilt = false   // kosmos#7420 review 1: another account or computer is a new chat
             diagThreadAt = nil; diagEverDrew = false   // review 4
             // kosmos#7575 review 1: what one computer saw is dropped, never sent to another's board (deliberately lost).
             shifts.reset(); shifts.attach(send: shiftSender())
@@ -680,9 +681,16 @@ struct ChatView: View {
                         Self.sampleRebuildDone = true
                         if v == "afterhide" {
                             var seen: NSObjectProtocol?
+                            // Review 1: then once the finger is off and the drag has stopped (at most 4 s more), or the
+                            // recovery would see a scroll under the finger and not rebuild.
+                            func whenStill(_ left: Int) {
+                                if left > 0 && (personScrolling || scrollBox.underFinger) {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { whenStill(left - 1) }
+                                } else { sampleRebuild(proxy) }
+                            }
                             seen = NotificationCenter.default.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { _ in
                                 if let s = seen { NotificationCenter.default.removeObserver(s); seen = nil }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { sampleRebuild(proxy) }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { whenStill(16) }
                             }
                         } else {
                             let n = Double(v) ?? 1
@@ -893,18 +901,21 @@ struct ChatView: View {
                      "anchor \(anchor), id anchor \(Self.idAnchor), searching \(searchMode), keyboard focus \(composerFocused)",
                      scrollBox.reading()?.line ?? "scroll: no scroll view found",
                      "recent events:"] + Self.diagRing
-        guard recover else { diagRedrawn = false; diagReport = lines.joined(separator: "\n"); announceDiag(); return }   // review 1: a width finding moves nobody
+        guard recover else { diagRebuilt = false; diagReport = lines.joined(separator: "\n"); announceDiag(); return }   // review 1: a width finding moves nobody
         Self.trace("diag: \(why), trying the newest message")
         let before = rebuilds.count
         recoverEmpty(proxy)
         // kosmos#7688 (2): after a rebuild the new list needs its grace before a reading means anything (0.6 s read the new
-        // scroll view half laid out, or none), and if rows are back the person is told it was redrawn, not that it failed.
+        // scroll view half laid out, or none), and the person is told it was rebuilt, not only that it failed.
         let rebuilt = rebuilds.count > before
         let wait = rebuilt ? Board.rebuildGrace + Board.rebuildCheckBump : 0.6
+        let chatAt = epoch, clientAt = client.chatEpoch
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+            // Review 1: still this chat, on screen (another account, computer or chat in the wait writes nothing).
+            guard visible, epoch == chatAt, client.chatEpoch == clientAt else { return }
             // kosmos#7420 (10-29): onScreen counts rows SwiftUI said appeared, not rows drawn; the scroll's place is measured.
             lines.append("after one try\(rebuilt ? " (list rebuilt)" : ""): " + (scrollBox.reading()?.line ?? "scroll: no scroll view found") + "; rows said to appear \(onScreen.count)")
-            diagRedrawn = rebuilt && !onScreen.isEmpty
+            diagRebuilt = rebuilt
             diagReport = lines.joined(separator: "\n")
             announceDiag()
         }
@@ -1001,7 +1012,7 @@ struct ChatView: View {
         }
     }
 
-    private var diagWords: String { diagRedrawn ? "This conversation went blank and was redrawn." : "This conversation did not draw properly." }
+    private var diagWords: String { diagRebuilt ? "This conversation went blank and was rebuilt." : "This conversation did not draw properly." }
     private func announceDiag() { UIAccessibility.post(notification: .announcement, argument: diagWords + " A Share button above the messages sends the details, if you choose.") }
 
     // The line that offers it: what happened in plain words, and Share. Stacked at the largest text sizes (review 1).
