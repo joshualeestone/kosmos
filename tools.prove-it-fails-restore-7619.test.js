@@ -195,14 +195,18 @@ test('#7629 B1 review 2: a child that keeps forking leaves nothing behind (the t
   // between the handler's read and its kill would escape. 🛑 CAPPED at 50, then it waits holding them (exiting would
   // orphan them out of the tree the tool kills). Uncapped, a tool whose kill is broken lets this fork until the test
   // ends: on 10-31 a mutant did exactly that, about 3,300 sleeps, and the shared Mac hit its per-user process limit
-  // and other agents' runs failed to fork. The signal lands at 5 or more (forks are 50 ms apart, so 45 forks, over 2 s, stand between it and the cap), and the
-  // arm checks fewer than 50 are out before it fires.
+  // and other agents' runs failed to fork. The signal lands at 5 or more (forks are 50 ms apart, so 45 forks, over
+  // 2 s, stand between it and the cap), and the arm checks fewer than 50 are out before it fires.
+  // The pid list lives in its own folder, not the sandbox: t.after hooks run in the order they were added, and the
+  // sandbox's removal runs first, so a list inside it was gone before the cleanup read it (10-31: 50 sleeps left).
+  const pidsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pif-7629-pids-'));
+  const pidsFile = path.join(pidsDir, 'forked.pids');
   fs.writeFileSync(path.join(dir, 'forker.sh'),
     '#!/bin/bash\nn=0; while [ $n -lt 50 ]; do /bin/sleep 300 & echo $! >> "$1"; n=$((n + 1)); /bin/sleep 0.05; done; wait\n');
   fs.chmodSync(path.join(dir, 'forker.sh'), 0o755);
   fs.writeFileSync(path.join(dir, 'fork.test.js'),
     "const { spawn } = require('node:child_process');\n" +
-    "spawn(__dirname + '/forker.sh', [__dirname + '/forked.pids'], { stdio: 'ignore' });\n" +
+    "spawn(__dirname + '/forker.sh', [" + JSON.stringify(pidsFile) + "], { stdio: 'ignore' });\n" +
     "require('node:test')('holds', () => new Promise((r) => setTimeout(r, 180000)));\n");
   execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'add', '-A'], { stdio: 'ignore' });
   execFileSync('git', ['-C', dir, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'forker'], { stdio: 'ignore' });
@@ -212,9 +216,9 @@ test('#7629 B1 review 2: a child that keeps forking leaves nothing behind (the t
   // Review 1 and 2: a failed arm stops the bash tool it started; what that tool started is ended by endAll below.
   t.after(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); });
   const exited = new Promise((r) => child.on('exit', (code) => r(code)));
-  const pidsFile = path.join(dir, 'forked.pids');
   const read = () => (fs.existsSync(pidsFile) ? fs.readFileSync(pidsFile, 'utf8').split('\n').filter(Boolean).map(Number) : []);
   t.after(() => endAll(read()));   // never leave sleepers behind (woken first: a read cut short leaves them stopped)
+  t.after(() => fs.rmSync(pidsDir, { recursive: true, force: true }));   // after the cleanup has read it
   for (let i = 0; i < 200 && read().length < 5; i++) await sleep(50);
   assert.ok(read().length >= 5, 'premise: the forker is forking');
   // Review: and still forking when the signal lands (under 50, its cap), or the arm proves only a static tree.
