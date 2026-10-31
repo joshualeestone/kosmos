@@ -2417,11 +2417,19 @@ struct KeyboardHold: UIViewRepresentable {
                 self.generation &+= 1
                 let mine = self.generation
                 self.guarding = (kept, Date().addingTimeInterval(Self.window))
-                guard let r = rows.y[kept.row] else { ChatView.trace("keyboard hold: the row was not drawn at did-show"); self.endGuard(); return }
+                // The reader's row no longer drawn (iOS moved it far off): put back by its last known place in the content, once.
+                guard let r = rows.y[kept.row] else {
+                    ChatView.trace("keyboard hold: the row was not drawn at did-show"); self.putBack(kept.content); self.endGuard(); return
+                }
                 self.putBack(CGFloat(r.content))
+                var last = CGFloat(r.content)
                 // Deferred to the next turn of the main queue, so a move made inside a layout pass is answered after it.
                 rows.watch = (kept.row, { [weak self] r in
-                    guard let r else { ChatView.trace("keyboard hold: the row left the drawn rows while held"); self?.endGuard(); return }
+                    guard let r else {
+                        ChatView.trace("keyboard hold: the row left the drawn rows while held")
+                        let at = last; DispatchQueue.main.async { self?.putBack(at); self?.endGuard() }; return
+                    }
+                    last = CGFloat(r.content)
                     DispatchQueue.main.async { self?.putBack(CGFloat(r.content)) }
                 })
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.window + 0.05) { [weak self] in

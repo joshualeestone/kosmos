@@ -36,7 +36,8 @@ A CI trace on this branch still showing put back 499 after "anchor let go".
   which drives the put-back itself; the LogicTests checks cover the five decisions alone.
 - A page landing above while the anchor is let go (the keepAnchor scroll on iOS 17+) has no check at all.
 
-(Rounds 2 to 4 below describe code that later rounds replaced; round 5 and after describe what ships.)
+(Rounds 2 to 4, round 5's first change and iteration 14's reading describe code that later work replaced; iteration 15 and
+after describe what ships: the offset at will-show plus the reader's row's move in the content.)
 
 ## Round 2 (21:59 CDT): CI on PR #7666 (run 41161105224)
 Measured: the let-go worked. The trace shows ONE put-back (797), "anchor let go", and 0.2 s later "anchor after let go
@@ -128,3 +129,11 @@ above measured again move the offset with the row, and if iOS's own move already
 The window-point top is still read, only to choose the reader's row. With no row top below the bar (one long message fills
 the screen) the reader's row is the one they are inside (Board.readerRow, checked). The will-show trace now prints only when
 the hold applies.
+Iteration 16: if the reader's row stops being drawn (iOS moved it far off), the hold puts the offset back once by the row's
+last known place in the content, then ends (it used to just end). Kept as they are, with reasons: (1) every drawn row is
+read on every scroll frame on iOS 26, because the readings must already exist at will-show and a reader at rest moves no row
+(gating by `hold` would leave nothing to read); the cost is one dictionary write per drawn row per frame, no state, nothing
+redrawn. (2) The let-go stays: round 1 measured the id anchor re-applying itself after each offset write, and this hold still
+writes the offset.
+Results on the shipping design: ios/LogicTests run.sh PASS 1734/1734, run-room.sh PASS 741/741 (beb6612fe8 and after);
+the local keyboard checks and CI's UI job on the final head are recorded in the PR.
