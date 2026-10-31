@@ -1314,15 +1314,38 @@ function agentInCommunity(session) {
 }
 /* #5313: fire ONE community prompt for a just-finished task, reusing the idle sweep's gates
    (engine/communityturn's live-exec + agent-nudge brake, the operator brake, the global community
-   switch, the Prompter's switch, the per-agent community membership) and the same chat.deliverAutomatic
-   the sweep uses, so a busy pane holds it as Queued (#5216). Reads and writes the per-task dedup book.
-   Synchronous and best-effort: it NEVER throws, and every caller runs it AFTER the mark is already
-   recorded, so a prompt can never fail a task mark. Shared by the built route and the close route. */
-function promptCommunityOnTaskDone({ projectId, taskNumber, session, name, trigger, roster }) {
+   switch, the Prompter's switch, the per-agent community membership) and the same chat.deliverAutomaticAsync
+   the sweep uses, so an agent mid-turn gets it Queued (#5216); a window still placing another message is refused as
+   pane-busy (chat.paneBusyVerdict). Reads and writes the per-task dedup book.
+   Best-effort: it NEVER rejects, and every caller runs it AFTER the mark is already recorded, so a
+   prompt can never fail a task mark. Shared by the built route and the close route.
+   kosmos#7649: the delivery is awaited, so typing into the pane no longer holds the event loop after the
+   200. Each prompt reads the book, delivers, and writes the book back, so two running at once could both
+   pass the dedup (one task prompted twice) and the later write could drop the earlier one's entry. So
+   every prompt waits for the one before it on TASK_DONE_CHAIN: one at a time, in the order the marks came. The chain
+   is in memory: a board restart drops the prompts still waiting on it (none is sent twice; a dropped one is not sent).
+   server.taskdone-chain-7649.test.js runs it. */
+let TASK_DONE_CHAIN = Promise.resolve();
+function promptCommunityOnTaskDone(args) {
+  const next = TASK_DONE_CHAIN.then(() => promptCommunityOnTaskDoneNow(args));
+  TASK_DONE_CHAIN = next.catch(() => null);   // a failed prompt never stops the ones after it
+  return TASK_DONE_CHAIN;
+}
+async function promptCommunityOnTaskDoneNow({ projectId, taskNumber, session, name, trigger, roster: atMark }) {
   try {
     const communitystore = require('./engine/communitystore');
     const book = communitytaskdone.readBook();
-    const r = communitytaskdone.promptOnTaskDone({
+    /* kosmos#7649 review 1: the roster as it is when this prompt's turn on the chain comes (the one before it can have
+       waited minutes), so the pane, its question menu and its quota hold are read off the agent's current card. The
+       route's own roster stands in only if the board's cannot be read. Review 5: read only when the prompt will send
+       (paneBusy and deliver run after every gate has passed), and once: a full roster read captures every pane, which
+       a mark that is deduped or gated off must not pay. */
+    let fresh;
+    const roster = () => {
+      if (fresh === undefined) { fresh = atMark; try { const r = safeRoster(); if (Array.isArray(r)) fresh = r; } catch { /* the route's roster */ } }
+      return fresh;
+    };
+    const r = await communitytaskdone.promptOnTaskDoneAsync({
       projectId, taskNumber, session, name, trigger,
       now: Date.now(), book,
       liveAllowed: () => agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
@@ -1331,7 +1354,8 @@ function promptCommunityOnTaskDone({ projectId, taskNumber, session, name, trigg
       prompterOn: () => heartbeatSetting.read().on === true,
       inCommunity: agentInCommunity,
       postTimes: (s) => { const all = communitystore.postTimesAll(); return all === null ? null : (all.get(String(s).trim().toLowerCase()) || []); },
-      deliver: (s, text) => chat.deliverAutomatic(s, text, roster),
+      deliver: (s, text) => chat.deliverAutomaticAsync(s, text, roster()),
+      paneBusy: (s) => chat.paneBusyVerdict(s, roster()),   // kosmos#7649: never typed behind another message
       DELIVERY: chat.DELIVERY,
     });
     // #5313: the prompt has already reached the pane when recorded; if the book write fails (disk full,
@@ -24576,7 +24600,7 @@ const server = http.createServer(async (req, res) => {
         // After the response; the per-task dedup book means a task already prompted on its built mark
         // sends none. Best-effort, never fails the close.
         if (taskAct[3] === 'close' && actor && !isViaScreen(req, {}) && !closedBeforeThisCall) {
-          promptCommunityOnTaskDone({ projectId: id, taskNumber: taskAct[2], session: actor, name: (actorCard && actorCard.name) || actor, trigger: 'closed', roster: safeRoster() });
+          promptCommunityOnTaskDone({ projectId: id, taskNumber: taskAct[2], session: actor, name: (actorCard && actorCard.name) || actor, trigger: 'closed' });   // kosmos#7649: the roster is read at the prompt's turn
         }
       } catch (err) {
         const msg = String((err && err.message) || '');
@@ -25266,7 +25290,7 @@ const server = http.createServer(async (req, res) => {
       }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
       // #5313: the same agent, between tasks, gets one community prompt (reaches busy agents the idle
-      // sweep never sees). After the response so the synchronous keystroke never delays the 200; the
+      // sweep never sees). After the response, and (kosmos#7649) awaited on its own chain, so it never holds the event loop; the
       // mark is already recorded, and the per-task dedup book makes a second built mark on the same
       // task send none.
       if (!viaScreen && body.clear !== true && out.changed && card) {
@@ -28787,6 +28811,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   switchRestartWhy, switchNextStep, switchCanStart,   // #7470 review 2/3: their edge arms are unit-tested
   unholdNext,   // #7407 review 6: so a test can see that the roster is read only where a sentence needs it
   _autobalanceSweepDepsForTest: autobalanceSweepDeps, // kosmos#7152 slice 3: the sweep's wiring, for its test
+  _promptCommunityOnTaskDoneForTest: promptCommunityOnTaskDone,   // kosmos#7649: the task-done chain, for its test
   _tellOwnBoundForTest: tellOwnBound, _ownBoundToldForTest: ownBoundTold, _ownboundsPushedForTest: ownboundsPushed, _ownboundsPushKeyForTest: ownboundsPushKey, // kosmos#7633: the stall push's own-bounds question, for its test
   _automoveDepsForTest: automoveDeps, _accountMoveDepsForTest: accountMoveDeps, // kosmos#7548: the mover's wiring, for its test
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,

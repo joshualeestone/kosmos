@@ -31,7 +31,10 @@ test('the server helper is wrapped so a prompt never fails a mark, uses the swee
   assert.match(fn, /switchOn:\s*\(\)\s*=>\s*communitysend\.switchOn\(\)/, 'global community switch gate missing');
   assert.match(fn, /prompterOn:\s*\(\)\s*=>\s*heartbeatSetting\.read\(\)\.on === true/, 'Prompter switch gate missing');
   assert.match(fn, /inCommunity:\s*agentInCommunity/, 'the helper is not wired to the shared membership check');
-  assert.match(fn, /deliver:\s*\(s, text\)\s*=>\s*chat\.deliverAutomatic\(s, text, roster\)/, 'not delivered through the gated automatic sender');
+  assert.match(fn, /deliver:\s*\(s, text\)\s*=>\s*chat\.deliverAutomaticAsync\(s, text, roster\(\)\)/, 'not delivered through the gated automatic sender');
+  // kosmos#7649: the synchronous sender holds the event loop after the 200
+  assert.doesNotMatch(fn, /chat\.deliverAutomatic\(/, 'kosmos#7649: the synchronous sender is back');
+  assert.match(fn, /await communitytaskdone\.promptOnTaskDoneAsync\(\{/, 'kosmos#7649: the delivery is not awaited');
   // the book is written only when the prompt reached (recorded), and a failed write is surfaced
   assert.match(fn, /if \(r && r\.recorded && communitytaskdone\.writeBook\(book\) === false\)/, 'the book is written unconditionally, or a failed write is not surfaced');
 });
@@ -69,4 +72,29 @@ test('the task-CLOSE route fires the prompt only on an actual close transition: 
   assert.ok(closeSend < at, 'the close prompt does not fire after the 200');
   // the no-op guard is computed from the DERIVED closed state (progressOf), not raw closedAt
   assert.match(SRC, /closedBeforeThisCall = !!\(held && tasks\.progressOf\(held\)\.closed\)/, 'the no-op re-close guard is not computed from the derived closed state');
+});
+
+test('kosmos#7649: every task-done prompt waits for the one before it (one chain), so two cannot both pass the per-task dedup or overwrite each other\'s book write', () => {
+  assert.match(SRC, /let TASK_DONE_CHAIN = Promise\.resolve\(\);\nfunction promptCommunityOnTaskDone\(args\) \{\n  const next = TASK_DONE_CHAIN\.then\(\(\) => promptCommunityOnTaskDoneNow\(args\)\);\n  TASK_DONE_CHAIN = next\.catch\(\(\) => null\);[^\n]*\n  return TASK_DONE_CHAIN;\n\}/, 'the task-done prompts are not chained one after another');
+  // The routes reach the work only through the chain.
+  assert.equal(SRC.split('promptCommunityOnTaskDoneNow(').length - 1, 2, 'promptCommunityOnTaskDoneNow is called somewhere other than the chain (or defined twice)');
+  // review 1: each name counted exactly (the sync name is a prefix of the async one, so a substring count saw both).
+  assert.equal(SRC.split('communitytaskdone.promptOnTaskDoneAsync(').length - 1, 1, 'more than one call into the task-done core');
+  assert.equal(SRC.split('communitytaskdone.promptOnTaskDone(').length - 1, 0, 'the synchronous task-done sender is called from the board again');
+});
+
+test('kosmos#7649: the task-done prompt asks chat whether the pane is still placing another message before it sends', () => {
+  const start = SRC.indexOf('async function promptCommunityOnTaskDoneNow(');
+  const fn = SRC.slice(start, SRC.indexOf('catch { return null; }', start));
+  assert.match(fn, /paneBusy:\s*\(s\)\s*=>\s*chat\.paneBusyVerdict\(s, roster\(\)\),/);
+});
+
+test('kosmos#7649 reviews 1 and 5: a queued task-done prompt reads the roster at its own turn, and only when it will send', () => {
+  const start = SRC.indexOf('async function promptCommunityOnTaskDoneNow(');
+  const fn = SRC.slice(start, SRC.indexOf('catch { return null; }', start));
+  // Review 5: a getter, read once on first use, so a mark the gates refuse never pays for a full roster read.
+  assert.match(fn, /const roster = \(\) => \{\s*if \(fresh === undefined\) \{ fresh = atMark; try \{ const r = safeRoster\(\); if \(Array\.isArray\(r\)\) fresh = r; \}/);
+  assert.match(fn, /deliver:\s*\(s, text\)\s*=>\s*chat\.deliverAutomaticAsync\(s, text, roster\(\)\),/);
+  assert.match(fn, /paneBusy:\s*\(s\)\s*=>\s*chat\.paneBusyVerdict\(s, roster\(\)\),/);
+  assert.equal(fn.split('safeRoster()').length - 1, 1, 'the roster is read somewhere other than the getter');
 });
