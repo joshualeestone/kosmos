@@ -152,6 +152,29 @@ out="$(KOSMOS_WAIT_NOW="$T/clock.sh" KOSMOS_WAIT_SLEEP=true KOSMOS_WAIT_EVERY_S=
 has "$out" "gave up after waiting" && has "$out" "a relay pre-push build is running" && pass "8 it says it gave up, and why" || fail "8 bound wording: $out"
 finish
 
+# 10. kosmos#7674: a build BETWEEN two of its steps holds no lock, only its gate turn (beside the lock, as the hook
+# writes it). A turn touched within the window is a build; an old, empty or missing one is not.
+TURNF="$(dirname "$KOSMOS_PREPUSH_MACHINE_LOCK")/prepush.gate.turn"
+[ "$(_kosmos_prepush_turn_file)" = "$TURNF" ] && pass "10 the turn is read beside the lock (one seam moves both)" || fail "10 turn path: $(_kosmos_prepush_turn_file)"
+rm -f "$TURNF"
+kosmos_prepush_build_live && fail "10 CONTROL: no lock held and no turn reads as a build" || pass "10 CONTROL: no lock held and no turn is not a build"
+printf 'abc123.4567.1793450000\n' > "$TURNF"
+kosmos_prepush_build_live && pass "10 a fresh turn with no lock held is a build (between steps)" || fail "10 a fresh turn reads as no build"
+out="$(kosmos_refuse_if_prepush_build_live "a heavy run" "KOSMOS_CUT_IGNORE_PREPUSH=1 cuts anyway" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "between two of its steps" && has "$out" "s ago" && has "$out" "KOSMOS_CUT_IGNORE_PREPUSH=1 cuts anyway." \
+  && pass "10 refused between steps, saying so, how long ago the turn was used, and the override" || fail "10 between-steps refusal: rc=$rc $out"
+out="$(WHAT="a heavy run" KOSMOS_QUEUE_CLASS=heavy _qh_clear 2>&1)"; rc=$?
+[ "$rc" != 0 ] && pass "10 queued-heavy's own check waits between a build's steps" || fail "10 _qh_clear let a heavy run in between steps: rc=$rc $out"
+touch -A -0400 "$TURNF"   # used 4 minutes ago: past the 180 s window
+kosmos_prepush_build_live && fail "10 a turn unused past the window still reads as a build" || pass "10 a turn unused past the window is not a build (a build that went away)"
+KOSMOS_PREPUSH_TURN_LIVE_S=600 kosmos_prepush_build_live && pass "10 CONTROL: the same turn within a wider window is a build (the age, not the file, decides)" || fail "10 CONTROL: a wider window did not count it"
+: > "$TURNF"
+kosmos_prepush_build_live && fail "10 an empty turn reads as a build" || pass "10 an empty turn is not a build"
+printf 'abc\n' > "$TURNF"; touch -t 203001010000 "$TURNF"
+kosmos_prepush_build_live && fail "10 a turn dated years ahead reads as live for ever" || pass "10 a turn dated years ahead is not trusted as live"
+rm -f "$TURNF"
+KOSMOS_PREPUSH_MACHINE_LOCK=/dev/null/kosmos-tests-no-prepush-lock kosmos_prepush_build_live && fail "10 run-tests.sh's /dev/null lock seam reads a turn" || pass "10 run-tests.sh's /dev/null lock seam reads no turn either"
+
 echo
 [ "$fails" = 0 ] && { echo "test-prepush-wait-6756: all passed"; exit 0; }
 echo "test-prepush-wait-6756: $fails FAILED"; exit 1

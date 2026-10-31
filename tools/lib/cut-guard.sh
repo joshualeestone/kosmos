@@ -1327,7 +1327,10 @@ kosmos_refuse_if_machine_claimed() {
 # build reads the machine claim before each step, so the cut's claim (release.sh) stops the next one.
 # KOSMOS_PREPUSH_MACHINE_LOCK, KOSMOS_CUT_LOCKF_BIN and KOSMOS_PREPUSH_RECHECK_S are this file's own seams.
 _kosmos_prepush_lock_file() { printf '%s' "${KOSMOS_PREPUSH_MACHINE_LOCK:-${HOME:-/tmp}/.cache/prepush/machine.lock}"; }
-kosmos_prepush_build_live() {
+# kosmos#7674: the build's gate TURN, beside the lock (the hook writes both into one folder, so a test or a run that
+# points the lock seam elsewhere points this with it; run-tests.sh's /dev/null lock path makes it unreadable too).
+_kosmos_prepush_turn_file() { local l; l="$(_kosmos_prepush_lock_file)"; printf '%s/prepush.gate.turn' "${l%/*}"; }
+_kosmos_prepush_lock_held() {
   local f rc=0
   f="$(_kosmos_prepush_lock_file)"
   [ -f "$f" ] || return 1   # never create the hook's file by asking
@@ -1339,11 +1342,37 @@ kosmos_prepush_build_live() {
   "${KOSMOS_CUT_LOCKF_BIN:-/usr/bin/lockf}" -k -s -t 0 "$f" true 2>/dev/null || rc=$?
   [ "$rc" = 75 ]
 }
+# kosmos#7674: a build BETWEEN two of its steps holds no lock, so before this a heavy turn could claim the box in that
+# gap and stop the build at its next step, after the builder's whole wait. Between steps the build holds its gate turn
+# instead: a file the hook touches at every step boundary and removes when its gate ends (or on any red). A turn
+# touched within KOSMOS_PREPUSH_TURN_LIVE_S seconds (180: the hook's 120 s grace plus a margin) is a build in progress.
+# A turn left by a build that died reads as live for at most that long. Prints the age in seconds when fresh.
+_kosmos_prepush_turn_fresh() {
+  local f m now lim="${KOSMOS_PREPUSH_TURN_LIVE_S:-180}"
+  case "$lim" in ''|*[!0-9]*) lim=180 ;; esac
+  f="$(_kosmos_prepush_turn_file)"
+  [ -s "$f" ] || return 1   # no turn, or an empty one: no build holds it
+  m="$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null)" || return 1
+  case "$m" in ''|*[!0-9]*) return 1 ;; esac
+  now="$(date +%s)"
+  [ $(( now - m )) -lt "$lim" ] || return 1
+  [ $(( now - m )) -ge -60 ] || return 1   # a turn dated far in the future is not trusted to be live for ever
+  printf '%s' "$(( now - m ))"
+}
+kosmos_prepush_build_live() {
+  _kosmos_prepush_lock_held && return 0
+  _kosmos_prepush_turn_fresh >/dev/null
+}
 # kosmos_refuse_if_prepush_build_live <what> [override]: refuses (prints why on stderr, returns 1) while a relay pre-push
 # build holds the lock, naming its holder for the person; callers wait on it with kosmos_wait_until_clear.
 kosmos_refuse_if_prepush_build_live() {
-  local what="${1:-this run}" override="${2:-}" f holder="" p
-  kosmos_prepush_build_live || return 0
+  local what="${1:-this run}" override="${2:-}" f holder="" p age
+  if ! _kosmos_prepush_lock_held; then
+    # kosmos#7674: no step holds the lock, but the build's turn is fresh: it is between two steps.
+    age="$(_kosmos_prepush_turn_fresh)" || return 0
+    echo "a relay pre-push build is between two of its steps on this machine (its gate turn, $(_kosmos_prepush_turn_file), was used ${age}s ago); $what would take the box from it and stop its next step. It ends on its own, or its turn lapses within ${KOSMOS_PREPUSH_TURN_LIVE_S:-180}s if the build went away.${override:+ $override.}" >&2
+    return 1
+  fi
   f="$(_kosmos_prepush_lock_file)"
   # The holder, for the message only (liveness is the lock above): lsof names who has the file open. The pid and the
   # program name only, never the command line (this goes to logs, and a command line does not belong there).
