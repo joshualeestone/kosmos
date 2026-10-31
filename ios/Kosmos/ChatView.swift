@@ -644,6 +644,9 @@ struct ChatView: View {
                     if !Board.keepPageByScroll(idAnchor: Self.idAnchor, letGo: anchorLetGo, anchor: positionId) { keepAnchor = nil; return }
                     Self.trace("keepAnchor scrollTo a message")   // kosmos#7420 review 1: no message id in the record
                     proxy.scrollTo(id, anchor: .top)
+                    // kosmos#7645: after a let-go on iOS 17+ this scroll runs beside the id anchor; whether SwiftUI then names a row
+                    // in the binding (the .bottom anchor taking over) is not measured: the record says.
+                    if Self.idAnchor, anchorLetGo { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { Self.trace("keepAnchor: anchor after \(Board.anchorKind(positionId))") } }
                     keepAnchor = nil
                 }
                 .onChange(of: keepAtEndTick) { _ in
@@ -2304,8 +2307,8 @@ struct PersonScroll: ViewModifier {
 // up moved the conversation (the reader's row 149 to 186..225, or off the screen), with the side lock and with the id
 // anchor each switched off, so it is iOS 26's own keyboard handling; iOS 27 keeps the row where it was. Not caused here,
 // so not prevented here: undone. When the keyboard starts to show while the reader is not at the newest message (`hold`),
-// the reader's row (the highest one whose top is at or below the top inset), its place in the content and the scroll
-// offset are kept; once the keyboard is up the offset is put at that offset plus how far the row moved in the content, so
+// the reader's row (Board.readerRow: the highest whose top shows, or the one the reader is inside), its place in the
+// content and the scroll offset are kept; once the keyboard is up the offset is put at that offset plus how far the row moved in the content, so
 // the row is where it was on the screen, if nobody is scrolling. At the newest message the chat's
 // own keep (keepNewestInView) moves it on purpose, so nothing is held then. KOSMOS_SAMPLE_NOKBHOLD=1 (Debug) is the control.
 // kosmos#7645 (CI round 4, 10-30): the hold used to keep the scroll OFFSET, and on CI's runner the rows above were measured
@@ -2446,7 +2449,11 @@ struct KeyboardHold: UIViewRepresentable {
                             ChatView.trace("keyboard hold: window ended \(Self.numbers(sv))")
                             // A move the row's readings never reported would leave it off its place: the record says by how much.
                             if let r = rows.y[kept.row] {
-                                let moved = sv.contentOffset.y - (kept.offset + (CGFloat(r.content) - kept.content))
+                                let i = sv.adjustedContentInset
+                                let place = Board.holdTarget(offset: Double(kept.offset), content: r.content, keptContent: Double(kept.content),
+                                                             insetTop: Double(i.top), insetBottom: Double(i.bottom),
+                                                             contentHeight: Double(sv.contentSize.height), viewHeight: Double(sv.bounds.height))
+                                let moved = sv.contentOffset.y - CGFloat(place)
                                 if abs(moved) > 1 { ChatView.trace("keyboard hold: window ended off the row's place by \(Int(moved))") }
                             }
                         }
@@ -2469,7 +2476,8 @@ struct KeyboardHold: UIViewRepresentable {
 struct RowReading: Equatable { let top: Double, content: Double }
 final class RowTops {
     var y: [String: RowReading] = [:]
-    var last: [String: Double] = [:]   // each row's last place in the content, kept after it stops being drawn
+    var last: [String: Double] = [:]   // each row's last place in the content, kept after it stops being drawn (one per row
+                                       // drawn in this chat; a fresh chat clears it)
     var watch: (id: String, seen: (RowReading?) -> Void)?
     func set(_ id: String, _ r: RowReading?) {
         if KeyboardHold.Probe.off { return }   // the hold is off (below iOS 26, or the Debug control): nothing reads these
