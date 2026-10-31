@@ -28,7 +28,7 @@ function load(answer) {
     // The network is the test's: pbPost answers what the test says, pbMaybe reads nothing.
     'async function pbPost(kind, body) { posted.push({ kind, body }); return answer; }',
     'function pbMaybe() {}',
-    liftAll(SCRIPT, ['asSentence', 'pbMsg', 'pbPrice', 'pbPaint', 'pbCodeText', 'pbShowCode', 'pbSaved'])].join('\n'), ctx);
+    liftAll(SCRIPT, ['asSentence', 'pbMsg', 'pbPrice', 'pbPaint', 'pbCodeText', 'pbShowCode', 'pbSaved', 'pbFinish'])].join('\n'), ctx);
   ctx.PB.st = { shown: true, price: null, state: 'needs-key' };
   return { ctx, el: (id) => dom.document.getElementById(id) };
 }
@@ -64,4 +64,19 @@ test('the panel hiding (Kosmos+ section, switch off) drops the code and a typed 
   assert.equal(el('pb-code-text').textContent, '');
   assert.equal(ctx.PB.code, null);
   assert.equal(el('pb-restore-code').value, '');
+});
+
+/* #7681 item 4: Finish setting up after a restore whose key-ready write failed. The key step answers ok with no code to
+   show (this computer already holds the keys), and the page says so instead of appearing to do nothing. */
+test('Finish setting up on a computer that already holds the keys says the key is set up', async () => {
+  const { ctx, el } = load({ ok: true });
+  await ctx.pbFinish();
+  assert.equal(JSON.stringify(ctx.posted.map((p) => p.kind)), JSON.stringify(['key']));
+  assert.equal(el('pb-msg').textContent, 'Your backup key is set up on this computer.', 'the press said nothing');
+  assert.equal(ctx.PB.code, null, 'no code was shown');
+  // CONTROL: a key step that does make a code shows it, and does not claim the key was already set up.
+  const shown = load({ ok: true, recoveryCode: CODE, org: 'o', member: 'm' });
+  await shown.ctx.pbFinish();
+  assert.equal(shown.el('pb-code-text').textContent, CODE);
+  assert.doesNotMatch(shown.el('pb-msg').textContent, /already|is set up on this computer/);
 });
