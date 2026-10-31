@@ -34,6 +34,23 @@ final class KeyboardSlideUITests: XCTestCase {
         Self.assertAbove(newest, box, app.keyboards.firstMatch)
     }
 
+    // kosmos#7420 (build 24): a list found empty within its content at the newest message is rebuilt, opened at its end.
+    // KOSMOS_SAMPLE_REBUILD runs that recovery 3 s after opening (its marker shows only if the list was rebuilt); the cause
+    // (rows not drawn within the content, on a phone) is not reproduced here. After it, the chat still opens at its newest
+    // message above the box, and keeps it there when the keyboard comes up.
+    func testRebuiltListShowsTheNewestMessage() throws {
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_REBUILD": "1"])
+        let box = Self.box(app)
+        let rebuilt = app.descendants(matching: .any).matching(identifier: "sample-rebuilt").firstMatch
+        XCTAssertTrue(rebuilt.waitForExistence(timeout: 30), "the list was never rebuilt (the recovery did not decide .rebuild)")
+        let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
+        XCTAssertTrue(newest.waitForExistence(timeout: 10) && newest.isHittable, "the rebuilt list did not show the newest message")
+        Self.settle(newest)
+        XCTAssertLessThanOrEqual(newest.frame.maxY, box.frame.minY, "the newest message was not above the box after the rebuild")
+        try Self.keyboardUp(app, box, newest, shot: "rebuilt-keyboard-up", test: self)
+        Self.assertAbove(newest, box, app.keyboards.firstMatch)
+    }
+
     // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP moves
     // the reader up the thread 3 s after opening, as a reader's own scroll does.
     func testReadHigherUpStaysWhereItWas() throws {
