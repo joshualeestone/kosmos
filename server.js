@@ -4320,16 +4320,21 @@ function signinRefusalStatus(r, notMine) { return r && r.because === notMine ? 4
 function isGateThrowInTest(e) {
   return require('./engine/live-execution').inTestProcess() && /for real inside a test/.test(String(e && e.message));
 }
+/* #7686: whether this response already has its head, so a second answer must not write one. About two hundred routes
+   answer a failure with sendJson from a catch, and some of those failures happen after the head went out; writeHead
+   then threw inside the catch, nothing handled it, and the board ended for every agent and device on the computer
+   (10-31 11:51). So a second answer ends the broken response instead (the client sees a cut, never a 200 head with
+   a 404 body) and logs which route it was, the path as safeLogUrl writes it. The hand-written `if (!res.headersSent)`
+   guards elsewhere may stay; they are now also covered here. Pinned by server.headers-twice-7686.test.js. */
+function answeredAlready(res, what) {
+  if (!res.headersSent) return false;
+  const req = res.req;
+  console.error(what + ' after the head was sent, not written (' + (req ? req.method + ' ' + safeLogUrl(req.url) : 'no request') + '); the response is ended');
+  if (!res.writableEnded) res.destroy();
+  return true;
+}
 function sendJson(res, code, obj) {
-  /* #7686: about two hundred routes answer a failure with sendJson from a catch, and some of those failures happen
-     after the head went out. writeHead then throws inside the catch, nothing handles it, and the board ends for
-     every agent and device on the computer (10-31 11:51). So a second answer ends the broken response instead:
-     the client sees a cut, never a 200 head with a 404 body. Pinned by server.headers-twice-7686.test.js. */
-  if (res.headersSent) {
-    console.error('sendJson after the head was sent: ' + code + ' not written; the response is ended');
-    if (!res.writableEnded) res.destroy();
-    return;
-  }
+  if (answeredAlready(res, 'sendJson ' + code)) return;
   res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
   res.end(strictStringify(obj));   // #7108: never a lone surrogate, which a strict reader (the iPhone) refuses whole
 }
@@ -4444,7 +4449,15 @@ function sendFileStream(req, res, file, unread, headers, opts = {}) {
   /* Review 2: read no further than the size measured, so a file that grows meanwhile cannot overrun Content-Length.
      Review 4: and one that shrank cuts the response at its end instead of ending it short, so a keep-alive client is
      not left waiting for bytes that will never come. #6805: both measured against the range sent, not the file. */
-  const rs = fs.createReadStream(null, { fd, start, end: start + length - 1, autoClose: true });
+  let rs;
+  try {
+    rs = fs.createReadStream(null, { fd, start, end: start + length - 1, autoClose: true });
+  } catch {
+    // #7686 review 1: the head is out, so end the response, and close the descriptor no stream now owns.
+    try { fs.closeSync(fd); } catch { /* closed */ }
+    res.destroy();
+    return;
+  }
   rs.once('end', () => { if (rs.bytesRead < length) res.destroy(); });
   /* Review 26: a client that stays connected but stops reading would hold the descriptor for ever; as the folder zip
      does (ZIP_STALL_MS), a download that moves no bytes for DOWNLOAD_STALL_MS is ended, which closes it. */
@@ -5827,6 +5840,8 @@ function isDownloadCheck(req) {
    { ok: false, because } (#4997's shape) with `status` (404 unless said). Every refusal on both download routes
    comes through here, the early ones (a bad name, no such agent or project, a linked Files) included. */
 function refuseDownload(req, res, because, status = 404) {
+  // #7686 review 1: the diagnostics route writes its head before it serialises, so its catch can land here late.
+  if (answeredAlready(res, 'refuseDownload ' + status)) return;
   if (req.headers['sec-fetch-mode'] === 'navigate' && !isDownloadCheck(req)) {
     res.writeHead(204, { 'cache-control': 'no-store' });
     res.end();
@@ -28895,6 +28910,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   _setZipStallForTest, _setZipLimitForTest, zipPut, // kosmos#6724: the folder zip's one-write-at-a-time sender, and its stall timeout for a test
   _setDownloadStallForTest, // kosmos#6734: the download's stall timeout, for its test
   parseByteRange, // kosmos#6805: the Range parser, for its test
+  _sendJsonForTest: sendJson, _refuseDownloadForTest: refuseDownload, // kosmos#7686: never a second head, for its test
   madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   cameThroughForwarder, isRemoteRequest, REMOTE_NOT_ALLOWED, // kosmos#6595: a request through a forwarder, and the refusals
   remoteSessionFresh, needsRemoteStepUp, remoteStepUpRefusal, REMOTE_STEP_UP, REMOTE_STEP_UP_CLOCK, REMOTE_STEP_UP_CONNECTOR, REMOTE_STEP_UP_SIGNIN, REMOTE_STEP_UP_LOGOUT, REMOTE_STEP_UP_SECS, // kosmos#6595 R01 step-up, #6616, #7625

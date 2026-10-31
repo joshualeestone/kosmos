@@ -18,9 +18,12 @@ Rejected: guarding each catch by hand (200 sites, and the next new route reopens
 deliberate choice not to have one).
 
 ## Sweep of the other head writers
-Every top-level function that calls `res.writeHead` was listed. `sendFileStream` already destroys the response when
-its head is out. `refuseDownload`'s direct 204 branch is reached only from early refusals; its one call inside a
-catch (the folder zip's length) runs before any head. No other head writer is called from a catch.
+Every top-level function that calls `res.writeHead` was listed. `sendFileStream` already destroyed the response when
+its head was out, except for a throw while opening the stream: that now closes the descriptor and ends the response
+too (review 1: before, the board died there; surviving it would have leaked one descriptor per failure).
+`refuseDownload` writes a 204 itself for a browser download, and review 1 found it IS reached after a head: the
+diagnostics route writes its 200 head and then serialises, so a throw there lands in its catch, which refuses. So
+`refuseDownload` shares the guard (`answeredAlready`), which also logs the route by its method and safe path.
 
 ## Test
 `server.headers-twice-7686.test.js` makes `fs.createReadStream` throw once, which is after the preview route's head is
