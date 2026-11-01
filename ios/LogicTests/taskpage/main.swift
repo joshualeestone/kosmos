@@ -174,13 +174,13 @@ final class FakeMac {
     var asked: [String] = []
     var epoch = 0
     var onSend: ((URLRequest) -> Void)?
-    // When set, the next request is held until release() (for reads that land out of order). Set it with holdTheNext().
+    // When set, a request is held until release() (for reads that land out of order). Set it with holdTheNext().
     private(set) var holdNext = false
     private var held: CheckedContinuation<Void, Never>?
     var holding: Bool { held != nil }
     // Arms a hold only when none is armed or held, so the hold a test then waits for is the one it armed.
-    func holdTheNext() {
-        if holdNext || held != nil { endRun("a hold was armed while an earlier one was still armed or held") }
+    func holdTheNext(line: Int = #line) {
+        if holdNext || held != nil { endRun("a hold was armed while an earlier one was still armed or held", line: line) }
         holdNext = true
     }
     func release() { let h = held; held = nil; h?.resume() }
@@ -188,7 +188,7 @@ final class FakeMac {
         let answer = send(build)
         if holdNext {
             holdNext = false
-            // Two holds at once would drop the first one's continuation, which never resumes: end the run instead.
+            // Never drop a held continuation: it would never resume.
             if held != nil { endRun("a second request was held while one already was") }
             await withCheckedContinuation { held = $0 }
         }
@@ -223,7 +223,7 @@ func endRun(_ why: String, line: Int = #line) -> Never {
 func waitUntil(_ reached: () -> Bool, _ what: String, line: Int = #line) async {
     // The bound only turns a hold that never comes into a FAIL instead of a hang.
     for _ in 0..<100_000 { if reached() { return }; await Task.yield() }
-    endRun("the test reached its hold: \(what)", line: line)
+    endRun("the test never reached its hold: \(what)", line: line)
 }
 @MainActor
 func modelTests() async {
@@ -407,13 +407,17 @@ func modelTests() async {
     check(!cm.readFailed, "a read cut short records no failure")
 
     // A parse held while a newer read lands: the newer answer stands, and so does a newer failure.
-    @MainActor final class ParseGate { var hold = false; var held: CheckedContinuation<Void, Never>?; var waiting: Bool { held != nil }
+    @MainActor final class ParseGate { private(set) var hold = false; var held: CheckedContinuation<Void, Never>?; var waiting: Bool { held != nil }
         func release() { let h = held; held = nil; h?.resume() }
         // As FakeMac's: a second hold would drop the first one's continuation, so the run ends instead.
-        func park() async {
+        func arm(line: Int = #line) {
+            if hold || held != nil { endRun("a parse or build hold was armed while an earlier one was still armed or held", line: line) }
+            hold = true
+        }
+        func park(line: Int = #line) async {
             guard hold else { return }
             hold = false
-            if held != nil { endRun("a second parse or build was held while one already was") }
+            if held != nil { endRun("a second parse or build was held while one already was", line: line) }
             await withCheckedContinuation { held = $0 }
         } }
     for newerFails in [false, true] {
@@ -424,7 +428,7 @@ func modelTests() async {
                                    return Board.parseTaskPage(data, project: project, number: number)
                                })
         mac.projects = (200, projectsData)
-        gate.hold = true
+        gate.arm()
         let older = Task { await pm.read() }
         await waitUntil({ gate.waiting }, "a parse held")
         mac.projects = newerFails ? (502, Data()) : (200, Data(#"{"projects":[]}"#.utf8))
@@ -464,7 +468,7 @@ func modelTests() async {
                                    return await TaskPageModel.buildOffMain(names, data)
                                })
         mac.activity = (200, fixture("activity-3.json"))
-        gate.hold = true
+        gate.arm()
         let olderBuild = Task { await am.readActivity(names: nm) }
         await waitUntil({ gate.waiting }, "a build held")
         mac.activity = newerFails ? (502, Data()) : (200, Data(#"{"events":[],"count":0}"#.utf8))
