@@ -25,7 +25,7 @@ const MAX_SKIPPED_REPORTED = 10000;
 const MAX_FAILED_REPORTED = 10000;
 const WORK_PER_ENTRY = 8192;
 // Bounds on the manifest: its object is refused before it is decrypted, its entry count before it is walked. A
-// manifest is parsed whole, so these stay modest (about 270 bytes an entry); the caller can raise both.
+// manifest is parsed whole, so these are bounded (a top plan is about 130 MiB of JSON, kosmos#7404); the caller can raise both.
 const MAX_MANIFEST_OBJECT = 256 * 1024 * 1024;
 const MAX_FILES = 500_000;
 const SHA256_RE = /^[0-9a-f]{64}$/;

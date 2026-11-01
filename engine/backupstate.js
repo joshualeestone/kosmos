@@ -60,7 +60,7 @@
  *   caller's, as every week choice is.
  *   Size: a slot of 200000 rows is about 35 MB (measured: 283 ms to write, 251 ms to read on this Mac). A full one at
  *   600000 rows, the top plan's, measured 162 MiB, 186 ms to stringify and 204 ms to parse, so two full slots are about
- *   324 MiB and, with validation and the re-read, likely a few seconds each way (not measured). The previous week's slot stays until a third week arrives,
+ *   324 MiB. The previous week's slot stays until a third week arrives,
  *   carried but unused after the coordinator's Monday; accepted (it is dropped by the next week's first run).
  * withPeriod(state, period) -> state: `period` in the first slot, replacing its label's slot; at most SLOTS kept, the
  *   least recently used dropped. For writing a fresh period before its snapshot.
