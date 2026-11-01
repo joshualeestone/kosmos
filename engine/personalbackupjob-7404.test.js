@@ -62,6 +62,7 @@ test('the key step answers the key Kosmos+ lists, and sends nothing but the read
   assert.deepEqual([r.org, r.member], [pair.org, pair.member]);
   assert.ok(r.publicKey.equals(key.pk));
   assert.equal(r.sk, undefined, 'sealing needs the public key alone');
+  assert.ok(r.proofKey.equals(require('./backupformat').memberProofKey(key.sk)), 'slice D: a restore can trust what this seals');
   assert.deepEqual(k.calls.map((c) => c.route), [pk.MINE_ROUTE]);
 });
 
@@ -149,6 +150,7 @@ test('a real run seals to the personal key under the pair Kosmos+ named, and nam
   assert.deepEqual(r.pair, pair);
   assert.equal(taken.length, 1, 'one snapshot, after the pair was learned');
   assert.ok(taken[0].memberPk.equals(key.pk));
+  assert.ok(taken[0].proofKey.equals(require('./backupformat').memberProofKey(key.sk)), 'slice D: the proof key reaches the real run');
   assert.deepEqual([taken[0].ctx.org, taken[0].ctx.member, taken[0].ctx.epoch], [pair.org, pair.member, '1']);
   assert.deepEqual(withdrawn, []);
   assert.ok(!k.calls.some((c) => c.route === mk.MEMBER_KEY_ROUTE), 'the job never registers');

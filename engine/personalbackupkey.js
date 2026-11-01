@@ -50,6 +50,7 @@ const path = require('node:path');
 const store = require('./store');
 const backupkeys = require('./backupkeys');
 const memberkeys = require('./backupmemberkey');
+const { memberProofKey } = require('./backupformat');
 
 const MINE_ROUTE = '/v1/org/backup/member-key/mine';
 const MEMBER_KEY_ROUTE = memberkeys.MEMBER_KEY_ROUTE;
@@ -291,7 +292,8 @@ async function jobKeyNow(orgId, opts) {
     // Only a lostEpoch recorded for this pair, as ensureMemberKey's lostFor.
     const lostHere = opts.lostFor && opts.lostFor.org === org && opts.lostFor.member === member && Number.isSafeInteger(opts.lostEpoch);
     if (lostHere && opts.lostEpoch >= row.epoch) return actOn('Kosmos+ asked for a newer key than this backup lists, so nothing was backed up', named);
-    return { ok: true, epoch: row.epoch, publicKey: row.memberPk, org, member };
+    // Slice D: the proof a restore checks (backupformat.js). Personal only, and derived here, so the member secret stops at this file.
+    return { ok: true, epoch: row.epoch, publicKey: row.memberPk, org, member, proofKey: memberProofKey(k.sk) };
   } catch { return refused('the backup key could not be read on this computer'); }
 }
 
