@@ -227,8 +227,9 @@ const CLAUDE_KEEPS = 'On a Free, Pro, Max or Ultra plan, Anthropic keeps what yo
   + 'Anything its safety systems flag can be kept for up to 2 years.';
 const CLAUDE_API_KEEPS = 'On an Anthropic API key, Anthropic keeps what you send for up to 30 days. '
   + 'Anything its safety systems flag can be kept for up to 2 years.';
+const REDIRECTED_KEEPS = 'What that service keeps is set by whoever runs it.';
 const keeps = (reader) => {
-  if (reader && reader.kind === 'claude' && reader.redirected === true) return null;
+  if (reader && reader.kind === 'claude' && reader.redirected === true) return REDIRECTED_KEEPS;
   if (reader && reader.kind === 'claude') return reader.apiKey === true ? CLAUDE_API_KEEPS : CLAUDE_KEEPS;
   return (reader && KEEPS[reader.provider]) || null;
 };

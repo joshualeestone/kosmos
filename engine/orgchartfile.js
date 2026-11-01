@@ -672,7 +672,9 @@ const claudeHere = () => {
 /* #4560: who reads a picture or PDF here. Claude first, when this computer can run it (#4559); then a ChatGPT
    subscription through Codex (#5346, engine/orgchartcodex.js; pictures only); otherwise the first KEY-connected OpenAI,
    Gemini or Grok account, in Settings order (engine/orgchartkeys.js); otherwise nobody. */
-const CLAUDE_REDIRECT_VARS = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'];
+const CLAUDE_PROVIDER_SWITCHES = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'];
+const claudeRedirected = () => String(process.env.ANTHROPIC_BASE_URL || '').trim() !== ''
+  || CLAUDE_PROVIDER_SWITCHES.some((v) => { const s = String(process.env[v] || '').trim(); return s !== '' && !/^(0|false|no|off)$/i.test(s); });
 let lastWhy = null;   // set by currentReader (see whyNoReader)
 let readerOverride = null;
 /** Tests only: the reader to use ({kind:'claude'}, {kind:'codex', dir, account} or {kind:'key', provider, dir, account});
@@ -695,8 +697,7 @@ function currentReader(name) {
     const apiKey = Boolean(acct && acct.apiKey === true) || Boolean(String(process.env.ANTHROPIC_API_KEY || '').trim());
     // Variables that send Claude Code somewhere other than Anthropic reach the read the same way, so what Anthropic
     // keeps is not the question there.
-    const redirected = CLAUDE_REDIRECT_VARS.some((v) => String(process.env[v] || '').trim() !== '');
-    return { kind: 'claude', dir: acct ? acct.dir : null, apiKey, redirected };
+    return { kind: 'claude', dir: acct ? acct.dir : null, apiKey, redirected: claudeRedirected() };
   }
   /* #5346: a ChatGPT subscription next, read through Codex with every tool that can act switched off. Before a key,
      because a key read is billed per call and the subscription is already paid for. */
@@ -731,7 +732,8 @@ function readerId(r) {
   if (!r) return null;
   const hash = (d) => require('node:crypto').createHash('sha256').update(String(d || '')).digest('hex').slice(0, 12);
   // Claude with its account folder hashed, like a key account's: another default account is another reader.
-  if (r.kind === 'claude') return r.dir ? 'claude:' + hash(r.dir) : 'claude';
+  // How it is paid for and where it goes too: each changes what the box told the person.
+  if (r.kind === 'claude') return (r.dir ? 'claude:' + hash(r.dir) : 'claude') + (r.apiKey === true ? '+key' : '') + (r.redirected === true ? '+elsewhere' : '');
   // The account too, so another ChatGPT sign-in in the same folder while the box is open is another reader.
   if (r.kind === 'codex') return 'codex:' + hash(String(r.dir || '') + '\u0000' + String(r.account || ''));
   // The key's last four characters too (already on the account row), so a key replaced in the same account folder
