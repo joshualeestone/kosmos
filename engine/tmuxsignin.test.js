@@ -106,7 +106,7 @@ test('#4195 each sign-in takes its plumbing from tmuxsignin, not from a copy of 
   for (const file of CONSUMERS) {
     const src = require('node:fs').readFileSync(path.join(__dirname, file), 'utf8');
     assert.match(src, /require\('\.\/tmuxsignin'\)/, file + ' does not use tmuxsignin');
-    for (const copy of [/function shq\(/, /let tmuxBinCached/, /execFileSync\(bin, full/, /e\.code === 'ETIMEDOUT'/]) {
+    for (const copy of [/function shq\(/, /let tmuxBinCached/, /execFileSync\(bin, full/, /e\.code === 'ETIMEDOUT'/, /createHash\('sha256'\)\.update\(String\(require\('node:os'\)/, /gate\.refuseOrWarn/]) {
       assert.doesNotMatch(src, copy, file + ' has its own copy again: ' + copy);
     }
   }
