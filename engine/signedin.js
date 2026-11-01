@@ -36,11 +36,14 @@ function hostHoldsAccount(text) {
   const lines = text.split(/\r?\n/);
   const at = lines.findIndex((l) => /^github\.com:\s*$/.test(l));
   if (at === -1) return false;
-  for (const l of lines.slice(at + 1)) {
-    if (/^\S/.test(l)) return false;
-    if (/^\s+(user|users|oauth_token):/.test(l)) return true;
-  }
-  return false;
+  const block = lines.slice(at + 1);
+  const end = block.findIndex((l) => /^\S/.test(l));
+  const host = end === -1 ? block : block.slice(0, end);
+  if (host.some((l) => /^\s+(user|oauth_token):\s*\S/.test(l))) return true;
+  const users = host.findIndex((l) => /^\s+users:\s*$/.test(l));
+  if (users === -1) return false;
+  const indent = /^\s*/.exec(host[users])[0].length;
+  return host.slice(users + 1).some((l) => l.trim() && /^\s*/.exec(l)[0].length > indent);
 }
 
 function github({ env = process.env, platform = process.platform, home = os.homedir() } = {}) {

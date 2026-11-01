@@ -23,6 +23,10 @@ test('#7748: GitHub reads gh\'s hosts file, and only a github.com entry counts',
   assert.equal(signedin.github({ env }), true);
   fs.writeFileSync(path.join(d, 'hosts.yml'), 'github.com:\n  git_protocol: https\n  users:\n    x:\n');
   assert.equal(signedin.github({ env }), true, 'the newer shape, with a users list');
+  fs.writeFileSync(path.join(d, 'hosts.yml'), 'github.com:\n  users:\n  git_protocol: https\n');
+  assert.equal(signedin.github({ env }), false, 'an empty users list');
+  fs.writeFileSync(path.join(d, 'hosts.yml'), 'github.com:\n  user:\n');
+  assert.equal(signedin.github({ env }), false, 'an empty user');
 });
 
 test('#7748: the default gh folder follows the platform', () => {

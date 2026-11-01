@@ -1250,6 +1250,7 @@ const teamseed = require('./engine/teamseed'); // #4557: a seeded team's members
 const orgchartfile = require('./engine/orgchartfile'); // #4559: an org chart FILE into the New Agent preview
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
+const signedin = require('./engine/signedin');
 const cardlabel = require('./engine/cardlabel');   // #5959: the card's word, as the page shows it
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
    the agents it can see; this is the same question asked about an agent with no
@@ -1735,7 +1736,6 @@ function connectionsHeld() {
   return out;
 }
 
-const signedin = require('./engine/signedin');
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const instructionadds = require('./engine/instructionadds'); // #5293: an agent proposes an addition, the person applies it
