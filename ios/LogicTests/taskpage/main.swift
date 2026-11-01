@@ -221,7 +221,8 @@ func endRun(_ why: String, line: Int = #line) -> Never {
 // release nothing and leave the hold armed for some later request.
 @MainActor
 func waitUntil(_ reached: () -> Bool, _ what: String, line: Int = #line) async {
-    // The bound only turns a hold that never comes into a FAIL instead of a hang.
+    // Only for holds on the main actor: yields there do not wait for another thread (kosmos#7751), so a hold reached
+    // off it could take longer than this bound and FAIL a correct test.
     for _ in 0..<100_000 { if reached() { return }; await Task.yield() }
     endRun("the test never reached its hold: \(what)", line: line)
 }
@@ -407,7 +408,7 @@ func modelTests() async {
     check(!cm.readFailed, "a read cut short records no failure")
 
     // A parse held while a newer read lands: the newer answer stands, and so does a newer failure.
-    @MainActor final class ParseGate { private(set) var hold = false; var held: CheckedContinuation<Void, Never>?; var waiting: Bool { held != nil }
+    @MainActor final class ParseGate { private(set) var hold = false; private var held: CheckedContinuation<Void, Never>?; var waiting: Bool { held != nil }
         func release() { let h = held; held = nil; h?.resume() }
         // As FakeMac's: a second hold would drop the first one's continuation, so the run ends instead.
         func arm(line: Int = #line) {
