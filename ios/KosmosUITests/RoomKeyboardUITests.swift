@@ -3,9 +3,8 @@ import XCTest
 // kosmos#7645: KeyboardSlideUITests' two long-chat checks on a project room. With the room at its newest post, bringing the
 // keyboard up keeps that post visible above the message box; a room read higher up stays where it was (iOS 26 moved a DM
 // read higher up, #7609). Sample room (a Debug build), Spring catalogue made long (KOSMOS_SAMPLE_ROOM_LONG, 220 posts).
-// #7654 part 2 made both pass on iOS 27 and 26.5 (measured on this Mac, one run of each per system). Still not in
-// ios/tools/ui-sample.sh: CI's slower runner stopped this 220-post room short once already (#7654 round 3), and one run
-// each is not yet evidence it holds there. Run it by hand with -only-testing:KosmosUITests/RoomKeyboardUITests.
+// Run in CI by the ios workflow's "ui tests (sample board)" job (ios/tools/ui-sample.sh, #7690), and by hand with
+// -only-testing:KosmosUITests/RoomKeyboardUITests.
 final class RoomKeyboardUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
