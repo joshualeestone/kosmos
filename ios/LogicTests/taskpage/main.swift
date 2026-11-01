@@ -162,6 +162,10 @@ check(Board.activityPhrase(["kind": "missed", "count": 3, "told": "dana", "reach
       "missed runs, the reviewer not reached")
 
 section("the page's model, against a fake Mac")
+// kosmos#7751: on the main actor, as the model is. Unisolated, asyncSend ran on another thread (Swift 5 mode runs a
+// nonisolated async method off the caller's actor), so a test's yield loop did not wait for it and the two raced on
+// `held` and `asked`. ThreadSanitizer reported that race before this change.
+@MainActor
 final class FakeMac {
     var projects: (Int, Data)? = (200, projectsData)
     var activity: (Int, Data)? = (200, fixture("activity-3.json"))
@@ -170,14 +174,24 @@ final class FakeMac {
     var asked: [String] = []
     var epoch = 0
     var onSend: ((URLRequest) -> Void)?
-    // When set, the next request is held until release() (for reads that land out of order).
-    var holdNext = false
+    // When set, a request is held until release() (for reads that land out of order). Set it with holdTheNext().
+    private(set) var holdNext = false
     private var held: CheckedContinuation<Void, Never>?
     var holding: Bool { held != nil }
+    // Arms a hold only when none is armed or held, so the hold a test then waits for is the one it armed.
+    func holdTheNext(line: Int = #line) {
+        if holdNext || held != nil { endRun("a hold was armed while an earlier one was still armed or held", line: line) }
+        holdNext = true
+    }
     func release() { let h = held; held = nil; h?.resume() }
     func asyncSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         let answer = send(build)
-        if holdNext { holdNext = false; await withCheckedContinuation { held = $0 } }
+        if holdNext {
+            holdNext = false
+            // Never drop a held continuation: it would never resume.
+            if held != nil { endRun("a second request was held while one already was") }
+            await withCheckedContinuation { held = $0 }
+        }
         // As URLSession: a request whose task was cancelled gives no answer.
         return Task.isCancelled ? nil : answer
     }
@@ -194,6 +208,23 @@ final class FakeMac {
         if path.hasSuffix("/seen") { return answer(seenAnswers.isEmpty ? (200, Data("{}".utf8)) : seenAnswers.removeFirst().map { ($0.0, Data($0.1.utf8)) }) }
         return answer(actAnswers.isEmpty ? (200, Data("{}".utf8)) : actAnswers.removeFirst().map { ($0.0, Data($0.1.utf8)) })
     }
+}
+// Ends the run as a FAIL with its verdict line. A precondition would not do: in this suite's -O build it traps with no
+// message, which reads in the log as the bare crash kosmos#7751 was.
+func endRun(_ why: String, line: Int = #line) -> Never {
+    check(false, why, line: line)
+    print("")
+    print("VERDICT: FAIL \(failed) of \(passed + failed)")
+    exit(1)
+}
+// Wait until a request, parse or build the test holds is held. Never carry on without it: a test that went on would
+// release nothing and leave the hold armed for some later request.
+@MainActor
+func waitUntil(_ reached: () -> Bool, _ what: String, line: Int = #line) async {
+    // Only for holds on the main actor: yields there do not wait for another thread (kosmos#7751), so a hold reached
+    // off it could take longer than this bound and FAIL a correct test.
+    for _ in 0..<100_000 { if reached() { return }; await Task.yield() }
+    endRun("the test never reached its hold: \(what)", line: line)
 }
 @MainActor
 func modelTests() async {
@@ -358,9 +389,9 @@ func modelTests() async {
     mac.activity = (200, fixture("activity-3.json"))
     await cm.readActivity(names: nm)
     mac.asked = []
-    mac.holdNext = true
+    mac.holdTheNext()
     let cut = Task { await cm.markSeen() }
-    for _ in 0..<1000 where !mac.holding { await Task.yield() }
+    await waitUntil({ mac.holding }, "a request held")
     cut.cancel()
     mac.release()
     await cut.value
@@ -368,28 +399,43 @@ func modelTests() async {
     mac.asked = []
     await cm.markSeen()
     check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"], "a cancelled seen mark leaves the state unmarked, so the next mark sends it")
-    mac.holdNext = true
+    mac.holdTheNext()
     let cutRead = Task { await cm.read() }
-    for _ in 0..<1000 where !mac.holding { await Task.yield() }
+    await waitUntil({ mac.holding }, "a request held")
     cutRead.cancel()
     mac.release()
     await cutRead.value
     check(!cm.readFailed, "a read cut short records no failure")
 
     // A parse held while a newer read lands: the newer answer stands, and so does a newer failure.
-    final class ParseGate { var hold = false; var held: CheckedContinuation<Void, Never>?; var waiting: Bool { held != nil }
-        func release() { let h = held; held = nil; h?.resume() } }
+    @MainActor final class ParseGate {
+        private(set) var hold = false
+        private var held: CheckedContinuation<Void, Never>?
+        var waiting: Bool { held != nil }
+        func release() { let h = held; held = nil; h?.resume() }
+        // As FakeMac's: a second hold would drop the first one's continuation, so the run ends instead.
+        func arm(line: Int = #line) {
+            if hold || held != nil { endRun("a parse or build hold was armed while an earlier one was still armed or held", line: line) }
+            hold = true
+        }
+        func park(line: Int = #line) async {
+            guard hold else { return }
+            hold = false
+            if held != nil { endRun("a second parse or build was held while one already was", line: line) }
+            await withCheckedContinuation { held = $0 }
+        }
+    }
     for newerFails in [false, true] {
         let gate = ParseGate()
         let pm = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch },
                                now: { clock }, parse: { data, project, number in
-                                   if gate.hold { gate.hold = false; await withCheckedContinuation { gate.held = $0 } }
+                                   await gate.park()
                                    return Board.parseTaskPage(data, project: project, number: number)
                                })
         mac.projects = (200, projectsData)
-        gate.hold = true
+        gate.arm()
         let older = Task { await pm.read() }
-        for _ in 0..<1000 where !gate.waiting { await Task.yield() }
+        await waitUntil({ gate.waiting }, "a parse held")
         mac.projects = newerFails ? (502, Data()) : (200, Data(#"{"projects":[]}"#.utf8))
         await pm.read()
         gate.release()
@@ -406,9 +452,9 @@ func modelTests() async {
     mac.asked = []
     mac.seenAnswers = [(503, "{}")]
     var retryTask: Task<Void, Never>?
-    mac.onSend = { r in if r.url!.path.hasSuffix("/seen") && mac.asked.count == 2 { mac.holdNext = true } }
+    mac.onSend = { r in if r.url!.path.hasSuffix("/seen") && mac.asked.count == 2 { mac.holdTheNext() } }
     retryTask = Task { await rc.markSeen() }
-    for _ in 0..<1000 where !mac.holding { await Task.yield() }
+    await waitUntil({ mac.holding }, "a request held")
     check(mac.asked.count == 2, "premise: the retry is in the air")
     retryTask?.cancel()
     mac.release()
@@ -423,13 +469,13 @@ func modelTests() async {
         let gate = ParseGate()
         let am = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch },
                                now: { clock }, buildRows: { names, data in
-                                   if gate.hold { gate.hold = false; await withCheckedContinuation { gate.held = $0 } }
+                                   await gate.park()
                                    return await TaskPageModel.buildOffMain(names, data)
                                })
         mac.activity = (200, fixture("activity-3.json"))
-        gate.hold = true
+        gate.arm()
         let olderBuild = Task { await am.readActivity(names: nm) }
-        for _ in 0..<1000 where !gate.waiting { await Task.yield() }
+        await waitUntil({ gate.waiting }, "a build held")
         mac.activity = newerFails ? (502, Data()) : (200, Data(#"{"events":[],"count":0}"#.utf8))
         let newerShown = await am.readActivity(names: nm)
         gate.release()
@@ -506,9 +552,9 @@ func modelTests() async {
     // Reads that land out of order: the newer answer stands.
     mac.epoch = 0
     let o = model(3)
-    mac.holdNext = true
+    mac.holdTheNext()
     let first = Task { await o.read() }
-    for _ in 0..<1000 where !mac.holding { await Task.yield() }
+    await waitUntil({ mac.holding }, "a request held")
     mac.projects = (200, Data(#"{"projects":[]}"#.utf8))
     await o.read()
     check(o.gone, "premise: the newer read says the task is gone")
@@ -517,9 +563,9 @@ func modelTests() async {
     check(o.gone && o.page == nil, "the older read, landing after it, does not bring the task back")
     mac.projects = (200, projectsData)
     mac.activity = (200, fixture("activity-3.json"))
-    mac.holdNext = true
+    mac.holdTheNext()
     let firstActivity = Task { await o.readActivity(names: nm) }
-    for _ in 0..<1000 where !mac.holding { await Task.yield() }
+    await waitUntil({ mac.holding }, "a request held")
     mac.activity = (200, Data(#"{"events":[],"count":0}"#.utf8))
     await o.readActivity(names: nm)
     mac.release()
