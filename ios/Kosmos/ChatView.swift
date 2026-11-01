@@ -2531,8 +2531,11 @@ struct KeyboardHold: UIViewRepresentable {
         var onRowLost: ((String, CGFloat) -> Void)?
         private var keptScreenTop: CGFloat = 0
         // kosmos#7690: the keyboard's tracking can have SwiftUI move the list to the id anchor up to a moment BEFORE will-show (measured
-        // 20 and 50 ms on CI), so will-show would read the moved list as the reader's place. Set by every jump no finger made.
+        // 20 and 50 ms on CI), so will-show would read the moved list as the reader's place. Set by a jump no finger and no app move
+        // made, with the keyboard down (so never the hold's own writes), used once.
         private var lastJump: (from: CGFloat, to: CGFloat, at: Date)?
+        // Review 1: the app's own move lands after the stand-down, in a later turn (toRow, goNewest), so it is ignored for a moment.
+        private var appMovedAt: Date?
         private var offsetWatch: NSKeyValueObservation?
         // A settle waiting its 0.1 s is dropped by anything that ends the hold's claim on the list: a stand-down (the app's
         // own move, the reader at the newest), the keyboard going, the chat leaving the window, or the next keyboard starting
@@ -2627,7 +2630,7 @@ struct KeyboardHold: UIViewRepresentable {
                 DispatchQueue.main.async { self?.putBack(CGFloat(r.content)) }
             })
         }
-        func standDown() { saved = nil; lastJump = nil; endGuard(); settleToken &+= 1 }
+        func standDown() { saved = nil; lastJump = nil; appMovedAt = Date(); endGuard(); settleToken &+= 1 }
         // The reader's row, its place in the content and the scroll offset when the keyboard started to show, the rows above
         // and the width, and when (review 1: a will-show with no did-show, an iPad's floating keyboard say, must not leave a
         // reading for a later one).
@@ -2645,6 +2648,8 @@ struct KeyboardHold: UIViewRepresentable {
         // kosmos#7690: a move this large with no finger on the list, this soon before will-show, was not the reader's.
         static let jumpSize: CGFloat = 100
         static let jumpWindow: TimeInterval = 0.25
+        static let jumpSettle: CGFloat = 20
+        static let appMoveQuiet: TimeInterval = 0.3
         private func endGuard() { guarding = nil; rows?.watch = nil }
         #if DEBUG
         private var jumpWatch: NSKeyValueObservation?
@@ -2725,8 +2730,13 @@ struct KeyboardHold: UIViewRepresentable {
             scroll = up as? UIScrollView
             lastJump = nil
             offsetWatch = scroll?.observe(\.contentOffset, options: [.old, .new]) { [weak self] v, c in
-                guard let a = c.oldValue?.y, let b = c.newValue?.y, abs(b - a) > Self.jumpSize, !v.isTracking, !v.isDragging, !v.isDecelerating else { return }
-                self?.lastJump = (a, b, Date())
+                guard let self, let a = c.oldValue?.y, let b = c.newValue?.y, !self.keyboardUp, self.saved == nil, self.guarding == nil,
+                      !v.isTracking, !v.isDragging, !v.isDecelerating else { return }
+                let now = Date()
+                if let t = self.appMovedAt, now.timeIntervalSince(t) < Self.appMoveQuiet { return }
+                // Review 1: a jump in two steps, or a settle after it, is one move from where the list was.
+                if let j = self.lastJump, now.timeIntervalSince(j.at) <= Self.jumpWindow, abs(a - j.to) <= Self.jumpSettle { self.lastJump = (j.from, b, j.at); return }
+                if abs(b - a) > Self.jumpSize { self.lastJump = (a, b, now) }
             }
             #if DEBUG
             // kosmos#7690: a Debug sample run with a trace: every jump of the list and what made it (the tap on the box moves a room by
@@ -2735,8 +2745,8 @@ struct KeyboardHold: UIViewRepresentable {
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TRACE"] == "1" {
                 jumpWatch = scroll?.observe(\.contentOffset, options: [.old, .new]) { v, c in
                     guard let a = c.oldValue?.y, let b = c.newValue?.y, abs(b - a) > 100 else { return }
-                    let tall = Int(v.bounds.height), inset = Int(v.adjustedContentInset.bottom)
-                    ChatView.trace("keyboard hold: list \(tall) tall, bottom inset \(inset)")
+                    let tall = Int(v.bounds.height), inset = Int(v.adjustedContentInset.bottom), sized = Int(v.contentSize.height)
+                    ChatView.trace("keyboard hold: list \(tall) tall, bottom inset \(inset), content \(sized)")
                     ChatView.trace("keyboard hold: jump \(Self.jumpLine(a, b))")
                 }
             }
@@ -2744,6 +2754,7 @@ struct KeyboardHold: UIViewRepresentable {
             let nc = NotificationCenter.default
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self, let sv = self.scroll else { return }
+                let jump = self.lastJump; self.lastJump = nil   // used once, whatever happens below
                 if !self.keyboardUp { self.settleToken &+= 1; self.replaced = false }   // a new keyboard: a settle still waiting belongs to the one before
                 // A will-show while a reading waits for its did-show keeps that reading.
                 guard self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating else { return }
@@ -2761,7 +2772,7 @@ struct KeyboardHold: UIViewRepresentable {
                 let rowsAll = self.rows?.y.count ?? 0
                 ChatView.trace("keyboard hold: \(rowsNow.count) of \(rowsAll) rows agree with the list")
                 // kosmos#7690: a jump just before will-show is the keyboard's, not the reader's: read the rows where they were before it.
-                let back = self.lastJump.map { Board.jumpBack(from: Double($0.from), to: Double($0.to), now: Double(sv.contentOffset.y), age: Date().timeIntervalSince($0.at), within: Self.jumpWindow) } ?? 0
+                let back = jump.map { Board.jumpBack(from: Double($0.from), to: Double($0.to), now: Double(sv.contentOffset.y), age: Date().timeIntervalSince($0.at), within: Self.jumpWindow, settle: Double(Self.jumpSettle)) } ?? 0
                 let rowsBefore = rowsNow.mapValues { $0 + back }
                 guard let rows = self.rows, let r = Board.readerRow(rowsBefore, below: Double(top), above: Double(bottom)), let reading = rows.y[r.id] else {
                     ChatView.trace("keyboard hold: no row on the screen to hold"); return
@@ -2820,7 +2831,7 @@ struct KeyboardHold: UIViewRepresentable {
             })
             // A keyboard that hides before it finished showing leaves nothing held.
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.saved = nil; self?.endGuard(); self?.settleToken &+= 1; self?.keyboardUp = false; self?.replaced = false
+                self?.saved = nil; self?.lastJump = nil; self?.endGuard(); self?.settleToken &+= 1; self?.keyboardUp = false; self?.replaced = false
             })
         }
     }
