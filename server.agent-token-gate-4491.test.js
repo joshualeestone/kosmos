@@ -78,6 +78,15 @@ test('an agent route passes the gate with only a valid agent token (no board tok
   }
 });
 
+test('#7748: the agent list passes on an agent token alone, and answers three fields per agent', async () => {
+  const r = await call('GET', '/api/agents/list', { headers: { 'x-kosmos-agent-token': agentToken } });
+  assert.ok(!refusedAtGate(r), `refused at the gate: ${r.code} ${r.text.slice(0, 120)}`);
+  assert.equal(r.code, 200, r.text.slice(0, 120));
+  const j = JSON.parse(r.text);
+  assert.ok(Array.isArray(j.agents));
+  for (const a of j.agents) assert.deepEqual(Object.keys(a).sort(), ['name', 'role', 'state']);
+});
+
 test('a wrong agent token is refused at the gate', async () => {
   assert.ok(refusedAtGate(await call('POST', '/api/whoami', { headers: { 'x-kosmos-agent-token': 'not-a-token' }, body: {} })));
 });

@@ -1716,14 +1716,17 @@ const readConnectionsShelf = inflight.collapse(() => {
  * above makes a live authenticated call to every door and Brave, Exa, Tavily and Serper bill each one to
  * the person's own quota, so an agent asking "what is connected?" (or asking it in a loop) must not reach it.
  * `held` is true when a token is stored (it says nothing about whether the service still accepts it), false
- * when none is, and null for a sign-in service whose sign-in lives in its own tool, where only a live check
- * could say. `connect` names the door an agent uses (`kosmos connect`), absent where the person signs in.
+ * when none is, and null for a sign-in service whose own tool shows no sign-in on this computer, where only a
+ * live check could say (#7748: engine/signedin.js reads the tool's file). `tool` marks a row read from that tool.
+ * `connect` names the door an agent uses (`kosmos connect`), absent where the person signs in.
  */
 function connectionsHeld() {
   const fileHeld = (file) => { try { return fs.readFileSync(file, 'utf8').trim().length > 0; } catch { return false; } };
   const out = [
-    { name: 'GitHub', route: '/api/github', how: 'sign-in', held: fileHeld(githubdevice.FILE) ? true : null },
-    { name: 'Vercel', route: '/api/vercel', how: 'sign-in', held: null },
+    fileHeld(githubdevice.FILE)
+      ? { name: 'GitHub', route: '/api/github', how: 'sign-in', held: true }
+      : { name: 'GitHub', route: '/api/github', how: 'sign-in', held: signedin.github() ? true : null, tool: true },
+    { name: 'Vercel', route: '/api/vercel', how: 'sign-in', held: signedin.vercel() ? true : null, tool: true },
     { name: 'Cloudflare', route: '/api/cloudflare', how: 'token', held: fileHeld(cloudflare.FILE), connect: 'cloudflare' },
   ];
   for (const [name, route] of Object.entries(tokendoors.routes())) {
@@ -1732,6 +1735,7 @@ function connectionsHeld() {
   return out;
 }
 
+const signedin = require('./engine/signedin');
 const autoupdate = require('./engine/autoupdate');
 const instructions = require('./engine/instructions');
 const instructionadds = require('./engine/instructionadds'); // #5293: an agent proposes an addition, the person applies it
@@ -6350,7 +6354,7 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    service at most once (no cache, no valve, an 8 second limit): a looping token-only caller can do that as fast
    as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
-  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/tasks/mine', 'GET /api/community/read',
+  'GET /api/projects/overview', 'GET /api/roles', 'GET /api/agents/list', 'GET /api/tasks', 'GET /api/tasks/mine', 'GET /api/community/read',
   'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
 /* kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel) joins: its handler names the caller
    (processCaller) and sets only that agent's own channel; no name in the body is read. Every Windows agent holds a
@@ -9599,6 +9603,16 @@ const server = http.createServer(async (req, res) => {
   // and the cross-site guard. It should be behind a login the moment one
   // exists. The honest summary is that it is the largest thing here and it is
   // contained, not that it is safe.
+  /* #7748: `kosmos agent list`, every agent with its role and whether it runs. Three fields of the roster, so an agent's
+     read carries nothing of what /api/status holds for the page. */
+  if (pathname === '/api/agents/list' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const refusedRead = crossSiteRead(req);
+    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    const rows = safeRoster();
+    if (!rows) { sendJson(res, 503, { error: 'we could not read the agents just now' }); return; }
+    sendJson(res, 200, { agents: rows.map((a) => ({ name: a.name, role: a.role || null, state: a.state || null })) });
+    return;
+  }
   if (pathname === '/api/agents' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {

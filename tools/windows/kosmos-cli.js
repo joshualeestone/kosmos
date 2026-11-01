@@ -150,11 +150,12 @@ const USAGE = {
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
-    'Usage: kosmos agent <create|roles|role-draft|instructions-add|remove>',
+    'Usage: kosmos agent <list|create|roles|role-draft|instructions-add|remove>',
+    '  kosmos agent list                               every agent on this board, its role, and whether it is running',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
     '                                                  make one with a role you wrote, when none fits',
-    '  kosmos agent roles                              list the roles an agent can be made with',
+    '  kosmos agent roles [<word>]                     list the roles an agent can be made with, or those matching <word>',
     '  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)',
     '  kosmos agent instructions-add "<name>" --from <file>',
     '                                                  propose an addition to an agent\'s instructions; the person applies it',
@@ -1945,7 +1946,12 @@ async function projectCreate(ctx, args) {
   if (!r.reached) return ctx.unreachable('create that project');
   const id = r.json && (r.json.id || (r.json.project && r.json.project.id));
   if (id) { ctx.out('Created project "' + name + '" (id: ' + id + '). It\'s on your board now.'); return 0; }
-  if (ctx.refusedBy(r)) { ctx.err('Kosmos did not create that project: ' + ctx.refusedBy(r) + '.'); return 1; }
+  if (ctx.refusedBy(r)) {
+    ctx.err('Kosmos did not create that project: ' + ctx.refusedBy(r) + '.');
+    // #7748: making a folder is the person's or the agent's own step, so this names the command rather than doing it.
+    if (ctx.refusedBy(r) === 'there is no folder at that path') ctx.err('Make it first, then run this again: mkdir "' + folder + '"');
+    return 1;
+  }
   ctx.err('Kosmos gave an answer we could not read when creating that project.');
   return 1;
 }
@@ -2178,15 +2184,30 @@ async function agentCreate(ctx, args) {
   ctx.err('Kosmos gave an answer we could not read when making that agent.');
   return 1;
 }
-async function agentRoles(ctx) {
+/* #7748, as install/kosmos: every agent, its role, and whether it is running. The words are engine/clilists.js, once. */
+async function agentList(ctx, args) {
+  if (tooManyWords(ctx, 'agent list', 0, 'Usage: kosmos agent list', args)) return 2;
+  const r = await ctx.call('GET', '/api/agents/list', undefined, { timeoutMs: 25000 });
+  if (!r.reached) return ctx.unreachable('list the agents');
+  const agents = r.json && Array.isArray(r.json.agents) ? r.json.agents : null;
+  if (!agents) { ctx.err('Kosmos gave an answer we could not read when listing the agents.'); return 1; }
+  const out = ctx.engine('clilists').agentLines(agents);
+  for (const l of out.lines) ctx.out(l);
+  return out.code;
+}
+async function agentRoles(ctx, args) {
+  const word = args && args[0];
+  if (typeof word === 'string' && /^--[A-Za-z]/.test(word)) { refuseOption(ctx, 'agent roles', 'Usage: kosmos agent roles [<word>]', word); return 2; }
+  if (tooManyWords(ctx, 'agent roles', 1, 'Usage: kosmos agent roles [<word>]', args || [])) return 2;
   // ?catalogue=1: listing the roles asks for the downloaded ready-made ones too, as the picker does (#4632).
   // 25 s: the board may be downloading (up to 8 s, 16 s when it retries past the caches).
   const r = await ctx.call('GET', '/api/roles?catalogue=1', undefined, { timeoutMs: 25000 });   // #4491 slice 4: with the agent's own token
   if (!r.reached) return ctx.unreachable('list the roles');
   const roles = r.json && Array.isArray(r.json.roles) ? r.json.roles : null;
   if (!roles) { ctx.err('Kosmos gave an answer we could not read when listing the roles.'); return 1; }
-  for (const x of roles) if (x && x.key) ctx.out(x.key + '  ' + (x.label || ''));
-  return 0;
+  const out = ctx.engine('clilists').roleLines(roles, word);
+  for (const l of out.lines) ctx.out(l);
+  return out.code;
 }
 /* kosmos#5293, as install/kosmos: only PROPOSES an addition to <name>'s instructions. The board holds it, named by
    this agent's token (never a name typed here), and the person applies or dismisses it on <name>'s page. */
@@ -2840,7 +2861,7 @@ async function verbConnections(ctx) {
   if (r.status >= 400 || !services) { ctx.err('Kosmos gave an answer we could not read about what is connected.'); return 1; }
   for (const x of services) {
     if (!x || typeof x.name !== 'string') continue;
-    if (x.held === true) ctx.out(x.name + ': connected' + (x.how === 'token' ? ' (a token is stored; Settings > Connections checks it with ' + x.name + ' when opened' + (x.connect ? '; replace it with: kosmos connect ' + x.connect : '') + ')' : ' (signed in through Kosmos)'));
+    if (x.held === true) ctx.out(x.name + ': connected' + (x.how === 'token' ? ' (a token is stored; Settings > Connections checks it with ' + x.name + ' when opened' + (x.connect ? '; replace it with: kosmos connect ' + x.connect : '') + ')' : (x.tool ? ' (signed in with its own tool on this computer; Settings > Connections checks it when opened)' : ' (signed in through Kosmos)')));
     else if (x.held === false) ctx.out(x.name + ': not connected' + (x.connect ? ' (store the token the person gives you with: kosmos connect ' + x.connect + ')' : ''));
     else ctx.out(x.name + ': not known without a live check; the person connects it in Settings > Connections');
   }
@@ -3099,7 +3120,7 @@ const SUBCOMMAND_HANDLERS = {
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole, 'remove-member': projectRemoveMember },
-  agent: { create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, remove: agentRemove },
+  agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, remove: agentRemove },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
