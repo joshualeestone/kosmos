@@ -173,6 +173,12 @@ test('#4660: a consent carries through the send when the reader id holds a +, en
     orgchartfile.setReaderForTest(() => ({ kind: 'claude', dir: null, apiKey: true }));
     assert.equal((await post('?consent=1&reader=' + encodeURIComponent(ask.json.reader))).status, 409);
     assert.equal(sent.length, 3, 'the file did not go');
+    // A page from before #4560 sends no id and only ever showed Anthropic's name, so a read sent elsewhere is refused.
+    orgchartfile.setReaderForTest(() => ({ kind: 'claude', dir: null, redirected: true }));
+    assert.equal((await post('?consent=1')).status, 409);
+    orgchartfile.setReaderForTest(() => ({ kind: 'claude', dir: null }));
+    assert.equal((await post('?consent=1')).status, 200, 'CONTROL: such a page still reads with plain Claude');
+    assert.equal(sent.length, 4);
   } finally { orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); orgchartfile.setModelRunner(null); }
 });
 

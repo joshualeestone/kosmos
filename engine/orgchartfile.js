@@ -697,11 +697,9 @@ function currentReader(name) {
     // The account too, so the consent's reader id pins the Claude account the box names, not just "Claude".
     let acct = null;
     try { acct = readAccount(); } catch { acct = null; }
-    // Whether the read is billed to an API key (#4660): the consent then says so, with that key's retention. Two ways
-    // Kosmos can tell: the account row is a key account (#2420, which accounts.list() marks only on a non-default
-    // folder), or ANTHROPIC_API_KEY is in the board's environment, which the Claude read passes on to `claude`
-    // (defaultModelRunner) and so bills. Not seen: an apiKeyHelper set up by hand on the default ~/.claude. That
-    // person gets "using your plan" and the both-cases line, which still names an API account's 30 days.
+    // What takes the read (#4660): the variables in the board's environment, which the Claude read passes on to
+    // `claude` (defaultModelRunner), then the account row (#2420, marked only on a non-default folder).
+    // Not seen, so these get what the login would: an apiKeyHelper (#7741), and anything a managed settings file sets.
     const credential = claudeCredential(Boolean(acct && acct.apiKey === true));
     // Variables that send Claude Code somewhere other than Anthropic reach the read the same way, so what Anthropic
     // keeps is not the question there.
