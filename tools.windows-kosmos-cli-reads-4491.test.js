@@ -57,6 +57,12 @@ test('#7748 Windows agent list says each agent and takes no words', async () => 
   assert.equal(r.code, 0);
   assert.match(r.out, /^Ada {2}Writer {2}Not running$/m);
   assert.equal((await run(['agent', 'list', 'x'], () => ({ body: { agents: [] } }))).code, 2);
+  const partial = await run(['agent', 'list'], () => ({ body: { agents: [], partial: true } }));
+  assert.match(partial.out, /may be incomplete/);
+  assert.doesNotMatch(partial.out, /no agents/);
+  const refused = await run(['agent', 'list'], () => ({ status: 500, body: { error: 'we could not read the agents just now' } }));
+  assert.equal(refused.code, 1);
+  assert.match(refused.err, /Kosmos could not list the agents: we could not read the agents just now\./);
 });
 
 test('#7748 Windows project create names the command for a missing folder', async () => {

@@ -13,6 +13,16 @@ test('#7748: the agent list says each agent, its role, and the word on its card'
   assert.deepEqual(r, { code: 0, lines: ['Ada  Researcher  Idle', 'Ben  no role recorded  Not running', 'Di  Writer  state not known'] });
 });
 
+test('#7748: a partial list says so, and an empty partial list does not say there are none', () => {
+  const some = agentLines([{ name: 'Ada', state: 'Idle' }], true).lines;
+  assert.equal(some.length, 2);
+  assert.match(some[1], /may be incomplete/);
+  const none = agentLines([], true).lines;
+  assert.equal(none.length, 1);
+  assert.doesNotMatch(none[0], /no agents/);
+  assert.match(none[0], /may be incomplete/);
+});
+
 test('#7748: no agents is said, and a bad row is skipped', () => {
   assert.deepEqual(agentLines([]).lines, ['There are no agents on this board yet.']);
   assert.deepEqual(agentLines(null).lines, ['There are no agents on this board yet.']);

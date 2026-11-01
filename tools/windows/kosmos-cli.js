@@ -2192,7 +2192,7 @@ async function agentList(ctx, args) {
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not list the agents: ' + ctx.refusedBy(r) + '.'); return 1; }
   const agents = r.json && Array.isArray(r.json.agents) ? r.json.agents : null;
   if (!agents) { ctx.err('Kosmos gave an answer we could not read when listing the agents.'); return 1; }
-  const out = ctx.engine('clilists').agentLines(agents);
+  const out = ctx.engine('clilists').agentLines(agents, r.json.partial === true);
   for (const l of out.lines) ctx.out(l);
   return out.code;
 }
