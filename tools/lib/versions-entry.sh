@@ -203,10 +203,10 @@ kosmos_versions_entry_stamp() {
 # MACHINE's local timezone: on a non-Central release box a freshly written entry
 # read ~300 minutes (CDT) or ~360 (CST) in the PAST, and step 1 refused every cut,
 # for everybody. TZ=America/Chicago is DST-aware, so it reads a summer stamp as CDT
-# and a winter stamp as CST -- and it deliberately IGNORES the page's trailing
-# token, because that token is a literal CDT the writer hard-codes even in winter,
-# so the wall-clock time is the trustworthy part and the label is not. The label
-# itself is corrected in insert-release-entry.js for the human reading the page.
+# and a winter stamp as CST. The page's trailing token is read only for the repeated
+# fall-back hour, where the wall time alone names two instants (kosmos#7725). The
+# writer takes it from timeZoneName (insert-release-entry.js). Pages from before #1464
+# carry a literal CDT, which keeps the reading they always had.
 kosmos_versions_entry_stamp_off() {
   TZ=America/Chicago V_ENTRY="$1" node -e "
   const s = process.env.V_ENTRY || '';
@@ -218,15 +218,13 @@ kosmos_versions_entry_stamp_off() {
   if (!m) { console.log('unparseable'); process.exit(0); }
   const months = 'January February March April May June July August September October November December'.split(' ');
   let h = Number(m[4]) % 12; if (m[6] === 'PM') h += 12;
-  // kosmos#7725: on the November fall-back night the 1:00-1:59 Central hour happens
-  // twice, and this bare wall-clock reconstruct resolves to the FIRST (CDT) instant,
-  // so a fresh stamp from the second (CST) hour read ~60 min stale and every gate
-  // refused it. Where the same wall time also names the instant an hour later, take that
-  // one unless it is further ahead than the default future bound (20 min). No label is trusted.
-  const t = new Date(Number(m[3]), months.indexOf(m[1]), Number(m[2]), h, Number(m[5]));
-  const later = new Date(t.getTime() + 3600000);
-  const twice = later.getHours() === t.getHours() && later.getMinutes() === t.getMinutes();
-  const at = twice && later.getTime() <= Date.now() + 20 * 60000 ? later : t;
+  // kosmos#7725: this reconstruct resolves the repeated 1:00-1:59 hour to its FIRST
+  // (CDT) instant. A stamp labelled CST means the second one; anything else keeps the first.
+  const HOUR_MS = 3600000;
+  const first = new Date(Number(m[3]), months.indexOf(m[1]), Number(m[2]), h, Number(m[5]));
+  const second = new Date(first.getTime() + HOUR_MS);
+  const repeated = second.getHours() === first.getHours() && second.getMinutes() === first.getMinutes();
+  const at = repeated && /(?:AM|PM)\s+CST\b/.test(s) ? second : first;
   const off = Math.round((Date.now() - at.getTime()) / 60000);
   // A parseable-looking date can still yield NaN (month 13, year 999999).
   console.log(Number.isFinite(off) ? String(off) : 'unparseable');

@@ -39,9 +39,6 @@ pass() { echo "PASS  $1"; }
 # were now in scope. Verified by planting `= 5` -> `= 6` and watching it stay
 # green. A note saying a defect is fixed is not a check that it is.
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
-# kosmos#7725: in the repeated fall-back hour a stamp 25 min ahead prints the same wall time as one 35 min old, so it is
-# refused as stale, not as future. It is still refused; only the reason differs.
-ahead_reads_as_stale() { TZ=America/Chicago node -e "const a=new Date(Date.now()+25*60000),b=new Date(a.getTime()-3600000);process.exit(a.getHours()===b.getHours()?0:1)"; }
 assert_defaults() {
   [ "$KOSMOS_STEP1_PAST_BOUND" = 4 ] && [ "$KOSMOS_LATE_PAST_BOUND" = 20 ] && [ "$KOSMOS_FUTURE_BOUND" = 20 ]
 }
@@ -73,7 +70,7 @@ has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 # (insert-release-entry.js). Without it, on a non-Central machine the fixture
 # would produce that machine's wall-clock while the reader interprets Central, and
 # every arm below would measure a 5-6 hour skew that has nothing to do with the
-# gate. The reader ignores the trailing token, so the literal CDT here is harmless.
+# gate. The label is the real one, as the writer's: the reader uses it in the repeated hour.
 stamp_at() {
   TZ=America/Chicago node -e "
     const off = Number(process.argv[1]);
@@ -81,7 +78,8 @@ stamp_at() {
     const months='January February March April May June July August September October November December'.split(' ');
     let h=t.getHours(), ap=h>=12?'PM':'AM'; h=h%12; if(h===0)h=12;
     const mm=String(t.getMinutes()).padStart(2,'0');
-    process.stdout.write(months[t.getMonth()]+' '+t.getDate()+', '+t.getFullYear()+', '+h+':'+mm+' '+ap+' CDT');
+    const zone=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',timeZoneName:'short'}).formatToParts(t).find((p)=>p.type==='timeZoneName').value;
+    process.stdout.write(months[t.getMonth()]+' '+t.getDate()+', '+t.getFullYear()+', '+h+':'+mm+' '+ap+' '+zone);
   " -- "$1"
 }
 entry() { printf '<article id="v0-6-06"><span class="rel-d">%s</span></article>\n' "$1" > "$F"; }
@@ -125,7 +123,7 @@ out="$(run)"; rc=$?
 off="$(kosmos_versions_entry_stamp_off "$st")"
 # the SIGN is the thing under test here, and it is what separates this arm from
 # the unparseable one below: an empty fixture also refuses, for a different reason.
-if [ "$rc" -eq 1 ] && { ahead_reads_as_stale || { has "$out" "minutes in the FUTURE" && [ "$off" -le -24 ] 2>/dev/null; }; }; then pass "refuses a stamp in the future (a guess cannot satisfy the clock) ($off min)"; else fail "refuses future (rc=$rc, off=$off): $out"; fi
+if [ "$rc" -eq 1 ] && has "$out" "minutes in the FUTURE" && [ "$off" -le -24 ] 2>/dev/null; then pass "refuses a stamp in the future (a guess cannot satisfy the clock) ($off min)"; else fail "refuses future (rc=$rc, off=$off): $out"; fi
 
 entry "sometime tuesday"
 out="$(run)"; rc=$?
@@ -150,7 +148,7 @@ if [ "$rc" -eq 0 ]; then pass "the EARLY gate still accepts a publication stamp 
 # the future side is NOT widened at either call site
 st="$(stamp_at -25)"; entry "$st"
 out="$(run_early)"; rc=$?
-if [ "$rc" -eq 1 ] && { ahead_reads_as_stale || has "$out" "FUTURE"; }; then pass "the EARLY gate still refuses a 25-min forward guess (future side not widened)"; else fail "early gate accepted a forward guess (rc=$rc): $out"; fi
+if [ "$rc" -eq 1 ] && has "$out" "FUTURE"; then pass "the EARLY gate still refuses a 25-min forward guess (future side not widened)"; else fail "early gate accepted a forward guess (rc=$rc): $out"; fi
 
 # --- an unreadable file is not an absent entry ---
 out="$(kosmos_versions_entry_gate 0.6.06 "$T/nope.html" "cost." "hint." "$KOSMOS_LATE_PAST_BOUND" 2>&1)"; rc=$?
@@ -467,9 +465,7 @@ if [ "$off_utc" -ge -2 ] 2>/dev/null && [ "$off_utc" -le 4 ] 2>/dev/null; then p
 # stamp as stale, so the arm above is not just reading 0 for everything.
 central_stale="$(node -e "const d=new Date(Date.now()-90*60000);process.stdout.write(d.toLocaleString('en-US',{timeZone:'America/Chicago',month:'long',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).replace(' at ', ', '))")"
 off_stale="$(TZ=UTC bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_stamp_off "'"$central_stale"'"')"
-# kosmos#7725: in the repeated fall-back hour that stamp also names an instant an hour later, which reads 30.
-low=88; TZ=America/Chicago node -e "const a=new Date(Date.now()-90*60000),b=new Date(a.getTime()+3600000);process.exit(a.getHours()===b.getHours()?0:1)" && low=28
-if [ "$off_stale" -ge "$low" ] 2>/dev/null && [ "$off_stale" -le 92 ] 2>/dev/null; then pass "CONTROL: a 90-min-stale Central stamp reads ~90 under TZ=UTC, not 0 (off=$off_stale)"; else fail "control: 90-min-stale Central stamp read $off_stale under TZ=UTC (expected ~90)"; fi
+if [ "$off_stale" -ge 88 ] 2>/dev/null && [ "$off_stale" -le 92 ] 2>/dev/null; then pass "CONTROL: a 90-min-stale Central stamp reads ~90 under TZ=UTC, not 0 (off=$off_stale)"; else fail "control: 90-min-stale Central stamp read $off_stale under TZ=UTC (expected ~90)"; fi
 
 # #1464 (separator): toLocaleString emits a narrow no-break space (U+202F) before
 # AM/PM on some ICU builds and a plain space on others; the reader regex uses \s,
@@ -498,12 +494,22 @@ class D extends R { constructor(...a) { if (a.length === 0) super(fixed); else s
 globalThis.Date = D;
 CLOCK
 fall_off() { FIXED_NOW="$1" NODE_OPTIONS="--require $T/clock.cjs" kosmos_versions_entry_stamp_off "$2"; }
-n="November 1, 2026, 1:20 AM"
-[ "$(fall_off 2026-11-01T07:25:00Z "$n")" = 5 ] && pass "fall-back: a stamp 5 min old in the second 1:20 reads 5" || fail "fall-back: second-hour stamp reads $(fall_off 2026-11-01T07:25:00Z "$n"), not 5"
-[ "$(fall_off 2026-11-01T06:25:00Z "$n")" = 5 ] && pass "fall-back: a stamp 5 min old in the first 1:20 reads 5" || fail "fall-back: first-hour stamp reads $(fall_off 2026-11-01T06:25:00Z "$n"), not 5"
-[ "$(fall_off 2026-11-01T07:10:00Z "$n")" = -10 ] && pass "fall-back: a stamp 10 min ahead in the second hour reads -10" || fail "fall-back: ahead stamp reads $(fall_off 2026-11-01T07:10:00Z "$n"), not -10"
-[ "$(fall_off 2026-11-01T06:50:00Z "$n")" = 30 ] && pass "fall-back: a stamp 30 min old stays past, not 30 ahead" || fail "fall-back: 30-min stamp reads $(fall_off 2026-11-01T06:50:00Z "$n"), not 30"
-[ "$(fall_off 2026-07-15T06:25:00Z "July 15, 2026, 1:20 AM")" = 5 ] && pass "CONTROL: an ordinary night reads as it always did" || fail "control: ordinary night reads $(fall_off 2026-07-15T06:25:00Z "July 15, 2026, 1:20 AM")"
+reads() { # <now> <stamp> <expected> <what>
+  got="$(fall_off "$1" "$2")"
+  if [ "$got" = "$3" ]; then pass "fall-back: $4"; else fail "fall-back: $4 read $got, not $3"; fi
+}
+reads 2026-11-01T07:25:00Z "November 1, 2026, 1:20 AM CST" 5   "a CST stamp 5 min old reads 5"
+reads 2026-11-01T06:25:00Z "November 1, 2026, 1:20 AM CDT" 5   "a CDT stamp 5 min old reads 5"
+reads 2026-11-01T07:10:00Z "November 1, 2026, 1:20 AM CST" -10 "a CST stamp 10 min ahead reads -10"
+reads 2026-11-01T06:30:00Z "November 1, 2026, 1:30 AM CST" -60 "a CST stamp printing the first hour's clock reads 60 ahead"
+reads 2026-11-01T07:20:00Z "November 1, 2026, 1:00 AM CDT" 80  "a CDT stamp stays old in the second hour"
+reads 2026-11-01T07:25:00Z "November 1, 2026, 1:20 AM"     65  "a stamp with no label keeps the first reading (fails closed)"
+reads 2026-07-15T06:25:00Z "July 15, 2026, 1:20 AM CDT"     5   "CONTROL: an ordinary night reads as it always did"
+# The same through the gate itself, in both directions.
+fall_gate() { entry "$2"; FIXED_NOW="$1" NODE_OPTIONS="--require $T/clock.cjs" kosmos_versions_entry_gate 0.6.06 "$F" "cost sentence." "stamp hint." "$KOSMOS_LATE_PAST_BOUND" >/dev/null 2>&1; }
+if fall_gate 2026-11-01T07:25:00Z "November 1, 2026, 1:20 AM CST"; then pass "fall-back: the gate takes a fresh CST stamp"; else fail "fall-back: the gate refused a fresh CST stamp"; fi
+if fall_gate 2026-11-01T06:30:00Z "November 1, 2026, 1:30 AM CST"; then fail "fall-back: the gate took a stamp 60 min ahead"; else pass "fall-back: the gate refuses a stamp 60 min ahead"; fi
+if fall_gate 2026-11-01T07:20:00Z "November 1, 2026, 1:00 AM CDT"; then fail "fall-back: the gate took a stamp 80 min old"; else pass "fall-back: the gate refuses a stamp 80 min old"; fi
 
 [ "$fails" -eq 0 ] || { echo "$fails failed"; exit 1; }
 echo "all versions-entry gate arms behaved"
