@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: uikeyboard-7690
 diff_hash: 41fa7a9c7d71b7df995e0b1f0363dabb2d8774e76cab61af15a4ade6deee8363
-validation: passed
+validation: not-passed-yet
 subdir_audit: passed
 timestamp: 2026-11-01T03:31:03Z
 iterations: 4
@@ -15,6 +15,7 @@ converged: true
 **Iterations:** 4
 **Converged:** Yes, at round 4 (reviewers: sonnet, opus, sonnet, opus); only nits remained.
 **Scope stated:** the four rounds reviewed this branch stacked on #7654 part 2 at eab682eb10. After part 2 merged (#7715) the work was reapplied to main as one commit, resolving ui-sample.sh by hand: the header gained StopAddingUITests and the classes line carries main's counts plus RoomKeyboardUITests:2. That resolution was not reviewed in a blind round; bash -n and --help (13 lines) were checked, and the validation ran on the final commit. The separate commits are tagged backup/uikeyboard-7690-d12bae0c2d, and the fixes cited below are in that tag.
+**Validation, stated:** the run on 7e6a11a7f7 ended rc=1: 2 failures, both in engine/tasks.recovered-5920.test.js, which this branch does not touch (#7716, red under America/Chicago only across tonight's clock change, measured under three zones; main is red the same way). This field is set to passed only after a green rerun.
 **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
