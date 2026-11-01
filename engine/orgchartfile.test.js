@@ -699,7 +699,7 @@ test('#7742: only what really says so counts as sent elsewhere, and what cannot 
   const dropIn = 'managed-settings.d/10-corp.json';
   try {
     o.setManagedSourcesForTest(() => ({ dirs: [dir], opaque: [], registry: [] }));
-    assert.equal(o.currentReader().redirected, false, 'CONTROL: nothing managed');
+    assert.equal(o.claudeRedirected(), false, 'CONTROL: nothing managed');
     for (const [name, body, want, why] of [
       [main, '{"env":{"ANTHROPIC_BASE_URL":"https://gw.example"}}', true, 'a base URL'],
       [main, '{"env":{"ANTHROPIC_BEDROCK_BASE_URL":"https://gw.example"}}', true, 'a provider base URL'],
@@ -715,35 +715,35 @@ test('#7742: only what really says so counts as sent elsewhere, and what cannot 
     ]) {
       clear();
       write(name, body);
-      assert.equal(o.currentReader().redirected, want, why);
+      assert.equal(o.claudeRedirected(), want, why);
     }
     clear();
     const plist = path.join(dir, 'prefs.plist');
     fs.writeFileSync(plist, 'x');
     o.setManagedSourcesForTest(() => ({ dirs: [dir], opaque: [path.join(dir, 'absent.plist')], registry: [] }));
-    assert.equal(o.currentReader().redirected, false, 'CONTROL: no profile');
+    assert.equal(o.claudeRedirected(), false, 'CONTROL: no profile');
     o.setManagedSourcesForTest(() => ({ dirs: [dir], opaque: [plist], registry: [] }));
-    assert.equal(o.currentReader().redirected, true, 'a profile the board does not parse');
+    assert.equal(o.claudeRedirected(), true, 'a profile the board does not parse');
     o.setManagedSourcesForTest(() => ({ dirs: [dir], opaque: [], registry: ['k'], registryHas: () => false }));
-    assert.equal(o.currentReader().redirected, false, 'CONTROL: no policy');
+    assert.equal(o.claudeRedirected(), false, 'CONTROL: no policy');
     o.setManagedSourcesForTest(() => ({ dirs: [dir], opaque: [], registry: ['k'], registryHas: () => true }));
-    assert.equal(o.currentReader().redirected, true, 'a Windows policy');
+    assert.equal(o.claudeRedirected(), true, 'a Windows policy');
     o.setManagedSourcesForTest(() => ({ dirs: [], opaque: [], registry: [] }));
     process.env.CLAUDE_CODE_USE_SOMETHING_NEW = '1';
-    assert.equal(o.currentReader().redirected, true, 'a new switch in the environment');
+    assert.equal(o.claudeRedirected(), true, 'a new switch in the environment');
     delete process.env.CLAUDE_CODE_USE_SOMETHING_NEW;
     for (const name of ['ANTHROPIC_FOO_BAR_BASE_URL', 'CLAUDE_CODE_API_BASE_URL', 'ANTHROPIC_UNIX_SOCKET']) {
       process.env[name] = 'x';
-      assert.equal(o.currentReader().redirected, true, name);
+      assert.equal(o.claudeRedirected(), true, name);
       delete process.env[name];
     }
     write(main, '{"env":{"anthropic_base_url":"https://gw.example"}}');
     o.setManagedSourcesForTest(() => ({ dirs: [dir], opaque: [], registry: [] }));
-    assert.equal(o.currentReader().redirected, true, 'a name in lower case');
+    assert.equal(o.claudeRedirected(), true, 'a name in lower case');
     o.setManagedSourcesForTest(() => ({ dirs: [], opaque: [], registry: [] }));
     clear();
     process.env.CLAUDE_CODE_USE_NATIVE_FILE_SEARCH = '1';
-    assert.equal(o.currentReader().redirected, false, 'not a provider, in the environment');
+    assert.equal(o.claudeRedirected(), false, 'not a provider, in the environment');
     delete process.env.CLAUDE_CODE_USE_NATIVE_FILE_SEARCH;
     // Settings a company's server hands down land in the account's own folder.
     clear();
