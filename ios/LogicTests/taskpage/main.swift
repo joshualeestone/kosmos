@@ -164,7 +164,7 @@ check(Board.activityPhrase(["kind": "missed", "count": 3, "told": "dana", "reach
 section("the page's model, against a fake Mac")
 // kosmos#7751: on the main actor, as the model is. Unisolated, asyncSend ran on another thread (Swift 5 mode runs a
 // nonisolated async method off the caller's actor), so a test's yield loop did not wait for it and the two raced on
-// `held` and `asked`: a dropped continuation, then a segfault. ThreadSanitizer showed the race before this change.
+// `held` and `asked`. ThreadSanitizer reported that race before this change.
 @MainActor
 final class FakeMac {
     var projects: (Int, Data)? = (200, projectsData)
@@ -408,7 +408,10 @@ func modelTests() async {
     check(!cm.readFailed, "a read cut short records no failure")
 
     // A parse held while a newer read lands: the newer answer stands, and so does a newer failure.
-    @MainActor final class ParseGate { private(set) var hold = false; private var held: CheckedContinuation<Void, Never>?; var waiting: Bool { held != nil }
+    @MainActor final class ParseGate {
+        private(set) var hold = false
+        private var held: CheckedContinuation<Void, Never>?
+        var waiting: Bool { held != nil }
         func release() { let h = held; held = nil; h?.resume() }
         // As FakeMac's: a second hold would drop the first one's continuation, so the run ends instead.
         func arm(line: Int = #line) {
@@ -420,7 +423,8 @@ func modelTests() async {
             hold = false
             if held != nil { endRun("a second parse or build was held while one already was", line: line) }
             await withCheckedContinuation { held = $0 }
-        } }
+        }
+    }
     for newerFails in [false, true] {
         let gate = ParseGate()
         let pm = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch },
