@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: pbrun-7404
-diff_hash: 900e51843c6f8728ec2cf4e6cd03c0b0fa5f7deb5e1f418abfbb15ab757e91e3
+diff_hash: db5d985bdb9aace9f60a0c77dded146c11d9e2d755382777f975a03d5bbd35b9
 validation: focused suites and engine.reachable on main after #7726, 127 pass; full suite carried by PR CI (Mortals is reserved for Cloud go-public)
 subdir_audit: passed
 timestamp: 2026-11-01T14:18:37Z
