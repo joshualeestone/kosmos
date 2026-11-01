@@ -88,6 +88,11 @@ if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ] && [ -z "$sh
   # #7654: on GitHub Actions a skip is also an annotation on the run, so a green job that tested less is visible.
   [ "$skipped" -gt 0 ] && [ -n "${GITHUB_ACTIONS:-}" ] && echo "::warning title=ui-sample::$skipped UI check(s) SKIPPED (they tested nothing); see the log"
   echo "PASS  ui-sample: $ran of $want UI checks passed on a fresh simulator$note"
+  # TEMP-7690-MEASUREMENT, never merges: the same lines on a green.
+  app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
+  bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
+  data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
+  [ -n "$data" ] && grep -iE 'keyboard hold|anchor' "$data/Documents/trace.txt" | sed 's/^/    ALL /'
   exit 0
 fi
 why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\] : /\1.\2: /p' "$log" | head -3)"
@@ -117,6 +122,8 @@ if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check)\]' failed" 
       echo "  the app's last 60 of $lines scroll events (one file: $ran ran this run):"
       tail -60 "$data/Documents/trace.txt" | sed 's/^/    /'
     fi
+    # TEMP-7690-MEASUREMENT, never merges: every hold and anchor line in the file, past the 60-line tail.
+    grep -iE 'keyboard hold|anchor' "$data/Documents/trace.txt" | sed 's/^/    ALL /'
   else
     echo "  (no scroll trace from the app)"
   fi
