@@ -27,12 +27,12 @@ scan() {
       $n++;
       next if $line =~ /^\s*#/;
       my $bad = 0;
-      while ($line =~ /(TZ=UTC\s+)?\btouch(?:\s+-[a-zA-Z]+)*?\s+-[a-zA-Z]*t\s+"?(\$\(|`|\$\{?(\w+)\}?)/g) {
+      while ($line =~ /(TZ=UTC\s+)?\btouch(?:\s+-[a-zA-Z]+)*?\s+-[a-zA-Z]*t\s*"?(\$\(|`|\$\{?(\w+)\}?)/g) {
         my ($utc, $stamp, $var) = ($1, $2, $3);
         my $rest = substr($line, pos($line));
         $bad = 1 unless defined $utc;
         if (defined $var) {
-          my @set = $text =~ /(?:^|[\s;])\Q$var\E=([^\n]*)/mg;
+          my @set = $text =~ /(?:^|[\s;(])\Q$var\E=([^\n]*)/mg;
           my $utc_only = @set > 0;
           for (@set) { $utc_only = 0 unless /^"?\$\((?:[A-Z_]+=\S+\s+)*TZ=UTC\s+date/; }
           $bad = 1 unless $utc_only;
@@ -55,6 +55,7 @@ TZ=UTC touch -t "$(date -v-2H +%Y%m%d%H%M)" "$a"
 TZ=UTC touch -t "$local_stamp" "$a"
 touch -m -t "$(TZ=UTC date +%Y%m%d%H%M)" "$a"
 touch -mt "$(date +%Y%m%d%H%M)" "$a"
+touch -t"$(date +%Y%m%d%H%M)" "$a"
 touch -t $(date +%Y%m%d%H%M) "$a"
 TZ=UTC touch -t "`date +%Y%m%d%H%M`" "$a"
 TZ=UTC touch -t "$mixed_stamp" "$a"
@@ -73,8 +74,8 @@ touch -A -0130 "$a"
 # touch -t "$(date)" in a comment
 FIXTURE
 flagged="$(scan "$fixture" | wc -l | tr -d ' ')"
-if [ "$flagged" != 11 ]; then
-  echo "FAIL: the scan flagged $flagged of the 11 unsafe fixture lines; it cannot be trusted" >&2
+if [ "$flagged" != 12 ]; then
+  echo "FAIL: the scan flagged $flagged of the 12 unsafe fixture lines; it cannot be trusted" >&2
   scan "$fixture" >&2
   exit 1
 fi
@@ -94,4 +95,4 @@ if [ -n "$found" ]; then
   printf '%s\n' "$found" >&2
   exit 1
 fi
-echo "ok: ${#files[@]} test files read, no computed local touch -t; the control flagged 11 of 11"
+echo "ok: ${#files[@]} test files read, no computed local touch -t; the control flagged 12 of 12"
