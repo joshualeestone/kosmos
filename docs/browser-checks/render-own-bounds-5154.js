@@ -74,7 +74,7 @@ const { chromium } = require('playwright');
       // state not being needs_you, so its sentence never reaches this card. Both are rendered facts, not source
       // order. The PR carries a negative control: removing that guard makes assertion B below go RED, then green.
       say(/astate st-question/.test(out.ownQuestionText), 'a needs_you agent asking its own question reads as a Question on the card (st-question), not an Issue or a give-up');
-      say(!/get this agent going again after its quota reset/i.test(out.ownQuestionText), 'and the Kosmos give-up sentence is absent from that question card (precedence)');
+      say(!/Its quota reset, but it has not finished its turn/.test(out.ownQuestionText), 'and the Kosmos give-up sentence is absent from that question card (precedence)');
       say(out.attnQuota === true, 'a raised quota give-up counts as an Issue (agentNeedsAttention)');
       say(out.attnNudge === true, 'a raised nudge give-up counts as an Issue');
       say(out.attnFirst === true, 'a raised first-reply give-up counts as an Issue');

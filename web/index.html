@@ -22660,8 +22660,8 @@ function stateReason(a, opts) {
     const mins = Math.max(1, Math.round((Number(it.forMs) || 0) / 60000));
     const ago = 'about ' + mins + (mins === 1 ? ' minute' : ' minutes') + ' ago';
     if (it.cls === 'quota') return 'Its quota reset, but it has not finished its turn. Kosmos tried to start it again and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
-    if (it.cls === 'nudge') return 'It has an open task and has not picked it up. Kosmos reminded it and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
-    if (it.cls === 'firstreply') return 'It has not answered its first message. Kosmos reminded it and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
+    if (it.cls === 'nudge') return 'It has an open task and has not picked it up. Kosmos tried to remind it and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
+    if (it.cls === 'firstreply') return 'It has not answered its first message. Kosmos tried to remind it and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
   }
   /* #5957 slice 2's rules-far-behind note for a calm card lives in pillSay since #6716 (no sentence on a tile). */
   if (!a || a.state !== 'rate_limited') return '';
