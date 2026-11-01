@@ -224,7 +224,7 @@ kosmos_versions_entry_stamp_off() {
   const first = new Date(Number(m[3]), months.indexOf(m[1]), Number(m[2]), h, Number(m[5]));
   const second = new Date(first.getTime() + HOUR_MS);
   const repeated = second.getHours() === first.getHours() && second.getMinutes() === first.getMinutes();
-  const at = repeated && /(?:AM|PM)\s+CST\b/.test(s) ? second : first;
+  const at = repeated && /^\s+CST\b/.test(s.slice(m[0].length)) ? second : first;
   const off = Math.round((Date.now() - at.getTime()) / 60000);
   // A parseable-looking date can still yield NaN (month 13, year 999999).
   console.log(Number.isFinite(off) ? String(off) : 'unparseable');
