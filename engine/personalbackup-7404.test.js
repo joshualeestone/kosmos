@@ -101,6 +101,27 @@ test('pbjob-7404: Kosmos+ refusing the words stops the job through the real orge
   assert.equal(pb.mayBackUp(ask), true);
 });
 
+test('pb tiers: the plan reaches the run; no plan runs nothing and is no pause; an old Kosmos+ runs as before', async (t) => {
+  for (const [gb, ran, planGb] of [[60, true, 60], [null, false, undefined], [undefined, true, undefined]]) {
+    const root = fresh(t);
+    const consent = { ...WORDS, backsUp: ['your project folders'] };
+    const c = coordinator({ preexisting: true, preview: { ok: true, data: { org: ORG, role: 'member', consent, consentHash: HASH, computerSalt: SALT } } });
+    const p = await pb.preview({ root, remote: c });
+    assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true);
+    const remote = { ...c, macRequest: async (m, route, body) => {
+      const a = await c.macRequest(m, route, body);
+      if (route === oe.ROUTES.status && a.ok && gb !== undefined) a.data.backupWeeklyGb = gb;
+      return a;
+    } };
+    const seen = [];
+    const r = await pb.runJob({ roots: [] }, { root, remote, runBackup: async (_, deps) => { seen.push(deps.planGb); return { ok: true }; } });
+    assert.equal(seen.length, ran ? 1 : 0, String(gb));
+    if (ran) { assert.equal(seen[0], planGb); assert.equal(r.ok, true); continue; }
+    assert.equal(r.ok, false); assert.equal(r.personActs, true); assert.equal(r.overAllowance, undefined);
+    assert.match(r.because, /no backup plan/);
+  }
+});
+
 function fresh(t) {
   pb._TICKETS.clear();   // each test starts as a board just started: no ticket from an earlier test is live
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-personalswitch-7404-root-'));
