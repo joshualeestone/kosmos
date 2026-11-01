@@ -8327,10 +8327,14 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (rosterOnly) {
-      let shown;
-      try { shown = JSON.parse(body).agents.filter((a) => !a.isGuide); } catch { sendJson(res, 500, { error: 'we could not read the agents just now' }); return; }
+      let shown; let partial;
+      try {
+        const whole = JSON.parse(body);
+        shown = whole.agents.filter((a) => !a.isGuide);
+        partial = whole.counts.notRunning === null;   // the board could not read every job, so stopped agents may be missing
+      } catch { sendJson(res, 500, { error: 'we could not read the agents just now' }); return; }
       // profile.role first (a running row's `role` is only the line parsed from its instruction file), and the card's own word.
-      sendJson(res, 200, { agents: shown.map((a) => ({ name: a.name, role: (a.profile && a.profile.role) || a.role || null, state: a.cardWord || null })) });
+      sendJson(res, 200, { agents: shown.map((a) => ({ name: a.name, role: (a.profile && a.profile.role) || a.role || null, state: a.cardWord || null })), ...(partial ? { partial: true } : {}) });
       return;
     }
     if (isSiblingRead(req)) body = statusForSibling(body, req.headers['sec-fetch-site']);   // #4973: another computer's page reads the agents only (#6178: and, same-site, the accounts)

@@ -47,7 +47,7 @@ function withStub(answer, fn) {
     }
     if (req.method === 'GET' && req.url === '/api/agents/list') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ agents: [{ name: 'Ada', role: 'Writer', state: 'Idle' }, { name: 'Ben', role: null, state: 'Not running' }] }));
+      return res.end(JSON.stringify({ agents: [{ name: 'Ada', role: 'Writer', state: 'Idle' }, { name: 'Ben', role: null, state: 'Not running' }], partial: true }));
     }
     if (req.method === 'GET' && req.url.startsWith('/api/roles')) {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -167,6 +167,7 @@ test('#7748 kosmos agent list names each agent, its role, and whether it runs', 
     assert.equal(r.code, 0, r.out);
     assert.match(r.out, /^\s*Ada {2}Writer {2}Idle$/m);
     assert.match(r.out, /^\s*Ben {2}no role recorded {2}Not running$/m);
+    assert.match(r.out, /may be incomplete/);
     const extra = await cli(port, ['agent', 'list', 'x']);
     assert.equal(extra.code, 2, extra.out);
     const opt = await cli(port, ['agent', 'roles', '--x']);

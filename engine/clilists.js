@@ -10,10 +10,13 @@ function agentLine(a) {
   return a.name + '  ' + role + '  ' + (typeof a.state === 'string' && a.state ? a.state : 'state not known');
 }
 
-function agentLines(agents) {
+/* `partial`: the board could not read every agent, so a stopped one may be missing and an empty list proves nothing. */
+function agentLines(agents, partial) {
   const rows = (Array.isArray(agents) ? agents : []).filter((a) => a && typeof a.name === 'string' && a.name);
-  if (!rows.length) return { lines: ['There are no agents on this board yet.'], code: 0 };
-  return { lines: rows.map(agentLine), code: 0 };
+  const lines = rows.map(agentLine);
+  if (partial) lines.push('This list may be incomplete: Kosmos could not read every agent just now, so a stopped one may be missing.');
+  else if (!rows.length) lines.push('There are no agents on this board yet.');
+  return { lines, code: 0 };
 }
 
 const OTHER_GROUP = 'Other';

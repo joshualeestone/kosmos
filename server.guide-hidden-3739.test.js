@@ -88,7 +88,7 @@ test('#3739 a guide with no session yet (an offline row) is not counted in the t
 test('#7748 the agent list carries a stopped agent, which only /api/status derives, and leaves the guide out', async () => {
   const stopped = 'ben';
   fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, stopped), { recursive: true });
-  require('./engine/store').writeProfile(stopped, { provider: 'anthropic' });
+  require('./engine/store').writeProfile(stopped, { provider: 'anthropic', role: 'Chosen for Ben' });
   fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'mara'), { recursive: true });
   require('./engine/store').writeProfile('mara', { provider: 'anthropic', role: 'Chosen on the board' });
   const board = fleet.install([fleet.agent(GUIDE, { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
@@ -98,7 +98,9 @@ test('#7748 the agent list carries a stopped agent, which only /api/status deriv
     const list = await (await fetch(base + '/api/agents/list')).json();
     const by = Object.fromEntries(list.agents.map((a) => [a.name.toLowerCase(), a]));
     assert.equal(by.ben && by.ben.state, 'Not running', 'a stopped agent is missing from the list: ' + JSON.stringify(list.agents));
+    assert.equal(by.ben.role, 'Chosen for Ben', 'a stopped agent keeps its role');
     assert.equal(by.mara && by.mara.state, 'Idle', 'the word on the card');
+    assert.equal(list.partial, undefined, 'a board that read everything does not say it may be partial');
     assert.equal(by.mara.role, 'Chosen on the board', 'the role on the card is the one chosen on the board');
     assert.equal(list.agents.length, 2, 'the guide was listed: ' + JSON.stringify(list.agents));
     for (const a of list.agents) assert.deepEqual(Object.keys(a).sort(), ['name', 'role', 'state']);
