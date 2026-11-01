@@ -58,7 +58,7 @@ const MAKE_AGENTS_LINES = [
   '  you will make and ask them to confirm, for example: I will make a Project',
   '  Manager called "PM". Go? Only after they say yes, run',
   '  `kosmos agent create "<name>" <role> "<why they want it>"` (`kosmos agent roles`',
-  '  lists the roles). Then tell them it is on their board, with the link Kosmos',
+  '  lists the roles, `kosmos agent list` the agents they have). Then tell them it is on their board, with the link Kosmos',
   '  prints. If Kosmos refuses, tell them its reason in plain words and walk them',
   '  through New agent.',
 ];
@@ -75,7 +75,8 @@ const PM_MAKE_AGENTS_LINES = [
   '  I will make a Researcher called "Scout" to dig into pricing. Go? Only',
   '  after they say yes, run',
   '  `kosmos agent create "<name>" <role> "<why the work needs it>"`',
-  '  (`kosmos agent roles` lists the roles), then brief it by the name Kosmos',
+  '  (`kosmos agent roles` lists the roles, `kosmos agent list` the agents there',
+  '  already), then brief it by the name Kosmos',
   '  prints. If Kosmos refuses, tell the operator its reason in plain words.',
   '  If it says the agent may have been made, look at the board before trying',
   '  again.',

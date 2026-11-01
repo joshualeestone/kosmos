@@ -171,6 +171,7 @@ function exitAfterSignal(child) {
 
 const HELD = { services: [
   { name: 'GitHub', route: '/api/github', how: 'sign-in', held: null },
+  { name: 'Vercel', route: '/api/vercel', how: 'sign-in', held: true, tool: true },
   { name: 'Brave Search', route: '/api/svc/brave-search', how: 'token', held: true, connect: 'brave-search' },
   { name: 'Exa', route: '/api/svc/exa', how: 'token', held: false, connect: 'exa' },
 ] };
@@ -181,6 +182,7 @@ test('#4451: kosmos connections reads the cheap route, never the metered sweep, 
   assert.match(r.out, /Brave Search: connected \(a token is stored; .*; replace it with: kosmos connect brave-search\)/);
   assert.match(r.out, /Exa: not connected \(store the token the person gives you with: kosmos connect exa\)/);
   assert.match(r.out, /GitHub: not known without a live check; the person connects it in Settings > Connections/);
+  assert.match(r.out, /Vercel: connected \(signed in with its own tool on this computer; Settings > Connections checks it when opened\)/);   // #7748
   assert.ok(seen.some((q) => q.url === '/api/connections/held'), 'CONTROL: the cheap route was not asked, so the next line proves nothing');
   assert.equal(seen.filter((q) => q.url === '/api/connections').length, 0, 'kosmos connections called the metered sweep');
 }));

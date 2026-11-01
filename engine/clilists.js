@@ -4,10 +4,13 @@
  * Each answer is { lines, code }. A line is printed as it is; code is the exit status.
  */
 
-/* One agent on `kosmos agent list`. `stopped` is the only state that means nothing is running. */
+/* Only `stopped` is known to be not running, and `unknown` is a board that could not tell. */
+const STATE_WORDS = { stopped: 'not running', restarting: 'restarting', unknown: 'state not known' };
+
 function agentLine(a) {
   const role = typeof a.role === 'string' && a.role.trim() ? a.role.trim() : 'no role recorded';
-  const state = a.state === 'stopped' ? 'not running' : (typeof a.state === 'string' && a.state ? 'running, ' + a.state.replace(/_/g, ' ') : 'state not known');
+  const known = typeof a.state === 'string' && a.state;
+  const state = (known && STATE_WORDS[a.state]) || (known ? 'running, ' + a.state.replace(/_/g, ' ') : 'state not known');
   return a.name + '  ' + role + '  ' + state;
 }
 
@@ -22,6 +25,7 @@ const OTHER_GROUP = 'Other';
 /* A word narrows the list to roles whose key, label or group holds it. With no word every role shows, under its group. */
 function roleLines(roles, word) {
   const rows = (Array.isArray(roles) ? roles : []).filter((r) => r && r.key);
+  if (!rows.length) return { lines: ['Kosmos has no roles to list right now.'], code: 0 };
   const want = String(word || '').trim().toLowerCase();
   const groupOf = (r) => (typeof r.group === 'string' && r.group.trim() ? r.group.trim() : OTHER_GROUP);
   const hits = want

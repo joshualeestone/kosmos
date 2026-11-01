@@ -5430,7 +5430,7 @@ kosmos_command_list() {
   printf '  kosmos restart       stop Kosmos and start it again\n'
   printf '  kosmos status        say whether Kosmos is running, and where\n'
   printf '  kosmos open          open the dashboard in your browser, starting Kosmos if needed\n'
-  printf '  kosmos agents        list the agent sessions running on this computer\n'
+  printf '  kosmos agents        list the terminal sessions on this computer (every agent: kosmos agent list)\n'
   printf '  kosmos version       say which version of Kosmos this is (also --version or -v)\n'
   printf '  kosmos update        install a newer Kosmos when one is published (only on a computer set to connect elsewhere; the app runs it)\n'
   printf '  kosmos msg           send a message to one agent\n'
@@ -5448,7 +5448,7 @@ kosmos_command_list() {
   printf '  kosmos task          a project'"'"'s tasks: list, add, close, reopen, message, mark built\n'
   printf '  kosmos project       list, show, create or pause projects, say your role on one, or take a member off one\n'
   printf '  kosmos records       a project'"'"'s records (accounts, leads, vendors): list, set, remove, label\n'
-  printf '  kosmos agent         make or remove an agent, or list the roles one can have\n'
+  printf '  kosmos agent         list, make or remove agents, or list the roles one can have\n'
   printf '  kosmos adopt         give the agents already running here a Kosmos identity, once\n'
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
   printf '  kosmos handoff       print facts for your handoff: your live state, artifact fingerprints, instruction and git status\n'
@@ -7140,11 +7140,11 @@ cmd_agent() {
       body=$(kosmos_curl "$_bt" "$_rtok" -sS -m 25 "$URL/api/roles?catalogue=1" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "list the roles" "$rc"; exit 1; fi
       if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the roles. Try again in a minute."; exit 1; fi
-      # An exit of 1 is the word matching nothing, said by the reader; anything else is an answer it could not read.
+      # An exit of 4 is the word matching nothing, said by the reader; anything else is an answer it could not read.
       local _rrc=0
-      printf '%s' "$body" | CL_MOD="$(kosmos_engine_module clilists)" CL_WORD="${1:-}" "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(3)}if(!j||!Array.isArray(j.roles))process.exit(3);const r=require(process.env.CL_MOD).roleLines(j.roles,process.env.CL_WORD);console.log(r.lines.join("\n"));process.exitCode=r.code})' || _rrc=$?
-      [ "$_rrc" -eq 0 ] || [ "$_rrc" -eq 1 ] || { say "Kosmos gave an answer we could not read when listing the roles."; exit 1; }
-      [ "$_rrc" -eq 0 ] || exit 1
+      printf '%s' "$body" | CL_MOD="$(kosmos_engine_module clilists)" CL_WORD="${1:-}" "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(3)}if(!j||!Array.isArray(j.roles))process.exit(3);const r=require(process.env.CL_MOD).roleLines(j.roles,process.env.CL_WORD);console.log(r.lines.join("\n"));process.exitCode=r.code?4:0})' || _rrc=$?
+      [ "$_rrc" -eq 0 ] || [ "$_rrc" -eq 4 ] || { say "Kosmos gave an answer we could not read when listing the roles."; exit 1; }
+      [ "$_rrc" -eq 0 ] || exit 1   # the reader has said which word matched nothing
       ;;
     role-draft)
       # The "Describe it yourself" text (the `own` role): what a new role starts from. {{NAME}} stays; Kosmos

@@ -2197,7 +2197,7 @@ async function agentList(ctx, args) {
 }
 async function agentRoles(ctx, args) {
   const word = args && args[0];
-  if (typeof word === 'string' && /^--[A-Za-z]/.test(word)) { refuseOption(ctx, 'agent roles', 'Usage: kosmos agent roles [<word>]', word); return 2; }
+  if (typeof word === 'string' && /^--[A-Za-z]/.test(word)) { refuseOption(ctx, 'agent roles', 'Usage: kosmos agent roles [<word>]', word, 'target'); return 2; }
   if (tooManyWords(ctx, 'agent roles', 1, 'Usage: kosmos agent roles [<word>]', args || [])) return 2;
   // ?catalogue=1: listing the roles asks for the downloaded ready-made ones too, as the picker does (#4632).
   // 25 s: the board may be downloading (up to 8 s, 16 s when it retries past the caches).
@@ -3152,7 +3152,7 @@ const DESCRIBE = {
   task: "a project's tasks: list, add, close, reopen, message, mark built",
   project: 'list, show, create or pause projects, say your role on one, or take a member off one',
   records: "a project's records (accounts, leads, vendors): list, set, remove, label",
-  agent: 'make or remove an agent, or list the roles one can have',
+  agent: 'list, make or remove agents, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
   community: 'post to or read the Kosmos+ community',
   connections: 'list the outside services and which are connected',
