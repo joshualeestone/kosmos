@@ -218,14 +218,16 @@ kosmos_versions_entry_stamp_off() {
   if (!m) { console.log('unparseable'); process.exit(0); }
   const months = 'January February March April May June July August September October November December'.split(' ');
   let h = Number(m[4]) % 12; if (m[6] === 'PM') h += 12;
-  // #1464 residual, documented and NOT fixed: on the November fall-back night the
-  // 1:00-1:59 Central hour happens twice, and this bare wall-clock reconstruct
-  // resolves to the FIRST (CDT) instant. A cut stamped in the second (CST) hour
-  // then reads ~60 min too stale and step 1 refuses it -- fail CLOSED, so the
-  // operator just re-stamps. It is not fixable here without trusting the trailing
-  // label, which the line above deliberately ignores for the stronger reason.
+  // kosmos#7725: on the November fall-back night the 1:00-1:59 Central hour happens
+  // twice, and this bare wall-clock reconstruct resolves to the FIRST (CDT) instant,
+  // so a fresh stamp from the second (CST) hour read ~60 min stale and every gate
+  // refused it. Where the same wall time also names the instant an hour later, take that
+  // one unless it is further ahead than the default future bound (20 min). No label is trusted.
   const t = new Date(Number(m[3]), months.indexOf(m[1]), Number(m[2]), h, Number(m[5]));
-  const off = Math.round((Date.now() - t.getTime()) / 60000);
+  const later = new Date(t.getTime() + 3600000);
+  const twice = later.getHours() === t.getHours() && later.getMinutes() === t.getMinutes();
+  const at = twice && later.getTime() <= Date.now() + 20 * 60000 ? later : t;
+  const off = Math.round((Date.now() - at.getTime()) / 60000);
   // A parseable-looking date can still yield NaN (month 13, year 999999).
   console.log(Number.isFinite(off) ? String(off) : 'unparseable');
 "

@@ -50,6 +50,16 @@ function resetAt(ms) {
   for (const x of new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(new Date(ms))) p[x.type] = x.value;
   return `${p.month} ${p.day} at ${p.hour}:${p.minute}${String(p.dayPeriod).toLowerCase()}`;
 }
+/* A time just past, within the hour a capped card is still held. In the repeated fall-back hour a printed time reads as its
+   later instant (status.limitResetAt), so 15 minutes ago can read as 45 minutes ahead: try closer, then the far end of that hour. */
+function justPast() {
+  const now = Date.now();
+  for (const minutes of [15, 5, 1, 59]) {
+    const ms = now - minutes * 60e3;
+    if (status.limitResetAt(`resets ${resetAt(ms)} (America/Chicago)`, now) < now) return ms;
+  }
+  return now;
+}
 /* "4:35pm" for `ms` in America/Chicago: a dateless reset as Claude Code prints it (slice 3b). */
 function clockAt(ms) {
   const p = {};
@@ -155,7 +165,7 @@ test('#5805 not held: a dateless line the board saw too late to read, a reset al
 
 test('#5805 a passed dated reset on a card that still reads capped (its limit menu on screen) is held, looking again in a minute', async () => {
   await onScreen(AHEAD(), async (board, tmux) => {
-    const past = `You've hit your weekly limit · resets ${resetAt(Date.now() - 15 * 60e3)} (America/Chicago)`;
+    const past = `You've hit your weekly limit · resets ${resetAt(justPast())} (America/Chicago)`;
     const r = board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, state: status.STATE.RATE_LIMITED, stateEvidence: past } : c));
     const before = Date.now();
     const v = chat.deliverAutomatic('casey', 'A colleague line.', r);
