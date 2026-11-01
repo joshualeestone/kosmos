@@ -22,7 +22,8 @@ case "\$a" in
 esac
 EOS
 chmod +x "$T/bin/vercel"; PATH="$T/bin:$PATH"
-export KOSMOS_VERCEL_RETRY_S=0 KOSMOS_VERCEL_AUTH_FILE="$T/auth.json"
+mkdir -p "$T/tmp"
+export KOSMOS_VERCEL_RETRY_S=0 KOSMOS_VERCEL_AUTH_FILE="$T/auth.json" KOSMOS_VERCEL_TMP="$T/tmp"   # an exit in the hook leaves its capture, as release.sh's EXIT trap expects
 once() { ( cd "$T/site" && vercel deploy --prod --yes ); }
 run() { rm -f "$T/calls"; printf '%s\n' "$@" > "$T/script"; out=$(site_vercel_deploy "$T/site" once 2>&1); rc=$?; deploys=$(grep -c '^deploy' "$T/calls"); }
 
@@ -47,7 +48,7 @@ sigd() { "$T/bin/vercel-sig"; }; rm -f "$T/calls"; out=$(site_vercel_deploy "$T/
 hook() { echo x >> "$T/hooked"; }; rm -f "$T/hooked"; KOSMOS_VERCEL_BEFORE_RETRY=hook; run refuse refuse ok; ok "the hook runs before each retry" "$(wc -l < "$T/hooked" | tr -d ' ')" 2
 hook() { echo FROZEN; exit 3; }; printf 'refuse\nok\n' > "$T/script"; rm -f "$T/calls"; out=$( (site_vercel_deploy "$T/site" once) 2>&1 ); rc=$?; ok "a hook that exits stops the deploy" "$rc $(grep -c '^deploy' "$T/calls")" "3 1"
 unset KOSMOS_VERCEL_BEFORE_RETRY
-KOSMOS_VERCEL_TMP="$T/kt"; mkdir -p "$T/kt"; run ok; ok "the capture goes in KOSMOS_VERCEL_TMP and is removed" "$(ls "$T/kt" | wc -l | tr -d ' ')" 0; unset KOSMOS_VERCEL_TMP
+KOSMOS_VERCEL_TMP="$T/kt"; mkdir -p "$T/kt"; run ok; ok "the capture goes in KOSMOS_VERCEL_TMP and is removed" "$(ls "$T/kt" | wc -l | tr -d ' ')" 0; KOSMOS_VERCEL_TMP="$T/tmp"
 # The token note: time left, never the token.
 now=$(date +%s); printf '{"token":"SECRET-T","refreshToken":"SECRET-R","expiresAt": %s}\n' $((now + 100)) > "$T/auth.json"
 run ok; case "$out" in *SECRET*) r=leaked ;; *"token left"*s*) r=clean ;; *) r="$out" ;; esac; ok "the note never prints the token" "$r" clean
