@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: sandboxstart-4655
-diff_hash: 2597c9620c0cffe6c379eba79ba3a57c6485ae66fab25bf4fd4a712d2ee678e2
+diff_hash: 206c0fd5c90b44e99e650cf174a6b7d7c4a07d5ef5988f75864a820b7c8c5841
 validation: failed (13 load timeouts in the full run; all 9 files pass alone, 279 of 279; shell stage not reached)
 subdir_audit: passed
 timestamp: 2026-11-01T09:24:26Z
