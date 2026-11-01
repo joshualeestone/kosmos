@@ -536,16 +536,20 @@ private struct LitDim: View {
     }
 }
 
-// kosmos#7678: the actions beside the pressed message, inside the area messages are seen in (above the composer, so above
-// the keyboard): above the bubble where it fits, else below it, else at the bottom of that area. Resolved in this reader,
-// as LitDim's hole is (review 3 of #7419). An overlay takes no layout, so nothing in the chat moves.
+// kosmos#7678: the actions beside the pressed message, between the top of the area messages are seen in and the top of the
+// keyboard (over the composer if it must: review 1, on a phone most positions fitted neither side of the composer's limit):
+// above the bubble where it fits, else below it, else on whichever side has more room. Resolved in this reader, as LitDim's
+// hole is (review 3 of #7419). An overlay takes no layout, so nothing in the chat moves.
 struct ActionsPanel<Rows: View>: View {
     let anchor: PressedBubble
     let height: CGFloat
+    let keyboardTop: CGFloat
+    let close: () -> Void
     @ViewBuilder let rows: () -> Rows
     var body: some View {
         GeometryReader { g in
-            let area = anchor.visible.map { g[$0] } ?? CGRect(origin: .zero, size: g.size)
+            let seen = anchor.visible.map { g[$0] } ?? CGRect(origin: .zero, size: g.size)
+            let area = CGRect(x: seen.minX, y: seen.minY, width: seen.width, height: max(seen.height, keyboardTop - seen.minY))
             let bubble = anchor.bubble.map { g[$0] }
             let width = min(area.width - 24, 400)
             let gap: CGFloat = 8
@@ -560,16 +564,19 @@ struct ActionsPanel<Rows: View>: View {
                 .position(x: area.midX, y: y + height / 2)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("messageActionsPanel")
+                .accessibilityAddTraits(.isModal)
+                .accessibilityAction(.escape) { close() }
         }
         .ignoresSafeArea()
         .transition(.opacity)
     }
-    // Above the bubble, else below, else the bottom of the area (and never above its top).
+    // Above the bubble, else below, else the side with more room (never above the area's top or below its bottom).
     static func top(bubble: CGRect?, area: CGRect, height: CGFloat, gap: CGFloat) -> CGFloat {
         guard let b = bubble else { return max(area.minY + gap, area.maxY - height - gap) }
         if b.minY - gap - height >= area.minY { return b.minY - gap - height }
         if b.maxY + gap + height <= area.maxY { return b.maxY + gap }
-        return max(area.minY + gap, area.maxY - height - gap)
+        let wanted = b.minY - area.minY >= area.maxY - b.maxY ? b.minY - gap - height : b.maxY + gap
+        return min(max(wanted, area.minY + gap), max(area.minY + gap, area.maxY - height - gap))
     }
 }
 
@@ -758,6 +765,7 @@ struct MessageActionsHost: ViewModifier {
     @State private var panel: MessageActionTarget?
     @State private var askDelete: MessageActionTarget?   // the panel's Delete question: see panelDelete
     @State private var keyboardUp = false
+    @State private var keyboardTop: CGFloat = 0
     @State private var detent: PresentationDetent = .large
     @State private var afterClose: (() -> Void)?
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -789,6 +797,14 @@ struct MessageActionsHost: ViewModifier {
         if #available(iOS 16.4, *) { return true } else { return false }
     }
 
+    // kosmos#7678: the panel only where it can show every row: not with VoiceOver or Switch Control, not at an accessibility text
+    // size (a row can wrap and be clipped), not where the keyboard leaves too little height (landscape). The sheet takes those, as today.
+    private func panelFits(_ t: MessageActionTarget) -> Bool {
+        guard keyboardUp, !voiceOver, !UIAccessibility.isSwitchControlRunning, !Self.sampleNoPanel, !typeSize.isAccessibilitySize else { return false }
+        return keyboardTop - Self.panelTopBar >= smallHeight(t) - 28 + 16
+    }
+    private static let panelTopBar: CGFloat = 100   // the status and top bars, about
+
     // kosmos#7678: the sheet's own rows (one source, so the panel and the sheet cannot drift). Reply and Delete run at
     // once (no sheet to wait for); More closes the panel, lowers the keyboard and opens the sheet at full height. The panel
     // is always the small rows: the sheet's own detent rests at .large, which would open it on the Reactions grid.
@@ -810,25 +826,28 @@ struct MessageActionsHost: ViewModifier {
                 // Review 3: only the dim fades; the chat's own changes in the same update are not animated.
                 ZStack {
                     if litDim { LitDim(anchor: anchor, close: { panel = nil; target = nil }) }
-                    if let p = panel { ActionsPanel(anchor: anchor, height: smallHeight(p) - 28) { panelRows(p) } }
+                    if let p = panel { ActionsPanel(anchor: anchor, height: smallHeight(p) - 28, keyboardTop: keyboardTop, close: { panel = nil }) { panelRows(p) } }
                 }
                     .animation(.easeOut(duration: 0.2), value: litDim)
             }
-            .alert(Board.deleteConfirmTitle, isPresented: Binding(get: { askDelete != nil }, set: { if !$0 { askDelete = nil } })) {
-                Button(Board.deleteConfirmYes, role: .destructive) { askDelete?.delete?(); askDelete = nil }
+            .alert(Board.deleteConfirmTitle, isPresented: Binding(get: { askDelete != nil }, set: { if !$0 { askDelete = nil } }), presenting: askDelete) { t in
+                Button(Board.deleteConfirmYes, role: .destructive) { t.delete?(); askDelete = nil }
                 Button(Board.deleteConfirmNo, role: .cancel) { askDelete = nil }
-            } message: {
+            } message: { _ in
                 Text(Board.deleteConfirmBody)
             }
             .environment(\.shownMessageActions, (panel ?? target ?? askDelete)?.id)
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
+                keyboardUp = true
+                if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect { keyboardTop = f.minY }
+            }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardUp = false
                 panel = nil   // the panel is for a raised keyboard; whatever lowered it closes it
             }
             .environment(\.openMessageActions) { t in
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                if keyboardUp && !voiceOver && !Self.sampleNoPanel {
+                if panelFits(t) {
                     target = nil
                     panel = t
                     return

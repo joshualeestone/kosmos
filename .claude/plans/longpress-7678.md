@@ -24,6 +24,15 @@ and auto hides the keyboard which is weird". Design on the card (comment 6546026
 - The panel's contents are MessageActionsSheet's actions, given a close and a More in place of the sheet's dismiss and
   detent (one source for the rows, so the panel and the sheet cannot drift).
 
+## After review round 1
+- The panel may reach down to the keyboard's top, over the composer: at the composer's limit most positions on a phone fitted neither side.
+  Neither side fits: the side with more room, which can cover part of the message. Accepted.
+- It falls back to the sheet (keyboard lowered, as today) with Switch Control, at an accessibility text size, or where it cannot fit
+  (landscape). VoiceOver as before. So in those cases the original jump remains.
+- The Delete question lowers the keyboard (measured) and it comes back after Keep it, so that path does jump. Accepted: the question
+  is a system alert. "Leaves both as they were" holds for closing the panel and for its other actions.
+- Not fixed: the panel lives on keyboard notifications (a chat or Mac switch does not close it), as the sheet's target does.
+
 ## Not in scope
 - iOS 17 and 18: no simulator runtime on this Mac. Named as unmeasured.
 - The Delete question is a system alert; whether presenting it lowers the keyboard is measured, not designed around.

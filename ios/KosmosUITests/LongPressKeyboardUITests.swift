@@ -87,7 +87,46 @@ final class LongPressKeyboardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Keep it"].waitForNonExistence(timeout: 5), "the question did not close")
         Thread.sleep(forTimeInterval: 1)
         print("MEASURE delete-question keyboard-up-after-keep-it=\(app.keyboards.firstMatch.exists)")
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "the keyboard did not come back after Keep it")
         XCTAssertTrue(mine.exists, "Keep it removed the message")
+    }
+
+    // Review 1: the question is the host's, so its Delete has its own path: it must delete the pressed message.
+    func testDeleteConfirmedWithTheKeyboardUp() throws {
+        let app = try launch()
+        let mine = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", ": Great. What is left?")).firstMatch
+        XCTAssertTrue(mine.waitForExistence(timeout: 20), "the person's message is not in the chat")
+        try KeyboardSlideUITests.keyboardUp(app, box(app), mine, shot: "keyboard up", test: self)
+        mine.press(forDuration: 0.8)
+        let delete = app.buttons["Delete message"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "no Delete on the person's own message")
+        delete.tap()
+        let yes = app.alerts.buttons["Delete"].firstMatch
+        XCTAssertTrue(yes.waitForExistence(timeout: 5), "Delete did not ask first")
+        yes.tap()
+        XCTAssertTrue(mine.waitForNonExistence(timeout: 10), "confirming Delete left the message")
+    }
+
+    // Review 1: the room has its own list and box, so the panel is checked there too.
+    func testRoomKeyboardStaysAndPanelOpens() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard env["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
+        app.launch()
+        let field = app.textFields.matching(NSPredicate(format: "label == 'Post to everyone on this project'")).firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 30), "no room message box")
+        let post = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Pages 9 to 12 wait")).firstMatch
+        XCTAssertTrue(post.waitForExistence(timeout: 15), "Dana's post is not in the room")
+        field.tap()
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "no on-screen keyboard")
+        KeyboardSlideUITests.settle(post)
+        post.press(forDuration: 0.8)
+        XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5), "the actions did not open")
+        shot(app, "room, actions open, keyboard up")
+        XCTAssertTrue(keyboard.exists, "the long press lowered the keyboard")
+        XCTAssertTrue(app.otherElements["messageActionsPanel"].exists, "the room opened the sheet, not the panel")
     }
 
     // The control: with the keyboard down, the long press opens the sheet as before (#7419), not the panel.
