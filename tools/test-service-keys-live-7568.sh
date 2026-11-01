@@ -43,7 +43,7 @@ run && grep -q "nothing to check" "$T/out" && ok "no set ships: passes without a
 # 2. THE CASE: a set that lacks the live key is refused, naming the key
 set_of "$OTHER_SPKI"; coordinator "{\"build\":\"bfdf80be3\",\"coordinator_pubkey\":\"$LIVE_RAW\"}"
 if run; then bad "a set without the live coordinator key passed"
-else grep -q "NOT on the set" "$T/err" && grep -q "$LIVE_RAW" "$T/err" && ok "a set without the live key refuses, naming it" || bad "wrong refusal: $(cat "$T/err")"; fi
+else grep -q "NOT on the set" "$T/err" && grep -qF -- "$LIVE_RAW" "$T/err" && ok "a set without the live key refuses, naming it" || bad "wrong refusal: $(cat "$T/err")"; fi
 
 # 3. CONTROL for 2: the same meta passes once the set lists the key, alone or beside another (a rotation)
 set_of "$LIVE_SPKI"; run && grep -q "is listed" "$T/out" && ok "a set listing the live key passes" || bad "a set with the live key was refused: $(cat "$T/err")"
