@@ -138,8 +138,8 @@ final class LongPressKeyboardUITests: XCTestCase {
         let app = try launch(["KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"])
         let field = app.textFields.matching(NSPredicate(format: "label == 'Post to everyone on this project'")).firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 30), "no room message box")
-        let post = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Pages 9 to 12 wait")).firstMatch
-        XCTAssertTrue(post.waitForExistence(timeout: 15), "Dana's post is not in the room")
+        let post = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Our side has the photos")).firstMatch   // on screen: the keyboard keeps the newest posts in view
+        XCTAssertTrue(post.waitForExistence(timeout: 15), "Maple's post is not in the room")
         field.tap()
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "no on-screen keyboard")
