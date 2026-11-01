@@ -8329,8 +8329,7 @@ const server = http.createServer(async (req, res) => {
     if (rosterOnly) {
       let shown;
       try { shown = JSON.parse(body).agents.filter((a) => !a.isGuide); } catch { sendJson(res, 500, { error: 'we could not read the agents just now' }); return; }
-      // As the card says it: profile.role first (a running row's `role` is only the line parsed from its instruction file),
-      // and the card's own word, so the list cannot read differently from the board.
+      // profile.role first (a running row's `role` is only the line parsed from its instruction file), and the card's own word.
       sendJson(res, 200, { agents: shown.map((a) => ({ name: a.name, role: (a.profile && a.profile.role) || a.role || null, state: a.cardWord || null })) });
       return;
     }
