@@ -7132,7 +7132,8 @@ cmd_agent() {
       if [ "$rc" -ne 0 ]; then say_unreached "list the agents" "$rc"; exit 1; fi
       if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the agents. Try again in a minute."; exit 1; fi
       case "$body" in '{"error":'*)
-        say "Kosmos could not list the agents: $(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')."
+        local _lwhy; _lwhy=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+        say "Kosmos could not list the agents: ${_lwhy:-it did not say why}."
         exit 1 ;;
       esac
       printf '%s' "$body" | CL_MOD="$(kosmos_engine_module clilists)" "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}if(!j||!Array.isArray(j.agents))process.exit(1);const r=require(process.env.CL_MOD).agentLines(j.agents,j.partial===true);console.log(r.lines.join("\n"));process.exitCode=r.code})' \
