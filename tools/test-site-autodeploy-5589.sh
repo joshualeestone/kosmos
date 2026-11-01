@@ -249,7 +249,7 @@ mkdir "$ST/lock"; perl -e 'select(undef, undef, undef, 300)' & live=$!; echo "$l
 tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = "$n10" ] && [ "$(cat "$ST/heartbeat")" = old ]; } && pass "a live lock holder: no deploy, heartbeat untouched" || bad "deployed or beat under a live lock"
 # ...and once the lock has been held with no heartbeat for over an hour, it goes red (a wedged lock).
-touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
+TZ=UTC touch -t "$(TZ=UTC date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
 tick
 { [ "$RC" = 1 ] && printf '%s' "$OUT" | grep -q "no heartbeat for over an hour"; } && pass "a lock held with no heartbeat for over an hour goes red" || bad "wedged lock stayed green (rc=$RC)"
 tick
@@ -408,7 +408,7 @@ H23b=$(advance twentythreeb); echo "$H23b" > "$ST/parked"; printf '%s rc=1 x\n' 
 rm -f "$ST/parked"; rm -rf "$ST/reported.d"
 
 # 23c) a damaged deploy.pid (pgid 0: this tick's own group if signalled) is removed unread, never used.
-printf '0 %s x\n' "$H23b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+printf '0 %s x\n' "$H23b" > "$ST/deploy.pid"; TZ=UTC touch -t "$(TZ=UTC date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 H23c=$(advance twentythreec); tick
 { [ "$RC" = 0 ] && [ ! -e "$ST/deploy.pid" ] && printf '%s' "$OUT" | grep -q "damaged .*deploy.pid" && [ "$(cat "$ST/last-deployed")" = "$H23c" ]; } \
   && pass "a damaged deploy.pid (pgid 0) is removed unread and the tick goes on" || bad "damaged deploy.pid (rc=$RC) $OUT"
@@ -440,10 +440,10 @@ rm -f "$CUTDIST/kosmos-0.7.22-arm64.tar.gz" "$CUTDIST/kosmos-0.7.22-arm64.tar.gz
   && pass "mirror: red once at the alarm under its own cause, then reported" || bad "mirror cause (c1=$c1 c2=$c2) $OUTC"
 rm -f "$ST/retries"; tick
 # wedged re-arm: a wedge reported, the lock freed (a tick takes it), then a NEW wedge is red at once.
-mkdir "$ST/lock"; perl -e 'select(undef, undef, undef, 300)' & w1=$!; echo "$w1" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
+mkdir "$ST/lock"; perl -e 'select(undef, undef, undef, 300)' & w1=$!; echo "$w1" > "$ST/lock/pid"; TZ=UTC touch -t "$(TZ=UTC date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
 tick; r1=$RC; kill "$w1" 2>/dev/null; wait "$w1" 2>/dev/null
 echo 999999 > "$ST/lock/pid"; tick   # takes over the dead lock: the wedge record clears
-mkdir "$ST/lock"; perl -e 'select(undef, undef, undef, 300)' & w2=$!; echo "$w2" > "$ST/lock/pid"; touch -t "$(date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
+mkdir "$ST/lock"; perl -e 'select(undef, undef, undef, 300)' & w2=$!; echo "$w2" > "$ST/lock/pid"; TZ=UTC touch -t "$(TZ=UTC date -v-2H +%Y%m%d%H%M)" "$ST/heartbeat"
 tick; r2=$RC; kill "$w2" 2>/dev/null; wait "$w2" 2>/dev/null; rm -rf "$ST/lock"
 { [ "$r1" = 1 ] && [ "$r2" = 1 ]; } && pass "wedged: after the lock is taken again, a new wedge is red at once" || bad "wedged re-arm (r1=$r1 r2=$r2)"
 
@@ -494,14 +494,14 @@ kill -KILL "$tick28"; wait "$tick28" 2>/dev/null; hp28=$(cat "$HANG28" 2>/dev/nu
 n28=$(ndeploys); tick
 { [ "$RC" = 0 ] && [ "$(ndeploys)" = "$n28" ] && kill -0 "$hp28" 2>/dev/null && printf '%s' "$OUT" | grep -q "is still running; this tick waits"; } \
   && pass "an orphaned deploy from a killed tick is found, and the next tick waits for it" || bad "orphan wait (rc=$RC) $OUT"
-touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+TZ=UTC touch -t "$(TZ=UTC date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 printf 'kosmos-release-export\ncommit=%s\n' "$H28" > "$SERVED/.kosmos-release-export"   # as if it published
 KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick
 { gone "$hp28" && [ ! -e "$ST/deploy.pid" ] && [ "$(cat "$ST/last-deployed")" != "$H28" ] && printf '%s' "$OUT" | grep -q "stopped the deploy of" && printf '%s' "$OUT" | grep -q "recorded as a failure"; } \
   && pass "past 1200 s the orphan is stopped and counted a failure; a marker naming its sha does not bless it" \
   || { bad "orphan stop (alive=$(kill -0 "$hp28" 2>/dev/null && echo yes || echo no)) $OUT"; [ -n "$hp28" ] && kill "$hp28" 2>/dev/null; }
 # A pid in deploy.pid whose start time does not match (a reused pid) is not touched.
-perl -e 'select(undef, undef, undef, 300)' & other=$!; printf '%s %s %s\n' "$other" "$H28" "Mon_Jan_1_00:00:00_2001" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+perl -e 'select(undef, undef, undef, 300)' & other=$!; printf '%s %s %s\n' "$other" "$H28" "Mon_Jan_1_00:00:00_2001" > "$ST/deploy.pid"; TZ=UTC touch -t "$(TZ=UTC date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 KOSMOS_AUTODEPLOY_DEPLOY='exit 1' tick
 kill -0 "$other" 2>/dev/null && pass "a reused pid in deploy.pid (start time differs) is never signalled" || bad "signalled a process that was not the deploy"
 kill "$other" 2>/dev/null; wait "$other" 2>/dev/null
@@ -534,14 +534,14 @@ KOSMOS_AUTODEPLOY_DEPLOY_MAX_S=0 KOSMOS_AUTODEPLOY_DEPLOY='sleep 4; exit 0' tick
 # 32) deploy.pid identity. (a) the leader is alive but the file has NO start time: not ours, never
 #     signalled. (b) the leader has exited but its group still has a member: ours, stopped and counted.
 set -m; perl -e 'select(undef, undef, undef, 300)' & own32=$!; set +m
-printf '%s %s \n' "$own32" "$H31b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+printf '%s %s \n' "$own32" "$H31b" > "$ST/deploy.pid"; TZ=UTC touch -t "$(TZ=UTC date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 tick
 kill -0 "$own32" 2>/dev/null && pass "a deploy.pid with no start time never signals a live leader" || bad "signalled a leader it could not identify"
 kill "$own32" 2>/dev/null; wait "$own32" 2>/dev/null
 M32="$T/member32.pid"
 set -m; sh -c 'perl -e "select(undef, undef, undef, 300)" & echo $! > '"$M32"'; exit 0' & lead32=$!; set +m; wait "$lead32" 2>/dev/null
 for i in $(seq 1 50); do [ -s "$M32" ] && break; sleep 0.1; done; m32=$(cat "$M32")
-printf '%s %s Mon_Jan_1_00:00:00_2001\n' "$lead32" "$H31b" > "$ST/deploy.pid"; touch -t "$(date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
+printf '%s %s Mon_Jan_1_00:00:00_2001\n' "$lead32" "$H31b" > "$ST/deploy.pid"; TZ=UTC touch -t "$(TZ=UTC date -v-30M +%Y%m%d%H%M)" "$ST/deploy.pid"
 tick
 { gone "$m32" && printf '%s' "$OUT" | grep -q "stopped the deploy of"; } \
   && pass "a deploy group whose leader exited is still found by its members, stopped and counted" \
