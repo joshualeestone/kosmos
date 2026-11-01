@@ -5335,6 +5335,9 @@ do {
         let tight = Board.actionsPanelTop(bubbleTop: 150, bubbleBottom: 190, areaTop: 100, areaBottom: 220, height: shown, gap: 8)
         check(tight >= 108 && tight + shown <= 212, "panel: in the tightest area it is inside both ends")
     }
+    check(Board.holdReadingFar(moved: 1281, showing: 262), "keyboard hold: moved past a screenful, the reading is not trusted (as CI, 1281 over 262)")
+    check(Board.holdReadingFar(moved: -1281, showing: 262), "keyboard hold: either way")
+    check(!Board.holdReadingFar(moved: 200, showing: 262), "keyboard hold: CONTROL: within a screenful, the reading stands")
     check(Board.emptyRecovery(later: false, place: "within", scrolling: false) == .newest && Board.emptyRecovery(later: false, place: nil, scrolling: false) == .newest,
           "the first empty list goes to the newest message as before, the scroll left alone when within or unread")
     check(Board.emptyRecovery(later: false, place: "past the end", scrolling: false) == .backInsideThenNewest && Board.emptyRecovery(later: false, place: "before the top", scrolling: false) == .backInsideThenNewest,
