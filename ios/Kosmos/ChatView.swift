@@ -2639,6 +2639,15 @@ struct KeyboardHold: UIViewRepresentable {
         // fights a longer window (a finger or the app's own move still ends it).
         static let window: TimeInterval = 1.5
         private func endGuard() { guarding = nil; rows?.watch = nil }
+        #if DEBUG
+        private var jumpWatch: NSKeyValueObservation?
+        #endif
+        // kosmos#7690: from, to and the app's own frames on the stack, Debug only.
+        static func jumpLine(_ a: CGFloat, _ b: CGFloat) -> String {
+            let frames = Thread.callStackSymbols.filter { $0.contains("Kosmos") && !$0.contains("jumpLine") }.prefix(5)
+                .map { String($0.split(separator: " ").dropFirst(3).first?.prefix(70) ?? "?") }
+            return "\(Int(a)) to \(Int(b)) by [" + frames.joined(separator: " | ") + "] " + Thread.callStackSymbols.dropFirst(2).prefix(6).map { String($0.split(separator: " ").dropFirst(3).first?.prefix(40) ?? "?") }.joined(separator: " < ")
+        }
         // kosmos#7654: the rows nearest the held one, named, in a Debug run of the sample room or chat only: its ids hold no one's words.
         // Everywhere else the words "not sampled". A held row whose numbers say nothing moved could not be identified without this.
         static func sampleRows(_ rows: RowTops, held: String) -> String {
@@ -2707,6 +2716,17 @@ struct KeyboardHold: UIViewRepresentable {
             var up = superview
             while let v = up, !(v is UIScrollView) { up = v.superview }
             scroll = up as? UIScrollView
+            #if DEBUG
+            // kosmos#7690: a Debug sample run with a trace: every jump of the list and what made it (the tap on the box moves a room by
+            // about 490 pt before will-show, measured on CI).
+            jumpWatch = nil
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TRACE"] == "1" {
+                jumpWatch = scroll?.observe(\.contentOffset, options: [.old, .new]) { _, c in
+                    guard let a = c.oldValue?.y, let b = c.newValue?.y, abs(b - a) > 100 else { return }
+                    ChatView.trace("keyboard hold: jump \(Self.jumpLine(a, b))")
+                }
+            }
+            #endif
             let nc = NotificationCenter.default
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self, let sv = self.scroll else { return }
