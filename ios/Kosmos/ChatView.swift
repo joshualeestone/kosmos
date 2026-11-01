@@ -2718,6 +2718,7 @@ struct KeyboardHold: UIViewRepresentable {
                     ChatView.trace("keyboard hold: no row on the screen to hold"); return
                 }
                 self.saved = (r.id, CGFloat(reading.content), sv.contentOffset.y, self.above, sv.bounds.width, Date()); self.keptScreenTop = CGFloat(r.top)
+                ChatView.trace("keyboard hold: held row at \(Int(reading.content)) in the content, \(Int(r.top)) on the screen, band \(Int(top)) to \(Int(bottom))")
             })
             observers.append(nc.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
                 self?.keyboardUp = true
@@ -2743,6 +2744,7 @@ struct KeyboardHold: UIViewRepresentable {
                     if let c = rows.last[kept.row] { self.putBack(CGFloat(c)) }
                     self.endGuard(); return
                 }
+                ChatView.trace("keyboard hold: did-show, row at \(Int(r.content)) in the content, \(Int(r.top)) on the screen, \(self.scroll.map { Self.numbers($0) } ?? "no scroll")")
                 self.putBack(CGFloat(r.content))
                 self.watchRow(kept.row, last: kept.content)
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.window + 0.05) { [weak self] in
