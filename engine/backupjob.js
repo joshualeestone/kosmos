@@ -63,7 +63,7 @@ function backoffMs(waits) {
 }
 
 /* The key step. deps: { ensureMemberKey, pair?, now? } (now in whole milliseconds, as Date.now). Resolves
-   { ok: true, key: { epoch, publicKey, org?, member? }, state, lostEpochIgnored?, pair? }
+   { ok: true, key: { epoch, publicKey, org?, member?, proofKey? }, state, lostEpochIgnored?, pair? }
    or { ok: false, because, waiting?, pendingEpoch?, lostEpochIgnored?, unreadableKeyFile?, personActs?, refusal?, otherPair?, needsPair?, badPair?,
    pair?, state }. pair, and key.org and key.member, are the pair the answer named, when it named one. Never throws. */
 async function memberKeyFor(state, deps) {
@@ -94,8 +94,11 @@ async function memberKeyFor(state, deps) {
   return named ? Object.assign(out, { pair: named }) : out;
 }
 /* kosmos#7404 slice D: a personal key's proof key, a secret: it reaches the snapshot and never runOnce's `key`. */
-const proofField = (r) => (Buffer.isBuffer(r.proofKey) && r.proofKey.length === 32 ? { proofKey: r.proofKey } : {});
+const proofOk = (x) => Buffer.isBuffer(x) && x.length === 32;
+const proofField = (r) => (r.proofKey !== undefined ? { proofKey: r.proofKey } : {});
 function fromAnswer(st, r, named, now) {
+  // Refused, never dropped: a manifest sealed without its proof could never be restored.
+  if (r && r.ok && r.proofKey !== undefined && !proofOk(r.proofKey)) return { ok: false, because: 'the backup key could not be set up on this computer', state: st };
   if (r && r.ok && isEpoch(r.epoch) && Buffer.isBuffer(r.publicKey) && r.publicKey.length === 32) {
     // An answer below the lost epoch comes when ensureMemberKey ignored lostEpoch (it is not the file's newest
     // registered key): that key is older still, so it is the one to replace next run. Never sealed under. (Equal is
@@ -131,7 +134,7 @@ function afterSnapshot(state, key, result) {
   return st;
 }
 
-/* One run: the key step, then (only under an ok key) deps.snapshot({ memberPk, epoch, org?, member? }), where epoch is
+/* One run: the key step, then (only under an ok key) deps.snapshot({ memberPk, epoch, org?, member?, proofKey? }), where epoch is
    the key's context id and org and member are the pair the key step's answer named. deps: { ensureMemberKey, snapshot,
    pair?, now? }. A refusal's flags are memberKeyFor's (otherPair, needsPair, badPair among them). Resolves
    { state, key?, result, pair? }: pair, on every path after an answer that named one, is the pair `state` belongs to: result is the key step's
@@ -146,9 +149,9 @@ async function runOnce(state, deps) {
     const { ok, state: kept, ...rest } = k;
     return Object.assign({ state: kept, result: Object.assign({ ok: false }, rest) }, top);
   }
-  if (!deps || typeof deps.snapshot !== 'function') return Object.assign({ state: k.state, key: k.key, result: { ok: false, because: 'no snapshot step' } }, top);
-  let result;
   const { proofKey, ...kept } = k.key;
+  if (!deps || typeof deps.snapshot !== 'function') return Object.assign({ state: k.state, key: kept, result: { ok: false, because: 'no snapshot step' } }, top);
+  let result;
   const named = kept.org ? { org: kept.org, member: kept.member } : {};
   try { result = await deps.snapshot(Object.assign({ memberPk: kept.publicKey, epoch: String(kept.epoch) }, named, proofField(k.key))); } catch { result = null; }
   if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };

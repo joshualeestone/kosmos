@@ -271,8 +271,9 @@ async function restoreNow(code, opts) {
 /** kosmos#7404 (pbjob-7404): the backup job's key step, in place of ensureMemberKey (whose company-key read Kosmos+ refuses
     for a personal org for good). It only reads: the newest epoch Kosmos+ lists for `orgId`, answered when this computer
     holds that same registered key. It never registers and never starts an epoch, because a new epoch has to be wrapped
-    to the person's recovery code, which this computer does not keep. Sealing needs the public key alone.
-    { ok: true, epoch, publicKey, org, member }, or { ok: false, because, personActs?, unreadableKeyFile?, refusal? }. */
+    to the person's recovery code, which this computer does not keep. Sealing needs the public key; proofKey, a secret
+    derived from the member key, goes into each manifest (backupformat.memberProof).
+    { ok: true, epoch, publicKey, org, member, proofKey }, or { ok: false, because, personActs?, unreadableKeyFile?, refusal? }. */
 function personalKeyForJob(orgId, opts = {}) { return serial(() => jobKeyNow(orgId, opts)); }
 const actOn = (because, named) => Object.assign({ ok: false, personActs: true, because }, named);
 async function jobKeyNow(orgId, opts) {

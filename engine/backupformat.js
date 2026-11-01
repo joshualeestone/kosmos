@@ -254,7 +254,8 @@ function sealManifest(memberPk, deviceKey, ctx, manifest) {
 }
 /** Check a manifest's signature WITHOUT decrypting (the coordinator's check). Returns true or false, never throws.
  *  devicePub MUST come from trusted state (the member's enrolled devices, E0.2), never from the object or
- *  the uploader: the signature proves "this device signed it", and only that binding makes it "this member". */
+ *  the uploader: the signature proves "this device signed it", and only that binding makes it "this member".
+ *  One exception: openManifestByProof takes it from the sealed body, only after the member proof vouches for it. */
 function verifyManifestSignature(devicePub, ctx, object) {
   try {
     // A PUBLIC Ed25519 key only. (An Ed25519 signature never verifies under another key type anyway, so the
@@ -279,7 +280,6 @@ function verifyManifestSignature(devicePub, ctx, object) {
    disk), until the key is replaced. */
 const PROOF_INFO = Buffer.from(`kosmos-backup v${FORMAT} member-proof key`);
 const PROOF_DOMAIN = Buffer.from(`kosmos-backup v${FORMAT} member-proof\0`);
-const HEX32_RE = /^[0-9a-f]{64}$/;
 const SPKI_ED25519 = Buffer.from('302a300506032b6570032100', 'hex');
 /** The proof key from a member secret (32 bytes). X25519 ignores the clamped bits, so they are set first: two spellings
     of one secret are one key, and must make one proof key (engine/backupkeys.js says not to hash raw secret bytes). */
@@ -313,11 +313,11 @@ function openManifestByProof(memberSk, ctx, object) {
     if (!Buffer.isBuffer(object) || object.length < 4 + SIG_LEN + ENC_LEN + 16 || !object.subarray(0, 4).equals(MANIFEST_MAGIC)) return null;
     const m = openSealedBody(memberSk, ctx, object);
     const held = m && m.memberProof;
-    if (!held || typeof held !== 'object' || typeof held.device !== 'string' || !HEX32_RE.test(held.device) || typeof held.proof !== 'string' || !HEX32_RE.test(held.proof)) return null;
+    if (!held || typeof held !== 'object' || typeof held.device !== 'string' || !NAME_RE.test(held.device) || typeof held.proof !== 'string' || !NAME_RE.test(held.proof)) return null;
     const pk = memberProofKey(memberSk);
-    const same = crypto.timingSafeEqual(proofOf(pk, ctx, held.device), Buffer.from(held.proof, 'hex'));
-    pk.fill(0);
-    if (!same) return null;
+    try {
+      if (!crypto.timingSafeEqual(proofOf(pk, ctx, held.device), Buffer.from(held.proof, 'hex'))) return null;
+    } finally { pk.fill(0); }
     const devicePub = crypto.createPublicKey({ key: Buffer.concat([SPKI_ED25519, Buffer.from(held.device, 'hex')]), format: 'der', type: 'spki' });
     return verifyManifestSignature(devicePub, ctx, object) ? { manifest: m, devicePub } : null;
   } catch { return null; }

@@ -19,6 +19,12 @@
  * Residuals, stated: a breached coordinator can move granted_at (the one #7116's two-admin enrolment and the
  * person-confirmed fingerprint address), and it can HIDE snapshots from the list (it cannot relabel one).
  *
+ * A personal backup (kosmos#7404 slice D, opts.trust 'member-proof') has no escrow, so none of the above picks its key:
+ * the manifest names its signer and proves it with the member secret (backupformat.js), and granted_at chooses nothing.
+ * Residuals, stated: every computer that ever held the member key can make a proof until the key is replaced, and the
+ * coordinator can hide snapshots from the list. That the trust is 'member-proof' must come from this computer's own
+ * record, never from an answer of the coordinator's.
+ *
  * Snapshots are labelled by the time inside their id, never by the coordinator's granted_at (#7118's correction): the
  * id's time is device-signed and so authentic once the manifest opens; until then it is shown as claimed.
  */
@@ -179,17 +185,18 @@ async function runRestore(opts) {
   }
   const ctx = { org, member, epoch, period: manifest.period, snapshot: manifest.snapshot };
   let opened = null, used = null;
-  for (const k of candidates) {
-    if (!KEY_HEX_RE.test(k.key)) continue;
-    const pub = crypto.createPublicKey({ key: Buffer.concat([SPKI_ED25519, Buffer.from(k.key, 'hex')]), format: 'der', type: 'spki' });
-    const m = openManifest(opts.memberSk, pub, ctx, bytes);
-    if (m) { opened = m; used = { k, pub }; break; }
-  }
   if (byProof) {
     const got = openManifestByProof(opts.memberSk, ctx, bytes);
     if (!got) return { ok: false, because: 'this backup does not carry the proof only your own key can make, so it was not restored' };
     opened = got.manifest;
     used = { k: { key: got.devicePub.export({ format: 'der', type: 'spki' }).subarray(-32).toString('hex') }, pub: got.devicePub };
+  } else {
+    for (const k of candidates) {
+      if (!KEY_HEX_RE.test(k.key)) continue;
+      const pub = crypto.createPublicKey({ key: Buffer.concat([SPKI_ED25519, Buffer.from(k.key, 'hex')]), format: 'der', type: 'spki' });
+      const m = openManifest(opts.memberSk, pub, ctx, bytes);
+      if (m) { opened = m; used = { k, pub }; break; }
+    }
   }
   if (!opened) return { ok: false, because: 'the backup\'s manifest does not open under this member\'s device key for that time' };
   const objects = opened.objects && typeof opened.objects === 'object' ? opened.objects : {};

@@ -157,6 +157,61 @@ test('a real run seals to the personal key under the pair Kosmos+ named, and nam
   assert.ok(!k.calls.some((c) => /backup-key/.test(c.route)), 'never the company key read');
 });
 
+test('slice D, the whole way: the job key step, a real run and a real snapshot, restored with only the member key', async () => {
+  const crypto = require('node:crypto');
+  const snap = require('./backupsnapshot');
+  const rr = require('./restorerun');
+  const pair = newPair();
+  const { key, row } = keyed(pair);
+  const k = kosmosPlus({ ...pair, keys: [row] });
+  const dev = crypto.generateKeyPairSync('ed25519');
+  const root = fs.mkdtempSync(path.join(SANDBOX, 'chain-'));
+  fs.writeFileSync(path.join(root, 'notes.md'), 'the whole way\n');
+  const NOW = Date.UTC(2026, 9, 7, 12), objects = new Map();
+  let n = 0, record = null;
+  const stored = (ctx) => ({
+    now: () => NOW,
+    uploadChunks: async (d, batch) => {
+      const keys = new Map(), lockedUntil = new Map();
+      for (const { name, object } of batch) { const o = `${ctx.org}/${ctx.member}/1/${ctx.period}/c${++n}`; objects.set(o, Buffer.from(object)); keys.set(name, o); lockedUntil.set(name, NOW + 40 * 86400000); }
+      return { ok: true, keys, lockedUntil, bucket: 'bucket/' };
+    },
+    uploadManifest: async (d, bytes) => {
+      const o = `${ctx.org}/${ctx.member}/1/${ctx.period}/m`;
+      objects.set(o, Buffer.from(bytes));
+      record = { key: o, period: ctx.period, snapshot: ctx.snapshot, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), granted_at: Math.floor(NOW / 1000) };
+      return { ok: true, key: o, lockedUntilMs: NOW + 40 * 86400000 };
+    },
+  });
+  const runBackup = (input, deps) => backuprun.runBackup(input, Object.assign({}, deps, {
+    deviceKey: () => ({ ok: true, privateKey: dev.privateKey }), now: () => NOW,
+    takeSnapshot: (s) => snap.takeSnapshot(s, stored(s.ctx)),
+  }));
+  const { opts } = jobOpts(pair, { macRequest: k.macRequest, runBackup });
+  const r = await pb.runJob({ roots: [{ name: 'workers', path: root }] }, opts);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const committed = new Map();
+  const sink = { begin(p) { const parts = []; return { write(b) { parts.push(Buffer.from(b)); }, commit() { committed.set(p, Buffer.concat(parts)); }, abort() {} }; } };
+  const back = await rr.runRestore({ ...pair, epoch: 1, manifest: record, memberSk: key.sk, trust: 'member-proof', fetchObject: async (o) => objects.get(o) || null, sink, maxTotalBytes: 2 ** 30 });
+  assert.equal(back.ok, true, JSON.stringify(back));
+  assert.equal([...committed.values()][0].toString(), 'the whole way\n');
+});
+
+test('a personal run with no proof key takes no snapshot', async () => {
+  const pair = newPair();
+  const { row } = keyed(pair);
+  const k = kosmosPlus({ ...pair, keys: [row] });
+  let taken = 0;
+  const realKey = pk.personalKeyForJob;
+  const r = await backuprun.runBackup({ roots: [{ name: 'workers', path: SANDBOX }] }, {
+    ensureMemberKey: async (o) => { const a = await realKey(pair.org, { macRequest: k.macRequest, ...o }); delete a.proofKey; return a; },
+    pointerName: 'proofless-pointer.json', requireProof: true, deviceKey: () => ({ ok: true, privateKey: backupkeys.newMemberKey().sk }),
+    takeSnapshot: async () => { taken++; return { ok: true, added: new Map(), files: 1 }; },
+  });
+  assert.equal(taken, 0);
+  assert.match(r.because, /gave no proof for this backup/);
+});
+
 test('words Kosmos+ refused take the hash off the record, and the person is told; any other refusal leaves it', async () => {
   const pair = newPair();
   const refused = { ok: false, pair, because: 'grant refused (HTTP 409 on /v1/org/backup/grant, code org_consent_changed)' };

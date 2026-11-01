@@ -142,4 +142,23 @@ test('the proof key reaches the snapshot and never the run\'s own answer', async
   const company = [];
   await job.runOnce({}, { ensureMemberKey: async () => ({ ok: true, epoch: 1, publicKey }), snapshot: async (k) => { company.push(k); return { ok: true }; } });
   assert.equal('proofKey' in company[0], false, 'a company run has none');
+  const noStep = await job.runOnce({}, { ensureMemberKey, pair: { org: 'o', member: 'm' } });
+  assert.equal(noStep.key.epoch, 1, 'control: this path answers the key too');
+  assert.equal('proofKey' in noStep.key, false);
+  let taken = 0;
+  const bad = await job.runOnce({}, { ensureMemberKey: async () => ({ ok: true, epoch: 1, publicKey, proofKey: Buffer.alloc(31), org: 'o', member: 'm' }), pair: { org: 'o', member: 'm' }, snapshot: async () => { taken++; return { ok: true }; } });
+  assert.equal(taken, 0, 'a malformed proof key is a refused key step, never a proofless snapshot');
+  assert.equal(bad.result.ok, false);
+});
+
+test('a malformed proof key is refused before any file is read or anything is uploaded', async () => {
+  const member = hpkeKeyPair(), nk = crypto.randomBytes(32), dev = crypto.generateKeyPairSync('ed25519');
+  let spent = 0;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kmemberproof-'));
+  fs.writeFileSync(path.join(root, 'a.txt'), 'a');
+  const r = await snap.takeSnapshot({ root, memberPk: member.pk, namingKey: nk, namingKeyId: namingKeyId(nk), deviceKey: dev.privateKey, ctx: CTX, proofKey: Buffer.alloc(31) },
+    { now: () => NOW, uploadChunks: async () => { spent++; return { ok: false }; }, uploadManifest: async () => { spent++; return { ok: false }; } });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /proof key must be a 32-byte Buffer/);
+  assert.equal(spent, 0);
 });

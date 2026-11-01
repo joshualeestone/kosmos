@@ -624,6 +624,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   // The device key is used only to sign the manifest, after every chunk is uploaded: checked here, before anything is
   // spent, with sealManifest's own rule.
   if (!deviceKey || deviceKey.type !== 'private' || deviceKey.asymmetricKeyType !== 'ed25519') return fail('the device key must be an Ed25519 private key');
+  if (proofKey !== undefined && !isKey32(proofKey)) return fail('the member proof key must be a 32-byte Buffer');
   try { checkBackupContext(ctx); } catch (err) { return fail(err.message); }
   // #5744: ctx.epoch is passed to the uploader, which refuses an epoch it cannot check grants against.
   if (!isKeyEpoch(ctx.epoch)) return fail(`the context's key epoch (${JSON.stringify(ctx.epoch)}) is not one a grant can name (1, 2, ...)`);
