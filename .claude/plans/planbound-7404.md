@@ -26,3 +26,8 @@ read as a good backup. The small-files check counts chunks at the average with n
 run's files ARE its index; real spend is the coordinator's to refuse. The chunk index cap is 600,000, the top plan's.
 A status read that fails waits the hour rather than run under the company bound and pause to Monday.
 Merge this after the coordinator's ceiling rises, or a folder near 200 GB uploads every chunk and fails at the manifest.
+
+Round 2: the measured-size stop has its own sentence and ends the run for the week, so it does not walk every hour.
+Open, for the restore screen and before the switch: the manifest GET has 78 s, about 1.7 MB/s for a 130 MiB manifest, so
+the largest plans on a slow link need a longer one (`manifestTimeoutMs` exists). Kept: the 600,000 index cap applies to a
+company too, whose allowance stops it at 200,000 anyway.

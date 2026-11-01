@@ -114,7 +114,8 @@ const MONDAY_EPOCH = Date.UTC(1970, 0, 5);   // the first Monday 00:00 UTC after
 const CHUNK_NAME_LEN = 64;
 // The longest object key the walker accepts (the coordinator's are about 140: two ids, epoch, period, two 32-hex ids).
 const MAX_KEY_LEN = 256;
-// kosmos#7404: a personal backup's plan, sold in GB of files. Its objects mirror the coordinator's member_caps.
+// kosmos#7404: a personal backup's plan, sold in GB of files. Its objects mirror the coordinator's member_caps: this many
+// a GB, never fewer than a company's allowance.
 const PLAN_BYTES_PER_GB = 1e9, PLAN_OBJECTS_PER_GB = 1200;
 // What a plan's run expects of a file, in place of the worst case: chunks at the format's average with a quarter on top,
 // and keys at the coordinator's length. The worst case is about ten times this, which would hold every plan near 20 GB.
@@ -637,7 +638,6 @@ async function snapshotInner(input, deps, added, state, fail) {
     const n = plannedChunks(f);
     return 2 * Buffer.byteLength(JSON.stringify(f.path)) + 1024 + n * (CHUNK_NAME_LEN + 3) + n * (CHUNK_NAME_LEN + 6 + PLAN_KEY_LEN);
   };
-  const fileBytes = (f) => (f.size > maxFile ? 0 : f.size);
   const roots = rootsOf(input);
   if (typeof roots === 'string') return fail(roots);
   if (!isKey32(memberPk) || !isKey32(namingKey)) return fail('the member key and the naming key must be 32-byte Buffers');
@@ -855,7 +855,8 @@ async function snapshotInner(input, deps, added, state, fail) {
       // ([A-Za-z0-9._:-]); widen that rule and this charge must escape (pinned by the "a key with a quote" test).
       estimate += CHUNK_NAME_LEN + 6 + (known ? Buffer.byteLength(known.key) : keyCharge);
       // A plan's check before the walk is an expectation, so here the size is measured, and nothing more goes up past it.
-      if (planGb && estimate > budget) return fail(tooLargeWhy(), { tooLarge: true });
+      // Past this a run could only repeat itself, so it ends for the week (overAllowance) rather than walk hourly.
+      if (planGb && estimate > budget) return fail('your files are split into more pieces than one backup can list, so this backup did not finish. Move some small files out of your agents\' folders and projects', { tooLarge: true, overAllowance: true, personActs: true });
       if (known) { objects[name] = known.key; reused++; continue; }
       const sealed = sealNamedChunk(memberPk, namingKey, piece);
       if (sealed.name !== name) return fail('a chunk was sealed under another name than it was given');   // cannot differ today
