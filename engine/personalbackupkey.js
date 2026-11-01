@@ -286,7 +286,7 @@ async function jobKeyNow(orgId, opts) {
     const kept = memberkeys.readKeys(org, member);
     if (!kept.ok) return Object.assign(actOn('the backup key file on this computer could not be read; it was left as it is', named), { unreadableKeyFile: true });
     const k = kept.keys[String(row.epoch)];
-    if (!Object.keys(kept.keys).length) return actOn('this computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Turn personal backup off here, then on again, and enter your recovery code', named);
+    if (!Object.keys(kept.keys).length) return actOn('this computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Turn it off, then turn it on again and enter your recovery code', named);
     if (!k || !k.registered || !k.pk.equals(row.memberPk)) return actOn('this computer holds a different key from the one Kosmos+ lists for this backup, so nothing was backed up; its key file was left as it is', named);
     // Only a lostEpoch recorded for this pair, as ensureMemberKey's lostFor.
     const lostHere = opts.lostFor && opts.lostFor.org === org && opts.lostFor.member === member && Number.isSafeInteger(opts.lostEpoch);

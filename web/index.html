@@ -12179,7 +12179,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 @media (max-width: 480px) { #s-sec-plus textarea.pb-codein { height: 76px; } }   /* review 3: two rows; the code wraps after a hyphen at 16px */
 /* Review 3: the Kosmos+ field error colour (#E8705E, the --danger the dark field sets, #plus-org .tk-inp), not a new red. */
 #s-sec-plus #pb-restore-msg { color: #E8705E; margin-top: var(--space-3); }
-#s-sec-plus #pb-job.pb-bad { color: #E8705E; }
+#s-sec-plus #pb-job { color: #E8705E; }
 #s-sec-plus #pb-restore-msg:empty { min-height: 0; margin-top: 0; }
 #s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
 #s-sec-plus .plus-org-outhead { display: flex; justify-content: flex-end; }
@@ -20487,6 +20487,7 @@ window.kosmosMeasureScrollbarWidth();
         <div id="pb-onview" hidden>
           <p class="fhint" id="pb-on-say">Personal backup is on for this computer.</p>
           <p class="fhint" id="pb-job" hidden></p>
+          <p class="fhint" id="pb-job-last" hidden></p>
           <div class="frow" id="pb-off-row"><button class="btn uprime" type="button" id="pb-finish" hidden>Finish setting up</button><button class="btn" type="button" id="pb-off-btn">Turn off personal backup</button></div>
           <div id="pb-off-ask" hidden>
             <!-- Only what is true: the coordinator ends the membership (org.rs mac_leave). What it then keeps of a personal
@@ -55663,15 +55664,18 @@ function pbPaint() {
   document.getElementById('pb-restore-hint').hidden = !price;   // Mona Lisa 1: the hint points at Turn on, so it goes with it
   document.getElementById('pb-words-price').textContent = PB.view === 'words' ? pbPrice({ price: PB.wordsPrice }) : price;
   const say = document.getElementById('pb-on-say');
+  const j = v === 'on' && st.job && typeof st.job === 'object' ? st.job : {};
+  const stopped = typeof j.stopped === 'string' && !!j.stopped;
   say.textContent = v === 'pending' ? 'Kosmos is checking with Kosmos+ whether personal backup is on for this computer. This takes a few minutes.'
     : v === 'needs-key' ? 'Personal backup is on for this computer, but its backup key is not set up here yet, so nothing is being backed up.'
+    : stopped ? 'Personal backup has stopped on this computer.'
     : 'Personal backup is on for this computer.';
   const job = document.getElementById('pb-job');
-  const j = v === 'on' && st.job && typeof st.job === 'object' ? st.job : {};
+  job.textContent = stopped ? j.stopped : ''; job.hidden = !stopped;
   const last = typeof j.lastOk === 'string' && !Number.isNaN(Date.parse(j.lastOk)) ? new Date(j.lastOk).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
-  job.textContent = typeof j.stopped === 'string' && j.stopped ? j.stopped + (last ? ' Last backed up ' + last + '.' : '') : (last ? 'Last backed up ' + last + '.' : (v === 'on' ? 'The first backup runs within the hour.' : ''));
-  job.classList.toggle('pb-bad', !!(typeof j.stopped === 'string' && j.stopped));
-  job.hidden = !job.textContent;
+  const lastEl = document.getElementById('pb-job-last');
+  lastEl.textContent = last ? 'Last backed up ' + last + '.' : (v === 'on' && !stopped ? 'The first backup runs within the hour.' : '');
+  lastEl.hidden = !lastEl.textContent;
   // An open Turn off confirm survives the 5-second repaint; it closes when the view is no longer one it belongs to.
   const ask = document.getElementById('pb-off-ask');
   if (!(v === 'on' || v === 'needs-key')) ask.hidden = true;
