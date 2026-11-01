@@ -50,8 +50,7 @@ bash tools/test-release-detached.sh
 # Real pgrep on both: macOS's own ancestor exclusion, which the release guards rely on, and the Linux ancestor filter
 # that reproduces it (#6799).
 both: bash tools/test-running-anchor-5470.sh
-# Its lock arms need /usr/bin/lockf and skip without it, and its arm 11 loads tools/lib/cut-guard.sh in the Mac's
-# /bin/bash 3.2, as the relay pre-push does; Linux keeps its wiring arms and arm 11 under bash 5 (#6756).
+# Its lock arms need /usr/bin/lockf and skip without it; its other arms run on Linux too (#6756).
 both: bash tools/test-prepush-wait-6756.sh
 # Compiles Cocoa code with swiftc; skips off macOS (#6799), so on Linux it would test nothing.
 bash tools/test-scan-hatch-symlink-2125b.sh
