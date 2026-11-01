@@ -17,10 +17,12 @@ cd "$(dirname "$0")/.." || exit 2
 SELF=tools/test-touch-t-utc-7725.sh
 
 # Prints each line that hands touch a computed -t stamp outside the safe form: any flag spelling (-t, -mt, -m -t), quoted
-# or not, from $(...), backticks or a variable. A variable is safe only if the same file assigns it from TZ=UTC date.
+# or not, from $(...), backticks or a variable. A variable is safe only if every assignment to it in the same file is
+# from TZ=UTC date, so one set only in a sourced file reads as unsafe.
 scan() {
   perl -0777 -ne '
     my $text = $_; my $n = 0;
+    $text =~ s/\\\n[ \t]*/ /g;   # a continued line reads as one; the line number printed is of the joined text
     for my $line (split /\n/, $text) {
       $n++;
       next if $line =~ /^\s*#/;
@@ -30,7 +32,10 @@ scan() {
         my $rest = substr($line, pos($line));
         $bad = 1 unless defined $utc;
         if (defined $var) {
-          $bad = 1 unless $text =~ /\b\Q$var\E="\$\((?:[A-Z_]+=\S+\s+)*TZ=UTC\s+date/;
+          my @set = $text =~ /(?:^|[\s;])\Q$var\E=([^\n]*)/mg;
+          my $utc_only = @set > 0;
+          for (@set) { $utc_only = 0 unless /^"?\$\((?:[A-Z_]+=\S+\s+)*TZ=UTC\s+date/; }
+          $bad = 1 unless $utc_only;
         } else {
           $bad = 1 unless $rest =~ /^(?:[A-Z_]+=\S+\s+)*TZ=UTC\s+date/;
         }
@@ -52,6 +57,11 @@ touch -m -t "$(TZ=UTC date +%Y%m%d%H%M)" "$a"
 touch -mt "$(date +%Y%m%d%H%M)" "$a"
 touch -t $(date +%Y%m%d%H%M) "$a"
 TZ=UTC touch -t "`date +%Y%m%d%H%M`" "$a"
+TZ=UTC touch -t "$mixed_stamp" "$a"
+touch -t \
+  "$(date +%Y%m%d%H%M)" "$a"
+mixed_stamp="$(TZ=UTC date +%Y%m%d%H%M)"
+mixed_stamp="$(date +%Y%m%d%H%M)"
 local_stamp="$(date +%Y%m%d%H%M)"
 utc_stamp="$(TZ=UTC date +%Y%m%d%H%M)"
 TZ=UTC touch -t "$(TZ=UTC date -v-2H +%Y%m%d%H%M)" "$a"
@@ -63,8 +73,8 @@ touch -A -0130 "$a"
 # touch -t "$(date)" in a comment
 FIXTURE
 flagged="$(scan "$fixture" | wc -l | tr -d ' ')"
-if [ "$flagged" != 9 ]; then
-  echo "FAIL: the scan flagged $flagged of the 9 unsafe fixture lines; it cannot be trusted" >&2
+if [ "$flagged" != 11 ]; then
+  echo "FAIL: the scan flagged $flagged of the 11 unsafe fixture lines; it cannot be trusted" >&2
   scan "$fixture" >&2
   exit 1
 fi
@@ -84,4 +94,4 @@ if [ -n "$found" ]; then
   printf '%s\n' "$found" >&2
   exit 1
 fi
-echo "ok: ${#files[@]} test files read, no computed local touch -t; the control flagged 9 of 9"
+echo "ok: ${#files[@]} test files read, no computed local touch -t; the control flagged 11 of 11"
