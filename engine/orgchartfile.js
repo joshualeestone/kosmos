@@ -572,14 +572,29 @@ function requestLine(name, bytes) {
    model no tool at all (measured: the session's init lists only the structured-output one, which
    returns data), and `--strict-mcp-config` loads none of the account's MCP servers. The file is in
    the request, so there is nothing for a tool to fetch. */
-function claudeArgs() {
+function claudeArgs(keyHelper) {
   /* --no-session-persistence: a headless run saves its transcript by default, which here would be the chart
      (real people's names) kept under the account's projects folder; the consent says Kosmos keeps no copy.
      --setting-sources "": none of the person's own settings (their hooks, their CLAUDE.md) load into a run that
-     must do nothing but read. */
+     must do nothing but read.
+     #7741: that also stops a key account's apiKeyHelper, its only credential, so `--settings` hands back that one
+     value (measured with a stub helper: fired 0 times without it, 7 with it). See keyHelperFor. */
   return ['-p', '--tools', '', '--strict-mcp-config', '--no-session-persistence', '--setting-sources', '',
+    ...(keyHelper ? ['--settings', JSON.stringify({ apiKeyHelper: keyHelper })] : []),
     '--input-format', 'stream-json',
     '--output-format', 'stream-json', '--verbose', '--json-schema', JSON.stringify(SCHEMA)];
+}
+
+/* #7741: the key helper of the account in `dir`, only when it is the exact command Kosmos wrote there (it cats the
+   account's own key file). Anything else in that field is a command the person put in their settings, and this run
+   loads none of those: such an account fails the read as it always has, rather than running that command here. */
+function keyHelperFor(dir) {
+  if (!dir) return null;
+  try {
+    const path = require('node:path');
+    const got = JSON.parse(require('node:fs').readFileSync(path.join(dir, 'settings.json'), 'utf8')).apiKeyHelper;
+    return got === require('./claudeaccounts').apiKeyHelperCommand(dir) ? got : null;
+  } catch { return null; }
 }
 
 /* The real call: Claude Code, headless, in an empty temporary folder, on the default account.
@@ -611,7 +626,9 @@ function defaultModelRunner(line, signal) {
     /* maxBuffer: well past the largest request (a 10 MB PDF is about 13.3 MB as base64), in case this output format
        ever echoes the request back; not measured against a real multi-MB PDF (a fake binary cannot say what claude
        prints). A real answer is a few kilobytes. */
-    const child = execFile(bin, claudeArgs(), { cwd: dir, env, timeout: MODEL_TIMEOUT_MS, maxBuffer: 32 << 20, killSignal: 'SIGKILL', signal },
+    let account = null;
+    try { account = readAccount(); } catch { account = null; }
+    const child = execFile(bin, claudeArgs(keyHelperFor(account && account.dir)), { cwd: dir, env, timeout: MODEL_TIMEOUT_MS, maxBuffer: 32 << 20, killSignal: 'SIGKILL', signal },
       (err, stdout, stderr) => {
         let result = null;
         for (const l of String(stdout || '').split('\n')) {
@@ -838,6 +855,6 @@ async function readWithModel(name, bytes, opts = {}) {
   return fromModel(got.structured);
 }
 
-module.exports = { MODEL_TIMEOUT_MS,
+module.exports = { MODEL_TIMEOUT_MS, keyHelperFor,
   readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, get NO_MODEL() { return noModelFor(process.platform); }, noModelFor, noModelAfter, composeWhy, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, unzip, blocks, cells, innerOf, xmlText, stripBlocks, attr, colIndex,   // #6098: the zip and XML readers, for engine/attachtext.js
    markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
