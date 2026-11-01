@@ -1,6 +1,6 @@
 # heldwait-7751: the iPhone task page logic suite can segfault after a leaked continuation (kosmos#7751)
 
-Finished means: the task page logic tests' fake Mac runs on the same actor as the model it serves, so no test races it; a hold a test waits for and never reaches ends the run with a FAIL verdict instead of carrying on; and two holds at once stop the run instead of dropping a continuation.
+Finished means: the task page logic tests' fake Mac runs on the same actor as the model it serves, so no test races it; a hold a test waits for and never reaches ends the run with a FAIL verdict instead of carrying on; two holds at once (a request, or a parse or build behind ParseGate) stop the run instead of dropping a continuation; and a hold armed while another is armed or held stops it too, so the hold a test waits for is the one it armed. Each of these stops prints a FAIL line and the verdict: a precondition would trap with no message in the suite's -O build.
 
 Measured, both arms (ThreadSanitizer build of ios/LogicTests/run-taskpage.sh's file list, this Mac, Swift 6.4 in Swift 5 mode):
 - Before: 2 of 3 runs abort with Swift access races (3 and 8 reports), first at main.swift's `mac.asked.count` check against `FakeMac.send` called from `asyncSend` on another thread. 1 of 3 clean, as a race would be.

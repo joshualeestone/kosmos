@@ -174,10 +174,15 @@ final class FakeMac {
     var asked: [String] = []
     var epoch = 0
     var onSend: ((URLRequest) -> Void)?
-    // When set, the next request is held until release() (for reads that land out of order).
-    var holdNext = false
+    // When set, the next request is held until release() (for reads that land out of order). Set it with holdTheNext().
+    private(set) var holdNext = false
     private var held: CheckedContinuation<Void, Never>?
     var holding: Bool { held != nil }
+    // Arms a hold only when none is armed or held, so the hold a test then waits for is the one it armed.
+    func holdTheNext() {
+        if holdNext || held != nil { endRun("a hold was armed while an earlier one was still armed or held") }
+        holdNext = true
+    }
     func release() { let h = held; held = nil; h?.resume() }
     func asyncSend(_ build: (URL) -> URLRequest?) async -> (Data, HTTPURLResponse)? {
         let answer = send(build)
@@ -216,6 +221,7 @@ func endRun(_ why: String, line: Int = #line) -> Never {
 // release nothing and leave the hold armed for some later request.
 @MainActor
 func waitUntil(_ reached: () -> Bool, _ what: String, line: Int = #line) async {
+    // The bound only turns a hold that never comes into a FAIL instead of a hang.
     for _ in 0..<100_000 { if reached() { return }; await Task.yield() }
     endRun("the test reached its hold: \(what)", line: line)
 }
@@ -382,7 +388,7 @@ func modelTests() async {
     mac.activity = (200, fixture("activity-3.json"))
     await cm.readActivity(names: nm)
     mac.asked = []
-    mac.holdNext = true
+    mac.holdTheNext()
     let cut = Task { await cm.markSeen() }
     await waitUntil({ mac.holding }, "a request held")
     cut.cancel()
@@ -392,7 +398,7 @@ func modelTests() async {
     mac.asked = []
     await cm.markSeen()
     check(mac.asked == ["POST /api/project/springcatalogue/task/3/seen"], "a cancelled seen mark leaves the state unmarked, so the next mark sends it")
-    mac.holdNext = true
+    mac.holdTheNext()
     let cutRead = Task { await cm.read() }
     await waitUntil({ mac.holding }, "a request held")
     cutRead.cancel()
@@ -402,12 +408,19 @@ func modelTests() async {
 
     // A parse held while a newer read lands: the newer answer stands, and so does a newer failure.
     @MainActor final class ParseGate { var hold = false; var held: CheckedContinuation<Void, Never>?; var waiting: Bool { held != nil }
-        func release() { let h = held; held = nil; h?.resume() } }
+        func release() { let h = held; held = nil; h?.resume() }
+        // As FakeMac's: a second hold would drop the first one's continuation, so the run ends instead.
+        func park() async {
+            guard hold else { return }
+            hold = false
+            if held != nil { endRun("a second parse or build was held while one already was") }
+            await withCheckedContinuation { held = $0 }
+        } }
     for newerFails in [false, true] {
         let gate = ParseGate()
         let pm = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch },
                                now: { clock }, parse: { data, project, number in
-                                   if gate.hold { gate.hold = false; await withCheckedContinuation { gate.held = $0 } }
+                                   await gate.park()
                                    return Board.parseTaskPage(data, project: project, number: number)
                                })
         mac.projects = (200, projectsData)
@@ -430,7 +443,7 @@ func modelTests() async {
     mac.asked = []
     mac.seenAnswers = [(503, "{}")]
     var retryTask: Task<Void, Never>?
-    mac.onSend = { r in if r.url!.path.hasSuffix("/seen") && mac.asked.count == 2 { mac.holdNext = true } }
+    mac.onSend = { r in if r.url!.path.hasSuffix("/seen") && mac.asked.count == 2 { mac.holdTheNext() } }
     retryTask = Task { await rc.markSeen() }
     await waitUntil({ mac.holding }, "a request held")
     check(mac.asked.count == 2, "premise: the retry is in the air")
@@ -447,7 +460,7 @@ func modelTests() async {
         let gate = ParseGate()
         let am = TaskPageModel(project: "springcatalogue", number: 3, send: { await mac.asyncSend($0) }, sleep: { _ in }, epoch: { mac.epoch },
                                now: { clock }, buildRows: { names, data in
-                                   if gate.hold { gate.hold = false; await withCheckedContinuation { gate.held = $0 } }
+                                   await gate.park()
                                    return await TaskPageModel.buildOffMain(names, data)
                                })
         mac.activity = (200, fixture("activity-3.json"))
@@ -530,7 +543,7 @@ func modelTests() async {
     // Reads that land out of order: the newer answer stands.
     mac.epoch = 0
     let o = model(3)
-    mac.holdNext = true
+    mac.holdTheNext()
     let first = Task { await o.read() }
     await waitUntil({ mac.holding }, "a request held")
     mac.projects = (200, Data(#"{"projects":[]}"#.utf8))
@@ -541,7 +554,7 @@ func modelTests() async {
     check(o.gone && o.page == nil, "the older read, landing after it, does not bring the task back")
     mac.projects = (200, projectsData)
     mac.activity = (200, fixture("activity-3.json"))
-    mac.holdNext = true
+    mac.holdTheNext()
     let firstActivity = Task { await o.readActivity(names: nm) }
     await waitUntil({ mac.holding }, "a request held")
     mac.activity = (200, Data(#"{"events":[],"count":0}"#.utf8))
