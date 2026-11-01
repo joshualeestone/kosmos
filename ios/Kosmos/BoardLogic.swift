@@ -451,6 +451,8 @@ enum Board {
         let top = -insetTop, end = max(top, contentHeight + insetBottom - viewHeight)
         return min(max(offset + (content - keptContent), top), end)
     }
+    // kosmos#7654: the list moved further than a screenful since the reading: the row's reading cannot be trusted.
+    static func holdReadingFar(moved: Double, showing: Double) -> Bool { abs(moved) > max(showing, 0) }
     // kosmos#7609: where a row's top sits in the band that shows, as a share from its top (0) to its bottom (1), held to that
     // range; an empty band is 0.
     static func bandFraction(_ y: Double, bandTop: Double, bandBottom: Double) -> Double {

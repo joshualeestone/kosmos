@@ -2688,7 +2688,14 @@ struct KeyboardHold: UIViewRepresentable {
                 // The reader's row no longer drawn (iOS moved it far off): put back once by its last known place in the content (it
                 // stops being read when it leaves, so rows above measured again after that are not seen), then the hold ends. The same
                 // rule when it leaves while held, below.
-                guard let r = rows.y[kept.row] else {
+                // kosmos#7654: iOS moved the list further than a screenful: the row can be alive off the screen with its reading not
+                // updated, so it reads as drawn and in place while the put-back leaves it off the screen (CI, iOS 26.5, twice: content
+                // grew about 1000 pt, y back where it was, the row gone). A reading from there is no better than a row not drawn.
+                let far = self.scroll.map { sv in
+                    Board.holdReadingFar(moved: Double(sv.contentOffset.y - kept.offset),
+                                         showing: Double(sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom))
+                } ?? false
+                guard !far, let r = rows.y[kept.row] else {
                     // A row with no last reading belongs to readings that were cleared (a fresh chat): nothing of this chat to place.
                     if let lost = self.onRowLost, let sv = self.scroll, rows.last[kept.row] != nil {
                         // The same stand-downs as putBack: under a finger, earlier messages landed, or the width changed.
@@ -2698,7 +2705,7 @@ struct KeyboardHold: UIViewRepresentable {
                         let top = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.adjustedContentInset.top), to: nil).y
                         let bottom = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.bounds.height - sv.adjustedContentInset.bottom), to: nil).y
                         let f = CGFloat(Board.bandFraction(Double(self.keptScreenTop), bandTop: Double(top), bandBottom: Double(bottom)))
-                        ChatView.trace("keyboard hold: row not drawn at did-show, placed by id at \(Int(f * 100))% of the screen")
+                        ChatView.trace(far ? "keyboard hold: row moved far off at did-show, placed by id at \(Int(f * 100))% of the screen" : "keyboard hold: row not drawn at did-show, placed by id at \(Int(f * 100))% of the screen")
                         // f is the row's will-show top against the band as it is now (keyboard up), and scrollTo lines up the row's
                         // point f, not its top: an approximate place, which the settle then corrects to the will-show top.
                         // A will-show top now under the keyboard is held to the band's bottom (f = 1); the settle then aims at the
