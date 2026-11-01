@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: holdreason-7749
-diff_hash: 64a4e9655bcc2b7cc220e8d88392d5704a0e3a4c613c63e579ac90d8c9282d4e
+diff_hash: 8025c7c1a16d1e3758592658935a13c79e475e76dab922e300e98225e34dc7c3
 subdir_audit: passed
 timestamp: 2026-11-01T21:55:19Z
 converged: false
@@ -26,4 +26,4 @@ Change: an optional reason on a task hold, set by CLI or API, shown on the task'
 - Clean in review: no field dropped, reason never reaches an agent's instruction block, JSON escaping measured, XSS, repaint, save in both directions.
 
 ## Not done
-No screenshot: a line of text in an existing slot, not viewed in a browser. Full suite left to CI. The box on the screen and the task row are not in this change, so the card stays open.
+Browser check render-holduntil-7184 passes headless, 52 of 52, light 1400 and dark 390. No screenshot taken. Full suite left to CI. The box on the screen and the task row are not in this change, so the card stays open.
