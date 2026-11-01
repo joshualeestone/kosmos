@@ -15,5 +15,6 @@ Decisions: a note file beside the record, removed on turn off, rather than askin
 Rejected: a new state() value, because state() drives the screens #7681 settled, and stopped is still on. Weakest premise:
 with a company here the panel says nothing about the job, which is true but tells the person nothing.
 
-Not here: a real way forward for a different key here (it names none), the off-then-on price dependency (#7685), the
+Not here: a way forward for a different key here, for "remote access is not set up" and for a state file that cannot be read
+(each says what is wrong and names no step), the off-then-on price dependency (#7685), the
 Antigravity staging before the key step, and slice D.

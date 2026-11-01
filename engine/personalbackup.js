@@ -477,7 +477,7 @@ async function runJob(input, opts = {}) {
 const JOB_NOTE = 'personal-job.json';
 const WAITING_WEEK = 'This week\'s backup allowance is used up. Backups carry on next week.';
 const STOP_SAY = [
-  ['tooLarge', 'Your files are too large for one backup, so nothing was backed up'],
+  ['tooLarge', 'Your files are too large for one backup, so nothing was backed up. Move some out of your agents\' folders and projects to back up the rest'],
   ['missing', 'Remote access is not set up on this computer, so nothing was backed up'],
   ['refusedState', 'This computer could not read what it keeps for its backups, so nothing was backed up'],
 ];
@@ -532,7 +532,7 @@ function report(opts = {}) {
   if (!mayBackUp(opts)) return { lastOk, stopped: stopped || (wordsUncovered(opts) ? WORDS_UNCOVERED : null), note: null };
   if (stopped) return { lastOk, stopped, note: null };
   if (j.waiting === true) return { lastOk, stopped: null, note: WAITING_WEEK };
-  if (!lastOk) return { lastOk, stopped: null, note: typeof j.lastTry === 'string' ? 'The first backup has not finished yet.' : 'The first backup runs within the hour.' };
+  if (!lastOk) return { lastOk, stopped: null, note: typeof j.lastTry === 'string' ? 'The first backup has not finished yet.' : 'The first backup runs soon.' };
   return { lastOk, stopped: null, note: null };
 }
 

@@ -19,7 +19,7 @@ test('stopped goes alone in its line; the date and a note sit beside it, plain',
   assert.equal(r.stopped, 'Stopped.');
   assert.match(r.plain, /^Last backed up .*\.$/);
   assert.doesNotMatch(r.stopped, /Last backed up/);
-  assert.equal(pbJobLines({ lastOk: null, stopped: null, note: 'The first backup runs within the hour.' }).plain, 'The first backup runs within the hour.');
+  assert.equal(pbJobLines({ lastOk: null, stopped: null, note: 'The first backup runs soon.' }).plain, 'The first backup runs soon.');
 });
 test('nothing established, nothing said: no job, a bad date, an empty answer', () => {
   for (const j of [null, undefined, {}, { lastOk: 'not a date' }, { stopped: 5, note: 5 }]) assert.deepEqual(pbJobLines(j), { stopped: '', plain: '' });
