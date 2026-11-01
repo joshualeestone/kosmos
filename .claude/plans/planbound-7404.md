@@ -44,3 +44,6 @@ MiB), at the top plan only. Kept for now; a child process is the fix if it shows
 does not wait, so the coordinator's OWN_READ_CALLS must rise with the ceiling: 600 calls an hour is about 240,000 objects,
 about 230 GB. Both are one relay follow-up, and that change must land first. A failed status read backs off as any
 unreached run does, doubling to a day.
+
+Round 6, kept: a run stopped on the measured size re-walks hourly, as every run does; remembering the stop is a later
+change if it shows. The Mac does not clamp `backupWeeklyGb`: the coordinator's refusal is the authority over bytes.

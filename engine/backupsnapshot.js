@@ -713,7 +713,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   const listed = await listRoots(roots, fs, { cost, fits });
   if (typeof listed === 'string') return fail(listed);
   const pause = yielder();
-  if (listed.over) return fail(`the work Kosmos holds more than ${MAX_FILES} files, more than one snapshot can list`, { tooLarge: true });
+  if (listed.over) return fail(`the work Kosmos holds more than ${MAX_FILES} files, more than one snapshot can list`, planGb ? { tooLarge: true, personActs: true } : { tooLarge: true });
   // The manifest budget, kept so that NOTHING is uploaded unless the finished manifest is sure to fit (for a company; a
   // plan's run has no reserve: it expects once before the walk, then stops on the measured size, with keys at keyCharge):
   //   estimate  the exact JSON so far (entries, objects, skips), with keys not yet granted charged at MAX_KEY_LEN
