@@ -423,13 +423,16 @@ async function orgConnected(page, enrolled, extra) {
     never: ['your chats are never shown in the console', 'keys and passwords'] } }) }));
 }
 /* kosmos#7404: a connected computer whose board offers personal backup, in `state`; preview and on answer samples. */
-async function pbShot(page, state, price = '$5/month') {
+async function pbShot(page, state, price = '$5/month', job = { lastOk: null, stopped: null }) {
   await orgConnected(page, false);
   const json = (body) => (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
-  await page.route('**/api/personal-backup', json({ shown: true, price, state }));
+  await page.route('**/api/personal-backup', json({ shown: true, price, state, job }));
   await page.route('**/api/personal-backup/preview', json({ ok: true, ticket: 't_sample', words: {
-    // The coordinator's own personal words today (kosmos-relay org.rs personal_consent): nothing uploaded yet.
-    reports: [], backsUp: [], readers: ['you, on your own computers'], never: ['keys and passwords'] } }));
+    // The coordinator's own personal words (kosmos-relay org.rs personal_consent).
+    reports: [],
+    backsUp: ["your agents' folders and the files in them", 'your project folders', 'your conversations with your agents that Kosmos can find on this computer',
+      'each backup stays stored for at least 30 days, even after you turn this off, and cannot be deleted sooner'],
+    readers: ['you, with your recovery code. Kosmos+ cannot read your backup'], never: ['keys and passwords Kosmos can recognise'] } }));
   await page.route('**/api/personal-backup/on', json({ ok: true, recoveryCode: 'K7QD-3MXA-9VPE-H2NW-4TBR-6YC8-JF', org: 'org_sample', member: 'm_sample' }));
   await at(page, '?tab=settings&sec=plus');
   await page.waitForSelector(state === 'off' ? '#pb-off' : '#pb-onview', { state: 'visible', timeout: 10000 });
@@ -1736,6 +1739,9 @@ const SCREENS = [
      in Stripe's shape; the code is a sample in the engine's shape, never a real one; the words are the coordinator's). */
   { name: 'pb-off', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off'); } },
   // Design review 1: no price set, so no Turn on; only the restore line.
+  { name: 'pb-on-last', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: '2026-10-31T14:07:00.000Z', stopped: null }); } },
+  { name: 'pb-on-stopped', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: '2026-10-31T14:07:00.000Z', stopped: 'What a personal backup does changed, so backups stopped. Turn it off here, then on again, to read the new words.' }); } },
+  { name: 'pb-on-stopped-first', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: null, stopped: 'This computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Turn personal backup off here, then on again, and enter your recovery code.' }); } },
   { name: 'pb-noprice', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off', null); } },
   // Challenge round 5: the restore field opens when the key step finds this backup set up on another computer.
   { name: 'pb-restore', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbToRestore(page); await pbTop(page); } },
