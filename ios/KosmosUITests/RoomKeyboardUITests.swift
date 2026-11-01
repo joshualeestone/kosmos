@@ -43,7 +43,9 @@ final class RoomKeyboardUITests: XCTestCase {
         let label = first.label, y0 = first.frame.minY
         let row = app.staticTexts[label]
         try KeyboardSlideUITests.keyboardUp(app, box, row, shot: "room-read-higher-keyboard-up", test: self)
-        XCTAssertTrue(row.exists && row.isHittable, "'\(label)', read higher up, left the screen when the keyboard came up")
+        // What is on the screen, for a failure on CI's runner, where nothing else shows it (kosmos#7690).
+        let seen = rows.allElementsBoundByIndex.filter { $0.isHittable }.map { "\($0.label.prefix(14)) at \(Int($0.frame.minY))" }.joined(separator: ", ")
+        XCTAssertTrue(row.exists && row.isHittable, "'\(label)', read higher up from \(Int(y0)), left the screen when the keyboard came up (exists \(row.exists), keyboard top \(Int(app.keyboards.firstMatch.frame.minY)), on screen: \(seen))")
         XCTAssertEqual(row.frame.minY, y0, accuracy: 4, "'\(label)' moved from \(y0) to \(row.frame.minY)")
         XCTAssertFalse(newest.exists && newest.isHittable, "the reader was pulled down to the newest post")
     }
