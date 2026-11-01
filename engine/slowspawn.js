@@ -22,10 +22,10 @@ const NAMES = ['execFileSync', 'execSync', 'spawnSync'];
 const SLOW_MS = 1000;
 const MAX_PER_MINUTE = 20;
 
-// The program's name only. execSync's first argument is a whole command line, which can open with a secret or a
-// quoted path, so none of it is logged.
-function programOf(name, file) {
-  if (name === 'execSync') return '(shell)';
+// The program's name only. A shell's first argument is a whole command line (execSync, or any call with the shell
+// option), which can open with a secret or a quoted path, so none of it is logged.
+function programOf(name, file, rest = []) {
+  if (name === 'execSync' || rest.some((a) => a && typeof a === 'object' && !Array.isArray(a) && a.shell)) return '(shell)';
   return path.basename(String(file === undefined ? '' : file)) || '?';
 }
 
@@ -55,7 +55,7 @@ function install(cp, opts = {}) {
           if (took >= SLOW_MS) {
             const at = now();
             if (at - windowAt >= 60000) { windowAt = at; inWindow = 0; }
-            if (inWindow++ < MAX_PER_MINUTE) log(`[slow-spawn] ${took} ms ${name} ${programOf(name, args[0])} from ${framesOf(new Error().stack)}`);
+            if (inWindow++ < MAX_PER_MINUTE) log(`[slow-spawn] ${took} ms ${name} ${programOf(name, args[0], args.slice(1))} from ${framesOf(new Error().stack)}`);
           }
         } catch { /* watching never breaks the call it watches */ }
       }
