@@ -131,6 +131,17 @@ function chk(ok, label, extra) {
       await waitText(page, '#tk-activity', /no longer waiting for anything/);
       chk(/no longer waiting for anything/.test(await text(page, '#tk-activity') || ''), `${tag} the activity says it no longer waits for anything`);
 
+      /* kosmos#7749: a hold's reason shows on the waiting line, as words, and a long unbroken one does not widen the page. */
+      tasks.setOnHold(p.id, 1, true, { viaScreen: true, because: '<b>legal</b> ' + 'x'.repeat(150) });
+      await page.evaluate(async () => { await pjReload(); });
+      await waitText(page, '#tk-hold-until', /^Why: /);
+      chk((await text(page, '#tk-hold-until') || '').startsWith('Why: <b>legal</b> ') && await page.$('#tk-hold-until b') === null, `${tag} the reason shows, as words and not as markup`);
+      chk(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${tag} a long unbroken reason does not widen the page`);
+      tasks.setOnHold(p.id, 1, true, { viaScreen: true, because: '' });
+      await page.evaluate(async () => { await pjReload(); });
+      await page.waitForFunction(() => document.getElementById('tk-hold-until').hidden, null, { timeout: 5000 }).catch(() => {});
+      chk(await page.isHidden('#tk-hold-until'), `${tag} CONTROL: with no reason there is no line`);
+
       /* An unsaved choice survives a refresh. */
       await page.selectOption('#tk-hold-for', 'task');
       await page.evaluate(async () => { await pjReload(); });
