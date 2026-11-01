@@ -64,6 +64,13 @@ fs.writeFileSync(BLINDLESS, blindless, { mode: 0o755 });
 const LSOFLESS = path.join(ROOT, 'kosmos-lsofless');
 fs.writeFileSync(LSOFLESS, SRC.replace(BLIND_HOOKS[1][0], BLIND_HOOKS[1][1]), { mode: 0o755 });
 
+const START_GUARD = '  if _start_is_sandboxed; then\n    if [ -n "$_had_stop_marker" ]; then restore_stop_marker; fi   # it started nothing, so a deliberate stop stands\n    rm -f "$PERSON_START_FILE"   # nor is there a person\'s start for a board-run to read\n    die "$_SANDBOXED_START_WORDS"\n  fi\n';
+if (!SRC.includes(START_GUARD)) throw new Error('install/kosmos no longer has the #4655 refusal the control takes out');
+// #4655 refuses before a sandboxed start launches. Without that refusal #4636's stop-it-again branch is what remains,
+// and it stays covered through this copy.
+const GUARDLESS = path.join(ROOT, 'kosmos-guardless');
+fs.writeFileSync(GUARDLESS, SRC.replace(START_GUARD, ''), { mode: 0o755 });
+
 const DEAD_PROXY = 'http://127.0.0.1:9';   // nothing listens on the discard port; #4622 routes loopback around it
 const SANDBOX = '(version 1)(allow default)(deny network-outbound)';
 // Not only present: it must run here (it cannot nest inside another sandbox, where every sandboxed arm should skip).
@@ -281,7 +288,7 @@ test('a sandboxed shell, the board STOPPED: the board it launches would be sandb
   const { h, e } = await makeInstall();
   try {
     const t0 = Date.now();
-    const r = await run(CLI, ['start'], e, true);
+    const r = await run(GUARDLESS, ['start'], e, true);
     assert.notEqual(r.code, 0, 'a start from a blocked shell reported success: ' + r.out);
     assert.match(r.out, /Kosmos cannot be started from this shell: .*so it was stopped again\. Start it from a normal Terminal/);
     assert.doesNotMatch(r.out, /did not come up/);
@@ -305,7 +312,7 @@ test('a sandboxed shell, the board STOPPED: the board it launches would be sandb
 test('a sandboxed RESTART of a stopped board: fails, and leaves no deliberate-stop marker behind (restart\'s own stop wrote one)', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
   const { h, e } = await makeInstall();
   try {
-    const r = await run(CLI, ['restart'], e, true);
+    const r = await run(GUARDLESS, ['restart'], e, true);
     assert.notEqual(r.code, 0, r.out);
     assert.match(r.out, /so it was stopped again/);
     assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), false,
@@ -321,7 +328,7 @@ test('a person\'s deliberate stop stands when a sandboxed start refuses: launche
   const { h, e } = await makeInstall();
   fs.writeFileSync(path.join(h.home, 'board.stopped'), '');
   try {
-    const r = await run(CLI, ['start'], e, true);
+    const r = await run(GUARDLESS, ['start'], e, true);
     assert.notEqual(r.code, 0, r.out);
     assert.match(r.out, /so it was stopped again/);
     assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), true, 'the refusing start dropped the person\'s stop marker');
@@ -334,7 +341,7 @@ test('a person\'s deliberate stop stands when a sandboxed start refuses: launche
   const r2 = await withBoard('ok', (p) => {
     const e2 = env(p, {}, h2);
     fs.writeFileSync(path.join(h2.home, 'board.stopped'), '');
-    return run(CLI, ['start'], e2, true);   // no board.pid: a node listener that is not ours
+    return run(GUARDLESS, ['start'], e2, true);   // no board.pid: a node listener that is not ours
   });
   assert.notEqual(r2.code, 0, r2.out);
   assert.equal(fs.existsSync(path.join(h2.home, 'board.stopped')), true, 'the refusing start dropped the person\'s stop marker');
@@ -644,4 +651,72 @@ test('CONTROL: outside the sandbox, a stopped board is still "not running" at on
   assert.ok(Date.now() - t0 < 5000, 'a stopped board took ' + (Date.now() - t0) + ' ms to read as not running');
   assert.equal(s.code, 1, s.out);
   assert.match(s.out, /Kosmos is not running\. Start it with: kosmos start/);
+});
+
+/* #4655: the sandbox that allows 127.0.0.1 and blocks the internet. Every command reaches a board from there, so
+   nothing reads as unreachable, and a board launched there could not reach any AI provider. */
+const LOOPBACK = '(version 1)(allow default)(deny network-outbound)(allow network-outbound (remote ip "localhost:*"))(allow network-outbound (remote unix-socket))';
+const portAnswers = (port) => new Promise((ok) => {
+  const c = require('node:net').connect(port, '127.0.0.1');
+  c.once('connect', () => { c.destroy(); ok(true); });
+  c.once('error', () => ok(false));
+});
+const WORDS = /This shell is sandboxed.*Nothing was started.*normal Terminal/;
+
+test('#4655 a sandbox that allows loopback: start launches nothing, says why, and a deliberate stop stands', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
+  const { h, e } = await makeInstall();
+  fs.writeFileSync(path.join(h.home, 'board.stopped'), 'x');
+  const r = await run(CLI, ['start'], e, LOOPBACK);
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, WORDS);
+  assert.equal(await portAnswers(Number(e.KOSMOS_PORT)), false, 'a board was launched from the sandbox');
+  assert.equal(fs.existsSync(path.join(h.home, 'board.pid')), false);
+  assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), true, 'the deliberate stop was lost');
+  assert.equal(fs.existsSync(path.join(h.home, 'board.person-start')), false, 'a refused start left a person\'s start for a later board-run to read');
+});
+
+test('#4655 restart of a stopped board in that sandbox launches nothing', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
+  const { e } = await makeInstall();
+  const r = await run(CLI, ['restart'], e, LOOPBACK);
+  assert.notEqual(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /Bringing the board up\./);
+  assert.equal(await portAnswers(Number(e.KOSMOS_PORT)), false, 'a restart launched from the sandbox');
+});
+
+test('#4655 only a Mac is refused: a failing ps elsewhere is not evidence of a seatbelt', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
+  const { e } = await makeInstall();
+  try {
+    const r = await run(CLI, ['start'], { ...e, KOSMOS_PLATFORM: 'Linux' }, LOOPBACK);
+    assert.match(r.out, /Bringing the board up\./, 'a non-Mac start was refused on a ps failure');
+    assert.doesNotMatch(r.out, WORDS);
+  } finally { await run(CLI, ['stop'], e); }
+  assert.match(SRC, /_start_is_sandboxed\(\) \{\n[^\n]*command -v \/bin\/ps /, 'a missing ps must not count as a refused one');
+});
+
+test('#4655 board-run typed in that sandbox launches nothing either', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
+  const { h, e } = await makeInstall();
+  const r = await run(CLI, ['board-run'], e, LOOPBACK);
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, WORDS);
+  assert.equal(await portAnswers(Number(e.KOSMOS_PORT)), false, 'board-run launched from the sandbox');
+  assert.equal(fs.existsSync(path.join(h.home, 'board.pid')), false);
+});
+
+test('#4655 CONTROL: the same start launches from a normal shell, and in the sandbox without the refusal', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
+  // Launched is the question, so the launch line is what is read: the stub is not a board that passes the health check.
+  const LAUNCHED = /Bringing the board up\./;
+  const a = await makeInstall();
+  try { assert.match((await run(CLI, ['start'], a.e)).out, LAUNCHED); } finally { await run(CLI, ['stop'], a.e); }
+  const b = await makeInstall();
+  try { assert.match((await run(GUARDLESS, ['start'], b.e, LOOPBACK)).out, LAUNCHED); } finally { await run(CLI, ['stop'], b.e); }
+  const c = await makeInstall();
+  assert.doesNotMatch((await run(CLI, ['start'], c.e, LOOPBACK)).out, LAUNCHED, 'the refusal did not come before the launch');
+});
+
+test('#4655 the refusal sits on the direct launch path, after the supervised start', () => {
+  const start = SRC.indexOf('\ncmd_start() {');
+  const sup = SRC.indexOf('Bringing the board up (launchd supervised).', start);
+  const guard = SRC.indexOf(START_GUARD, start);
+  const direct = SRC.indexOf('say "Bringing the board up."', start);
+  assert.ok(start > 0 && sup > start && guard > sup && direct > guard, 'a supervised start must not be refused: ' + [start, sup, guard, direct]);
 });

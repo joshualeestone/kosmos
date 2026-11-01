@@ -911,6 +911,15 @@ _shell_is_sandboxed() {
   sleep 0.2
   ! /bin/ps -p "$$" >/dev/null 2>&1
 }
+# #4655: a board launched from a sandboxed shell inherits the sandbox for good. The kind that allows 127.0.0.1 but blocks
+# the internet reads as healthy to every command while no AI provider can be reached, so nothing that launches a board
+# with this shell's own hands may run there. A launchd or systemd start is not refused: the supervisor launches that one.
+# A Mac only, and only where ps is there to be refused: _shell_is_sandboxed reads ANY ps failure as evidence, which is
+# enough beside an unreachable board, but alone it would refuse every start on a Linux box or container with no ps.
+_start_is_sandboxed() {
+  [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Darwin ] && command -v /bin/ps >/dev/null 2>&1 && _shell_is_sandboxed
+}
+_SANDBOXED_START_WORDS="This shell is sandboxed, so a board started from it could not reach your AI provider. Nothing was started. Start Kosmos from a normal Terminal, or open the Kosmos app."
 _unreachable_is_ours() {
   local _rec
   _rec="$(cat "$PIDFILE" 2>/dev/null)" || return 1
@@ -2061,6 +2070,11 @@ cmd_start() {
       die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
     fi
   fi
+  if _start_is_sandboxed; then
+    if [ -n "$_had_stop_marker" ]; then restore_stop_marker; fi   # it started nothing, so a deliberate stop stands
+    rm -f "$PERSON_START_FILE"   # nor is there a person's start for a board-run to read
+    die "$_SANDBOXED_START_WORDS"
+  fi
   keychain_note   # kosmos#2600: only on this direct path; the supervised start above runs in the desktop session
   say "Bringing the board up."
   _mark_board_started
@@ -2167,6 +2181,8 @@ cmd_board_run() {
   # over a busy board should not spend 20 s of retries on it (#4466).
   if healthy --once; then exit 0; fi
   if [ "$HEALTH_STATE" = busy ] || [ "$HEALTH_STATE" = unreachable ]; then exit 0; fi   # #4466, #4636: never start a second
+  # #4655: launchd is this command's parent when it supervises the board, and that board is outside any sandbox.
+  if [ "${PPID:-}" != 1 ] && _start_is_sandboxed; then die "$_SANDBOXED_START_WORDS"; fi
   # #2956: likewise do not crash-loop against a STRANGER on the port. If a
   # non-Kosmos process holds it, healthy() is false (its body is not ours), so we
   # would fall through and exec node -> EADDRINUSE -> the server exits 1 -> launchd
