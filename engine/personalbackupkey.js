@@ -298,6 +298,31 @@ async function jobKeyNow(orgId, opts) {
   } catch { return refused('the backup key could not be read on this computer'); }
 }
 
+/** kosmos#7404 slice D: the member keys a restore of this backup opens with, one per epoch this computer holds and
+    Kosmos+ lists, each checked as the job's is. { ok: true, org, member, epochs: [{ epoch }], missing: [epoch] }, or a refusal; missing lists the epochs Kosmos+ has and this computer does not hold. With
+    opts.withSecrets each epoch has sk too, a fresh Buffer the caller zeroes; only a restore asks: the job never holds one. */
+function personalRestoreKeys(orgId, opts = {}) { return serial(() => restoreKeysNow(orgId, opts)); }
+async function restoreKeysNow(orgId, opts) {
+  try {
+    const read = await readContext(macRequestOf(opts));
+    if (!read.ok) return refused(read.because, read.code);
+    const { org, member, rows } = read.ctx;
+    if (typeof orgId !== 'string' || org !== orgId) return refused('this account is no longer in the personal backup on this computer');
+    const kept = memberkeys.readKeys(org, member);
+    if (!kept.ok) return refused('the backup key file on this computer could not be read; it was left as it is');
+    try {
+      const epochs = [], missing = [];
+      for (const row of rows) {
+        const k = kept.keys[String(row.epoch)];
+        if (k && k.registered && k.pk.equals(row.memberPk)) epochs.push(opts.withSecrets ? { epoch: row.epoch, sk: Buffer.from(k.sk) } : { epoch: row.epoch });
+        else missing.push(row.epoch);
+      }
+      if (!epochs.length) return refused('this computer does not hold the key for this backup, so enter your recovery code first', 'no_keys');
+      return { ok: true, org, member, epochs, missing };
+    } finally { for (const k of Object.values(kept.keys)) k.sk.fill(0); }
+  } catch { return refused('the backup key could not be read on this computer'); }
+}
+
 /** kosmos#7404 (personalswitch-7404 review 5): whether a recovery code is still waiting to be confirmed for (org,
     member), read locally. True for an unreadable file too: setup then stops and says so rather than look finished. */
 function hasPendingCode(org, member) {
@@ -305,4 +330,4 @@ function hasPendingCode(org, member) {
   return readPending(org, member) !== null;
 }
 
-module.exports = { setUpPersonalKey, confirmRecoveryCodeSaved, restorePersonalKey, personalKeyForJob, hasPendingCode, MINE_ROUTE };
+module.exports = { setUpPersonalKey, confirmRecoveryCodeSaved, restorePersonalKey, personalKeyForJob, personalRestoreKeys, hasPendingCode, MINE_ROUTE };
