@@ -484,16 +484,28 @@ test('#4660: the Claude reader carries whether its account runs on an API key (t
     assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key');
     assert.equal(o.consentFor(o.currentReader()).provider, 'Anthropic (Claude)', 'the key takes the read, so the signed-in address is not named');
     // A read sent somewhere else is not Anthropic's to keep, and that wins over a key in the same environment.
-    for (const v of ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY']) {
-      const was = process.env[v];
+    const plainId = o.consentFor(o.currentReader()).reader;
+    for (const v of ['ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY']) {
       process.env[v] = '1';
       try {
         const c = o.consentFor(o.currentReader());
         assert.equal(c.provider, 'Claude Code', v);
         assert.equal(c.uses, 'through the service this computer has it set up to use', v);
-        assert.equal(c.keeps, null, `${v}: no sentence about what Anthropic keeps`);
-      } finally { if (was === undefined) delete process.env[v]; else process.env[v] = was; }
+        assert.equal(c.keeps, 'What that service keeps is set by whoever runs it.', `${v}: nothing about what Anthropic keeps`);
+        assert.notEqual(c.reader, plainId, `${v}: a read sent elsewhere is another reader, so a consent for this one does not carry over`);
+      } finally { delete process.env[v]; }
     }
+    // A switch set to off goes to Anthropic, and a bearer token with no address of its own does too: the sentence stays.
+    for (const [v, off] of [['CLAUDE_CODE_USE_BEDROCK', '0'], ['CLAUDE_CODE_USE_VERTEX', 'false'], ['CLAUDE_CODE_USE_FOUNDRY', 'off'], ['ANTHROPIC_AUTH_TOKEN', 'tok']]) {
+      process.env[v] = off;
+      try {
+        assert.equal(o.currentReader().redirected, false, `${v}=${off} is not a redirect`);
+        assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key', v);
+      } finally { delete process.env[v]; }
+    }
+    delete process.env.ANTHROPIC_API_KEY;
+    assert.notEqual(o.consentFor(o.currentReader()).reader, plainId, 'losing the key changes the reader, as the sentence changes');
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-TEST-4660';
     // CONTROL, in the same environment with the variables gone: the key's own case is back.
     assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key');
   } finally {
