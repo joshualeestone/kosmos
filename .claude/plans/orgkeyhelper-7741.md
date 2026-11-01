@@ -15,7 +15,9 @@ security). Passing whatever helper the settings hold (a command the person wrote
 another reader when the account is a key account (more change, and it leaves Claude unusable where it could work).
 
 ## Not done
-A person's own hand-written helper still fails the read, as it always has. `claudeHere()` is unchanged.
+A person's own hand-written helper still fails the read, as it always has. `claudeHere()` is unchanged. Windows is not
+measured: `apiKeyHelperCommand` is a POSIX `cat`, as it already was for every key account there, and this change adds no
+claim about it.
 
 ## Weakest premise
 The stub fired, but no real key went through: the helper firing is measured, a real answer is not. 7 fires came from

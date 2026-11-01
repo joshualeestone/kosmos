@@ -571,7 +571,8 @@ function requestLine(name, bytes) {
 /* 🛑 THE FLAGS ARE THE SECURITY OF THIS PATH (Liu Kang's condition 3). `--tools ""` offers the
    model no tool at all (measured: the session's init lists only the structured-output one, which
    returns data), and `--strict-mcp-config` loads none of the account's MCP servers. The file is in
-   the request, so there is nothing for a tool to fetch. */
+   the request, so there is nothing for a tool to fetch. `--settings` is allowed here for one reason and one value:
+   the key helper Kosmos wrote (#7741, keyHelperFor). */
 function claudeArgs(keyHelper) {
   /* --no-session-persistence: a headless run saves its transcript by default, which here would be the chart
      (real people's names) kept under the account's projects folder; the consent says Kosmos keeps no copy.
@@ -597,7 +598,14 @@ function keyHelperFor(dir) {
   } catch { return null; }
 }
 
-/* The real call: Claude Code, headless, in an empty temporary folder, on the default account.
+/* The flags for this board's own account, the one the runner's env selects. */
+function readArgs() {
+  let account = null;
+  try { account = readAccount(); } catch { account = null; }
+  return claudeArgs(keyHelperFor(account && account.dir));
+}
+
+/* The real call: Claude Code, headless, in an empty temporary folder, on the default account, or the board's own.
    Resolves { ok, structured } or { ok:false, because }. Replaceable for tests (setModelRunner). */
 function defaultModelRunner(line, signal) {
   const { execFile } = require('node:child_process');
@@ -626,9 +634,7 @@ function defaultModelRunner(line, signal) {
     /* maxBuffer: well past the largest request (a 10 MB PDF is about 13.3 MB as base64), in case this output format
        ever echoes the request back; not measured against a real multi-MB PDF (a fake binary cannot say what claude
        prints). A real answer is a few kilobytes. */
-    let account = null;
-    try { account = readAccount(); } catch { account = null; }
-    const child = execFile(bin, claudeArgs(keyHelperFor(account && account.dir)), { cwd: dir, env, timeout: MODEL_TIMEOUT_MS, maxBuffer: 32 << 20, killSignal: 'SIGKILL', signal },
+    const child = execFile(bin, readArgs(), { cwd: dir, env, timeout: MODEL_TIMEOUT_MS, maxBuffer: 32 << 20, killSignal: 'SIGKILL', signal },
       (err, stdout, stderr) => {
         let result = null;
         for (const l of String(stdout || '').split('\n')) {
@@ -855,6 +861,6 @@ async function readWithModel(name, bytes, opts = {}) {
   return fromModel(got.structured);
 }
 
-module.exports = { MODEL_TIMEOUT_MS, keyHelperFor,
+module.exports = { MODEL_TIMEOUT_MS, keyHelperFor, readArgs,
   readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, get NO_MODEL() { return noModelFor(process.platform); }, noModelFor, noModelAfter, composeWhy, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, unzip, blocks, cells, innerOf, xmlText, stripBlocks, attr, colIndex,   // #6098: the zip and XML readers, for engine/attachtext.js
    markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
