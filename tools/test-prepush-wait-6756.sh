@@ -44,10 +44,11 @@ eval "$RELFN"; eval "$QHFN"
 # Without one of the first six (its QFNS list) it reads the queue as unreadable and refuses the pushes it should queue.
 # The last two it calls only when they are defined, so without one it skips that check and says nothing. A rename here
 # must therefore fail a kosmos test. Each name is looked up in a new /bin/bash, which inherits no function from this
-# file (so not the stubs below), after loading the lib with set +u as the hook does. declare -F counts only a function,
-# where the hook's type would also take a command of that name. The list is a copy (that repo is not in this CI): keep
-# it in step with the hook's QFNS= line and the names its qbusy checks with command -v. This arm sits
-# before the lockf SKIP below so it runs on Linux too.
+# file (neither the lib it sourced above nor the stubs below), after loading the lib with set +u as the hook does.
+# declare -F counts only a function, where the hook's type would also take a command of that name. The list is a copy
+# (that repo is not in this CI): keep it in step with the hook's QFNS= line and the names its qbusy checks with
+# command -v. This arm sits before the lockf SKIP below so it runs on Linux too; on the Mac (a both: line in
+# tools/shell-macos-only.txt) its /bin/bash is 3.2, the hook's.
 QFNS="kosmos_mark_suite_waiting _kosmos_suite_waiters_ahead _kosmos_suite_waiter_file _kosmos_suite_waiter_live kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live kosmos_refuse_if_cut_live kosmos_refuse_if_light_side_live"
 qfn_in_lib() { /bin/bash -c 'set +u; . "$1" >/dev/null 2>&1 || exit 3; declare -F "$2" >/dev/null' _ "$1" "$2"; }
 /bin/bash -c 'set +u; . "$1" >/dev/null 2>&1' _ "$HERE/lib/cut-guard.sh" && pass "11 the lib loads in a fresh /bin/bash, as the hook loads it" \
