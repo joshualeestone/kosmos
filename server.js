@@ -7470,7 +7470,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #7748: `kosmos agent list` reads the same derivation the board draws, because the stopped agents exist only here.
-     It answers three fields a row, so an agent's read carries nothing else this route holds for the page. */
+     It answers a few fields a row, so an agent's read carries nothing else this route holds for the page. */
   if ((pathname === '/api/status' && (req.method === 'GET' || req.method === 'HEAD')) || (pathname === '/api/agents/list' && req.method === 'GET')) {
     const rosterOnly = pathname === '/api/agents/list';
     if (rosterOnly) {
@@ -8334,7 +8334,7 @@ const server = http.createServer(async (req, res) => {
         partial = whole.counts.notRunning === null;   // the board could not read every job, so stopped agents may be missing
       } catch { sendJson(res, 500, { error: 'we could not read the agents just now' }); return; }
       // profile.role first (a running row's `role` is only the line parsed from its instruction file). The card's word goes
-      // only to a caller with no agent token: a card can hold private wording, and an agent's read is a roster (Splinter, #7748).
+      // only to a caller with no agent token: on this route an agent reads a roster (Splinter's ruling, #7748).
       const forAgent = Boolean(req.headers['x-kosmos-agent-token']);
       sendJson(res, 200, { agents: shown.map((a) => ({ name: a.name, role: (a.profile && a.profile.role) || a.role || null, ...(forAgent ? {} : { state: a.cardWord || null }) })), ...(partial ? { partial: true } : {}) });
       return;

@@ -56,6 +56,8 @@ test('#7748 Windows agent list says each agent and takes no words', async () => 
   const r = await run(['agent', 'list'], () => ({ body: { agents: [{ name: 'Ada', role: 'Writer', state: 'Not running' }] } }));
   assert.equal(r.code, 0);
   assert.match(r.out, /^Ada {2}Writer {2}Not running$/m);
+  const roster = await run(['agent', 'list'], () => ({ body: { agents: [{ name: 'Ada', role: 'Writer' }] } }));
+  assert.match(roster.out, /^Ada {2}Writer$/m, 'what an agent token gets: no third column');
   assert.equal((await run(['agent', 'list', 'x'], () => ({ body: { agents: [] } }))).code, 2);
   const partial = await run(['agent', 'list'], () => ({ body: { agents: [], partial: true } }));
   assert.match(partial.out, /may be incomplete/);
