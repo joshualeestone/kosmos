@@ -170,6 +170,7 @@ async function readCapped(r, max) {
                        header's 15 minutes): say so in `because`
      org, member, epoch   as the release names them (epoch as runRestore takes it)
      manifest             the coordinator's record: { key, period, sha256, size }
+     grantKeys            at most this many keys a call, for a caller whose body is capped below the route's 500
      fetch, now, sleep    globalThis.fetch, Date.now and setTimeout unless given; getTimeoutMs per GET (default 40 s)
    Returns { fetchObject(key, { maxBytes }) -> Buffer | null, plan(keys) -> promise of planned(), planned() ->
    { ok, because, unreadable, unreadableBecause } }. Never throws on what a grant or a store hands it. */
@@ -183,6 +184,8 @@ function readGrantFetcher(opts) {
   const sleep = typeof opts.sleep === 'function' ? opts.sleep : (ms) => new Promise((r) => setTimeout(r, ms));
   const rec = opts.manifest || {};
   const ctx = { org: opts.org, member: opts.member, epoch: String(opts.epoch), period: rec.period };
+  // A caller over mac-request gets fewer: its body is capped below the route's limit.
+  const grantKeys = Number.isSafeInteger(opts.grantKeys) && opts.grantKeys > 0 && opts.grantKeys < GRANT_KEYS ? opts.grantKeys : GRANT_KEYS;
   // review 5: the route reads the epoch as a number, so one past 2^53 would be sent wrong and its echo refused as
   // another key's. Refused by name instead, before any call.
   const epochProblem = !/^[1-9][0-9]*$/.test(ctx.epoch) ? 'restore was asked for this backup without a valid key epoch'
@@ -210,9 +213,9 @@ function readGrantFetcher(opts) {
       const keys = batches[i].filter((k) => k === forKey || (!done.has(k) && !fresh(k)));   // review 6: not a fresh one
       if (i > 0) {
         const have = new Set(keys);
-        for (let j = i + 1; j < batches.length && keys.length < GRANT_KEYS; j += 1) {
+        for (let j = i + 1; j < batches.length && keys.length < grantKeys; j += 1) {
           for (const k of batches[j]) {
-            if (keys.length >= GRANT_KEYS) break;
+            if (keys.length >= grantKeys) break;
             if (!have.has(k) && !done.has(k) && !fresh(k)) { keys.push(k); have.add(k); }
           }
         }
@@ -257,7 +260,7 @@ function readGrantFetcher(opts) {
       const why = keyProblem(key, ctx);
       if (why) { unreadable.set(key, why); continue; }
       let last = batches.length - 1;
-      if (last === 0 || batches[last].length >= GRANT_KEYS) { batches.push([]); last += 1; }
+      if (last === 0 || batches[last].length >= grantKeys) { batches.push([]); last += 1; }
       batches[last].push(key);
       batchOf.set(key, last);
     }

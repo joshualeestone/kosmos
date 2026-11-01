@@ -549,6 +549,14 @@ function reportNow(opts) {
   return { lastOk, stopped: null, note: null };
 }
 
+/** kosmos#7404 slice D: what a files restore needs to know: { state, rec, codeWaiting }. state is state()'s, and
+    codeWaiting says its 'needs-key' is a code made here and not yet saved, not a key to bring back. */
+function restoreRecord(opts = {}) {
+  const rec = record(opts);
+  const pk = opts.personalbackupkey || require('./personalbackupkey');
+  return { state: state(opts), rec, codeWaiting: !!rec && codeWaitingHere(rec, pk, opts) };
+}
+
 /** Whether this computer holds a personal backup's enrollment, from this module's own record only. */
 function isOn(opts = {}) { return !!record(opts); }
 function record(opts) {
@@ -646,4 +654,4 @@ async function switchOff(opts = {}) {
   return { ok: false, because: 'Kosmos+ could not be reached just now. Personal backup is still on; try again in a minute.' };
 }
 
-module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, restore, state, isOn, mayBackUp, runJob, report, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; LAST_SETTLE = 0; } };
+module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, restore, restoreRecord, state, isOn, mayBackUp, runJob, report, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; LAST_SETTLE = 0; } };

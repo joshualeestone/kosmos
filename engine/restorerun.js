@@ -112,8 +112,8 @@ function timeProblem(m, claimedAt) {
   return null;
 }
 
-/* A stored object's key this restore may fetch: the coordinator's shape for this org and member (the chunks a manifest
-   names may sit under an earlier epoch or period), and nothing a URL could read as more than a path. */
+/* A stored object's key this restore may fetch: the coordinator's shape for this org and member, and nothing a URL
+   could read as more than a path. restorefetch holds a fetched key to the manifest's own period. */
 function keyOk(key, org, member) {
   if (typeof key !== 'string' || key.length > 256) return false;
   const parts = key.split('/');
@@ -266,4 +266,4 @@ async function runRestore(opts) {
   return { ok: true, deviceKey: used.k.key, backfill: used.k.backfill === true, takenAt, result, fetchProblems };
 }
 
-module.exports = { newDestination, listSnapshots, runRestore, snapshotTimeOf, SNAPSHOT_TO_GRANT_SECS, CLOCK_SKEW_SECS };
+module.exports = { newDestination, listSnapshots, runRestore, snapshotTimeOf, MAX_MANIFEST_OBJECT, SNAPSHOT_TO_GRANT_SECS, CLOCK_SKEW_SECS };
