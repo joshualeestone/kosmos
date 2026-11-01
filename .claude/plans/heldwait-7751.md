@@ -5,10 +5,10 @@ Finished means: the task page logic tests' fake Mac runs on the same actor as th
 Measured, both arms (ThreadSanitizer build of ios/LogicTests/run-taskpage.sh's file list, this Mac, Swift 6.4 in Swift 5 mode):
 - Before: 2 of 3 runs abort with Swift access races (3 and 8 reports), first at main.swift's `mac.asked.count` check against `FakeMac.send` called from `asyncSend` on another thread. 1 of 3 clean, as a race would be.
 - After: 5 of 5 runs, 0 reports, 109/109. The plain script: 109/109.
-- Each stop, broken on purpose in a scratch copy, in the suite's -O build (a reviewer re-measured the first two):
-  - one hold removed: `FAIL the test never reached its hold: a request held (line 394)`, `VERDICT: FAIL 1 of 88`, exit 1.
-  - a request hold armed twice: `FAIL a hold was armed while an earlier one was still armed or held (line 392)`, exit 1.
-  - a ParseGate hold armed while one is held: `FAIL a parse or build hold was armed while an earlier one was still armed or held (line 434)`, exit 1.
+- Each stop, broken on purpose in a scratch copy, in the suite's -O build (each FAIL line also names the test line it fired at; a reviewer re-measured the first two):
+  - one hold removed: `FAIL the test never reached its hold: a request held`, `VERDICT: FAIL 1 of 88`, exit 1.
+  - a request hold armed twice: `FAIL a hold was armed while an earlier one was still armed or held`, exit 1.
+  - a ParseGate hold armed while one is held: `FAIL a parse or build hold was armed while an earlier one was still armed or held`, exit 1.
   - The second-hold checks inside asyncSend and ParseGate.park were not exercised: arming refuses first, so they are backstops.
 
 Decided:
