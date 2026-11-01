@@ -4,10 +4,13 @@
  * Each answer is { lines, code }. A line is printed as it is; code is the exit status.
  */
 
-/* One agent on `kosmos agent list`. `state` is the word on the agent's card, sent by the board. */
+/* One agent on `kosmos agent list`. `state` is the word on the agent's card, which the board sends only to a caller with no
+   agent token, so a row without the field has no third column. */
 function agentLine(a) {
   const role = typeof a.role === 'string' && a.role.trim() ? a.role.trim() : 'no role recorded';
-  return a.name + '  ' + role + '  ' + (typeof a.state === 'string' && a.state ? a.state : 'state not known');
+  const line = a.name + '  ' + role;
+  if (!('state' in a)) return line;
+  return line + '  ' + (typeof a.state === 'string' && a.state ? a.state : 'state not known');
 }
 
 /* `partial`: the board could not read every agent, so a stopped one may be missing and an empty list proves nothing. */

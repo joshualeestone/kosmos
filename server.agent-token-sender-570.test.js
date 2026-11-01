@@ -178,7 +178,7 @@ test('msg, post and react: never exempt for a network peer or with NO credential
      token (sendertoken.resolveName) and returns ONLY that agent's own open tasks across its projects, refusing a
      missing/unknown/ambiguous token and never reading a name from the request; measured in
      server.tasks-mine-6506.test.js. */
-  /* kosmos#7748 added GET /api/agents/list, a READ of each agent's name, role and card word and nothing else, measured in
+  /* kosmos#7748 added GET /api/agents/list, a READ of each agent's name and role and nothing else, measured in
      server.guide-hidden-3739.test.js and server.agent-token-gate-4491.test.js. */
   assert.deepEqual(routes, ['GET /api/agents/list', 'GET /api/community/read', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/tasks/mine', 'POST /api/agent/reply-channel', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/undo/keep', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');

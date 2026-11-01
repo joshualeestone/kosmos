@@ -7063,7 +7063,7 @@ cmd_agent() {
   case "$sub" in
     ''|help|-h|--help)
       say "Usage: kosmos agent <list|create|roles|role-draft|instructions-add|remove>"
-      say "  kosmos agent list                               every agent on this board, its role, and whether it is running"
+      say "  kosmos agent list                               every agent on this board and its role (and its state, for a person)"
       say "  kosmos agent create \"<name>\" <role> [\"<why>\"]   make an agent for the person, after they confirm"
       say "  kosmos agent create \"<name>\" --new-role \"<label>\" --from <file> [\"<why>\"]"
       say "                                                  make one with a role you wrote, when none fits"
