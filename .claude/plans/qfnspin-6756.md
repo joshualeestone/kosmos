@@ -10,10 +10,14 @@ Addresses #6756 (follow-up to #7703, offered on the card).
 
 ## Change
 Arm 11 in the text-only part of `tools/test-prepush-wait-6756.sh`, before its lockf SKIP. The file was not in
-`tools/shell-macos-only.txt`, so PR CI ran it only on the Linux shards (bash 5), and its lock arms always skipped there;
-it is now a `both:` line, so the macOS shell job runs it too (bash 3.2, real lockf). Each
-name is checked in a fresh `/bin/bash` that loads the lib as the hook does (`set +u; . lib`), so the file's own stubs of
-`kosmos_refuse_if_suite_live` and friends cannot satisfy it, and a lib bash 3.2 cannot load fails every name.
+`tools/shell-macos-only.txt`, so PR CI ran it only on the Linux shards, and its lock arms always skipped there; it is
+now a `both:` line, so the macOS shell job runs it too. Each name is checked in a fresh `/bin/bash` that loads the lib
+as the hook does (`set +u; . lib`), so the file's own stubs of `kosmos_refuse_if_suite_live` and friends cannot satisfy
+it. A lib that `/bin/bash` cannot load fails the arm's own load check.
+
+## Deferred risk
+The lock arms run on a GitHub macOS runner for the first time (lsof naming the holder in arm 2, the hold fixture's
+10 s budget). Nothing found wrong; the macOS shell job at the PR head is a merge gate, so a red there is seen first.
 
 ## Why the two optional names
 The hook calls `kosmos_refuse_if_cut_live` and `kosmos_refuse_if_light_side_live` behind `command -v`. A rename there
