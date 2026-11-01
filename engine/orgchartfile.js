@@ -751,7 +751,7 @@ function readerId(r) {
    own line, #4660). */
 function consentFor(r) {
   const keys = require('./orgchartkeys');
-  // A ChatGPT read is on the person's plan, like Claude's (#5346); only a key read is billed per call.
+  // A ChatGPT read is on the person's plan, like Claude's (#5346); a key read is billed per call.
   return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key'
     : (r && r.kind === 'claude' && r.redirected === true ? 'through the service this computer has it set up to use'
       : (r && r.kind === 'claude' && r.apiKey === true ? 'billed to your Anthropic API key'

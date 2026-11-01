@@ -9954,11 +9954,12 @@ const server = http.createServer(async (req, res) => {
         if (!isViaScreen(req, null)) { sendJson(res, 403, { error: 'only you can send a file to your AI provider, from the New Agent screen' }); return; }
         // #4560: the send goes to the reader the person was shown, or nowhere (an account may have changed since).
         /* No reader at all is refused outright (whatever availability says). A page from before #4560 sends no reader
-           id; it only ever showed Claude's consent, so it may go on only when the reader is still Claude. */
-        const handed = q.has('reader') ? q.get('reader') : (reader && reader.kind === 'claude' && reader.redirected !== true ? orgchartfile.readerId(reader) : null);
+           id; it only ever showed a plain Claude consent, so it may go on only to a reader that box described. */
+        const plainClaude = Boolean(reader && reader.kind === 'claude' && reader.apiKey !== true && reader.token !== true && reader.redirected !== true);
+        const handed = q.has('reader') ? q.get('reader') : (plainClaude ? orgchartfile.readerId(reader) : null);
         if (!reader || handed !== orgchartfile.readerId(reader)) {
-          // An old page (no reader id) meeting any reader but Claude: nothing changed, the page is simply older than the board.
-          const oldPage = !q.has('reader') && reader && reader.kind !== 'claude';
+          // An old page (no reader id) meeting any other reader: nothing changed, the page is simply older than the board.
+          const oldPage = !q.has('reader') && reader && !plainClaude;
           sendJson(res, 409, { error: oldPage
             ? 'This page is older than Kosmos. Reload the New Agent screen and choose the file again.'
             : 'Who reads this file changed since you were asked. Choose the file again to see who reads it now.' });
