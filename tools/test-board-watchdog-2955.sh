@@ -117,7 +117,7 @@ rm -f "$H/.stub-unreachable"; run_wd "$H"
 rm -rf "$H"
 # 6w. #4636: a spell older than 6 hours is logged again (so a long one is not silent), once.
 H="$(new_home)"; : > "$H/.stub-unreachable"; : > "$H/logs/board-watchdog.unreachable"
-touch -t "$(date -r $(( $(now) - 25000 )) +%Y%m%d%H%M.%S)" "$H/logs/board-watchdog.unreachable"
+TZ=UTC touch -t "$(TZ=UTC date -r $(( $(now) - 25000 )) +%Y%m%d%H%M.%S)" "$H/logs/board-watchdog.unreachable"
 run_wd "$H"; run_wd "$H"
 _n="$(grep -c 'status exit 5' "$H/logs/board-watchdog.log" 2>/dev/null)"; [ "${_n:-0}" = 1 ] && ok "unreachable: a spell over 6 hours old is logged again, once" || bad "unreachable: a long spell was logged ${_n:-0} times"
 rm -rf "$H"

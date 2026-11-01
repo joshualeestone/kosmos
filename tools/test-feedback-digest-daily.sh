@@ -139,9 +139,9 @@ out="$(run)" || fail "a run beside a starting one exited non-zero"
 printf '%s' "$out" | grep -q 'another run (starting)' || fail "a starting run's lock was treated as dead: $out"
 [ -d "$T/state/lock" ] || fail "a starting run's lock was removed by another run"
 # ...but an empty lock a minute old is stale, and so is a LIVE pid on a lock an hour old (a reused pid).
-touch -t "$(date -v-2M '+%Y%m%d%H%M.%S')" "$T/state/lock"
+TZ=UTC touch -t "$(TZ=UTC date -v-2M '+%Y%m%d%H%M.%S')" "$T/state/lock"
 run >/dev/null 2>&1; [ ! -d "$T/state/lock" ] || fail "an empty lock two minutes old was never taken over"
-mkdir "$T/state/lock"; echo $$ > "$T/state/lock/pid"; touch -t "$(date -v-2H '+%Y%m%d%H%M.%S')" "$T/state/lock"
+mkdir "$T/state/lock"; echo $$ > "$T/state/lock/pid"; TZ=UTC touch -t "$(TZ=UTC date -v-2H '+%Y%m%d%H%M.%S')" "$T/state/lock"
 out="$(run 2>&1)"; printf '%s' "$out" | grep -q 'took over a stale lock' || fail "a live but reused pid held the lock for good: $out"
 
 # Review 4: a run never removes a lock that is not its own, even one taken over from it while it was posting.
