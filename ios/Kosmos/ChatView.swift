@@ -1645,12 +1645,28 @@ struct ChatView: View {
                 // First, so it is on screen however many files are already waiting.
                 if uploadingHere > 0 {
                     HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text(uploadingHere == 1 ? "Adding a file\u{2026}" : "Adding \(uploadingHere) files\u{2026}")
-                            .font(.footnote).foregroundColor(Palette.secondary)
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text(uploadingHere == 1 ? "Adding a file\u{2026}" : "Adding \(uploadingHere) files\u{2026}")
+                                .font(.footnote).foregroundColor(Palette.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                        // kosmos#7682: a way out of an add that hangs (a photo that never loads, an upload that
+                        // stalls). The same x and 44 pt place to tap as a waiting file's chip.
+                        Button {
+                            client.cancelAdding(for: agent.session)
+                            if composerNote == Board.stillAddingLine { composerNote = nil }
+                            // Review 1: the line goes from under VoiceOver's focus; say what happened.
+                            RoomView.say("Stopped adding")
+                        } label: {
+                            Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundColor(Palette.secondary)
+                                .frame(width: 44, height: 44).contentShape(Rectangle()).padding(-12)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(uploadingHere == 1 ? "Stop adding the file" : "Stop adding the files")
+                        .accessibilityIdentifier("stopAdding")
                     }
                     .padding(.horizontal, 6)
-                    .accessibilityElement(children: .combine)
                 }
                 ForEach(attachedHere) { a in
                     FileChip(name: a.name, remove: { client.unattach(a.id, for: agent.session) })
@@ -1671,13 +1687,14 @@ struct ChatView: View {
         let epoch = client.chatEpoch
         let at = Date()
         client.attachLine[agent.session] = nil
-        for (i, item) in picks.enumerated() {
-            await client.attach(.photo(load: {
+        // kosmos#7682: the client's loop, so the x stops the rest of the pick, not only the one going up.
+        await client.attachAll(picks.enumerated().map { i, item in
+            .photo(load: {
                 guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
                 let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
                 return (Board.photoName(at: at, ext: Board.imageExtension(data) ?? type.preferredFilenameExtension ?? "jpg", number: i + 1), data)
-            }), epoch: epoch, to: agent)
-        }
+            })
+        }, epoch: epoch, to: agent)
     }
 
     // Encoded inside the load, off the main thread, as a picked photo is read.
@@ -1693,7 +1710,7 @@ struct ChatView: View {
     private func addFiles(_ urls: [URL]) async {
         let epoch = client.chatEpoch
         client.attachLine[agent.session] = nil
-        for url in urls { await client.attach(.file(url), epoch: epoch, to: agent) }
+        await client.attachAll(urls.map { .file($0) }, epoch: epoch, to: agent)   // kosmos#7682: stops on the x
     }
 
     // kosmos#7268: the emoji face and the microphone inside the box, at its trailing end, as the project room's; the

@@ -1150,12 +1150,25 @@ struct RoomView: View {
             HStack(spacing: 6) {
                 if uploadingHere > 0 {
                     HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text(uploadingHere == 1 ? "Adding a file\u{2026}" : "Adding \(uploadingHere) files\u{2026}")
-                            .font(.footnote).foregroundColor(Palette.secondary)
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text(uploadingHere == 1 ? "Adding a file\u{2026}" : "Adding \(uploadingHere) files\u{2026}")
+                                .font(.footnote).foregroundColor(Palette.secondary)
+                        }
+                        .accessibilityElement(children: .combine)
+                        // kosmos#7682: a way out of an add that hangs, as in an agent's chat.
+                        Button {
+                            client.cancelAdding(for: attachKey)
+                            Self.say("Stopped adding")
+                        } label: {
+                            Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundColor(Palette.secondary)
+                                .frame(width: 44, height: 44).contentShape(Rectangle()).padding(-12)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(uploadingHere == 1 ? "Stop adding the file" : "Stop adding the files")
+                        .accessibilityIdentifier("stopAdding")
                     }
                     .padding(.horizontal, 6)
-                    .accessibilityElement(children: .combine)
                 }
                 ForEach(attachedHere) { a in
                     FileChip(name: a.name, remove: { client.unattach(a.id, for: attachKey) })
@@ -1172,7 +1185,7 @@ struct RoomView: View {
         let epoch = client.chatEpoch
         let at = Date()
         client.attachLine[attachKey] = nil
-        for (i, item) in picks.enumerated() {
+        await client.addEach(picks, key: attachKey) { i, item in
             await store.attach(.photo(load: {
                 guard let data = try? await item.loadTransferable(type: Data.self) else { return nil }
                 let type = item.supportedContentTypes.first { $0.conforms(to: .image) } ?? .jpeg
@@ -1194,7 +1207,9 @@ struct RoomView: View {
     private func addFiles(_ urls: [URL]) async {
         let epoch = client.chatEpoch
         client.attachLine[attachKey] = nil
-        for url in urls { await store.attach(.file(url), epoch: epoch, to: project.id) }
+        await client.addEach(urls, key: attachKey) { _, url in
+            await store.attach(.file(url), epoch: epoch, to: project.id)
+        }
     }
 
     private var composer: some View {
