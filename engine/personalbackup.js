@@ -479,13 +479,14 @@ const WAITING_WEEK = 'This week\'s backup allowance is used up. Backups carry on
 const STOP_SAY = [
   ['tooLarge', 'Your files are too large for one backup, so nothing was backed up. Move some out of your agents\' folders and projects to back up the rest'],
   ['missing', 'Remote access is not set up on this computer, so nothing was backed up'],
-  ['refusedState', 'This computer could not read what it keeps for its backups, so nothing was backed up'],
+  ['refusedState', 'This computer could not use what it keeps for its backups, so nothing was backed up'],
 ];
 function stopOf(r) {
   if (r.personActs && typeof r.because === 'string') return r.because;
-  if (r.stateNotKept) return null;   // backuprun adds this flag's refusedState onto a run that failed for its own reason
-  const hit = STOP_SAY.find(([flag]) => r[flag]);
-  return hit ? hit[1] : null;
+  // backuprun adds refusedState onto a run that failed for its own reason when it cannot keep the state.
+  const hit = STOP_SAY.find(([flag]) => r[flag] && !(flag === 'refusedState' && r.stateNotKept));
+  if (!hit) return null;
+  return hit[0] === 'tooLarge' && r.overAllowance ? hit[1] + '. The next try is next week' : hit[1];
 }
 function readNote(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(root(opts), JOB_NOTE), 'utf8')); return j && typeof j === 'object' ? j : {}; } catch { return {}; }
@@ -494,7 +495,8 @@ function forgetNote(opts) { try { fs.rmSync(path.join(root(opts), JOB_NOTE), { f
 function noteRun(r, opts, before) {
   if (!r || typeof r !== 'object' || !before) return;
   const rec = record(opts);
-  if (!rec || rec.org.id !== before.org.id || rec.world !== before.world) return;
+  // Words accepted during the run are a new turn-on: its result is not theirs. No hash is this run's own withdraw.
+  if (!rec || rec.org.id !== before.org.id || rec.world !== before.world || (rec.consentHash && rec.consentHash !== before.consentHash)) return;
   const was = readNote(opts);
   const same = was.org === rec.org.id && was.world === rec.world;
   const now = new Date((opts.now || Date.now)()).toISOString();
@@ -509,11 +511,14 @@ function noteRun(r, opts, before) {
 }
 const sentence = (t) => { const s = t.charAt(0).toUpperCase() + t.slice(1); return /[.!?]$/.test(s) ? s : s + '.'; };
 const WORDS_UNCOVERED = 'The words you accepted do not cover backups yet, so it needs your OK. Turn it off, then turn it on again to read the current words.';
+const companyHere = (opts) => { try { return (opts.orgenroll || require('./orgenroll')).holdsEnrollment() === true; } catch { return false; } };
 /* The one failed condition of mayBackUp that a person can fix by reading the words. */
 function wordsUncovered(opts) {
   try {
     const oe = opts.orgenroll || require('./orgenroll');
     const eo = enrollOpts(opts);
+    const rec = record(opts);
+    if (rec && !rec.consentHash) return true;
     if (oe.mayReport(eo) !== true) return false;
     const words = oe.acceptedConsent(eo);
     return !(words && Array.isArray(words.backsUp) && words.backsUp.length);
@@ -529,7 +534,12 @@ function report(opts = {}) {
   const j = raw.org === rec.org.id && raw.world === rec.world ? raw : {};
   const lastOk = typeof j.lastOk === 'string' ? j.lastOk : null;
   const stopped = typeof j.stopped === 'string' ? sentence(j.stopped) : null;
-  if (!mayBackUp(opts)) return { lastOk, stopped: stopped || (wordsUncovered(opts) ? WORDS_UNCOVERED : null), note: null };
+  if (!mayBackUp(opts)) {
+    // A company here: turning this off could not be turned back on (personal_backup_in_org), so no step is offered.
+    if (companyHere(opts)) return { lastOk, stopped: null, note: 'Backups are paused while this computer belongs to a company or family account.' };
+    if (stopped) return { lastOk, stopped, note: null };
+    return wordsUncovered(opts) ? { lastOk, stopped: WORDS_UNCOVERED, note: null } : { lastOk, stopped: null, note: 'Backups are not running on this computer just now.' };
+  }
   if (stopped) return { lastOk, stopped, note: null };
   if (j.waiting === true) return { lastOk, stopped: null, note: WAITING_WEEK };
   if (!lastOk) return { lastOk, stopped: null, note: typeof j.lastTry === 'string' ? 'The first backup has not finished yet.' : 'The first backup runs soon.' };

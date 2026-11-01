@@ -308,7 +308,7 @@ test('no server or file text reaches the panel, whichever flag a refusal carries
     assert.doesNotMatch(JSON.stringify(r) + fs.readFileSync(path.join(o.root, 'personal-job.json'), 'utf8'), /RAW|Users/, flag);
   }
   await run({ ok: false, tooLarge: true, overAllowance: true, because: raw });
-  assert.match(pb.report(o).stopped, /too large/, 'too large for any week is a stop, not a wait');
+  assert.match(pb.report(o).stopped, /too large.*next try is next week/, 'too large for any week is a stop, and the tick waits a week');
   await run({ ok: true });
   await run({ ok: false, refusedState: true, stateNotKept: true, because: 'chunks could not be uploaded: ' + raw });
   assert.equal(pb.report(o).stopped, null, 'stateNotKept: the flag and the sentence are different failures');
@@ -321,12 +321,25 @@ test('the panel report claims nothing it did not establish', () => {
   assert.match(pb.report(o).stopped, /turn it on again to read the current words/);
   o.orgenroll.acceptedConsent = () => ({ backsUp: ['x'] });
   o.orgenroll.holdsEnrollment = () => true;
-  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: null }, 'a company here: no promise of a first backup');
+  const paused = 'Backups are paused while this computer belongs to a company or family account.';
+  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: paused }, 'a company here: no promise, and no step that could not be undone');
   o.orgenroll.holdsEnrollment = () => false;
   const mr = o.orgenroll.mayReport;
   o.orgenroll.mayReport = () => false;
-  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: null }, 'not the words: the words are not blamed');
+  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: 'Backups are not running on this computer just now.' }, 'not the words: the words are not blamed');
   o.orgenroll.mayReport = mr;
+  const rec = o.orgenroll.readEnrollment();
+  o.orgenroll.readEnrollment = () => { const { consentHash, ...rest } = rec; return rest; };
+  o.orgenroll.mayReport = () => false;
+  assert.match(pb.report(o).stopped, /turn it on again to read the current words/, 'no accepted hash on the record: the words need an OK');
+});
+test('a company here silences a stop that would send the person through off and on', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  await pb.runJob({ roots: [] }, { ...o, runBackup: async () => ({ ok: false, personActs: true, because: 'turn it off' }) });
+  assert.ok(pb.report(o).stopped, 'control');
+  o.orgenroll.holdsEnrollment = () => true;
+  assert.equal(pb.report(o).stopped, null);
 });
 test('a note from another enrollment is not shown, and a run that outlived its enrollment leaves none', async () => {
   const pair = newPair();

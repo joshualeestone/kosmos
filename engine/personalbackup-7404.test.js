@@ -93,7 +93,7 @@ test('pbjob-7404: Kosmos+ refusing the words stops the job through the real orge
   const r = await pb.runJob({ roots: [] }, { root, remote: c, runBackup: async () => ({ ok: false, because: 'x (HTTP 409 on /v1/org/backup/grant, code org_consent_changed)' }) });
   assert.equal(r.personActs, true);
   assert.equal(pb.mayBackUp(ask), false, 'no later run walks every file to be refused');
-  assert.equal(pb.state(ask), 'on', 'slice C: the panel cannot see this yet');
+  assert.equal(pb.state(ask), 'on', 'still on: report() says it stopped');
   assert.ok(fs.existsSync(path.join(root, 'personal-job.json')), 'the stop is noted');
   assert.equal((await pb.switchOff({ root, remote: c })).ok, true);
   assert.equal(fs.existsSync(path.join(root, 'personal-job.json')), false, 'off forgets it');
