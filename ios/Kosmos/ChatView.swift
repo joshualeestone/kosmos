@@ -2699,7 +2699,13 @@ struct KeyboardHold: UIViewRepresentable {
                 // a full-screen window (an iPhone); elsewhere only which row is chosen could differ, not the put-back.
                 let top = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.adjustedContentInset.top), to: nil).y
                 let bottom = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.bounds.height - sv.adjustedContentInset.bottom), to: nil).y
-                guard let rows = self.rows, let r = Board.readerRow(rows.tops(), below: Double(top), above: Double(bottom)), let reading = rows.y[r.id] else {
+                // kosmos#7654: only rows whose reading agrees with where the list is now. A row kept alive off the screen stops being read, so
+                // after a fast scroll its old top can sit inside the band: CI held Post 102 for a reader at Post 176, 5000 pt away.
+                let rowsNow = self.rows.map { rows in
+                    Board.readingsHere(rows.y.mapValues { (top: $0.top, content: $0.content) }, offset: Double(sv.contentOffset.y + sv.adjustedContentInset.top),
+                                       bandTop: Double(top), slack: Double(bottom - top))
+                } ?? [:]
+                guard let rows = self.rows, let r = Board.readerRow(rowsNow, below: Double(top), above: Double(bottom)), let reading = rows.y[r.id] else {
                     ChatView.trace("keyboard hold: no row on the screen to hold"); return
                 }
                 self.saved = (r.id, CGFloat(reading.content), sv.contentOffset.y, self.above, sv.bounds.width, Date()); self.keptScreenTop = CGFloat(r.top)

@@ -451,6 +451,11 @@ enum Board {
         let top = -insetTop, end = max(top, contentHeight + insetBottom - viewHeight)
         return min(max(offset + (content - keptContent), top), end)
     }
+    // kosmos#7654: the tops of the rows whose reading agrees with where the list is: a row at `top` on the screen should sit at
+    // offset + (top - bandTop) in the content. Slack, a screenful, because rows above can be measured again meanwhile.
+    static func readingsHere(_ rows: [String: (top: Double, content: Double)], offset: Double, bandTop: Double, slack: Double) -> [String: Double] {
+        rows.filter { abs($0.value.content - (offset + $0.value.top - bandTop)) <= max(slack, 0) }.mapValues(\.top)
+    }
     // kosmos#7654: the list moved further than a screenful since the reading: the row's reading cannot be trusted.
     static func holdReadingFar(moved: Double, showing: Double) -> Bool { abs(moved) > max(showing, 0) }
     // kosmos#7609: where a row's top sits in the band that shows, as a share from its top (0) to its bottom (1), held to that

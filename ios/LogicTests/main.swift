@@ -5335,6 +5335,15 @@ do {
         let tight = Board.actionsPanelTop(bubbleTop: 150, bubbleBottom: 190, areaTop: 100, areaBottom: 220, height: shown, gap: 8)
         check(tight >= 108 && tight + shown <= 212, "panel: in the tightest area it is inside both ends")
     }
+    do {
+        // kosmos#7654: the numbers from CI: the reader at Post 176 (y 13762), a stale reading of Post 102 still inside the band.
+        let rows: [String: (top: Double, content: Double)] = ["p102": (top: 120, content: 8500), "p176": (top: 185, content: 13800), "p177": (top: 274, content: 13889)]
+        let here = Board.readingsHere(rows, offset: 13735, bandTop: 120, slack: 262)
+        check(here["p102"] == nil, "keyboard hold: a stale reading 5000 pt from the list is not a row on the screen")
+        check(here["p176"] == 185 && here["p177"] == 274, "keyboard hold: CONTROL: the rows really there stay")
+        check(Board.readerRow(rows.mapValues(\.top), below: 120, above: 382)?.id == "p102", "keyboard hold: CONTROL: without the filter the stale row is chosen, the failure on CI")
+        check(Board.readerRow(here, below: 120, above: 382)?.id == "p176", "keyboard hold: with it, the reader's row is chosen")
+    }
     check(Board.holdReadingFar(moved: 1281, showing: 262), "keyboard hold: moved past a screenful, the reading is not trusted (as CI, 1281 over 262)")
     check(Board.holdReadingFar(moved: -1281, showing: 262), "keyboard hold: either way")
     check(!Board.holdReadingFar(moved: 200, showing: 262), "keyboard hold: CONTROL: within a screenful, the reading stands")
