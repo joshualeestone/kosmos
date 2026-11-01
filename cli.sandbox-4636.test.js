@@ -64,7 +64,7 @@ fs.writeFileSync(BLINDLESS, blindless, { mode: 0o755 });
 const LSOFLESS = path.join(ROOT, 'kosmos-lsofless');
 fs.writeFileSync(LSOFLESS, SRC.replace(BLIND_HOOKS[1][0], BLIND_HOOKS[1][1]), { mode: 0o755 });
 
-const START_GUARD = '  if _shell_is_sandboxed; then\n    if [ -n "$_had_stop_marker" ]; then restore_stop_marker; fi   # it started nothing, so a deliberate stop stands\n    die "$_SANDBOXED_START_WORDS"\n  fi\n';
+const START_GUARD = '  if _start_is_sandboxed; then\n    if [ -n "$_had_stop_marker" ]; then restore_stop_marker; fi   # it started nothing, so a deliberate stop stands\n    rm -f "$PERSON_START_FILE"   # nor is there a person\'s start for a board-run to read\n    die "$_SANDBOXED_START_WORDS"\n  fi\n';
 if (!SRC.includes(START_GUARD)) throw new Error('install/kosmos no longer has the #4655 refusal the control takes out');
 // #4655 refuses before a sandboxed start launches. Without that refusal #4636's stop-it-again branch is what remains,
 // and it stays covered through this copy.
@@ -672,6 +672,25 @@ test('#4655 a sandbox that allows loopback: start launches nothing, says why, an
   assert.equal(await portAnswers(Number(e.KOSMOS_PORT)), false, 'a board was launched from the sandbox');
   assert.equal(fs.existsSync(path.join(h.home, 'board.pid')), false);
   assert.equal(fs.existsSync(path.join(h.home, 'board.stopped')), true, 'the deliberate stop was lost');
+  assert.equal(fs.existsSync(path.join(h.home, 'board.person-start')), false, 'a refused start left a person\'s start for a later board-run to read');
+});
+
+test('#4655 restart of a stopped board in that sandbox launches nothing', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
+  const { e } = await makeInstall();
+  const r = await run(CLI, ['restart'], e, LOOPBACK);
+  assert.notEqual(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /Bringing the board up\./);
+  assert.equal(await portAnswers(Number(e.KOSMOS_PORT)), false, 'a restart launched from the sandbox');
+});
+
+test('#4655 only a Mac is refused: a failing ps elsewhere is not evidence of a seatbelt', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
+  const { e } = await makeInstall();
+  try {
+    const r = await run(CLI, ['start'], { ...e, KOSMOS_PLATFORM: 'Linux' }, LOOPBACK);
+    assert.match(r.out, /Bringing the board up\./, 'a non-Mac start was refused on a ps failure');
+    assert.doesNotMatch(r.out, WORDS);
+  } finally { await run(CLI, ['stop'], e); }
+  assert.match(SRC, /_start_is_sandboxed\(\) \{\n[^\n]*\[ -x \/bin\/ps \]/, 'a missing ps must not count as a refused one');
 });
 
 test('#4655 board-run typed in that sandbox launches nothing either', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {
