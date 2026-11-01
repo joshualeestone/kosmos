@@ -119,9 +119,35 @@ function newestRegistered(keys) {
   return Object.keys(keys).map(Number).sort((a, b) => b - a).find((e) => keys[e].registered);
 }
 
-async function register(macRequest, company, epoch, key) {
+/* kosmos#7753: the member key record this computer signs with its device key (the connector's mac_key, which Kosmos+
+   enrolled under two admins), so escrowd can refuse a release whose key no device of the member signed. The bytes:
+   the fixed tag, then org and member each as a u16-BE length and its UTF-8, the epoch as u64-BE, then the 32-byte
+   member public key. The tag keeps the signature apart from a manifest's and a mac-request's (backupdevicekey.js).
+   escrowd's verifier must build the same bytes; the format is on #7753. */
+const RECORD_DOMAIN = Buffer.from('kosmos-backup v1 member-key-record\0');
+function memberKeyRecordBytes(org, member, epoch, memberPublic) {
+  if (typeof org !== 'string' || !ID.test(org) || typeof member !== 'string' || !ID.test(member)) throw new Error('backupmemberkey: a record needs a valid org and member');
+  if (!Number.isSafeInteger(epoch) || epoch < 1) throw new Error('backupmemberkey: a record needs an epoch of 1 or more');
+  if (!Buffer.isBuffer(memberPublic) || memberPublic.length !== 32) throw new Error('backupmemberkey: a record needs a 32-byte member public key');
+  const field = (s) => { const b = Buffer.from(s, 'utf8'); const n = Buffer.alloc(2); n.writeUInt16BE(b.length); return Buffer.concat([n, b]); };
+  const e = Buffer.alloc(8); e.writeBigUInt64BE(BigInt(epoch));
+  return Buffer.concat([RECORD_DOMAIN, field(org), field(member), e, memberPublic]);
+}
+/* The record's signature, base64url, or null when the device key cannot be read: the registration is then sent as it
+   was before #7753, and a release of that epoch falls back to escrowd's first-seen pin (decided on #7753). */
+function signRecord(readDeviceKey, company, epoch, pk) {
+  let dk;
+  try { dk = readDeviceKey(); } catch { return null; }
+  if (!dk || !dk.ok || !dk.privateKey || dk.privateKey.asymmetricKeyType !== 'ed25519') return null;
+  return b64(crypto.sign(null, memberKeyRecordBytes(company.org, company.member, epoch, pk), dk.privateKey));
+}
+
+async function register(macRequest, company, epoch, key, readDeviceKey) {
   const wrap = backupkeys.wrapMemberKey(key.sk, company.orgPublic, { org: company.org, member: company.member, epoch: String(epoch) });
-  return macRequest('POST', MEMBER_KEY_ROUTE, { epoch, member_public: b64(key.pk), wrap: b64(wrap) });
+  const body = { epoch, member_public: b64(key.pk), wrap: b64(wrap) };
+  const sig = signRecord(readDeviceKey, company, epoch, key.pk);
+  if (sig) body.member_key_sig = sig;
+  return macRequest('POST', MEMBER_KEY_ROUTE, body);
 }
 
 /* One at a time, in this process only (the header assumes one board process per data root). Today reading the file
@@ -138,6 +164,7 @@ function ensureMemberKey(opts = {}) {
 }
 async function ensureNow(opts, seen) {
   const macRequest = opts.macRequest || ((m, r, b) => require('./remote').macRequest(m, r, b));
+  const readDeviceKey = opts.deviceKey || (() => require('./backupdevicekey').deviceKey());
   try {
     const bk = await macRequest('POST', BACKUP_KEY_ROUTE, {});
     if (!bk || !bk.ok) return { ok: false, because: (bk && bk.because) || 'Kosmos+ did not answer', ...(bk && bk.refusal ? { refusal: bk.refusal } : {}) };
@@ -192,7 +219,7 @@ async function ensureNow(opts, seen) {
     // At most one move to a next epoch and one fresh key: each new epoch is audited and limited to one a day.
     let moved = false, refreshed = false;
     for (;;) {
-      const r = await register(macRequest, company, epoch, keys[epoch]);
+      const r = await register(macRequest, company, epoch, keys[epoch], readDeviceKey);
       // The answer must name what was sent, so a changed coordinator or tunnel shape is not taken as registered.
       // Compared as bytes (a lenient decode: padding, and characters Node's decoder skips), so only a different key
       // refuses.
@@ -265,4 +292,4 @@ async function ensureNow(opts, seen) {
 
 // kosmos#7404: the key file is shared with a personal backup's keys (engine/personalbackupkey.js), so the backup job
 // reads one place whichever way a key was made: readKeys and writeKeys keep its format and checks in one module.
-module.exports = { ensureMemberKey, BACKUP_KEY_ROUTE, MEMBER_KEY_ROUTE, readKeys, writeKeys };
+module.exports = { ensureMemberKey, BACKUP_KEY_ROUTE, MEMBER_KEY_ROUTE, readKeys, writeKeys, memberKeyRecordBytes };
