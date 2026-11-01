@@ -2721,8 +2721,10 @@ struct KeyboardHold: UIViewRepresentable {
             // about 490 pt before will-show, measured on CI).
             jumpWatch = nil
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TRACE"] == "1" {
-                jumpWatch = scroll?.observe(\.contentOffset, options: [.old, .new]) { _, c in
+                jumpWatch = scroll?.observe(\.contentOffset, options: [.old, .new]) { v, c in
                     guard let a = c.oldValue?.y, let b = c.newValue?.y, abs(b - a) > 100 else { return }
+                    let tall = Int(v.bounds.height), inset = Int(v.adjustedContentInset.bottom)
+                    ChatView.trace("keyboard hold: list \(tall) tall, bottom inset \(inset)")
                     ChatView.trace("keyboard hold: jump \(Self.jumpLine(a, b))")
                 }
             }
