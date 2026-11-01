@@ -342,39 +342,42 @@ test('#3939: runTurn never hangs or rejects: no answer at all, a closed gate, no
   assert.match(r.because, /not on this computer|not wired up/);
 });
 
+/* #4159: on a loaded machine a short timeout or cap can stop the launcher before it has started its child. Then there is
+   no child and the case has not run, so the turn runs again, up to TRIES times; the stop itself is checked on a turn
+   where the child did start. The child counts as started only when the file holds a real pid: the stop can also land
+   after the shell created the file and before echo wrote to it, and Number('') is 0, which process.kill reads as this
+   whole process group. No new turn starts after DEADLINE_MS, which leaves a slow turn room to finish inside the test's
+   8 s timeout, so a machine too loaded to run the case gets the "did not run" message, not a bare timeout. */
+async function turnThatStarted(pidFile) {
+  const TRIES = 5;
+  const DEADLINE_MS = 4000;
+  const deadline = Date.now() + DEADLINE_MS;
+  const isRealPid = (p) => Number.isInteger(p) && p > 1;   // 0 is our own group, 1 is launchd
+  const readPid = () => {
+    try { return Number(fs.readFileSync(pidFile, 'utf8').trim()); } catch { return NaN; }
+  };
+  let r;
+  let waited = 0;
+  let pid = NaN;
+  for (let i = 0; i < TRIES && Date.now() < deadline; i += 1) {
+    fs.rmSync(pidFile, { force: true });
+    const t0 = Date.now();
+    r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    waited = Date.now() - t0;
+    pid = readPid();
+    if (isRealPid(pid)) break;
+  }
+  assert.ok(isRealPid(pid), 'the launcher never started its child before the stop (' + TRIES + ' turns or ' + DEADLINE_MS / 1000 + ' s), so this case did not run');
+  return { r, waited, pid };
+}
+
 test('#3939 round 1: at the timeout, what the launcher started is stopped too (its own process group)', { timeout: 8000, skip: process.platform !== 'darwin' && 'the Mac branch' }, async () => {
   const pidFile = path.join(SANDBOX, 'child.pid');
   fakeMuse('sleep 6 &\necho $! > "' + pidFile + '"\nwait');   // a launcher that does NOT exec its binary
   run.setForTests({ turnTimeoutMs: 300, hardCapMs: 20000 });
   gate.allowLiveExecution();
   try {
-    /* #4159: on a loaded machine the 300 ms timeout can stop the launcher before it has started
-       its child. Then there is no child and this case has not run, so run the turn again, up to
-       TRIES times; the stop itself is checked on a turn where the child did start. The child
-       counts as started only when the file holds a real pid: the stop can also land after the
-       shell created the file and before echo wrote to it, and Number('') is 0, which
-       process.kill reads as this whole process group. No new turn starts after DEADLINE_MS, which
-       leaves a slow turn room to finish inside the test's 8 s timeout, so a machine too loaded
-       to run this case gets the "did not run" message, not a bare timeout. */
-    const TRIES = 5;
-    const DEADLINE_MS = 4000;
-    const deadline = Date.now() + DEADLINE_MS;
-    const isRealPid = (p) => Number.isInteger(p) && p > 1;   // 0 is our own group, 1 is launchd
-    const readPid = () => {
-      try { return Number(fs.readFileSync(pidFile, 'utf8').trim()); } catch { return NaN; }
-    };
-    let r;
-    let waited = 0;
-    let pid = NaN;
-    for (let i = 0; i < TRIES && Date.now() < deadline; i += 1) {
-      fs.rmSync(pidFile, { force: true });
-      const t0 = Date.now();
-      r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
-      waited = Date.now() - t0;
-      pid = readPid();
-      if (isRealPid(pid)) break;
-    }
-    assert.ok(isRealPid(pid), 'the launcher never started its child before the timeout (' + TRIES + ' turns or ' + DEADLINE_MS / 1000 + ' s), so this case did not run (#4159)');
+    const { r, waited, pid } = await turnThatStarted(pidFile);
     // Without the group stop, the child holds the output open and the turn waits for it to end on its own.
     assert.ok(waited < 3000, 'the turn waited ' + waited + ' ms on a child the launcher started');
     assert.equal(r.because, run.TIMED_OUT);
@@ -408,9 +411,8 @@ test('#3939 round 2: the hard cap alone stops a running muse, not only answers f
   run.setForTests({ turnTimeoutMs: 60000, hardCapMs: 300 });   // the turn's own timeout would come far later
   gate.allowLiveExecution();
   try {
-    const r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
+    const { r, pid } = await turnThatStarted(pidFile);
     assert.equal(r.because, run.TIMED_OUT);
-    const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
     await new Promise((res) => setTimeout(res, 300));
     let alive = true;
     try { process.kill(pid, 0); } catch { alive = false; }
