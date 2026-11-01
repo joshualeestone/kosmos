@@ -15,6 +15,10 @@ test('#7748: GitHub reads gh\'s hosts file, and only a github.com entry counts',
   assert.equal(signedin.github({ env }), false, 'no file');
   fs.writeFileSync(path.join(d, 'hosts.yml'), 'gitlab.example.com:\n  user: x\n');
   assert.equal(signedin.github({ env }), false, 'another host');
+  fs.writeFileSync(path.join(d, 'hosts.yml'), 'github.com:\n  git_protocol: ssh\n');
+  assert.equal(signedin.github({ env }), false, 'a host with settings and no account');
+  fs.writeFileSync(path.join(d, 'hosts.yml'), 'github.com:\n  git_protocol: ssh\nother.example:\n  user: x\n');
+  assert.equal(signedin.github({ env }), false, 'an account under the next host is not this one');
   fs.writeFileSync(path.join(d, 'hosts.yml'), 'github.com:\n  user: x\n');
   assert.equal(signedin.github({ env }), true);
 });
@@ -22,11 +26,11 @@ test('#7748: GitHub reads gh\'s hosts file, and only a github.com entry counts',
 test('#7748: the default gh folder follows the platform', () => {
   const home = dir();
   fs.mkdirSync(path.join(home, '.config', 'gh'), { recursive: true });
-  fs.writeFileSync(path.join(home, '.config', 'gh', 'hosts.yml'), 'github.com:\n');
+  fs.writeFileSync(path.join(home, '.config', 'gh', 'hosts.yml'), 'github.com:\n  user: x\n');
   assert.equal(signedin.github({ env: {}, platform: 'darwin', home }), true);
   assert.equal(signedin.github({ env: {}, platform: 'win32', home }), false);
   fs.mkdirSync(path.join(home, 'AppData', 'Roaming', 'GitHub CLI'), { recursive: true });
-  fs.writeFileSync(path.join(home, 'AppData', 'Roaming', 'GitHub CLI', 'hosts.yml'), 'github.com:\r\n');
+  fs.writeFileSync(path.join(home, 'AppData', 'Roaming', 'GitHub CLI', 'hosts.yml'), 'github.com:\r\n  user: x\r\n');
   assert.equal(signedin.github({ env: {}, platform: 'win32', home }), true, 'a CRLF file');
 });
 
@@ -49,4 +53,8 @@ test('#7748: the default Vercel folder follows the platform', () => {
   fs.writeFileSync(path.join(mac, 'auth.json'), '{"token":"t"}');
   assert.equal(signedin.vercel({ env: {}, platform: 'darwin', home }), true);
   assert.equal(signedin.vercel({ env: {}, platform: 'linux', home }), false);
+  const win = path.join(home, 'AppData', 'Roaming', 'xdg.data', 'com.vercel.cli');
+  fs.mkdirSync(win, { recursive: true });
+  fs.writeFileSync(path.join(win, 'auth.json'), '{"token":"t"}');
+  assert.equal(signedin.vercel({ env: {}, platform: 'win32', home }), true);
 });

@@ -37,6 +37,7 @@ const HELD = { services: [
   { name: 'Cloudflare', how: 'token', held: true, connect: 'cloudflare' },
   { name: 'Brave Search', how: 'token', held: false, connect: 'brave-search' },
   { name: 'GitHub2', how: 'sign-in', held: true },
+  { name: 'Vercel', how: 'sign-in', held: true, tool: true },
 ] };
 
 test('#4451: kosmos connections reads the cheap route with the board token only, never the live sweep, and says each state', async () => {
@@ -52,6 +53,7 @@ test('#4451: kosmos connections reads the cheap route with the board token only,
   assert.match(out, /^Cloudflare: connected \(a token is stored; .*replace it with: kosmos connect cloudflare\)$/m);
   assert.match(out, /^Brave Search: not connected \(store the token the person gives you with: kosmos connect brave-search\)$/m);
   assert.match(out, /^GitHub2: connected \(signed in through Kosmos\)$/m);
+  assert.match(out, /^Vercel: connected \(signed in with its own tool on this computer; Settings > Connections checks it when opened\)$/m);   // #7748
 });
 
 test('#4451: kosmos connections says so when the board is unreachable, refuses, or answers something unreadable', async () => {

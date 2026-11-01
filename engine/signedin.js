@@ -19,20 +19,38 @@ function ghDir(env, platform, home) {
   return path.join(nonEmpty(env.XDG_CONFIG_HOME) || path.join(home, '.config'), 'gh');
 }
 
-function vercelDir(env, platform, home) {
+/* Every place Vercel's tool may keep its folder here. Windows has two: the tool's data path sits under xdg.data there. */
+function vercelDirs(env, platform, home) {
   const set = nonEmpty(env.AGENT_WORKFORCE_VERCEL_CONFIG_DIR);
-  if (set) return set;
-  if (platform === 'win32') return path.join(nonEmpty(env.APPDATA) || path.join(home, 'AppData', 'Roaming'), 'com.vercel.cli');
-  if (platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'com.vercel.cli');
-  return path.join(nonEmpty(env.XDG_DATA_HOME) || path.join(home, '.local', 'share'), 'com.vercel.cli');
+  if (set) return [set];
+  if (platform === 'win32') {
+    const roaming = nonEmpty(env.APPDATA) || path.join(home, 'AppData', 'Roaming');
+    return [path.join(roaming, 'xdg.data', 'com.vercel.cli'), path.join(roaming, 'com.vercel.cli')];
+  }
+  if (platform === 'darwin') return [path.join(home, 'Library', 'Application Support', 'com.vercel.cli')];
+  return [path.join(nonEmpty(env.XDG_DATA_HOME) || path.join(home, '.local', 'share'), 'com.vercel.cli')];
+}
+
+/* A `github.com:` key alone is not a sign-in: `gh config set --host` writes one with no account under it. */
+function hostHoldsAccount(text) {
+  const lines = text.split(/\r?\n/);
+  const at = lines.findIndex((l) => /^github\.com:\s*$/.test(l));
+  if (at === -1) return false;
+  for (const l of lines.slice(at + 1)) {
+    if (/^\S/.test(l)) return false;
+    if (/^\s+(user|users|oauth_token):/.test(l)) return true;
+  }
+  return false;
 }
 
 function github({ env = process.env, platform = process.platform, home = os.homedir() } = {}) {
-  return /^github\.com:\s*$/m.test(read(path.join(ghDir(env, platform, home), 'hosts.yml')));
+  return hostHoldsAccount(read(path.join(ghDir(env, platform, home), 'hosts.yml')));
 }
 
 function vercel({ env = process.env, platform = process.platform, home = os.homedir() } = {}) {
-  try { return Boolean(nonEmpty(JSON.parse(read(path.join(vercelDir(env, platform, home), 'auth.json'))).token)); } catch { return false; }
+  return vercelDirs(env, platform, home).some((d) => {
+    try { return Boolean(nonEmpty(JSON.parse(read(path.join(d, 'auth.json'))).token)); } catch { return false; }
+  });
 }
 
 module.exports = { github, vercel };

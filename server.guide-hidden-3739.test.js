@@ -85,6 +85,23 @@ test('#3739 a guide with no session yet (an offline row) is not counted in the t
   } finally { board.restore(); fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, GUIDE), { recursive: true, force: true }); }
 });
 
+test('#7748 the agent list carries a stopped agent, which only /api/status derives, and leaves the guide out', async () => {
+  const stopped = 'ben';
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, stopped), { recursive: true });
+  require('./engine/store').writeProfile(stopped, { provider: 'anthropic' });
+  const board = fleet.install([fleet.agent(GUIDE, { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const s = await (await fetch(base + '/api/status')).json();
+    assert.ok(s.agents.some((a) => a.sessionName === GUIDE), 'CONTROL: the guide is in the board payload, so its absence below means something');
+    const list = await (await fetch(base + '/api/agents/list')).json();
+    const by = Object.fromEntries(list.agents.map((a) => [a.name.toLowerCase(), a]));
+    assert.equal(by.ben && by.ben.state, 'stopped', 'a stopped agent is missing from the list: ' + JSON.stringify(list.agents));
+    assert.equal(by.mara && by.mara.state, 'idle');
+    assert.equal(list.agents.length, 2, 'the guide was listed: ' + JSON.stringify(list.agents));
+    for (const a of list.agents) assert.deepEqual(Object.keys(a).sort(), ['name', 'role', 'state']);
+  } finally { board.restore(); fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, stopped), { recursive: true, force: true }); }
+});
+
 test('#3739 markGuide names a default model for a Claude guide only (the OpenAI picker reads the field as a model id)', async () => {
   const board = fleet.install([fleet.agent(GUIDE, { state: 'idle' })]);
   try {

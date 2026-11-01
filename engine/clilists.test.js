@@ -10,8 +10,10 @@ test('#7748: the agent list says each agent, its role, and whether it is running
     { name: 'Ben', role: null, state: 'stopped' },
     { name: 'Cy', role: 'Writer', state: 'needs_you' },
     { name: 'Di', role: 'Writer' },
+    { name: 'Ed', role: 'Writer', state: 'unknown' },
+    { name: 'Flo', role: 'Writer', state: 'restarting' },
   ]);
-  assert.deepEqual(r, { code: 0, lines: ['Ada  Researcher  running, idle', 'Ben  no role recorded  not running', 'Cy  Writer  running, needs you', 'Di  Writer  state not known'] });
+  assert.deepEqual(r, { code: 0, lines: ['Ada  Researcher  running, idle', 'Ben  no role recorded  not running', 'Cy  Writer  running, needs you', 'Di  Writer  state not known', 'Ed  Writer  state not known', 'Flo  Writer  restarting'] });
 });
 
 test('#7748: no agents is said, and a bad row is skipped', () => {
@@ -36,6 +38,10 @@ test('#7748: a word narrows by key, label or group, in any case', () => {
   assert.deepEqual(roleLines(ROLES, 'returns').lines, ['Ecommerce:', '  orders  Orders and Returns Specialist']);
   assert.equal(roleLines(ROLES, 'ecommerce').lines.length, 2);
   assert.equal(roleLines(ROLES, 'email').code, 0);
+});
+
+test('#7748: no roles at all is said', () => {
+  assert.deepEqual(roleLines([]), { lines: ['Kosmos has no roles to list right now.'], code: 0 });
 });
 
 test('#7748: a word that matches nothing says so and exits 1', () => {

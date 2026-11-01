@@ -37,6 +37,42 @@ const READS = [
   [['agent', 'role-draft'], '/api/roles', { body: ROLES }],
 ];
 
+/* #7748: the Windows arms of the roles word, the agent list and the mkdir line. */
+test('#7748 Windows agent roles takes one word, says when nothing matches, and refuses an option', async () => {
+  const body = { roles: [{ key: 'pm', label: 'Project Manager', group: 'Core' }, { key: 'writer', label: 'Writer', group: 'Words' }] };
+  const hit = await run(['agent', 'roles', 'writ'], () => ({ body }));
+  assert.equal(hit.code, 0);
+  assert.match(hit.out, /writer {2}Writer/);
+  assert.doesNotMatch(hit.out, /Project Manager/);
+  const miss = await run(['agent', 'roles', 'zebra'], () => ({ body }));
+  assert.equal(miss.code, 1);
+  assert.match(miss.out, /No role matches "zebra"/);
+  const opt = await run(['agent', 'roles', '--x'], () => ({ body }));
+  assert.equal(opt.code, 2);
+  assert.doesNotMatch(opt.err, /put -- before it/);
+});
+
+test('#7748 Windows agent list says each agent and takes no words', async () => {
+  const r = await run(['agent', 'list'], () => ({ body: { agents: [{ name: 'Ada', role: 'Writer', state: 'stopped' }] } }));
+  assert.equal(r.code, 0);
+  assert.match(r.out, /^Ada {2}Writer {2}not running$/m);
+  assert.equal((await run(['agent', 'list', 'x'], () => ({ body: { agents: [] } }))).code, 2);
+});
+
+test('#7748 Windows project create names the command for a missing folder', async () => {
+  const r = await run(['project', 'create', 'P', 'C:\\a b'], () => ({ status: 400, body: { error: 'there is no folder at that path' } }));
+  assert.equal(r.code, 1);
+  assert.match(r.err, /mkdir "C:\\a b"/);
+});
+
+/* The CLIs match the board's sentence to add the hint, so a reworded sentence would drop it with every stub still green. */
+test('#7748 both CLIs match the sentence the board really says', () => {
+  const fs = require('node:fs');
+  const said = /throw new Error\('(there is no folder at that path)'\)/.exec(fs.readFileSync(require.resolve('./engine/projects'), 'utf8'))[1];
+  assert.ok(fs.readFileSync(require.resolve('./tools/windows/kosmos-cli'), 'utf8').includes(`=== '${said}'`));
+  assert.ok(fs.readFileSync(require('node:path').join(__dirname, 'install', 'kosmos'), 'utf8').includes(`= "${said}"`));
+});
+
 for (const [argv, route, answer] of READS) {
   test(`#4491 Windows kosmos ${argv.slice(0, argv[0] === 'room' ? 1 : 2).join(' ')} reads with the agent's own token and still the board token`, async () => {
     const r = await run(argv, () => answer);

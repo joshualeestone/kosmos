@@ -6356,6 +6356,8 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/agents/list', 'GET /api/tasks', 'GET /api/tasks/mine', 'GET /api/community/read',
   'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
+/* kosmos#7748: `kosmos agent list` (GET /api/agents/list) joins: a Windows agent holds a token and no board token. WHO GAINS:
+   a token-only caller can read every agent's name, role and state, which the board's project rooms already show it. */
 /* kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel) joins: its handler names the caller
    (processCaller) and sets only that agent's own channel; no name in the body is read. Every Windows agent holds a
    token and no board token, and the report came from there. */
@@ -7466,7 +7468,14 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (pathname === '/api/status' && (req.method === 'GET' || req.method === 'HEAD')) {
+  /* #7748: `kosmos agent list` reads the same derivation the board draws, because the stopped agents exist only here.
+     It answers three fields a row, so an agent's read carries nothing else this route holds for the page. */
+  if ((pathname === '/api/status' || pathname === '/api/agents/list') && (req.method === 'GET' || req.method === 'HEAD')) {
+    const rosterOnly = pathname === '/api/agents/list';
+    if (rosterOnly) {
+      const refusedRead = crossSiteRead(req);
+      if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
+    }
     let body;
     try {
       const snap = await snapshotUnheld();   // #7693: this route's captures do not hold the board
@@ -8310,10 +8319,15 @@ const server = http.createServer(async (req, res) => {
          report a different moment from the one that just failed. */
       res.writeHead(500, { 'content-type': 'application/json' });
       // #4973: another computer's page gets that it failed, not why (tmux's words can carry this Mac's paths).
-      if (isSiblingRead(req)) { res.end(JSON.stringify({ error: 'we could not read the agents just now' })); return; }
+      if (rosterOnly || isSiblingRead(req)) { res.end(JSON.stringify({ error: 'we could not read the agents just now' })); return; }
       let detail = null;
       try { detail = lastLookProblem(); } catch { detail = null; }
       res.end(JSON.stringify({ error: String(err && err.message), detail: detail || undefined }));
+      return;
+    }
+    if (rosterOnly) {
+      const shown = JSON.parse(body).agents.filter((a) => !a.isGuide);
+      sendJson(res, 200, { agents: shown.map((a) => ({ name: a.name, role: a.role || null, state: a.state || null })) });
       return;
     }
     if (isSiblingRead(req)) body = statusForSibling(body, req.headers['sec-fetch-site']);   // #4973: another computer's page reads the agents only (#6178: and, same-site, the accounts)
@@ -9603,16 +9617,6 @@ const server = http.createServer(async (req, res) => {
   // and the cross-site guard. It should be behind a login the moment one
   // exists. The honest summary is that it is the largest thing here and it is
   // contained, not that it is safe.
-  /* #7748: `kosmos agent list`, every agent with its role and whether it runs. Three fields of the roster, so an agent's
-     read carries nothing of what /api/status holds for the page. */
-  if (pathname === '/api/agents/list' && (req.method === 'GET' || req.method === 'HEAD')) {
-    const refusedRead = crossSiteRead(req);
-    if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
-    const rows = safeRoster();
-    if (!rows) { sendJson(res, 503, { error: 'we could not read the agents just now' }); return; }
-    sendJson(res, 200, { agents: rows.map((a) => ({ name: a.name, role: a.role || null, state: a.state || null })) });
-    return;
-  }
   if (pathname === '/api/agents' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
