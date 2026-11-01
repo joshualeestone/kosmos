@@ -164,7 +164,7 @@ check(Board.activityPhrase(["kind": "missed", "count": 3, "told": "dana", "reach
 section("the page's model, against a fake Mac")
 // kosmos#7751: on the main actor, as the model is. Unisolated, asyncSend ran on another thread (Swift 5 mode runs a
 // nonisolated async method off the caller's actor), so a test's yield loop did not wait for it and the two raced on
-// `held` and `asked`: a dropped continuation, then a segfault. ThreadSanitizer showed the race before this line.
+// `held` and `asked`: a dropped continuation, then a segfault. ThreadSanitizer showed the race before this change.
 @MainActor
 final class FakeMac {
     var projects: (Int, Data)? = (200, projectsData)
@@ -183,8 +183,8 @@ final class FakeMac {
         let answer = send(build)
         if holdNext {
             holdNext = false
-            // Two holds at once would drop the first one's continuation, which never resumes: say so and stop instead.
-            precondition(held == nil, "FakeMac: a second request was held while one already was")
+            // Two holds at once would drop the first one's continuation, which never resumes: end the run instead.
+            if held != nil { endRun("a second request was held while one already was") }
             await withCheckedContinuation { held = $0 }
         }
         // As URLSession: a request whose task was cancelled gives no answer.
@@ -204,15 +204,20 @@ final class FakeMac {
         return answer(actAnswers.isEmpty ? (200, Data("{}".utf8)) : actAnswers.removeFirst().map { ($0.0, Data($0.1.utf8)) })
     }
 }
-// Wait until a held request (or parse) is held. Never carry on without it: a test that went on would release nothing and
-// leave the hold armed for some later request. A hold not reached is a FAIL and the run ends here, with its verdict.
-@MainActor
-func waitUntil(_ reached: () -> Bool, _ what: String, line: Int = #line) async {
-    for _ in 0..<100_000 { if reached() { return }; await Task.yield() }
-    check(false, "the test reached its hold: \(what)", line: line)
+// Ends the run as a FAIL with its verdict line. A precondition would not do: in this suite's -O build it traps with no
+// message, which reads in the log as the bare crash kosmos#7751 was.
+func endRun(_ why: String, line: Int = #line) -> Never {
+    check(false, why, line: line)
     print("")
     print("VERDICT: FAIL \(failed) of \(passed + failed)")
     exit(1)
+}
+// Wait until a request, parse or build the test holds is held. Never carry on without it: a test that went on would
+// release nothing and leave the hold armed for some later request.
+@MainActor
+func waitUntil(_ reached: () -> Bool, _ what: String, line: Int = #line) async {
+    for _ in 0..<100_000 { if reached() { return }; await Task.yield() }
+    endRun("the test reached its hold: \(what)", line: line)
 }
 @MainActor
 func modelTests() async {
@@ -448,7 +453,7 @@ func modelTests() async {
         mac.activity = (200, fixture("activity-3.json"))
         gate.hold = true
         let olderBuild = Task { await am.readActivity(names: nm) }
-        await waitUntil({ gate.waiting }, "a parse held")
+        await waitUntil({ gate.waiting }, "a build held")
         mac.activity = newerFails ? (502, Data()) : (200, Data(#"{"events":[],"count":0}"#.utf8))
         let newerShown = await am.readActivity(names: nm)
         gate.release()
