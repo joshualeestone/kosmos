@@ -16,8 +16,10 @@ final class RoomKeyboardUITests: XCTestCase {
         let newest = Self.post(app, 220)
         XCTAssertTrue(newest.waitForExistence(timeout: 10), "the swipes did not reach the newest post")
         KeyboardSlideUITests.settle(newest)
+        guard Self.still(app, newest, "after the swipes settled") else { return }
         XCTAssertLessThanOrEqual(newest.frame.maxY, box.frame.minY, "the newest post was not above the box before the keyboard")
         try KeyboardSlideUITests.keyboardUp(app, box, newest, shot: "room-long-keyboard-up", test: self)
+        guard Self.still(app, newest, "after the keyboard came up") else { return }
         KeyboardSlideUITests.assertAbove(newest, box, app.keyboards.firstMatch)
     }
 
@@ -110,6 +112,15 @@ final class RoomKeyboardUITests: XCTestCase {
         let box = app.textFields.matching(NSPredicate(format: "placeholderValue == 'Message Spring catalogue'")).firstMatch
         XCTAssertTrue(box.waitForExistence(timeout: 30), "no message box")
         return box
+    }
+
+    // A frame read on a post that has gone fails with XCTest's "no matches", which names neither the step nor the screen.
+    private static func still(_ app: XCUIApplication, _ post: XCUIElement, _ when: String) -> Bool {
+        if post.exists { return true }
+        let rows = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'")).allElementsBoundByIndex
+        let seen = rows.map { "\($0.label.prefix(12)) at \(Int($0.frame.minY))" }.joined(separator: ", ")
+        XCTFail("Post 220 was gone \(when); on screen: \(seen)")
+        return false
     }
 
     private static func post(_ app: XCUIApplication, _ n: Int) -> XCUIElement {

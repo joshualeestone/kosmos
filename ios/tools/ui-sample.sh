@@ -101,6 +101,11 @@ echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)
 # kosmos#7609: as ui-keyboard.sh does, the read-higher-up check's scroll trace, read from the app's own data container
 # before cleanup deletes the simulator (--keep keeps the log, not the simulator). The bundle id is the built app's.
 # #7690: and the long room's own read-higher-up check, which appends to the same file.
+# TEMP-7690-MEASUREMENT, never merges: every hold and anchor line, on ANY red.
+app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
+bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
+data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
+[ -n "$data" ] && grep -iE 'keyboard hold|anchor' "$data/Documents/trace.txt" | sed 's/^/    ALL /'
 dm_check="KeyboardSlideUITests testReadHigherUpStaysWhereItWas"
 room_check="RoomKeyboardUITests testRoomReadHigherUpStaysWhereItWas"
 if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check)\]' failed" "$log"; then
@@ -122,8 +127,6 @@ if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check)\]' failed" 
       echo "  the app's last 60 of $lines scroll events (one file: $ran ran this run):"
       tail -60 "$data/Documents/trace.txt" | sed 's/^/    /'
     fi
-    # TEMP-7690-MEASUREMENT, never merges: every hold and anchor line in the file, past the 60-line tail.
-    grep -iE 'keyboard hold|anchor' "$data/Documents/trace.txt" | sed 's/^/    ALL /'
   else
     echo "  (no scroll trace from the app)"
   fi
