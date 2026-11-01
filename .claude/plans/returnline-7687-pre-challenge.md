@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: returnline-7687
-diff_hash: 3410b48df262d9d2d5810884ac757535f5538013dd887352fa8d05d741b9a24f
+diff_hash: a826a2d7c55933c796bae022a3c7c132952dc0e4d2a8f085fc1fb2656579ee67
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-01T00:19:30Z
+timestamp: 2026-11-01T01:22:38Z
 iterations: 4
 converged: true
 ---
@@ -39,3 +39,5 @@ No BLOCKER and no WARNING.
 
 ## Weakest premise
 That nobody relied on Return sending. This reverses #7346 at Josh's ask.
+
+**CI on PR #7708, first run:** red on a star-read timing logic test and the keyboard-down rebuild clock check, neither in this diff. Rebased onto #7707, which replaces that clock.
