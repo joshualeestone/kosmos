@@ -5,8 +5,8 @@ Josh's chart, final 11-01 09:22, 25 to 500 GB of files. The coordinator half is 
 - `personalbackup.runJob` reads `backupWeeklyGb` from the full org status once a run. Null: no run, a sentence, no pause
   to Monday. Absent or unread: the run goes ahead as today, and Kosmos+ still refuses what the plan does not cover.
 - `takeSnapshot` takes `deps.planGb`. With it, listed file bytes are compared with the plan in plain words, the
-  worst-case chunk and byte bounds are replaced by an expected count (1 MiB average plus a quarter, keys at 140), and the
-  running manifest size becomes the real check. Without it, a company's path does not change.
+  worst-case chunk and byte bounds are replaced by one expected size before the walk (1 MiB average, keys at 140), and the
+  measured manifest size is checked after every file. A long run checkpoints what it stored about every 16 GB. Without it, a company's path does not change.
 - The manifest ceiling: 192 MiB for a plan's run, 256 MiB on restore. A company's budget stays at 64 MiB's.
 
 Measured on generated manifests with real name and key lengths: 286 bytes a chunk; 477,000 chunks is 130 MiB of JSON and
@@ -47,3 +47,7 @@ unreached run does, doubling to a day.
 
 Round 6, kept: a run stopped on the measured size re-walks hourly, as every run does; remembering the stop is a later
 change if it shows. The Mac does not clamp `backupWeeklyGb`: the coordinator's refusal is the authority over bytes.
+
+Round 7: a status read never sent lets the run report `missing`. An optional folder past the file limit refuses the run
+too. For the follow-up card, past the 8-round line if it reaches it: yields in the index loop, and a measured full
+read-validate-write cycle at 600,000 rows.

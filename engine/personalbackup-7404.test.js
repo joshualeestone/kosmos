@@ -122,6 +122,18 @@ test('pb tiers: the plan reaches the run; no plan runs nothing and is no pause; 
   }
 });
 
+test('pb tiers: a status read that was never sent lets the run say remote access is not set up', async (t) => {
+  const root = fresh(t);
+  const consent = { ...WORDS, backsUp: ['your project folders'] };
+  const c = coordinator({ preexisting: true, preview: { ok: true, data: { org: ORG, role: 'member', consent, consentHash: HASH, computerSalt: SALT } } });
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true);
+  const remote = { ...c, macRequest: async () => ({ ok: false, notSent: true }) };
+  let ran = 0;
+  await pb.runJob({ roots: [] }, { root, remote, runBackup: async () => { ran++; return { ok: false, missing: true, because: 'no remote' }; } });
+  assert.equal(ran, 1);
+});
+
 test('pb tiers: a plan for another org does not size this backup', async (t) => {
   const root = fresh(t);
   const consent = { ...WORDS, backsUp: ['your project folders'] };

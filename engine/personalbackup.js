@@ -460,7 +460,12 @@ const NO_PLAN = 'there is no backup plan on this account, so nothing new is back
    not answer: that run waits, because the company bound would pause a person's backup to Monday over one failed read. */
 async function planOf(opts) {
   const remote = remoteOf(opts);
-  const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
+  if (!remote || typeof remote.macRequest !== 'function') return 'unread';
+  let raw = null;
+  try { raw = await remote.macRequest('POST', STATUS, {}); } catch { /* unanswered */ }
+  // Never sent (remote access not set up, or busy): the run itself says so, with its own stop and no backoff.
+  if (raw && raw.notSent) return undefined;
+  const st = raw && raw.ok && raw.data && typeof raw.data === 'object' ? raw : null;
   if (!st) return 'unread';
   // Status answers for the account's current membership: a plan is only this personal backup's if the org is its own.
   const rec = record(opts);
@@ -477,7 +482,7 @@ async function runJob(input, opts = {}) {
   const planGb = await planOf(opts);
   // Before anything is listed, and not a pause to Monday: paying takes effect on the next hourly run.
   if (planGb === null) { const out = { ok: false, personActs: true, because: NO_PLAN }; noteRun(out, opts, before); return out; }
-  if (planGb === 'unread') return { ok: false, because: 'Kosmos+ could not be reached just now, so this backup waits for the next try' };
+  if (planGb === 'unread') { const out = { ok: false, because: 'Kosmos+ could not be reached just now, so this backup waits for the next try' }; noteRun(out, opts, before); return out; }
   const r = await run(input, Object.assign({ ensureMemberKey: jobKey(opts), pointerName: JOB_POINTER, requireProof: true }, planGb ? { planGb } : {}));
   if (!(r && !r.ok && typeof r.because === 'string' && /\bcode org_consent_changed\b/.test(r.because))) { noteRun(r, opts, before); return r; }
   const oe = opts.orgenroll || require('./orgenroll');
