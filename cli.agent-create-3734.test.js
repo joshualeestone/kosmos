@@ -169,6 +169,9 @@ test('#7748 kosmos agent list names each agent, its role, and whether it runs', 
     assert.match(r.out, /^\s*Ben {2}no role recorded {2}Not running$/m);
     const extra = await cli(port, ['agent', 'list', 'x']);
     assert.equal(extra.code, 2, extra.out);
+    const opt = await cli(port, ['agent', 'roles', '--x']);
+    assert.equal(opt.code, 2, opt.out);
+    assert.doesNotMatch(opt.out, /put -- before it/);
   }));
 
 test('#7748 project create names the command that makes a missing folder, quoted', () => withStub(

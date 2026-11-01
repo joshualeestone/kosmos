@@ -2189,6 +2189,7 @@ async function agentList(ctx, args) {
   if (tooManyWords(ctx, 'agent list', 0, 'Usage: kosmos agent list', args)) return 2;
   const r = await ctx.call('GET', '/api/agents/list', undefined, { timeoutMs: 25000 });
   if (!r.reached) return ctx.unreachable('list the agents');
+  if (ctx.refusedBy(r)) { ctx.err('Kosmos could not list the agents: ' + ctx.refusedBy(r) + '.'); return 1; }
   const agents = r.json && Array.isArray(r.json.agents) ? r.json.agents : null;
   if (!agents) { ctx.err('Kosmos gave an answer we could not read when listing the agents.'); return 1; }
   const out = ctx.engine('clilists').agentLines(agents);
