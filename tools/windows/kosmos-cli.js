@@ -151,7 +151,7 @@ const USAGE = {
   ].join('\n'),
   agent: [
     'Usage: kosmos agent <list|create|roles|role-draft|instructions-add|remove>',
-    '  kosmos agent list                               every agent on this board, its role, and whether it is running',
+    '  kosmos agent list                               every agent on this board and its role (and its state, for a person)',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
     '                                                  make one with a role you wrote, when none fits',
@@ -2192,7 +2192,7 @@ async function agentCreate(ctx, args) {
   ctx.err('Kosmos gave an answer we could not read when making that agent.');
   return 1;
 }
-/* #7748, as install/kosmos: every agent, its role, and whether it is running. The words are engine/clilists.js, once. */
+/* #7748, as install/kosmos: every agent and its role. The words are engine/clilists.js, once. */
 async function agentList(ctx, args) {
   if (tooManyWords(ctx, 'agent list', 0, 'Usage: kosmos agent list', args)) return 2;
   const r = await ctx.call('GET', '/api/agents/list', undefined, { timeoutMs: 25000 });
