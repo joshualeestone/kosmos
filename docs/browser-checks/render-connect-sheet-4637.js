@@ -556,13 +556,13 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       remoteNow = REMOTE;   // connected
       jr = await readJoin();
       chk(await page.evaluate(() => window.__forced) === forcedBeforeIn + 1, `${tag} #6403: when this computer is let in, it asks for a read of Your computers at once`);
-      chk(jr.shown && jr.text === 'homemac allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.' && !jr.button && !jr.code && jr.pill === 'Connected',
+      chk(jr.shown && jr.text === 'homemac allowed this computer. Its code ran out before The codes match was pressed here.' && !jr.button && !jr.code && jr.pill === 'Connected',
         `${tag} #4794: allowed, then the code ran out unconfirmed: said, no button (review 5)`, JSON.stringify(jr));
       /* Review 6: that ending lasts until this computer pairs again, so it is said once and never polled for, and it does
          not take the status line: an outage after it is still said. */
       const getsAtEnd = joinGets;
       jr = await readJoin(); jr = await readJoin();
-      chk(jr.shown && jr.text === 'homemac allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.' && joinGets === getsAtEnd, `${tag} #4794: the ran-out ending stays and runs no more pairing rounds (review 6)`, JSON.stringify({ jr, rounds: joinGets - getsAtEnd }));
+      chk(jr.shown && jr.text === 'homemac allowed this computer. Its code ran out before The codes match was pressed here.' && joinGets === getsAtEnd, `${tag} #4794: the ran-out ending stays and runs no more pairing rounds (review 6)`, JSON.stringify({ jr, rounds: joinGets - getsAtEnd }));
       remoteNow = { ...REMOTE, status: { state: 'down', because: 'the relay cannot be reached' } };
       jr = await readJoin();
       chk(jr.shown && /relay cannot be reached/.test(jr.status), `${tag} #4794: an outage after the ending is still said (review 6)`, JSON.stringify(jr));
@@ -600,6 +600,18 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         jr = await readJoin(); jr = await readJoin();
         const back = await page.evaluate(() => !!document.getElementById('plus-join-recheck'));
         chk(back && /To finish, check the code with homemac once\./.test(jr.text), `${tag} #6404: a check that ended offers Check the code again`, JSON.stringify(jr));
+        /* kosmos#6386: a press the tunnel refuses with tries left: the check is only unavailable, so nothing reads as
+           finished, and the button goes. */
+        await page.unroute('**/api/remote/join/recheck');
+        await page.route('**/api/remote/join/recheck', (route) => { join = { ...join, can_recheck: false };
+          return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'nothing_to_recheck' }) }); });
+        await page.click('#plus-join-recheck');
+        await page.waitForTimeout(500);
+        const refused = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), button: !!document.getElementById('plus-join-recheck') }));
+        chk(!refused.button && refused.text === 'homemac allowed this computer. Its code ran out before The codes match was pressed here. The code cannot be checked right now.',
+          `${tag} #6386: a press refused with tries left says the check cannot be done now, and the button goes`, JSON.stringify(refused));
+        join = { ...join, can_recheck: true };
+        await page.evaluate(() => { PLUS_JOIN_NOTE.recheck = true; PLUS_JOIN_MSG = ''; paintPlusJoin(); });
         /* A press refused because every try is used: it says so and the button goes. */
         await page.unroute('**/api/remote/join/recheck');
         // The tunnel with every try used also stops offering the check (can_recheck needs tries left).
@@ -733,10 +745,10 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       join = { ...join, held: false };
       remoteNow = REMOTE;
       jr = await readJoin();
-      chk(jr.shown && jr.text === 'homemac allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.' && !jr.button, `${tag} #4794: allowed and past 10 minutes: the ending, not "a new one is on its way" (review 6)`, JSON.stringify(jr));
+      chk(jr.shown && jr.text === 'homemac allowed this computer. Its code ran out before The codes match was pressed here.' && !jr.button, `${tag} #4794: allowed and past 10 minutes: the ending, not "a new one is on its way" (review 6)`, JSON.stringify(jr));
       join = { ...join, join_code: '', on: null, confirm_expired: true };
       jr = await readJoin(); jr = await readJoin();
-      chk(jr.shown && jr.text === 'homemac allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.', `${tag} #4794: the tunnel's ran-out answer keeps the ending up (review 6)`, JSON.stringify(jr));
+      chk(jr.shown && jr.text === 'homemac allowed this computer. Its code ran out before The codes match was pressed here.', `${tag} #4794: the tunnel's ran-out answer keeps the ending up (review 6)`, JSON.stringify(jr));
       /* CONTROL: a fresh page, connected and confirmed: the read on load answers and the block stays away (an ending is
          only said for a pairing this page watched). */
       join = { ...join, held: false, confirmed: true, confirm_expired: false, join_code: '246 810' };
