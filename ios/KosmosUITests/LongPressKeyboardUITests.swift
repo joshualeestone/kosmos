@@ -145,6 +145,9 @@ final class LongPressKeyboardUITests: XCTestCase {
         XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "no on-screen keyboard")
         KeyboardSlideUITests.settle(post)
         let before = post.frame
+        shot(app, "room, keyboard up, before the press")
+        print("MEASURE room-press post=\(post.frame) keyboardTop=\(keyboard.frame.minY) hittable=\(post.isHittable) press-at=\(post.frame.midY)")
+        XCTAssertLessThanOrEqual(post.frame.midY, keyboard.frame.minY, "the post's middle is behind the keyboard: the press would land on the keyboard")
         post.press(forDuration: 0.8)
         XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5), "the actions did not open")
         KeyboardSlideUITests.settle(post)
