@@ -116,3 +116,24 @@ test('#7753: the signed bytes are the layout on the card (built here by hand, fo
   assert.throws(() => mk.memberKeyRecordBytes('org1', 'acct1', 0, pk));
   assert.throws(() => mk.memberKeyRecordBytes('org1', 'acct1', 1, Buffer.alloc(31)));
 });
+
+/* The shared vector. The same values are in escrowd's Rust verifier (kosmos-relay, #5686 Part 2), so a drift in the
+   bytes or the signature goes red on both sides. Ed25519 is deterministic: this seed always gives this signature. */
+const VECTOR = {
+  org: 'org1', member: 'acct1', epoch: 7,
+  memberPublic: 'ab'.repeat(32),
+  seed: '0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20',
+  devicePublic: '79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664',
+  bytes: '6b6f736d6f732d6261636b7570207631206d656d6265722d6b65792d7265636f72640000046f726731000561636374310000000000000007'
+    + 'ab'.repeat(32),
+  sig: '1333a3f066ce5b254731fc74fc322e1eaf871e51471f3075a24f6af67584542981ce3a90f3a26fea1155073b913b666e81e9fa9ed869877f89c105eaa74c0507',
+};
+test('#7753: the shared vector: seed, device public key, record bytes and signature', () => {
+  const priv = crypto.createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), Buffer.from(VECTOR.seed, 'hex')]), format: 'der', type: 'pkcs8' });
+  const pub = crypto.createPublicKey(priv);
+  assert.equal(Buffer.from(pub.export({ format: 'jwk' }).x, 'base64url').toString('hex'), VECTOR.devicePublic);
+  const bytes = mk.memberKeyRecordBytes(VECTOR.org, VECTOR.member, VECTOR.epoch, Buffer.from(VECTOR.memberPublic, 'hex'));
+  assert.equal(bytes.toString('hex'), VECTOR.bytes);
+  assert.equal(crypto.sign(null, bytes, priv).toString('hex'), VECTOR.sig);
+  assert.equal(crypto.verify(null, bytes, pub, Buffer.from(VECTOR.sig, 'hex')), true);
+});
