@@ -456,12 +456,13 @@ function jobKey(opts = {}) {
 }
 const JOB_POINTER = 'current-personal.json';
 const NO_PLAN = 'there is no backup plan on this account, so nothing new is backed up. What is already backed up stays yours to restore';
-/* The plan in GB of files, null with none, undefined when it could not be read or Kosmos+ does not send it yet: then the
-   run goes ahead, and Kosmos+ still refuses what the plan does not cover. */
+/* The plan in GB of files, null with none, undefined from a Kosmos+ that does not send it yet, 'unread' when Kosmos+ did
+   not answer: that run waits, because the company bound would pause a person's backup to Monday over one failed read. */
 async function planOf(opts) {
   const remote = remoteOf(opts);
   const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
-  const gb = st ? st.data.backupWeeklyGb : undefined;
+  if (!st) return 'unread';
+  const gb = st.data.backupWeeklyGb;
   return gb === null || (Number.isSafeInteger(gb) && gb > 0) ? gb : undefined;
 }
 /* One run under this backup's key. Kosmos+ refusing the words: the hash the run started under goes (read before the run,
@@ -473,6 +474,7 @@ async function runJob(input, opts = {}) {
   const planGb = await planOf(opts);
   // Before anything is listed, and not a pause to Monday: paying takes effect on the next hourly run.
   if (planGb === null) { const out = { ok: false, personActs: true, because: NO_PLAN }; noteRun(out, opts, before); return out; }
+  if (planGb === 'unread') return { ok: false, because: UNREACHED };
   const r = await run(input, Object.assign({ ensureMemberKey: jobKey(opts), pointerName: JOB_POINTER, requireProof: true }, planGb ? { planGb } : {}));
   if (!(r && !r.ok && typeof r.because === 'string' && /\bcode org_consent_changed\b/.test(r.because))) { noteRun(r, opts, before); return r; }
   const oe = opts.orgenroll || require('./orgenroll');

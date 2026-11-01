@@ -122,6 +122,18 @@ test('pb tiers: the plan reaches the run; no plan runs nothing and is no pause; 
   }
 });
 
+test('pb tiers: a status read that fails waits the hour, and takes no run a company bound could pause to Monday', async (t) => {
+  const root = fresh(t);
+  const consent = { ...WORDS, backsUp: ['your project folders'] };
+  const c = coordinator({ preexisting: true, preview: { ok: true, data: { org: ORG, role: 'member', consent, consentHash: HASH, computerSalt: SALT } } });
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true);
+  const down = { ...c, macRequest: async () => ({ ok: false, because: 'unreachable' }) };
+  let ran = 0;
+  const r = await pb.runJob({ roots: [] }, { root, remote: down, runBackup: async () => { ran++; return { ok: true }; } });
+  assert.equal(ran, 0); assert.equal(r.ok, false); assert.equal(r.overAllowance, undefined);
+});
+
 function fresh(t) {
   pb._TICKETS.clear();   // each test starts as a board just started: no ticket from an earlier test is live
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-personalswitch-7404-root-'));

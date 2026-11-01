@@ -58,8 +58,9 @@
  *   index, so the next run's first batch is the whole tree (up to a batch). A caller that wants to avoid it can, on a
  *   staleIndex answer within an hour of its clock's Monday 00:00, run periodOf(now + 1 hour) once; that choice is the
  *   caller's, as every week choice is.
- *   Size: each full slot is about 35 MB (200000 rows, measured: 283 ms to write, 251 ms to read on this Mac), so two
- *   full slots are about 70 MB and half a second each way. The previous week's slot stays until a third week arrives,
+ *   Size: a slot of 200000 rows is about 35 MB (measured: 283 ms to write, 251 ms to read on this Mac), so a full one at
+ *   600000 rows, the top plan's, should be about three times that, and two full slots about 210 MB and over a second
+ *   each way (scaled, not measured). The previous week's slot stays until a third week arrives,
  *   carried but unused after the coordinator's Monday; accepted (it is dropped by the next week's first run).
  * withPeriod(state, period) -> state: `period` in the first slot, replacing its label's slot; at most SLOTS kept, the
  *   least recently used dropped. For writing a fresh period before its snapshot.
@@ -105,7 +106,7 @@ const KEY_SEG_RE = /^[A-Za-z0-9._:-]+$/;
 // Two periods kept: near Monday 00:00 this clock's week and the coordinator's granted week can differ, and each keeps
 // its own naming key and index instead of overwriting the other's every run (review 7).
 const SLOTS = 2;
-const MAX_INDEX = 200000;   // backupsnapshot's CHUNK_ALLOWANCE; withRun caps the index at it
+const MAX_INDEX = 600000;   // the most objects a week can hold: the top plan's (backupsnapshot); withRun caps the index at it
 
 function dir() { return path.join(store.ROOT, 'backupstate'); }
 function fileFor(org, member) {
