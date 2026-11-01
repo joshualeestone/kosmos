@@ -22653,7 +22653,7 @@ function stateReason(a, opts) {
      or quota-paused agent with no competing live-state sentence -- and for a non-stuck rate_limited agent it wins
      over the plain rate-limit sentence below, because the give-up is the relevant quota escalation. Same DELIBERATE
      scope as slice C: it escalates the SENTENCE + the Issue filter + one push, not the card's look or pill. The
-     needs_you / own-question precedence is handled above (that arm returns first). Oldest-standing give-up wins (items[0]). */
+     needs_you / own-question precedence is the a.state guard below. Oldest-standing give-up wins (items[0]). */
   if (a && a.ownBound && a.ownBound.raised === true && Array.isArray(a.ownBound.items) && a.ownBound.items.length
       && a.state !== 'needs_you') {   // precedence: a needs_you agent (reported question handled above, or a bare needs_you) keeps its own reason, matching the pill (needsYouReason)
     const it = a.ownBound.items[0];

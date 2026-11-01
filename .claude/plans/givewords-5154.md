@@ -4,5 +4,5 @@ Finished looks like: the three give-up sentences on an agent's card and the proj
 
 - stateReason quota, nudge, firstreply: name what the person sees, then that Kosmos stopped, then what to do. "gave up" becomes "stopped", matching gave_up's "stopped trying to reconnect it".
 - "about 1 minutes ago" could show (mins floors at 1): the unit now agrees.
-- PJ_NEEDS_WHY.own_bound: covers all three kinds, so it names none, and the row's Open button carries the action.
+- PJ_NEEDS_WHY.own_bound: covers all three kinds, so it names none. It keeps "Open it" because task rows have no Open button.
 - render-own-bounds-5154.js follows the new words.

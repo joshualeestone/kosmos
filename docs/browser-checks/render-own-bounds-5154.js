@@ -40,7 +40,7 @@ const { chromium } = require('playwright');
       const first = raised('firstreply', 10, { sessionName: 'f', name: 'Ray', state: 'idle' });
       const oneMin = raised('nudge', 1, { sessionName: 'm', name: 'Una', state: 'idle' });
       // CONTROL: an ownBound that is NOT raised (within grace, or recovered) shows no give-up sentence, no Issue.
-      const notRaised = base({ sessionName: 'c', name: 'Sam', state: 'idle', isNamedOurs: true, ownBound: { raised: false, items: [], stale: [] } });
+      const notRaised = base({ sessionName: 'c', name: 'Sam', state: 'idle', isNamedOurs: true, ownBound: { raised: false, items: [{ cls: 'quota', sinceAt: now - 60000, forMs: 60000, evidence: 'gave up after 3 tries that reached nothing' }], stale: [] } });
       // CONTROL: a healthy agent with no ownBound field value at all.
       const healthy = base({ sessionName: 'h', name: 'Ada', state: 'working', isNamedOurs: true, ownBound: null });
       // PRECEDENCE: an agent with BOTH a raised give-up AND its own reported question. The card must show the
