@@ -10,6 +10,8 @@ function justPast(status, resetAt) {
     const reading = status.limitResetAt(`resets ${resetAt(ms)} (America/Chicago)`, now);
     if (reading !== null && reading < now) return ms;
   }
+  const HOURS_2 = 2 * 3600e3;
+  if (new Date(now - HOURS_2).getTimezoneOffset() === new Date(now + HOURS_2).getTimezoneOffset()) throw new Error('no printed time is just past, on a night with no clock change');
   return null;
 }
 
