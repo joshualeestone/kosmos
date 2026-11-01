@@ -1271,14 +1271,15 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
     /* kosmos#7749: why it is parked is the holder's too: an agent cannot reword the person's hold. No reason given leaves a
        reason already there; a new hold starts without one. */
     if (reason !== undefined && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true && reason !== (t.onHoldBecause || null)) {
-      const refused = new Error('the person put this task on hold, so only they can change why, on the screen');
+      const refused = new Error('the person put this task on hold, so the reason is theirs');
       refused.status = 403;
       throw refused;
     }
     const wantBecause = !onHold ? null : reason !== undefined ? reason : isOnHold(t) ? (t.onHoldBecause || null) : null;
     const want = keepPersons || (onHold && restates) ? (u1 || null) : onHold && until != null ? holdUntilOf(until, p, t.number) : null;
     const sameUntil = JSON.stringify(t.onHoldUntil || null) === JSON.stringify(want);
-    didChange = isOnHold(t) !== onHold || (onHold && (!sameUntil || wantBecause !== (t.onHoldBecause || null)));
+    // Review 1: a changed reason alone is no new hold, so it records nothing: the stale-hold clock reads hold-set.
+    didChange = isOnHold(t) !== onHold || (onHold && !sameUntil);
     changed = { ...t };
     if (onHold) {
       changed.onHold = true;

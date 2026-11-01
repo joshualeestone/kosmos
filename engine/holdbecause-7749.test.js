@@ -23,6 +23,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const projects = require('../engine/projects');
 const tasks = require('../engine/tasks');
+const taskchat = require('../engine/taskchat');
 
 function fresh(name) {
   const p = projects.create({ name });
@@ -47,6 +48,16 @@ test('holding again with no reason keeps it, a blank clears it', () => {
   tasks.setOnHold(id, n, true, { because: 'parked until spring' });
   assert.equal(tasks.setOnHold(id, n, true).onHoldBecause, 'parked until spring');
   assert.equal('onHoldBecause' in tasks.setOnHold(id, n, true, { because: '' }), false);
+});
+
+test('a changed reason alone records no new hold, so the stale-hold clock is not restarted', () => {
+  const { id, n } = fresh('hb seven');
+  tasks.setOnHold(id, n, true, { because: 'first' });
+  const count = () => taskchat.read(id, n).filter((e) => e.kind === 'hold-set').length;
+  const before = count();
+  assert.equal(tasks.setOnHold(id, n, true, { because: 'second' }).onHoldBecause, 'second');
+  assert.equal(before, 1);
+  assert.equal(count(), before);
 });
 
 test('taking it off drops the reason, and the next hold starts without it', () => {
