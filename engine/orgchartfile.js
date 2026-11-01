@@ -669,7 +669,7 @@ function providerLabel(reader) {
 const claudeHere = () => {
   try { const r = require('./runners').resolveBin('claude'); return Boolean(r && r.present) && Boolean(readAccount()); } catch { return false; }
 };
-const CLAUDE_PROVIDER_SWITCHES = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'];
+const CLAUDE_PROVIDER_SWITCHES = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_MANTLE', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_ANTHROPIC_AWS'];
 const envHas = (v) => String(process.env[v] || '').trim() !== '';
 const claudeRedirected = () => envHas('ANTHROPIC_BASE_URL')
   || CLAUDE_PROVIDER_SWITCHES.some((v) => envHas(v) && !/^(0|false|no|off)$/i.test(String(process.env[v]).trim()));

@@ -461,7 +461,7 @@ test('#4660: the Claude reader carries whether its account runs on an API key (t
   const saved = { dir: process.env.CLAUDE_CONFIG_DIR, key: process.env.ANTHROPIC_API_KEY };
   delete process.env.ANTHROPIC_API_KEY;
   // The host's own redirect and credential variables must not decide this test.
-  const hostRedirect = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'].map((v) => [v, process.env[v]]);
+  const hostRedirect = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_MANTLE', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_ANTHROPIC_AWS'].map((v) => [v, process.env[v]]);
   for (const [v] of hostRedirect) delete process.env[v];
   t.after(() => { for (const [v, was] of hostRedirect) { if (was !== undefined) process.env[v] = was; } });
   // The shape accounts.list() really emits for a key account: a non-default folder, reached through CLAUDE_CONFIG_DIR.
@@ -486,7 +486,7 @@ test('#4660: the Claude reader carries whether its account runs on an API key (t
     assert.equal(o.consentFor(o.currentReader()).provider, 'Anthropic (Claude)', 'the key takes the read, so the signed-in address is not named');
     // A read sent somewhere else is not Anthropic's to keep, and that wins over a key in the same environment.
     const plainId = o.consentFor(o.currentReader()).reader;
-    for (const v of ['ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY']) {
+    for (const v of ['ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_MANTLE', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_ANTHROPIC_AWS']) {
       process.env[v] = '1';
       try {
         const c = o.consentFor(o.currentReader());
