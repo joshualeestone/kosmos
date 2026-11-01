@@ -26,7 +26,7 @@ const MAX_FAILED_REPORTED = 10000;
 const WORK_PER_ENTRY = 8192;
 // Bounds on the manifest: its object is refused before it is decrypted, its entry count before it is walked. A
 // manifest is parsed whole, so these stay modest (about 270 bytes an entry); the caller can raise both.
-const MAX_MANIFEST_OBJECT = 128 * 1024 * 1024;
+const MAX_MANIFEST_OBJECT = 256 * 1024 * 1024;
 const MAX_FILES = 500_000;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 // Windows device names, with or without an extension, and with spaces before it (CON, nul.txt, COM1.log, nul .txt):

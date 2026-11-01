@@ -57,7 +57,7 @@ const GRANT_ROUTE = '/v1/org/backup/grant';
 const MANIFEST_ROUTE = '/v1/org/backup/manifest';
 // kosmos#7118: a manifest context id, the format's own rule (the coordinator checks the same one).
 const { CTX_ID_RE: SNAPSHOT_ID_RE } = require('./backupformat');
-const MAX_MANIFEST = 64 * 1024 * 1024;   // the coordinator's manifest ceiling (its floor is MIN_OBJECT, as a chunk's)
+const MAX_MANIFEST = 192 * 1024 * 1024;   // the coordinator's manifest ceiling (its floor is MIN_OBJECT, as a chunk's)
 const MAX_PER_GRANT = 500;              // the coordinator's limit per grant request
 const MIN_OBJECT = 4148;                // a sealed chunk's framing floor (backupformat's 4 KiB Padme floor plus framing)
 const MAX_OBJECT = 5 * 1024 * 1024;     // the coordinator's per-object ceiling
