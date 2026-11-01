@@ -2639,6 +2639,17 @@ struct KeyboardHold: UIViewRepresentable {
         // fights a longer window (a finger or the app's own move still ends it).
         static let window: TimeInterval = 1.5
         private func endGuard() { guarding = nil; rows?.watch = nil }
+        // kosmos#7654: the rows nearest the top, named, in a Debug run of the sample room or chat only: its ids hold no one's words.
+        // Everywhere else the words "not sampled". A held row whose numbers say nothing moved could not be identified without this.
+        static func sampleRows(_ rows: RowTops, held: String) -> String {
+            #if DEBUG
+            guard ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" else { return "not sampled" }
+            let near = rows.y.sorted { $0.value.top < $1.value.top }.prefix(6)
+            return "\(held): " + near.map { "\($0.key) \(Int($0.value.top))/\(Int($0.value.content))" }.joined(separator: ", ")
+            #else
+            return "not sampled"
+            #endif
+        }
         // kosmos#7645 round 4: the scroll's numbers for the record (points only).
         static func numbers(_ sv: UIScrollView) -> String {
             "y \(Int(sv.contentOffset.y)), content \(Int(sv.contentSize.height)), showing \(Int(sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom))"
@@ -2719,6 +2730,7 @@ struct KeyboardHold: UIViewRepresentable {
                 }
                 self.saved = (r.id, CGFloat(reading.content), sv.contentOffset.y, self.above, sv.bounds.width, Date()); self.keptScreenTop = CGFloat(r.top)
                 ChatView.trace("keyboard hold: held row at \(Int(reading.content)) in the content, \(Int(r.top)) on the screen, band \(Int(top)) to \(Int(bottom))")
+                ChatView.trace("keyboard hold: chose \(Self.sampleRows(rows, held: r.id))")
             })
             observers.append(nc.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
                 self?.keyboardUp = true
@@ -2745,6 +2757,7 @@ struct KeyboardHold: UIViewRepresentable {
                     self.endGuard(); return
                 }
                 ChatView.trace("keyboard hold: did-show, row at \(Int(r.content)) in the content, \(Int(r.top)) on the screen, \(self.scroll.map { Self.numbers($0) } ?? "no scroll")")
+                ChatView.trace("keyboard hold: rows \(Self.sampleRows(rows, held: kept.row))")
                 self.putBack(CGFloat(r.content))
                 self.watchRow(kept.row, last: kept.content)
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.window + 0.05) { [weak self] in
