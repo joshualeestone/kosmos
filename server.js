@@ -8326,7 +8326,8 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (rosterOnly) {
-      const shown = JSON.parse(body).agents.filter((a) => !a.isGuide);
+      let shown;
+      try { shown = JSON.parse(body).agents.filter((a) => !a.isGuide); } catch { sendJson(res, 500, { error: 'we could not read the agents just now' }); return; }
       sendJson(res, 200, { agents: shown.map((a) => ({ name: a.name, role: a.role || null, state: a.state || null })) });
       return;
     }
