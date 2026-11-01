@@ -55970,16 +55970,14 @@ function plusJoinCode(code) {
   return '<p class="askcodebig" role="img" aria-label="' + askEsc(plusJoinSpoken(code)) + '">' + askEsc(code) + '</p>';
 }
 /* kosmos#6386 / #6404: allowed, but the code ran out before The codes match was pressed here, so this computer does not
-   trust the other one yet. When the tunnel says a check can be asked for (`can_recheck`), one fresh code check finishes
-   it; otherwise (every try used, or a tunnel without the check) nothing on either screen can, and the sentence says the
-   computer is in. `who` starts the sentence, `name` is the other computer in the next line. */
+   trust the other one yet. `who` starts the sentence, `name` is the other computer in the next line, `can` is the
+   tunnel's `can_recheck`, `used` means every try is spent. */
 function plusJoinRanOutHtml(who, name, can, used) {
   const said = PLUS_JOIN_MSG && Date.now() - PLUS_JOIN_MSG_AT < PLUS_JOIN_CODE_MS ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '';
-  // Every try used: the check cannot be offered again, and the sentence says so rather than "nothing more is needed".
-  if (!can && used) return '<p class="plus-join-say">' + who + ' allowed this computer. Its code ran out before The codes match was pressed here.</p>'
-    + '<p class="plus-join-next">Every try for this computer and ' + name + ' is used, so the code cannot be checked again.</p>';
-  if (!can) return '<p class="plus-join-say">' + who + ' allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.</p>' + said;
-  return '<p class="plus-join-say">' + who + ' allowed this computer. Its code ran out before The codes match was pressed here.</p>'
+  const ranOut = '<p class="plus-join-say">' + who + ' allowed this computer. Its code ran out before The codes match was pressed here.</p>';
+  if (!can && used) return ranOut + '<p class="plus-join-next">Every try for this computer and ' + name + ' is used, so the code cannot be checked again.</p>';
+  if (!can) return ranOut + said;
+  return ranOut
     + '<p class="plus-join-next">To finish, check the code with ' + name + ' once. You will need to be at both computers.</p>'
     + '<div class="acts"><button class="btn uprime" type="button" id="plus-join-recheck">Check the code</button></div>' + said;
 }
@@ -56004,10 +56002,8 @@ function paintPlusJoin() {
        must still be said). */
     const nn = askEsc(note.name || 'your other computer');
     html = note.kind === 'matched' ? '<p class="plus-join-say">Matched with ' + nn + '.</p>'
-      /* kosmos#6386: nothing on either screen can finish the match once the code ran out, and nothing reads the match yet
-         (peers.json has no reader outside pairing.rs), so the sentence says so rather than promising a step. It says the
-         other computer allowed this one, which stays true through a later outage (it is said once and not polled). The
-         slice that first reads peers (kosmos-relay) must change this sentence, or give this state a way to pair again. */
+      /* kosmos#6386: the ending says the other computer allowed this one, which stays true through a later outage (it is
+         said once and not polled). */
       : plusJoinRanOutHtml(note.name ? nn : 'Your other computer', nn, note.recheck === true, note.used === true);
     if (el.__lastJoin !== html) {
       const fid = el.contains(document.activeElement) && document.activeElement.id;
@@ -56103,7 +56099,7 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
     const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
     const who = (PLUS_JOIN_NOTE && (PLUS_JOIN_NOTE.with || PLUS_JOIN_NOTE.name)) || (PLUS_JOIN && PLUS_JOIN.recheck_with) || 'your other computer';
     PLUS_JOIN_MSG = why === 'attempts_used' ? 'Every try for this computer and ' + who + ' is used, so the code cannot be checked again.'
-      : why === 'nothing_to_recheck' ? 'There is nothing to check here now.'
+      : why === 'nothing_to_recheck' ? 'The code cannot be checked right now.'
         : plusWords(why || 'That did not go through. Try again.');
     PLUS_JOIN_MSG_AT = Date.now();
     if (why === 'attempts_used' || why === 'nothing_to_recheck') {
