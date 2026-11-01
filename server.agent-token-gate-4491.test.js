@@ -90,7 +90,9 @@ test('#7748: the agent list passes on an agent token alone, and answers name and
   // Both tokens, as a Mac agent sends: it is still an agent, so still no card word.
   const both = await call('GET', '/api/agents/list', { headers: { 'x-kosmos-agent-token': agentToken, 'x-kosmos-board-token': BOARD, authorization: 'Bearer ' + BOARD } });
   assert.equal(both.code, 200, both.text.slice(0, 120));
-  for (const a of JSON.parse(both.text).agents) assert.equal('state' in a, false);
+  const bothAgents = JSON.parse(both.text).agents;
+  assert.ok(bothAgents.length > 0, 'an empty list proves nothing about its fields');
+  for (const a of bothAgents) assert.deepEqual(Object.keys(a).sort(), ['name', 'role']);
 });
 
 test('a wrong agent token is refused at the gate', async () => {
