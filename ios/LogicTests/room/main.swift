@@ -439,7 +439,7 @@ check(sheetChat.contains("if starred { StarredStar() } else { Image(systemName: 
 let sheetRoom = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
 let sheetSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/ComposerExtras.swift"), encoding: .utf8)) ?? ""
 // kosmos#7530: the keyboard goes down before the sheet is set to open (a sheet opened with it up sat behind it).
-if let host = sheetSrc.range(of: "struct MessageActionsHost"), let open = sheetSrc.range(of: ".environment(\\.openMessageActions) { t in", range: host.upperBound..<sheetSrc.endIndex), let set = sheetSrc.range(of: "detent = small(t)\n", range: open.upperBound..<sheetSrc.endIndex) {
+if let host = sheetSrc.range(of: "struct MessageActionsHost"), let open = sheetSrc.range(of: ".environment(\\.openMessageActions) { t in", range: host.upperBound..<sheetSrc.endIndex), let small = sheetSrc.range(of: "detent = small(t)\n", range: open.upperBound..<sheetSrc.endIndex), let set = sheetSrc.range(of: "target = t\n", range: small.upperBound..<sheetSrc.endIndex) {
     check(sheetSrc.range(of: "#selector(UIResponder.resignFirstResponder)", range: open.upperBound..<set.lowerBound) != nil, "kosmos#7530: a long press puts the keyboard away before it opens the sheet")
 } else { check(false, "kosmos#7530: a long press puts the keyboard away before it opens the sheet (not found)") }
 // kosmos#7419 build 11 (Mona Lisa): the pressed message stays lit above the chat's own dim (the system's is off at the

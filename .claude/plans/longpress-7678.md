@@ -42,3 +42,7 @@ and auto hides the keyboard which is weird". Design on the card (comment 6546026
   happens twice).
 - Weakest premise: that the panel stays above the keyboard and readable when the pressed message is near the bottom of
   a short visible area (a small phone, a large text size). Measured on two simulators at the default text size only.
+
+## After review round 2
+- The panel is never taller than the room between the messages and the keyboard: its rows scroll. It stays where it opened, and closes if the keyboard moves (the emoji keyboard, a rotation).
+- Placement moved to Board (actionsPanelTop, actionsPanelHeight) with LogicTests. UI checks now assert the last row is reachable and above the keyboard, More lowers the keyboard, a keyboard gone reads as gone, and the room's post does not move.

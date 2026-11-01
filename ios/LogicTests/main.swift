@@ -5321,6 +5321,20 @@ do {
     check(Board.scrollPlace(offset: 0, content: 300, view: 700, insetTop: 0, insetBottom: 0) == ("within", 0, 0), "content shorter than the view: its end is its top")
     check(Board.scrollPlace(offset: 1380.8, content: 2000, view: 700, insetTop: 0, insetBottom: 80).place == "within", "under a point over is not outside (rounding)")
     check(Board.scrollPlace(offset: -101, content: 2000, view: 700, insetTop: 100, insetBottom: 0).place == "within" && Board.scrollPlace(offset: -101.5, content: 2000, view: 700, insetTop: 100, insetBottom: 0).place == "before the top", "the same point of tolerance at the top")
+    do {
+        // kosmos#7678 review 2: the panel stays above the keyboard wherever the message is.
+        let top = { (t: Double?, b: Double?, h: Double) in Board.actionsPanelTop(bubbleTop: t, bubbleBottom: b, areaTop: 100, areaBottom: 500, height: h, gap: 8) }
+        check(top(400, 450, 200) == 192, "panel: above the bubble where it fits")
+        check(top(120, 170, 200) == 178, "panel: below where only that fits")
+        check(top(280, 330, 300) == 108, "panel: neither fits, the upper side is roomier, kept inside the area")
+        check(top(180, 230, 300) == 192, "panel: neither fits, the lower side is roomier, kept inside the area")
+        check(top(nil, nil, 200) == 292, "panel: no bubble, the bottom of the area")
+        check(Board.actionsPanelHeight(wanted: 258, areaHeight: 200, gap: 8) == 184, "panel: never taller than the room there is")
+        check(Board.actionsPanelHeight(wanted: 196, areaHeight: 400, gap: 8) == 196, "panel: its own height where it fits")
+        let shown = Board.actionsPanelHeight(wanted: 300, areaHeight: 120, gap: 8)
+        let tight = Board.actionsPanelTop(bubbleTop: 150, bubbleBottom: 190, areaTop: 100, areaBottom: 220, height: shown, gap: 8)
+        check(tight >= 108 && tight + shown <= 212, "panel: in the tightest area it is inside both ends")
+    }
     check(Board.emptyRecovery(later: false, place: "within", scrolling: false) == .newest && Board.emptyRecovery(later: false, place: nil, scrolling: false) == .newest,
           "the first empty list goes to the newest message as before, the scroll left alone when within or unread")
     check(Board.emptyRecovery(later: false, place: "past the end", scrolling: false) == .backInsideThenNewest && Board.emptyRecovery(later: false, place: "before the top", scrolling: false) == .backInsideThenNewest,

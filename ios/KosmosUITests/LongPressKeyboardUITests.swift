@@ -8,11 +8,11 @@ import XCTest
 final class LongPressKeyboardUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
-    private func launch() throws -> XCUIApplication {
+    private func launch(_ sample: [String: String] = ["KOSMOS_SAMPLE_OPEN": "dana"]) throws -> XCUIApplication {
         let env = ProcessInfo.processInfo.environment
         guard env["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()
-        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana"]
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1"].merging(sample) { _, new in new }
         if env["KOSMOS_LP_CONTROL"] == "1" { app.launchEnvironment["KOSMOS_SAMPLE_NOPANEL"] = "1" }
         app.launch()
         return app
@@ -45,6 +45,7 @@ final class LongPressKeyboardUITests: XCTestCase {
         KeyboardSlideUITests.settle(message)
         shot(app, "actions open, keyboard up")
         XCTAssertTrue(keyboard.exists, "the long press lowered the keyboard")
+        assertAllAboveKeyboard(app, "Copy text")
         XCTAssertTrue(app.descendants(matching: .any)["messageActionsPanel"].exists, "the actions opened as the sheet, not the in-chat panel")
         XCTAssertEqual(message.frame.minY, before.minY, accuracy: 1, "the pressed message moved: \(before.minY) to \(message.frame.minY)")
         // A tap on the dim, above the panel, closes it: the keyboard and the message still where they were.
@@ -107,13 +108,32 @@ final class LongPressKeyboardUITests: XCTestCase {
         XCTAssertTrue(mine.waitForNonExistence(timeout: 10), "confirming Delete left the message")
     }
 
+    // Review 2: the last row is reachable, not only present: Reply existing behind the keyboard would pass exists.
+    private func assertAllAboveKeyboard(_ app: XCUIApplication, _ last: String, line: UInt = #line) {
+        let row = app.buttons[last]
+        XCTAssertTrue(row.exists, "no \(last)", line: line)
+        XCTAssertTrue(row.isHittable, "\(last) cannot be reached", line: line)
+        XCTAssertLessThanOrEqual(row.frame.maxY, app.keyboards.firstMatch.frame.minY, "\(last) is behind the keyboard", line: line)
+    }
+
+    // Review 2: More closes the panel and lowers the keyboard, or the sheet rises behind it (#7530).
+    func testMoreFromThePanelLowersTheKeyboard() throws {
+        let app = try launch()
+        let message = pressed(app)
+        try KeyboardSlideUITests.keyboardUp(app, box(app), message, shot: "keyboard up", test: self)
+        message.press(forDuration: 0.8)
+        let more = app.buttons["More reactions"]
+        XCTAssertTrue(more.waitForExistence(timeout: 5), "no More in the panel")
+        more.tap()
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
+        XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 5), .completed, "More left the keyboard up")
+        XCTAssertTrue(app.staticTexts["Reactions"].waitForExistence(timeout: 5), "the full list did not open")
+        XCTAssertFalse(app.descendants(matching: .any)["messageActionsPanel"].exists, "the panel stayed open under the sheet")
+    }
+
     // Review 1: the room has its own list and box, so the panel is checked there too.
     func testRoomKeyboardStaysAndPanelOpens() throws {
-        let env = ProcessInfo.processInfo.environment
-        guard env["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
-        let app = XCUIApplication()
-        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
-        app.launch()
+        let app = try launch(["KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"])
         let field = app.textFields.matching(NSPredicate(format: "label == 'Post to everyone on this project'")).firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 30), "no room message box")
         let post = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Pages 9 to 12 wait")).firstMatch
@@ -122,10 +142,13 @@ final class LongPressKeyboardUITests: XCTestCase {
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "no on-screen keyboard")
         KeyboardSlideUITests.settle(post)
+        let before = post.frame
         post.press(forDuration: 0.8)
         XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5), "the actions did not open")
+        KeyboardSlideUITests.settle(post)
         shot(app, "room, actions open, keyboard up")
         XCTAssertTrue(keyboard.exists, "the long press lowered the keyboard")
+        XCTAssertEqual(post.frame.minY, before.minY, accuracy: 1, "the post moved")
         XCTAssertTrue(app.descendants(matching: .any)["messageActionsPanel"].exists, "the room opened the sheet, not the panel")
     }
 
@@ -133,6 +156,13 @@ final class LongPressKeyboardUITests: XCTestCase {
     func testKeyboardDownStillOpensTheSheet() throws {
         let app = try launch()
         let message = pressed(app)
+        // Up and down first: a keyboard that has gone must read as gone (review 2: never raising it could not fail).
+        try KeyboardSlideUITests.keyboardUp(app, box(app), message, shot: "keyboard up", test: self)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.97)))
+        let down = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
+        XCTAssertEqual(XCTWaiter().wait(for: [down], timeout: 5), .completed, "the keyboard did not go down")
+        KeyboardSlideUITests.settle(message)
         message.press(forDuration: 0.8)
         XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5), "the sheet did not open")
         XCTAssertFalse(app.descendants(matching: .any)["messageActionsPanel"].exists, "the panel opened with the keyboard down")
