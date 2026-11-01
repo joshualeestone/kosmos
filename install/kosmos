@@ -3655,7 +3655,7 @@ cmd_connections() {
       if (!j || !Array.isArray(j.services)) process.exit(1);
       for (const x of j.services) {
         if (!x || typeof x.name !== "string") continue;
-        if (x.held === true) console.log(x.name + ": connected" + (x.how === "token" ? " (a token is stored; Settings > Connections checks it with " + x.name + " when opened" + (x.connect ? "; replace it with: kosmos connect " + x.connect : "") + ")" : " (signed in through Kosmos)"));
+        if (x.held === true) console.log(x.name + ": connected" + (x.how === "token" ? " (a token is stored; Settings > Connections checks it with " + x.name + " when opened" + (x.connect ? "; replace it with: kosmos connect " + x.connect : "") + ")" : (x.tool ? " (signed in with its own tool on this computer; Settings > Connections checks it when opened)" : " (signed in through Kosmos)")));
         else if (x.held === false) console.log(x.name + ": not connected" + (x.connect ? " (store the token the person gives you with: kosmos connect " + x.connect + ")" : ""));
         else console.log(x.name + ": not known without a live check; the person connects it in Settings > Connections");
       }
@@ -7026,6 +7026,8 @@ cmd_project() {
       case "$body" in '{"error":'*)
         because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
         say "Kosmos did not create that project: ${because:-it did not say why}."
+        # #7748: making a folder is the person's or the agent's own step, so this names the command rather than doing it.
+        [ "$because" = "there is no folder at that path" ] && say "Make it first, then run this again: mkdir -p $(printf '%q' "$folder")"
         exit 1 ;;
       esac
       # Success is {"project":...,"told":...,"id":"...",...}. Require the id the
@@ -7043,12 +7045,10 @@ cmd_project() {
 }
 
 # kosmos#4785: `agent list` (after kosmos) is the natural guess for "who is on this computer", and the answer was a dead
-# end naming only create, roles and role-draft. Point at the command that lists them. A pointer, not an alias: an
-# `agent list` subcommand would have to exist on Windows too (the parity test), where there is no agent listing.
-# Outside cmd_agent on purpose, so that test does not read `list` as a subcommand of `agent`.
+# end naming only create, roles and role-draft. Point at the command that lists them.
 _kosmos_agent_list_hint() {
   case "${1:-}" in
-    list|ls|show|all) say "To see the agents on this computer: kosmos agents" ;;
+    ls|show|all) say "To see the agents on this board: kosmos agent list" ;;
   esac
 }
 
@@ -7062,11 +7062,12 @@ cmd_agent() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos agent <create|roles|role-draft|instructions-add|remove>"
+      say "Usage: kosmos agent <list|create|roles|role-draft|instructions-add|remove>"
+      say "  kosmos agent list                               every agent on this board, its role, and whether it is running"
       say "  kosmos agent create \"<name>\" <role> [\"<why>\"]   make an agent for the person, after they confirm"
       say "  kosmos agent create \"<name>\" --new-role \"<label>\" --from <file> [\"<why>\"]"
       say "                                                  make one with a role you wrote, when none fits"
-      say "  kosmos agent roles                              list the roles an agent can be made with"
+      say "  kosmos agent roles [<word>]                     list the roles an agent can be made with, or those matching <word>"
       say "  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)"
       say "  kosmos agent instructions-add \"<name>\" --from <file>"
       say "                                                  propose an addition to an agent's instructions; the person applies it"
@@ -7108,18 +7109,25 @@ cmd_agent() {
       done
       # Review 5: a word after the last one read (`create N worker why --model opus`) was silently dropped.
       _no_more_words "agent create" "$_max" "Usage: kosmos agent create \"<name>\" <role> [\"<why>\"]   (or --new-role \"<label>\" --from <file> [\"<why>\"])" "$@" ;;
-    roles) : ;;
+    list) _no_more_words "agent list" 0 "Usage: kosmos agent list" "$@" ;;
+    roles)
+      case "${1:-}" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "agent roles" "Usage: kosmos agent roles [<word>]" "$1" target ;; esac
+      _no_more_words "agent roles" 1 "Usage: kosmos agent roles [<word>]" "$@" ;;
     role-draft)
       if [ "${1:-}" = "--to" ] && [ -z "${2:-}" ]; then say "Usage: kosmos agent role-draft [--to <file>]"; exit 2; fi
       # A role is reused by its file, so an existing one is never replaced (a second role with the same short name).
       if [ "${1:-}" = "--to" ] && [ -e "$2" ]; then say "$2 already exists, and it may hold another role. Pick another name, or move it first."; exit 2; fi ;;
     *)
-      say "Unknown: kosmos agent $sub. Try: create, roles, role-draft, instructions-add, remove"
+      say "Unknown: kosmos agent $sub. Try: list, create, roles, role-draft, instructions-add, remove"
       _kosmos_agent_list_hint "$sub"
       exit 2 ;;
   esac
   if ! healthy; then
-    if [ "$sub" = remove ]; then say_not_up "nothing can be removed"; else say_not_up "an agent cannot be made"; fi
+    case "$sub" in
+      remove) say_not_up "nothing can be removed" ;;
+      list) say_not_up "it cannot list the agents" ;;
+      *) say_not_up "an agent cannot be made" ;;
+    esac
     exit 1
   fi
   # The answer is read as JSON by the engine's own node (an agent's PATH may have none, #1911).
@@ -7129,14 +7137,24 @@ cmd_agent() {
   local _rtok=""   # #4491 slice 4: the two role reads carry the agent's own token too, plain hex only
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _rtok="$KOSMOS_AGENT_TOKEN" ;; esac
   case "$sub" in
+    list)
+      body=$(kosmos_curl "$_bt" "$_rtok" -sS -m 25 "$URL/api/agents/list" 2>/dev/null) || rc=$?
+      if [ "$rc" -ne 0 ]; then say_unreached "list the agents" "$rc"; exit 1; fi
+      if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the agents. Try again in a minute."; exit 1; fi
+      printf '%s' "$body" | CL_MOD="$(kosmos_engine_module clilists)" "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}if(!j||!Array.isArray(j.agents))process.exit(1);const r=require(process.env.CL_MOD).agentLines(j.agents);console.log(r.lines.join("\n"));process.exitCode=r.code})' \
+        || { say "Kosmos gave an answer we could not read when listing the agents."; exit 1; }
+      ;;
     roles)
       # ?catalogue=1: listing the roles asks for the downloaded ready-made ones too, as the picker does (#4632).
       # -m 25: the board may be downloading (up to 8 s, 16 s when it retries past the caches).
       body=$(kosmos_curl "$_bt" "$_rtok" -sS -m 25 "$URL/api/roles?catalogue=1" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "list the roles" "$rc"; exit 1; fi
       if [ -z "$body" ]; then say "Kosmos gave an empty answer when asked for the roles. Try again in a minute."; exit 1; fi
-      printf '%s' "$body" | "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}for(const r of (j.roles||[]))if(r&&r.key)console.log(r.key+"  "+(r.label||""))})' \
-        || { say "Kosmos gave an answer we could not read when listing the roles."; exit 1; }
+      # An exit of 1 is the word matching nothing, said by the reader; anything else is an answer it could not read.
+      local _rrc=0
+      printf '%s' "$body" | CL_MOD="$(kosmos_engine_module clilists)" CL_WORD="${1:-}" "$_node" -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(3)}if(!j||!Array.isArray(j.roles))process.exit(3);const r=require(process.env.CL_MOD).roleLines(j.roles,process.env.CL_WORD);console.log(r.lines.join("\n"));process.exitCode=r.code})' || _rrc=$?
+      [ "$_rrc" -eq 0 ] || [ "$_rrc" -eq 1 ] || { say "Kosmos gave an answer we could not read when listing the roles."; exit 1; }
+      [ "$_rrc" -eq 0 ] || exit 1
       ;;
     role-draft)
       # The "Describe it yourself" text (the `own` role): what a new role starts from. {{NAME}} stays; Kosmos

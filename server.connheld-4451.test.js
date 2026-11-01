@@ -81,6 +81,19 @@ test('#4451: connecting through the door makes ONE metered check, and the agents
   assert.equal(h['Brave Search'].connect, 'brave-search', 'the door word an agent uses is missing');
   assert.equal(h.Exa.held, false, 'a door with no token reads as held');
   assert.equal(h.GitHub.how, 'sign-in');
+  // #7748: a sign-in in the service's own tool is read from its file, and only a file that holds one says so.
+  const toolDir = fs.mkdtempSync(path.join(SANDBOX, 'tool-'));
+  process.env.AGENT_WORKFORCE_GH_CONFIG_DIR = toolDir;
+  process.env.AGENT_WORKFORCE_VERCEL_CONFIG_DIR = toolDir;
+  try {
+    const none = await held();
+    assert.equal(none.GitHub.held, null, 'no file reads as not known');
+    assert.equal(none.Vercel.held, null);
+    fs.writeFileSync(path.join(toolDir, 'hosts.yml'), 'github.com:\n  user: x\n');
+    fs.writeFileSync(path.join(toolDir, 'auth.json'), '{"token":"t"}');
+    const both = await held();
+    assert.deepEqual([both.GitHub.held, both.GitHub.tool, both.Vercel.held, both.Vercel.tool], [true, true, true, true]);
+  } finally { delete process.env.AGENT_WORKFORCE_GH_CONFIG_DIR; delete process.env.AGENT_WORKFORCE_VERCEL_CONFIG_DIR; }
   assert.equal(metered(), m0, 'the agents\' read called a metered service');
 
   // CONTROL: the page's full sweep DOES check (and so is not for agents), with these same counters.

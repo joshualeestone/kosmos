@@ -21,6 +21,8 @@ const run = promisify(execFile);
 const HOME = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-agent-')));
 fs.mkdirSync(path.join(HOME, 'runtime', 'bin'), { recursive: true });
 fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
+fs.mkdirSync(path.join(HOME, 'engine'));
+fs.copyFileSync(path.join(__dirname, 'engine', 'clilists.js'), path.join(HOME, 'engine', 'clilists.js'));
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
@@ -39,9 +41,17 @@ function withStub(answer, fn) {
       });
       return;
     }
+    if (req.method === 'POST' && req.url === '/api/projects') {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'there is no folder at that path' }));
+    }
+    if (req.method === 'GET' && req.url === '/api/agents/list') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ agents: [{ name: 'Ada', role: 'Writer', state: 'idle' }, { name: 'Ben', role: null, state: 'stopped' }] }));
+    }
     if (req.method === 'GET' && req.url.startsWith('/api/roles')) {
       res.writeHead(200, { 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ roles: [{ key: 'pm', label: 'Project Manager' }, { key: 'writer', label: 'Writer' }], models: [] }));
+      return res.end(JSON.stringify({ roles: [{ key: 'pm', label: 'Project Manager', group: 'Core' }, { key: 'writer', label: 'Writer', group: 'Words' }], models: [] }));
     }
     res.writeHead(200, { 'content-type': 'text/html' });
     res.end('<title>Kosmos</title>Agent Workforce');
@@ -132,12 +142,42 @@ test('#3734 agent roles lists the role keys, and a bad call is named before the 
   async (port, seen) => {
     const r = await cli(port, ['agent', 'roles']);
     assert.equal(r.code, 0, r.out);
-    assert.match(r.out, /^pm {2}Project Manager$/m);
-    assert.match(r.out, /^writer {2}Writer$/m);
+    assert.match(r.out, /^\s*Core:$/m);
+    assert.match(r.out, /^\s*pm {2}Project Manager$/m);
+    assert.match(r.out, /^\s*writer {2}Writer$/m);
+    const one = await cli(port, ['agent', 'roles', 'WRIT']);
+    assert.equal(one.code, 0, one.out);
+    assert.match(one.out, /writer {2}Writer/);
+    assert.doesNotMatch(one.out, /Project Manager/, 'a word narrows the list');
+    const none = await cli(port, ['agent', 'roles', 'zebra']);
+    assert.equal(none.code, 1, none.out);
+    assert.match(none.out, /No role matches "zebra"/);
+    const two = await cli(port, ['agent', 'roles', 'a', 'b']);
+    assert.equal(two.code, 2, two.out);
     const bad = await cli(port, ['agent', 'create', 'only-a-name']);
     assert.equal(bad.code, 2);
     assert.match(bad.out, /Usage: kosmos agent create/);
     assert.equal(seen.length, 0, 'a malformed call reached the board');
+  }));
+
+test('#7748 kosmos agent list names each agent, its role, and whether it runs', () => withStub(
+  () => [500, {}],
+  async (port) => {
+    const r = await cli(port, ['agent', 'list']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /^\s*Ada {2}Writer {2}running, idle$/m);
+    assert.match(r.out, /^\s*Ben {2}no role recorded {2}not running$/m);
+    const extra = await cli(port, ['agent', 'list', 'x']);
+    assert.equal(extra.code, 2, extra.out);
+  }));
+
+test('#7748 project create names the command that makes a missing folder, quoted', () => withStub(
+  () => [500, {}],
+  async (port) => {
+    const r = await cli(port, ['project', 'create', 'P', '/tmp/a b']);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /there is no folder at that path/);
+    assert.match(r.out, /mkdir -p \/tmp\/a\\ b/);
   }));
 
 test('#3734 kosmos agent --help and -h show the agent usage, not the top-level banner', () => withStub(
@@ -146,7 +186,7 @@ test('#3734 kosmos agent --help and -h show the agent usage, not the top-level b
     for (const flag of ['--help', '-h']) {
       const r = await cli(port, ['agent', flag]);
       assert.equal(r.code, 0, flag + ' did not exit 0');
-      assert.match(r.out, /Usage: kosmos agent <create\|roles\|role-draft\|instructions-add\|remove>/, flag + ' showed: ' + r.out);   // #4474 added role-draft, #5293 instructions-add, #7362 remove
+      assert.match(r.out, /Usage: kosmos agent <list\|create\|roles\|role-draft\|instructions-add\|remove>/, flag + ' showed: ' + r.out);   // #4474 added role-draft, #5293 instructions-add, #7362 remove
       assert.match(r.out, /--new-role "<label>" --from <file>/, flag + ' did not show the new-role form');
       assert.doesNotMatch(r.out, /kosmos start \| stop/, flag + ' fell through to the top-level banner');
     }

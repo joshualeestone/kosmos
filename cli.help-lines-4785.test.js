@@ -7,7 +7,7 @@
  * What is held here:
  *   - the Mac help has a row with words for EVERY verb of the dispatch (read from install/kosmos, so a verb added
  *     later is red here until it is described);
- *   - `agent list` points at `kosmos agents`, and a different unknown subcommand does not (the control: a hint
+ *   - `agent ls` points at `kosmos agent list`, and a different unknown subcommand does not (the control: a hint
  *     printed on every unknown would pass the first arm and help nobody);
  *   - an unknown top-level command names what was typed, shows the list, and still exits 2;
  *   - the Windows command describes every verb it has, and in the SAME words as the Mac for every verb they share.
@@ -73,15 +73,15 @@ test('#4785: kosmos help is help (exit 0, the list); "help" inside a message is 
   assert.match(msg.out, /not running/, 'a message saying "help" was taken for a help request and not sent');
 });
 
-test('#4785: agent list points at kosmos agents; another unknown subcommand does not', async () => {
-  const r = await run(['agent', 'list']);
+test('#4785: agent ls points at kosmos agent list; another unknown subcommand does not', async () => {
+  const r = await run(['agent', 'ls']);
   assert.equal(r.code, 2);
-  assert.match(r.out, /Unknown: kosmos agent list/);
-  assert.match(r.out, /kosmos agents\b/, 'agent list does not name the command that lists agents');
+  assert.match(r.out, /Unknown: kosmos agent ls/);
+  assert.match(r.out, /kosmos agent list\b/, 'agent ls does not name the command that lists agents');
   const control = await run(['agent', 'frobnicate']);
   assert.equal(control.code, 2);
   assert.match(control.out, /Unknown: kosmos agent frobnicate/);
-  assert.doesNotMatch(control.out, /kosmos agents\b/, 'the hint is printed on every unknown subcommand, not on a listing guess');
+  assert.doesNotMatch(control.out, /To see the agents/, 'the hint is printed on every unknown subcommand, not on a listing guess');
 });
 
 test('#4785: an unknown command names what was typed, shows the list, and still exits 2; bare kosmos still exits 2', async () => {
