@@ -764,30 +764,30 @@ test('a plan: an optional folder past the plan is refused in words, never droppe
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('a plan: the measured size stays honest across a batch', async () => {
+test('a plan: the measured size stops a run the expectation let through, honestly across a batch', async () => {
   const w = oneFile(16 * 1024 * 1024), k = keys(), st = store();
   try {
     const whole = await take(k, w.root, st, { deps: { planGb: 25 } });
     assert.equal(whole.ok, true, whole.because);
     const n = whole.uploaded;
     assert.ok(n >= 7, `chunks: ${n}`);
-    const st2 = store();
-    // The objects list alone passes this budget with its last chunk, once uploaded keys are counted at their own length.
+    // The expectation is 17 chunks at 277 bytes. A budget just past it, and under what this many small chunks really cost.
     const keyLen = [...whole.added][0][1].key.length;
-    const budget = 1024 + n * (70 + keyLen) - 10;
-    const r = await take(k, w.root, st2, { deps: { planGb: 25, planChunkSlack: 0.01, maxManifestJson: budget, batchBytes: 1 } });
-    assert.equal(r.ok, false, `budget ${budget}`); assert.equal(r.tooLarge, true, r.because);
+    const entry = (64 + 3) * n + 100;
+    const budget = 1024 + n * (70 + keyLen) + entry - 10;
+    const st2 = store();
+    const r = await take(k, w.root, st2, { deps: { planGb: 25, maxManifestJson: budget, batchBytes: 1, planExpectNothing: true } });
+    assert.equal(r.ok, false, `budget ${budget}`); assert.equal(r.tooLarge, true, r.because); assert.equal(r.personActs, true);
+    assert.equal(r.overAllowance, undefined, 'no pause to Monday: what a person moves is seen next hour');
+    assert.match(r.because, /more pieces than one backup can list/);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('a plan: when the expectation is wrong the measured manifest size stops the run before anything goes up', async () => {
-  const w = oneFile(32 * 1024 * 1024), k = keys(), st = store();
+test('a plan: a folder expected to pass the manifest is refused in words before anything is spent', async () => {
+  const w = oneFile(16 * 1024 * 1024), k = keys(), st = store();
   try {
-    const r = await take(k, w.root, st, { deps: { planGb: 25, planChunkSlack: 0.01, maxManifestJson: 3000 } });
-    assert.equal(r.ok, false); assert.equal(r.tooLarge, true, r.because);
-    assert.equal(r.overAllowance, true, 'ends for the week, or it walks every hour'); assert.equal(r.personActs, true);
-    assert.match(r.because, /more pieces than one backup can list/);
-    assert.equal(st.batches.length, 0);
+    const r = await take(k, w.root, st, { deps: { planGb: 25, maxManifestJson: 2000 } });
+    assert.equal(r.ok, false); assert.equal(r.overPlan, true, r.because); assert.equal(st.batches.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 

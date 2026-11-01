@@ -179,7 +179,8 @@ const detailsOf = (r) => {
     fetchProblems: r && Array.isArray(r.fetchProblems) ? r.fetchProblems : [] };
 };
 
-const fetcherOf = (d, keys, row, opts) => d.restorefetch.readGrantFetcher({ grant: grantOf(d), org: keys.org, member: keys.member, epoch: row.epoch, manifest: row.record,
+const MANIFEST_GET_MS = 10 * 60 * 1000;   // a top plan's manifest is about 130 MiB; about 230 KB/s fetches it (kosmos#7404)
+const fetcherOf = (d, keys, row, opts) => d.restorefetch.readGrantFetcher({ manifestTimeoutMs: MANIFEST_GET_MS, grant: grantOf(d), org: keys.org, member: keys.member, epoch: row.epoch, manifest: row.record,
   grantKeys: batchFor(row.record.key), fetch: opts.fetch });
 
 /* Why this manifest will not open, or null. The run checks it all again: this only stops a doomed one early. */
