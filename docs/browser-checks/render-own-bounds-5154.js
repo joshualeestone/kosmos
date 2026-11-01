@@ -64,10 +64,10 @@ const { chromium } = require('playwright');
     });
     if (out.error) { say(false, out.error); }
     else {
-      say(/get this agent going again after its quota reset/i.test(out.quotaText) && /20\s+minutes/.test(out.quotaText), 'a raised quota give-up names the quota resume and the minutes');
-      say(/nudged this idle agent to pick up its open task/i.test(out.nudgeText) && /15\s+minutes/.test(out.nudgeText), 'a raised nudge give-up names the idle nudge and the minutes');
-      say(/reminded this agent to answer its first message/i.test(out.firstText) && /10\s+minutes/.test(out.firstText), 'a raised first-reply give-up names the reminder and the minutes');
-      say(!/gave up/i.test(out.notRaisedText) && !/quota reset/i.test(out.notRaisedText), 'a NOT-raised ownBound shows no give-up sentence (CONTROL)');
+      say(/Its quota reset, but it has not finished its turn/.test(out.quotaText) && /20\s+minutes/.test(out.quotaText), 'a raised quota give-up names the quota resume and the minutes');
+      say(/has an open task and has not picked it up/.test(out.nudgeText) && /15\s+minutes/.test(out.nudgeText), 'a raised nudge give-up names the idle nudge and the minutes');
+      say(/has not answered its first message/.test(out.firstText) && /10\s+minutes/.test(out.firstText), 'a raised first-reply give-up names the reminder and the minutes');
+      say(!/stopped about/i.test(out.notRaisedText) && !/quota reset/i.test(out.notRaisedText), 'a NOT-raised ownBound shows no give-up sentence (CONTROL)');
       // PRECEDENCE, asserted on the CARD the person sees (the real guard: a Kosmos give-up must never sit on the
       // card of an agent that is asking the person its own question). cardStOf renders a stateReportedBy agent
       // needs_you as the calm "Question" treatment (st-question); the give-up arm in stateReason is guarded on the

@@ -22653,15 +22653,15 @@ function stateReason(a, opts) {
      or quota-paused agent with no competing live-state sentence -- and for a non-stuck rate_limited agent it wins
      over the plain rate-limit sentence below, because the give-up is the relevant quota escalation. Same DELIBERATE
      scope as slice C: it escalates the SENTENCE + the Issue filter + one push, not the card's look or pill. The
-     needs_you / own-question precedence is handled above (that arm returns first). Placeholder copy; Mona Lisa to
-     refine, as slices A/C were. Oldest-standing give-up wins (items[0]). */
+     needs_you / own-question precedence is handled above (that arm returns first). Oldest-standing give-up wins (items[0]). */
   if (a && a.ownBound && a.ownBound.raised === true && Array.isArray(a.ownBound.items) && a.ownBound.items.length
       && a.state !== 'needs_you') {   // precedence: a needs_you agent (reported question handled above, or a bare needs_you) keeps its own reason, matching the pill (needsYouReason)
     const it = a.ownBound.items[0];
     const mins = Math.max(1, Math.round((Number(it.forMs) || 0) / 60000));
-    if (it.cls === 'quota') return 'Kosmos tried to get this agent going again after its quota reset and gave up about ' + mins + ' minutes ago. Its turn is unfinished. Open it to see what it shows, or message it.';
-    if (it.cls === 'nudge') return 'Kosmos nudged this idle agent to pick up its open task and gave up about ' + mins + ' minutes ago. Open it to see what it shows, or message it.';
-    if (it.cls === 'firstreply') return 'Kosmos reminded this agent to answer its first message and gave up about ' + mins + ' minutes ago. Open it to see what it shows, or message it.';
+    const ago = 'about ' + mins + (mins === 1 ? ' minute' : ' minutes') + ' ago';
+    if (it.cls === 'quota') return 'Its quota reset, but it has not finished its turn. Kosmos tried to start it again and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
+    if (it.cls === 'nudge') return 'It has an open task and has not picked it up. Kosmos reminded it and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
+    if (it.cls === 'firstreply') return 'It has not answered its first message. Kosmos reminded it and stopped ' + ago + '. Open it to see what it shows, or send it a message.';
   }
   /* #5957 slice 2's rules-far-behind note for a calm card lives in pillSay since #6716 (no sentence on a tile). */
   if (!a || a.state !== 'rate_limited') return '';
@@ -67520,7 +67520,7 @@ const PJ_NEEDS_WHY = {
   stuck_auth: ['Kosmos has seen it unable to sign in for a while. It cannot work until its account is reconnected.', 'Open'],   // "has seen": read from its screen, as the agent page says it
   // #6341: never counted on a project now (out of usage is quiet there), so never shown here; the words stay for reference.
   stuck_rate: ['Kosmos has seen it paused by a rate limit for a while. It carries on when the limit lifts, or you can switch its model.', 'Open'],
-  own_bound: ['Kosmos tried to get it going (a nudge, or a resume after its quota reset) and gave up. Open it to see what it shows.', 'Open'],   // #5154 slice B
+  own_bound: ['Kosmos could not get it going, and stopped trying.', 'Open'],   // #5154 slice B
   other: ['Kosmos needs you to look at it.', 'Open'],
 };
 /* #5692: is this member's row drawn red? Asked of the row builder itself, so in the tab layout the needs-you block and
