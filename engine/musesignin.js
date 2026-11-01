@@ -17,20 +17,16 @@
  */
 const fs = require('node:fs');
 const crypto = require('node:crypto');
-const { execFileSync } = require('node:child_process');
 const musestatus = require('./musestatus');
+const tmuxsignin = require('./tmuxsignin');
 
 /* Its own socket, named after this macOS account's home (the agysignin rule): Muse's sign-in is one
    per account. A test names its own (AGENT_WORKFORCE_MUSE_SIGNIN_SOCKET), so it never meets a real one. */
-function socket() {
-  if (process.env.AGENT_WORKFORCE_MUSE_SIGNIN_SOCKET) return process.env.AGENT_WORKFORCE_MUSE_SIGNIN_SOCKET;
-  return 'kosmos-muse-signin-' + crypto.createHash('sha256').update(String(require('node:os').homedir())).digest('hex').slice(0, 10);
-}
+function socket() { return tmuxsignin.homeSocket('kosmos-muse-signin-', 'AGENT_WORKFORCE_MUSE_SIGNIN_SOCKET'); }
 const SESSION = 'muse-signin';
 const TICK_MS = 1000;
 const STUCK_MS = 15000;          // an unknown screen this long is named; a retry with no new code this long ends
 const GIVE_UP_MS = 20 * 60000;   // a device code nobody approves ends by itself (Muse's own expire comes first)
-const TMUX_CALL_MS = 5000;
 const MAX_KEY_FAILURES = 5;
 const PANE_COLS = 120;
 const PANE_ROWS = 40;
@@ -48,8 +44,7 @@ const NOT_RECORDED = 'Muse Code signed in, but Kosmos could not record it on thi
 const NOT_WAITING = 'Muse Code did not start waiting for the approval';
 const UNREACHABLE = 'Kosmos could not reach Muse Code\'s sign-in just now';
 const NO_RETRY_SENT = 'Kosmos could not ask Muse Code for a new code';
-/* A tmux failure that says nothing about whether the keys arrived (one rule, round 9). */
-function deliveryUnknown(e) { return !!(e && (e.code === 'ETIMEDOUT' || e.signal)); }
+const { deliveryUnknown, shq, tmuxBin } = tmuxsignin;   // the hidden-tmux plumbing shared with agysignin (#4195)
 /* An Enter that did not move Muse off the code screen this long is sent once more, then named (round 1). */
 const RESEND_MS = 5000;
 /* The line the session prints when muse has exited, so its last screen can still be read (round 1:
@@ -111,22 +106,9 @@ function tryOf(before) {
   return { url, code: fromUrl || (codes ? codes[codes.length - 1] : null) };
 }
 
-function tmuxBin() { return tmuxBinCached || (tmuxBinCached = require('./create').binPaths().tmuxBin); }
-let tmuxBinCached = null;
 /* Every real side effect goes through the live-execution gate (CLAUDE.md convention 3). */
-function live(file, args) {
-  const gate = require('./live-execution');
-  if (gate.liveExecutionAllowed()) return true;
-  gate.refuseOrWarn('musesignin', file, args);
-  return false;
-}
-let tmux = (args) => {
-  const full = ['-L', socket()].concat(args);
-  let bin;
-  try { bin = tmuxBin(); } catch (e) { const x = new Error('Kosmos could not find tmux: ' + (e && e.message)); x.kosmosInternal = true; throw x; }
-  if (!live(bin, full)) throw new Error('live execution is off');
-  return execFileSync(bin, full, { encoding: 'utf8', timeout: TMUX_CALL_MS, stdio: ['ignore', 'pipe', 'pipe'] });
-};
+function live(file, args) { return tmuxsignin.live('musesignin', file, args); }
+let tmux = (args) => tmuxsignin.runTmux('musesignin', socket(), args);
 let museBin = () => musestatus.installed();
 let now = () => Date.now();
 let tickMs = TICK_MS;
@@ -272,7 +254,6 @@ function tick() {
   if (S === mine && mine && mine.timer && now() - mine.startedAt > GIVE_UP_MS) end('failed', GAVE_UP);
 }
 
-function shq(v) { return "'" + String(v).replace(/'/g, "'\\''") + "'"; }
 /* The environment for `muse login`, added in front of the command: never HOME, never XDG. MUSE_LOGIN=1
    lets it sign in; auto-update and the installer's shell-profile edits stay off. */
 const LOGIN_ENV = Object.freeze(['MUSE_LOGIN=1', 'MUSE_NO_AUTO_UPDATE=1', 'MUSE_NO_MODIFY_PATH=1']);
@@ -280,7 +261,7 @@ const LOGIN_ENV = Object.freeze(['MUSE_LOGIN=1', 'MUSE_NO_AUTO_UPDATE=1', 'MUSE_
 function start() {
   if (!musestatus.enabled()) return { ok: false, because: NOT_ON };
   if (S && S.timer) end('stopped');
-  tmuxBinCached = null;
+  tmuxsignin.forgetTmuxBin();
   const inst = museBin();
   if (!inst || !inst.installed) return { ok: false, because: (inst && inst.because) || musestatus.NOT_INSTALLED_BECAUSE };
   if (tmux === REAL.tmux && !live(tmuxBin(), ['-L', socket(), 'new-session', '-s', SESSION])) return { ok: false, because: COULD_NOT_START };
