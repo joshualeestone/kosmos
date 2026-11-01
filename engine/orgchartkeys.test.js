@@ -266,6 +266,15 @@ test('#4560: the retention line names what the reading provider keeps, from its 
   assert.equal(keys.keeps(null), null);
 });
 
+test('#4660: keeps() returns the Claude retention line per reader kind, the API key apart from the plan', () => {
+  // The Claude branch keeps() gained for #4660, pinned directly rather than only through the route.
+  assert.equal(keys.keeps({ kind: 'claude' }), keys.CLAUDE_KEEPS, 'a Claude plan reader gets the plan sentences');
+  assert.equal(keys.keeps({ kind: 'claude', apiKey: true }), keys.CLAUDE_API_KEEPS, 'a Claude reader on an API key gets the API-key line');
+  // Strict === true: a truthy non-boolean apiKey is NOT the API-key case, so it gets the plan wording.
+  assert.equal(keys.keeps({ kind: 'claude', apiKey: 'true' }), keys.CLAUDE_KEEPS, 'only a real boolean true selects the API-key line');
+  assert.notEqual(keys.CLAUDE_KEEPS, keys.CLAUDE_API_KEEPS, 'the plan and API-key sentences are distinct');
+});
+
 test('#4560: the timeout, and a Stop, hold through the whole answer, not only its headers', { timeout: 15000 }, async () => {
   only('openai');
   // Headers now, the body never finishes: the answer trickles and stalls.
