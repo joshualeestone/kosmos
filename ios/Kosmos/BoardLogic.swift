@@ -458,10 +458,10 @@ enum Board {
     static func readingsHere(_ rows: [String: (top: Double, content: Double)], offset: Double, bandTop: Double, slack: Double) -> [String: Double] {
         rows.filter { abs($0.value.content - (offset + $0.value.top - bandTop)) <= max(slack, 0) }.mapValues(\.top)
     }
-    // kosmos#7690: how far to add to the rows' tops to read them from before a jump: the jump's size, if it landed within `within`
-    // seconds and the list is still where it landed; otherwise 0. Keyed on the list being there, so a later move ends it.
-    static func jumpBack(from: Double, to: Double, now: Double, age: Double, within: Double) -> Double {
-        age >= 0 && age <= within && abs(now - to) <= 1 ? to - from : 0
+    // kosmos#7690: how far to add to the rows' tops to read them from before a jump: the distance from where the list was, if the jump
+    // landed within `within` seconds and the list is still within `settle` of where it landed; otherwise 0.
+    static func jumpBack(from: Double, to: Double, now: Double, age: Double, within: Double, settle: Double) -> Double {
+        age >= 0 && age <= within && abs(now - to) <= settle ? now - from : 0
     }
     // kosmos#7654: a move further than the whole view: the row's reading cannot be trusted. A view with no height trusts nothing.
     static func holdReadingFar(moved: Double, showing: Double) -> Bool { abs(moved) > max(showing, 0) }
