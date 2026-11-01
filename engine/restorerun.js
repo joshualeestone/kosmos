@@ -22,8 +22,8 @@
  * A personal backup (kosmos#7404 slice D, opts.trust 'member-proof') has no escrow, so none of the above picks its key:
  * the manifest names its signer and proves it with the member secret (backupformat.js), and granted_at chooses nothing.
  * Residuals, stated: every computer that ever held the member key can make a proof until the key is replaced, and the
- * coordinator can hide snapshots from the list. That the trust is 'member-proof' must come from this computer's own
- * record, never from an answer of the coordinator's.
+ * coordinator can hide snapshots from the list. A company manifest handed this trust carries no proof and is refused,
+ * so a wrong org kind fails closed rather than opening a forgery.
  *
  * Snapshots are labelled by the time inside their id, never by the coordinator's granted_at (#7118's correction): the
  * id's time is device-signed and so authentic once the manifest opens; until then it is shown as claimed.
@@ -187,7 +187,7 @@ async function runRestore(opts) {
   let opened = null, used = null;
   if (byProof) {
     const got = openManifestByProof(opts.memberSk, ctx, bytes);
-    if (!got) return { ok: false, because: 'this backup does not carry the proof only your own key can make, so it was not restored' };
+    if (!got) return { ok: false, because: 'this backup could not be proved to be yours with this key, so it was not restored' };
     opened = got.manifest;
     used = { k: { key: got.devicePub.export({ format: 'der', type: 'spki' }).subarray(-32).toString('hex') }, pub: got.devicePub };
   } else {

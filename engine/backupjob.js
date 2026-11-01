@@ -98,7 +98,7 @@ const proofOk = (x) => Buffer.isBuffer(x) && x.length === 32;
 const proofField = (r) => (r.proofKey !== undefined ? { proofKey: r.proofKey } : {});
 function fromAnswer(st, r, named, now) {
   // Refused, never dropped: a manifest sealed without its proof could never be restored.
-  if (r && r.ok && r.proofKey !== undefined && !proofOk(r.proofKey)) return { ok: false, because: 'the backup key could not be set up on this computer', state: st };
+  if (r && r.ok && r.proofKey !== undefined && !proofOk(r.proofKey)) return { ok: false, because: 'the backup key could not be set up on this computer', state: Object.assign(st.lostEpoch ? { lostEpoch: st.lostEpoch } : {}, st.waits ? { waits: st.waits } : {}) };
   if (r && r.ok && isEpoch(r.epoch) && Buffer.isBuffer(r.publicKey) && r.publicKey.length === 32) {
     // An answer below the lost epoch comes when ensureMemberKey ignored lostEpoch (it is not the file's newest
     // registered key): that key is older still, so it is the one to replace next run. Never sealed under. (Equal is
