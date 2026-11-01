@@ -122,10 +122,12 @@ test('#7543: --public reads the public community on a company whose own is on, a
 test('#7543: one post and its comments are read in the space when the company community is on', async () => {
   companyOn();
   const r = await cr.read({ reader: 'dana', post: POST_ID });
+  assert.equal(r.readPost, undefined, 'kosmos#7391: a company post is not in the public Following feed');
   assert.equal(r.ok, true, r.because);
   assert.equal(publicSeen.length, 0, 'a company post was looked up in the PUBLIC community');
   assert.deepEqual(spaceSeen.map((s) => s.sub.split('?')[0]), ['/posts/' + POST_ID, '/posts/' + POST_ID + '/comments']);
   assert.ok(r.text.includes(cr.COMPANY_RULE));
+  assert.equal((await cr.read({ reader: 'dana', post: POST_ID, public: true })).readPost, POST_ID, 'kosmos#7391: --public there reads a public post, which can be');
 });
 
 test('#7543: --public is refused when the company has turned the public community off, and nothing is fetched', async () => {

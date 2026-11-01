@@ -104,6 +104,8 @@ test('#4373: one post by id; a bad id, a missing post and a taken-down post each
     '/posts/2b2c3d4e-0000-4000-8000-000000000002': () => ({ status: 410, json: { detail: 'post taken down' } }),
   });
   const one = await cr.read({ post: ID.toUpperCase() });
+  assert.equal(one.readPost, ID.toLowerCase(), 'kosmos#7391: the post to mark, trimmed and lower-cased');
+  assert.equal((await cr.read({ post: ' ' + ID })).readPost, ID.toLowerCase());
   assert.equal(one.ok, true, one.because);
   assert.match(one.text, /Only this one/);
   assert.match((await cr.read({ post: '../admin' })).because, /a post id looks like/);

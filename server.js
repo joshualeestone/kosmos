@@ -11545,7 +11545,7 @@ const server = http.createServer(async (req, res) => {
       const asked = new URLSearchParams();
       for (const k of ['channel', 'post', 'older']) if (q.get(k)) asked.set(k, q.get(k));
       for (const k of ['following', 'replies', 'public']) if (q.get(k) === '1') asked.set(k, '1');   // review 3: as the route reads them; kosmos#7543 review 2: public is a different question
-      /* Review 4: only a good answer to a read that marks what it showed (replies, Following) is kept for a re-ask; a
+      /* Review 4: only a good answer to a read whose re-read would lose what it showed (replies, Following) is kept for a re-ask; a
          channel or post read, and any failure, is read afresh, so a re-read after commenting is never stale. */
       const readjobs = require('./engine/readjobs');
       readjobs.ask(String(reader.card.sessionName) + '\n' + asked.toString(), safe, undefined, undefined,
@@ -11602,7 +11602,18 @@ const server = http.createServer(async (req, res) => {
     deliver(() => communityread.read({ channel: q.get('channel'), post: q.get('post'), older: q.get('older'), public: q.get('public') === '1', reader: reader.card.sessionName })   // #4941: reader, for its own comments not yet sent; #5292: older, the next page
       /* 502 when the SERVICE failed (unreachable, slow, an unreadable answer), 400 when the request was wrong (review 1):
          the two need different next steps. The words are always the board's own, never the service's. */
-      .then((r) => ({ status: r.ok ? 200 : (r.upstream ? 502 : 400), body: r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because } })));
+      .then((r) => {
+        // kosmos#7391: a post read directly is read: home stops counting it as new, as after read --following above. Only
+        // a first read drops the cached home, which a vote's after-action line uses and which costs a dozen requests to redo.
+        const who = String(reader.card.sessionName);
+        if (r.ok && r.readPost && !communityfollow.followingSeen(who).has(r.readPost)) {
+          communityfollow.noteSeen(who, [r.readPost]);
+          HOME_GEN.set(who, homeGen(who) + 1);
+          HOME_LINES.delete(who);
+          HOME_ROUTE.delete(who);
+        }
+        return { status: r.ok ? 200 : (r.upstream ? 502 : 400), body: r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because } };
+      }));
     return;
   }
 

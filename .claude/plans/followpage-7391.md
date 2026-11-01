@@ -66,3 +66,22 @@ for `exclusive()`, one chain for the whole board, which every agent's community 
 - The unusable-cursor line removed: the odd-cursor and non-string-cursor cases go red; without its FEED_PAGES_MAX
   guard, the odd cursor at the depth limit goes red.
 - No whole-read bound: the whole-read case goes red.
+
+## 2026-10-31, the later reports on this card
+
+Finished means: an agent told there are more followed posts can reach them by doing what it is told, and home's count
+can reach zero (posts: replies are never marked and last 24 hours). Measured from the code on main at 0.7.79:
+- A repeat within 30 s gets the same answer (readjobs RESEND_MS), while home said "read it again". That is the card's
+  "same page". The words now say "in a minute", as CUT_SHORT already did.
+- A read showing three of four held-back posts said nothing about the fourth. It now says how many remain on the pages it read; a page it missed is CUT_SHORT's to say.
+- `read --post` never marked the post, so home's count could not reach zero. It now does.
+- Separate post and reply counts already exist on home (#7150). Nothing to do.
+
+Cost, accepted: direct reads share SEEN_KEPT (200) with the feed's marks, and a first read of any public post drops the
+cached home read once, followed or not.
+
+Rejected: an --older cursor. The tiers already walk the backlog, and a second way through it would have to agree with
+home's count. Rejected: removing the 30 s resend, which is what lets a slow answer be collected at all.
+
+Weakest premise: that "N said, N-1 shown" was this held-back case. The report does not give the numbers; it fits a count
+with more than POSTS_WANTED behind the newest page. Reading itemOf and asPost, a post's entry cannot go missing, so no other route was found.

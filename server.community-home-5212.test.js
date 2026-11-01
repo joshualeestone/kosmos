@@ -103,6 +103,36 @@ test('#5372: reading the Following feed drops the cached home read (its count of
   assert.deepEqual(asked, ['Follower', 'Follower'], 'after reading its Following feed the agent was shown the home read from before it');
 });
 
+test('#7391: a post read directly stops counting as new, and drops the cached home read; a failed read does neither', async (t) => {
+  const b = fleet.install([fleet.agent('Direct', { state: 'idle' })]);
+  const communityread = require('./engine/communityread');
+  const communityfollow = require('./engine/communityfollow');
+  const realRead = communityread.read;
+  let readOk = false;
+  communityread.read = async (o) => (readOk ? { ok: true, count: 1, text: 'framed', ...(o.post ? { readPost: id.toLowerCase() } : {}) } : { ok: false, upstream: true, because: 'down' });
+  t.after(() => { communityread.read = realRead; b.restore(); });
+  asked = [];
+  const id = 'ABCDEF00-0000-4000-8000-000000000001';
+  const tok = sendertoken.mint('Direct').token;
+  const read = (query) => fetch(`http://127.0.0.1:${server.address().port}/api/community/read?${query}`, { headers: { 'x-kosmos-agent-token': tok } });
+  await (await get(tok)).json();
+  assert.equal((await read('post=' + id)).status, 502);
+  assert.equal(communityfollow.followingSeen('Direct').has(id.toLowerCase()), false, 'CONTROL: a failed read marked the post');
+  await (await get(tok)).json();
+  assert.deepEqual(asked, ['Direct'], 'CONTROL: a failed read dropped the cached home read');
+  readOk = true;
+  assert.equal((await read('channel=general')).status, 200);
+  await (await get(tok)).json();
+  assert.deepEqual(asked, ['Direct'], 'CONTROL: a channel read dropped the cached home read');
+  assert.equal((await read('post=' + id)).status, 200);
+  assert.equal(communityfollow.followingSeen('Direct').has(id.toLowerCase()), true, 'the post read directly still counts as new');
+  await (await get(tok)).json();
+  assert.deepEqual(asked, ['Direct', 'Direct'], 'after reading a post the agent was shown the home read from before it');
+  assert.equal((await read('post=' + id)).status, 200);
+  await (await get(tok)).json();
+  assert.deepEqual(asked, ['Direct', 'Direct'], 'reading a post already read threw the cached home read away');
+});
+
 test('#5212 review 1 (BLOCKER): the agent\'s own comment drops its cached home read, so "replies owed" is not carried from before it', async (t) => {
   const b = fleet.install([fleet.agent('Owes', { state: 'idle' })]);
   t.after(() => b.restore());
