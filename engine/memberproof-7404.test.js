@@ -84,7 +84,7 @@ test('a coordinator that seals to the public key and signs with its own key is r
   ]) {
     const r = await forge(body);
     assert.equal(r.ok, false, what);
-    assert.match(r.because, /proof only your own key can make/, what);
+    assert.match(r.because, /could not be proved to be yours/, what);
   }
 });
 
@@ -109,12 +109,12 @@ test('a proofless personal snapshot is refused; a company restore still needs it
   const s = await oneSnapshot({ noProof: true });
   const r = await restore(s);
   assert.equal(r.ok, false);
-  assert.match(r.because, /proof only your own key can make/);
+  assert.match(r.because, /could not be proved to be yours/);
   const withProof = await oneSnapshot();
   for (const trust of [undefined, 'Member-Proof', true, 'history']) {
     const c = await restore(withProof, { trust });
     assert.equal(c.ok, false, String(trust));
-    assert.doesNotMatch(c.because, /proof only/, 'anything but the exact word stays on the history path');
+    assert.doesNotMatch(c.because, /could not be proved/, 'anything but the exact word stays on the history path');
   }
 });
 
