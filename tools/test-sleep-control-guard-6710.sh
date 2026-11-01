@@ -23,14 +23,12 @@ fails=0
 ok()  { printf 'ok   %s\n' "$1"; }
 bad() { printf 'BAD  %s\n' "$1"; fails=$((fails + 1)); }
 
-# ALLOWLIST: basenames NOT scanned, each with why it is exempt. These carry bare-sleep controls that
-# are out of #6710's scope and are named on the card as a follow-up; the entries come out as each is
-# converted. Kano owns removing the two #6671 entries when leakctl-6671 merges (so they do not
-# outlive Mona Lisa's fix), and the follow-up entries when the follow-up card lands.
-ALLOWLIST="
-test-test-leak-guard-4273.sh          # Mona Lisa's (#6671, branch leakctl-6671); remove when it merges
-test-start-waits-for-starting-board-6586.sh # Mona Lisa's (#6671); remove when leakctl-6671 merges
-"
+# ALLOWLIST: basenames NOT scanned, each with why it is exempt. A file belongs here only when it
+# carries a bare-sleep control that is a deliberate shape the matcher cannot auto-detect; name the
+# reason and the card that will convert it, and drop the entry once it does. Empty now: leakctl-6671
+# (#6671) has merged, so its two files (test-test-leak-guard-4273.sh and
+# test-start-waits-for-starting-board-6586.sh) are converted and scanned again.
+ALLOWLIST=""
 allowlisted() {
   local entry tok
   while IFS= read -r entry; do
