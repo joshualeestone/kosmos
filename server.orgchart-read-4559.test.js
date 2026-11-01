@@ -173,9 +173,14 @@ test('#4660: a consent carries through the send when the reader id holds a +, en
     orgchartfile.setReaderForTest(() => ({ kind: 'claude', dir: null, apiKey: true }));
     assert.equal((await post('?consent=1&reader=' + encodeURIComponent(ask.json.reader))).status, 409);
     assert.equal(sent.length, 3, 'the file did not go');
-    // A page from before #4560 sends no id and only ever showed Anthropic's name, so a read sent elsewhere is refused.
-    orgchartfile.setReaderForTest(() => ({ kind: 'claude', dir: null, redirected: true }));
-    assert.equal((await post('?consent=1')).status, 409);
+    // A page from before #4560 sends no id and only ever showed a plain Claude box, so it reaches no other reader, and
+    // it is told to reload, because choosing the file again on that page would send no id again.
+    for (const reader of [{ kind: 'claude', dir: null, apiKey: true }, { kind: 'claude', dir: null, token: true }, { kind: 'claude', dir: null, redirected: true }]) {
+      orgchartfile.setReaderForTest(() => reader);
+      const refused = await post('?consent=1');
+      assert.equal(refused.status, 409);
+      assert.match((await refused.json()).error, /older than Kosmos\. Reload/);
+    }
     orgchartfile.setReaderForTest(() => ({ kind: 'claude', dir: null }));
     assert.equal((await post('?consent=1')).status, 200, 'CONTROL: such a page still reads with plain Claude');
     assert.equal(sent.length, 4);
