@@ -2639,12 +2639,13 @@ struct KeyboardHold: UIViewRepresentable {
         // fights a longer window (a finger or the app's own move still ends it).
         static let window: TimeInterval = 1.5
         private func endGuard() { guarding = nil; rows?.watch = nil }
-        // kosmos#7654: the rows nearest the top, named, in a Debug run of the sample room or chat only: its ids hold no one's words.
+        // kosmos#7654: the rows nearest the held one, named, in a Debug run of the sample room or chat only: its ids hold no one's words.
         // Everywhere else the words "not sampled". A held row whose numbers say nothing moved could not be identified without this.
         static func sampleRows(_ rows: RowTops, held: String) -> String {
             #if DEBUG
             guard ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" else { return "not sampled" }
-            let near = rows.y.sorted { $0.value.top < $1.value.top }.prefix(6)
+            let at = rows.y[held]?.content ?? 0
+            let near = rows.y.sorted { abs($0.value.content - at) < abs($1.value.content - at) }.prefix(10)   // nearest the held row in the content: old rows no longer crowd them out
             return "\(held): " + near.map { "\($0.key) \(Int($0.value.top))/\(Int($0.value.content))" }.joined(separator: ", ")
             #else
             return "not sampled"
