@@ -2,144 +2,71 @@
 pre_challenge: true
 method: challenge-loop
 branch: followpage-7391
-diff_hash: 91d292ee8ccda145634c703234a1ab54e3c3e80920652afc1b1f74bdfce4c744
+diff_hash: 2ff6c00f06758fb3175e4fa7e41b06e887637b2420df43633245f8d3a463b4e3
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-28T01:43:58Z
-iterations: 8
-converged: false
+timestamp: 2026-11-01T01:25:00Z
+iterations: 5
+converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8
-**Converged:** No (stopped at the standing 8-round cap after iteration 8, Mona Lisa's review-loop rule set for usage on 2026-10-22). Iteration 8's fixes (CUT_SHORT moved above the heading, two comment words) were NOT reviewed by a further round.
-**Total findings:** 37 (0 BLOCKERs, 17 WARNINGs, 4 CONVENTIONs, 16 NITs)
-**Fixed:** 27 | **Deferred:** 10 | **Asked (awaiting user):** 0
+**Iterations:** 5
+**Converged:** Yes
+**Total findings:** 0 BLOCKERs, 8 WARNINGs (2 of round 5 duplicates of accepted costs), 2 CONVENTIONs, 18 NITs
+**Fixed:** 8 | **Deferred:** 2 | **Asked:** 0
 
-Validation: focused tests each round (communityfollow, communityhome-5212, communityread, engine.reachable, server.community-follow-4774, server.community-home-5212, fixture-discipline, no-name-refs-3071; 241 at the end), and the full validation ONCE at the end (24,926 node tests, 0 fail; 4 shell shards status 0; browser-check surface gate rc 0; subdir audit rc 0).
+Validation ran on the head before a clean rebase: 26110 tests, 0 failed. This re-run replaces the proof of the branch's earlier work (#7422).
 
 ### Per-Iteration Breakdown
 
 #### Iteration 1
-**Reviewer model:** opus
-**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
-**Self-generated:** 0 of the above
-- [WARNING] engine/communityfollow.js readFollowing — the older pages' bound counted from the read's start, so a slow newest page left them no time --> FIXED (77f1d8ffc9): counted from the newest page's answer
-- [WARNING] engine/communityfollow.test.js — stopping at FEED_PAGES_MAX unpinned as not cut short --> FIXED (77f1d8ffc9)
-- [NIT] comment on the bound's scope --> FIXED (77f1d8ffc9)
-- [NIT] the agent's slot cost --> FIXED (77f1d8ffc9), in the plan
-- [NIT] the busy stand-in's answer shape --> FIXED (77f1d8ffc9)
-- [NIT] "Nothing new" beside CUT_SHORT --> FIXED (77f1d8ffc9)
-
-#### Iteration 2
-**Reviewer model:** sonnet
-**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
-**Self-generated:** 2 of the above
-- [WARNING] .claude/plans/followpage-7391.md — the read's worst-case time understated --> FIXED (0c72e7d786)
-- [WARNING] .claude/plans/followpage-7391.md — "a busy answer changes nothing" unchecked --> FIXED (0c72e7d786), claim deleted
-- [NIT] unused `began` --> FIXED (0c72e7d786)
-- [NIT] the empty cut-short read untested --> FIXED (0c72e7d786)
-- [NIT] the 30 s re-ask --> FIXED (0c72e7d786), in a comment
-- [NIT] frame's layout of a two-line heading unpinned --> DEFERRED: frame is unchanged here
-
-#### Iteration 3
-**Reviewer model:** opus
-**New findings:** 0 BLOCKERs, 3 WARNINGs, 2 CONVENTIONs, 2 NITs
-**Self-generated:** 2 of the above
-- [WARNING] plan silent on the board-wide chain cost --> FIXED (9f54b7cb4a), named as #7172's accepted cost
-- [WARNING] the read could hold the agent's slot after the command gave up --> FIXED (9f54b7cb4a): READ_TOTAL_MS 20 s
-- [WARNING] engine/communityfollow.test.js — the reported case tested by a parameter, not a busy chain --> FIXED (9f54b7cb4a): through the real chain
-- [CONVENTION] engine.reachable excuse wording --> FIXED (9f54b7cb4a)
-- [CONVENTION] plan's 40 s figure --> FIXED (9f54b7cb4a)
-- [NIT] CUT_SHORT after a read that took POSTS_WANTED --> FIXED (9f54b7cb4a), then reverted in iteration 4
-- [NIT] soon=1 wording --> FIXED (9f54b7cb4a)
-
-#### Iteration 4
-**Reviewer model:** sonnet
-**New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 2 NITs
-**Self-generated:** 2 of the above
-- [WARNING] iteration 3's "moved on" exception hid a missed page that may hold the deepest posts --> FIXED (3363a8991e): reverted, CUT_SHORT kept and pinned
-- [WARNING] a cut-short answer is replayed for 30 s --> DEFERRED: readjobs, unchanged here; in the plan
-- [WARNING] the 24 s claim holds only with a quick newest page --> FIXED (3363a8991e)
-- [NIT] the PAGE_WAIT_MS floor --> DEFERRED: intended
-- [NIT] the 24 s figure derived --> DEFERRED: checked against both commands' code
-
-#### Iteration 5
-**Reviewer model:** opus
-**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 3 NITs
-**Self-generated:** 2 of the above
-- [WARNING] the real-chain test's controls did not prove the older page waited --> FIXED (1a7c807291): the older page's own call timed, the order checked
-- [WARNING] the plan's figures missed the sign-in renewal --> FIXED (1a7c807291)
-- [NIT] the test comment named one bound --> FIXED (1a7c807291)
-- [NIT] a permanently refused page repeats CUT_SHORT --> FIXED (1a7c807291), in the plan
-- [NIT] the whole-read case shares a setup --> DEFERRED: it already discriminates (counted from the read's start)
-
-#### Iteration 6
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 3 NITs
-**Self-generated:** 1 of the above
-- [WARNING] a next cursor the read cannot use ended the paging silently --> FIXED (103c8f80e4)
-- [WARNING] the read holds the agent's slot against #5211's rule for reads --> FIXED (103c8f80e4), at the call site and in the plan
-- [WARNING] the 30 s re-ask untested --> DEFERRED: readjobs, unchanged here
-- [NIT] the soft bounds --> DEFERRED: stated in the plan
-- [NIT] the empty read's three lines --> DEFERRED: checked by substring
-- [NIT] the first page's bound --> DEFERRED: matches the comment
+**Self-generated:** 0 of the above
+- [WARNING] server.js: the id was not the one the read used --> FIXED: read returns readPost
+- [WARNING] server.js: a company post was marked --> FIXED: public posts only
+- [WARNING] engine/communityfollow.js: the count is a floor when a page was missed --> FIXED: "At least"
+- [NIT] .claude/plans/followpage-7391.md: my first commit overwrote this plan --> FIXED, restored
+- [NIT] take.includes is quadratic, sizes are tiny; [NIT] the singular was untested --> tested
 
-#### Iteration 7
+#### Iteration 2
 **Reviewer model:** opus
-**New findings:** 0 BLOCKERs, 1 WARNING, 1 CONVENTION, 2 NITs
-**Self-generated:** 2 of the above
-- [WARNING] iteration 6's cursor check fired at the FEED_PAGES_MAX depth limit --> FIXED (1290db18e5)
-- [CONVENTION] a stale "Review 3" comment --> FIXED (1290db18e5)
-- [NIT] a non-string cursor ended the paging silently --> FIXED (1290db18e5)
-- [NIT] the plan's line wrapping --> FIXED (1290db18e5)
-
-#### Iteration 8
-**Reviewer model:** sonnet
-**New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 3 NITs
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 6 NITs
 **Self-generated:** 1 of the above
-- [WARNING] CUT_SHORT landed between a heading ending in a colon and its list --> FIXED (b927ac88c4): above the heading, pinned by a test
-- [WARNING] the board-wide cost is unmeasured --> DEFERRED: the accepted trade-off, named in the plan
-- [CONVENTION] the plan's figures check out --> DEFERRED: no change asked
-- [NIT] "normally" in the 24 s comment --> FIXED (b927ac88c4)
-- [NIT] the cursor comment narrower than the check --> FIXED (b927ac88c4)
-- [NIT] the #5636 plan is stale --> DEFERRED: a dated record
-- Not reviewed by a further round (cap reached).
+- [WARNING] engine/communityfollow.test.js: the new case broke the failed-page control's order --> FIXED
+- [WARNING] engine/communityhome.js: comments said only the feed marks --> FIXED
+- [CONVENTION] engine/readjobs.js: the kept-for-re-ask rule no longer described --> FIXED
+- [NIT] --public on a company board untested --> tested, control red; [NIT] plan corrections --> done
 
-### Final Ledger
+#### Iteration 3
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 1 WARNING, 1 CONVENTION, 3 NITs
+**Self-generated:** 1 of the above
+- [WARNING] engine/communityfollow.js: the count covers pages read only --> FIXED in the plan's words; CUT_SHORT says the rest
+- [CONVENTION] two long lines --> FIXED
 
-| # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
-|---|------|----------|-----------|--------|-------------|--------|------------|
-| 1 | 1 | WARNING | engine/communityfollow.js readFollowing | BRANCH | bound from the read's start | FIXED | 77f1d8ffc9 |
-| 2 | 1 | WARNING | engine/communityfollow.test.js | BRANCH | FEED_PAGES_MAX unpinned | FIXED | 77f1d8ffc9 |
-| 3 | 2 | WARNING | .claude/plans/followpage-7391.md | SELF | worst case understated | FIXED | 0c72e7d786 |
-| 4 | 2 | WARNING | .claude/plans/followpage-7391.md | SELF | unchecked busy-answer claim | FIXED | 0c72e7d786 |
-| 5 | 3 | WARNING | .claude/plans/followpage-7391.md | SELF | board-wide cost unnamed | FIXED | 9f54b7cb4a |
-| 6 | 3 | WARNING | engine/communityfollow.js readFollowing | SELF | slot held after the command gave up | FIXED | 9f54b7cb4a |
-| 7 | 3 | WARNING | engine/communityfollow.test.js | BRANCH | parameter, not a busy chain | FIXED | 9f54b7cb4a |
-| 8 | 4 | WARNING | engine/communityfollow.js readFollowing | SELF | "moved on" hid a missed page | FIXED | 3363a8991e |
-| 9 | 4 | WARNING | engine/readjobs.js | BRANCH | 30 s replay | DEFERRED | readjobs unchanged |
-| 10 | 4 | WARNING | engine/communityfollow.js comment | SELF | 24 s claim | FIXED | 3363a8991e |
-| 11 | 5 | WARNING | engine/communityfollow.test.js | SELF | controls did not prove the wait | FIXED | 1a7c807291 |
-| 12 | 5 | WARNING | .claude/plans/followpage-7391.md | SELF | sign-in renewal missed | FIXED | 1a7c807291 |
-| 13 | 6 | WARNING | engine/communityfollow.js readFollowing | BRANCH | unusable cursor silent | FIXED | 103c8f80e4 |
-| 14 | 6 | WARNING | engine/communityfollow.js call site | BRANCH | slot against #5211 | FIXED | 103c8f80e4 |
-| 15 | 6 | WARNING | engine/readjobs.js | BRANCH | 30 s re-ask untested | DEFERRED | readjobs unchanged |
-| 16 | 7 | WARNING | engine/communityfollow.js readFollowing | SELF | cursor check at the depth limit | FIXED | 1290db18e5 |
-| 17 | 8 | WARNING | engine/communityfollow.js readFollowing | SELF | notice between heading and list | FIXED | b927ac88c4 |
+#### Iteration 4
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 5 NITs
+**Self-generated:** 1 of the above
+- [WARNING] server.js: every post read dropped the cached home read --> FIXED: only a first read, control red
+- [NIT] SEEN_KEPT now shared --> recorded in the plan; [NIT] comment wording --> fixed
 
-### Outstanding questions (ASKED, still unresolved when the run ended)
-- None.
+#### Iteration 5
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
+**Self-generated:** 0 of the above
+**Duplicates of prior findings:** 2
+- [WARNING] server.js: direct reads share SEEN_KEPT --> DEFERRED: accepted in the plan, it needs about 200 first reads inside a day
+- [WARNING] engine/communityfollow.js: the count is a floor --> DEFERRED: as iteration 3
+**Converged** - no new actionable findings.
 
-### NITs (non-blocking, across all iterations)
-- [NIT] frame's two-line heading layout unpinned (iteration 2)
-- [NIT] the PAGE_WAIT_MS floor, the derived 24 s (iteration 4)
-- [NIT] the whole-read case's setup (iteration 5)
-- [NIT] soft bounds, the empty read's three lines, the first page's bound (iteration 6)
-- [NIT] the #5636 plan is stale (iteration 8)
+### Known and left
+- [NIT] the home-invalidation sequence is now three hand copies in server.js.
+- [NIT] two lines above the heading can both say "in a minute" when a page was missed.
+- [NIT] server.js's r.ok check is redundant with readPost.
 
-### Strengths (across all iterations)
-- The reported case is tested through the real board-wide chain, and its controls each go red when the hold did not happen (iterations 5 to 8).
-- CUT_SHORT is said exactly when a page inside FEED_PAGES_MAX was not read, and each arm has a test with a control (iterations 6 to 8).
-- The plan's figures were each checked against the code (iterations 3 to 8).
+### Strengths
+- The count uses home's own rule, so the read and home agree.
