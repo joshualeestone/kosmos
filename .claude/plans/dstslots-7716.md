@@ -21,7 +21,13 @@ A run outside the window proves nothing either way (both copies pass).
 ## Not done, and why
 - No faked clock: `freshHourly` sets the rule through `tasks.setRepeat`, which stamps the real time, so the tests can
   only cross a change when the clock does. A clock seam in tasks.js would be a product change for a test-only defect.
-- Other files: #7355 fixed `tasks.repeat-4787.test.js`; this card is the one that went red tonight.
+- Other files: PR #7355 (card #7281) fixed `tasks.repeat-4787.test.js`; this card is the one that went red tonight.
+- Half-hour shifts (Australia/Lord_Howe): `nextAfter` keeps the spring change's missing 02:00 hourly slot as 02:30, so
+  the slot after it is 30 minutes away and the fixed `+ 30 * 60000` after the third slot can land on it (a reviewer's
+  simulation: 9 of 412 start times there, against 60 on main's form; 0 in US, European, Santiago and Havana zones).
+  Next possible in October 2027 and never in UTC CI; the off-grid slot is the product's choice for hourly rules.
+- The tests take their expected `from`/`to` from `nextAfter` too, so a wrong `nextAfter` would agree with itself here;
+  stepping is covered by the taskrepeat tests, and these cover `recordRun`.
 
 ## Weakest part
 The proof depends on tonight's window; after 02:00 CDT nobody can re-measure it until March without a clock seam.
